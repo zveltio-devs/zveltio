@@ -138,9 +138,17 @@ interface ManagedWorker {
   stopped: boolean;
 }
 
-let nextRpcId = 0;
+/**
+ * Correlation id for a host↔worker message.
+ *
+ * Random rather than sequential. These ids were `inv-svc-1`, `inv-svc-2`, …
+ * from a process-wide counter, and `invokeWaiters` is keyed on them, so a
+ * worker could guess the id of a cross-extension call it was not party to and
+ * answer it. The sender check below is the real defence; unpredictable ids mean
+ * an attacker cannot even name someone else's pending call.
+ */
 function rpcId(prefix: string): string {
-  return `${prefix}-${++nextRpcId}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -418,9 +426,16 @@ export class WorkerExtensionHost {
         // Reply from a worker that owns a service we asked it to invoke.
         // Route the reply back to whichever inline/host caller is waiting.
         const waiter = invokeWaiters.get(msg.id);
-        if (waiter) {
+        // Only the worker that was asked may answer. Without this any worker
+        // could resolve any pending cross-extension call with forged data.
+        if (waiter && waiter.expect === managed.name) {
           invokeWaiters.delete(msg.id);
-          waiter(msg);
+          waiter.resolve(msg);
+        } else if (waiter) {
+          console.warn(
+            `[worker-host] extension "${managed.name}" replied to invoke ${msg.id}, ` +
+              `which was sent to "${waiter.expect}" — dropped`,
+          );
         }
         break;
       }
@@ -468,7 +483,7 @@ export class WorkerExtensionHost {
         const reply = await new Promise<
           Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
         >((resolve, reject) => {
-          invokeWaiters.set(invokeId, resolve);
+          invokeWaiters.set(invokeId, { expect: ownerWorker.name, resolve });
           setTimeout(() => {
             if (invokeWaiters.has(invokeId)) {
               invokeWaiters.delete(invokeId);
@@ -522,12 +537,15 @@ export class WorkerExtensionHost {
       serviceRegistry.scope(managed.name).register(msg.name, async (...args: unknown[]) => {
         const invokeId = rpcId('inv-svc');
         return await new Promise((resolve, reject) => {
-          invokeWaiters.set(invokeId, (r) => {
-            if (r.type === 'service:invoke:err') {
-              reject(new Error(r.error ?? 'service call failed'));
-            } else {
-              resolve(r.result);
-            }
+          invokeWaiters.set(invokeId, {
+            expect: managed.name,
+            resolve: (r) => {
+              if (r.type === 'service:invoke:err') {
+                reject(new Error(r.error ?? 'service call failed'));
+              } else {
+                resolve(r.result);
+              }
+            },
           });
           setTimeout(() => {
             if (invokeWaiters.has(invokeId)) {
@@ -653,12 +671,25 @@ export const _internalForTests = {
   },
 };
 
-// Waiter pool for cross-worker service invokes. Module-scoped so any
-// host method can stash a resolver under the rpcId and any worker's
-// reply handler can route the response back.
+// Waiter pool for cross-worker service invokes.
+//
+// Module-scoped so any host method can stash a resolver under the rpcId — and
+// that used to be the whole story: ANY worker's reply handler could route a
+// response back, for ANY pending id. Combined with sequential ids, a
+// worker-isolated extension could answer a service call made to a DIFFERENT
+// extension and return whatever it liked. Cross-extension service calls are
+// how extensions trust each other, so the caller believed it.
+//
+// `expect` pins the worker that was actually asked. A reply from anyone else
+// is dropped.
 const invokeWaiters = new Map<
   string,
-  (msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>) => void
+  {
+    expect: string;
+    resolve: (
+      msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>,
+    ) => void;
+  }
 >();
 
 /** Wall-clock ceiling for a single extension query, in seconds. */

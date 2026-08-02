@@ -18,6 +18,30 @@ import { Upload, X, File as FileIcon } from '@lucide/svelte';
  onupload,
  }: Props = $props();
 
+ /**
+  * The stored value, but only if it is a URL a link may safely point at.
+  *
+  * `href` took `value` verbatim, and `value` is whatever was stored on the
+  * record — so `javascript:…` in a file field became a script that runs with
+  * the Studio's origin and session the moment an admin clicks the filename.
+  * Anyone who can write the field can plant it; anyone who opens the record
+  * can trigger it.
+  *
+  * http/https and same-origin relative paths are what a stored file is. Nothing
+  * else gets to be a link: the name still renders, just as text.
+  */
+ const safeHref = $derived.by(() => {
+ const v = value?.trim();
+ if (!v) return null;
+ if (v.startsWith('/') && !v.startsWith('//')) return v; // same-origin path
+ try {
+ const u = new URL(v, window.location.origin);
+ return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+ } catch {
+ return null;
+ }
+ });
+
  let uploading = $state(false);
  let fileInput: HTMLInputElement;
 
@@ -83,9 +107,13 @@ import { Upload, X, File as FileIcon } from '@lucide/svelte';
  <div class="flex items-center gap-3">
  <div class="p-3 bg-base-200 rounded-lg"><FileIcon size={32} /></div>
  <div class="flex-1 min-w-0">
- <a href={value!} target="_blank" rel="noopener noreferrer" class="link link-primary text-sm truncate block">
+ {#if safeHref}
+ <a href={safeHref} target="_blank" rel="noopener noreferrer" class="link link-primary text-sm truncate block">
  {fileName}
  </a>
+ {:else}
+ <span class="text-sm truncate block" title={value ?? ''}>{fileName}</span>
+ {/if}
  </div>
  {#if !readonly}
  <button type="button" class="btn btn-sm btn-ghost" onclick={() => (value = null)}>

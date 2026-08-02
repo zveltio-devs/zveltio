@@ -7,7 +7,7 @@
  * Run automatically as `prebuild`. Safe to run multiple times (overwrites).
  */
 
-import { existsSync, mkdirSync, cpSync, readdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, cpSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const STUDIO_ROOT = join(import.meta.dir, '..');
@@ -60,6 +60,39 @@ function findExtensions(base: string, prefix = ''): string[] {
   return names;
 }
 
+/**
+ * Copy `from` into `to`, overwriting, skipping the extension's own tests.
+ *
+ * Written out by hand because `cpSync(from, to, { recursive: true, filter })`
+ * DOES NOT OVERWRITE under Bun: with a `filter` it copies only files that are
+ * missing at the destination and leaves existing ones untouched, while
+ * reporting success. Without the filter the same call overwrites correctly.
+ *
+ * So from the day the test-file filter was added, every shared component under
+ * `$lib/ext/` was frozen at whatever version happened to be committed. A fix
+ * made in an extension's `studio/src/` synced cleanly, printed a ✓, and never
+ * reached the Studio. That is a silent way to ship a vulnerability you believe
+ * you have already fixed.
+ *
+ * The tests are skipped because they belong to the extensions repo and run
+ * under `bun test` there; copied into the Studio tree, vitest and tsc both pick
+ * them up and fail on `bun:test` — a green extension suite turning the Studio
+ * red.
+ */
+function copyTreeSkippingTests(from: string, to: string): void {
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const src = join(from, entry.name);
+    const dst = join(to, entry.name);
+    if (entry.isDirectory()) {
+      mkdirSync(dst, { recursive: true });
+      copyTreeSkippingTests(src, dst);
+      continue;
+    }
+    if (/\.(test|spec)\.(ts|js|svelte)$/.test(entry.name)) continue;
+    copyFileSync(src, dst);
+  }
+}
+
 let synced = 0;
 /** Destination slugs written this run — verified against biome ignores below. */
 const syncedSlugs: string[] = [];
@@ -99,14 +132,7 @@ for (const extRoot of EXT_ROOTS) {
     if (existsSync(srcDir)) {
       const libDest = join(LIB_EXT, extName);
       mkdirSync(libDest, { recursive: true });
-      // Skip the extension's own tests. They belong to the extensions repo and
-      // run under `bun test` there; copied into the Studio tree they get picked
-      // up by vitest, which cannot resolve `bun:test`, and by `tsc`, which fails
-      // on the same import — a green extension suite turning the Studio red.
-      cpSync(srcDir, libDest, {
-        recursive: true,
-        filter: (src) => !/\.(test|spec)\.(ts|js|svelte)$/.test(src),
-      });
+      copyTreeSkippingTests(srcDir, libDest);
     }
 
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);

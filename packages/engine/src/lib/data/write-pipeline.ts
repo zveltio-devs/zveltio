@@ -111,7 +111,7 @@ export async function processInput(
     if (error) errors.push(error);
 
     if (value !== undefined) {
-      const deserialized = fieldTypeRegistry.deserialize(field.type, value);
+      const deserialized = await fieldTypeRegistry.deserialize(field.type, value);
       processed[field.name] = field.encrypted
         ? await maybeEncrypt(deserialized, true)
         : deserialized;

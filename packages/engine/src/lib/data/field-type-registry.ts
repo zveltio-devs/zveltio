@@ -46,9 +46,10 @@ export interface FieldTypeDefinition {
     // Serialization: DB value → JSON response
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     serialize?: (value: any) => any;
-    // Deserialization: JSON input → SQL value
+    // Deserialization: JSON input → SQL value.
+    // May be async — `password` hashes here. Always awaited by the registry.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    deserialize?: (value: any) => any;
+    deserialize?: (value: any) => any | Promise<any>;
     // Available filter operators
     filterOperators?: FilterOperator[];
     // API-level validation (before write to DB)
@@ -210,11 +211,21 @@ export class FieldTypeRegistry {
     return typeDef?.api.serialize ? typeDef.api.serialize(value) : value;
   }
 
-  // Deserialize a value for DB write
+  /**
+   * Deserialize a value for DB write.
+   *
+   * `async` on purpose, even though most implementations are synchronous: the
+   * `password` type hashes with `Bun.password.hash`, which is not. When this
+   * returned `any`, a caller that forgot to await got a Promise and TypeScript
+   * had nothing to say about it — the `any` swallowed the mismatch — so the
+   * pending Promise was written to the column and the password was never
+   * hashed. Returning `Promise<any>` makes the await the only thing that
+   * compiles into a usable value.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  deserialize(type: string, value: any): any {
+  async deserialize(type: string, value: any): Promise<any> {
     const typeDef = this.get(type);
-    return typeDef?.api.deserialize ? typeDef.api.deserialize(value) : value;
+    return typeDef?.api.deserialize ? await typeDef.api.deserialize(value) : value;
   }
 
   // Validate a value

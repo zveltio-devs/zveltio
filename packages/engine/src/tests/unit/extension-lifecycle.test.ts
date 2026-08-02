@@ -17,6 +17,15 @@ import {
   unloadExtension,
 } from '../../lib/extensions/lifecycle.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
+import { getWorkerHost, type WorkerExtensionHost } from '../../lib/worker-extension-host.js';
+
+/**
+ * The host's worker map, which is private. Reached through `unknown` rather
+ * than `any` so nothing else about the host silently loses its types.
+ */
+function hostWorkers(h: WorkerExtensionHost): Map<string, unknown> {
+  return (h as unknown as { workers: Map<string, unknown> }).workers;
+}
 import { CannedDb } from './fixtures/canned-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: fake ExtensionLoader for the fns under test
@@ -95,6 +104,64 @@ describe('unloadExtension', () => {
     await unloadExtension(loader, 'e-svc');
 
     expect(serviceRegistry.has('someService')).toBe(false);
+  });
+
+  it('terminates the extension worker', async () => {
+    // Unload dropped every main-thread trace of the extension and left the
+    // worker running — and the worker is the isolation boundary for
+    // community-tier extensions, holding the SQL bridge and its own timers. A
+    // "disabled" third-party extension went on querying the database.
+    const host = getWorkerHost(noApp);
+    let terminated = false;
+    let unmounted = false;
+    // Drive the real stop() path by planting a worker in the host's map; a
+    // spy on stop() would pass even if stop() itself stopped working.
+    hostWorkers(host).set('e-worker', {
+      name: 'e-worker',
+      stopped: false,
+      heartbeatTimer: undefined,
+      registeredServices: new Set<string>(),
+      proxyUnmount: () => {
+        unmounted = true;
+      },
+      worker: {
+        terminate: () => {
+          terminated = true;
+        },
+      },
+    });
+    expect(host.isRunning('e-worker')).toBe(true);
+
+    const loader = fakeLoader();
+    loader.loaded.set('e-worker', { registeredRoutes: false });
+    const r = await unloadExtension(loader, 'e-worker');
+
+    expect(r.unloaded).toBe(true);
+    expect(terminated).toBe(true);
+    expect(unmounted).toBe(true);
+    expect(host.isRunning('e-worker')).toBe(false);
+  });
+
+  it('still unloads when the worker refuses to stop', async () => {
+    // A wedged worker must not make it impossible to disable an extension.
+    const host = getWorkerHost(noApp);
+    hostWorkers(host).set('e-stuck', {
+      name: 'e-stuck',
+      stopped: false,
+      registeredServices: new Set<string>(),
+      proxyUnmount: () => {
+        throw new Error('unmount boom');
+      },
+      worker: { terminate: () => {} },
+    });
+
+    const loader = fakeLoader();
+    loader.loaded.set('e-stuck', { registeredRoutes: false });
+    const r = await unloadExtension(loader, 'e-stuck');
+
+    expect(r.unloaded).toBe(true);
+    expect(loader.loaded.has('e-stuck')).toBe(false);
+    hostWorkers(host).delete('e-stuck');
   });
 });
 

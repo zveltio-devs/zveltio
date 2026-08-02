@@ -60,6 +60,30 @@ export async function unloadExtension(
     }
   }
 
+  // Terminate the worker thread, for extensions that have one.
+  //
+  // Unloading dropped every main-thread trace of the extension — services,
+  // query alters, cron — and left its worker running. That worker is the whole
+  // isolation story for community-tier extensions: it holds the SQL bridge and
+  // its own timers, so a "disabled" third-party extension kept querying the
+  // database. `stop()` has existed on the host since workers were introduced;
+  // nothing called it.
+  //
+  // Done first so the worker cannot issue further bridge calls while the
+  // registries below are being torn down. Deliberately best-effort: an
+  // extension that fails to stop must still be removed from memory, or a
+  // wedged worker would make it impossible to disable anything.
+  try {
+    const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+    const host = getWorkerHostIfInitialized();
+    if (host?.isRunning(name)) {
+      await host.stop(name);
+      console.log(`🔌 Extension "${name}" worker terminated.`);
+    }
+  } catch (err) {
+    console.error(`🔌 Extension "${name}" worker failed to stop:`, err);
+  }
+
   // Remove all services this extension published. Without this, hot-reload
   // would throw on duplicate name when the extension is re-enabled.
   serviceRegistry.unregisterAll(name);

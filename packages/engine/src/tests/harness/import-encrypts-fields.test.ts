@@ -22,6 +22,7 @@ import { createGodSession, getTestApp, harnessAvailable } from '../../testing/ap
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hcrypt_${Date.now()}`;
 const SECRET = 'sk_live_do_not_store_me_in_plaintext';
+const PLAINTEXT_PW = 'correct horse battery staple';
 
 d('import encrypts encrypted fields', () => {
   let app: Hono;
@@ -43,6 +44,7 @@ d('import encrypts encrypted fields', () => {
           indexed: false,
           encrypted: true,
         },
+        { name: 'secret', type: 'password', required: false, unique: false, indexed: false },
       ],
     } as never);
   });
@@ -86,5 +88,34 @@ d('import encrypts encrypted fields', () => {
     // A field NOT marked encrypted must stay readable — encrypting everything
     // would break every query and index on ordinary columns.
     expect(rows.rows[0]!.label).toBe('stripe');
+  });
+
+  it('hashes a password column instead of importing it verbatim', async () => {
+    // Encryption was hand-rolled here rather than taken from the write
+    // pipeline, so it was the ONLY part of the pipeline import ran: field
+    // types with a `deserialize` were skipped entirely, and `password` is the
+    // one whose deserialize is the hashing step. The same value sent to
+    // POST /api/data was hashed; arriving by CSV it was stored verbatim.
+    const fd = new FormData();
+    fd.set('format', 'csv');
+    fd.set(
+      'file',
+      new File([`label,secret\npwrow,${PLAINTEXT_PW}\n`], 'pw.csv', { type: 'text/csv' }),
+    );
+    const res = await app.request(`/api/import/${COLLECTION}`, {
+      method: 'POST',
+      headers: { cookie },
+      body: fd,
+    });
+    expect(res.status).toBe(200);
+
+    const rows = (await sql
+      .raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE label = 'pwrow'`)
+      .execute(db)) as { rows: { secret: string }[] };
+    expect(rows.rows.length).toBe(1);
+
+    const stored = rows.rows[0]!.secret;
+    expect(stored).not.toBe(PLAINTEXT_PW);
+    expect(await Bun.password.verify(PLAINTEXT_PW, stored)).toBe(true);
   });
 });

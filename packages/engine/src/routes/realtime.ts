@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
@@ -35,10 +36,41 @@ interface StreamSub {
    * `null` for single-tenant deployments.
    */
   tenantId: string | null;
+  /**
+   * The non-data channels this subscription was authorized for, exactly as
+   * `?channel=` asked for them. `broadcastSSE` fanned out to every open
+   * stream without consulting anything, so a presence join in one tenant was
+   * delivered to every connected client on the instance — including tenants
+   * that had never heard of the channel.
+   */
+  channels: string[];
 }
 
 // Active SSE connections: userId → Set of subscriptions
 const connections = new Map<string, Set<StreamSub>>();
+
+/**
+ * Redis channel name, namespaced by tenant.
+ *
+ * Channel names are user-facing strings: `zveltio:presence:standup` means the
+ * same thing in every tenant, so with one Valkey behind several engine
+ * instances a publish in tenant A was delivered to subscribers in tenant B.
+ * In-process delivery was already tenant-checked; the cache path was the way
+ * around it. `null` (single-tenant) keeps the bare name so existing
+ * deployments and any external subscriber keep working.
+ */
+function busChannel(tenantId: string | null, channel: string): string {
+  return tenantId ? `t:${tenantId}:${channel}` : channel;
+}
+
+/** Undo `busChannel` — the message handler needs the logical name back. */
+function stripBusNamespace(channel: string): string {
+  return channel.replace(/^t:[0-9a-fA-F-]{36}:/, '');
+}
+
+function ctxTenantId(c: Context): string | null {
+  return (c.get('tenant') as { id?: string } | null)?.id ?? null;
+}
 
 // ── Presence ──────────────────────────────────────────────────────────────────
 // In-memory fallback when Valkey is unavailable: channel → Map<userId, lastSeen>
@@ -173,9 +205,27 @@ export function broadcastDataEvent(
   }
 }
 
-/** Broadcast a generic (non-data) event to all connected clients. */
+/**
+ * Broadcast a generic (non-data) event to the clients subscribed to `channel`.
+ *
+ * It used to write to every open stream — every user, every tenant, whatever
+ * they had subscribed to. Presence join/leave carries a userId and a display
+ * name, and `POST /realtime/broadcast` carries an arbitrary payload, so this
+ * handed both to unrelated tenants. The `?channel=` authorization added to the
+ * subscribe route decided who *may* receive a channel; nothing then applied
+ * that decision at delivery.
+ *
+ * `tenantId` scopes delivery the way `broadcastDataEvent` does. Equality is
+ * required in both directions: null does not match a tenant.
+ */
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-export function broadcastSSE(channel: string, event: string, data: any): void {
+export function broadcastSSE(
+  channel: string,
+  event: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  data: any,
+  tenantId: string | null = null,
+): void {
   const payload = JSON.stringify({
     channel,
     event,
@@ -185,6 +235,8 @@ export function broadcastSSE(channel: string, event: string, data: any): void {
 
   for (const [, subs] of connections) {
     for (const sub of subs) {
+      if ((sub.tenantId ?? null) !== (tenantId ?? null)) continue;
+      if (!sub.channels.includes(channel)) continue;
       try {
         sub.stream.writeSSE({ data: payload, event });
       } catch {
@@ -318,7 +370,14 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
     return streamSSE(c, async (stream) => {
-      const sub: StreamSub = { stream, collections, recordId, filters, tenantId };
+      const sub: StreamSub = {
+        stream,
+        collections,
+        recordId,
+        filters,
+        tenantId,
+        channels: allowedExtraChannels,
+      };
 
       if (!connections.has(userId)) connections.set(userId, new Set());
       const userSubs = connections.get(userId)!;
@@ -336,7 +395,14 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
             collections.length > 0
               ? collections.map((col) => `zveltio:data:${col}`)
               : [CHANNELS.DATA_CHANGES];
-          const channels = [...dataChannels, ...allowedExtraChannels];
+          // Namespaced by tenant. Without this the subscription was to a
+          // channel whose name is the same in every tenant, so one Valkey
+          // shared by several engine instances delivered other tenants'
+          // writes here — the one path around the tenant check that
+          // `broadcastDataEvent` applies in-process.
+          const channels = [...dataChannels, ...allowedExtraChannels].map((ch) =>
+            busChannel(tenantId, ch),
+          );
 
           await subscriber.subscribe(...channels);
 
@@ -345,7 +411,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
               // Per-record / per-filter: parse message and check before forwarding
               if (recordId || filters.length > 0) {
                 const parsed = JSON.parse(message);
-                const col = parsed?.collection ?? _channel.replace('zveltio:data:', '');
+                const col =
+                  parsed?.collection ?? stripBusNamespace(_channel).replace('zveltio:data:', '');
                 if (!matchesSub(sub, col, parsed?.data ?? parsed)) return;
               }
               stream.writeSSE({ data: message, event: 'data' });
@@ -412,16 +479,22 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     });
 
     // Broadcast join event to all channel subscribers
-    broadcastSSE(`zveltio:presence:${channel}`, 'presence.join', {
-      channel,
-      userId: session.user.id,
-      user: { name: session.user.name },
-      timestamp: new Date().toISOString(),
-    });
+    const presenceTenant = ctxTenantId(c);
+    broadcastSSE(
+      `zveltio:presence:${channel}`,
+      'presence.join',
+      {
+        channel,
+        userId: session.user.id,
+        user: { name: session.user.name },
+        timestamp: new Date().toISOString(),
+      },
+      presenceTenant,
+    );
     if (cache) {
       try {
         await cache.publish(
-          `zveltio:presence:${channel}`,
+          busChannel(presenceTenant, `zveltio:presence:${channel}`),
           JSON.stringify({
             event: 'presence.join',
             channel,
@@ -447,15 +520,21 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
     await presenceLeave(cache, channel, session.user.id);
 
-    broadcastSSE(`zveltio:presence:${channel}`, 'presence.leave', {
-      channel,
-      userId: session.user.id,
-      timestamp: new Date().toISOString(),
-    });
+    const presenceTenant = ctxTenantId(c);
+    broadcastSSE(
+      `zveltio:presence:${channel}`,
+      'presence.leave',
+      {
+        channel,
+        userId: session.user.id,
+        timestamp: new Date().toISOString(),
+      },
+      presenceTenant,
+    );
     if (cache) {
       try {
         await cache.publish(
-          `zveltio:presence:${channel}`,
+          busChannel(presenceTenant, `zveltio:presence:${channel}`),
           JSON.stringify({
             event: 'presence.leave',
             channel,
@@ -508,13 +587,13 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const cache = getCache();
     if (cache) {
       try {
-        await cache.publish(broadcastChannel, JSON.stringify(message));
+        await cache.publish(busChannel(ctxTenantId(c), broadcastChannel), JSON.stringify(message));
       } catch {
         /* non-fatal */
       }
     }
 
-    broadcastSSE(broadcastChannel, body.event, message);
+    broadcastSSE(broadcastChannel, body.event, message, ctxTenantId(c));
 
     return c.json({ success: true, channel: broadcastChannel });
   });
@@ -556,7 +635,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (cache) {
       try {
         await cache.publish(
-          body.channel,
+          busChannel(ctxTenantId(c), body.channel),
           JSON.stringify({
             payload: body.payload,
             userId: session.user.id,
@@ -568,7 +647,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       }
     }
 
-    broadcastSSE(body.channel, body.event ?? 'message', body.payload);
+    broadcastSSE(body.channel, body.event ?? 'message', body.payload, ctxTenantId(c));
 
     return c.json({ success: true });
   });

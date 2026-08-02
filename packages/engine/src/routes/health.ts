@@ -1,11 +1,13 @@
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
 import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { extensionLoader } from '../lib/extensions/index.js';
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import {
   type HealthCheck,
   getHealthCheck,
@@ -56,6 +58,18 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       return !!session;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Instance admin, for the endpoints that describe the deployment itself. */
+  async function requireAdmin(c: Context): Promise<boolean> {
+    if (!auth) return true; // same test/older-call-site fallthrough as requireAuth
+    try {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session?.user?.id) return false;
+      return await requireInstanceAdmin(session.user.id);
     } catch {
       return false;
     }
@@ -249,11 +263,18 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
   const allChecks = (): HealthCheck[] => [...coreChecks(), ...listHealthChecks()];
 
-  // GET /api/health/deep — comprehensive diagnostic for operators. Auth-gated.
+  // GET /api/health/deep — comprehensive diagnostic for operators.
   // 200 only when EVERY subsystem is healthy; 503 otherwise. `criticalOk` lets
   // a status page distinguish "degraded (optional dep down)" from "down".
+  //
+  // Instance admin, not merely authenticated. This enumerates every subsystem
+  // an operator runs — database, cache, object storage, message bus, each
+  // extension's own probe — with its failure text. Reading it tells you what
+  // this deployment is built from and which parts are currently weak, which is
+  // reconnaissance rather than something an ordinary member has any use for.
   app.get('/deep', async (c) => {
     if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
 
     const checks: Record<string, unknown> = {};
     let allOk = true;

@@ -16,6 +16,8 @@
  * inline code — zero behaviour change.
  */
 
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
@@ -53,19 +55,131 @@ export type HonoRouteFn = (
 // auto-detected `zv_{extname}_*` namespace. Declare those grants here so the
 // RestrictedDb proxy allows them through.
 export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
-  'content/drafts': ['zv_revisions'],
+  'content/drafts': [
+    'zv_revisions',
+    // Owned by this extension, but still present in the engine's 001_initial
+    // from before the feature moved out. See the note below.
+    'zv_content_drafts',
+    'zv_collection_publish_settings',
+    'zv_publish_schedule',
+  ],
   'developer/validation': ['zv_validation_rules'],
+  // ── Tables an extension owns that the engine also declares ──────────────
+  //
+  // These 21 names were measured, not guessed: they are every case where an
+  // extension's migrations and the engine's migrations create the same table.
+  // All of them are features that shipped in the engine first and moved out to
+  // an extension, leaving the CREATE behind in 001_initial — the extension is
+  // the real owner. `buildAllowedTables` refuses engine tables by default, so
+  // without this list those eleven extensions would lose access to their own
+  // data. Anything NOT here — `zv_api_keys`, `zv_tenants`, `casbin_rule`,
+  // `session`, `user` — stays refused, which is the point.
+  'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
+  'content/document-templates': ['zv_document_templates'],
+  'content/documents': ['zv_generated_docs'],
+  'content/media': ['zv_media_favorites', 'zv_storage_quotas'],
+  'content/page-builder': ['zv_pages'],
+  'data/import': ['zv_import_logs'],
+  forms: ['zv_form_submissions'],
+  'i18n/translations': [
+    'zvd_locales',
+    'zvd_translation_glossary',
+    'zvd_translation_keys',
+    'zvd_translations',
+  ],
+  'storage/cloud': ['zv_storage_quotas'],
+  'workflow/approvals': [
+    'zv_approval_decisions',
+    'zv_approval_requests',
+    'zv_approval_steps',
+    'zv_approval_workflows',
+  ],
 };
 
-export async function buildAllowedTables(migrationPaths: string[]): Promise<Set<string>> {
+/**
+ * Every table the ENGINE creates, read once from its own migration SQL.
+ *
+ * This is the list an extension must not be able to add itself to. Deriving it
+ * from the same files the engine actually applies means it cannot drift: a
+ * table added in migration 062 is protected the day it lands, with nothing to
+ * remember to update here.
+ */
+let _engineTables: Set<string> | null = null;
+async function engineOwnedTables(): Promise<Set<string>> {
+  if (_engineTables) return _engineTables;
   const tables = new Set<string>();
-  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
+  const dir = join(import.meta.dir, '..', '..', 'db', 'migrations', 'sql');
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
+  try {
+    for (const file of readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()) {
+      const content = await Bun.file(join(dir, file)).text();
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(content)) !== null) tables.add(m[1].toLowerCase());
+    }
+  } catch (err) {
+    // Fail LOUD rather than open: an empty set would silently restore the
+    // self-grant this guard exists to stop.
+    throw new Error(
+      `Cannot read engine migrations at ${dir} to determine protected tables: ${(err as Error).message}`,
+    );
+  }
+  _engineTables = tables;
+  return tables;
+}
+
+/**
+ * Tables an extension may reach, auto-detected from its own migrations.
+ *
+ * The detection is `CREATE TABLE` in files the extension ships, which made the
+ * extension the author of its own permissions: a migration containing
+ * `CREATE TABLE IF NOT EXISTS zv_api_keys` added `zv_api_keys` to this set and
+ * `createRestrictedDb` let it through. The statement does not even have to do
+ * anything — `IF NOT EXISTS` against a table the engine already owns is a
+ * silent no-op that leaves the grant behind.
+ *
+ * The clamp is deliberately "not an ENGINE table" rather than "inside the
+ * extension's own `zv_<ext>_*` namespace". The namespace rule reads better and
+ * is what `assertWorkerSqlAllowed` enforces for worker SQL, but the installed
+ * ecosystem does not follow it: 109 of ~300 extension tables are named for the
+ * feature rather than the folder — `workflow/approvals` owns `zv_approval_*`,
+ * `geospatial/postgis` owns `zv_geofences`. Those are still the extension's own
+ * tables. Rejecting them would break a third of the catalogue to restate a
+ * convention, while the thing actually worth refusing is narrower and exact.
+ *
+ * Reaching an engine table stays possible through `EXTENSION_TABLE_GRANTS`: a
+ * short list in this repo, changed by a pull request rather than by the
+ * extension asking for itself.
+ */
+export async function buildAllowedTables(
+  migrationPaths: string[],
+  extName: string,
+): Promise<Set<string>> {
+  const engineTables = await engineOwnedTables();
+  const granted = new Set((EXTENSION_TABLE_GRANTS[extName] ?? []).map((t) => t.toLowerCase()));
+  const tables = new Set<string>();
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   for (const p of migrationPaths) {
     try {
       const content = await Bun.file(p).text();
       let m: RegExpExecArray | null;
       re.lastIndex = 0;
-      while ((m = re.exec(content)) !== null) tables.add(m[1]);
+      while ((m = re.exec(content)) !== null) {
+        const name = m[1];
+        const lower = name.toLowerCase();
+        if (engineTables.has(lower) && !granted.has(lower)) {
+          console.warn(
+            `[extensions] "${extName}" has a CREATE TABLE for ${name} in its migrations, ` +
+              `which is an ENGINE table. Not granting access — the statement cannot have ` +
+              `created it, and a migration is not a place to award permissions. Add it to ` +
+              `EXTENSION_TABLE_GRANTS if the extension genuinely needs it.`,
+          );
+          continue;
+        }
+        tables.add(name);
+      }
     } catch {
       /* skip unreadable files */
     }

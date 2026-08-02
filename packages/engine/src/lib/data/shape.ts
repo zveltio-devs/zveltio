@@ -12,14 +12,34 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { maybeDecrypt } from './field-crypto.js';
-import { getColumnAccess, applyColumnAccess } from '../tenancy/index.js';
+import {
+  getColumnAccess,
+  applyColumnAccess,
+  checkPermission,
+  getRlsFilters,
+  applyRlsFilters,
+} from '../tenancy/index.js';
 import type {
   CollectionDef,
   CollectionField,
   DynamicRow,
   ExpandTarget,
   JsonValue,
+  RequestUser,
 } from './types.js';
+
+/**
+ * Kysely's typed builder cannot name a table resolved at runtime, and the
+ * expand target is one. This is the narrow slice used below — enough to build
+ * the query and hand it to `applyRlsFilters`, and no wider.
+ */
+interface RuntimeQuery {
+  where(lhs: string, op: string, rhs: unknown): RuntimeQuery;
+  execute(): Promise<DynamicRow[]>;
+}
+interface RuntimeDb {
+  selectFrom(table: string): { selectAll(): RuntimeQuery };
+}
 
 /** Internal columns that are operational, not user data. They leak into API
  * responses by default because Kysely returns the full row; strip them unless
@@ -123,13 +143,30 @@ export async function resolveExpand(
   return out;
 }
 
-/** Fill an `_expanded` map on each record by fetching referenced rows in one
- * query per relation. Adds {field}_expanded: {id, label, ...} on every record. */
+/**
+ * Fill an `_expanded` map on each record by fetching referenced rows in one
+ * query per relation. Adds {field}_expanded: {id, label, ...} on every record.
+ *
+ * `?expand=` is a request to read a SECOND collection, and it used to be the
+ * only way to do that without being asked for permission. Column permissions
+ * on the target were applied, so the shape of the answer looked careful — but
+ * the read itself was not gated and no row-level policy was applied, so
+ * `?expand=owner_id` returned rows from a collection the caller has no read on
+ * and rows that the target's RLS policies exclude. The classic confused
+ * deputy: the caller is not authorized, the handler is, and the handler asked
+ * on their behalf.
+ *
+ * `user` is required for both checks. Passing `null` (an internal caller with
+ * no request identity) skips them, which is why the parameter is explicit
+ * rather than optional — a caller has to decide.
+ */
 export async function applyExpand(
   db: Database,
   records: DynamicRow[],
   expandPlan: ExpandTarget[],
   role = 'public',
+  user: RequestUser | null = null,
+  authType?: 'session' | 'api_key',
 ): Promise<void> {
   if (expandPlan.length === 0 || records.length === 0) return;
 
@@ -137,10 +174,38 @@ export async function applyExpand(
     const ids = [...new Set(records.map((r) => r[exp.field]).filter((v) => typeof v === 'string'))];
     if (ids.length === 0) continue;
 
-    const rows = await sql<DynamicRow>`
-      SELECT * FROM ${sql.id(exp.targetTable)}
-      WHERE id = ANY(${ids})
-    `.execute(db);
+    // Read on the TARGET collection, the same check the caller would face if
+    // they asked for it directly. Silently skipping (rather than failing the
+    // whole request) keeps `?expand=` usable across a mixed set of relations:
+    // the caller gets what they may see and no hint of what they may not.
+    if (
+      user &&
+      !(await checkPermission(user.id, exp.targetCollection, 'read').catch(() => false))
+    ) {
+      continue;
+    }
+
+    // Row-level policies of the target collection.
+    const rlsConditions = user
+      ? await getRlsFilters(exp.targetCollection, user, authType ?? 'session').catch(() => [])
+      : [];
+
+    let rows: { rows: DynamicRow[] };
+    if (rlsConditions.length === 0) {
+      rows = await sql<DynamicRow>`
+        SELECT * FROM ${sql.id(exp.targetTable)}
+        WHERE id = ANY(${ids})
+      `.execute(db);
+    } else {
+      // Through the query builder so the conditions go via `applyRlsFilters`,
+      // which is where unknown operators fail closed, rather than being pasted
+      // into SQL here.
+      const base = (db as unknown as RuntimeDb)
+        .selectFrom(exp.targetTable)
+        .selectAll()
+        .where('id', 'in', ids);
+      rows = { rows: await applyRlsFilters(base, rlsConditions).execute() };
+    }
 
     const targetDef = (await DDLManager.getCollection(db, exp.targetCollection)) as CollectionDef;
     // Column permissions of the RELATED collection apply to expanded rows too —

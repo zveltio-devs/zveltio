@@ -149,7 +149,14 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   // Expand m2o relations on demand
   const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
   if (singleExpand.length > 0) {
-    await applyExpand(effectiveDb, [serializedRecord], singleExpand, await resolveUserRole(user));
+    await applyExpand(
+      effectiveDb,
+      [serializedRecord],
+      singleExpand,
+      await resolveUserRole(user),
+      user,
+      c.get('authType'),
+    );
   }
 
   // ETag + Cache-Control for single record
