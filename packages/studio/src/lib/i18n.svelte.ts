@@ -16,7 +16,8 @@
  *
  * Adding a new string:
  *   1. Edit messages/core/{locale}.json and/or extension studio/messages/{locale}.json.
- *   2. Run `bun run i18n:compile` (merge + compile). Locales: en, ro, fr, de.
+ *   2. Run `bun run i18n:compile` (merge + compile).
+ *      Locales: en, ro, fr, de, es, it, nl, pl, hu.
  *   See packages/studio/messages/README.md.
  *
  * `paraglide-js` is invoked via the package.json script — wire into CI
