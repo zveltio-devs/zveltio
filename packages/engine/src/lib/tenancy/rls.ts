@@ -13,6 +13,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
+import { decodeSigned, encodeSigned } from './signed-cache.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 
@@ -55,7 +56,13 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
   if (cache) {
     try {
       const raw = await cache.get(cacheKey);
-      if (raw) return JSON.parse(raw) as RlsPolicy[];
+      // Signed: this cache decides which row filters are applied, so anyone
+      // who can write the key can remove them. A tampered entry decodes to
+      // null and we fall through to the database.
+      if (raw) {
+        const policies = decodeSigned<RlsPolicy[]>('rls', cacheKey, raw);
+        if (policies) return policies;
+      }
     } catch {
       /* cache unavailable */
     }
@@ -73,7 +80,7 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
 
   if (cache) {
     try {
-      await cache.setex(cacheKey, RLS_CACHE_TTL, JSON.stringify(policies));
+      await cache.setex(cacheKey, RLS_CACHE_TTL, encodeSigned('rls', cacheKey, policies));
     } catch {
       /* cache unavailable */
     }

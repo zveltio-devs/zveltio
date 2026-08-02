@@ -14,6 +14,12 @@ import {
 } from '../../lib/tenancy/column-permissions.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { CannedDb } from './fixtures/canned-db.js';
+// The engine refuses to start without BETTER_AUTH_SECRET (see initPermissions):
+// it is what signs the authorization caches. Without it here, signing throws,
+// the cache write is swallowed as non-critical, and every read falls back to
+// the database — correct, but not what this test is measuring.
+process.env.BETTER_AUTH_SECRET ??= 'test-secret-for-signing';
+
 import type { Database } from '../../db/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: fake Redis for cache under test

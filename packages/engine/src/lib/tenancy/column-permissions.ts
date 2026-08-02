@@ -1,5 +1,6 @@
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
+import { decodeSigned, encodeSigned } from './signed-cache.js';
 
 export interface ColumnAccess {
   /** Columns the user cannot see (filtered from GET responses) */
@@ -30,9 +31,16 @@ export async function getColumnAccess(
   if (cache) {
     try {
       const cached = await cache.get(key);
+      // Signed: this cache decides which columns a role may see, so anyone who
+      // can write the key can un-hide all of them. A tampered entry decodes to
+      // null and we fall through to the database.
       if (cached) {
-        const parsed = JSON.parse(cached) as { hidden: string[]; readOnly: string[] };
-        return { hidden: new Set(parsed.hidden), readOnly: new Set(parsed.readOnly) };
+        const parsed = decodeSigned<{ hidden: string[]; readOnly: string[] }>(
+          'colperms',
+          key,
+          cached,
+        );
+        if (parsed) return { hidden: new Set(parsed.hidden), readOnly: new Set(parsed.readOnly) };
       }
     } catch {
       /* cache miss */
@@ -59,10 +67,7 @@ export async function getColumnAccess(
       await cache.setex(
         key,
         CACHE_TTL,
-        JSON.stringify({
-          hidden: [...hidden],
-          readOnly: [...readOnly],
-        }),
+        encodeSigned('colperms', key, { hidden: [...hidden], readOnly: [...readOnly] }),
       );
     } catch {
       /* non-critical */
