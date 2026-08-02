@@ -4,6 +4,31 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.45] - 2026-08-02
+
+**beta.44's release build could not load extensions. This is that release,
+plus the fix.**
+
+- **fix(extensions): the engine-table list has to work inside the binary.**
+  `engineOwnedTables` reads the migration `.sql` files to learn which tables
+  belong to the engine, and a compiled binary has no filesystem to read them
+  from — it carries them as `EMBEDDED_MIGRATIONS`. Because that function fails
+  loud by design rather than degrading to an empty protected list, the miss took
+  every extension load down with it: `Cannot read engine migrations at
+  /db/migrations/sql`. Correct failure mode, wrong place to hit it. It now makes
+  the same source fork the migration runner already makes, and the loud failure
+  fires only when both are empty. Verified in an actual compiled binary:
+  migrations apply through 028, an extension's own table is granted, and a
+  migration naming `zv_api_keys` is refused.
+
+- **fix(release): the versions.json step called the GitHub API without a
+  token.** Unauthenticated calls are limited to 60 per hour per IP and Actions
+  runners share a pool of them, so it worked for months and returned 403 during
+  the beta.44 release for no reason of ours.
+
+Everything in beta.44 is included; see its entry for the audit work.
+
+
 ## [3.0.0-beta.44] - 2026-08-02
 
 **A third external audit, worked end to end — and one pattern behind most of

@@ -698,6 +698,10 @@ jobs:
           ./scripts/generate-versions-json.sh \
             "${{ github.repository }}" \
             zveltio-get/versions.json
+        env:
+          # Unauthenticated GitHub API calls are 60/hour per IP and runners
+          # share those IPs, so this returned 403 mid-release once already.
+          GITHUB_TOKEN: ${{ github.token }}
 
       # Only overwrite latest.json if this release's version is >= what's
       # already on zveltio-get for the same channel. Without this guard,
