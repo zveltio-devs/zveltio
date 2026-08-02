@@ -11,8 +11,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { DDLManager } from '../lib/data/index.js';
-import { processInput } from '../lib/data/write-pipeline.js';
+import { DDLManager, processInput } from '../lib/data/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 

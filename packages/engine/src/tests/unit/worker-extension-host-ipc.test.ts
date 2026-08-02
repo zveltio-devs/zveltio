@@ -326,6 +326,66 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(result).toBe('pong');
   });
 
+  it('ignores a service:invoke reply from a worker that was not asked', async () => {
+    // The waiter pool is module-scoped and was keyed on the rpc id alone, with
+    // no record of WHO the invoke went to — and the ids were `inv-svc-1`,
+    // `inv-svc-2` from a process-wide counter. So a worker-isolated extension
+    // could guess the id of a cross-extension call it was not party to and
+    // answer it with whatever it liked, and the caller believed it: service
+    // calls are how extensions trust each other.
+    const host = new WorkerExtensionHost(new Hono());
+    let capturedId = '';
+    const { managed: owner } = makeManaged(host, {
+      name: 'owner-a',
+      onPost: (msg) => {
+        if (msg.type === 'service:invoke' && msg.name === 'a.secret') capturedId = msg.id;
+      },
+    });
+    const { managed: impostor } = makeManaged(host, { name: 'caller-b' });
+
+    dispatchMessage(host, owner, { type: 'service:register', id: 'reg-2', name: 'a.secret' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const call = serviceRegistry.get<{ (): Promise<string> }>('a.secret')!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(capturedId).not.toBe('');
+
+    // The impostor answers the owner's pending call.
+    dispatchMessage(host, impostor, {
+      type: 'service:invoke:ok',
+      id: capturedId,
+      result: 'forged',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Dropped: the call is still pending, so the real owner can still answer.
+    dispatchMessage(host, owner, { type: 'service:invoke:ok', id: capturedId, result: 'genuine' });
+    expect(await call).toBe('genuine');
+  });
+
+  it('uses unguessable rpc ids', async () => {
+    // Defence in depth behind the sender check: with `inv-svc-1`, `inv-svc-2`
+    // an attacker does not even have to observe an id to name someone else's
+    // pending call.
+    const host = new WorkerExtensionHost(new Hono());
+    const ids: string[] = [];
+    const { managed } = makeManaged(host, {
+      name: 'owner-a',
+      onPost: (msg) => {
+        if (msg.type === 'service:invoke') ids.push(msg.id);
+      },
+    });
+    dispatchMessage(host, managed, { type: 'service:register', id: 'reg-3', name: 'a.ids' });
+    await new Promise((r) => setTimeout(r, 0));
+    const svc = serviceRegistry.get<{ (): Promise<string> }>('a.ids')!;
+    void svc();
+    void svc();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+    for (const id of ids) expect(id).toMatch(/^inv-svc-[0-9a-f-]{36}$/);
+  });
+
   it('service:register:err when host registry registration throws', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed, posted } = makeManaged(host, { name: 'reg-fail' });

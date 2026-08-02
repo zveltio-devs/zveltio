@@ -52,6 +52,46 @@ describe('applyExpand', () => {
     expect(records[2]).not.toHaveProperty('owner_expanded');
   });
 
+  it('skips a target the caller has no read permission on', async () => {
+    // `?expand=` is a request to read a SECOND collection, and it used to be
+    // the only way to do that without being asked for permission: column
+    // permissions on the target were applied, so the answer looked careful,
+    // but the read itself was ungated. Passing a user turns the check on;
+    // `checkPermission` is uninitialised here, which fails closed.
+    const db = new CannedDb();
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'users', fields: JSON.stringify([{ name: 'email', type: 'email' }]) },
+    ]);
+    db.when(/SELECT \* FROM "zvd_users"/i, [{ id: 'u-1', email: 'alice@example.com' }]);
+
+    const records = [{ id: 'r-1', owner: 'u-1', title: 'A' }] as Record<string, unknown>[];
+    const plan = await resolveExpand(asDb(db), COLLECTION as never, 'owner');
+    await applyExpand(asDb(db), records as never, plan, 'viewer', {
+      id: 'u-9',
+      name: 'Viewer',
+      role: 'viewer',
+    });
+
+    // Nothing hydrated, and — the point — the target was never queried.
+    expect(records[0]).not.toHaveProperty('owner_expanded');
+    expect(db.executed(/FROM "zvd_users"/i)).toHaveLength(0);
+  });
+
+  it('still expands for an internal caller with no request identity', async () => {
+    // `user: null` is the default and means "no request to authorize" — the
+    // pre-existing callers must keep working.
+    const db = new CannedDb();
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'users', fields: JSON.stringify([{ name: 'email', type: 'email' }]) },
+    ]);
+    db.when(/SELECT \* FROM "zvd_users"/i, [{ id: 'u-1', email: 'alice@example.com' }]);
+
+    const records = [{ id: 'r-1', owner: 'u-1', title: 'A' }] as Record<string, unknown>[];
+    const plan = await resolveExpand(asDb(db), COLLECTION as never, 'owner');
+    await applyExpand(asDb(db), records as never, plan, 'public', null);
+    expect(records[0]!.owner_expanded).toMatchObject({ id: 'u-1' });
+  });
+
   it('skips expand when no ids are present on records', async () => {
     const db = new CannedDb();
     const records = [{ id: 'r-1', owner: null }] as Record<string, unknown>[];

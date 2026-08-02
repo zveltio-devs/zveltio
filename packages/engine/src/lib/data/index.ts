@@ -12,3 +12,15 @@ export * from './ghost-ddl.js';
 export * from './field-crypto.js';
 export * from './field-type-conversions.js';
 export * from './field-type-registry.js';
+
+// Named re-exports rather than `export *`, because the pipeline modules are
+// still being folded in one at a time and a blanket re-export of two files that
+// both define request/DB helpers is how a name collision arrives silently.
+// These three are what routes outside the subsystem need:
+//   - `processInput` so import and sync go through the same field pipeline as
+//     the API write path (they used to insert straight to the table, so no
+//     field type's deserialize ran and `encrypted: true` was ignored);
+//   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
+//     checks, including the tenant comparison edge functions had left out.
+export { processInput } from './write-pipeline.js';
+export { validateApiKey } from './auth.js';
