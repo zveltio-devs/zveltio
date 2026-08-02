@@ -287,6 +287,12 @@ if [[ ! -f ".env" ]]; then
   POSTGRES_PASS=$(generate_secret 32)
   SECRET_KEY=$(generate_secret 64)
   S3_SECRET=$(generate_secret 32)
+  # The compose files start Valkey with `--requirepass ${VALKEY_PASSWORD}`.
+  # This .env did not define it, so the variable interpolated to empty and the
+  # cache came up with `--requirepass` swallowing the next flag — a fresh
+  # install either failed to start or ran an unauthenticated Valkey. It is a
+  # credential like the others and is generated the same way.
+  VALKEY_PASS=$(generate_secret 32)
 
   cat > .env << EOF
 # Zveltio v${VERSION} — Generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -302,7 +308,10 @@ DATABASE_URL=postgres://zveltio:${POSTGRES_PASS}@localhost:5432/zveltio?sslmode=
 
 # ── Cache ──────────────────────────────────────────────────────
 VALKEY_PORT=6379
-VALKEY_URL=redis://localhost:6379
+VALKEY_PASSWORD=${VALKEY_PASS}
+# Native/infra-only mode: the engine runs on the host and reaches Valkey on
+# loopback. The compose stack overrides this with the in-network address.
+VALKEY_URL=redis://:${VALKEY_PASS}@localhost:6379
 
 # ── Storage ────────────────────────────────────────────────────
 # Default: local filesystem driver (engine_storage volume, mounted at
@@ -345,6 +354,20 @@ EOF
 else
   sed -i "s/^ZVELTIO_VERSION=.*/ZVELTIO_VERSION=${VERSION}/" .env
   ok ".env updated (version → ${VERSION})"
+
+  # Backfill credentials added after this install was first created. Valkey
+  # gained --requirepass, and the compose file now refuses to start without
+  # the variable — an upgrade from an older .env would otherwise stop at an
+  # interpolation error the operator has no obvious way to read.
+  if ! grep -q '^VALKEY_PASSWORD=' .env; then
+    {
+      echo ""
+      echo "# ── Cache (added by the v${VERSION} upgrade) ──────────────────"
+      echo "VALKEY_PASSWORD=$(generate_secret 32)"
+    } >> .env
+    ok "VALKEY_PASSWORD generated (Valkey now requires authentication)"
+    warn "Valkey will restart with a password — cached sessions are dropped once."
+  fi
 fi
 
 source .env
@@ -459,7 +482,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
     wait_for_service "PostgreSQL" \
       "docker compose -f $COMPOSE_FILE exec -T postgres psql -U ${POSTGRES_USER:-zveltio} -d ${POSTGRES_DB:-zveltio} -c 'SELECT 1' -q" 60
     wait_for_service "Valkey" \
-      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
+      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli -a \"${VALKEY_PASSWORD}\" --no-auth-warning ping"
     ok "Infrastructure running"
 
     # 2. Migrations (run-and-exit container)
@@ -521,7 +544,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
     wait_for_service "PostgreSQL" \
       "docker compose -f $COMPOSE_FILE exec -T postgres psql -U ${POSTGRES_USER:-zveltio} -d ${POSTGRES_DB:-zveltio} -c 'SELECT 1' -q" 60
     wait_for_service "Valkey" \
-      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
+      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli -a \"${VALKEY_PASSWORD}\" --no-auth-warning ping"
     ok "Infrastructure running"
 
     if [[ "$MODE" == "native" && "$SKIP_ENGINE" == "false" ]]; then
@@ -583,7 +606,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
       fi
       nohup env \
         DATABASE_URL="${DATABASE_URL}" \
-        VALKEY_URL="redis://localhost:${VALKEY_PORT:-6379}" \
+        VALKEY_URL="redis://:${VALKEY_PASSWORD}@localhost:${VALKEY_PORT:-6379}" \
         S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
         S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
         S3_SECRET_KEY="${S3_SECRET_KEY}" \
@@ -687,6 +710,35 @@ EXTRAS_EOF
       -d '{"identity":"admin@example.com","secret":"changeme"}' \
       2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
 
+    # Nginx Proxy Manager ships with admin@example.com / changeme, and this
+    # installer authenticates with it. Printing "change it immediately" and
+    # moving on left every install reachable by a documented password on the
+    # box that terminates TLS for the whole deployment — and NPM is published
+    # on a port, so "immediately" is a race the operator usually loses.
+    # Rotate it here, while we hold a valid token.
+    NPM_PASSWORD=""
+    if [[ -n "$NPM_TOKEN" ]]; then
+      NPM_PASSWORD=$(generate_secret 16)
+      if curl -sf -X PUT "${NPM_API}/users/1/auth" \
+        -H "Authorization: Bearer ${NPM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"type\":\"password\",\"current\":\"changeme\",\"secret\":\"${NPM_PASSWORD}\"}" \
+        &>/dev/null; then
+        ok "Nginx Proxy Manager admin password rotated"
+        # Credentials belong with the others, not only on a scrolled-past line.
+        {
+          echo ""
+          echo "# ── Nginx Proxy Manager ───────────────────────────────────────"
+          echo "NPM_ADMIN_EMAIL=admin@example.com"
+          echo "NPM_ADMIN_PASSWORD=${NPM_PASSWORD}"
+        } >> .env
+      else
+        NPM_PASSWORD=""
+        warn "Could not rotate the Nginx Proxy Manager password — it is STILL the"
+        warn "default (admin@example.com / changeme). Change it before exposing port ${NPM_PORT:-81}."
+      fi
+    fi
+
     if [[ -n "$NPM_TOKEN" ]]; then
       HOST_IP="host.docker.internal"
 
@@ -741,8 +793,13 @@ fi
 echo ""
 if [[ "$INSTALL_NPM" == "true" ]]; then
 echo -e "  ${BOLD}Nginx Proxy Manager:${NC}  http://localhost:${NPM_PORT:-81}"
-echo -e "  ${DIM}  Default login: admin@example.com / changeme${NC}"
-echo -e "  ${DIM}  ⚠  Change password immediately after first login!${NC}"
+if [[ -n "${NPM_PASSWORD:-}" ]]; then
+echo -e "  ${DIM}  Login: admin@example.com / ${NPM_PASSWORD}${NC}"
+echo -e "  ${DIM}  (also saved in .env as NPM_ADMIN_PASSWORD)${NC}"
+else
+echo -e "  ${YELLOW}  Login: admin@example.com / changeme — STILL THE DEFAULT${NC}"
+echo -e "  ${YELLOW}  ⚠  Change it before exposing this port.${NC}"
+fi
 echo ""
 echo -e "  ${BOLD}NPM → Reverse Proxy setup:${NC}"
 echo -e "  ${DIM}  1. Create proxy host: domain.com → http://localhost:${PORT_FINAL}${NC}"

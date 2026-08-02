@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from '$lib/i18n.svelte.js';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2, MessageSquare, FileText } from '@lucide/svelte';
@@ -86,10 +87,26 @@
     }
   }
 
+  // Deleting a chat destroys the whole conversation and used to happen on a
+  // single click of a hover-only icon — no confirmation, no undo. Every other
+  // destructive action in the Studio asks first.
+  let pendingDeleteId = $state<string | null>(null);
+
   async function deleteChat(id: string) {
     await api.delete(`/ext/ai/chats/${id}`);
     chats = chats.filter((c) => c.id !== id);
     if (activeChat?.id === id) { activeChat = null; messages = []; }
+  }
+
+  async function confirmDeleteChat() {
+    const id = pendingDeleteId;
+    pendingDeleteId = null;
+    if (!id) return;
+    try {
+      await deleteChat(id);
+    } catch (err: any) {
+      toast.error(m['ext.errorPrefix']() + err.message);
+    }
   }
 
   async function saveProvider() {
@@ -198,8 +215,9 @@
             <Bot size={14} class="shrink-0 text-base-content/50" />
             <span class="flex-1 text-xs truncate">{chat.title || m['ai.chat.newChat']()}</span>
             <button
-              class="btn btn-ghost btn-xs text-error opacity-0 hover:opacity-100"
-              onclick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
+              class="btn btn-ghost btn-xs text-error opacity-0 hover:opacity-100 focus-visible:opacity-100"
+              aria-label={m['ai.chat.deleteAria']()}
+              onclick={(e) => { e.stopPropagation(); pendingDeleteId = chat.id; }}
             ><Trash2 size={10} /></button>
           </div>
         {/each}
@@ -532,3 +550,11 @@
   </div>
 </div>
 </ExtensionPageShell>
+
+<ConfirmModal
+  open={pendingDeleteId !== null}
+  title={m['ai.chat.deleteTitle']()}
+  message={m['ai.chat.deleteMessage']()}
+  onconfirm={confirmDeleteChat}
+  oncancel={() => (pendingDeleteId = null)}
+/>

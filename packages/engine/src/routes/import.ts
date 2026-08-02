@@ -11,7 +11,8 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { DDLManager, maybeEncrypt } from '../lib/data/index.js';
+import { DDLManager } from '../lib/data/index.js';
+import { processInput } from '../lib/data/write-pipeline.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
@@ -300,35 +301,51 @@ export function importRoutes(db: Database, auth: any) {
         const raw = batch[i];
         const rowNum = start + i + 1;
 
-        // Build validated record
-        const record: Record<string, unknown> = {
-          id: crypto.randomUUID(),
-          created_by: user.id,
-          updated_by: user.id,
-        };
-
+        // Everything arrives as text, so coerce to the field's shape first.
+        const coerced: Record<string, unknown> = {};
         for (const [key, rawVal] of Object.entries(raw)) {
           if (!validCols.has(key)) continue; // ignore unknown columns silently
-          const coerced = coerce(String(rawVal ?? ''), fieldMap[key]);
-          // Import writes straight to the table rather than through the write
-          // pipeline, so it has to apply field encryption itself. Without this a
-          // column marked `encrypted: true` was stored in PLAINTEXT when the
-          // rows arrived by CSV and encrypted when the same rows arrived by API
-          // — the field still reads as encrypted everywhere in the UI, and only
-          // the bytes on disk differ. Importing is the bulk path, so it is the
-          // one most likely to carry the sensitive column.
-          record[key] = fieldMap[key]?.encrypted ? await maybeEncrypt(coerced, true) : coerced;
+          coerced[key] = coerce(String(rawVal ?? ''), fieldMap[key]);
         }
 
         // Must have at least one schema field
-        const hasData = Object.keys(record).some((k) => validCols.has(k));
-        if (!hasData) {
+        if (Object.keys(coerced).length === 0) {
           errors.push({ row: rowNum, error: 'No valid columns in row' });
           errorRows++;
           continue;
         }
 
-        toInsert.push(record);
+        // The same pipeline the API write path uses.
+        //
+        // Import re-implemented a fragment of it — encryption for
+        // `encrypted: true` columns and nothing else — so field types with a
+        // `deserialize` were never applied. A `password` column arrived from
+        // CSV in PLAINTEXT while the identical value sent to POST /api/data
+        // was hashed, and the difference is invisible in the UI: the field
+        // renders as a password either way, only the bytes on disk differ.
+        // Import is the bulk path, so it is the one most likely to carry the
+        // sensitive column.
+        //
+        // `partial: true` because a row supplies whatever columns the file
+        // has: absent fields are left alone rather than failing a required
+        // check that the importer never intended to make.
+        const { errors: fieldErrors, processed } = await processInput(
+          coerced,
+          { name: collection, fields: fieldDefs } as never,
+          true,
+        );
+        if (fieldErrors.length > 0) {
+          errors.push({ row: rowNum, error: fieldErrors.join('; ') });
+          errorRows++;
+          continue;
+        }
+
+        toInsert.push({
+          id: crypto.randomUUID(),
+          created_by: user.id,
+          updated_by: user.id,
+          ...processed,
+        });
       }
 
       if (toInsert.length > 0) {

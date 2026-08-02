@@ -1,5 +1,18 @@
 import type { FieldTypeRegistry } from '../lib/data/index.js';
 
+/**
+ * Does this value already hold a password hash?
+ *
+ * Used to keep a re-submitted hash from being hashed a second time. The check
+ * used to be `startsWith('$2')` — the bcrypt prefix — while `Bun.password.hash`
+ * has always produced argon2id (`$argon2id$…`), so it never once matched what
+ * this field actually stores. Every hash is in PHC string format, so match the
+ * algorithms we can emit rather than one prefix.
+ */
+function isPasswordHash(v: string): boolean {
+  return /^\$(argon2(i|d|id)|2[aby]?|scrypt)\$/.test(v);
+}
+
 export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'text',
@@ -321,14 +334,14 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'password',
     label: 'Password',
-    description: 'Stored as bcrypt hash. Never returned in API responses.',
+    description: 'Stored as an argon2id hash. Never returned in API responses.',
     category: 'text',
     db: { columnType: 'text' },
     api: {
       filterOperators: [],
       serialize: () => undefined, // never expose password hash
       deserialize: async (v: string) => {
-        if (!v || v.startsWith('$2')) return v; // already hashed
+        if (!v || isPasswordHash(v)) return v; // already hashed
         try {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           return (await (globalThis as any).Bun?.password?.hash(v)) ?? v;
@@ -338,7 +351,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       },
       validate: (v, f) => {
         if (f.required && !v) return `${f.label || f.name} is required`;
-        if (v && typeof v === 'string' && !v.startsWith('$2') && v.length < 8) {
+        if (v && typeof v === 'string' && !isPasswordHash(v) && v.length < 8) {
           return 'Password must be at least 8 characters';
         }
         return null;

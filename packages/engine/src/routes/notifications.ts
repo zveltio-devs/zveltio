@@ -3,9 +3,9 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
 import { sendPushToUsers } from '../lib/push-notifications.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAuth(c: any, auth: any): Promise<any | null> {
@@ -285,9 +285,40 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
       const { user_id, title, message, type, action_url } = c.req.valid('json');
 
+      // Who this tenant's admin is allowed to notify.
+      //
+      // `user` is a global table with no tenant column, so selecting from it
+      // returned every account on the instance: a tenant admin's "notify
+      // everyone" reached every other tenant's users, and an explicit
+      // `user_id` reached anyone whose id they could guess. Notifications
+      // carry a title, a body and an `action_url` — enough to phish.
+      //
+      // The audience follows the same rule as the membership middleware:
+      // enforced for a real tenant, and a no-op for the default one, where
+      // every account belongs to the single tenant and no membership rows are
+      // written. Anything else would make broadcast deliver to nobody on a
+      // single-tenant install.
+      const actingTenant = tenantId(c);
+      const audience =
+        actingTenant && actingTenant !== DEFAULT_TENANT_ID
+          ? (
+              await db
+                .selectFrom('zv_tenant_users')
+                .select('user_id')
+                .where('tenant_id', '=', actingTenant)
+                .execute()
+            ).map((r) => r.user_id)
+          : null; // null = the whole instance, which here is the whole tenant
+
       let targetIds: string[];
       if (user_id) {
-        targetIds = Array.isArray(user_id) ? user_id : [user_id];
+        const requested = Array.isArray(user_id) ? user_id : [user_id];
+        targetIds = audience ? requested.filter((id) => audience.includes(id)) : requested;
+        if (targetIds.length === 0) {
+          return c.json({ error: 'No recipients in this tenant' }, 400);
+        }
+      } else if (audience) {
+        targetIds = audience;
       } else {
         // Broadcast to all active users
         const users = await tdb.selectFrom('user').select('id').execute();

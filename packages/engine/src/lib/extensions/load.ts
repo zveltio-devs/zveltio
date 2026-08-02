@@ -284,7 +284,7 @@ export async function loadExtensionFromDir(
     }
 
     // Build allowed-tables set from migration CREATE TABLE statements + explicit grants.
-    const allowedTables = await buildAllowedTables(migrationPaths);
+    const allowedTables = await buildAllowedTables(migrationPaths, extName);
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
 
     // Register-core (build restrictedCtx, mount routes with the

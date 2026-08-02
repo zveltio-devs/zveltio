@@ -61,7 +61,16 @@ export async function authenticate(
   return null;
 }
 
-async function validateApiKey(
+/**
+ * Resolve a raw API key to its row, or null.
+ *
+ * Exported because every route that accepts `X-API-Key` needs the *same*
+ * checks. Edge functions grew their own copy — a hash lookup plus `is_active`
+ * and expiry — which left out the tenant comparison below, so a key issued in
+ * one tenant invoked another tenant's functions. A second implementation of an
+ * auth check is a second place for one to go missing; there is one here now.
+ */
+export async function validateApiKey(
   db: Database,
   rawKey: string,
   requestTenantId: string | null,

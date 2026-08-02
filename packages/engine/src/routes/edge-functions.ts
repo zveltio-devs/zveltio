@@ -303,17 +303,15 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     if (!authed) {
       const rawKey = c.req.header('X-API-Key');
       if (rawKey) {
-        const { hashApiKey } = await import('../lib/security/index.js');
-        const keyHash = await hashApiKey(rawKey);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const apiKey = await (reqDb(c, db) as any)
-          .selectFrom('zv_api_keys')
-          .select(['id', 'is_active', 'expires_at'])
-          .where('key_hash', '=', keyHash)
-          .where('is_active', '=', true)
-          .executeTakeFirst()
-          .catch(() => null);
-        authed = !!(apiKey && (!apiKey.expires_at || new Date(apiKey.expires_at) > new Date()));
+        // Shared with the data API rather than re-implemented. The local copy
+        // checked the hash, `is_active` and expiry but not `tenant_id`, and
+        // `zv_api_keys` is route-scoped rather than RLS-protected (the guard
+        // has to run before a tenant is known), so `reqDb` filtered nothing:
+        // tenant A's key authenticated here and the lookup below then served
+        // tenant B's function.
+        const { validateApiKey } = await import('../lib/data/auth.js');
+        const apiKey = await validateApiKey(db, rawKey, tenantId(c)).catch(() => null);
+        authed = !!apiKey;
       }
     }
     if (!authed) return c.json({ error: 'Unauthorized' }, 401);

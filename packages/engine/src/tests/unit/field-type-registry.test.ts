@@ -145,17 +145,35 @@ describe('FieldTypeRegistry — getRequiredExtensions', () => {
 describe('FieldTypeRegistry — serialize / deserialize / validate', () => {
   const r = makeRegistry();
 
-  it('delegates to the type functions', () => {
+  it('delegates to the type functions', async () => {
     expect(r.serialize('text', 42)).toBe('42');
-    expect(r.deserialize('text', '  hi ')).toBe('hi');
+    expect(await r.deserialize('text', '  hi ')).toBe('hi');
     expect(r.validate('text', 5, {} as Any)).toBe('must be a string');
     expect(r.validate('text', 'ok', {} as Any)).toBeNull();
   });
 
-  it('passes through when the type has no function or is unknown', () => {
+  it('passes through when the type has no function or is unknown', async () => {
     expect(r.serialize('geo', { x: 1 })).toEqual({ x: 1 }); // no serialize fn
-    expect(r.deserialize('unknown', 'v')).toBe('v');
+    expect(await r.deserialize('unknown', 'v')).toBe('v');
     expect(r.validate('unknown', 'v', {} as Any)).toBeNull();
+  });
+
+  it('awaits an async deserialize instead of returning the Promise', async () => {
+    // The `password` type hashes with Bun.password.hash. Before this was
+    // awaited, `processInput` put the pending Promise in `processed` and the
+    // driver wrote that to the column — the password was never hashed.
+    const reg = makeRegistry();
+    reg.register({
+      type: 'secret',
+      label: 'Secret',
+      category: 'text',
+      db: { columnType: 'text' },
+      api: { deserialize: async (v: string) => `hashed:${v}` },
+      typescript: { inputType: 'string', outputType: 'string' },
+    } as Any);
+    const out = await reg.deserialize('secret', 'hunter2');
+    expect(out).toBe('hashed:hunter2');
+    expect(out).not.toBeInstanceOf(Promise);
   });
 });
 

@@ -20,6 +20,42 @@
  * acceptance is a breach.
  */
 
+/**
+ * Statement forms whose payload is *code* rather than data.
+ *
+ * The identifier scan below blanks dollar-quoted blocks, because a dollar quote
+ * is normally just a string constant and a table name mentioned inside one is
+ * data, not a reference (see the `$tag$ … $tag$` case in the tests). That is
+ * safe right up until the body is handed to a executor, and then it inverts:
+ *
+ *     DO $$ BEGIN EXECUTE 'SELECT secret FROM zv_api_keys'; END $$
+ *
+ * survives the scan with nothing left to look at, and Postgres runs the body as
+ * the database owner. The multi-statement defence does not apply either — `DO`
+ * is one statement, so the extended-query protocol is happy to send it.
+ *
+ * Tightening the scan cannot fix this: a body can build its SQL by
+ * concatenation (`'zv_' || 'api_keys'`), which no amount of text matching will
+ * see. The only durable answer is to refuse the forms that turn a string into
+ * executable SQL. None of them belong on a runtime query bridge anyway —
+ * extensions declare their schema through migrations, not through ad-hoc DDL.
+ */
+const CODE_BEARING_FORMS: { re: RegExp; what: string }[] = [
+  // `DO` only ever introduces an anonymous code block. Anchored to the start of
+  // the statement so `ON CONFLICT DO NOTHING` and `DO UPDATE` stay legal.
+  { re: /^\s*DO\b/i, what: 'DO (anonymous code block)' },
+  { re: /^\s*CALL\b/i, what: 'CALL (stored procedure)' },
+  // Server-side prepared statements outlive the statement that made them, and
+  // the bridge hands back a pooled connection that another extension will reuse.
+  { re: /^\s*(EXECUTE|PREPARE|DEALLOCATE)\b/i, what: 'PREPARE/EXECUTE' },
+  {
+    re: /\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i,
+    what: 'CREATE FUNCTION/PROCEDURE',
+  },
+  // `COPY … FROM PROGRAM` is command execution on the database host, not SQL.
+  { re: /\bCOPY\b[\s\S]*?\bPROGRAM\b/i, what: 'COPY … PROGRAM' },
+];
+
 export class WorkerSqlPolicyError extends Error {
   constructor(message: string) {
     super(message);
@@ -103,6 +139,19 @@ function stripNonCode(sql: string): string {
 export function assertWorkerSqlAllowed(extName: string, sql: string): void {
   const owned = ownedPrefixFor(extName).toLowerCase();
   const code = stripNonCode(sql);
+
+  // Checked on the stripped text so the keyword has to be real code — a
+  // `SELECT 'call me'` must not trip the CALL rule.
+  for (const form of CODE_BEARING_FORMS) {
+    if (form.re.test(code)) {
+      throw new WorkerSqlPolicyError(
+        `Extension "${extName}" attempted ${form.what} through the worker SQL ` +
+          `bridge. Statements that execute a body as code are refused here: the ` +
+          `body is opaque to the table policy and can assemble any table name at ` +
+          `runtime. Declare schema and functions in the extension's migrations.`,
+      );
+    }
+  }
 
   // `zv_` followed by anything identifier-ish. `zvd_` never matches: the third
   // character is `d`, not `_`, which is exactly how the inline proxy separates

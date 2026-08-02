@@ -7,6 +7,8 @@ import type { Database } from '../../db/index.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
 import { afterWrite, processInput, runAtomic, isUuid } from '../../lib/data/write-pipeline.js';
+import { fieldTypeRegistry } from '../../lib/data/field-type-registry.js';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
 import * as wsModule from '../../routes/ws.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -52,6 +54,51 @@ describe('processInput', () => {
     const { errors, processed } = await processInput({ a: 1 }, null, false);
     expect(errors).toEqual([]);
     expect(processed).toEqual({ a: 1 });
+  });
+
+  it('hashes a password field instead of storing a pending Promise', async () => {
+    // `password.deserialize` is the one async deserializer in the registry.
+    // processInput called it without awaiting, so `processed.password` was a
+    // Promise and that is what went to the driver: the stored value was not a
+    // hash, and no test caught it because the registry returned `any`.
+    registerCoreFieldTypes(fieldTypeRegistry);
+    const { errors, processed } = await processInput(
+      { password: 'correct horse battery' },
+      {
+        name: 'accounts',
+        fields: [
+          { name: 'password', type: 'password', required: false, unique: false, indexed: false },
+        ],
+      } as never,
+      false,
+    );
+    expect(errors).toEqual([]);
+    expect(processed.password).not.toBeInstanceOf(Promise);
+    expect(typeof processed.password).toBe('string');
+    // Bun.password.hash defaults to argon2id — never the plaintext.
+    expect(processed.password).not.toBe('correct horse battery');
+    expect(await Bun.password.verify('correct horse battery', processed.password as string)).toBe(
+      true,
+    );
+  });
+
+  it('does not re-hash a value that is already a hash', async () => {
+    // The idempotency guard tested for the bcrypt prefix `$2` while the hasher
+    // emits argon2id, so it never matched: feeding a stored hash back through
+    // an update hashed the hash, and the password stopped verifying.
+    registerCoreFieldTypes(fieldTypeRegistry);
+    const hash = await Bun.password.hash('correct horse battery');
+    const { processed } = await processInput(
+      { password: hash },
+      {
+        name: 'accounts',
+        fields: [
+          { name: 'password', type: 'password', required: false, unique: false, indexed: false },
+        ],
+      } as never,
+      false,
+    );
+    expect(processed.password).toBe(hash);
   });
 });
 
