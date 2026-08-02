@@ -1452,6 +1452,7 @@ export interface ZvMediaFilesTable {
   deleted_by: string | null;
   restore_folder_id: string | null;
   tenant_id: string | null;
+  visibility: Generated<string>;
 }
 
 export interface ZvMediaFoldersTable {
