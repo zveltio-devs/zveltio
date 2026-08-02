@@ -83,7 +83,16 @@ for (const manifestPath of findManifests(ROOT).sort()) {
   const out = (proc.stdout ?? '') + (proc.stderr ?? '');
   const validateOk = proc.status === 0;
 
-  const sduiErrors = [...out.matchAll(/SDUI_[A-Z_]+[^\n]*/g)].map((m) => m[0].trim());
+  // Every SDUI_* line the validator emitted, errors and warnings alike — worth
+  // printing either way.
+  const sduiFindings = [...out.matchAll(/SDUI_[A-Z_]+[^\n]*/g)].map((m) => m[0].trim());
+  // Whether any of them is a HARD error comes from the summary line, not from
+  // the presence of a code: the validator also warns (hardcoded schema text),
+  // and warnings must not fail the build. The summary already distinguishes
+  // them — "N error(s)" vs "N OK, M warning(s)" — so it stays correct as new
+  // codes are added on either side.
+  const sduiSummary = out.split('\n').find((l) => l.includes('SDUI schemas:')) ?? '';
+  const sduiHasErrors = /error/.test(sduiSummary);
   const allErrLines = out
     .split('\n')
     .filter((l) => l.includes('error') || l.includes('Error') || /\[31m/.test(l))
@@ -99,8 +108,8 @@ for (const manifestPath of findManifests(ROOT).sort()) {
   rows.push({
     name,
     tier,
-    sduiOk: tier === 'sdui' ? sduiErrors.length === 0 : null,
-    sduiErrors,
+    sduiOk: tier === 'sdui' ? !sduiHasErrors : null,
+    sduiErrors: sduiFindings,
     validateOk,
     otherErrors: validateOk ? [] : otherErrors.slice(0, 3),
     hasEngine: hasEngineTs || hasEngineJs,
@@ -137,6 +146,18 @@ if (sduiFail.length) {
   }
 }
 
+// Warnings are reported, never gated: hardcoded schema text is real debt but
+// nothing the user sees as breakage, and a report that fails on it stops being
+// read.
+const sduiWarn = sdui.filter((r) => r.sduiOk && r.sduiErrors.length > 0);
+if (sduiWarn.length) {
+  console.log('\n--- SDUI WARNINGS (not gating) ---');
+  for (const r of sduiWarn) {
+    console.log(`  ${r.name}`);
+    for (const e of r.sduiErrors) console.log(`    ${e}`);
+  }
+}
+
 if (hashFail.length) {
   console.log('\n--- BUNDLE HASH DRIFT ---');
   for (const r of hashFail) console.log(`  ${r.name}`);
@@ -145,7 +166,7 @@ if (hashFail.length) {
 if (validateFail.length) {
   console.log('\n--- VALIDATE FAILURES (non-SDUI) ---');
   for (const r of validateFail) {
-    if (r.tier === 'sdui' && r.sduiErrors.length > 0) continue; // already listed
+    if (r.tier === 'sdui' && !r.sduiOk) continue; // already listed under SDUI FAILURES
     console.log(`  ${r.name} [${r.tier}]`);
     for (const e of r.otherErrors) console.log(`    ${e}`);
   }
