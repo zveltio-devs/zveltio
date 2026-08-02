@@ -645,24 +645,30 @@ drift). Linked from the top of the developer guide.
 
 ## 6. Internationalization
 
-### 6.1 Studio UI translations — major EU languages 🟠 P1 (4 of 9 shipped)
-**Status (verified 2026-07-17).** Not "en + ro" — the Studio ships **en, ro, fr, de**
-with **full parity: 1,871 keys each** (`packages/studio/messages/`). Paraglide
-compiles them; adding a locale is a settings entry + a message file.
+### 6.1 Studio UI translations — major EU languages ✅ CLOSED (2026-08-02)
+**Status.** The Studio ships **nine locales — en, ro, fr, de, es, it, nl, pl, hu —
+at full parity**, across both the host catalogue (`packages/studio/messages/core/`)
+and all 56 extensions that have a Studio UI (`<ext>/studio/messages/`). Every
+hand-written admin page and every declarative (SDUI) schema is converted; nothing
+user-facing in the Studio is hardcoded.
 
-**Remaining: es, it, nl, pl, pt** — ~9,355 strings. This is a **translation-content
-task, not an engineering one**: the pipeline works, the strings need a translation
-budget or native reviewers. Machine-translating 9k UI strings unreviewed would ship
-five languages of bad copy — worse for an evaluator than English-only. Track it as
-content, not code.
+**What holds it.** Three gates, because the pipeline working is not the same as the
+strings being right:
+- `scripts/check-i18n-core.ts` — hardcoded text on translated core pages, **and any
+  `m['key']` that resolves nowhere**. The second half matters more: an unknown key
+  is `undefined`, so calling it throws and blanks the page. That shipped once.
+- `zveltio extension validate` — SDUI schema strings that are not real keys (error),
+  and hardcoded schema text (warning).
+- `check:shared-keys` — the SDK's generated copy of the shared `common.*` / `ext.*`
+  vocabulary drifting from the host catalogue.
 
-**Acceptance criteria.**
-- 7 additional locales added.
-- Translation workflow: extract keys from source, push to translation service (e.g., Crowdin), import back.
-- Locale switcher in Studio top bar.
-- Per-user preference persisted.
+**Author documentation:** [EXTENSION-DEVELOPER-GUIDE §10.5](EXTENSION-DEVELOPER-GUIDE.md#105-translating-your-extension).
 
-**Effort.** 2 weeks (assuming hired translators — €2-5k cost).
+**Still open, deliberately.** Extension *engine* responses (API error/success
+messages, ~17 strings) are English-only. They are API payloads rather than UI, and
+translating them properly means deciding whether the locale travels with the
+request — a design question, not a content backlog. Machine-translated UI copy was
+never the blocker; native review was, and the nine locales shipped with it.
 **Dependencies.** Hiring translators.
 
 ---
