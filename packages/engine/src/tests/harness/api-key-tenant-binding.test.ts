@@ -26,6 +26,8 @@ const ROOT_TENANT = '00000000-0000-0000-0000-000000000001';
 const STAMP = Date.now();
 const FOREIGN_KEY = `zvk_foreign_${STAMP}`;
 const ROOT_KEY = `zvk_root_${STAMP}`;
+const FN_ID = '00000000-0000-4000-8000-0000000000eb';
+const FN_NAME = `key-tenant-fn-${STAMP}`;
 
 d('API keys are bound to their tenant', () => {
   let app: Hono;
@@ -50,6 +52,7 @@ d('API keys are bound to their tenant', () => {
     await sql`DELETE FROM zv_api_keys WHERE name IN (${`foreign-${STAMP}`}, ${`root-${STAMP}`})`
       .execute(db)
       .catch(() => {});
+    await sql`DELETE FROM zv_edge_functions WHERE id = ${FN_ID}::uuid`.execute(db).catch(() => {});
   });
 
   it('refuses a key from another tenant, even though the key itself is valid', async () => {
@@ -83,6 +86,29 @@ d('API keys are bound to their tenant', () => {
   it('rejects an unknown key exactly as before', async () => {
     const res = await app.request('/api/data/zvd_accounts', {
       headers: { 'X-API-Key': `zvk_nonexistent_${STAMP}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('refuses a foreign key on the edge-function endpoint too', async () => {
+    // Edge functions carried their own copy of this check — hash, `is_active`,
+    // expiry, and no tenant comparison. `zv_api_keys` is route-scoped rather
+    // than RLS-protected (the guard has to run before a tenant is known), so
+    // `reqDb` filtered nothing either. The foreign key authenticated, and the
+    // function lookup then resolved in the REQUEST's tenant: another tenant's
+    // key ran this tenant's code, with its env_vars.
+    await sql`
+      INSERT INTO zv_edge_functions
+        (id, tenant_id, name, display_name, code, http_method, path, is_active, timeout_ms)
+      VALUES (${FN_ID}::uuid, ${ROOT_TENANT}::uuid, ${FN_NAME}, 'Root fn',
+        'async function handler(){return {status:200,body:{ok:true}}}', 'POST',
+        ${`/api/fn/${FN_NAME}`}, true, 30000)
+    `.execute(db);
+
+    const res = await app.request(`/api/fn/${FN_NAME}`, {
+      method: 'POST',
+      headers: { 'X-API-Key': FOREIGN_KEY, 'Content-Type': 'application/json' },
+      body: '{}',
     });
     expect(res.status).toBe(401);
   });

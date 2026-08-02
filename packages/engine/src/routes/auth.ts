@@ -2,9 +2,14 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
+import { getEnforcer, invalidateUserPermCache } from '../lib/tenancy/index.js';
+import { withAuthorizedUserCreation } from '../lib/auth.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
 // This file registers the handler and adds a /me convenience endpoint
+
+/** The membership grades `zv_tenant_users.role` accepts (a CHECK constraint). */
+const MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'member', 'viewer']);
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function authRoutes(db: Database, auth: any): Hono {
@@ -128,30 +133,74 @@ export function invitationRoutes(db: Database, auth: any): Hono {
 
       // Sign up via Better-Auth (creates the user + an email/password account).
       // We pass headers to keep parity with normal sign-up middleware.
-      const result = await auth.api.signUpEmail({
-        body: {
-          email: invite.email,
-          password,
-          name: bodyName ?? invite.name ?? invite.email.split('@')[0],
-        },
-        headers: c.req.raw.headers,
-      });
+      // Explicitly authorized: an admin issued this invitation, so the account
+      // may be created even with self-registration off. Creating a user is now
+      // refused at the database hook rather than at a URL pattern, which is
+      // what closed the OAuth and magic-link holes — so the paths that are
+      // supposed to work have to say so.
+      const result = await withAuthorizedUserCreation<{ user?: { id: string } }>(() =>
+        auth.api.signUpEmail({
+          body: {
+            email: invite.email,
+            password,
+            name: bodyName ?? invite.name ?? invite.email.split('@')[0],
+          },
+          headers: c.req.raw.headers,
+        }),
+      );
 
       if (!result?.user) {
         return c.json({ error: 'Failed to create user' }, 500);
       }
       const userId = result.user.id;
 
-      // Apply the invited role and mark the invitation consumed in one
-      // transaction so a partial failure leaves no half-state.
+      // Apply the invited role, join the tenant, and mark the invitation
+      // consumed in one transaction so a partial failure leaves no half-state.
       await db.transaction().execute(async (trx) => {
         await trx.updateTable('user').set({ role: invite.role }).where('id', '=', userId).execute();
+
+        // Membership in the tenant that issued the invitation.
+        //
+        // Accepting used to set the global role and stop there, which read as
+        // "invited" everywhere in the UI while the membership gate — on by
+        // default — answered 403 to every /api/* and /ext/* request the new
+        // user made. `zv_invitations.tenant_id` has existed since migration
+        // 021; nothing consumed it. `onConflict doNothing` so re-accepting a
+        // re-issued invitation is not an error.
+        //
+        // `zv_tenant_users.role` is a fixed four-value membership grade, while
+        // an invitation carries a Casbin role name that installs are free to
+        // define. Unrecognised names join as `member`; authorization still
+        // comes from the global role set above, not from this column.
+        await trx
+          .insertInto('zv_tenant_users')
+          .values({
+            tenant_id: invite.tenant_id,
+            user_id: userId,
+            role: MEMBERSHIP_ROLES.has(invite.role)
+              ? (invite.role as 'owner' | 'admin' | 'member' | 'viewer')
+              : 'member',
+            invited_by: invite.invited_by,
+          })
+          .onConflict((oc) => oc.columns(['tenant_id', 'user_id']).doNothing())
+          .execute();
+
         await trx
           .updateTable('zv_invitations')
           .set({ accepted_at: new Date(), accepted_by: userId })
           .where('id', '=', invite.id)
           .execute();
       });
+
+      // Bridge to authorization in this tenant's Casbin domain, matching what
+      // POST /api/tenants does for the owner it provisions. Outside the
+      // transaction: a cache miss is recoverable, a rolled-back membership is
+      // not.
+      if (MEMBERSHIP_ROLES.has(invite.role)) {
+        const e = await getEnforcer();
+        await e.addRoleForUser(userId, `tenant_${invite.role}`, invite.tenant_id);
+      }
+      await invalidateUserPermCache(userId);
 
       return c.json({ success: true, user: { id: userId, email: invite.email } }, 201);
     },

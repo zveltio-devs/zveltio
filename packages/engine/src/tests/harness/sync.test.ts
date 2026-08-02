@@ -32,7 +32,10 @@ d('sync routes (in-process)', () => {
     cookie = await createGodSession(app, db);
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+      fields: [
+        { name: 'title', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'secret', type: 'password', required: false, unique: false, indexed: false },
+      ],
     } as never);
   });
 
@@ -87,6 +90,38 @@ d('sync routes (in-process)', () => {
     const body = (await res.json()) as { results: { recordId: string; status: string }[] };
     expect(body.results[0]?.status).toBe('ok');
     expect(body.results[0]?.recordId).toBe(recordId);
+  });
+
+  it('hashes a password field pushed by a client', async () => {
+    // Sanitizing a push stopped at the column allowlist — it blocked `role`
+    // and `tenant_id`, then handed the values straight to the INSERT. So no
+    // field type's `deserialize` ran, and `password`'s deserialize IS the
+    // hashing step: a password written offline synced up as plaintext.
+    const recordId = crypto.randomUUID();
+    const plaintext = 'correct horse battery staple';
+    const res = await app.request(
+      '/api/sync/push',
+      json('/api/sync/push', {
+        operations: [
+          {
+            collection: COLLECTION,
+            recordId,
+            operation: 'create',
+            payload: { title: 'pw', secret: plaintext },
+            clientTimestamp: Date.now(),
+          },
+        ],
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const rows = (await sql
+      .raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
+      .execute(db)) as { rows: { secret: string }[] };
+    expect(rows.rows.length).toBe(1);
+    const stored = rows.rows[0]!.secret;
+    expect(stored).not.toBe(plaintext);
+    expect(await Bun.password.verify(plaintext, stored)).toBe(true);
   });
 
   it('pull returns changes for the collection', async () => {

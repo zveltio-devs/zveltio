@@ -86,7 +86,7 @@ services:
     # Password-protected even though this instance is only reachable on the
     # internal compose network — a compromised sibling container should not
     # inherit read/write on sessions and rate-limit state.
-    command: valkey-server --requirepass \${VALKEY_PASSWORD} --save 60 1 --loglevel warning
+    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with: openssl rand -base64 32} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -249,7 +249,7 @@ services:
     # anyone who could reach the host could read sessions and rate-limit state.
     # The engine runs on the host in native mode, so the port must stay
     # published; 127.0.0.1 keeps it reachable there and nowhere else.
-    command: valkey-server --requirepass \${VALKEY_PASSWORD} --save 60 1 --loglevel warning
+    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with: openssl rand -base64 32} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     ports:

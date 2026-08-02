@@ -1,10 +1,43 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { betterAuth } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
 import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
+
+// ── Self-registration: one chokepoint instead of one per flow ───────────────
+//
+// The registration gate is HTTP middleware on `POST /api/auth/sign-up/*`. That
+// covers exactly one way to acquire an account. Magic link found the gap first
+// — it signs people in, so it is not a sign-up route, and it created users
+// until `disableSignUp: true` was added. OAuth had the same shape and no such
+// flag: on any instance with a social provider configured, and with
+// `registration_enabled` at its default of OFF, signing in with an unknown
+// Google account created one.
+//
+// Rather than chase each plugin, the check moves to the single thing every
+// flow must do — insert a row into `user`. A `before` hook there is
+// provider-agnostic and evaluated per request, so toggling the setting still
+// takes effect without a restart, and a plugin added next year is covered on
+// the day it ships.
+//
+// Two paths legitimately create users while self-registration is off: an admin
+// consuming an invitation, and the CLI creating the first god user. Both run
+// in-process rather than over HTTP, so they announce themselves through this
+// ALS rather than by being absent from a URL pattern.
+const authorizedUserCreation = new AsyncLocalStorage<true>();
+
+/**
+ * Run `fn` with permission to create a user even when self-registration is
+ * disabled. For deliberate, already-authorized creation only — an admin's
+ * invitation or the CLI's first-user bootstrap.
+ */
+export function withAuthorizedUserCreation<T>(fn: () => Promise<T>): Promise<T> {
+  return authorizedUserCreation.run(true, fn);
+}
 
 // ── S4-09: scrypt → argon2id silent migration ──────────────────────────────
 //
@@ -323,6 +356,26 @@ export async function initAuth(db: Database) {
     database,
     advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
+
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user: { email?: string }) => {
+            if (authorizedUserCreation.getStore()) return { data: user };
+            const { isRegistrationEnabled } = await import('../routes/settings.js');
+            if (await isRegistrationEnabled(db)) return { data: user };
+            console.warn(
+              `[auth] refused to create an account for ${user.email ?? 'unknown'}: ` +
+                `self-registration is disabled on this instance`,
+            );
+            throw new APIError('FORBIDDEN', {
+              code: 'registration_disabled',
+              message: 'Self-registration is disabled on this instance.',
+            });
+          },
+        },
+      },
+    },
 
     emailAndPassword: {
       enabled: true,

@@ -16,6 +16,7 @@ import {
   resolveUserRole,
 } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
+import { processInput } from '../lib/data/write-pipeline.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function syncRoutes(db: Database, _auth: any): Hono {
@@ -82,7 +83,23 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       payload[key] = value;
     }
 
-    return { safe: true, payload };
+    // Run the same field pipeline the API write path uses.
+    //
+    // Sanitizing stopped at the column allowlist: it kept a client from
+    // writing `role` or `tenant_id`, then handed the values straight to the
+    // INSERT. So a field type's `deserialize` never ran and `encrypted: true`
+    // was ignored — a password pushed by an offline client was stored as
+    // plaintext, and a column that is encrypted through every other path was
+    // not encrypted through this one. Sync is the path that runs unattended.
+    //
+    // `partial: true` because a sync operation carries only the columns the
+    // client actually changed.
+    const { errors, processed } = await processInput(payload, collectionDef, true);
+    if (errors.length > 0) {
+      return { safe: false, reason: errors.join('; ') };
+    }
+
+    return { safe: true, payload: processed };
   }
 
   /**
