@@ -33,8 +33,24 @@ interface FileCov {
  * (istanbul/c8/gcov) instruments non-executable lines; we drop them here so the
  * gated number reflects executable code only.
  *
- * Deliberately conservative — only lines that are empty, `//`, or inside a
- * `/* *\/` block are dropped, so no executable line is ever filtered out.
+ * The same is true of three more shapes bun emits DA records for, all of which
+ * are syntax rather than statements. Measured across lib/: of 561 lines the
+ * report called uncovered, 222 were lines holding nothing but closing
+ * punctuation, 78 were continuation lines of a multi-line template literal, and
+ * 37 were members of an `interface`/`type` body. Sixty-four percent of the
+ * "uncovered" figure was therefore unreachable by any test, and it grew fastest
+ * on the code with the most explanation in it — which is a bad thing for a
+ * number to reward.
+ *
+ * Deliberately conservative, in the sense that a wrongly dropped line would
+ * inflate the result silently:
+ *   - closing punctuation only when the line holds NO identifier;
+ *   - template continuations only when the line has no `${…}`, since an
+ *     interpolation is executable;
+ *   - type bodies only between a top-level `interface`/`type X = {` and its
+ *     closing brace.
+ * `} else {` and `} catch {` are deliberately NOT dropped: they are control
+ * flow, and a never-taken branch there is a real gap worth seeing.
  */
 const nonExecCache = new Map<string, Set<number>>();
 
@@ -47,6 +63,8 @@ function nonExecutableLines(srcFile: string): Set<number> {
   if (existsSync(abs)) {
     const lines = readFileSync(abs, 'utf8').split('\n');
     let inBlock = false;
+    let inTemplate = false;
+    let typeDepth = 0;
     lines.forEach((raw, i) => {
       const t = raw.trim();
       const n = i + 1;
@@ -55,12 +73,35 @@ function nonExecutableLines(srcFile: string): Set<number> {
         if (t.includes('*/')) inBlock = false;
         return;
       }
+
+      // A multi-line template literal: everything between the opening and
+      // closing backtick is text, except a line carrying an interpolation.
+      const wasInTemplate = inTemplate;
+      const backticks = (t.match(/(?<!\\)`/g) ?? []).length;
+      if (backticks % 2 === 1) inTemplate = !inTemplate;
+      if (wasInTemplate) {
+        if (!t.includes('${')) out.add(n);
+        return;
+      }
+
       if (!t) out.add(n);
       else if (t.startsWith('//')) out.add(n);
       else if (t.startsWith('/*')) {
         out.add(n);
         if (!t.includes('*/')) inBlock = true;
       }
+      // Members of a type declaration. Entered only from a line that opens one,
+      // so an object literal in executable code is never mistaken for it.
+      else if (typeDepth > 0) {
+        out.add(n);
+        typeDepth += (t.match(/\{/g) ?? []).length - (t.match(/\}/g) ?? []).length;
+      } else if (/^(export\s+)?(interface\s+\w+|type\s+\w+\s*=)[^;]*\{$/.test(t)) {
+        out.add(n);
+        typeDepth = 1;
+      }
+      // Nothing but closing punctuation — `}`, `});`, `],` and friends. The
+      // absence of any word character is what makes this safe.
+      else if (/^[)\]}\s;,]+$/.test(t)) out.add(n);
     });
   }
   nonExecCache.set(srcFile, out);
