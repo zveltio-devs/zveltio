@@ -157,6 +157,34 @@ d('data list RLS in/not_in (in-process)', () => {
     expect(await titlesFor(memberCookie)).toEqual(['beta']);
   });
 
+  it('survives cursor pagination', async () => {
+    // The keyset branch re-implemented filter application and covered only the
+    // six comparison operators, so `in` fell through its `else if` chain and
+    // was never added to the query. The policy did not fail — it was simply
+    // absent — and one query parameter was enough to leave it behind.
+    await setPolicy('in', 'static:red,blue');
+
+    // A cursor from before the first row, so the keyset branch is the one that
+    // answers. `page` must stay 1 for the cursor path to engage.
+    const cursor = Buffer.from(
+      JSON.stringify({
+        val: '1970-01-01T00:00:00.000Z',
+        id: '00000000-0000-0000-0000-000000000000',
+      }),
+    ).toString('base64url');
+
+    const res = await app.request(
+      `/api/data/${COLLECTION}?cursor=${cursor}&sort=created_at&order=asc&limit=50`,
+      { headers: { cookie: memberCookie } },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records?: Array<{ title: string }> };
+    const titles = (body.records ?? []).map((r) => r.title).sort();
+
+    // Same answer the offset path gives — `beta` (green) stays withheld.
+    expect(titles).toEqual(['alpha', 'gamma']);
+  });
+
   it('a god sees every row — through a permission, not a role-name check', async () => {
     // This asserted the opposite until the override was redesigned. It used to
     // read `user.role === 'god'`, which never fired because `session.user.role`

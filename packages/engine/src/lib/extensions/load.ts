@@ -122,6 +122,33 @@ export async function loadExtensionFromDir(
     // companion tooling wave. So WASM extensions today are
     // compute-only or background-only. JS first-party extensions
     // continue to handle the HTTP surface.
+    // MARKETPLACE-POLICY.md §2 publisher-tier gate, BEFORE the runtime is
+    // chosen below.
+    //
+    // It used to sit inside the inline branch, which meant it governed exactly
+    // one of the three runtimes. A manifest with `runtime: "wasm"` took the
+    // branch below and returned before ever reaching it, so a community-tier
+    // WASM extension loaded and registered without the gate having an opinion —
+    // the one decision whose entire job is to say whether untrusted code may
+    // run in this process. (The comment in the worker branch still claimed the
+    // gate "sends community extensions down this branch"; it is below that
+    // branch and sends nothing anywhere. It refuses.)
+    //
+    // Hoisting changes nothing for the other two: the helper already returns ok
+    // for `isolation: 'worker'` and for ZVELTIO_ALLOW_INLINE_THIRD_PARTY, so
+    // the inline and worker paths see the same answer they saw before, just
+    // sooner.
+    const tierPhase = await enforcePublisherTier(extName, manifest);
+    if (!tierPhase.ok) {
+      if (tierPhase.logLevel !== 'none') {
+        console[tierPhase.logLevel](...tierPhase.logArgs);
+      }
+      if (tierPhase.lastLoadError !== null) {
+        loader.lastLoadError.set(extName, tierPhase.lastLoadError);
+      }
+      return;
+    }
+
     let extension: ZveltioExtension;
     if (extRuntime === 'wasm') {
       const wasmPath = join(extDir, 'engine', 'extension.wasm');
@@ -151,9 +178,9 @@ export async function loadExtensionFromDir(
     } else if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
       // Worker-isolated path — deliberately does NOT import the entry module.
       //
-      // `enforcePublisherTier` above sends community (untrusted, third-party)
-      // extensions down this branch precisely because the worker is meant to be
-      // the boundary. Importing the module here would run its TOP-LEVEL code in
+      // `enforcePublisherTier` above REFUSES a community (untrusted,
+      // third-party) extension that has not declared this isolation, precisely
+      // because the worker is meant to be the boundary. Importing the module here would run its TOP-LEVEL code in
       // the engine process, with engine privileges, before any worker exists —
       // so a hostile extension never has to reach a route handler to win, and
       // everything the worker enforces afterwards is irrelevant to it.
@@ -215,20 +242,6 @@ export async function loadExtensionFromDir(
       // When bundled, we skip the CORE_NPM_PACKAGES presence check
       // and import the .js artifact directly.
       const isBundled = manifest?.engine?.bundled === true;
-
-      // Phase 2 — MARKETPLACE-POLICY.md §2 publisher-tier gate. Pure helper;
-      // its failure reports the exact console.error line + lastLoadError the
-      // pre-split inline gate used.
-      const tierPhase = await enforcePublisherTier(extName, manifest);
-      if (!tierPhase.ok) {
-        if (tierPhase.logLevel !== 'none') {
-          console[tierPhase.logLevel](...tierPhase.logArgs);
-        }
-        if (tierPhase.lastLoadError !== null) {
-          loader.lastLoadError.set(extName, tierPhase.lastLoadError);
-        }
-        return;
-      }
 
       // Phase 3 — resolve the on-disk module path (bundled entry + integrity +
       // bundlePeers, or legacy .ts + core-dep presence). Same verbatim-replay
