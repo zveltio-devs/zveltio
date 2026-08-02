@@ -4,10 +4,44 @@ import {
   webhookDeliveryDuration,
   webhookRetries,
 } from './runtime/index.js';
+import type Redis from 'ioredis';
 import { WebhookManager } from './webhooks.js';
 
 let _running = false;
 let _interval: ReturnType<typeof setInterval> | null = null;
+
+/** Redis key holding webhooks that exhausted their retries. */
+export const WEBHOOK_DLQ_KEY = 'webhook:dlq';
+
+/**
+ * How many abandoned deliveries to keep.
+ *
+ * Bounded because the failure mode this exists for — an endpoint that has been
+ * down for a week — is exactly the one that produces the most entries. Newest
+ * are kept: an old payload is the least likely to still be worth replaying.
+ */
+const DLQ_MAX = parseInt(process.env.WEBHOOK_DLQ_MAX ?? '') || 1000;
+
+async function pushToDeadLetter(
+  cache: Redis,
+  payload: { url?: string; event?: string; attempt: number },
+): Promise<void> {
+  console.error(
+    `[WebhookWorker] giving up on ${payload.event ?? 'event'} → ${payload.url ?? 'unknown url'} ` +
+      `after ${payload.attempt + 1} attempt(s); moved to the dead-letter queue`,
+  );
+  try {
+    await cache.lpush(
+      WEBHOOK_DLQ_KEY,
+      JSON.stringify({ ...payload, failedAt: new Date().toISOString() }),
+    );
+    await cache.ltrim(WEBHOOK_DLQ_KEY, 0, DLQ_MAX - 1);
+  } catch (err) {
+    // The cache being unavailable is why we are here in the first place for
+    // some failures; losing the record is bad but must not stop the worker.
+    console.error('[WebhookWorker] could not write to the dead-letter queue:', err);
+  }
+}
 
 export const webhookWorker = {
   start(pollMs = 1000): void {
@@ -87,6 +121,17 @@ export const webhookWorker = {
           // Exponential backoff: 1s → 2s → 4s
           const delayMs = Math.pow(2, payload.attempt) * 1000;
           await cache.zadd('webhook:retry', Date.now() + delayMs, JSON.stringify(retryPayload));
+        } else if (!ok) {
+          // Retries exhausted. This used to be the end of it: the payload fell
+          // out of the loop and was gone, with nothing written down. A webhook
+          // is how the outside world learns something happened here, so a
+          // silent drop is a business event that quietly did not occur — and
+          // the operator has no way to know, since the delivery metric counts
+          // failures the same whether they were retried or abandoned.
+          //
+          // The payload is kept so it can be inspected and replayed, capped so
+          // an endpoint that is down for a week cannot fill the cache.
+          await pushToDeadLetter(cache, payload);
         }
       }),
     );

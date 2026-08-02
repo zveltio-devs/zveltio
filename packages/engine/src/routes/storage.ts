@@ -3,6 +3,8 @@ import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
+import { checkStorageQuota } from '../lib/storage-quota.js';
 
 // Object storage goes through the pluggable driver (lib/storage): `local`
 // filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
@@ -243,6 +245,23 @@ export function storageRoutes(db: Database, auth: any): Hono {
       return c.json(
         {
           error: `File too large. Maximum allowed size is ${Math.round(maxBytes / 1024 / 1024)} MB.`,
+        },
+        413,
+      );
+    }
+
+    // And the cumulative quota, which is a different question from per-file
+    // size. This route writes the same `zv_media_files` rows as the media
+    // upload and counts against the same allowance, but checked only the line
+    // above — so a user at their limit could keep uploading indefinitely by
+    // coming through here instead, as long as each file was small enough.
+    const quota = await checkStorageQuota(reqDb(c, db), tenantId(c), user.id, file.size);
+    if (!quota.ok) {
+      return c.json(
+        {
+          error: 'Storage quota exceeded',
+          used_bytes: quota.usedBytes,
+          quota_bytes: quota.quotaBytes,
         },
         413,
       );

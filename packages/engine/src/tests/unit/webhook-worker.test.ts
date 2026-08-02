@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
-import { webhookWorker } from '../../lib/webhook-worker.js';
+import { WEBHOOK_DLQ_KEY, webhookWorker } from '../../lib/webhook-worker.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: fake Redis for the worker under test
 type Args = any[];
@@ -20,6 +20,8 @@ class FakeRedis {
   zaddCalls: Args[] = [];
   zremCalls: Args[] = [];
   rpushCalls: Args[] = [];
+  lpushCalls: Args[] = [];
+  ltrimCalls: Args[] = [];
   lpopQueue: string[] = [];
   private lmpopItems: string[] | null;
   private lmpopThrows: boolean;
@@ -51,6 +53,14 @@ class FakeRedis {
   async rpush(...a: Args): Promise<number> {
     this.rpushCalls.push(a);
     return 1;
+  }
+  async lpush(...a: Args): Promise<number> {
+    this.lpushCalls.push(a);
+    return 1;
+  }
+  async ltrim(...a: Args): Promise<string> {
+    this.ltrimCalls.push(a);
+    return 'OK';
   }
 }
 
@@ -128,6 +138,48 @@ describe('webhookWorker._process', () => {
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
     expect(cache.zaddCalls.length).toBe(0);
+  });
+
+  it('dead-letters the payload instead of dropping it', async () => {
+    // What used to happen here was nothing: the payload fell out of the loop
+    // and was gone. A webhook is how the outside world learns something
+    // happened, so a silent drop is a business event that quietly did not
+    // occur — and the delivery metric counts a failure the same whether it
+    // was retried or abandoned, so no dashboard showed it either.
+    stubFetch(500);
+    const cache = new FakeRedis({ lmpop: [payload({ attempt: 3, retryAttempts: 3 })] });
+    _setCacheForTests(cache as unknown as Redis);
+    await webhookWorker._process();
+
+    expect(cache.lpushCalls.length).toBe(1);
+    expect(cache.lpushCalls[0][0]).toBe(WEBHOOK_DLQ_KEY);
+    const dead = JSON.parse(cache.lpushCalls[0][1] as string);
+    expect(dead.url).toBe('https://hooks.example.com/x');
+    expect(dead.event).toBe('record.created');
+    expect(dead.data).toEqual({ id: '1' }); // the body, so a replay can resend it
+    expect(typeof dead.failedAt).toBe('string');
+  });
+
+  it('caps the dead-letter queue', async () => {
+    // The failure this exists for — an endpoint down for a week — is the one
+    // that produces the most entries, so it must not be able to fill the cache.
+    stubFetch(500);
+    const cache = new FakeRedis({ lmpop: [payload({ attempt: 3, retryAttempts: 3 })] });
+    _setCacheForTests(cache as unknown as Redis);
+    await webhookWorker._process();
+    expect(cache.ltrimCalls[0]).toEqual([WEBHOOK_DLQ_KEY, 0, 999]);
+  });
+
+  it('keeps draining when the dead-letter write fails', async () => {
+    // The cache being unreachable is itself a reason deliveries fail. Losing
+    // the record is bad; stopping the worker is worse.
+    stubFetch(500);
+    const cache = new FakeRedis({ lmpop: [payload({ attempt: 3, retryAttempts: 3 })] });
+    cache.lpush = async () => {
+      throw new Error('cache gone');
+    };
+    _setCacheForTests(cache as unknown as Redis);
+    expect(webhookWorker._process()).resolves.toBeUndefined();
   });
 
   it('falls back to LPOP when LMPOP is unsupported', async () => {

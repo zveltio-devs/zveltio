@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -6,6 +7,8 @@ import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
+import { getCache } from '../lib/runtime/index.js';
+import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -68,6 +71,72 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (!webhook) return webhook;
     return { ...webhook, secret: webhook.secret ? '••••••••' : null };
   }
+
+  // ── Dead-letter queue ───────────────────────────────────────────────────
+  //
+  // Deliveries that exhausted their retries used to be dropped where they
+  // stood. They are now kept, which is only half the job: a queue nobody can
+  // read is a log file with extra steps. These two endpoints are the other
+  // half — see what was abandoned, and send it again once the endpoint is
+  // back.
+  //
+  // Filtered to this tenant's own webhook URLs so one tenant's admin cannot
+  // read another's payloads out of a cache key they happen to share.
+
+  /** The URLs this tenant owns — the DLQ is a flat Redis list, not a table. */
+  async function ownUrls(c: Context): Promise<Set<string>> {
+    const rows = await db
+      .selectFrom('zvd_webhooks')
+      .select('url')
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
+    return new Set(rows.map((r) => r.url));
+  }
+
+  // GET /dlq — abandoned deliveries, newest first. Declared before `/:id` so
+  // the param route does not capture "dlq".
+  app.get('/dlq', async (c) => {
+    const cache = getCache();
+    if (!cache) return c.json({ entries: [], available: false });
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '50') || 50, 500);
+    const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, limit - 1).catch(() => []);
+    const mine = await ownUrls(c);
+    const entries = raw
+      .map((r) => {
+        try {
+          return JSON.parse(r) as { url?: string };
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is { url?: string } => e !== null && !!e.url && mine.has(e.url));
+    return c.json({ entries, available: true });
+  });
+
+  // POST /dlq/replay — put abandoned deliveries back on the queue.
+  app.post('/dlq/replay', async (c) => {
+    const cache = getCache();
+    if (!cache) return c.json({ error: 'Cache unavailable' }, 503);
+    const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, -1).catch(() => []);
+    const mine = await ownUrls(c);
+    let replayed = 0;
+    for (const item of raw) {
+      let parsed: { url?: string } | null = null;
+      try {
+        parsed = JSON.parse(item) as { url?: string };
+      } catch {
+        continue;
+      }
+      if (!parsed.url || !mine.has(parsed.url)) continue;
+      // `attempt: 0` so the replay gets the full retry budget again rather
+      // than one last try — the endpoint being back is a new situation.
+      const { failedAt: _failedAt, ...payload } = parsed as Record<string, unknown>;
+      await cache.rpush('webhook:queue', JSON.stringify({ ...payload, attempt: 0 }));
+      await cache.lrem(WEBHOOK_DLQ_KEY, 1, item);
+      replayed++;
+    }
+    return c.json({ replayed });
+  });
 
   // GET / — List all webhooks
   app.get('/', async (c) => {

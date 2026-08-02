@@ -469,6 +469,20 @@ async function buildHonoApp(): Promise<Hono> {
     if (path.startsWith('/api/import')) return bodyLimit({ maxSize: IMPORT_MAX })(c, next);
     return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next);
   });
+  // `/ext/*` had no limit at all — the reasoning above applies to it more, not
+  // less. Extension handlers call `c.req.formData()` the same way (media
+  // upload, CSV import, SAML POST), and they are third-party code the engine
+  // does not review, so "the handler checks the size itself" is an assumption
+  // rather than a guarantee. An unbounded body here took the process down
+  // whatever the extension intended.
+  //
+  // One ceiling rather than the per-path table above: extension routes are not
+  // knowable here, and a new extension must not arrive unbounded by default.
+  // It is sized to the largest a shipped extension accepts (data/import's
+  // 100 MB) so nothing that works today starts failing, and tunable for an
+  // operator whose extension needs more.
+  const EXT_MAX = parseInt(process.env.MAX_EXT_BODY_BYTES ?? '') || IMPORT_MAX;
+  app.use('/ext/*', bodyLimit({ maxSize: EXT_MAX }));
   app.use(
     '/api/*',
     cors({

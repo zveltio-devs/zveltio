@@ -10,6 +10,7 @@ import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { checkStorageQuota } from '../lib/storage-quota.js';
 
 // Object storage goes through the pluggable driver (lib/storage): `local`
 // filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
@@ -310,22 +311,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
-    // Check storage quota
-    const usageResult = await reqDb(c, db)
-      .selectFrom('zv_media_files')
-      .select(({ fn }) => fn.sum('size').as('total'))
-      .where('tenant_id', '=', tenantId(c))
-      .where('created_by', '=', user.id)
-      .where('deleted_at', 'is', null)
-      .executeTakeFirst();
-    const quotaRecord = await reqDb(c, db)
-      .selectFrom('zv_storage_quotas')
-      .selectAll()
-      .where('user_id', '=', user.id)
-      .executeTakeFirst();
-    const usedBytes = Number(usageResult?.total || 0);
-    const quotaBytes = quotaRecord?.quota_bytes ?? 5368709120;
-    if (usedBytes + file.size > quotaBytes) {
+    // Check storage quota. Shared with /api/storage/upload, which writes the
+    // same table and used to skip this entirely.
+    const quota = await checkStorageQuota(reqDb(c, db), tenantId(c), user.id, file.size);
+    if (!quota.ok) {
       return c.json({ error: 'Storage quota exceeded' }, 413);
     }
 
