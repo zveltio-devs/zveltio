@@ -274,7 +274,7 @@
               <span>{selected.item_name_from_invoice ?? '?'}</span>
             </div>
             <div class="flex justify-between">
-              <span class="opacity-60">Lot</span>
+              <span class="opacity-60">{m['operations.traceability.lot']()}</span>
               <span class="font-mono">{selected.lot_number ?? '—'}</span>
             </div>
             {#if selected.best_before_date}

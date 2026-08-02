@@ -76,7 +76,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
       <div class="space-y-4">
         <div class="form-control">
-          <label class="label" for="role-select"><span class="label-text font-medium">Role</span></label>
+          <label class="label" for="role-select"><span class="label-text font-medium">{m['common.col.role']()}</span></label>
           <select id="role-select" class="select select-bordered select-sm" value={selectedRole}
             onchange={(e) => selectRole((e.currentTarget as HTMLSelectElement).value)}>
             {#each roles as r (r)}<option value={r}>{r}</option>{/each}
@@ -88,13 +88,13 @@
 
         <div class="card bg-base-200">
           <div class="card-body p-4 space-y-2">
-            <h2 class="font-medium text-sm">Widgets for this role</h2>
+            <h2 class="font-medium text-sm">{m['analytics.dashboard.widgetsForRole']()}</h2>
             {#each cat.catalog as w (w.id)}
               <label class="flex items-center gap-3 p-1.5 rounded hover:bg-base-300/40 cursor-pointer">
                 <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" bind:checked={draft[w.id]} disabled={!w.removable} />
                 <span class="text-sm flex-1">{LABELS[w.id] ?? w.id}</span>
                 {#if w.permission}
-                  <span class="badge badge-ghost badge-xs" title="Requires this permission">{w.permission.resource}:{w.permission.action}</span>
+                  <span class="badge badge-ghost badge-xs" title={m['analytics.dashboard.requiresPermission']()}>{w.permission.resource}:{w.permission.action}</span>
                 {:else}
                   <span class="badge badge-success badge-xs badge-outline">everyone</span>
                 {/if}
@@ -112,7 +112,7 @@
       </div>
 
       <div class="space-y-2">
-        <h2 class="font-medium text-sm flex items-center gap-2 text-base-content/60"><Eye size={16} /> Included widgets</h2>
+        <h2 class="font-medium text-sm flex items-center gap-2 text-base-content/60"><Eye size={16} /> {m['analytics.dashboard.includedWidgets']()}</h2>
         <div class="border border-base-300 rounded-lg p-4 bg-base-100">
           {#if selectedWidgets.length}
             <div class="flex flex-wrap gap-2">
@@ -121,7 +121,7 @@
               {/each}
             </div>
           {:else}
-            <p class="text-sm text-base-content/50 py-8 text-center">No widgets selected.</p>
+            <p class="text-sm text-base-content/50 py-8 text-center">{m['analytics.dashboard.noWidgets']()}</p>
           {/if}
         </div>
       </div>
