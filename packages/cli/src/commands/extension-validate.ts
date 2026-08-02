@@ -15,6 +15,7 @@ import {
   validateExtension,
   validateSduiSchema,
   extractEngineRoutes,
+  SHARED_MESSAGE_KEYS,
   type ValidationError,
 } from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
@@ -127,6 +128,55 @@ function readEngineSources(dir: string): string[] {
  *   `.../zveltio-extensions/finance/invoicing` → `finance/invoicing`.
  * If the extension is somewhere else, fall back to the basename.
  */
+/**
+ * Message keys an SDUI schema in this extension may resolve against: the keys
+ * it ships itself, plus the host's shared vocabulary.
+ *
+ * `en` is the right source — the merge step fills missing locales from it, and
+ * per-locale parity is a separate concern from "does this key exist at all".
+ * Returns undefined when the extension ships no catalogue, which switches the
+ * i18n checks off rather than reporting every string as missing.
+ */
+function readOwnMessageKeys(dir: string): Set<string> | undefined {
+  const path = join(dir, 'studio', 'messages', 'en.json');
+  if (!existsSync(path)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    return new Set(Object.keys(parsed));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Message keys a declared dependency ships.
+ *
+ * The endpoint check already treats a dependency's namespace as legitimate;
+ * keys follow the same rule. They have to be read from disk rather than derived
+ * from the dependency's name, because the two don't correspond — `finance/
+ * invoicing` owns `invoicing.*`, `operations/inventory` owns `inventory.*`.
+ *
+ * Only resolvable inside the extensions monorepo, where dependencies are
+ * siblings. Elsewhere this returns nothing and the dependency's keys are
+ * reported as unknown — the conservative direction.
+ */
+function readDependencyMessageKeys(dir: string, extName: string, deps: string[]): Set<string> {
+  const out = new Set<string>();
+  // `extName` is `<category>/<name>`, so the repo root is that many levels up.
+  const depth = extName.split('/').length;
+  const root = join(dir, ...Array(depth).fill('..'));
+  for (const dep of deps) {
+    const path = join(root, dep, 'studio', 'messages', 'en.json');
+    if (!existsSync(path)) continue;
+    try {
+      for (const k of Object.keys(JSON.parse(readFileSync(path, 'utf8')) as object)) out.add(k);
+    } catch {
+      /* a dependency with an unreadable catalogue is its own validation's problem */
+    }
+  }
+  return out;
+}
+
 function inferExpectedName(dir: string): string {
   const norm = dir.replace(/\\/g, '/');
   // lastIndexOf, not indexOf: GitHub Actions checks the repo out at
@@ -257,6 +307,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       const extName =
         typeof manifestRecord?.name === 'string' ? manifestRecord.name : inferExpectedName(dir);
       const provided = extractEngineRoutes(readEngineSources(dir));
+      const ownMessageKeys = readOwnMessageKeys(dir);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)
         ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -296,15 +347,31 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             extName,
             providedRoutes: provided,
             dependencies,
+            messageKeys:
+              ownMessageKeys &&
+              new Set([
+                ...ownMessageKeys,
+                ...SHARED_MESSAGE_KEYS,
+                ...readDependencyMessageKeys(dir, extName, dependencies),
+              ]),
             file: rel,
           }),
         );
       }
       result.errors.push(...sduiErrors);
-      if (sduiErrors.length > 0) result.ok = false;
-      console.log(
-        `  SDUI schemas:  ${sduiErrors.length === 0 ? c.green(`${schemaPages.length} OK`) : c.red(`${sduiErrors.length} error(s)`)}`,
-      );
+      // Only hard errors fail the run. Hardcoded-text findings are warnings:
+      // they are real debt but not a defect the user can see as breakage, and a
+      // gate that fails a working extension on day one gets switched off.
+      const sduiHard = sduiErrors.filter((e) => e.severity !== 'warning');
+      if (sduiHard.length > 0) result.ok = false;
+      const sduiWarn = sduiErrors.length - sduiHard.length;
+      const sduiSummary =
+        sduiHard.length > 0
+          ? c.red(`${sduiHard.length} error(s)`)
+          : sduiWarn > 0
+            ? c.yellow(`${schemaPages.length} OK, ${sduiWarn} warning(s)`)
+            : c.green(`${schemaPages.length} OK`);
+      console.log(`  SDUI schemas:  ${sduiSummary}`);
     }
   }
 

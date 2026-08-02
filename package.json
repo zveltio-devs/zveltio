@@ -3,7 +3,7 @@
   "version": "3.0.0-beta.43",
   "private": true,
   "packageManager": "bun@1.3.13",
-  "description": "Self-hosted Business OS \u2014 own your hardware, own your data.",
+  "description": "Self-hosted Business OS — own your hardware, own your data.",
   "workspaces": [
     "packages/*"
   ],
@@ -25,12 +25,13 @@
     "coverage:unit": "cd packages/engine && bun run test:unit:coverage",
     "coverage:gate": "bun run scripts/coverage-gate.ts",
     "studio:dev": "cd packages/studio && bunx vite dev --port 5173",
-    "prepush": "bun run check:schema && bun run any:ratchet && bun run format:check && bun run typecheck",
+    "prepush": "bun run check:schema && bun run check:shared-keys && bun run any:ratchet && bun run format:check && bun run typecheck",
     "studio:build": "cd packages/studio && bun run build",
     "studio:embed": "cp -r packages/studio/dist packages/engine/src/studio-dist",
     "changeset": "changeset",
     "version-packages": "changeset version && bun run scripts/sync-engine-version.ts",
-    "tag": "changeset tag"
+    "tag": "changeset tag",
+    "check:shared-keys": "bun run scripts/sync-shared-message-keys.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
