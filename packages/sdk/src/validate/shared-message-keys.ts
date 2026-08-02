@@ -10,7 +10,7 @@
  * host whose core catalogue happens to know about it, which is not a property
  * an installable extension should depend on.
  *
- * Source: packages/studio/messages/core/en.json (179 keys)
+ * Source: packages/studio/messages/core/en.json (181 keys)
  */
 export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.actions',
@@ -54,6 +54,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.col.end',
   'common.col.event',
   'common.col.field',
+  'common.col.file',
   'common.col.from',
   'common.col.hireDate',
   'common.col.host',
@@ -144,6 +145,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.open',
   'common.optional',
   'common.optionalParen',
+  'common.other',
   'common.pageOf',
   'common.post',
   'common.prev',
