@@ -23,4 +23,8 @@ export * from './field-type-registry.js';
 //   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
 //     checks, including the tenant comparison edge functions had left out.
 export { processInput } from './write-pipeline.js';
+//   - `normalizeFields` so the extension write proxy can tell a collection's
+//     declared fields from the system columns an extension passes alongside
+//     them (`id`, `created_by`); `processInput` returns only the former.
+export { normalizeFields } from './shape.js';
 export { validateApiKey } from './auth.js';
