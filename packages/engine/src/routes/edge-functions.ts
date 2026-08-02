@@ -309,7 +309,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
         // has to run before a tenant is known), so `reqDb` filtered nothing:
         // tenant A's key authenticated here and the lookup below then served
         // tenant B's function.
-        const { validateApiKey } = await import('../lib/data/auth.js');
+        const { validateApiKey } = await import('../lib/data/index.js');
         const apiKey = await validateApiKey(db, rawKey, tenantId(c)).catch(() => null);
         authed = !!apiKey;
       }

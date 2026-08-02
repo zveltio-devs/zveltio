@@ -15,8 +15,7 @@ import {
   getRlsFilters,
   resolveUserRole,
 } from '../lib/tenancy/index.js';
-import { DDLManager } from '../lib/data/index.js';
-import { processInput } from '../lib/data/write-pipeline.js';
+import { DDLManager, processInput } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function syncRoutes(db: Database, _auth: any): Hono {

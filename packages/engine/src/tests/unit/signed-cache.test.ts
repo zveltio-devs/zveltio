@@ -61,6 +61,14 @@ describe('signed cache', () => {
     expect(decodeSigned('rls', 'k', 'deadbeef:not json')).toBeNull();
   });
 
+  it('treats a correctly signed but unparseable value as a miss', () => {
+    // `JSON.stringify(undefined)` is `undefined`, so caching an absent value
+    // stores the literal text "undefined" under a VALID signature. Parsing it
+    // throws, and the caller must get a miss rather than a 500.
+    const raw = encodeSigned('rls', 'k', undefined);
+    expect(decodeSigned('rls', 'k', raw)).toBeNull();
+  });
+
   it('refuses a signature of the wrong length without throwing', () => {
     // timingSafeEqual throws on a length mismatch; the guard must come first.
     expect(decodeSigned('rls', 'k', 'ab:[]')).toBeNull();
