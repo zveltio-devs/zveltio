@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/data/index.js';
 import { generateId } from '../lib/utils.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
@@ -183,12 +184,19 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   router.get('/files', async (c) => {
     const { folder_id, tag, search, limit = '50', offset = '0', mime_type } = c.req.query();
 
-    let query = reqDb(c, db)
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('tenant_id', '=', tenantId(c))
-      .where('deleted_at', 'is', null)
-      .orderBy('created_at', 'desc');
+    // Only what this user may read. The listing used to require a session and
+    // nothing else, so it showed every colleague's uploads to everyone.
+    const listUser = c.get('user' as never) as { id: string };
+    let query = applyFileVisibility(
+      reqDb(c, db)
+        .selectFrom('zv_media_files')
+        .selectAll()
+        .where('tenant_id', '=', tenantId(c))
+        .where('deleted_at', 'is', null)
+        .orderBy('created_at', 'desc'),
+      listUser.id,
+      await isTenantAdmin(listUser.id).catch(() => false),
+    );
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
     if (mime_type) query = query.where('mimetype', 'ilike', `${mime_type}%`);
@@ -288,6 +296,13 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
+
+    // 404 rather than 403: whether a colleague's private file exists is itself
+    // something they did not share.
+    const getUser = c.get('user' as never) as { id: string };
+    if (!mayReadFile(file, getUser.id, await isTenantAdmin(getUser.id).catch(() => false))) {
+      return c.json({ error: 'File not found' }, 404);
+    }
 
     const tags = await reqDb(c, db)
       .selectFrom('zv_media_file_tags')
@@ -512,6 +527,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       thumbnail_url: thumbnailUrl,
       storage_path: key,
       created_by: user.id,
+      // The media LIBRARY is the shared-asset half of this table — an editor
+      // uploads the logo so everyone can use it. The column defaults to
+      // `personal`, so this route says so explicitly rather than inheriting a
+      // default meant for the personal-storage route.
+      visibility: 'tenant' as const,
       title: title || null,
       description: description || null,
       alt_text: altText || null,

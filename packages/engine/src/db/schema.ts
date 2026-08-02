@@ -387,6 +387,13 @@ export interface ZvMediaFilesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  /**
+   * `tenant` — the shared asset library, readable by anyone in the tenant.
+   * `personal` — the uploader's own file (migration 028). Listing every
+   * colleague's uploads to every logged-in user is not what a Business OS for
+   * companies and public institutions should do by default.
+   */
+  visibility: Generated<'tenant' | 'personal'>;
   title: string | null;
   description: string | null;
   alt_text: string | null;
