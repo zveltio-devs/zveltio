@@ -177,7 +177,7 @@ function viewTypeIcon(type: string) {
                 </div>
               </div>
               <button
-                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
                 onclick={() => deleteView(v.id, v.name)}
                 title={m['common.delete']()}
               >

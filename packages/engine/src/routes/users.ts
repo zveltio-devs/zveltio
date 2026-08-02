@@ -10,6 +10,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { revokeAllUserSessions } from '../lib/auth.js';
 import { escapeLike } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -253,6 +254,12 @@ export function usersRoutes(db: Database, auth: any): Hono {
     if (userId === adminUser.id) {
       return c.json({ error: 'Cannot delete your own account' }, 400);
     }
+
+    // Sessions first, and through a helper that also clears the cache: the
+    // FK cascade removes the `session` rows but not better-auth's
+    // `secondaryStorage` copy, so a deleted user's cookie kept working until
+    // the entry aged out of Valkey.
+    await revokeAllUserSessions(db, userId);
 
     await db.deleteFrom('user').where('id', '=', userId).execute();
 
