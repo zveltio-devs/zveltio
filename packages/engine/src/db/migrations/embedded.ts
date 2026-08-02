@@ -23,6 +23,18 @@ import m011 from './sql/012_media_tags_tenant_isolation.sql' with { type: 'text'
 import m012 from './sql/013_dashboards_tenant_isolation.sql' with { type: 'text' };
 import m013 from './sql/014_flows_tenant_isolation.sql' with { type: 'text' };
 import m014 from './sql/015_edge_functions_tenant_isolation.sql' with { type: 'text' };
+import m015 from './sql/016_webhooks_tenant_isolation.sql' with { type: 'text' };
+import m016 from './sql/017_zones_views_tenant_isolation.sql' with { type: 'text' };
+import m017 from './sql/018_revisions_tenant_isolation.sql' with { type: 'text' };
+import m018 from './sql/019_saved_queries_import_tenant_isolation.sql' with { type: 'text' };
+import m019 from './sql/020_translation_keys_missing_cols.sql' with { type: 'text' };
+import m020 from './sql/021_api_keys_invitations_tenant_isolation.sql' with { type: 'text' };
+import m021 from './sql/022_extension_granted_capabilities.sql' with { type: 'text' };
+import m022 from './sql/023_extension_digest_pin.sql' with { type: 'text' };
+import m023 from './sql/024_flow_reader_role.sql' with { type: 'text' };
+import m024 from './sql/026_api_key_rls_bypass.sql' with { type: 'text' };
+import m025 from './sql/027_validation_rules_safe_activation.sql' with { type: 'text' };
+import m026 from './sql/028_media_file_visibility.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -41,4 +53,16 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '013_dashboards_tenant_isolation.sql': m012,
   '014_flows_tenant_isolation.sql': m013,
   '015_edge_functions_tenant_isolation.sql': m014,
+  '016_webhooks_tenant_isolation.sql': m015,
+  '017_zones_views_tenant_isolation.sql': m016,
+  '018_revisions_tenant_isolation.sql': m017,
+  '019_saved_queries_import_tenant_isolation.sql': m018,
+  '020_translation_keys_missing_cols.sql': m019,
+  '021_api_keys_invitations_tenant_isolation.sql': m020,
+  '022_extension_granted_capabilities.sql': m021,
+  '023_extension_digest_pin.sql': m022,
+  '024_flow_reader_role.sql': m023,
+  '026_api_key_rls_bypass.sql': m024,
+  '027_validation_rules_safe_activation.sql': m025,
+  '028_media_file_visibility.sql': m026,
 };

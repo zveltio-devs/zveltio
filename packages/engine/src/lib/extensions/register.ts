@@ -108,24 +108,49 @@ let _engineTables: Set<string> | null = null;
 async function engineOwnedTables(): Promise<Set<string>> {
   if (_engineTables) return _engineTables;
   const tables = new Set<string>();
-  const dir = join(import.meta.dir, '..', '..', 'db', 'migrations', 'sql');
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
+
+  const collect = (content: string): void => {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) tables.add(m[1].toLowerCase());
+  };
+
+  // Source mode reads the .sql files; a compiled binary has no filesystem to
+  // read them from and carries them as `EMBEDDED_MIGRATIONS` instead. Same
+  // fork the migration runner makes — and getting it wrong here is not
+  // cosmetic: the first release built after this landed refused to load ANY
+  // extension, because `readdirSync` threw on a directory that does not exist
+  // inside the binary and this function fails loud by design.
+  const dir = join(import.meta.dir, '..', '..', 'db', 'migrations', 'sql');
+  let readFromDisk = false;
   try {
-    for (const file of readdirSync(dir)
+    const files = readdirSync(dir)
       .filter((f) => f.endsWith('.sql'))
-      .sort()) {
-      const content = await Bun.file(join(dir, file)).text();
-      re.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(content)) !== null) tables.add(m[1].toLowerCase());
+      .sort();
+    for (const file of files) collect(await Bun.file(join(dir, file)).text());
+    readFromDisk = files.length > 0;
+  } catch {
+    /* not source mode — fall through to the embedded copy */
+  }
+
+  if (!readFromDisk) {
+    const { EMBEDDED_MIGRATIONS } = await import('../../db/migrations/embedded.js');
+    for (const file of Object.keys(EMBEDDED_MIGRATIONS).sort()) {
+      collect(EMBEDDED_MIGRATIONS[file] as string);
     }
-  } catch (err) {
+  }
+
+  if (tables.size === 0) {
     // Fail LOUD rather than open: an empty set would silently restore the
     // self-grant this guard exists to stop.
     throw new Error(
-      `Cannot read engine migrations at ${dir} to determine protected tables: ${(err as Error).message}`,
+      'Could not determine the engine-owned tables from either the migrations ' +
+        'directory or the embedded copy. Refusing to grant extension table access ' +
+        'against an empty protected list.',
     );
   }
+
   _engineTables = tables;
   return tables;
 }
