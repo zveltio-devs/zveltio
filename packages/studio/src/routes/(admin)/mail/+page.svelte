@@ -500,7 +500,7 @@
           {:else}
             {#each messages as msg}
               <div class="flex items-start group hover:bg-base-200 transition-colors {selectedMessage?.id === msg.id ? 'bg-primary/10' : ''}">
-                <input type="checkbox" class="checkbox checkbox-xs m-3 mt-4 shrink-0 opacity-0 group-hover:opacity-100 {selectedIds.has(msg.id) ? 'opacity-100' : ''}"
+                <input type="checkbox" class="checkbox checkbox-xs m-3 mt-4 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 {selectedIds.has(msg.id) ? 'opacity-100' : ''}"
                   checked={selectedIds.has(msg.id)} onchange={() => toggleSelect(msg.id)} />
                 <button class="flex-1 text-left px-2 py-2.5 min-w-0" onclick={() => selectMessage(msg)}>
                   <div class="flex items-center justify-between gap-1">
@@ -514,7 +514,7 @@
                 </button>
                 <div class="flex flex-col items-center gap-1 p-1 shrink-0">
                   {#if !msg.is_read}<span class="w-1.5 h-1.5 bg-primary rounded-full"></span>{/if}
-                  <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-xs p-0.5" onclick={() => toggleStar(msg)}>
+                  <button class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 btn btn-ghost btn-xs p-0.5" onclick={() => toggleStar(msg)}>
                     <Star class="w-3 h-3 {msg.is_starred ? 'fill-yellow-400 text-yellow-400' : ''}" />
                   </button>
                 </div>

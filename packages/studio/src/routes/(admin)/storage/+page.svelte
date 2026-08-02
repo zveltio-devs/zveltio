@@ -193,7 +193,7 @@ function openPreview(file: MediaFile) {
  {#each filtered as file}
  <div class="card bg-base-200 overflow-hidden relative group {selectedFiles.has(file.id) ? 'ring-2 ring-primary' : ''}">
  <!-- Checkbox overlay -->
- <div class="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity {selectedFiles.has(file.id) ? 'opacity-100' : ''}">
+ <div class="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity {selectedFiles.has(file.id) ? 'opacity-100' : ''}">
  <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
  checked={selectedFiles.has(file.id)}
  onclick={(e: MouseEvent) => {

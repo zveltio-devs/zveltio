@@ -341,7 +341,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <!-- Edit limits -->
  <button
- class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 tooltip"
+ class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 focus-within:opacity-100 tooltip"
  data-tip="Edit Limits"
  onclick={() => openEditLimits(tenant)}
  >

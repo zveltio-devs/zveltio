@@ -335,7 +335,7 @@ let confirmState = $state<{
               {fmtDate(record.created_at)}
             </td>
             <td>
-              <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                 <button
                   onclick={() => onEdit(record)}
                   class="btn btn-ghost btn-xs"

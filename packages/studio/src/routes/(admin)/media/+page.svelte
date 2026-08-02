@@ -249,7 +249,7 @@
  <span class="truncate">{folder.name}</span>
  </button>
  <button
- class="btn btn-xs btn-ghost btn-square opacity-0 group-hover:opacity-100"
+ class="btn btn-xs btn-ghost btn-square opacity-0 group-hover:opacity-100 focus-within:opacity-100"
  onclick={() => deleteFolder(folder.id)}
  >
  <Trash2 size={12} class="text-error" />

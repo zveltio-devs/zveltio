@@ -163,7 +163,7 @@ async function deleteZone(slug: string, name: string) {
                   <p class="text-xs text-base-content/40 font-mono truncate">{z.base_path}</p>
                 </div>
               </div>
-              <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                 <button
                   class="btn btn-ghost btn-xs text-error"
                   onclick={() => deleteZone(z.slug, z.name)}
