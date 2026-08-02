@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -213,11 +214,17 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = effectiveDb
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('tenant_id', '=', tenantOf(c))
-      .orderBy('created_at', 'desc');
+    // Only what this user may read — see lib/media-visibility.ts.
+    const listUser = c.get('user') as { id: string };
+    let query = applyFileVisibility(
+      effectiveDb
+        .selectFrom('zv_media_files')
+        .selectAll()
+        .where('tenant_id', '=', tenantOf(c))
+        .orderBy('created_at', 'desc'),
+      listUser.id,
+      await isTenantAdmin(listUser.id).catch(() => false),
+    );
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
     else query = query.where('folder_id', 'is', null);
@@ -387,6 +394,11 @@ export function storageRoutes(db: Database, auth: any): Hono {
         height,
         created_by: user.id,
         tenant_id: tenantOf(c),
+        // A public upload is served from a bare URL with no authentication at
+        // all, so hiding it from a listing would be theatre — and it is what a
+        // record's file/image field stores, since a private signed URL expires
+        // in an hour. A private upload belongs to whoever made it.
+        visibility: isPublicUpload ? ('tenant' as const) : ('personal' as const),
       })
       .returningAll()
       .executeTakeFirst();
@@ -441,6 +453,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
+
+    // Readable by this user? 404 rather than 403 — whether a colleague's
+    // private file exists is itself something they did not share.
+    const readUser = c.get('user') as { id: string };
+    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+      return c.json({ error: 'File not found' }, 404);
+    }
     return c.json({ file });
   });
 
@@ -459,6 +478,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
+
+    // Readable by this user? 404 rather than 403 — whether a colleague's
+    // private file exists is itself something they did not share.
+    const readUser = c.get('user') as { id: string };
+    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+      return c.json({ error: 'File not found' }, 404);
+    }
 
     // Time-limited URL: S3 → aws4fetch presigned GET; local → HMAC-signed
     // /files URL. Both honour the 1h expiry.
@@ -480,6 +506,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
+
+    // Readable by this user? 404 rather than 403 — whether a colleague's
+    // private file exists is itself something they did not share.
+    const readUser = c.get('user') as { id: string };
+    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+      return c.json({ error: 'File not found' }, 404);
+    }
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const mime: string = (file as any).mimetype || '';
