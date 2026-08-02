@@ -45,6 +45,7 @@ import {
 } from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
+import { initValidationEngine } from './lib/validation-engine.js';
 import { extensionAuthGate } from './middleware/extension-auth-gate.js';
 import { extRateLimit } from './middleware/rate-limit.js';
 import {
@@ -828,6 +829,7 @@ export async function _createAppForTests(
   initTenantManager(db);
   await initPermissions(db);
   initRls(db);
+  initValidationEngine(db);
   const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
   registerCoreFieldTypes(fieldTypeRegistry);
@@ -868,6 +870,7 @@ async function bootstrap() {
   // 3. Permissions + RLS
   await initPermissions(db);
   initRls(db);
+  initValidationEngine(db);
   console.log('✅ Permissions + RLS initialized');
 
   // 3a. Field encryption sanity check — warn loudly if FIELD_ENCRYPTION_KEY

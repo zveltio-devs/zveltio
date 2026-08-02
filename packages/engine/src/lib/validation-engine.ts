@@ -38,6 +38,27 @@ export interface ValidationRule {
   error_message: string | null;
 }
 
+/**
+ * The database handle, set once at boot.
+ *
+ * Same shape as `initRls` / `initTenantManager` next door, and for the same
+ * reason: the rules are per-collection and have to be read from somewhere, but
+ * the place they are needed — `processInput`, on the field pipeline — takes a
+ * record and a collection definition and no database. Threading one through
+ * would mean an optional parameter, and an optional parameter on a validation
+ * step is a thing four call sites can forget.
+ */
+let _db: Database | null = null;
+
+export function initValidationEngine(db: Database): void {
+  _db = db;
+}
+
+/** The handle, or null when the engine has not booted (unit tests, CLI). */
+export function getValidationDb(): Database | null {
+  return _db;
+}
+
 // In-memory rules cache (TTL 60s)
 const rulesCache = new Map<string, { rules: ValidationRule[]; ts: number }>();
 

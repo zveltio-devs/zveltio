@@ -18,6 +18,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
+import { getValidationDb, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
 import { WebhookManager } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
@@ -115,6 +116,33 @@ export async function processInput(
       processed[field.name] = field.encrypted
         ? await maybeEncrypt(deserialized, true)
         : deserialized;
+    }
+  }
+
+  // Administrator-authored validation rules.
+  //
+  // `zv_validation_rules` has a management UI, an extension, a table and a
+  // rule engine — and nothing ever called `validateRecord`. An admin could
+  // write a rule, see it listed as active, and it did nothing: the field
+  // constraint they believed they had put in place was not there. A feature
+  // that silently does not run is worse than one that is absent, because the
+  // absent one does not tell you it is protecting you.
+  //
+  // Applied HERE because this is the single point every write goes through —
+  // the API handlers, import, and sync — so the rules land on all three at
+  // once rather than in whichever path someone remembers.
+  //
+  // Skipped when the engine has not booted (unit tests, CLI): the rules are
+  // per-collection and there is nowhere to read them from. Skipped in partial
+  // mode for fields the caller did not send, which `validateRecord` gets for
+  // free by iterating `processed`.
+  const vdb = getValidationDb();
+  if (vdb && collectionDef?.name && Object.keys(processed).length > 0) {
+    const verdict = await validateRecord(vdb, collectionDef.name, processed).catch(() => null);
+    if (verdict && !verdict.valid) {
+      for (const [fieldName, messages] of Object.entries(verdict.errors)) {
+        for (const message of messages) errors.push(`${fieldName}: ${message}`);
+      }
     }
   }
 
