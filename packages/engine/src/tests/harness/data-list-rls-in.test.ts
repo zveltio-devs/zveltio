@@ -185,6 +185,27 @@ d('data list RLS in/not_in (in-process)', () => {
     expect(titles).toEqual(['alpha', 'gamma']);
   });
 
+  it('survives time travel', async () => {
+    // `?as_of=` rebuilds rows from the JSON snapshots in zv_revisions instead
+    // of selecting from the table, so the RLS injection never touched it. It
+    // was tenant-scoped and column-masked, which made the answer look filtered
+    // — and asking for a snapshot as of a second ago returned every row the
+    // policy exists to withhold.
+    await setPolicy('in', 'static:red,blue');
+
+    const asOf = new Date(Date.now() + 60_000).toISOString();
+    const res = await app.request(
+      `/api/data/${COLLECTION}?as_of=${encodeURIComponent(asOf)}&limit=50`,
+      { headers: { cookie: memberCookie } },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records?: Array<{ title: string }> };
+    const titles = (body.records ?? []).map((r) => r.title).sort();
+
+    // Same answer the live list gives — `beta` (green) stays withheld.
+    expect(titles).toEqual(['alpha', 'gamma']);
+  });
+
   it('a god sees every row — through a permission, not a role-name check', async () => {
     // This asserted the opposite until the override was redesigned. It used to
     // read `user.role === 'god'`, which never fired because `session.user.role`
