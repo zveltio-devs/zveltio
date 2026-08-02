@@ -410,6 +410,35 @@ const I18N_UNIVERSAL = new Set([
   'YAML',
 ]);
 
+/**
+ * Third-party product names an integration has to name literally.
+ *
+ * A validator cannot tell `Notion` from `Furniture` — both are one capitalised
+ * word — so the judgement has to be written down. Translating a vendor's name
+ * would be wrong in every locale, and warning about it teaches authors to
+ * ignore the warning. Extend deliberately, one product at a time.
+ */
+const I18N_PRODUCT_NAMES = new Set([
+  'HubSpot',
+  'Notion',
+  'Airtable',
+  'Okta',
+  'Entra ID',
+  'Slack',
+  'Stripe',
+  'Salesforce',
+  'ANAF',
+]);
+
+/** A string built only from product names and separators, e.g. "Entra ID / Okta". */
+function isProductNameList(s: string): boolean {
+  const parts = s
+    .split(/[/,·|]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((p) => I18N_PRODUCT_NAMES.has(p));
+}
+
 /** Dotted lowercase identifier — the shape every message key in this project has. */
 function looksLikeMessageKey(s: string): boolean {
   return /^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$/i.test(s);
@@ -424,6 +453,7 @@ function looksTranslatable(s: string): boolean {
   const t = s.trim();
   if (t.length < 3) return false;
   if (I18N_UNIVERSAL.has(t)) return false;
+  if (isProductNameList(t)) return false;
   if (!/[a-z]{2}/.test(t)) return false;
   if (/^[a-z0-9_.\-/]+$/.test(t)) return false; // identifier or path
   if (/^[a-z0-9_]+=/.test(t)) return false; // filter/code sample, e.g. status=active
