@@ -6,6 +6,7 @@
 // prevent SQL injection via Kysely's sql.id() which handles quoting.
 
 import { sql } from 'kysely';
+import type { RawBuilder } from 'kysely';
 import type { Database } from './index.js';
 import type { DynamicRecord } from './dynamic-types.js';
 
@@ -109,7 +110,17 @@ export interface QueryResult {
 // ─── Query helpers ────────────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function buildCondition(key: string, condition: FilterCondition): any {
+/**
+ * One filter condition → SQL. Exported because the cursor-pagination branch in
+ * the list handler used to re-implement a SUBSET of this switch — it covered
+ * the six comparison operators and silently dropped everything else, including
+ * `in` and `not_in`. Those are valid RLS operators, and RLS conditions are
+ * merged into the same filter map, so a row policy written with `in` simply
+ * stopped applying the moment a caller passed `?cursor=`. A second
+ * implementation of an authorization rule is a second place for one to go
+ * missing; there is one now.
+ */
+export function buildCondition(key: string, condition: FilterCondition): RawBuilder<boolean> {
   const col = sql.id(sanitizeIdentifier(key));
   const { op, value } = condition;
 
@@ -139,7 +150,16 @@ function buildCondition(key: string, condition: FilterCondition): any {
     case 'not_null':
       return sql`${col} IS NOT NULL`;
     default:
-      return sql`${col} = ${value}`;
+      // Fail CLOSED. Falling through to `=` meant an operator this function
+      // does not know silently became equality — which turns a restrictive
+      // condition into a permissive one, and does so most easily on the
+      // untyped path (a policy row read from the database) where it matters
+      // most. `FilterOp` covers every case above, so reaching here means the
+      // value did not come from the type.
+      throw new Error(
+        `Unsupported filter operator "${String(op)}" on "${key}". Refusing to ` +
+          `build a condition rather than guess one.`,
+      );
   }
 }
 

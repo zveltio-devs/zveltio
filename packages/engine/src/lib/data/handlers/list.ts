@@ -15,7 +15,7 @@ import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../ddl-manager.js';
 import { queryAlterRegistry } from '../query-alter.js';
-import { dynamicSelect } from '../../../db/dynamic.js';
+import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import { getRlsFilters } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
@@ -188,15 +188,23 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
       let kQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll();
 
-      // Apply existing filters
+      // Apply existing filters — RLS conditions among them, merged above.
+      //
+      // Through `buildCondition`, the same helper the offset path uses via
+      // `dynamicSelect`. This branch used to re-implement it and covered only
+      // the six comparison operators, so `in` and `not_in` fell through the
+      // `else if` chain and were never applied. Both are valid RLS operators,
+      // which meant a row policy written with `in` stopped applying the moment
+      // a caller added `?cursor=` — the filters were not refused, they simply
+      // were not there.
       for (const [field, cond] of Object.entries(filters)) {
-        if (cond.op === 'eq') kQuery = kQuery.where(field, '=', cond.value);
-        else if (cond.op === 'neq') kQuery = kQuery.where(field, '!=', cond.value);
-        else if (cond.op === 'lt') kQuery = kQuery.where(field, '<', cond.value);
-        else if (cond.op === 'lte') kQuery = kQuery.where(field, '<=', cond.value);
-        else if (cond.op === 'gt') kQuery = kQuery.where(field, '>', cond.value);
-        else if (cond.op === 'gte') kQuery = kQuery.where(field, '>=', cond.value);
+        kQuery = kQuery.where(buildCondition(field, cond));
       }
+
+      // Extension query alters, which the offset path applies through
+      // `dynamicSelect`. An extension that narrows a collection was likewise
+      // bypassed by paginating with a cursor.
+      kQuery = queryAlterRegistry.applyAll(kQuery, tableName, user);
 
       // Add keyset condition (compound: sort col + tiebreak by id)
       if (query.order === 'asc') {

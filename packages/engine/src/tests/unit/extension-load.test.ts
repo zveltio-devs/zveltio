@@ -92,7 +92,30 @@ describe('loadExtensionFromDir', () => {
     expect(loader.loaded.has('bad-compat')).toBe(false);
   });
 
+  it('refuses a community wasm extension at the publisher-tier gate', async () => {
+    // The gate decides whether untrusted code may run in this process, and it
+    // used to sit inside the inline branch — so a manifest declaring
+    // `runtime: "wasm"` took its own branch and returned before ever reaching
+    // it. A community-tier WASM extension loaded with the gate having no
+    // opinion. No override here on purpose: this is the default posture.
+    const base = tmpExt({
+      'wasm-community/manifest.json': JSON.stringify({
+        name: 'wasm-community',
+        version: '1.0.0',
+        runtime: 'wasm',
+      }),
+      'wasm-community/engine/index.js': 'export default {};',
+    });
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'wasm-community', app, loader.ctx, base);
+    expect(loader.loaded.has('wasm-community')).toBe(false);
+    expect(loader.lastLoadError.get('wasm-community')).toMatch(/isolation|community/i);
+  });
+
   it('records lastLoadError when wasm runtime is declared but .wasm is missing', async () => {
+    // The override isolates what this case is about — the missing artifact —
+    // now that the tier gate runs before the runtime is chosen.
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
     const base = tmpExt({
       'wasm-miss/manifest.json': JSON.stringify({
         name: 'wasm-miss',
