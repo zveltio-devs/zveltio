@@ -1025,11 +1025,9 @@ the extension repo. At install/sync time these are copied into Studio's route tr
 (`packages/studio/src/routes/(admin)/…`). In page code, import Studio libs
 via `$lib/…` (same as core pages).
 
-**All user-visible strings must use Paraglide** — add keys under
-`<your-extension>/studio/messages/{en,ro,fr,de}.json` (one file per locale).
-Studio merges extension messages with `messages/core/` at build time.
-Run `bun run i18n:compile` in `packages/studio`. Use `import { m } from '$lib/i18n.svelte.js'`
-and `m['your.namespace.key']()` in templates (namespace = extension id with dots, e.g. `finance.quotes`).
+**All user-visible strings must use Paraglide** — see [§10.5 Translating your
+extension](#105-translating-your-extension) for the rules, the shared vocabulary
+and what `validate` enforces.
 
 **Layout:** use `ExtensionPageShell`, `ExtensionDataPanel`, and `ConfirmModal`
 instead of ad-hoc headers / `confirm()`. See
@@ -1199,6 +1197,104 @@ making them context-switch.
 > Slot hosts are added incrementally. Adding one is a one-line change in
 > the host page (`<Slot name="..." ctx={...} />`). The list above grows
 > as core pages adopt the pattern.
+
+### 10.5. Translating your extension
+
+Zveltio ships **nine locales** — `en`, `ro`, `fr`, `de`, `es`, `it`, `nl`, `pl`,
+`hu` — and the Studio is fully translated in all of them. An extension that
+ships English-only text is visibly a bolt-on, so `zveltio extension validate`
+checks this and CI runs it.
+
+#### Where the keys live
+
+```
+your-extension/
+  studio/
+    messages/
+      en.json   ro.json   fr.json   de.json   es.json
+      it.json   nl.json   pl.json   hu.json
+```
+
+One file per locale, **all nine, with identical key sets**. `en` is the source
+of truth for which keys exist. Namespace your keys with your extension id,
+dotted: `finance/quotes` → `finance.quotes.*`.
+
+```json
+{
+  "finance.quotes.title": "Quotes",
+  "finance.quotes.form.validUntil": "Valid until"
+}
+```
+
+Studio merges every extension's catalogue with its own at build time
+(`bun run i18n:compile` in `packages/studio`).
+
+#### Three rules, and the reason for each
+
+**1. Reuse the shared vocabulary instead of minting a key.** `common.*` and
+`ext.*` are the host's generic words — Save, Cancel, Status, Name, Price,
+Currency, "Delete this item?" — and you may use them without shipping them.
+Nobody needs a thirtieth private key for "Save". The full list is
+[`packages/sdk/src/validate/shared-message-keys.ts`](../packages/sdk/src/validate/shared-message-keys.ts);
+if a genuinely generic word is missing, add it to `messages/core/` in the host
+rather than privately.
+
+**2. Never use another extension's keys.** `crm.form.currency` resolves on your
+machine because the Studio bundle is the union of every installed extension. Ship
+your extension to a host without `crm` and the user sees the raw key. If you
+genuinely depend on another extension, declare it in `manifest.dependencies` —
+then its keys are legitimately yours to use, the same rule the endpoint check
+already applies.
+
+**3. Never rely on the host's core catalogue for your own text.** An extension
+whose translations live in the host renders correctly only on a host that already
+knows about it. That is not a property an installable extension can have, and it
+is fatal for a third-party one.
+
+#### Declarative (SDUI) pages
+
+In a schema, every user-visible string **is a key**. `title`, `subtitle`,
+`label`, `placeholder`, `note`, `confirm`, `description`, `emptyText`,
+`emptyTitle` and `hint` are resolved against the bundle:
+
+```json
+{ "name": "bindDN", "label": "auth.ldap.ui.bind_dn", "type": "text" }
+```
+
+The host falls back to rendering the string literally when a key is unknown, so a
+typo is silent — the user just sees `auth.ldap.ui.bnid_dn` in the form. This is
+exactly why the validator checks schemas: they are data, so every slot can be
+verified precisely, with no source parsing and no guessing at what is prose.
+
+#### What `validate` reports
+
+| | |
+|---|---|
+| `SDUI_I18N_KEY_MISSING` | **Error.** A key-shaped string that resolves in neither your catalogue, the shared vocabulary, nor a declared dependency. The user sees the raw key. |
+| `SDUI_I18N_HARDCODED` | **Warning.** Prose sitting in a slot instead of a key — it stays English in the other eight locales. |
+
+Literals are legitimate for things that do not translate: protocol tokens
+(`JSON`, `CSV`), code samples (`status=active`, a PEM block), and vendor names
+(`Notion`, `Okta`). Vendor names are a curated list in the validator, because
+nothing can tell `Notion` from `Furniture` automatically — send a PR to add one.
+
+```bash
+zveltio extension validate --dir path/to/your-extension
+```
+
+#### Two things that catch people out
+
+**Untranslated does not mean English.** Several extensions shipped hardcoded
+*Romanian* — `Proces Verbal`, `Alocat:`, `TVA 19%` — which a French operator saw
+as Romanian. If you sweep for untranslated text by looking for English prose, you
+will walk straight past it.
+
+**Don't put literal braces in a message.** Paraglide reads `{…}` as a parameter,
+so `"Hello {{record.name}}"` breaks. Pass the token as a parameter instead:
+
+```svelte
+{m['flowEdit.emailBodyPh']({ token: '{{record.name}}' })}
+```
 
 ---
 
