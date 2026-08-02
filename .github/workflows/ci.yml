@@ -122,6 +122,13 @@ jobs:
         # translation because it looks finished. The surface is being converted
         # in tranches; this holds the ground already taken.
         run: bun run scripts/check-i18n-core.ts
+      - name: Shared message vocabulary in sync
+        # The SDK ships a generated copy of `common.*` + `ext.*` so
+        # `zveltio extension validate` can check SDUI schema keys in the
+        # author's repo, where the Studio catalogue does not exist. Left
+        # unguarded the copy rots silently: a newly added common key would be
+        # rejected as unknown, a removed one would keep passing.
+        run: bun run check:shared-keys
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.

@@ -26,6 +26,8 @@
 
 import { parseMigrationSql } from './migration-parse.js';
 
+export { SHARED_MESSAGE_KEYS } from './shared-message-keys.js';
+
 export interface ValidationError {
   /** Stable machine-readable code (e.g. `MANIFEST_NAME_MISMATCH`). */
   code: string;
@@ -357,6 +359,93 @@ function normalizeRoute(p: string): string {
   );
 }
 
+/**
+ * Schema keys whose value is user-visible text.
+ *
+ * The host renders these through `t()`, which looks the string up in the
+ * message bundle and falls back to the literal. That fallback is why a typo is
+ * invisible at runtime: the user simply sees `auth.saml.ui.begin_certificate`
+ * rendered as a placeholder. Catching it here is the only place it is cheap.
+ */
+export const SDUI_I18N_SLOTS: readonly string[] = [
+  'title',
+  'subtitle',
+  'label',
+  'placeholder',
+  'note',
+  'confirm',
+  'description',
+  'emptyText',
+  'emptyTitle',
+  'hint',
+];
+
+/** Tokens that read the same in every locale we ship. */
+const I18N_UNIVERSAL = new Set([
+  'API',
+  'JSON',
+  'NDJSON',
+  'CSV',
+  'SQL',
+  'URL',
+  'UUID',
+  'ID',
+  'HTTP',
+  'HTTPS',
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'Zveltio',
+  'OK',
+  'UTC',
+  'AI',
+  'SDK',
+  'CLI',
+  'RLS',
+  'DB',
+  'PDF',
+  'XML',
+  'YAML',
+]);
+
+/** Dotted lowercase identifier — the shape every message key in this project has. */
+function looksLikeMessageKey(s: string): boolean {
+  return /^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$/i.test(s);
+}
+
+/**
+ * Prose a user would read, as opposed to a token, an identifier or a code
+ * sample. Deliberately the same judgement the Studio's own i18n gate makes —
+ * flagging `CSV` or `status=active` would train authors to ignore the warning.
+ */
+function looksTranslatable(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 3) return false;
+  if (I18N_UNIVERSAL.has(t)) return false;
+  if (!/[a-z]{2}/.test(t)) return false;
+  if (/^[a-z0-9_.\-/]+$/.test(t)) return false; // identifier or path
+  if (/^[a-z0-9_]+=/.test(t)) return false; // filter/code sample, e.g. status=active
+  if (t.startsWith('http')) return false;
+  return /^[A-Z]/.test(t) || t.split(/\s+/).length > 1;
+}
+
+/** Recursively collect every user-visible string with the slot it came from. */
+function collectI18nStrings(node: unknown, acc: Array<{ slot: string; value: string }>): void {
+  if (Array.isArray(node)) {
+    for (const x of node) collectI18nStrings(x, acc);
+    return;
+  }
+  if (node && typeof node === 'object') {
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (SDUI_I18N_SLOTS.includes(k) && typeof v === 'string' && v)
+        acc.push({ slot: k, value: v });
+      else collectI18nStrings(v, acc);
+    }
+  }
+}
+
 /** Recursively collect every `dataSource` / `endpoint` / `saveEndpoint` string. */
 function collectEndpoints(node: unknown, acc: string[]): void {
   if (Array.isArray(node)) {
@@ -386,6 +475,10 @@ export interface SduiValidationInput {
    * A schema may read a dependency's `/ext/<dep>/` routes (relation pickers),
    * which is otherwise treated as foreign. */
   dependencies?: string[];
+  /** Message keys this schema may resolve against: the extension's own
+   * `studio/messages/en.json` keys, unioned with `SHARED_MESSAGE_KEYS`.
+   * Omit to skip the i18n checks (endpoint checks still run). */
+  messageKeys?: Iterable<string>;
   /** For diagnostics. */
   file?: string;
 }
@@ -440,6 +533,36 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
           err(
             'SDUI_ENDPOINT_UNKNOWN',
             `endpoint "${raw}" resolves to "${rel}", which the engine does not serve. Provided routes: ${[...provided].sort().join(', ') || '(none found)'}.`,
+            file,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── i18n ─────────────────────────────────────────────────────────────────
+  // A schema is data, so every user-visible string sits in a named slot and can
+  // be checked exactly — no source parsing, no heuristics about what is prose.
+  // That is the property hand-written pages do not have.
+  if (input.messageKeys) {
+    const known = new Set(input.messageKeys);
+    const strings: Array<{ slot: string; value: string }> = [];
+    collectI18nStrings(schema, strings);
+    for (const { slot, value } of strings) {
+      if (known.has(value)) continue;
+      if (looksLikeMessageKey(value)) {
+        out.push(
+          err(
+            'SDUI_I18N_KEY_MISSING',
+            `${slot} "${value}" is not a known message key. The host renders an unknown key as literal text, so this reaches the user as-is. Add it to studio/messages/{locale}.json, or use a shared common.* key.`,
+            file,
+          ),
+        );
+      } else if (looksTranslatable(value)) {
+        out.push(
+          warn(
+            'SDUI_I18N_HARDCODED',
+            `${slot} "${value}" is hardcoded text, not a message key — it stays English in all nine locales. Move it to studio/messages/{locale}.json.`,
             file,
           ),
         );
