@@ -189,9 +189,9 @@
                     <span class="text-sm">{line.name}</span>
                   </div>
                   <div class="flex gap-4 mt-1 text-xs text-base-content/60">
-                    <span>Alocat: <strong class="font-mono">{Number(line.allocated).toFixed(2)}</strong></span>
-                    <span>Cheltuit: <strong class="font-mono text-warning">{Number(line.spent).toFixed(2)}</strong></span>
-                    <span>Ramas: <strong class="font-mono text-success">{Number(line.remaining).toFixed(2)}</strong> {line.currency}</span>
+                    <span>{m['compliance.ro.procurement.allocated']()}: <strong class="font-mono">{Number(line.allocated).toFixed(2)}</strong></span>
+                    <span>{m['compliance.ro.procurement.spent']()}: <strong class="font-mono text-warning">{Number(line.spent).toFixed(2)}</strong></span>
+                    <span>{m['compliance.ro.procurement.remaining']()}: <strong class="font-mono text-success">{Number(line.remaining).toFixed(2)}</strong> {line.currency}</span>
                   </div>
                 </div>
                 <span class="text-sm font-mono">{budgetPercent(line)}%</span>
@@ -250,13 +250,13 @@
             {/each}
           </tbody>
         </table>
-        <button class="btn btn-ghost btn-xs mt-1" onclick={() => (orderForm.items = [...orderForm.items, { description: '', quantity: 1, unit: 'BUC', unit_price: 0, total: 0 }])}>+ Linie</button>
+        <button class="btn btn-ghost btn-xs mt-1" onclick={() => (orderForm.items = [...orderForm.items, { description: '', quantity: 1, unit: 'BUC', unit_price: 0, total: 0 }])}>{m['compliance.ro.procurement.addLine']()}</button>
       </div>
 
       <div class="text-right text-sm">
-        <p>Subtotal: <strong class="font-mono">{orderForm.subtotal.toFixed(2)} RON</strong></p>
-        <p>TVA 19%: <strong class="font-mono">{orderForm.vat_total.toFixed(2)} RON</strong></p>
-        <p class="text-base font-bold">Total: <strong class="font-mono">{orderForm.total.toFixed(2)} RON</strong></p>
+        <p>{m['compliance.ro.procurement.subtotal']()}: <strong class="font-mono">{orderForm.subtotal.toFixed(2)} RON</strong></p>
+        <p>{m['compliance.ro.procurement.vat19']()}: <strong class="font-mono">{orderForm.vat_total.toFixed(2)} RON</strong></p>
+        <p class="text-base font-bold">{m['common.col.total']()}: <strong class="font-mono">{orderForm.total.toFixed(2)} RON</strong></p>
       </div>
 
       <div class="modal-action">

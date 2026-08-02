@@ -225,16 +225,16 @@
                     <select class="select select-xs w-20" bind:value={block.content.level}>
                       {#each [1,2,3,4] as l}<option value={l}>H{l}</option>{/each}
                     </select>
-                    <input class="input input-xs flex-1" bind:value={block.content.text} placeholder="Heading text" />
+                    <input class="input input-xs flex-1" bind:value={block.content.text} placeholder={m['content.pageBuilder.ph.headingText']()} />
                   </div>
                 {:else if block.type === 'text'}
                   <textarea class="textarea textarea-xs" rows="3" bind:value={block.content.html} placeholder="<p>…</p>"></textarea>
                 {:else if block.type === 'image'}
-                  <input class="input input-xs" bind:value={block.content.src} placeholder="Image URL" />
-                  <input class="input input-xs" bind:value={block.content.alt} placeholder="Alt text" />
+                  <input class="input input-xs" bind:value={block.content.src} placeholder={m['content.pageBuilder.ph.imageUrl']()} />
+                  <input class="input input-xs" bind:value={block.content.alt} placeholder={m['content.pageBuilder.ph.altText']()} />
                 {:else if block.type === 'button'}
                   <div class="flex gap-2">
-                    <input class="input input-xs flex-1" bind:value={block.content.label} placeholder="Label" />
+                    <input class="input input-xs flex-1" bind:value={block.content.label} placeholder={m['common.col.label']()} />
                     <input class="input input-xs flex-1" bind:value={block.content.href} placeholder="href" />
                   </div>
                 {:else if block.type === 'html'}
