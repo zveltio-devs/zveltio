@@ -127,3 +127,8 @@ release/
 # (the real ones live in the zveltio-extensions repo and ship via the
 # registry) — and their vendored deps otherwise fail `bun run lint`.
 packages/engine/extensions/
+
+# Local-filesystem storage driver root. STORAGE_LOCAL_DIR defaults to a
+# relative path, so running the engine — or the upload tests — from
+# packages/engine writes uploaded files here. Artifacts, never sources.
+packages/engine/storage/
