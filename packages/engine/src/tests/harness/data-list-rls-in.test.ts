@@ -206,6 +206,40 @@ d('data list RLS in/not_in (in-process)', () => {
     expect(titles).toEqual(['alpha', 'gamma']);
   });
 
+  it('survives GET /:id', async () => {
+    // The single-record read had its own hand-written copy of the filter loop
+    // — the third — and like the other two it covered eq/neq and dropped
+    // `in`. So the policy held for the listing and evaporated the moment you
+    // guessed an id.
+    await setPolicy('in', 'static:red,blue');
+    const rows = (await sql
+      .raw(`SELECT id FROM "zvd_${COLLECTION}" WHERE title = 'beta'`)
+      .execute(db)) as { rows: { id: string }[] };
+    const hiddenId = rows.rows[0]!.id;
+
+    const res = await app.request(`/api/data/${COLLECTION}/${hiddenId}`, {
+      headers: { cookie: memberCookie },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('survives GET /:id?as_of=', async () => {
+    // The list time-travel path got row policies; its single-record sibling
+    // did not, which made this the one read that skipped them entirely.
+    await setPolicy('in', 'static:red,blue');
+    const rows = (await sql
+      .raw(`SELECT id FROM "zvd_${COLLECTION}" WHERE title = 'beta'`)
+      .execute(db)) as { rows: { id: string }[] };
+    const hiddenId = rows.rows[0]!.id;
+
+    const asOf = new Date(Date.now() + 60_000).toISOString();
+    const res = await app.request(
+      `/api/data/${COLLECTION}/${hiddenId}?as_of=${encodeURIComponent(asOf)}`,
+      { headers: { cookie: memberCookie } },
+    );
+    expect(res.status).toBe(404);
+  });
+
   it('a god sees every row — through a permission, not a role-name check', async () => {
     // This asserted the opposite until the override was redesigned. It used to
     // read `user.role === 'god'`, which never fired because `session.user.role`
