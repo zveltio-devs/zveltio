@@ -248,7 +248,7 @@
                 {/each}
               </select>
               <input type="number" class="input input-bordered input-sm w-24" placeholder={m['operations.traceability.ui.cant']()} min="0.001" step="0.001" bind:value={consumeForm.quantity_used} required />
-              <button type="submit" class="btn btn-primary btn-sm" disabled={processing} aria-label="Add consumed material">+</button>
+              <button type="submit" class="btn btn-primary btn-sm" disabled={processing} aria-label={m['operations.traceability.addConsumedMaterial']()}>+</button>
             </form>
           </div>
 

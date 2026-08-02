@@ -142,7 +142,7 @@
     <div class="card bg-base-200 border border-base-300 max-w-xl">
       <div class="card-body gap-3">
         <h2 class="font-medium text-sm">{m['geospatial.postgis.ui.point_clustering_dbscan']()}</h2>
-        <p class="text-sm text-base-content/60">{m['geospatial.postgis.cluster.apiHint']()} <code class="badge badge-ghost badge-sm">POST /ext/geospatial/postgis/cluster</code> with parameters:</p>
+        <p class="text-sm text-base-content/60">{m['geospatial.postgis.cluster.apiHint']()} <code class="badge badge-ghost badge-sm">POST /ext/geospatial/postgis/cluster</code> {m['geospatial.postgis.withParameters']()}</p>
         <pre class="bg-base-300 rounded p-3 text-xs font-mono">{JSON.stringify({ collection: "your_collection", location_field: "location", eps_meters: 500, min_points: 3 }, null, 2)}</pre>
         <p class="text-sm text-base-content/60">{m['geospatial.postgis.cluster.returnsHint']()}</p>
       </div>
