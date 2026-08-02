@@ -175,6 +175,66 @@ async function rehashLegacyAccountToArgon2id(
  * Detection: argon2id / bcrypt hashes start with `$`. scrypt rows don't.
  * NULL password (OAuth-only accounts) is excluded.
  */
+/**
+ * End every session belonging to `userId`, in the database AND in the cache.
+ *
+ * Deleting the `user` row cascades the `session` table, which looked like
+ * enough — but when VALKEY_URL is set, better-auth is given a
+ * `secondaryStorage` and reads sessions from THERE first. The cascade never
+ * touches it, so a deleted user's cookie kept working until the entry aged out
+ * of the cache. Deactivating an account is the one moment where "eventually"
+ * is the wrong answer, and the recommended production setup is precisely the
+ * one that has the cache.
+ *
+ * better-auth keeps `active-sessions-<userId>` as a list of `{ token }` and a
+ * separate entry per token, so both have to go. The list is read through the
+ * raw cache client rather than the adapter because the adapter is only handed
+ * to better-auth; the value is double-encoded (the adapter JSON-stringifies
+ * what better-auth already stringified), which is why it is parsed twice.
+ *
+ * Best-effort on the cache: a purge that throws must not stop an administrator
+ * from deleting an account. The DB rows are removed either way, so the session
+ * cannot outlive the cache TTL even in the worst case.
+ */
+export async function revokeAllUserSessions(db: Database, userId: string): Promise<void> {
+  const { getCache } = await import('./runtime/index.js');
+  const cache = getCache();
+  if (cache) {
+    try {
+      const raw = await cache.get(`active-sessions-${userId}`);
+      if (raw) {
+        let list: unknown = raw;
+        for (let i = 0; i < 2 && typeof list === 'string'; i++) {
+          try {
+            list = JSON.parse(list);
+          } catch {
+            break;
+          }
+        }
+        if (Array.isArray(list)) {
+          for (const entry of list) {
+            const token = (entry as { token?: string })?.token;
+            if (token) await cache.del(token).catch(() => {});
+          }
+        }
+      }
+      await cache.del(`active-sessions-${userId}`).catch(() => {});
+    } catch (err) {
+      console.error(`[auth] could not purge cached sessions for ${userId}:`, err);
+    }
+  }
+
+  // Explicit rather than left to the FK cascade: this runs before the user row
+  // is gone, and it is what makes the function correct on its own.
+  await db
+    .deleteFrom('session')
+    .where('userId', '=', userId)
+    .execute()
+    .catch(() => {
+      /* table shape varies on fresh installs */
+    });
+}
+
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
   try {
     const rows = await db

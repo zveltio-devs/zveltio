@@ -473,7 +473,7 @@ let confirmState = $state<{
               </div>
               <button
                 onclick={() => deleteField(field.name)}
-                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
                 title="Delete field"
               >
                 <Trash2 size={13} />
@@ -527,7 +527,7 @@ let confirmState = $state<{
               {/if}
               <button
                 onclick={() => deleteRelation(rel.id, rel.name)}
-                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
               >
                 <Trash2 size={13} />
               </button>

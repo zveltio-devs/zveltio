@@ -119,7 +119,7 @@
         <!-- Controls bar (top-right, shown on hover/select) -->
         <div class="absolute -top-3.5 right-2 z-20 flex items-center gap-0.5
           bg-base-100 border border-base-300 rounded-lg px-1 py-0.5 shadow-sm
-          opacity-0 group-hover:opacity-100 transition-opacity
+          opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity
           {selectedId === block.id ? '!opacity-100' : ''}">
           <span class="text-[9px] font-mono text-base-content/40 px-1 border-r border-base-300 mr-0.5">{block.type}</span>
           <button

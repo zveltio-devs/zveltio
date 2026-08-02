@@ -240,7 +240,7 @@ function formatRelative(dateStr?: string): string {
  </div>
  <div class="flex items-center gap-1 shrink-0">
  <button
- class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100"
+ class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 focus-within:opacity-100"
  onclick={() => runFlow(flow.id)}
  title={m['flows.runNow']()}
  >
