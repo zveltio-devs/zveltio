@@ -134,12 +134,24 @@ describe('S2-02 follow-up: insertInto interception', () => {
   beforeEach(() => engineEvents.clearPreHooks());
   afterEach(() => engineEvents.clearPreHooks());
 
-  it('FAST PATH: returns the raw builder when no hooks are registered', async () => {
+  it('wraps a zvd_ insert even with no hooks registered', async () => {
+    // This used to take a fast path and return the raw builder, which was the
+    // right gate when hooks were all the wrapper did. The wrapper now also
+    // runs the field pipeline, and whether a value is hashed or encrypted
+    // before storage cannot depend on whether an unrelated extension happens
+    // to be listening.
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
-    // Use the bare insertInto chain. The recorder is the SAME object as
-    // db.__inserts[0], proving we didn't wrap.
     const builder = rdb.insertInto('zvd_forms' as any);
+    expect(builder).not.toBe(db.__inserts[0]);
+  });
+
+  it('still takes the fast path on a table with no field metadata', async () => {
+    // `zv_<ext>_*` is the extension's own schema — no collection definition,
+    // so there is nothing to validate or encrypt and no reason to wrap.
+    const db = makeStubDb();
+    const rdb = createRestrictedDb(db, 'forms');
+    const builder = rdb.insertInto('zv_forms_settings' as any);
     expect(builder).toBe(db.__inserts[0]);
   });
 
@@ -313,9 +325,14 @@ describe('S2-02 follow-up: updateTable interception', () => {
       .execute();
 
     expect(fired).toBe(0);
-    // The original recorder was executed (skip-replay path).
-    const original = db.__updates[0];
-    expect(original.__log.some((c: any) => c.method === 'execute')).toBe(true);
+    // The hook is still skipped — it needs a row to describe and a bulk WHERE
+    // does not name one. The chain IS replayed now, because the field
+    // pipeline only needs the patch: storing plaintext because the WHERE was
+    // too broad would be an odd rule. So the executed builder is the replay,
+    // not the recorder.
+    expect(db.__updates.length).toBeGreaterThan(1);
+    const replayed = db.__updates[db.__updates.length - 1];
+    expect(replayed.__log.some((c: any) => c.method === 'execute')).toBe(true);
   });
 });
 

@@ -108,13 +108,23 @@ export function createRestrictedDb(
             );
           }
 
-          // S2-02 hook interception: only wrap writes against user-data
-          // tables (zvd_*). Fast path otherwise — no wrapping cost.
+          // Writes against user-data tables (zvd_*) are wrapped; everything
+          // else takes the fast path with no wrapping cost.
+          //
+          // Insert and update are wrapped UNCONDITIONALLY. They used to engage
+          // only when some extension had registered a matching hook, which was
+          // the right gate when hooks were all the wrapper did — but it now
+          // also runs the field pipeline, and whether a value gets hashed or
+          // encrypted before it is stored cannot depend on whether an
+          // unrelated extension happens to be listening.
+          //
+          // Delete keeps the hook-count gate: it has no payload to process, so
+          // with no hook registered there is genuinely nothing to do.
           if (shouldFireHooks(baseTable)) {
-            if (prop === 'insertInto' && engineEvents.preHookCount('record.beforeInsert') > 0) {
+            if (prop === 'insertInto') {
               return wrapInsertForHooks(target, baseTable, extName);
             }
-            if (prop === 'updateTable' && engineEvents.preHookCount('record.beforeUpdate') > 0) {
+            if (prop === 'updateTable') {
               return wrapUpdateForHooks(target, baseTable, extName);
             }
             if (prop === 'deleteFrom' && engineEvents.preHookCount('record.beforeDelete') > 0) {
@@ -172,6 +182,86 @@ interface ChainCall {
 
 const TERMINAL_METHODS = new Set(['execute', 'executeTakeFirst', 'executeTakeFirstOrThrow']);
 
+/**
+ * A Kysely builder addressed by a method name only known at runtime.
+ *
+ * Through `unknown` rather than `any` so the escape is named in one place and
+ * nothing else about the builder silently loses its types.
+ */
+type DynamicBuilder = Record<string, (...args: unknown[]) => never>;
+function asDynamic(builder: unknown): DynamicBuilder {
+  return builder as DynamicBuilder;
+}
+
+/**
+ * Run a write's payload through the engine's field pipeline.
+ *
+ * `ctx.db.insertInto('zvd_x').values({...})` reached Postgres untouched, so a
+ * field type's `deserialize` never ran and `encrypted: true` was ignored. The
+ * same value written through POST /api/data was hashed and encrypted; written
+ * by an extension it was stored verbatim. Nothing above the storage layer
+ * showed a difference — the field renders the same either way, and only the
+ * bytes on disk differ.
+ *
+ * That is the gap import and sync had before they were routed through
+ * `processInput`, and it is the same fix. Applying it in the PROXY rather than
+ * offering extensions a helper to call is the point: every extension may write
+ * `zvd_*`, so a helper is forty-four chances to forget, and this campaign has
+ * already found six rules that went missing in exactly that way.
+ *
+ * Runs before hooks, matching the HTTP handlers (processInput, then
+ * `record.beforeInsert`). Throws on a validation error rather than writing
+ * anyway — an extension putting data in that the collection says is invalid is
+ * the thing worth interrupting, and a thrown error is visible where silent
+ * acceptance is not.
+ *
+ * `partial` is true for updates: a `set()` carries only the columns being
+ * changed, so required-field enforcement must not fire on the absent ones.
+ *
+ * Collections are metadata-cached, so the steady state costs no query.
+ */
+async function runFieldPipeline(
+  db: Database,
+  table: string,
+  extName: string,
+  data: Record<string, unknown>,
+  partial: boolean,
+): Promise<Record<string, unknown>> {
+  const { DDLManager, processInput, normalizeFields } = await import('../data/index.js');
+  const collection = table.replace(/^zvd_/, '');
+  const collectionDef = await DDLManager.getCollection(db, collection).catch(() => null);
+  // No collection definition means no field metadata to apply — the table is
+  // not a user collection (or is being written during its own creation).
+  if (!collectionDef) return data;
+
+  const { errors, processed } = await processInput(data, collectionDef, partial);
+  if (errors.length > 0) {
+    throw new ExtensionSecurityError(
+      `Extension "${extName}" wrote invalid data to "${table}": ${errors.join('; ')}. ` +
+        `Extension writes go through the same field pipeline as the data API — ` +
+        `validation, type deserialization and field encryption — so what an ` +
+        `extension stores matches what every other path stores.`,
+    );
+  }
+
+  // `processed` holds ONLY the collection's declared fields — that is what the
+  // HTTP handlers want, because they add `id`, `created_by` and the timestamps
+  // themselves afterwards. An extension puts them in the same object, so
+  // returning `processed` alone would drop the primary key on the floor and
+  // the insert would write a row nobody asked for.
+  //
+  // So: keep every key that is NOT a declared field, and let the pipeline's
+  // output win for the ones that are. Fields the pipeline deliberately omitted
+  // — virtual columns, and in partial mode anything the caller did not send —
+  // stay omitted, which is the point of it having omitted them.
+  const declared = new Set(normalizeFields(collectionDef).map((f) => f.name));
+  const passthrough: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!declared.has(k)) passthrough[k] = v;
+  }
+  return { ...passthrough, ...processed };
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function wrapInsertForHooks(db: any, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
@@ -195,9 +285,10 @@ function wrapInsertForHooks(db: any, table: string, extName: string): any {
               valuesIdx >= 0 ? (chainCalls[valuesIdx].args[0] as Record<string, unknown>) : {};
 
             try {
+              const shaped = await runFieldPipeline(db, table, extName, originalData, false);
               const payload = await engineEvents.runBefore('record.beforeInsert', {
                 collection: table,
-                data: originalData,
+                data: shaped,
                 userId: `system:${extName}`,
               });
               // Rebuild the chain with the (possibly mutated) data.
@@ -280,26 +371,41 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
         if (TERMINAL_METHODS.has(prop)) {
           return async (...termArgs: unknown[]) => {
             const id = extractSingleId(chainCalls);
-            if (!id) {
-              warnBulkSkip('update', table, extName);
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              return await (t as any)[prop](...termArgs);
-            }
-            // Single-row update: fire hook with `before` snapshot.
             const setIdx = chainCalls.findIndex((c) => c.method === 'set');
             const originalPatch =
               setIdx >= 0 ? (chainCalls[setIdx].args[0] as Record<string, unknown>) : {};
+
+            if (!id) {
+              // Bulk update: hooks need a row to describe and there isn't one,
+              // but the field pipeline only needs the patch — so the columns
+              // still get deserialized and encrypted even though the hook is
+              // skipped. Storing plaintext because the WHERE was too broad
+              // would be an odd rule.
+              warnBulkSkip('update', table, extName);
+              if (setIdx < 0) return await asDynamic(t)[prop](...termArgs);
+
+              const shapedBulk = await runFieldPipeline(db, table, extName, originalPatch, true);
+              let qb = db.updateTable(table);
+              for (let i = 0; i < chainCalls.length; i++) {
+                const call = chainCalls[i];
+                if (i === setIdx) qb = qb.set(shapedBulk);
+                else qb = asDynamic(qb)[call.method](...call.args);
+              }
+              return await asDynamic(qb)[prop](...termArgs);
+            }
+            // Single-row update: fire hook with `before` snapshot.
             const before = (await db
               .selectFrom(table)
               .selectAll()
               .where('id', '=', id)
               .executeTakeFirst()
               .catch(() => undefined)) as Record<string, unknown> | undefined;
+            const shaped = await runFieldPipeline(db, table, extName, originalPatch, true);
             const payload = await engineEvents.runBefore('record.beforeUpdate', {
               collection: table,
               id,
               before: before ?? {},
-              patch: originalPatch,
+              patch: shaped,
               userId: `system:${extName}`,
             });
             // Replay chain with mutated patch.
