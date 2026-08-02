@@ -20,7 +20,12 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters, applyRlsFilters, resolveUserRole } from '../../tenancy/index.js';
+import {
+  getRlsFilters,
+  applyRlsFilters,
+  matchesRlsFilters,
+  resolveUserRole,
+} from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
@@ -88,6 +93,15 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     if (!(await entityAccessRegistry.isAllowed(ttTable, data, user, 'view'))) {
       return c.json({ error: 'Record not found' }, 404);
     }
+    // Row policies too, evaluated in memory — the snapshot is JSON from
+    // `zv_revisions`, so there is no query to attach a WHERE to. The list
+    // time-travel path got this; its single-record sibling did not, which made
+    // `GET /:id?as_of=` the one read that skipped row policies entirely.
+    const ttRls = await getRlsFilters(collection, user, c.get('authType'));
+    if (ttRls.length > 0 && !matchesRlsFilters(data as Record<string, unknown>, ttRls)) {
+      return c.json({ error: 'Record not found' }, 404);
+    }
+
     const ttColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
     return c.json({
       record: applyColumnAccess(data as Record<string, unknown>, ttColAccess),
@@ -122,10 +136,15 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
   let recordQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
 
-  for (const { field, condition } of rlsSingle) {
-    if (condition.op === 'eq') recordQuery = recordQuery.where(field, '=', condition.value);
-    else if (condition.op === 'neq') recordQuery = recordQuery.where(field, '!=', condition.value);
-  }
+  // Through `applyRlsFilters`, like PATCH and DELETE a few hundred lines below.
+  //
+  // This was the third hand-written copy of that loop, and like the other two
+  // it covered `eq` and `neq` and dropped `in` and `not_in` — which are half of
+  // what `routes/rls.ts` lets an administrator save. So a policy written with
+  // `in` held for the listing and evaporated for `GET /:id`: guess the id and
+  // the row came back. The shared helper also fails closed on an operator it
+  // does not know, where this silently applied nothing.
+  recordQuery = applyRlsFilters(recordQuery, rlsSingle);
 
   // Apply extension query alters (tenant isolation, soft-delete, etc.)
   recordQuery = queryAlterRegistry.applyAll(recordQuery, tableName, user);
