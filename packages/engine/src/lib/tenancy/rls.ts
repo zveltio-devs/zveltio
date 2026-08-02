@@ -227,6 +227,45 @@ export function applyRlsFilters<Q>(
   return out as unknown as Q;
 }
 
+/**
+ * The same conditions, evaluated in memory.
+ *
+ * `?as_of=` reconstructs rows from the JSON snapshots in `zv_revisions` rather
+ * than selecting from the table, so there is no query to attach a WHERE to —
+ * and it therefore returned rows the caller's row policy withholds. Asking for
+ * a snapshot as of one second ago was enough to see everything, on a parameter
+ * that exists for auditing.
+ *
+ * Deliberately the same four operators and the same fail-closed default as
+ * `applyRlsFilters`, so the two cannot drift into disagreeing about what a
+ * policy means. Kept next to it for the same reason.
+ */
+export function matchesRlsFilters(
+  record: Record<string, unknown>,
+  filters: Array<{ field: string; condition: FilterCondition }>,
+): boolean {
+  for (const { field, condition } of filters) {
+    const value = record[field];
+    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
+    if (condition.op === 'eq') {
+      if (value !== condition.value) return false;
+    } else if (condition.op === 'neq') {
+      if (value === condition.value) return false;
+    } else if (condition.op === 'in') {
+      if (!asList(condition.value).includes(value)) return false;
+    } else if (condition.op === 'not_in') {
+      if (asList(condition.value).includes(value)) return false;
+    } else {
+      throw new Error(
+        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
+          `cannot apply. Refusing the query rather than returning rows the policy was ` +
+          `meant to hide. Fix or disable the policy.`,
+      );
+    }
+  }
+  return true;
+}
+
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────
 
 export async function listRlsPolicies(): Promise<RlsPolicy[]> {

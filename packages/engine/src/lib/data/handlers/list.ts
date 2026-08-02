@@ -17,7 +17,7 @@ import { DDLManager } from '../ddl-manager.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters } from '../../tenancy/index.js';
+import { getRlsFilters, matchesRlsFilters } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
@@ -75,9 +75,21 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       `.execute(effectiveDbTT);
 
     // Exclude deleted records; data column holds the snapshot
-    const records = revs.rows
+    const snapshots: Record<string, unknown>[] = revs.rows
       .filter((r) => r.action !== 'delete')
       .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+
+    // Row policies, evaluated in memory.
+    //
+    // This path reconstructs rows from JSON snapshots instead of selecting from
+    // the table, so the RLS injection further down never touched it: `?as_of=`
+    // returned every row the caller's policy exists to withhold, and asking for
+    // a snapshot as of a second ago was enough. Tenant scoping and column
+    // permissions were already applied here, which is what made the gap easy to
+    // miss — the answer looked filtered.
+    const rlsTT = await getRlsFilters(collection, user, c.get('authType'));
+    const records =
+      rlsTT.length === 0 ? snapshots : snapshots.filter((r) => matchesRlsFilters(r, rlsTT));
 
     const total = records.length;
     const offset = (query.page - 1) * query.limit;
