@@ -8,8 +8,19 @@ REPO="${1:-zveltio/zveltio}"
 OUTPUT="${2:-versions.json}"
 API_URL="https://api.github.com/repos/${REPO}/releases"
 
+# Authenticated when a token is available. Unauthenticated calls to the GitHub
+# API are limited to 60 per hour PER IP, and Actions runners share a pool of
+# them — so this worked for months and then returned 403 in the middle of the
+# beta.44 release for no reason of ours. With the token the limit is per-repo
+# and this stops being a coin flip.
+AUTH_HEADER=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+
 RELEASES=$(curl -fsSL \
   -H "Accept: application/vnd.github.v3+json" \
+  "${AUTH_HEADER[@]}" \
   "${API_URL}?per_page=50")
 
 echo "$RELEASES" | jq --arg repo "$REPO" '
