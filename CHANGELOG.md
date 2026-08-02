@@ -4,6 +4,229 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.44] - 2026-08-02
+
+**A third external audit, worked end to end — and one pattern behind most of
+it.** Six of the confirmed findings were the same shape: a security rule
+written down twice, with the second copy missing a piece. An API-key check
+re-implemented in edge functions without the tenant comparison. A filter loop
+re-implemented for cursor pagination without `in`/`not_in`. A read path that
+rebuilds rows from snapshots and never learned about row policies. Each looked
+correct in isolation, which is why none of them had been noticed. Where a fix
+was possible by deleting the second copy rather than repairing it, that is what
+was done.
+
+Every fix below was verified by reverting it and watching the test fail.
+Findings the report got wrong are listed at the end rather than quietly
+dropped.
+
+### Security — worker isolation
+
+- **fix(extensions): `DO $$ … $$` walked past the worker SQL table policy.** The
+  policy blanks dollar-quoted blocks so a table name mentioned inside a string
+  is not read as a reference. That also emptied the one place a reference is
+  most dangerous: `DO $$ BEGIN EXECUTE 'SELECT … FROM zv_api_keys'; END $$`
+  survived the scan with nothing left to look at, and Postgres ran the body as
+  the database owner. The multi-statement defence did not apply either — `DO` is
+  a single statement. Tightening the scan cannot fix this, because a body can
+  build its SQL by concatenation, so the forms that turn a string into
+  executable SQL are refused instead: `DO`, `CALL`, `PREPARE`/`EXECUTE`,
+  `CREATE FUNCTION`/`PROCEDURE`, `COPY … PROGRAM`.
+
+- **fix(extensions): the publisher-tier gate governed one runtime out of three.**
+  It sat inside the inline branch, so a manifest declaring `runtime: "wasm"`
+  took its own branch and returned before reaching it — a community-tier WASM
+  extension loaded and registered with the gate having no opinion, which is the
+  one decision whose whole job is to say whether untrusted code may run in this
+  process. Hoisted above the runtime choice.
+
+- **fix(extensions): disabling an extension left its worker running.** Unload
+  dropped every main-thread trace — services, query alters, cron — and never
+  called `host.stop()`, which had existed since workers were introduced. The
+  worker kept its SQL bridge and its timers.
+
+- **fix(extensions): a worker could answer a call it was not asked.** The
+  cross-extension invoke waiters were keyed on an rpc id alone, with no record
+  of who the invoke went to, and the ids were `inv-svc-1`, `inv-svc-2` from a
+  process-wide counter. Ids are now random and the sender is pinned.
+
+- **fix(extensions): migrations granted table access to themselves.**
+  `buildAllowedTables` read `CREATE TABLE` out of files the extension ships, so
+  a migration containing `CREATE TABLE IF NOT EXISTS zv_api_keys` added that
+  table to the extension's allowlist — and `IF NOT EXISTS` against a table the
+  engine already owns is a silent no-op that leaves the grant behind. Engine
+  tables are refused unless listed in `EXTENSION_TABLE_GRANTS`. The clamp is
+  "not an engine table" rather than "inside your own namespace" because the
+  installed catalogue does not follow that convention: extension tables are
+  named for the feature, and the 21 that genuinely collide with engine tables
+  are now listed explicitly.
+
+### Security — authentication
+
+- **fix(auth): passwords were stored as a pending Promise.** `password`'s
+  `deserialize` is the only async one in the registry and the write pipeline did
+  not await it, so what reached the column was not a hash. The registry returns
+  `Promise<any>` now, which makes the await the only thing that compiles into a
+  usable value. Writing the test surfaced the neighbour: the "already hashed"
+  guard tested for the bcrypt prefix `$2` while the hasher emits argon2id, so it
+  had never once matched.
+
+- **fix(auth): self-registration is refused at user creation, not at a URL.**
+  The gate was middleware on `POST /api/auth/sign-up/*`, which covers one of the
+  ways to acquire an account. Magic link found the gap first; OAuth had the same
+  shape and no `disableSignUp`, so on any instance with a social provider
+  configured and registration off, an unknown Google account became a Zveltio
+  account. The check moved to the one thing every flow must do — insert a row
+  into `user` — so a plugin added next year is covered on the day it ships.
+
+- **fix(auth): deleting a user left their session working.** The cascade removes
+  the `session` rows, but with `VALKEY_URL` set — the recommended production
+  setup — better-auth reads sessions from its secondary storage first, and the
+  cascade never touches it. The cookie kept working until the entry aged out. An
+  earlier round recorded this as closed on the strength of the cascade: right
+  about Postgres, wrong about the deployment that ships.
+
+- **fix(auth): edge functions accepted another tenant's API key.** They carried
+  their own copy of the check — hash, `is_active`, expiry, no tenant — and
+  `zv_api_keys` is route-scoped rather than RLS-protected, so nothing else
+  filtered it either. They call the shared validator now.
+
+- **fix(auth): accepting an invitation did not join the tenant.** It set the
+  global role and never wrote the `zv_tenant_users` row its own `tenant_id`
+  column was added for, so in multi-tenant the invited user met a 403 on every
+  request — a fully rendered admin UI where nothing worked.
+
+### Security — row and column access
+
+- **fix(data): `?cursor=` silently dropped RLS filters.** The keyset branch
+  re-implemented filter application and covered six comparison operators, so
+  `in` and `not_in` fell through its `else if` chain — exactly half of what the
+  policy route lets an administrator save. Nothing failed; the clause was never
+  emitted. It calls the same `buildCondition` the offset path uses, whose
+  `default` branch also stopped turning an unrecognised operator into equality.
+
+- **fix(data): `?as_of=` returned rows the policy withholds.** Time travel
+  rebuilds rows from JSON snapshots rather than selecting from the table, so the
+  RLS injection never touched it. It was already tenant-scoped and
+  column-masked, which is what made the gap easy to miss — the answer looked
+  filtered.
+
+- **fix(data): `?expand=` read a second collection without asking.** Column
+  permissions on the target were applied, so the shape of the answer looked
+  careful, but the read itself was ungated and no row policy was applied.
+
+- **fix(data): import and sync wrote straight to the table.** No field type's
+  `deserialize` ran and `encrypted: true` was ignored, so a password arriving by
+  CSV was stored in plaintext while the same value sent to the API was hashed.
+  Both go through `processInput` now.
+
+- **feat(extensions): extension writes go through the field pipeline too.**
+  `ctx.db.insertInto('zvd_x').values(…)` reached Postgres untouched. Fixed in
+  the proxy rather than by offering a helper to call: every extension may write
+  `zvd_*`, so a helper is forty-four chances to forget. Insert and update are
+  wrapped unconditionally now — whether a value is hashed before storage cannot
+  depend on whether an unrelated extension happens to have registered a hook.
+
+- **fix(realtime): presence and broadcast reached every tenant.**
+  `broadcastSSE` wrote to every open stream regardless of tenant or subscribed
+  channel, and the Redis channel names were identical across tenants. Both are
+  scoped now.
+
+- **fix(notifications): a tenant admin could notify the whole instance.** The
+  audience is the tenant's members, following the same rule as the membership
+  middleware — enforced for a real tenant, a no-op for the default one.
+
+- **fix(security): the caches authorization is read from are signed.**
+  `rls:policies:*` decides which row filters apply and `colperms:*` decides
+  which columns a role sees; both were plain JSON. Replacing the first with `[]`
+  removes every filter. Neither needs a login to exploit, only write access to
+  the cache, and both fail quietly.
+
+### Privacy
+
+- **feat(media): files are the uploader's unless they are library assets.**
+  `GET /api/media/files` required a session and nothing else, so every
+  authenticated user could list and download every file anyone in the tenant had
+  ever uploaded. It was not obviously wrong because `zv_media_files` serves two
+  purposes through one table: a CMS asset library, which wants tenant-wide
+  reach, and personal storage, which does not. Migration 028 adds the
+  distinction, defaulting to `personal`. Record attachments are unaffected —
+  they store a URL rather than a file id, and a private signed URL expires in an
+  hour, so anything a record holds long-term is a public upload.
+
+- **fix(storage): the quota had a second door.** `/api/media/upload` and
+  `/api/storage/upload` write the same rows and draw on the same allowance, and
+  only the first checked it — the second enforced a per-file size limit, which
+  answers a different question.
+
+- **fix(drafts): the listing authorized itself against a collection that does
+  not exist.** Without `?collection=` it asked for read on `drafts`, so the
+  answer had nothing to do with the rows returned, and every draft in the tenant
+  came back. Publishing also spread the draft's free-form JSON into the target
+  row, so a draft carrying `tenant_id` moved the record to another tenant.
+
+### Correctness
+
+- **feat(data): validation rules actually validate.** `zv_validation_rules`
+  shipped with a management UI, an extension, a table and a rule engine, and
+  `validateRecord` had zero callers. An administrator could write a rule, see it
+  listed as active, and nothing happened. Migration 027 disables every rule that
+  predates enforcement, so no install starts rejecting writes against rules
+  nobody ever saw run.
+
+- **fix(webhooks): deliveries that exhausted their retries were dropped.**
+  Nothing was written down, and the delivery metric counts a failure the same
+  whether it was retried or abandoned. They go to a bounded dead-letter queue,
+  with `GET /dlq` and `POST /dlq/replay` — a queue nobody can read is a log file
+  with extra steps.
+
+- **fix(studio): a fix could sync, print a ✓, and never arrive.** `cpSync` with
+  a `filter` does not overwrite under Bun: it copies only files missing at the
+  destination and leaves existing ones untouched. Since the test-file filter was
+  added, every shared component under `$lib/ext/` was frozen at whatever version
+  happened to be committed.
+
+- **fix(install): the Docker install was broken.** `install.sh` wrote no
+  `VALKEY_PASSWORD` while the compose file requires it. Generated for new
+  installs, backfilled on upgrade, and the release compose now fails loudly
+  instead of starting an unauthenticated cache. Nginx Proxy Manager's factory
+  password is rotated during install rather than printed with an advisory.
+
+### Accessibility
+
+- **fix(studio): hover-revealed row actions were unreachable.** Fourteen places
+  hid controls behind `opacity-0 group-hover:opacity-100`. The buttons stay
+  focusable, so tabbing to one moved focus to something completely transparent —
+  and the action is frequently a delete. One of the fourteen already carried
+  `focus:opacity-100`, so the problem had been noticed once and not swept.
+
+### Tooling
+
+- **build(coverage): the gate stopped counting lines no test can execute.** It
+  reported a regression that was not one: of 561 lines called uncovered under
+  `lib/`, 222 were closing punctuation, 78 were template-literal continuations
+  and 37 were type members. The inflation tracked explanation — code carrying
+  long comments accrued phantom uncovered lines faster than it accrued logic —
+  so the number quietly penalised writing down why something is the way it is.
+  `measured` was re-derived on the pre-campaign commit under the new filter, so
+  the ratchet compares like with like.
+
+- **feat(cli): SDUI schema strings are validated as real message keys.**
+
+### Reported and not true
+
+Three findings in the audit did not survive checking, and are recorded here so
+they are not re-filed. The mail viewer's iframe carries `sandbox` without
+`allow-scripts`, so it does not execute JavaScript — it is not an XSS sink. The
+`zv_document_templates` tables have had `FORCE ROW LEVEL SECURITY` and a tenant
+policy since that extension's second migration. The i18n coverage figure was
+stale: the hand-written core surface has been complete since beta.43.
+
+A fourth was half true. `broadcastSSE` was reported as an unbounded fan-out and
+dismissed here as dead code on a grep that excluded the file defining it; it had
+callers, and the finding was real.
+
+
 ## [3.0.0-beta.43] - 2026-08-01
 
 **The Studio speaks nine languages everywhere an operator can reach by hand.**
