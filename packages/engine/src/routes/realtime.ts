@@ -4,6 +4,11 @@ import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
+import { getRlsFilters, matchesRlsFilters } from '../lib/tenancy/index.js';
+import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
+import type { ColumnAccess } from '../lib/tenancy/index.js';
+/** What `getRlsFilters` returns — no exported alias for it. */
+type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
 import { getCache } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
@@ -44,6 +49,23 @@ interface StreamSub {
    * that had never heard of the channel.
    */
   channels: string[];
+  /**
+   * Row and column authorisation, resolved once when the stream opened.
+   *
+   * Subscribing checked `checkPermission(user, collection, 'read')` and nothing
+   * else, while the REST list path applies three layers: the permission, the
+   * row policies in `zv_rls_policies`, and column permissions. So a user
+   * restricted by policy to their own records — the ordinary case the feature
+   * exists for — received every write to the collection over SSE, with every
+   * column, including ones the API would have stripped. The same collection,
+   * read through a different door, answered a different question.
+   *
+   * Resolved at subscribe time rather than per event: the alternative is two
+   * database lookups per subscriber per write. The cost is that a policy change
+   * takes effect for an open stream when the client reconnects, which is the
+   * same window every long-lived connection has.
+   */
+  access: Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
 }
 
 // Active SSE connections: userId → Set of subscriptions
@@ -196,8 +218,28 @@ export function broadcastDataEvent(
       // so we require equality (no NULL-matches-anything).
       if ((sub.tenantId ?? null) !== (tenantId ?? null)) continue;
       if (!matchesSub(sub, collection, record)) continue;
+
+      // The subscriber's own row policies, applied by the same helper the REST
+      // list path uses. Without this the stream delivered rows the API would
+      // have filtered out.
+      const access = sub.access.get(collection);
+      if (access && access.rls.length > 0 && !matchesRlsFilters(record, access.rls)) continue;
+
+      // Column permissions too — a masked field must not arrive over SSE
+      // just because it arrived as an event rather than as a response.
+      const visible = access?.columns ? applyColumnAccess(record, access.columns) : record;
+      const body =
+        visible === record
+          ? payload
+          : JSON.stringify({
+              channel: `zveltio:data:${collection}`,
+              event,
+              collection,
+              data: visible,
+              timestamp: new Date().toISOString(),
+            });
       try {
-        sub.stream.writeSSE({ data: payload, event: 'data' });
+        sub.stream.writeSSE({ data: body, event: 'data' });
       } catch {
         /* client disconnected */
       }
@@ -369,6 +411,23 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
+
+    // Resolve row + column authorisation for every collection this stream may
+    // deliver, once, here. The delivery loop is synchronous and runs per write
+    // per subscriber, so it cannot go to the database; and `checkPermission`
+    // alone — which is all this route used to do — is one of the three layers
+    // the REST path applies.
+    const user = { id: userId, role: (session.user as { role?: string }).role ?? 'user' };
+    const access = new Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>();
+    const authType = c.get('authType');
+    const role = await resolveUserRole(user).catch(() => 'user');
+    for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
+      access.set(col, {
+        rls: await getRlsFilters(col, user, authType).catch(() => []),
+        columns: await getColumnAccess(_db, col, role).catch(() => null),
+      });
+    }
+
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = {
         stream,
@@ -377,6 +436,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         filters,
         tenantId,
         channels: allowedExtraChannels,
+        access,
       };
 
       if (!connections.has(userId)) connections.set(userId, new Set());

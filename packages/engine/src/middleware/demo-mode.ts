@@ -26,6 +26,13 @@ const BLOCKED_PATHS: Array<{ method: string; pattern: RegExp }> = [
   // state with whatever the operator dumped — not safe.
   { method: 'POST', pattern: /^\/api\/backup\/pitr\/restore$/ },
   { method: 'POST', pattern: /^\/api\/backup\/schedules$/ },
+  // Taking and downloading a dump were not blocked, only restoring one. A
+  // demo is a public instance where anyone can sign up, and a dump is the
+  // whole database in one file — every other visitor's demo data, and
+  // whatever the operator seeded it from. Reading the database out is a
+  // larger disclosure than any single route the list above protects.
+  { method: 'POST', pattern: /^\/api\/backup$/ },
+  { method: 'GET', pattern: /^\/api\/backup\/[^/]+\/download$/ },
   // Migrations — re-running on demo can race the reset cron.
   { method: 'POST', pattern: /^\/api\/admin\/migrate$/ },
   // Wiping logs would hide the audit trail of the demo session itself.

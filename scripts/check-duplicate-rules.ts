@@ -56,8 +56,24 @@ const RULES: Rule[] = [
     // A manual dispatch over a filter condition's operator. Every hand-written
     // copy of this so far has covered the comparison operators and silently
     // dropped `in`/`not_in`.
-    pattern: /\bcondition\.op\s*===|\bcond\.op\s*===/,
-    canonical: ['lib/tenancy/rls.ts', 'db/dynamic.ts'],
+    // The identifier varies — `condition`, `cond`, `f`, `filter` — so match on
+    // the shape instead. The zones render path spelled it `f.op === 'eq'` and
+    // slipped past a version of this rule that only knew the first two names,
+    // which is a fair warning about naming the variable rather than the shape.
+    pattern: /\b\w+\.op\s*===\s*['"](?:eq|neq|gt|lt|gte|lte|in|not_in)['"]/,
+    canonical: [
+      'lib/tenancy/rls.ts',
+      'db/dynamic.ts',
+      // `matchesSub` is not a copy of the RLS matcher — it applies the
+      // SUBSCRIBER'S OWN `?filter=`, which they asked for, and it runs inside
+      // the synchronous SSE fan-out. `matchesRlsFilters` throws on an operator
+      // it cannot apply, which is right for a policy that must not silently
+      // fail open and wrong here: it would break delivery for every subscriber
+      // on the connection. The row POLICIES on that path go through the shared
+      // helper (see the `access` map on StreamSub); this is the other, weaker
+      // filter sitting next to it.
+      'routes/realtime.ts',
+    ],
     use: '`applyRlsFilters` (SQL) or `matchesRlsFilters` (in memory), or `buildCondition` for one condition',
     because:
       'the cursor branch and GET /:id each grew their own copy covering eq/neq only, so a policy written with `in` applied to the listing and not to those',
