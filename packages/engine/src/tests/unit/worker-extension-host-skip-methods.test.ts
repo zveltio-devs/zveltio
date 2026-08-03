@@ -21,6 +21,7 @@ describe('WorkerExtensionHost — route method filter', () => {
       worker: { postMessage: () => {}, terminate: () => {} } as unknown as Worker,
       routes: [{ method: 'OPTIONS', path: '/ok' }],
       pendingInvokes: new Map(),
+      invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),

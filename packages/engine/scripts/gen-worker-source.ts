@@ -54,6 +54,18 @@ if (result.outputs.length === 0) {
 
 const code = await result.outputs[0]!.text();
 
+// Hash of the INPUT, not the output.
+//
+// Bun's bundler writes the entry path into a header comment, and that path is
+// relative to the working directory the build ran from — so the same source
+// regenerated from a different directory produces different bytes. A freshness
+// gate that diffed the generated file would therefore fail on code nobody
+// touched, which is how a gate gets switched off. `check-bundle-sources.ts` in
+// the extensions repo learned the same thing and hashes its input too.
+const sourceSha256 = new Bun.CryptoHasher('sha256')
+  .update(await Bun.file(SRC).text())
+  .digest('hex');
+
 const fileContent = `// AUTO-GENERATED FILE — DO NOT EDIT BY HAND.
 //
 // Regenerate via \`bun packages/engine/scripts/gen-worker-source.ts\`.
@@ -66,6 +78,14 @@ const fileContent = `// AUTO-GENERATED FILE — DO NOT EDIT BY HAND.
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: this is a literal of source text
 
 export const WORKER_RUNTIME_SOURCE = ${JSON.stringify(code)};
+
+/**
+ * sha256 of \`worker-extension-runtime.ts\` as it was when this file was
+ * generated. \`scripts/check-worker-source-fresh.ts\` compares it against the
+ * source on disk, so an edit that nobody regenerated fails CI instead of
+ * shipping a runtime that was never the one under test.
+ */
+export const WORKER_RUNTIME_SOURCE_SHA256 = ${JSON.stringify(sourceSha256)};
 `;
 
 writeFileSync(OUT, fileContent, 'utf8');

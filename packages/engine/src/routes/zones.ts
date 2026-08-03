@@ -157,7 +157,6 @@ async function requireAdmin(c: any): Promise<Response | null> {
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 /**
  * May this user enter a zone or page restricted to `allowed` roles?
  *
@@ -186,6 +185,7 @@ async function hasZoneRole(
   return roles.some((r) => allowed.includes(r));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function zonesRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 

@@ -31,6 +31,7 @@ function makeManaged(
     } as unknown as Worker,
     routes: [],
     pendingInvokes: new Map(),
+    invokeTenants: new Map(),
     pendingInits: new Map(),
     pendingPings: new Map(),
     registeredServices: new Set(overrides.registeredServices ?? []),

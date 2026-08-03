@@ -148,7 +148,14 @@ describe('WebhookManager.trigger — cache + secrets', () => {
 
     try {
       await WebhookManager.trigger('record.created', 'orders', { id: 'o1' });
-      await new Promise((r) => setTimeout(r, 50));
+      // Poll rather than sleep once. Delivery is fire-and-forget, and a single
+      // 50ms window failed on CI at 52.27ms — a loaded runner is slower than a
+      // laptop, so a fixed wait tests the runner as much as the code. Waits up
+      // to 2s and returns as soon as the call lands, which is the common case.
+      const deadline = Date.now() + 2000;
+      while (!hit && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
       expect(hit).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
