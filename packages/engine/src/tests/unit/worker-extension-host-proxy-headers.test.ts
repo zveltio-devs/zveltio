@@ -39,6 +39,7 @@ describe('WorkerExtensionHost — proxy header forwarding', () => {
       } as unknown as Worker,
       routes: [{ method: 'POST', path: '/echo' }],
       pendingInvokes: new Map(),
+      invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),

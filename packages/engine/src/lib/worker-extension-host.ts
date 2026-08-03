@@ -118,6 +118,15 @@ interface ManagedWorker {
   worker: Worker;
   routes: RouteDescriptor[];
   pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
+  /**
+   * Tenant of each in-flight `route:invoke`, keyed by the id the host minted.
+   *
+   * This is the host's own record of what it dispatched. `db:query` names an
+   * invocation and the tenant is read from here — never from the message, since
+   * the worker is the untrusted party and a tenant it asserts is a tenant it
+   * picked.
+   */
+  invokeTenants: Map<string, string | null>;
   pendingInits: Map<string, (res: InitResponse) => void>;
   pendingPings: Map<string, () => void>;
   /** Service names this worker has registered. Used to unregister on
@@ -269,6 +278,7 @@ export class WorkerExtensionHost {
       worker,
       routes: [],
       pendingInvokes: new Map(),
+      invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set(),
@@ -458,7 +468,13 @@ export class WorkerExtensionHost {
     msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
   ): Promise<void> {
     try {
-      const rows = await runRawWithParams(managed.name, msg.sql, msg.params);
+      // The tenant of the request this query was issued under, from the host's
+      // own dispatch record. A worker that names an unknown id — or issues a
+      // query outside any request, as a background hook does — gets `undefined`
+      // and the query runs with no tenant context, which the isolation
+      // predicate resolves to the default tenant rather than to everything.
+      const tenantId = msg.requestId ? managed.invokeTenants.get(msg.requestId) : undefined;
+      const rows = await runRawWithParams(managed.name, msg.sql, msg.params, tenantId ?? undefined);
       this.post(managed, { type: 'db:ok', id: msg.id, rows });
     } catch (err) {
       this.post(managed, { type: 'db:err', id: msg.id, error: (err as Error).message });
@@ -594,7 +610,12 @@ export class WorkerExtensionHost {
       if (typeof subAny[method] !== 'function') continue;
       subAny[method](
         r.path,
-        async (c: { req: { raw: Request; query: () => Record<string, string> } }) => {
+        async (c: {
+          req: { raw: Request; query: () => Record<string, string> };
+          // `tenant` is set by tenantMiddleware; typed narrowly here because the
+          // proxy is registered on an untyped sub-app.
+          get: (key: string) => unknown;
+        }) => {
           const live = this.workers.get(managed.name);
           if (!live) return new Response('Extension worker is not running', { status: 503 });
           const bodyText = await c.req.raw.text().catch(() => '');
@@ -603,6 +624,8 @@ export class WorkerExtensionHost {
             headers[k] = v;
           });
           const id = rpcId('inv');
+          const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
+          live.invokeTenants.set(id, reqTenantId);
           live.inFlightRequests++;
           live.totalRequests++;
           try {
@@ -622,6 +645,7 @@ export class WorkerExtensionHost {
                 headers,
                 query: c.req.query(),
                 body: bodyText || undefined,
+                tenantId: reqTenantId ?? undefined,
               });
             });
             if (resp.type === 'route:err') {
@@ -635,6 +659,11 @@ export class WorkerExtensionHost {
             return new Response((err as Error).message, { status: 500 });
           } finally {
             live.inFlightRequests--;
+            // The request is over, so the id can no longer name a tenant. Left
+            // behind, this map grows for the lifetime of the process and a
+            // worker could keep quoting a finished request's id to hold on to
+            // its tenant context.
+            live.invokeTenants.delete(id);
           }
         },
       );
@@ -668,6 +697,16 @@ export const _internalForTests = {
   },
   resetInvokeWaiters(): void {
     invokeWaiters.clear();
+  },
+  /**
+   * The tenant the host would apply to a `db:query` naming `requestId`.
+   *
+   * Exposed so a test can assert the resolution WITHOUT a database: the whole
+   * point is that the answer comes from the host's dispatch record and not from
+   * anything the worker sent, and that is a property of this lookup.
+   */
+  resolveDbTenant(managed: ManagedWorker, requestId?: string): string | null | undefined {
+    return requestId ? managed.invokeTenants.get(requestId) : undefined;
   },
 };
 
@@ -721,16 +760,24 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  *    the predicate resolves to the DEFAULT tenant (engine migration 029), so an
  *    extension sees one tenant's rows instead of all of them.
  *
- * Still short of the goal, and worth stating plainly: the query runs on the
- * engine's pool rather than the CALLER's tenant transaction, so a worker
- * extension serving tenant B reads the default tenant's rows, not B's. That is
- * a bug for the extension and no longer a disclosure across tenants. Closing it
- * properly means threading tenant context through the worker IPC.
+ *  - the caller's tenant, set as the `zveltio.current_tenant` GUC so the
+ *    isolation policies resolve to the tenant whose request this is. The host
+ *    reads it from its OWN dispatch record, keyed by the invocation id the
+ *    worker quotes — the worker never states a tenant, because a tenant it
+ *    states is a tenant it chose.
+ *
+ * A query issued outside any request — a background hook, a scheduled task —
+ * carries no invocation id and therefore no tenant. It gets the default
+ * tenant's rows, which is what the predicate resolves to with no GUC. That is a
+ * limitation rather than a hole: such code has no caller to inherit a tenant
+ * from, and reading one tenant's data is a bug the extension can see, where
+ * reading everyone's was one nobody could.
  */
 async function runRawWithParams(
   extName: string,
   sql: string,
   params: unknown[],
+  tenantId?: string,
 ): Promise<unknown[]> {
   assertWorkerSqlAllowed(extName, sql);
 
@@ -740,6 +787,7 @@ async function runRawWithParams(
 
   const reserved = await pool.reserve();
   let roleSet = false;
+  let tenantSet = false;
   try {
     await reserved.unsafe(`SET statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
     // Best-effort: a managed Postgres may not have let migration 030 create the
@@ -751,11 +799,28 @@ async function runRawWithParams(
     } catch {
       /* role absent — see migration 030 */
     }
+    if (tenantId) {
+      // Parameterised: this value comes from the host's own record, but it is
+      // interpolated into a session setting, and `set_config` takes a bind
+      // parameter where `SET` does not.
+      await reserved.unsafe('SELECT set_config($1, $2, false)', [
+        'zveltio.current_tenant',
+        tenantId,
+      ]);
+      tenantSet = true;
+    }
     return (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
   } finally {
     // Reset before returning the connection to the pool — these are per-SESSION
     // settings, not per-transaction, so leaking either would silently cap or
     // de-privilege unrelated engine queries that reuse this connection.
+    // Order matters: RESET ROLE last, because resetting the tenant GUC needs
+    // the privileges the role may not have.
+    if (tenantSet) {
+      await reserved
+        .unsafe('SELECT set_config($1, $2, false)', ['zveltio.current_tenant', ''])
+        .catch(() => undefined);
+    }
     if (roleSet) await reserved.unsafe('RESET ROLE').catch(() => undefined);
     await reserved.unsafe('SET statement_timeout = DEFAULT').catch(() => undefined);
     reserved.release();

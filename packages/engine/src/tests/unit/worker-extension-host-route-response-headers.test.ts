@@ -37,6 +37,7 @@ describe('WorkerExtensionHost — route response headers', () => {
       } as unknown as Worker,
       routes: [{ method: 'DELETE', path: '/item' }],
       pendingInvokes: new Map(),
+      invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
