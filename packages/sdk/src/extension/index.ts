@@ -257,7 +257,7 @@ export interface ExtensionContext<DB = any> {
    * Engine-internal helpers. Stable across patch versions but may break across
    * minor versions. First-party extensions only.
    */
-  internals: ExtensionInternals;
+  internals: ExtensionInternals<DB>;
 }
 
 /**
@@ -265,7 +265,7 @@ export interface ExtensionContext<DB = any> {
  * Each field is the live engine singleton or function — extensions should never
  * import these directly from `../../../packages/engine/src/...` paths.
  */
-export interface ExtensionInternals {
+export interface ExtensionInternals<DB = unknown> {
   /** Type-safe insert into a dynamic (user-defined) collection table. */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
@@ -283,6 +283,26 @@ export interface ExtensionInternals {
   runQualityScan: (...args: any[]) => Promise<unknown>;
   /** Invalidate the cached validation rules for a collection. */
   invalidateRulesCache: (collection: string) => void;
+  /**
+   * Run a callback inside a tenant transaction, outside any request.
+   *
+   * `ctx.reqDb(c)` covers request handlers. Background work — scheduled tasks,
+   * queue workers, fire-and-forget jobs — has no `c` and so had nothing: it ran
+   * on the engine's global pool with no tenant context at all. `data/export`
+   * and `data/import` documented that in a comment and called the fix a
+   * follow-up.
+   *
+   * The tenant must come from wherever the work was ENQUEUED; a job has no
+   * caller to inherit one from. Inside the callback the handle behaves exactly
+   * like a request's: the tenant GUC is set and `SET LOCAL ROLE` applied, so
+   * the isolation policies bind.
+   *
+   *     await ctx.internals.withTenantIsolation(tenantId, async (db) => {
+   *       await db.selectFrom('zvd_things').selectAll().execute();
+   *     });
+   */
+  withTenantIsolation: <T>(tenantId: string, fn: (db: Kysely<DB>) => Promise<T>) => Promise<T>;
+
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   runEdgeFunction: (...args: any[]) => Promise<unknown>;
