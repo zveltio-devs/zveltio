@@ -589,7 +589,13 @@ jobs:
   publish-release:
     # release-gate blocks a STABLE publish when any criterion fails; it
     # self-bypasses prerelease tags, so beta/rc publishes are unaffected.
-    needs: [generate-assets, release-gate]
+    # smoke-binary is what proves the compiled binary starts against a real
+    # Postgres and serves a request. It ran on every release and gated nothing:
+    # `publish-release` did not depend on it, so a binary that failed to boot
+    # was published anyway, with the red check sitting next to the release for
+    # whoever thought to look. beta.44 shipped exactly that way — a binary that
+    # crashed on a path missing from the compiled bundle.
+    needs: [generate-assets, release-gate, smoke-binary]
     runs-on: ubuntu-latest
     permissions:
       contents: write
