@@ -472,10 +472,17 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const meta = await c.req.json().catch(() => ({}));
     const cache = getCache();
 
+    // Client metadata first, identity last.
+    //
+    // These were the other way round, so `...meta` — the request body —
+    // overwrote `name` and `email`. The userId is a separate argument and was
+    // never forgeable, which is what made this easy to wave away: I said as
+    // much in an earlier pass and was wrong. The id was safe and the display
+    // name was not, and a presence list is read by people, who see the name.
     await presenceJoin(cache, channel, session.user.id, {
+      ...meta,
       name: session.user.name,
       email: session.user.email,
-      ...meta,
     });
 
     // Broadcast join event to all channel subscribers
@@ -555,9 +562,28 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
+    const channel = c.req.param('channel');
+
+    // Joining announces yourself; LISTING tells you who else is there, and a
+    // channel name usually says what "there" is. `zvd_salaries` or
+    // `record:zvd_salaries:<id>` would otherwise let any member learn who is
+    // looking at a salary record — the roster is the disclosure, not the join.
+    //
+    // Only channels that name a collection are gated, and on read of that
+    // collection: an ad-hoc room name discloses nothing but its own existence,
+    // and requiring a permission for one would end the collaboration feature
+    // this exists for.
+    const named = /^(?:record:)?(zvd_[a-z0-9_]+)(?::|$)/i.exec(channel);
+    if (named) {
+      const collection = named[1].replace(/^zvd_/, '');
+      if (!(await checkPermission(session.user.id, collection, 'read').catch(() => false))) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+    }
+
     const cache = getCache();
-    const members = await presenceList(cache, c.req.param('channel'));
-    return c.json({ channel: c.req.param('channel'), members });
+    const members = await presenceList(cache, channel);
+    return c.json({ channel, members });
   });
 
   // ── Broadcast channels ─────────────────────────────────────────

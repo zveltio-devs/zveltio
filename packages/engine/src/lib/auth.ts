@@ -196,12 +196,22 @@ async function rehashLegacyAccountToArgon2id(
  * from deleting an account. The DB rows are removed either way, so the session
  * cannot outlive the cache TTL even in the worst case.
  */
-export async function revokeAllUserSessions(db: Database, userId: string): Promise<void> {
+export async function revokeAllUserSessions(
+  db: Database,
+  userId: string,
+  /**
+   * A session token to spare. Used when the reason for revoking is that the
+   * user just hardened their own account — logging them out of the tab they
+   * did it in would read as a failure, not as protection.
+   */
+  exceptToken?: string,
+): Promise<void> {
   const { getCache } = await import('./runtime/index.js');
   const cache = getCache();
   if (cache) {
     try {
       const raw = await cache.get(`active-sessions-${userId}`);
+      const kept: unknown[] = [];
       if (raw) {
         let list: unknown = raw;
         for (let i = 0; i < 2 && typeof list === 'string'; i++) {
@@ -214,11 +224,32 @@ export async function revokeAllUserSessions(db: Database, userId: string): Promi
         if (Array.isArray(list)) {
           for (const entry of list) {
             const token = (entry as { token?: string })?.token;
-            if (token) await cache.del(token).catch(() => {});
+            if (!token) continue;
+            if (token === exceptToken) {
+              kept.push(entry);
+              continue;
+            }
+            await cache.del(token).catch(() => {});
           }
         }
       }
-      await cache.del(`active-sessions-${userId}`).catch(() => {});
+
+      // One decision, taken once, whatever the index turned out to be.
+      //
+      // This was two branches and an unparseable index fell between them: not an
+      // array, so nothing rewrote it, and not absent, so nothing deleted it —
+      // the malformed entry survived a revocation whose whole job is to leave
+      // nothing behind. Rewriting when a session is spared keeps it visible to
+      // `listSessions`, and present-but-unlistable is its own kind of broken.
+      // Double-encoded on the way in, matching how the adapter stores what
+      // better-auth already stringified.
+      if (kept.length > 0) {
+        await cache
+          .set(`active-sessions-${userId}`, JSON.stringify(JSON.stringify(kept)))
+          .catch(() => {});
+      } else {
+        await cache.del(`active-sessions-${userId}`).catch(() => {});
+      }
     } catch (err) {
       console.error(`[auth] could not purge cached sessions for ${userId}:`, err);
     }
@@ -226,13 +257,11 @@ export async function revokeAllUserSessions(db: Database, userId: string): Promi
 
   // Explicit rather than left to the FK cascade: this runs before the user row
   // is gone, and it is what makes the function correct on its own.
-  await db
-    .deleteFrom('session')
-    .where('userId', '=', userId)
-    .execute()
-    .catch(() => {
-      /* table shape varies on fresh installs */
-    });
+  let del = db.deleteFrom('session').where('userId', '=', userId);
+  if (exceptToken) del = del.where('token', '!=', exceptToken);
+  await del.execute().catch(() => {
+    /* table shape varies on fresh installs */
+  });
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {

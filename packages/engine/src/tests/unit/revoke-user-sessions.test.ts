@@ -27,6 +27,10 @@ class FakeCache {
   async get(k: string): Promise<string | null> {
     return this.store.get(k) ?? null;
   }
+  async set(k: string, v: string): Promise<'OK'> {
+    this.store.set(k, v);
+    return 'OK';
+  }
   async del(k: string): Promise<number> {
     this.deleted.push(k);
     this.store.delete(k);
@@ -62,6 +66,40 @@ describe('revokeAllUserSessions', () => {
     expect(cache.deleted).toContain('tok-b');
     expect(cache.deleted).toContain(`active-sessions-${USER}`);
     expect(cache.store.size).toBe(0);
+  });
+
+  it('spares the current session when asked', async () => {
+    // Enabling 2FA revokes every OTHER session. Logging the user out of the tab
+    // they hardened their account in would read as a failure, not protection.
+    const cache = new FakeCache();
+    cache.store.set(
+      `active-sessions-${USER}`,
+      doubleEncoded([
+        { token: 'tok-current', expiresAt: Date.now() + 10_000 },
+        { token: 'tok-other', expiresAt: Date.now() + 10_000 },
+      ]),
+    );
+    cache.store.set('tok-current', 'session-current');
+    cache.store.set('tok-other', 'session-other');
+    _setCacheForTests(cache as unknown as Redis);
+
+    const db = new CannedDb();
+    await revokeAllUserSessions(db.kysely as unknown as Database, USER, 'tok-current');
+
+    expect(cache.deleted).toContain('tok-other');
+    expect(cache.deleted).not.toContain('tok-current');
+    expect(cache.store.get('tok-current')).toBe('session-current');
+
+    // The index is rewritten rather than dropped, or the spared session is
+    // present and invisible to `listSessions`.
+    const idx = cache.store.get(`active-sessions-${USER}`);
+    expect(idx).toBeDefined();
+    expect(idx).toContain('tok-current');
+    expect(idx).not.toContain('tok-other');
+
+    // And the DB delete excludes it.
+    const sql = db.executed(/delete from "session"/i)[0];
+    expect(sql?.parameters).toContain('tok-current');
   });
 
   it('deletes the database rows as well', async () => {
