@@ -3,6 +3,7 @@ import '../app.css';
 import OfflineBanner from '$components/common/OfflineBanner.svelte';
 import { page } from '$app/state';
 import { Menu, X, LogIn } from '@lucide/svelte';
+import { safeCss, safeImageUrl } from '$lib/sanitize';
 
 let { children, data } = $props();
 
@@ -40,8 +41,8 @@ function isActive(href: string) {
 <svelte:head>
   {#if theme?.meta_title}<title>{theme.meta_title}</title>{/if}
   {#if theme?.meta_description}<meta name="description" content={theme.meta_description}/>{/if}
-  {#if theme?.favicon_url}<link rel="icon" href={theme.favicon_url}/>{/if}
-  {#if theme?.custom_css}<style>{theme.custom_css}</style>{/if}
+  {#if theme?.favicon_url}<link rel="icon" href={safeImageUrl(theme.favicon_url)}/>{/if}
+  {#if theme?.custom_css}<style>{safeCss(theme.custom_css)}</style>{/if}
 </svelte:head>
 
 <OfflineBanner />
@@ -54,7 +55,7 @@ function isActive(href: string) {
       <aside class="w-60 shrink-0 border-r flex flex-col" style="background: {theme?.color_primary ?? '#570df8'}; color: white; border-color: rgba(255,255,255,0.15)">
         <div class="p-4 border-b border-white/10">
           {#if theme?.logo_url}
-            <img src={theme.logo_url} alt={theme.app_name ?? ''} class="h-8 w-auto"/>
+            <img src={safeImageUrl(theme.logo_url)} alt={theme.app_name ?? ''} class="h-8 w-auto"/>
           {:else}
             <span class="font-bold text-lg">{theme?.app_name ?? ''}</span>
           {/if}
@@ -83,7 +84,7 @@ function isActive(href: string) {
           <!-- Brand -->
           <a href="/" class="flex items-center gap-2 shrink-0">
             {#if theme?.logo_url}
-              <img src={theme.logo_url} alt={theme.app_name ?? ''} class="h-8 w-auto"/>
+              <img src={safeImageUrl(theme.logo_url)} alt={theme.app_name ?? ''} class="h-8 w-auto"/>
             {:else}
               <span class="font-bold text-lg">{theme?.app_name ?? 'Portal'}</span>
             {/if}

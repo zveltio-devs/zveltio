@@ -35,3 +35,8 @@ export { normalizeFields } from './shape.js';
 //     key to read it with.
 export { serializeRecord } from './shape.js';
 export { validateApiKey } from './auth.js';
+//   - `checkAccess` so the zones render path asks the same question the data
+//     API asks. It used to scope collection reads by `tenant_id` alone, which
+//     re-implemented the authorisation model as a single predicate: a view on
+//     a page published its collection to everyone who could open the page.
+export { checkAccess } from './auth.js';

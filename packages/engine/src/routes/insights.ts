@@ -101,10 +101,31 @@ async function runReadOnlySql(
   db: Database,
   query: string,
   timeoutSec = 10,
+  tenantId?: string,
 ): Promise<{ rows: Record<string, unknown>[] }> {
   return db.transaction().execute(async (trx: Database) => {
     await sql.raw(`SET TRANSACTION READ ONLY`).execute(trx);
     await sql.raw(`SET LOCAL statement_timeout = '${timeoutSec}s'`).execute(trx);
+    // Fourth layer, and the one that was missing: run inside a tenant.
+    //
+    // The three SETs above stop the query WRITING. Nothing stopped it reading,
+    // and it ran on the global pool with no tenant context, so a panel or saved
+    // query belonging to one tenant returned every tenant's rows. The dashboard
+    // around it was carefully scoped by tenant_id; the SQL inside it was not.
+    //
+    // `SET LOCAL ROLE` is what makes this bind at all — on a stock install the
+    // engine connects as a superuser and RLS does not apply to it. See
+    // migration 030.
+    //
+    // Omitted deliberately for the instance-admin ad-hoc endpoint, which exists
+    // to query across tenants and is gated on requireInstanceAdmin.
+    if (tenantId) {
+      await sql
+        .raw('SET LOCAL ROLE zveltio_rls')
+        .execute(trx)
+        .catch(() => undefined);
+      await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
+    }
     const result = await sql.raw<Record<string, unknown>>(query).execute(trx);
     return { rows: result.rows ?? [] };
   });
@@ -602,7 +623,9 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
 
     const start = Date.now();
     try {
-      const result = await runReadOnlySql(db, panelQuery, 10);
+      // The dashboard's tenant, not the viewer's: a dashboard belongs to one
+      // organisation and its panels show that organisation's data.
+      const result = await runReadOnlySql(db, panelQuery, 10, tenantOf(c));
       const executionMs = Date.now() - start;
       const rows = result.rows ?? [];
 
@@ -699,6 +722,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (blocked) return c.json({ error: blocked }, 400);
 
       try {
+        // No tenant argument: this endpoint is instance-admin only and exists
+        // to query across the whole instance. Every other call site scopes.
         const result = await runReadOnlySql(db, query, 10);
         return c.json({
           data: result.rows,
@@ -714,9 +739,13 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   app.get('/saved-queries', async (c) => {
     const user = c.get('user');
 
+    // Tenant first, THEN public-or-mine. `is_public` means "shared with my
+    // organisation", not "shared with the instance" — without the tenant
+    // predicate this listed every other customer's saved SQL.
     const queries = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
+      .where('tenant_id', '=', tenantOf(c))
       .where((eb) => eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]))
       .orderBy('use_count', 'desc')
       .orderBy('created_at', 'desc')
@@ -756,6 +785,10 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
           tags: body.tags,
           is_public: body.is_public,
           created_by: user.id,
+          // Explicit rather than leaning on the column DEFAULT: this insert runs
+          // on the raw pool, where the tenant GUC the DEFAULT reads is not set,
+          // so every saved query would land on the default tenant.
+          tenant_id: tenantOf(c),
         })
         .returningAll()
         .executeTakeFirst();
@@ -786,6 +819,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .selectFrom('zvd_insight_saved_queries')
         .select(['id', 'created_by'])
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst();
 
       if (!existing) return c.json({ error: 'Saved query not found' }, 404);
@@ -822,6 +856,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zvd_insight_saved_queries')
       .select(['id', 'created_by'])
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!existing) return c.json({ error: 'Saved query not found' }, 404);
@@ -831,7 +866,11 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    await db.deleteFrom('zvd_insight_saved_queries').where('id', '=', id).execute();
+    await db
+      .deleteFrom('zvd_insight_saved_queries')
+      .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
+      .execute();
     return c.json({ success: true });
   });
 
@@ -840,10 +879,14 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
+    // Scoped by tenant: `is_public` below admits any authenticated caller, so
+    // without this an id from another organisation was enough to run their
+    // saved SQL — and the SQL itself then ran with no tenant context either.
     const savedQuery = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!savedQuery) return c.json({ error: 'Saved query not found' }, 404);
@@ -865,7 +908,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (blocked) return c.json({ error: blocked }, 400);
 
     try {
-      const result = await runReadOnlySql(db, queryText, 10);
+      const result = await runReadOnlySql(db, queryText, 10, tenantOf(c));
 
       // Increment use_count
       await db
