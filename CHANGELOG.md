@@ -4,6 +4,95 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.47] - 2026-08-03
+
+**The tenant isolation policies were never applied to anything.** Three audit
+reports pointed at extension tables leaking across tenants, and they were
+right, but not for the reason given. `docker-compose.yml` passes
+`POSTGRES_USER` to the official Postgres image, which creates that user as a
+SUPERUSER — and FORCE ROW LEVEL SECURITY does not bind superusers. On every
+stock deployment the policies were commentary: the reconcilers installed them,
+the boot warning about it scrolled past in the log, and every request read
+every tenant's rows anyway. Demonstrated on Postgres 18: same table, same
+policy, same tenant GUC, two rows visible instead of one. Fixing the policies —
+which is what the reports asked for — would have changed nothing at all.
+
+Migration 030 creates a plain role and `withTenantIsolation` spends each tenant
+transaction as it, so the database enforces isolation whatever the operator's
+connection happens to be. Schema-management routes never open that transaction,
+so DDL keeps the owner's rights.
+
+**One predicate instead of two that disagreed.** The engine's own tables were
+fail-closed; all 54 extension copies of the same rule were fail-OPEN, so a
+query that arrived without tenant context read everyone's rows where the
+identical mistake against an engine table read none. They now share
+`zveltio_tenant_scope_ok` (migrations 029/033), which mirrors the `tenant_id`
+column DEFAULT so reads and writes cannot disagree, and a boot reconciler
+rewrites the policies on installed databases — including for extensions that
+are not in this repository.
+
+Measured rather than assumed, twice, and both times the obvious version was
+wrong: `NOT EXISTS (SELECT 1 FROM zv_tenants)` would have denied every
+contextless query on an ordinary single-tenant install, and comparing
+`tenant_id::text` — what the original predicate did — costs a full index scan
+where the typed form is an index seek.
+
+### Fixed — tenant isolation
+
+- **SCIM tokens had no tenant column at all.** The gate looked the hash up and
+  let the request through; everything past it operated on the global `"user"`
+  table with no tenant condition. An identity provider enrolled by one ordinary
+  customer could enumerate and deprovision every other tenant's staff.
+  Deprovisioning removes MEMBERSHIP now, not the account — a person can work
+  for two tenants, and one offboarding them must not erase the other's login.
+- **Worker extensions ran SQL with no tenant context** (EXT-001). The tenant is
+  threaded through the IPC, and the host resolves it from its OWN dispatch
+  record rather than from anything the worker claims.
+- **Insights saved queries** were reachable across tenants AND ran unscoped —
+  `zvd_insight_saved_queries` had no tenant column, missed when migration 019
+  scoped the nearly-identically-named `zv_saved_queries`.
+- **Zone pages published their collections**: a view re-implemented the
+  collection read as a single `tenant_id` predicate, with no permission check,
+  no row policies and no column permissions.
+- **The SSE stream** checked collection permission and stopped, while the REST
+  path applies three layers — so a user restricted by policy to their own
+  records received every write, with every column.
+- **Zone access** checked Better-Auth's single global role string, written out
+  three times, where authorisation everywhere else comes from Casbin.
+
+### Fixed — authorisation and input
+
+- Flow step routes bypassed `assertStepTypesAllowed`, so a tenant admin who
+  could not create a flow containing `query_db` could add that step to one.
+- The registry granted a publisher tier from an unverified `keyId` — anyone
+  could claim `first-party` and be loaded inline — and served paid archives
+  with no licence check on one of its two download paths.
+- An incoming webhook checked that a signature header was PRESENT and stopped,
+  with a note saying real verification would need the crypto module.
+- A completed password reset left every existing session alive.
+- `action_url` on a broadcast notification was validated with
+  `z.string().url()`, which accepts `javascript:` and `data:text/html`.
+- Demo mode blocked deleting a user but not editing one, and restoring a backup
+  but not taking one.
+- `custom_css` went into `<style>{...}</style>`, where `</style>` in the value
+  ends the block and the rest is markup again.
+- The client's `(employee)` and `(partner)` auth guards were `+layout.server.ts`
+  files that could never run: `adapter-static` produces an SPA with no server.
+
+### Added — gates
+
+Four, each from a bug that shipped:
+
+- `check-duplicate-rules` — a security rule written twice, with the second copy
+  incomplete, was the shape of most findings across three audits.
+- `check-reqdb-bypass` — 31 of 53 extensions define `reqDb` and go around it.
+  A ratchet, since the database fails closed now.
+- `check-worker-source-fresh` — the embedded worker runtime was regenerated
+  only at release, so CI tested the old copy while the release shipped a new
+  one.
+- `publish-release` now depends on `smoke-binary`, which ran on every release
+  and gated nothing. beta.44 shipped a binary that failed to boot.
+
 ## [3.0.0-beta.46] - 2026-08-03
 
 **Two more audit passes, and the discovery that three fixes from the last
