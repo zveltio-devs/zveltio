@@ -567,6 +567,19 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
+    // Sending and receiving now need the same thing.
+    //
+    // Subscribing to a non-data channel requires tenant admin (see the
+    // `?channel=` gate above); sending to one required only a session. The
+    // blast radius was narrow — the name is forced into `zveltio:broadcast:`
+    // so it cannot reach a data channel, and only admins could hear it — but
+    // "any member may push a message that only admins receive" is a nuisance
+    // path with no legitimate caller: nothing in the Studio or the SDK uses
+    // this route.
+    if (!(await isTenantAdmin(session.user.id).catch(() => false))) {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
     const channel = c.req.param('channel');
     if (channel.length > 128) return c.json({ error: 'Channel name too long' }, 400);
 
