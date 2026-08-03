@@ -39,7 +39,11 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { getUserRoles, isTenantAdmin } from '../lib/tenancy/index.js';
+import { applyRlsFilters, getRlsFilters } from '../lib/tenancy/index.js';
+import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
+import { checkAccess } from '../lib/data/index.js';
+import { buildCondition } from '../db/dynamic.js';
 import { tenantId } from '../lib/route-db.js';
 import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/runtime/index.js';
 
@@ -154,6 +158,34 @@ async function requireAdmin(c: any): Promise<Response | null> {
 // ── Route factory ─────────────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+/**
+ * May this user enter a zone or page restricted to `allowed` roles?
+ *
+ * The check used to be `allowed.includes(user.role)` — Better-Auth's single
+ * global role string — written out three times in this file. Authorisation
+ * everywhere else in the engine comes from Casbin, where a user holds SEVERAL
+ * roles and holds them PER TENANT. So a person granted `hr_manager` in their
+ * tenant, the normal way, was refused by a zone restricted to `hr_manager`,
+ * because `user.role` still said `user`. Zones looked broken and operators
+ * worked around them by widening `access_roles` until they let everyone in,
+ * which is how a fail-closed bug becomes an open door.
+ *
+ * Both sources count: the Casbin roles are the real grant, and `user.role` is
+ * kept so existing zones configured against it keep working.
+ */
+async function hasZoneRole(
+  user: { id?: string; role?: string } | null | undefined,
+  allowed: string[],
+): Promise<boolean> {
+  if (allowed.length === 0) return true;
+  if (!user) return false;
+  if (user.role === 'god') return true;
+  if (user.role && allowed.includes(user.role)) return true;
+  if (!user.id) return false;
+  const roles = await getUserRoles(user.id).catch(() => [] as string[]);
+  return roles.some((r) => allowed.includes(r));
+}
+
 export function zonesRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -582,7 +614,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const user = c.get('user');
     if (zone.access_roles.length > 0) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
-      if (user.role !== 'god' && !zone.access_roles.includes(user.role)) {
+      if (!(await hasZoneRole(user, zone.access_roles))) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -624,7 +656,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const user = c.get('user');
     if (zone.access_roles.length > 0) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
-      if (user.role !== 'god' && !zone.access_roles.includes(user.role)) {
+      if (!(await hasZoneRole(user, zone.access_roles))) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -644,7 +676,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     if (page.auth_required) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
       const roles = page.allowed_roles as string[];
-      if (roles.length > 0 && user.role !== 'god' && !roles.includes(user.role)) {
+      if (!(await hasZoneRole(user, roles))) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -683,7 +715,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     }
 
     // Resolve view definitions + fetch data for each view from its collection
-    const views = await Promise.all(
+    const viewsWithGaps = await Promise.all(
       viewRows.map(async (vr) => {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const parsedFields: any[] =
@@ -696,6 +728,17 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         let records: any[] = [];
+
+        // A view on a page is a read of a collection, and it has to be the SAME
+        // read the data API performs. This path scoped by tenant and stopped
+        // there — no permission check, no row-level policies, no column
+        // permissions — so putting a view on a zone page published a collection
+        // to everyone who could open the page, whatever `zv_rls_policies` and
+        // the user's Casbin grants said about it. The whole authorisation
+        // model was re-implemented here as a single `tenant_id` predicate.
+        const mayRead = await checkAccess(db, user, vr.collection, 'read').catch(() => false);
+        if (!mayRead) return null;
+
         try {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           let q = (db as any)
@@ -711,17 +754,35 @@ export function zonesRoutes(db: Database, auth: any): Hono {
           if (vr.sort_field) q = q.orderBy(vr.sort_field, vr.sort_dir ?? 'desc');
           else q = q.orderBy('created_at', 'desc');
 
+          // The view's own configured filters, through the same builder the
+          // data API uses. Written out by hand here, this chain covered six
+          // operators and silently dropped `in`, `not_in`, `like` and the
+          // null checks — so a view configured with any of them returned
+          // UNFILTERED rows, which for a filter like `owner_id in [...]` is
+          // the whole collection.
           for (const f of parsedFilters) {
             if (!f.field || !f.op) continue;
-            if (f.op === 'eq') q = q.where(f.field, '=', f.value);
-            else if (f.op === 'neq') q = q.where(f.field, '!=', f.value);
-            else if (f.op === 'gt') q = q.where(f.field, '>', f.value);
-            else if (f.op === 'lt') q = q.where(f.field, '<', f.value);
-            else if (f.op === 'gte') q = q.where(f.field, '>=', f.value);
-            else if (f.op === 'lte') q = q.where(f.field, '<=', f.value);
+            q = q.where(buildCondition(f.field, { op: f.op, value: f.value }));
           }
 
+          // The row policies the data API applies, applied here by the same
+          // helper rather than by a fourth hand-written copy of the loop.
+          const rls = await getRlsFilters(vr.collection, user, c.get('authType'));
+          q = applyRlsFilters(q, rls);
+
           records = await q.execute();
+
+          // And the column permissions. Without this a view could surface a
+          // field the user is not allowed to see, having passed every other
+          // check.
+          const colAccess = await getColumnAccess(
+            db,
+            vr.collection,
+            await resolveUserRole(user),
+          ).catch(() => null);
+          if (colAccess) {
+            records = records.map((r: Record<string, unknown>) => applyColumnAccess(r, colAccess));
+          }
         } catch {
           /* table may not exist yet */
         }
@@ -744,6 +805,10 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         };
       }),
     );
+    // Views the caller may not read are dropped rather than returned empty:
+    // an empty table reads as "no data", which is a different and misleading
+    // statement from "this is not yours to see".
+    const views = viewsWithGaps.filter((v) => v !== null);
 
     return c.json({
       zone: {

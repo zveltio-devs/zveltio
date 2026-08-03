@@ -1409,6 +1409,8 @@ export interface ZvdInsightSavedQueriesTable {
   is_public: Generated<boolean>;
   use_count: Generated<number>;
   created_by: string;
+  /** Migration 031. `is_public` means "shared with my organisation". */
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
