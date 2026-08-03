@@ -23,6 +23,7 @@ import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
 import { invalidateRulesCache } from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
+import { withTenantIsolation } from '../tenancy/index.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { generatePDF, renderTemplate } from '../doc-generator.js';
@@ -116,6 +117,22 @@ export interface ExtensionInternals {
   introspectSchema: typeof introspectSchema;
   runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
+  /**
+   * Run a callback inside a tenant transaction, outside any request.
+   *
+   * Extensions get `reqDb(c)` for request handlers, and nothing at all for
+   * background work — so every scheduled task, queue worker and
+   * fire-and-forget job in the ecosystem runs on the global pool with no
+   * tenant context. `data/export` and `data/import` say so in a comment and
+   * call it a follow-up; this is that follow-up, offered to every extension
+   * rather than solved twice.
+   *
+   * The tenant has to come from wherever the work was ENQUEUED, since a job
+   * has no caller to inherit from. Both the GUC and `SET LOCAL ROLE` are set,
+   * so the isolation policies apply exactly as they do to a request.
+   */
+  withTenantIsolation: <T>(tenantId: string, fn: (trx: Database) => Promise<T>) => Promise<T>;
+
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
@@ -194,6 +211,7 @@ export interface ExtensionInternals {
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return {
+    withTenantIsolation,
     dynamicInsert,
     introspectSchema,
     runQualityScan,
