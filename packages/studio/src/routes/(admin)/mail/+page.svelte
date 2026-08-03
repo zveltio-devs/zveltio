@@ -11,6 +11,7 @@
   import { toast } from '$lib/stores/toast.svelte.js';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import { safeEmailHtml } from '$lib/sanitize.js';
 
   type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
 
@@ -28,6 +29,19 @@
   // selection. ConfirmModal is used in 46 other files; the mail client was the
   // one place that deleted without asking.
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+
+  // Remote images are off until asked for, and the answer does not carry over:
+  // agreeing to load images from one sender must not silently load them for the
+  // next message, which may be from someone else entirely.
+  let showImages = $state(false);
+  let imagesFor = $state<string | null>(null);
+  $effect(() => {
+    if (selectedMessage?.id !== imagesFor) {
+      imagesFor = selectedMessage?.id ?? null;
+      showImages = false;
+    }
+  });
+
   let searchQuery = $state('');
   let loading = $state(false);
   let syncing = $state(false);
@@ -565,8 +579,21 @@
 
           <div class="flex-1 overflow-y-auto p-4">
             {#if selectedMessage.body_html}
-              <iframe srcdoc={selectedMessage.body_html} class="w-full min-h-96 border-0 bg-white rounded-lg"
-                title={m['communications.mail.ui.emailBody']()} sandbox="allow-same-origin"></iframe>
+              <!-- Sanitized through `$lib/sanitize.ts`, beside the page-builder
+                   policy: one module that knows how to make HTML safe, two
+                   named policies, not two implementations that will drift.
+                   The frame keeps its sandbox and no longer asks for
+                   `allow-same-origin` — static HTML never needed our origin. -->
+              {#if !showImages}
+                <div class="alert alert-warning py-2 px-3 mb-2 text-xs">
+                  <span>{m['communications.mail.ui.imagesBlocked']()}</span>
+                  <button class="btn btn-xs" onclick={() => (showImages = true)}
+                    >{m['communications.mail.ui.showImages']()}</button
+                  >
+                </div>
+              {/if}
+              <iframe srcdoc={safeEmailHtml(selectedMessage.body_html, showImages)} class="w-full min-h-96 border-0 bg-white rounded-lg"
+                title={m['communications.mail.ui.emailBody']()} sandbox=""></iframe>
             {:else if selectedMessage.body_text}
               <pre class="whitespace-pre-wrap text-sm font-sans">{selectedMessage.body_text}</pre>
             {:else}

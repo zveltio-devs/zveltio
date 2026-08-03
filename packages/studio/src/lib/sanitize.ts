@@ -108,6 +108,58 @@ export function safeHtml(html: unknown): string {
 }
 
 /**
+ * A received email, made safe to display.
+ *
+ * `safeHtml` above is an allowlist tuned for page-builder rich text, and email
+ * is a different document: table-based layout, inline styles, and markup from
+ * whoever sent it. Running mail through that policy would strip legitimate
+ * messages down to unreadable text, so this is a second POLICY rather than a
+ * second implementation — same module, same DOMPurify, same style hook.
+ *
+ * The mail viewer renders into a sandboxed iframe with no `allow-scripts`, so
+ * script was never the exposure. What was left is everything HTML can do
+ * without it: a `<form>` posting credentials to the sender's server, a fake
+ * sign-in laid out to look like this application, and remote images that report
+ * the moment a message is opened.
+ *
+ * `allowRemoteImages` defaults to false because a tracking pixel is a request
+ * the reader did not make. The `src` is dropped rather than the element, so a
+ * message designed around its images does not collapse into a column of
+ * nothing.
+ */
+export function safeEmailHtml(html: unknown, allowRemoteImages = false): string {
+  if (typeof html !== 'string' || html.length === 0) return '';
+  if (typeof window === 'undefined') return html.replace(/<[^>]*>/g, '');
+  ensureStyleHook();
+
+  const clean = DOMPurify.sanitize(html, {
+    // Deny-list rather than allow-list: an email may legitimately contain
+    // almost any presentational tag, and the handful that are never
+    // presentational are the ones worth naming.
+    FORBID_TAGS: [
+      'form',
+      'input',
+      'button',
+      'select',
+      'textarea',
+      'label',
+      'iframe',
+      'object',
+      'embed',
+      'base',
+      'meta',
+    ],
+    FORBID_ATTR: ['formaction', 'ping', 'srcset', 'target'],
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|cid:|#)/i,
+  });
+
+  if (allowRemoteImages) return clean;
+  return clean.replace(/<img\b[^>]*>/gi, (tag) =>
+    tag.replace(/\s(?:src|background)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ''),
+  );
+}
+
+/**
  * Restrict an iframe `src` (or any URL going into an attribute that
  * navigates) to http/https. Anything else — `javascript:`, `data:`,
  * `vbscript:`, `file:` — collapses to `about:blank`.

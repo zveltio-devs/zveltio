@@ -593,6 +593,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Keyless signing: cosign exchanges this workflow's OIDC token for a
+      # short-lived certificate from Fulcio. Nothing to store, nothing to
+      # rotate, nothing to leak — the identity in the certificate IS this
+      # workflow at this ref, which is the property a verifier wants.
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -601,6 +606,34 @@ jobs:
           name: release-assets
           path: all-assets/
           merge-multiple: true
+
+      - uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      - name: Sign the checksum manifest
+        # Releases shipped SHA256 checksums and nothing else, which answers
+        # "did this download corrupt?" and not "did this come from us?" —
+        # anyone who can replace an asset can replace the checksums beside it.
+        #
+        # One signature over `checksums.sha256` covers every artifact
+        # transitively: verify the signature, then verify each file against the
+        # manifest it vouches for. Signing five binaries separately would be
+        # five things to get wrong and five things to check.
+        #
+        # Keyless, so there is no signing key in this repository to protect.
+        # The bundle carries the certificate and the transparency-log entry, so
+        # verification needs the bundle and nothing else.
+        run: |
+          cd all-assets
+          cosign sign-blob \
+            --yes \
+            --bundle checksums.sha256.cosign.bundle \
+            checksums.sha256
+          echo "Signed checksums.sha256:"
+          cosign verify-blob \
+            --bundle checksums.sha256.cosign.bundle \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            checksums.sha256
 
       - name: Extract version info
         id: info
@@ -631,6 +664,7 @@ jobs:
             all-assets/docker-compose.infra.yml
             all-assets/docker-compose.engine.yml
             all-assets/checksums.sha256
+            all-assets/checksums.sha256.cosign.bundle
             all-assets/latest.json
             all-assets/install.sh
             all-assets/.env.example
@@ -656,6 +690,21 @@ jobs:
             curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/zveltio-linux-x64 -o zveltio
             chmod +x zveltio && ./zveltio start
             ```
+
+            ### 🔐 Verify what you downloaded
+            Checksums are signed with [Sigstore](https://sigstore.dev) — keyless,
+            so the certificate names the workflow that built this release rather
+            than a key someone has to guard.
+            ```bash
+            cosign verify-blob \\
+              --bundle checksums.sha256.cosign.bundle \\
+              --certificate-identity-regexp "^https://github.com/${{ github.repository }}/" \\
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+              checksums.sha256
+            sha256sum -c checksums.sha256 --ignore-missing
+            ```
+            The first command proves the manifest came from this repository's
+            release workflow; the second proves your download matches it.
 
             ### 🔧 Compose Builder
             Customize your installation: **https://get.zveltio.com/builder**
