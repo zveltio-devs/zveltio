@@ -297,6 +297,35 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
   app.all('/:name', async (c) => {
     const name = c.req.param('name');
 
+    // Is this function deliberately public?
+    //
+    // Resolved BEFORE authentication, because the answer decides whether to
+    // require any. The flag lives in the function's own `env_vars`, which is
+    // where the extension put it — webhook receivers are the case it exists
+    // for, and a Stripe or GitHub delivery carries no session and no API key.
+    //
+    // Tenant-filtered, like every other read of this table. `tenantId(c)` comes
+    // from the host or the `x-tenant-slug` header, not from a session, so it is
+    // available to an unauthenticated caller — which is the whole point here.
+    //
+    // Without the filter this probe answers about SOME function of that name.
+    // Two tenants may each have a `webhook`; if one marked theirs public, an
+    // unfiltered probe would report public and the tenant-filtered lookup below
+    // would then run the OTHER tenant's function with no authentication at all.
+    // The probe has to be scoped by the same key as the thing it authorises.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    const publicProbe = await (reqDb(c, db) as any)
+      .selectFrom('zv_edge_functions')
+      .select(['env_vars'])
+      .where('name', '=', name)
+      .where('is_active', '=', true)
+      .where('tenant_id', '=', tenantId(c))
+      .executeTakeFirst()
+      .catch(() => null);
+    const probeEnv = publicProbe?.env_vars;
+    const parsedEnv = typeof probeEnv === 'string' ? JSON.parse(probeEnv) : (probeEnv ?? {});
+    const isPublic = parsedEnv?.ZVELTIO_PUBLIC === 'true';
+
     // Auth: accept session or API key
     const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
     let authed = !!session;
@@ -314,7 +343,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
         authed = !!apiKey;
       }
     }
-    if (!authed) return c.json({ error: 'Unauthorized' }, 401);
+    if (!authed && !isPublic) return c.json({ error: 'Unauthorized' }, 401);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fn = await (reqDb(c, db) as any)
