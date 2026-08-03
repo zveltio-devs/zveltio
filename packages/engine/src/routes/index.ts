@@ -4,6 +4,7 @@ import type { Database } from '../db/index.js';
 import { collectionsRoutes } from './collections.js';
 import { dataRoutes } from './data.js';
 import { authRoutes, invitationRoutes } from './auth.js';
+import { revokeAllUserSessions } from '../lib/auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
 import { rlsRoutes } from './rls.js';
@@ -172,6 +173,38 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     }
     return next();
   });
+  // Turning 2FA on ends every OTHER session.
+  //
+  // Better-Auth leaves them alone, which is the wrong default for what the
+  // action means: a user enables 2FA because they think someone may have their
+  // password, and every session that password already opened stays open until
+  // it expires. Hardening the account did nothing to the sessions the attacker
+  // is sitting in.
+  //
+  // Disable is covered too, and for the same reason read backwards — if 2FA is
+  // being turned off, whoever did it should be the only one still signed in.
+  //
+  // The current session is spared, so the tab the user did this in keeps
+  // working. Runs AFTER the handler and only on success: revoking sessions
+  // because someone submitted a wrong TOTP code would be a denial of service
+  // anyone could trigger.
+  app.on(
+    ['POST'],
+    ['/api/auth/two-factor/enable', '/api/auth/two-factor/disable'],
+    async (c, next) => {
+      const before = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+      await next();
+      if (c.res.status >= 400) return;
+      const userId = before?.user?.id;
+      if (!userId) return;
+      const currentToken = (before as { session?: { token?: string } } | null)?.session?.token;
+      await revokeAllUserSessions(db, userId, currentToken).catch((err: Error) => {
+        // The 2FA change itself succeeded; failing the response now would tell
+        // the user it did not.
+        console.error(`[auth] could not revoke other sessions for ${userId}:`, err.message);
+      });
+    },
+  );
   // SSO extension login paths get the same auth rate limit (10/min/IP) —
   // without this LDAP / SAML callback endpoints are wide-open to
   // credential-stuffing and brute-force. Mounted with `app.use` so it
