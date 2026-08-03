@@ -4,12 +4,20 @@ Drop-in stack for visualising Zveltio engine metrics. One command up.
 
 ## Run it
 
+Set a Grafana password first — the stack refuses to start without one:
+
 ```sh
+echo "GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24)" >> .env
 docker compose -f observability/docker-compose.yml up -d
 ```
 
+This shipped as `admin/admin` with "change on first login" written next to it,
+which is a note, not a control: the window between `up -d` and someone
+remembering is however long it is, and a monitoring dashboard is a map of the
+estate — hostnames, request paths, error text, sometimes payload fragments.
+
 - Prometheus UI: `http://localhost:9090`
-- Grafana UI: `http://localhost:3001` (admin / admin — change on first login)
+- Grafana UI: `http://localhost:3001` (user `admin`, the password you just set)
 - Pre-provisioned dashboard: **Zveltio → Engine Overview**
 
 Bring it down without losing dashboard edits:
