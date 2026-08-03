@@ -132,3 +132,13 @@ packages/engine/extensions/
 # relative path, so running the engine — or the upload tests — from
 # packages/engine writes uploaded files here. Artifacts, never sources.
 packages/engine/storage/
+
+# Audit reports stay local.
+#
+# These enumerate unfixed findings with file:line. This repository is public,
+# so committing one publishes an exploitation guide for whatever has not been
+# closed yet. A `git add -A` during a release cut swept SECURITY-AUDIT.md into
+# a commit once; the file was removed before it was pushed, and this makes the
+# next one impossible rather than caught.
+SECURITY-AUDIT*.md
+AUDIT-*.md
