@@ -4,6 +4,72 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.48] - 2026-08-03
+
+**The findings nobody had looked at.** beta.47 closed what three audit
+reports pointed at; this closes the part of those reports that had been
+marked "partial" or left unread, plus one CRITICAL that was still open. Four
+of the fourteen unexamined findings were real.
+
+### Fixed — tenant isolation
+
+- **Edge functions on custom paths ran whichever tenant's code was read
+  first** (DEV-EF-2). The extension's boot query reads every tenant's
+  functions on the bare pool, and each handler closed over the row it happened
+  to get — so two tenants that both deployed `/webhooks/stripe` shared one
+  handler, with no tenant check anywhere in the request path. The handler
+  re-resolves per request now; a path mounted by another tenant answers 404.
+  An edited function also stops running its boot-time code until reload.
+- **`/api/fn` had two owners that authenticated differently** (DEV-EF-1). The
+  engine mounts `/api/fn/:name`; the extension registered a static route per
+  function, and Hono prefers static over parameterised — so the extension won.
+  The engine takes a session or a tenant-bound API key; the extension took a
+  session only, and read `ZVELTIO_PUBLIC=true` as no authentication at all, so
+  a function author could switch the engine's gate off with an environment
+  variable. The engine owns the prefix and honours the flag itself.
+- **Presence sets had no tenant in their Valkey key** (RT-01). Channel names
+  are user-facing strings, so two tenants that both had a `standup` channel
+  shared one set and watched each other's members join and leave.
+- **The i18n cache was keyed on locale alone** (I18N-1) on a public route. The
+  query underneath was tenant-scoped; whichever tenant asked for `ro` first
+  populated the entry, and for five minutes every other tenant's site was
+  served their translations.
+
+### Fixed — credentials and audit
+
+- **Edge functions were handed the caller's session cookie** (EF-01). Every
+  header was forwarded verbatim into the sandbox, so an operator-authored
+  function could replay any caller's session as them. Webhook signatures
+  deliberately survive — they authenticate the sender, not the caller.
+- **God actions went unlogged on the sessions least likely to be a password at
+  a desk** (GOD-001). The audit middleware checked `session.user.role`, which
+  Better-Auth does not populate for magic-link or OAuth — the same reason
+  `checkPermission` never reads it. It asks the database now.
+- **An unloaded extension kept its authentication exemptions** (EXT-007).
+  `unregisterExtensionPublicRoutes` existed, was exported, and its doc comment
+  said "on unload". It was called from nowhere.
+- **The Studio rendered the admin shell before checking the session**
+  (STU-01) — `onMount` runs after the component mounts. Moved to a universal
+  load, and the duplicate check removed rather than left beside it.
+- `brace-expansion` advisory **GHSA-rgw5-rvv9-x895**, which says in its own
+  title that it bypasses the mitigation the CI gate had been ignoring.
+  Overridden to 2.1.4 rather than added to the ignore list.
+
+### Not defects, having been checked
+
+`AUTH-19` (`manager` has 45 Casbin policies), `QUOTA-001` (fail-open is
+documented and logged), `REG-002` (owner-scoped), `EXT-003` (the hash IS
+verified), `SDK-01` (context adds no exposure over an import).
+
+### Known open
+
+`WASM-01` — the CPU budget races handler invocation, so a synchronous loop in
+`register()` is not covered and cannot be by a promise. Wants epoch
+interruption from the runtime. `SCH-001` — the preview token is accepted from
+`?_preview=`; removing that breaks shared preview links, which is a product
+call. 209 bare-`db` queries across 33 extension files remain on a ratchet:
+they no longer leak, but they read the default tenant rather than the caller's.
+
 ## [3.0.0-beta.47] - 2026-08-03
 
 **The tenant isolation policies were never applied to anything.** Three audit
