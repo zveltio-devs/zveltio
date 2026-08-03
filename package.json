@@ -53,6 +53,7 @@
     "@opentelemetry/propagator-jaeger": "2.10.0",
     "@opentelemetry/sdk-trace-base": "2.10.0",
     "brace-expansion": "2.1.4",
+    "fast-uri": "3.1.5",
     "js-yaml": "4.3.0",
     "linkify-it": "5.0.2",
     "postcss": "8.5.25",
