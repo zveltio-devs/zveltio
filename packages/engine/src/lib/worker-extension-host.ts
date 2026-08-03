@@ -713,10 +713,19 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  *    single message away. On a reserved connection the server rejects it;
  *  - a statement_timeout, so one extension cannot pin a connection forever.
  *
- * Still open, and deliberately not papered over here: the query runs on the
- * engine's pool rather than the caller's tenant transaction, so it is not
- * RLS-scoped. Closing that means threading tenant context through the worker
- * IPC, which is a larger change than this guard.
+ *  - `SET ROLE zveltio_rls`, so the query runs as a plain role rather than as
+ *    the database owner. On a stock install the engine connects as the image's
+ *    POSTGRES_USER, which is a SUPERUSER, so worker SQL previously ran with
+ *    every privilege Postgres has and RLS did not apply to it at all. Under the
+ *    role, the isolation policies bind: with no tenant GUC on this connection
+ *    the predicate resolves to the DEFAULT tenant (engine migration 029), so an
+ *    extension sees one tenant's rows instead of all of them.
+ *
+ * Still short of the goal, and worth stating plainly: the query runs on the
+ * engine's pool rather than the CALLER's tenant transaction, so a worker
+ * extension serving tenant B reads the default tenant's rows, not B's. That is
+ * a bug for the extension and no longer a disclosure across tenants. Closing it
+ * properly means threading tenant context through the worker IPC.
  */
 async function runRawWithParams(
   extName: string,
@@ -730,12 +739,24 @@ async function runRawWithParams(
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
 
   const reserved = await pool.reserve();
+  let roleSet = false;
   try {
     await reserved.unsafe(`SET statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
+    // Best-effort: a managed Postgres may not have let migration 030 create the
+    // role. Failing the query outright would take every worker extension down
+    // on such a deployment, which is a worse outcome than the status quo there.
+    try {
+      await reserved.unsafe('SET ROLE zveltio_rls');
+      roleSet = true;
+    } catch {
+      /* role absent — see migration 030 */
+    }
     return (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
   } finally {
-    // Reset before returning the connection to the pool — the setting is
-    // per-session, so leaking it would silently cap unrelated engine queries.
+    // Reset before returning the connection to the pool — these are per-SESSION
+    // settings, not per-transaction, so leaking either would silently cap or
+    // de-privilege unrelated engine queries that reuse this connection.
+    if (roleSet) await reserved.unsafe('RESET ROLE').catch(() => undefined);
     await reserved.unsafe('SET statement_timeout = DEFAULT').catch(() => undefined);
     reserved.release();
   }

@@ -25,6 +25,7 @@ import {
   invalidateTenantCache,
   provisionEnvironment,
   provisionTenantSchema,
+  reconcileExtensionTenantRLS,
   reconcileTenantRLS,
   resolveEnvironment,
   resolveTenantFromRequest,
@@ -355,6 +356,123 @@ describe('withTenantIsolation + enableRLS', () => {
     try {
       await enableRLS('zvd_orders');
       expect(warn.mock.calls.some((c) => String(c[0]).includes('row(s)'))).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+/**
+ * Extensions install their own tenant isolation, and every one of the 54 copies
+ * of the template was fail-OPEN: with no tenant context the policy admitted
+ * every row, where the engine's own tables admitted none. Since 31 of 53
+ * extensions hold a bare `db` somewhere instead of `reqDb(c)`, that turned a
+ * routine mistake into a cross-tenant read.
+ *
+ * The fix rewrites those policies at boot rather than patching 54 files —
+ * tenant isolation becomes something the host guarantees, which also covers
+ * extensions that are not in this repository. These cases pin what it touches
+ * and, more importantly, what it refuses to touch.
+ */
+describe('reconcileExtensionTenantRLS', () => {
+  const policies = () => [
+    { tablename: 'zv_search_indexes', policyname: 'tenant_isolation_search' },
+  ];
+
+  it('returns 0 when pg_policies cannot be read', async () => {
+    const db = setup();
+    db.fail(/FROM pg_policies/i, new Error('permission denied'));
+    expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(0);
+  });
+
+  it('rewrites an extension policy onto the shared predicate', async () => {
+    const db = setup();
+    db.when(/FROM pg_policies/i, policies());
+    db.when(/COUNT\(\*\)::int AS n/i, [{ n: 0 }]);
+
+    expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(1);
+    const created = db.executed(/CREATE POLICY/i);
+    expect(created).toHaveLength(1);
+    expect(created[0]?.sql).toContain('zveltio_tenant_scope_ok(tenant_id)');
+    // Both directions — a policy with USING but no WITH CHECK stops reads and
+    // still allows a write into another tenant.
+    expect(created[0]?.sql).toContain('WITH CHECK');
+  });
+
+  it('forces RLS, since the engine connects as the table owner', async () => {
+    // ENABLE alone is advisory for the owner; without FORCE the whole policy
+    // is decoration.
+    const db = setup();
+    db.when(/FROM pg_policies/i, policies());
+    db.when(/COUNT\(\*\)::int AS n/i, [{ n: 0 }]);
+    await reconcileExtensionTenantRLS(asDb(db));
+    expect(db.executed(/FORCE ROW LEVEL SECURITY/i)).toHaveLength(1);
+  });
+
+  it('backfills rows with no tenant_id before switching the predicate', async () => {
+    // The old policy showed a NULL tenant_id to everyone; the new one shows it
+    // to nobody. Without the backfill the fix would read as data loss.
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const db = setup();
+      db.when(/FROM pg_policies/i, policies());
+      db.when(/COUNT\(\*\)::int AS n/i, [{ n: 7 }]);
+
+      await reconcileExtensionTenantRLS(asDb(db));
+      const backfill = db.executed(/UPDATE .*SET tenant_id/i);
+      expect(backfill).toHaveLength(1);
+      expect(backfill[0]?.sql).toContain(DEFAULT_TENANT_ID);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('7 row(s)'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not touch a table that has no rows to backfill', async () => {
+    const db = setup();
+    db.when(/FROM pg_policies/i, policies());
+    db.when(/COUNT\(\*\)::int AS n/i, [{ n: 0 }]);
+    await reconcileExtensionTenantRLS(asDb(db));
+    expect(db.executed(/UPDATE .*SET tenant_id/i)).toHaveLength(0);
+  });
+
+  it('sets the column default so reads and writes agree', async () => {
+    // The read predicate falls back to the default tenant when there is no
+    // GUC. If the column default did not, a contextless INSERT would write a
+    // row the very next contextless SELECT could not see.
+    const db = setup();
+    db.when(/FROM pg_policies/i, policies());
+    db.when(/COUNT\(\*\)::int AS n/i, [{ n: 0 }]);
+    await reconcileExtensionTenantRLS(asDb(db));
+    const def = db.executed(/ALTER COLUMN tenant_id SET DEFAULT/i);
+    expect(def).toHaveLength(1);
+    expect(def[0]?.sql).toContain(DEFAULT_TENANT_ID);
+  });
+
+  it('refuses a table or policy name that is not a plain identifier', async () => {
+    // These names are read from pg_policies and interpolated into DDL.
+    const db = setup();
+    db.when(/FROM pg_policies/i, [
+      { tablename: 'zv_ok"; DROP TABLE x; --', policyname: 'tenant_isolation_x' },
+      { tablename: 'zv_ok', policyname: 'p"; DROP TABLE y; --' },
+    ]);
+    expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(0);
+    expect(db.executed(/DROP TABLE/i)).toHaveLength(0);
+  });
+
+  it('one failing table does not stop the others', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const db = setup();
+      db.when(/FROM pg_policies/i, [
+        { tablename: 'zv_broken', policyname: 'tenant_isolation_a' },
+        { tablename: 'zv_fine', policyname: 'tenant_isolation_b' },
+      ]);
+      db.when(/COUNT\(\*\)::int AS n/i, [{ n: 0 }]);
+      db.fail(/"zv_broken"/, new Error('permission denied'));
+
+      expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(1);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('zv_broken'))).toBe(true);
     } finally {
       warn.mockRestore();
     }

@@ -22,8 +22,21 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-/** Exactly what the executor does around a user-authored query. */
-async function runAsQueryDbStep(db: Database, query: string, tenantId = 'harness-tenant') {
+/**
+ * Exactly what the executor does around a user-authored query.
+ *
+ * The tenant id must be a real UUID, as `flow-executor.ts` passes
+ * `zv_flows.tenant_id`. It used to be the string `'harness-tenant'`, which
+ * worked only because the RLS predicate compared `tenant_id::text` — a text
+ * comparison that quietly matched nothing for a malformed value, and which
+ * also defeated the tenant index on every query in the product (measured:
+ * full index scan, 200k rows filtered, 39ms, against a 0.07ms index seek once
+ * the comparison is on uuid). The predicate casts now, so the placeholder has
+ * to be a UUID like the real one.
+ */
+const HARNESS_TENANT = '00000000-0000-0000-0000-0000000000ff';
+
+async function runAsQueryDbStep(db: Database, query: string, tenantId = HARNESS_TENANT) {
   return db.transaction().execute(async (trx) => {
     await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
     await sql.raw('SET LOCAL ROLE zveltio_flow_reader').execute(trx);

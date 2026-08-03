@@ -458,6 +458,15 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   app.post('/:id/steps', zValidator('json', StepSchema), async (c) => {
     const body = c.req.valid('json');
     const flowId = c.req.param('id');
+    const user = c.get('user') as { id: string };
+
+    // Same gate as POST / and PATCH /:id. It was on the routes that write a
+    // whole flow and missing from the two that write ONE step, so a tenant
+    // admin who could not create a flow containing a `query_db` step could add
+    // exactly that step to a flow they already owned — and `query_db` runs raw
+    // SQL on the engine's database, which is not confined to their tenant.
+    const stepDenial = await assertStepTypesAllowed(user.id, [body]);
+    if (stepDenial) return c.json({ error: stepDenial }, 403);
 
     const validation = validateStepConfig(body.type, body.config);
     if (!validation.valid) {
@@ -523,6 +532,14 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const newType = body.type ?? existing.type;
     // body.config is the only validation-sensitive bit; if absent, keep the stored config.
     const newConfig = body.config ?? (existing.config as Record<string, unknown>);
+
+    // Checked against the RESULTING type, not the submitted one: a PUT that
+    // omits `type` keeps the stored value, and a PUT that supplies it is the
+    // whole attack — changing a benign step into `query_db` in place.
+    const stepDenial = await assertStepTypesAllowed((c.get('user') as { id: string }).id, [
+      { type: newType },
+    ]);
+    if (stepDenial) return c.json({ error: stepDenial }, 403);
 
     const validation = validateStepConfig(newType, newConfig);
     if (!validation.valid) {
