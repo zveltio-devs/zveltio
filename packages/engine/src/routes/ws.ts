@@ -93,9 +93,15 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     return new Response(null, { status: 101 });
   });
 
-  // GET /api/ws/info — Connection count (unauthenticated health check)
+  // GET /api/ws/info — unauthenticated liveness check.
+  //
+  // It used to return the instance-wide connection count, which tells an
+  // anonymous observer how busy the deployment is and, sampled over a day, how
+  // many people work there and when. That is a business fact, not a health
+  // signal. Monitoring needs to know the endpoint answers; the number is
+  // available to admins at /api/ws/stats, which is gated.
   app.get('/api/ws/info', (c) => {
-    return c.json({ connections: connections.size });
+    return c.json({ ok: true });
   });
 
   // GET /api/ws/stats — Admin: per-user connection stats

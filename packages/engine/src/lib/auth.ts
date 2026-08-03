@@ -468,6 +468,14 @@ export async function initAuth(db: Database) {
 
     emailAndPassword: {
       enabled: true,
+      // Completing a password reset ends every existing session.
+      //
+      // Without this, the flow that exists BECAUSE an account may be
+      // compromised leaves the attacker's session alive: the owner resets,
+      // regains the ability to log in, and whoever was already signed in stays
+      // signed in. Better-Auth deletes the user's sessions itself when this is
+      // set — see `revokeSessionsOnPasswordReset` in its reset-password route.
+      revokeSessionsOnPasswordReset: true,
       ...(process.env.SMTP_HOST
         ? {
             sendResetPassword: async ({

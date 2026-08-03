@@ -11,6 +11,7 @@
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { reqDb } from '../lib/route-db.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { getUserRoles, resolveUserRole } from '../lib/tenancy/index.js';
 
@@ -104,8 +105,17 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let result: any;
 
+      // The caller's tenant transaction, not the global pool.
+      //
+      // An RPC function is operator-authored SQL running with the engine's
+      // rights. Executed on the raw pool it carried no tenant context, so a
+      // function that reads a collection returned rows without regard to who
+      // asked. On `reqDb(c)` the isolation policies apply to it like any other
+      // query.
+      const rdb = reqDb(c, db);
+
       if (keys.length === 0) {
-        result = await sql`SELECT * FROM ${sql.raw(safeFnName)}()`.execute(db);
+        result = await sql`SELECT * FROM ${sql.raw(safeFnName)}()`.execute(rdb);
       } else {
         // Build named params: fn(key1 := val1, key2 := val2)
         const paramParts = keys.map(
@@ -113,7 +123,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
         );
         result = await sql`
           SELECT * FROM ${sql.raw(safeFnName)}(${sql.join(paramParts, sql`, `)})
-        `.execute(db);
+        `.execute(rdb);
       }
 
       return c.json({ data: result.rows });
