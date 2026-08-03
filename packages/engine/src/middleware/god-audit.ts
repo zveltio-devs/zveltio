@@ -10,6 +10,7 @@
  */
 
 import { createMiddleware } from 'hono/factory';
+import { isGodUser } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 async function logGodAction(
@@ -61,7 +62,19 @@ export function godAuditMiddleware(db: Database) {
     try {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = (c.get as any)('user') as { id: string; role?: string } | undefined;
-      if (user?.role === 'god') {
+      // `session.user.role` is the wrong thing to ask.
+      //
+      // Better-Auth does not populate it on magic-link or OAuth sessions —
+      // which is why `checkPermission` never reads it either — so the audit
+      // trail for the ONE role that can do anything was empty for exactly the
+      // sessions least likely to be a password login at a desk. `isGodUser`
+      // asks the database, the same source the god bypass itself uses.
+      //
+      // The session field is still consulted first: it is free, and when it
+      // says `god` there is nothing to look up.
+      const isGod =
+        !!user?.id && (user.role === 'god' || (await isGodUser(user.id).catch(() => false)));
+      if (isGod && user) {
         const durationMs = Date.now() - start;
         const ip =
           c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??

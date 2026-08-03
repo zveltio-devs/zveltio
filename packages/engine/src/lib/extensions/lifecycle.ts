@@ -22,6 +22,7 @@ import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
+import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import type { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
@@ -87,6 +88,17 @@ export async function unloadExtension(
   // Remove all services this extension published. Without this, hot-reload
   // would throw on duplicate name when the extension is re-enabled.
   serviceRegistry.unregisterAll(name);
+
+  // Drop the extension's public-route patterns.
+  //
+  // `unregisterExtensionPublicRoutes` was written for exactly this moment,
+  // exported, and documented "on unload" — and called from nowhere. The
+  // patterns it holds are what the `/ext/*` gate consults to decide which
+  // paths skip authentication, so an unloaded extension left its exemptions
+  // behind for the lifetime of the process. A helper that names the moment it
+  // is for and is never invoked at that moment reads, to anyone auditing, as
+  // the cleanup having been done.
+  unregisterExtensionPublicRoutes(name);
   // Drop the extension's query alters so post-unload selects don't keep
   // applying its filters.
   queryAlterRegistry.unregisterAll(name);
