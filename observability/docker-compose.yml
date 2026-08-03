@@ -27,8 +27,13 @@ services:
     ports:
       - '3001:3000'
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # No default. The main docker-compose.yml already refuses to start
+      # without an explicit Grafana password (`:?ERROR`); this stack shipped
+      # `admin/admin`, and an observability dashboard is a map of the estate —
+      # hostnames, request paths, error text, sometimes payload fragments.
+      # "It's only monitoring" is how it stays unauthenticated.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?ERROR - set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: 'false'
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
