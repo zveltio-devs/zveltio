@@ -90,6 +90,35 @@ d('import encrypts encrypted fields', () => {
     expect(rows.rows[0]!.label).toBe('stripe');
   });
 
+  it('records revision history for imported rows', async () => {
+    // Import wrote nothing but the rows, so an imported record had no history:
+    // `?as_of=` could not see it and the audit trail skipped the bulk path —
+    // the one most likely to carry a lot of somebody's data.
+    const fd = new FormData();
+    fd.set('format', 'csv');
+    fd.set('file', new File([`label\nrevprobe\n`], 'rev.csv', { type: 'text/csv' }));
+    const res = await app.request(`/api/import/${COLLECTION}`, {
+      method: 'POST',
+      headers: { cookie },
+      body: fd,
+    });
+    expect(res.status).toBe(200);
+
+    const ids = (await sql
+      .raw(`SELECT id FROM "zvd_${COLLECTION}" WHERE label = 'revprobe'`)
+      .execute(db)) as { rows: { id: string }[] };
+    expect(ids.rows.length).toBe(1);
+
+    const revs = await db
+      .selectFrom('zv_revisions')
+      .select(['action', 'collection'])
+      .where('record_id', '=', ids.rows[0]!.id)
+      .execute();
+    expect(revs.length).toBe(1);
+    expect(revs[0]!.action).toBe('create');
+    expect(revs[0]!.collection).toBe(COLLECTION);
+  });
+
   it('hashes a password column instead of importing it verbatim', async () => {
     // Encryption was hand-rolled here rather than taken from the write
     // pipeline, so it was the ONLY part of the pipeline import ran: field
