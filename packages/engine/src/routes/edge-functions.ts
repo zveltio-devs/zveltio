@@ -313,8 +313,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     // unfiltered probe would report public and the tenant-filtered lookup below
     // would then run the OTHER tenant's function with no authentication at all.
     // The probe has to be scoped by the same key as the thing it authorises.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const publicProbe = await (reqDb(c, db) as any)
+    const publicProbe = await reqDb(c, db)
       .selectFrom('zv_edge_functions')
       .select(['env_vars'])
       .where('name', '=', name)
