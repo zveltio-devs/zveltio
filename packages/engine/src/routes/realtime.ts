@@ -109,9 +109,26 @@ function presenceCleanup(channel: string) {
   if (members.size === 0) presenceStore.delete(channel);
 }
 
+/**
+ * The Valkey key a channel's presence set lives under.
+ *
+ * It was `presence:${channel}`, with no tenant in it. Channel names are
+ * user-facing strings, so two tenants that both have a `standup` channel shared
+ * one set: each saw the other's members join and leave, with the userId and the
+ * display metadata attached. The SSE bus was carefully tenant-scoped; the store
+ * behind it was not.
+ *
+ * A function rather than three template literals, because the bug was that one
+ * of three places could differ — and two of them did not even take a tenant.
+ */
+function presenceKey(tenantId: string | null, channel: string): string {
+  return `presence:${tenantId ?? 'default'}:${channel}`;
+}
+
 async function presenceJoin(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   cache: any,
+  tenantId: string | null,
   channel: string,
   userId: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -120,7 +137,7 @@ async function presenceJoin(
   const ts = Date.now();
   if (cache) {
     try {
-      const key = `presence:${channel}`;
+      const key = presenceKey(tenantId, channel);
       await cache.zadd(key, ts, userId);
       await cache.pexpire(key, PRESENCE_TTL_MS * 2);
       // Store user meta as hash
@@ -136,10 +153,10 @@ async function presenceJoin(
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function presenceLeave(cache: any, channel: string, userId: string) {
+async function presenceLeave(cache: any, tenantId: string | null, channel: string, userId: string) {
   if (cache) {
     try {
-      await cache.zrem(`presence:${channel}`, userId);
+      await cache.zrem(presenceKey(tenantId, channel), userId);
       await cache.del(`presence_meta:${channel}:${userId}`);
       return;
     } catch {
@@ -152,12 +169,13 @@ async function presenceLeave(cache: any, channel: string, userId: string) {
 async function presenceList(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   cache: any,
+  tenantId: string | null,
   channel: string,
 ): Promise<Array<{ userId: string; lastSeen: number }>> {
   const cutoff = Date.now() - PRESENCE_TTL_MS;
   if (cache) {
     try {
-      const key = `presence:${channel}`;
+      const key = presenceKey(tenantId, channel);
       await cache.zremrangebyscore(key, 0, cutoff);
       const members: string[] = await cache.zrange(key, 0, -1, 'WITHSCORES');
       const result: Array<{ userId: string; lastSeen: number }> = [];
@@ -539,7 +557,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // never forgeable, which is what made this easy to wave away: I said as
     // much in an earlier pass and was wrong. The id was safe and the display
     // name was not, and a presence list is read by people, who see the name.
-    await presenceJoin(cache, channel, session.user.id, {
+    await presenceJoin(cache, ctxTenantId(c), channel, session.user.id, {
       ...meta,
       name: session.user.name,
       email: session.user.email,
@@ -585,7 +603,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const channel = c.req.param('channel');
     const cache = getCache();
 
-    await presenceLeave(cache, channel, session.user.id);
+    await presenceLeave(cache, ctxTenantId(c), channel, session.user.id);
 
     const presenceTenant = ctxTenantId(c);
     broadcastSSE(
@@ -642,7 +660,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     }
 
     const cache = getCache();
-    const members = await presenceList(cache, channel);
+    const members = await presenceList(cache, ctxTenantId(c), channel);
     return c.json({ channel, members });
   });
 
