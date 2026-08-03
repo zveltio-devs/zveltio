@@ -357,6 +357,39 @@ export function importRoutes(db: Database, auth: any) {
             .values(toInsert as any)
             .execute();
           successRows += toInsert.length;
+
+          // Revision history for the imported rows, in one insert.
+          //
+          // Import used to write nothing but the rows themselves, so an
+          // imported record had no history at all: `?as_of=` could not see it,
+          // and the audit trail simply skipped the bulk path — which is the
+          // path most likely to carry a lot of somebody's data.
+          //
+          // Revisions only. NOT the rest of `afterWrite`: it fires a webhook, a
+          // realtime broadcast and an engine event per row, and import is
+          // uncapped — a 50,000-row CSV would mean 50,000 webhook deliveries at
+          // an endpoint that asked to hear about records, not about imports.
+          // The bulk API can afford per-row side effects because it is capped
+          // at 500; this is not. What an operator wants to observe here is the
+          // import, and `zv_import_logs` already records it.
+          await tdb
+            .insertInto('zv_revisions')
+            .values(
+              toInsert.map((rec) => ({
+                collection,
+                record_id: rec.id as string,
+                action: 'create' as const,
+                data: JSON.stringify(rec),
+                user_id: user.id,
+                tenant_id: tenantId(c),
+              })),
+            )
+            .execute()
+            .catch((err: Error) => {
+              // Non-fatal, like the revision write in `afterWrite`: losing
+              // history is bad, losing the import is worse.
+              console.error('[import] revision write failed:', err.message);
+            });
         } catch (err) {
           // Batch failed — record each row as error
           for (let i = 0; i < toInsert.length; i++) {

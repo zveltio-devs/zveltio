@@ -74,10 +74,24 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // without this list those eleven extensions would lose access to their own
   // data. Anything NOT here — `zv_api_keys`, `zv_tenants`, `casbin_rule`,
   // `session`, `user` — stays refused, which is the point.
+  // `ai` relaxes a CHECK constraint on `zv_flows` so a flow can carry AI
+  // trigger types. Measured, not assumed — it is the only extension that
+  // reshapes an engine table it does not otherwise own.
+  ai: ['zv_flows'],
   'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
   'content/document-templates': ['zv_document_templates'],
   'content/documents': ['zv_generated_docs'],
-  'content/media': ['zv_media_favorites', 'zv_storage_quotas'],
+  'content/media': [
+    'zv_media_favorites',
+    'zv_storage_quotas',
+    // The media library's own tables. The engine declares them too because the
+    // feature started there; the extension is what maintains them now, which
+    // its migrations show and the runtime allowlist had already missed.
+    'zv_media_files',
+    'zv_media_folders',
+    'zv_media_tags',
+    'zv_media_file_tags',
+  ],
   'content/page-builder': ['zv_pages'],
   'data/import': ['zv_import_logs'],
   forms: ['zv_form_submissions'],
@@ -105,7 +119,7 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
  * remember to update here.
  */
 let _engineTables: Set<string> | null = null;
-async function engineOwnedTables(): Promise<Set<string>> {
+export async function engineOwnedTables(): Promise<Set<string>> {
   if (_engineTables) return _engineTables;
   const tables = new Set<string>();
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
