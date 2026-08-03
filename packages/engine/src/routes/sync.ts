@@ -9,13 +9,15 @@ import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
 import {
+  applyColumnAccess,
   applyRlsFilters,
   checkPermission,
   getColumnAccess,
   getRlsFilters,
   resolveUserRole,
 } from '../lib/tenancy/index.js';
-import { DDLManager, processInput } from '../lib/data/index.js';
+import { DDLManager, afterWrite, processInput, serializeRecord } from '../lib/data/index.js';
+import { tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function syncRoutes(db: Database, _auth: any): Hono {
@@ -242,8 +244,27 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           .values(records as any)
           .onConflict((oc) => oc.column('id').doNothing())
           .execute();
-        for (const { recordId } of creates) {
+        // Post-write side effects, per row, exactly as the bulk handler does
+        // for `POST /:collection/bulk` — revision history, realtime, webhooks,
+        // engine events. A sync push had none of them, so a record created
+        // offline appeared in the table and nowhere else: no revision (so
+        // `?as_of=` could not see it), no webhook, no realtime nudge to the
+        // colleague looking at the same list.
+        //
+        // Per row is safe here for the same reason it is safe there: a push is
+        // capped at 500 operations, the same cap the bulk endpoint enforces.
+        // Import is uncapped and gets different treatment.
+        const syncTid = tenantId(c);
+        for (const { recordId, payload } of creates) {
           results.push({ recordId, status: 'ok', serverVersion: now });
+          afterWrite(effectiveDb, {
+            collection,
+            recordId,
+            action: 'create',
+            data: { ...payload, id: recordId },
+            userId: (c.get('user') as { id: string }).id,
+            tenantId: syncTid,
+          });
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
@@ -411,16 +432,27 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           .limit(PULL_LIMIT_PER_COLLECTION);
         const updated = await applyRlsFilters(pullQuery, pullRls).execute();
 
+        // Shape the rows the way every other read path does.
+        //
+        // Pull applied row policies and deleted hidden columns and stopped
+        // there, which left two divergences from `GET /api/data`. Fields marked
+        // `encrypted: true` went out as `enc:v1:…` — the offline client has no
+        // key, so the column was simply unreadable on the device while the API
+        // returned it in the clear. And the column mask was a hand-written
+        // `delete` loop covering `hidden` but not `readOnly`, where
+        // `applyColumnAccess` covers both.
+        const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
         for (const record of updated) {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          const r = record as any;
-          for (const hiddenCol of pullColAccess.hidden) delete r[hiddenCol];
+          const shaped = applyColumnAccess(
+            await serializeRecord(record as Record<string, unknown>, pullDef),
+            pullColAccess,
+          );
           changes.push({
             collection,
-            id: r.id,
-            data: record,
+            id: shaped.id as string,
+            data: shaped,
             operation: 'upsert',
-            timestamp: new Date(r.updated_at).getTime(),
+            timestamp: new Date((record as { updated_at: string }).updated_at).getTime(),
           });
         }
       } catch {

@@ -35,6 +35,14 @@ d('sync routes (in-process)', () => {
       fields: [
         { name: 'title', type: 'text', required: false, unique: false, indexed: false },
         { name: 'secret', type: 'password', required: false, unique: false, indexed: false },
+        {
+          name: 'api_key',
+          type: 'text',
+          required: false,
+          unique: false,
+          indexed: false,
+          encrypted: true,
+        },
       ],
     } as never);
   });
@@ -122,6 +130,79 @@ d('sync routes (in-process)', () => {
     const stored = rows.rows[0]!.secret;
     expect(stored).not.toBe(plaintext);
     expect(await Bun.password.verify(plaintext, stored)).toBe(true);
+  });
+
+  it('a pushed create leaves a revision, like a bulk write does', async () => {
+    // A sync push landed rows in the table and nowhere else: no revision (so
+    // `?as_of=` could not see them), no webhook, no realtime nudge for the
+    // colleague looking at the same list.
+    const recordId = crypto.randomUUID();
+    await app.request(
+      '/api/sync/push',
+      json('/api/sync/push', {
+        operations: [
+          {
+            collection: COLLECTION,
+            recordId,
+            operation: 'create',
+            payload: { title: 'revsync' },
+            clientTimestamp: Date.now(),
+          },
+        ],
+      }),
+    );
+
+    // afterWrite is fire-and-forget, as it is in the bulk handler.
+    await new Promise((r) => setTimeout(r, 250));
+    const revs = await db
+      .selectFrom('zv_revisions')
+      .select('action')
+      .where('record_id', '=', recordId)
+      .execute();
+    expect(revs.length).toBeGreaterThan(0);
+    expect(revs[0]!.action).toBe('create');
+  });
+
+  it('pull decrypts an encrypted field instead of shipping ciphertext', async () => {
+    // The offline client has no key. Pull applied row policies and deleted
+    // hidden columns and stopped there, so a field marked `encrypted: true`
+    // arrived as `enc:v1:…` — unreadable on the device, while `GET /api/data`
+    // returned it in the clear. Two read paths, two answers.
+    const recordId = crypto.randomUUID();
+    const secret = 'sk_live_sync_pull_probe';
+    await app.request(
+      '/api/sync/push',
+      json('/api/sync/push', {
+        operations: [
+          {
+            collection: COLLECTION,
+            recordId,
+            operation: 'create',
+            payload: { title: 'crypt', api_key: secret },
+            clientTimestamp: Date.now(),
+          },
+        ],
+      }),
+    );
+
+    // Stored encrypted — the push path's job, asserted so a failure here is
+    // unambiguous about which half broke.
+    const stored = (await sql
+      .raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
+      .execute(db)) as { rows: { api_key: string }[] };
+    expect(stored.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
+
+    const res = await app.request(
+      '/api/sync/pull',
+      json('/api/sync/pull', { collections: [COLLECTION], since: 0 }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      changes?: { id: string; data: Record<string, unknown> }[];
+    };
+    const mine = (body.changes ?? []).find((c) => c.id === recordId);
+    expect(mine).toBeDefined();
+    expect(mine!.data.api_key).toBe(secret);
   });
 
   it('pull returns changes for the collection', async () => {

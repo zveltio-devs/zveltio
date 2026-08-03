@@ -23,8 +23,15 @@ export * from './field-type-registry.js';
 //   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
 //     checks, including the tenant comparison edge functions had left out.
 export { processInput } from './write-pipeline.js';
+//   - `afterWrite` so sync push produces the same revisions, webhooks and
+//     realtime events a bulk write does, instead of landing rows silently.
+export { afterWrite } from './write-pipeline.js';
 //   - `normalizeFields` so the extension write proxy can tell a collection's
 //     declared fields from the system columns an extension passes alongside
 //     them (`id`, `created_by`); `processInput` returns only the former.
 export { normalizeFields } from './shape.js';
+//   - `serializeRecord` so the sync PULL path shapes rows the way every other
+//     read does — it was shipping `enc:v1:…` to offline clients that have no
+//     key to read it with.
+export { serializeRecord } from './shape.js';
 export { validateApiKey } from './auth.js';
