@@ -82,17 +82,14 @@ onMount(async () => {
   const d = localStorage.getItem('zveltio-density');
   if (d === 'compact' || d === 'comfortable') density = d;
 
-  await auth.init();
-  if (!auth.isAuthenticated) {
-    // Preserve the deep link so the user lands on the page they wanted
-    // after sign-in instead of the dashboard.
-    const from = page.url.pathname + page.url.search;
-    const params = new URLSearchParams();
-    if (from && from !== '/' && !from.startsWith('/login')) params.set('redirect', from);
-    params.set('reason', 'session_required');
-    goto(`${base}/login?${params.toString()}`);
-    return;
-  }
+  // The session check moved to `+layout.ts`, which runs BEFORE this component
+  // renders — `onMount` fires after, so an unauthenticated visitor saw the
+  // whole admin chrome and was then redirected. Deliberately not repeated
+  // here: a rule written in two places is the one that goes missing from one
+  // of them, which is most of what this codebase's audits keep finding.
+  //
+  // `auth.init()` is idempotent and has already run in the load, so
+  // `auth.isAuthenticated` is populated by the time anything below reads it.
   // Tenant date formatting — non-blocking; screens fall back to browser locale.
   initFormat();
   await initExtensions();
