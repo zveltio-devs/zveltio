@@ -93,6 +93,29 @@ function copyTreeSkippingTests(from: string, to: string): void {
   }
 }
 
+/**
+ * Extension pages the Studio deliberately does not carry.
+ *
+ * Each of these ships a page for a feature the core already provides, at a
+ * different URL. Syncing them adds a second admin route for the same thing —
+ * which is the mess a previous pass spent a day collapsing, after five
+ * features had drifted into two divergent implementations apiece.
+ *
+ * They appear as untracked files after every sync, so the next person either
+ * deletes them each time or, eventually, commits them. Named here instead,
+ * with the core page each one duplicates, so the decision is visible rather
+ * than rediscovered.
+ *
+ * Removing an entry is how you promote an extension's page over the core one —
+ * delete the core route in the same change, or you are back to two.
+ */
+const SKIP_SLUGS = new Map<string, string>([
+  ['byod', 'core (admin)/introspect — the nav links there, not here'],
+  ['developer/edge-functions', 'core (admin)/edge-functions'],
+  ['developer/views', 'core (admin)/views'],
+  ['i18n', 'core (admin)/translations'],
+]);
+
 let synced = 0;
 /** Destination slugs written this run — verified against biome ignores below. */
 const syncedSlugs: string[] = [];
@@ -118,6 +141,12 @@ for (const extRoot of EXT_ROOTS) {
       }
     } catch {
       // use name as slug
+    }
+
+    const skipReason = SKIP_SLUGS.get(slug);
+    if (skipReason) {
+      console.log(`[sync-ext] ·  ${extName} → ${slug}/ SKIPPED — duplicates ${skipReason}`);
+      continue;
     }
 
     const dest = join(ROUTES_EXT, slug);
