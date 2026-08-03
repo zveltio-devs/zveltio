@@ -4,6 +4,93 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.46] - 2026-08-03
+
+**Two more audit passes, and the discovery that three fixes from the last
+one had never run.** beta.45 shipped with `content/drafts` still serving the
+old bundle: the runtime loads `engine/index.js`, the fixes were written into
+`routes.ts`, and nobody repacked. CI could not see it — the check compares the
+bundle against the manifest, and those two agreed with each other. They were
+both older than the code.
+
+### Supply chain
+
+- **ci: a packed bundle now has to prove it was built from the committed
+  source.** `extension pack` records `integrity.sourceSha256` over the
+  TypeScript it compiled and CI recomputes it. Hashing the input rather than
+  re-packing to compare bytes is deliberate — bundler output is not stable
+  across Bun versions, and a gate that fails for reasons unrelated to the
+  author gets switched off. All 55 packable extensions repacked to record it,
+  which swept up ten whose committed bundle no longer matched their source.
+
+- **feat(release): artifacts are signed.** SHA256 checksums answer "did this
+  download corrupt?" and not "did this come from us?" — anyone who can replace
+  an asset can replace the checksums beside it. One keyless Sigstore signature
+  over `checksums.sha256` covers every artifact transitively, and the
+  certificate names the workflow that built the release rather than a key
+  somebody has to guard. Verification instructions ship in the release body.
+
+### Row and column access
+
+- **fix: `GET /:id` carried the third hand-written copy of the RLS filter
+  loop.** `eq` and `neq`, dropping `in` and `not_in` — half of what the policy
+  route lets an administrator save. A policy written with `in` held for the
+  listing and evaporated the moment you guessed an id. The cursor branch had
+  the same bug and was fixed first; the sweep that should have followed it
+  found this one two rounds later.
+
+- **fix: `GET /:id?as_of=` applied no row policies at all.** The list
+  time-travel path got them; its single-record sibling did not, which made
+  this the one read that skipped them entirely.
+
+- **fix: sync pull shipped ciphertext.** A field marked `encrypted: true`
+  reached the offline client as `enc:v1:…`, unreadable on a device with no key,
+  while `GET /api/data` returned the same field in the clear. The column mask
+  beside it was a hand-written loop covering `hidden` and not `readOnly`.
+
+### Extensions
+
+- **fix: extension migrations could reshape the engine's schema.** They run as
+  the database owner in the main thread, before `load.ts` chooses inline or
+  worker — so the worker boundary, the entire reason a community extension is
+  allowed to install, does not cover that path. The runtime table allowlist now
+  applies to DDL as well. Measured against the catalogue first: 187 ALTER
+  statements target an engine table and the guard refuses none of them.
+
+- **fix(drafts): reviewing is a different right from editing.** Anyone with
+  `update` could set `status: 'approved'`, including on their own draft, and
+  `reviewer_roles` was configurable, displayed, and read by nothing.
+
+- **fix(documents): reading a generated document needs a reason.** Listing and
+  reading were auth-only, so every employee could read every contract and
+  invoice generated from a template, with signer names and addresses. Now: you
+  generated it, you are an admin, or you can read the record it came from.
+
+### Auth and privacy
+
+- **fix: enabling 2FA now ends every other session.** A user turns it on
+  because they think someone has their password; every session that password
+  opened stayed open until it expired.
+
+- **fix(realtime): presence let the client overwrite its own display name.**
+  `...meta` from the request body came after the session fields and won.
+  Listing a presence channel is gated too when the channel names a collection.
+
+- **fix(mail): a received message is sanitized, and its images wait to be
+  asked for.** Script was never the exposure — the sandbox blocks it — but
+  forms, fake sign-in pages and tracking pixels need no script at all.
+
+- **fix(studio): the login page validated where `?redirect=` may send you.**
+
+### Also
+
+- Sync push and import produce revisions, so a record created offline or
+  imported has history. Per-row side effects for sync, which is capped at 500
+  like the bulk endpoint; batched revisions only for import, which is not — a
+  50,000-row CSV should not mean 50,000 webhook deliveries.
+- `sync-ext` no longer re-creates four pages that duplicate core routes.
+
+
 ## [3.0.0-beta.45] - 2026-08-02
 
 **beta.44's release build could not load extensions. This is that release,
