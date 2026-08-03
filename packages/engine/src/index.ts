@@ -39,8 +39,10 @@ import { cancelPendingCleanups } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
 import {
+  initRlsEnforcementRole,
   initTenantManager,
   reconcileTenantRLS,
+  reconcileExtensionTenantRLS,
   warnIfDbRoleBypassesRls,
 } from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
@@ -829,6 +831,11 @@ export async function _createAppForTests(
   initTenantManager(db);
   await initPermissions(db);
   initRls(db);
+  // Tests must take the same database path as production. Without this the
+  // harness ran every request as the connecting superuser, so RLS applied to
+  // nothing and the suite could not have noticed a missing grant — the tests
+  // would pass precisely because the isolation they exercise was switched off.
+  await initRlsEnforcementRole(db);
   initValidationEngine(db);
   const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
@@ -974,12 +981,37 @@ async function bootstrap() {
   // so reads/writes are isolated by the `zveltio.current_tenant` GUC. Runs after
   // collections + extension tables exist. Single-tenant installs run as the
   // default tenant (GUC always set), so this is transparent there.
+  // Whether Postgres will apply RLS to this connection at all. A stock install
+  // connects as the image's POSTGRES_USER, which is a SUPERUSER, and FORCE RLS
+  // does not bind superusers — so `withTenantIsolation` drops to a plain role
+  // for the duration of each tenant transaction. See migration 030.
+  const rlsMode = await initRlsEnforcementRole(db);
+  if (rlsMode === 'enforced') {
+    console.log('🔒 Tenant RLS enforced via the zveltio_rls role');
+  } else if (rlsMode === 'unavailable') {
+    console.warn(
+      '⚠️  [tenant-rls] The zveltio_rls role is unavailable AND this connection can bypass RLS. ' +
+        'Tenant isolation is NOT enforced by the database. Either let migration 030 create the ' +
+        'role, or run the engine as a plain (NOSUPERUSER, no BYPASSRLS) role.',
+    );
+  }
   await warnIfDbRoleBypassesRls(db);
   try {
     const n = await reconcileTenantRLS(db);
     console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);
   } catch (err) {
     console.warn('⚠️ Tenant RLS reconcile failed (non-fatal):', (err as Error).message);
+  }
+  // Extensions install their own isolation policies, and every copy of the
+  // template was fail-open — a query with no tenant context read every
+  // tenant's rows, where the same mistake against an engine table read none.
+  // This puts them all on the host's predicate, including extensions that do
+  // not live in this repository.
+  try {
+    const n = await reconcileExtensionTenantRLS(db);
+    if (n > 0) console.log(`🔒 Tenant RLS reconciled on ${n} extension table(s)`);
+  } catch (err) {
+    console.warn('⚠️ Extension RLS reconcile failed (non-fatal):', (err as Error).message);
   }
 
   // ═══ Background workers (fire-and-forget) ═══

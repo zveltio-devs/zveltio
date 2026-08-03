@@ -66,6 +66,10 @@ export async function getDefaultTenant(): Promise<Tenant> {
 }
 
 const SAFE_COLLECTION_TABLE = /^zvd_[a-z0-9_]+$/i;
+/** Engine (`zv_`) and collection (`zvd_`) tables alike — used by the extension reconciler. */
+const SAFE_TENANT_TABLE = /^zvd?_[a-z0-9_]+$/i;
+/** Policy names come from pg_policies, but they are interpolated into DDL. */
+const SAFE_POLICY_NAME = /^[a-z0-9_]+$/i;
 
 /**
  * Apply tenant row isolation to a single collection data table. Idempotent.
@@ -107,13 +111,102 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
   await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
   await sql.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${t}`).execute(db);
+  // The predicate lives in `zveltio_tenant_scope_ok` (migration 029) rather than
+  // being spelled out here. It used to be written inline, and the extension
+  // migration template wrote its own fail-OPEN version of the same rule — two
+  // spellings that behaved oppositely when a query arrived with no tenant
+  // context. Naming it once is what makes that impossible to repeat.
   await sql
     .raw(
       `CREATE POLICY tenant_isolation ON ${t} ` +
-        `USING (tenant_id::text = current_setting('zveltio.current_tenant', true)) ` +
-        `WITH CHECK (tenant_id::text = current_setting('zveltio.current_tenant', true))`,
+        `USING (zveltio_tenant_scope_ok(tenant_id)) ` +
+        `WITH CHECK (zveltio_tenant_scope_ok(tenant_id))`,
     )
     .execute(db);
+}
+
+/**
+ * Boot reconciler: put every extension-owned tenant table on the host's
+ * predicate.
+ *
+ * Extensions install their own isolation from a copied `002_tenant_rls.sql`,
+ * and all 54 copies were fail-open: no tenant context meant every tenant's
+ * rows, where the engine's own tables meant none. Rewriting them here rather
+ * than patching 54 files makes tenant isolation something the host guarantees
+ * instead of something each extension author gets right — including extensions
+ * that are not in this repository and cannot be edited from it.
+ *
+ * Targets exactly the tables that already declared a `tenant_isolation_*`
+ * policy, so this adopts an extension's stated intent and never invents
+ * isolation for a table that deliberately has none (catalogues, lookup data).
+ *
+ * Best-effort per table: one failure must not stop the engine from booting.
+ */
+export async function reconcileExtensionTenantRLS(db: Database): Promise<number> {
+  let targets: { tablename: string; policyname: string }[];
+  try {
+    const rows = await sql<{ tablename: string; policyname: string }>`
+      SELECT tablename, policyname
+        FROM pg_policies
+       WHERE schemaname = 'public'
+         AND policyname LIKE 'tenant\\_isolation\\_%'
+    `.execute(db);
+    targets = rows.rows;
+  } catch {
+    return 0;
+  }
+
+  let applied = 0;
+  for (const { tablename, policyname } of targets) {
+    // Extension tables are `zv_*` (their own namespace) or `zvd_*` (collection
+    // data) — SAFE_COLLECTION_TABLE only matches the latter, so it would have
+    // skipped every extension table this function exists to fix.
+    if (!SAFE_TENANT_TABLE.test(tablename) || !SAFE_POLICY_NAME.test(policyname)) continue;
+    const t = `"${tablename}"`;
+    const def = `'${DEFAULT_TENANT_ID}'::uuid`;
+    try {
+      // Backfill before switching the predicate. The old policy made a NULL
+      // tenant_id visible to everyone; the new one makes it visible to nobody.
+      // Without this the fix would read as data loss — the rows are simply
+      // pre-tenant rows, and they belong to the default tenant, which is what
+      // migration 007 already decided for the engine's own tables.
+      const orphans = await sql<{ n: number }>`
+        SELECT COUNT(*)::int AS n FROM ${sql.id(tablename)} WHERE tenant_id IS NULL
+      `.execute(db);
+      const n = orphans.rows[0]?.n ?? 0;
+      if (n > 0) {
+        await sql.raw(`UPDATE ${t} SET tenant_id = ${def} WHERE tenant_id IS NULL`).execute(db);
+        console.warn(
+          `[tenant-rls] ${tablename}: backfilled ${n} row(s) with no tenant_id to the ` +
+            `default tenant — they were previously visible to every tenant.`,
+        );
+      }
+      // Match the engine's column DEFAULT so writes and reads agree.
+      await sql
+        .raw(
+          `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT ` +
+            `COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})`,
+        )
+        .execute(db);
+      await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
+      await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
+      await sql.raw(`DROP POLICY IF EXISTS ${`"${policyname}"`} ON ${t}`).execute(db);
+      await sql
+        .raw(
+          `CREATE POLICY ${`"${policyname}"`} ON ${t} ` +
+            `USING (zveltio_tenant_scope_ok(tenant_id)) ` +
+            `WITH CHECK (zveltio_tenant_scope_ok(tenant_id))`,
+        )
+        .execute(db);
+      applied++;
+    } catch (err) {
+      console.warn(
+        `[tenant-rls] extension reconcile failed for ${tablename}:`,
+        (err as Error).message,
+      );
+    }
+  }
+  return applied;
 }
 
 /**
@@ -528,12 +621,63 @@ export async function withTenantIsolation<T>(
 ): Promise<T> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (_db as any).transaction().execute(async (trx: Database) => {
+    // Drop to a role Postgres will actually apply RLS to.
+    //
+    // `docker-compose.yml` passes POSTGRES_USER to the official Postgres image,
+    // which creates it as a SUPERUSER — and FORCE ROW LEVEL SECURITY does not
+    // bind superusers. So on a stock install every isolation policy in this
+    // codebase was advisory, and the boot warning about it scrolled past in the
+    // startup log. Rather than depending on how the operator configured their
+    // database, the engine spends each tenant transaction as a plain role; the
+    // role reverts when the transaction ends.
+    //
+    // Only DATA access is downgraded. Schema-management routes do not open this
+    // transaction at all (TXN_SKIP_PREFIXES), so DDL keeps the owner's rights.
+    //
+    // Skipped when the role is absent — a managed Postgres may not have let
+    // migration 030 create it, and the engine has to keep working there.
+    if (_rlsRoleAvailable) {
+      await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+    }
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
     await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
     return fn(trx);
   });
+}
+
+/**
+ * Whether `SET LOCAL ROLE zveltio_rls` will work on this database.
+ *
+ * Resolved once at boot rather than probed per request: the answer cannot
+ * change while the process runs, and a failed SET aborts the surrounding
+ * transaction, so discovering it lazily would break the first request instead
+ * of logging a line at startup.
+ */
+let _rlsRoleAvailable = false;
+
+/** Boot check — see `_rlsRoleAvailable`. Returns the mode for logging. */
+export async function initRlsEnforcementRole(
+  db: Database,
+): Promise<'enforced' | 'native' | 'unavailable'> {
+  try {
+    const r = await sql<{ ok: boolean; super_user: boolean }>`
+      SELECT pg_has_role(current_user, 'zveltio_rls', 'MEMBER') AS ok,
+             (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user)
+               AS super_user
+    `.execute(db);
+    const row = r.rows[0];
+    _rlsRoleAvailable = Boolean(row?.ok);
+    if (_rlsRoleAvailable) return 'enforced';
+    // No role, but the connection is already a plain one — RLS binds it
+    // directly and there is nothing to fix.
+    return row?.super_user ? 'unavailable' : 'native';
+  } catch {
+    // The role does not exist (migration 030 could not create it).
+    _rlsRoleAvailable = false;
+    return 'unavailable';
+  }
 }
 
 /** @deprecated Use withTenantIsolation() instead. */
