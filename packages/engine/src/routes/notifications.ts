@@ -273,7 +273,20 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
         title: z.string().min(1).max(200),
         message: z.string().min(1).max(2000),
         type: z.enum(['info', 'success', 'warning', 'error']).default('info'),
-        action_url: z.string().url().optional(),
+        // `z.string().url()` is not the check it looks like: it accepts
+        // `javascript:alert(1)` and `data:text/html,…`, because both are valid
+        // URLs. The Studio renders this as the notification's link, so a tenant
+        // admin could send every member of their tenant a click-to-execute
+        // payload — and a notification from the platform is exactly the thing
+        // people click without reading.
+        action_url: z
+          .string()
+          .url()
+          .refine(
+            (u) => /^https?:\/\//i.test(u) || u.startsWith('/'),
+            'action_url must be an http(s) URL or an in-app path',
+          )
+          .optional(),
       }),
     ),
     async (c) => {
