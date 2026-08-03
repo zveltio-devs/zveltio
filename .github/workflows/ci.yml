@@ -115,6 +115,17 @@ jobs:
         # delete, and the ghost-DDL backfill copied two batches then reported
         # success, swapping in an incomplete table. Count with RETURNING.
         run: bun run scripts/check-affected-rows.ts
+      - name: No hand-written copy of an existing rule
+        # The best findings of the 2026-08 audit rounds were all one bug: a
+        # security rule that already had a helper, written out again somewhere
+        # else with a piece missing. Edge functions re-checked an API key and
+        # omitted the tenant comparison; the cursor branch and GET /:id each
+        # grew their own RLS filter loop covering eq/neq only, so a policy
+        # written with `in` evaporated behind `?cursor=`; sync pull masked
+        # `hidden` columns by hand and never touched `readOnly`. Every one
+        # shipped, and none was caught by review. Verified against the commits
+        # before each fix: this gate flags all three.
+        run: bun run scripts/check-duplicate-rules.ts
       - name: Core pages stay translated
         # The Studio ships nine locales with full key parity and a translated
         # navigation, while ~42 core admin pages were hardcoded English — a
