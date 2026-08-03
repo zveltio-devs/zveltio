@@ -86,6 +86,19 @@ export interface DbQueryRequest {
   id: WorkerMessageId;
   sql: string;
   params: unknown[];
+  /**
+   * The `route:invoke` this query was issued while handling, if any.
+   *
+   * The host uses it to look up the tenant IN ITS OWN RECORDS — the id names a
+   * request the host dispatched, and the tenant comes from what the host sent,
+   * not from anything the worker says. A worker that invents an id gets no
+   * tenant context and reads nothing; a worker that names another extension's
+   * request does not match, because the map is per worker.
+   *
+   * Sending the tenant id itself would be simpler and worthless: the worker is
+   * the untrusted party here, so a tenant it asserts is a tenant it chose.
+   */
+  requestId?: WorkerMessageId;
 }
 
 export interface DbQueryResponse {

@@ -2165,6 +2165,7 @@ export interface ZvScimTokensTable {
   created_by: string | null;
   created_at: Generated<Date>;
   last_used_at: Date | null;
+  tenant_id: string | null;
 }
 
 export interface ZvScimUsersTable {
@@ -2173,6 +2174,7 @@ export interface ZvScimUsersTable {
   active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvSearchIndexesTable {
@@ -3665,6 +3667,7 @@ export interface ZvdInsightSavedQueriesTable {
   created_by: string;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvdInvoiceLinesTable {

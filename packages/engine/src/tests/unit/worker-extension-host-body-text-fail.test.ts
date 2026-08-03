@@ -39,6 +39,7 @@ describe('WorkerExtensionHost — body text read failure', () => {
       } as unknown as Worker,
       routes: [{ method: 'POST', path: '/ingest' }],
       pendingInvokes: new Map(),
+      invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
