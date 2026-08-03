@@ -368,9 +368,27 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       /* ignore */
     }
 
+    // Headers the function must not see.
+    //
+    // Every header was forwarded verbatim into the sandbox, `cookie` included —
+    // so an edge function received the session cookie of every caller and could
+    // replay it against the API as them. The sandbox exists to contain the
+    // function's code; handing it the caller's credentials on the way in
+    // defeats the point of having one.
+    //
+    // Webhook signatures deliberately survive: `stripe-signature`,
+    // `x-hub-signature-256` and friends are what a webhook receiver is FOR, and
+    // they authenticate the sender rather than the caller.
+    const CREDENTIAL_HEADERS = new Set([
+      'cookie',
+      'authorization',
+      'x-api-key',
+      'x-preview-token',
+      'x-tenant-slug',
+    ]);
     const headersObj: Record<string, string> = {};
     c.req.raw.headers.forEach((v, k) => {
-      headersObj[k] = v;
+      if (!CREDENTIAL_HEADERS.has(k.toLowerCase())) headersObj[k] = v;
     });
 
     const queryObj: Record<string, string> = {};
