@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
+import { runWithTenantTrx } from './tenant-context.js';
 
 export interface Tenant {
   id: string;
@@ -643,7 +644,19 @@ export async function withTenantIsolation<T>(
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
     await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
-    return fn(trx);
+    // Bind the transaction to the async context as well as handing it to `fn`.
+    //
+    // `ctx.db` given to extensions is a proxy that resolves
+    // `getCurrentTenantTrx()` per query, which is what makes a plain `db` in an
+    // extension route tenant-scoped without threading anything. Background work
+    // opened its transaction here and did NOT set that store, so inside a job
+    // `ctx.db` still fell through to the global pool — the one place the
+    // guarantee quietly did not hold, and the reason `data/export` had to be
+    // handed its transaction explicitly.
+    //
+    // Setting it here means there is ONE spelling that is correct everywhere:
+    // in a handler, in a helper called from one, and in a job.
+    return runWithTenantTrx(trx, tenantId, () => fn(trx));
   });
 }
 
