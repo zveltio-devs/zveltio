@@ -66,8 +66,9 @@ verified), `SDK-01` (context adds no exposure over an import).
 `WASM-01` — the CPU budget races handler invocation, so a synchronous loop in
 `register()` is not covered and cannot be by a promise. Wants epoch
 interruption from the runtime. `SCH-001` — the preview token is accepted from
-`?_preview=`; removing that breaks shared preview links, which is a product
-call. 209 bare-`db` queries across 33 extension files remain on a ratchet:
+`?_preview=`. Left open at the time on the assumption that removing it would
+break shared preview links; that assumption was never checked and turned out to
+be wrong. Fixed in the next release. 209 bare-`db` queries across 33 extension files remain on a ratchet:
 they no longer leak, but they read the default tenant rather than the caller's.
 
 ## [3.0.0-beta.47] - 2026-08-03
