@@ -4,6 +4,55 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.49] - 2026-08-04
+
+**Two controls that existed but never ran.** Both were written, tested and
+merged; neither was reachable from the path that mattered.
+
+### Fixed
+
+- **The extension kill switch never ran at boot.** `revocations.ts` was
+  written for one situation, named in its own docstring: "every install that
+  already has the files keeps running it". It was imported by exactly one
+  file — the marketplace routes — so it fired when an operator installed or
+  hot-loaded an extension, and never when the engine started. An extension
+  revoked after it was already on disk kept loading on every restart, which
+  is precisely the case the control exists for. The registry could take a
+  build down and nothing downstream acted on it. The check now lives in
+  `loadExtensionFromDir`, the one function every entry point reaches, above
+  the Studio-only short-circuit so a revoked client-only extension cannot slip
+  past. Fail-open behaviour is unchanged and still decided inside the module:
+  a list that was never fetched does not block, because air-gapped installs
+  are supported and a control an operator switches off protects nobody.
+
+- **The compiled binary shipped without migrations 029-033.** `embedded.ts`
+  stopped at 028, so the five migrations from the tenancy work existed only as
+  `.sql` files. This breaks exactly one build and no test:
+  `getMaxSchemaVersion()` globs the sql/ directory in dev, so every suite
+  reported 33 and passed, while the binary — which has no such directory —
+  read the stale map, answered 28, and refused to start against any database
+  carrying the newer schema. A fresh install would never have created those
+  objects. beta.44 shipped broken the same way.
+
+### Added
+
+- **CI gate: embedded migrations freshness.** Compares the set of versions on
+  disk against the set embedded in the binary. Nothing on master exercises the
+  binary path, because `release.yml` runs on tag — the first execution of the
+  compiled engine is the release itself. Verified by removing a migration's
+  import, watching the gate name it, and restoring it.
+
+- **The worker runtime's `fetch` goes through the SSRF validator.** Its
+  documentation leads with what it is not: a `Bun.Worker` is a thread with the
+  full Node API, so this is not a boundary against hostile code — measured,
+  not assumed, since `Bun.plugin` does not block builtin imports and a probe
+  read `/etc/hostname` from inside a worker. What it closes is the common
+  accident: an extension fetching a URL from its own configuration and
+  becoming an SSRF pivot into the operator's private network. Only
+  `isolation: "worker"` extensions run there, and the first-party extensions
+  that legitimately talk to loopback (Ollama, SeaweedFS) load inline and never
+  reach it. `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH=1` lifts it.
+
 ## [3.0.0-beta.48] - 2026-08-03
 
 **The findings nobody had looked at.** beta.47 closed what three audit
