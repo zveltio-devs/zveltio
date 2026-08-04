@@ -174,3 +174,112 @@ describe('the operator message', () => {
     expect(msg).toContain('ZV-2026-001');
   });
 });
+
+/**
+ * Wiring — the part that was missing.
+ *
+ * Every test above exercises `checkRevoked` directly. All of them passed while
+ * the module was imported by exactly one file: the marketplace routes. So the
+ * list was consulted when an operator INSTALLED or hot-loaded an extension,
+ * and never when the engine BOOTED. An extension revoked after it was already
+ * on disk kept loading on every restart — precisely the situation revocation
+ * exists for, and the one the module's own docstring names.
+ *
+ * These tests go through `loadExtensionFromDir`, the single function every
+ * entry point reaches (boot `loadFromDB`, `loadDynamic`, marketplace install).
+ */
+describe('load-path enforcement', () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+
+  function extensionOnDisk(opts: { version: string; engine?: boolean }) {
+    const base = mkdtempSync(join(tmpdir(), 'zv-revoke-'));
+    const dir = join(base, 'crm/core');
+    mkdirSync(join(dir, 'engine'), { recursive: true });
+    writeFileSync(
+      join(dir, 'manifest.json'),
+      JSON.stringify({
+        name: 'crm/core',
+        version: opts.version,
+        contributes: { engine: opts.engine ?? true },
+      }),
+    );
+    // A real bundle, so nothing else in the pipeline can be what stops the load.
+    writeFileSync(join(dir, 'engine/index.js'), 'export default { name: "crm/core" };');
+    return base;
+  }
+
+  function stubLoader() {
+    return {
+      loaded: new Map(),
+      manifestMeta: new Map(),
+      lastLoadError: new Map(),
+      modules: new Map(),
+      isActive(name: string) {
+        return this.loaded.has(name);
+      },
+    };
+  }
+
+  async function load(base: string) {
+    const { loadExtensionFromDir } = await import('../../lib/extensions/load.js');
+    const loader = stubLoader();
+    // db is only touched for `manifest.dependencies`, which this manifest omits.
+    const ctx = { db: {} } as never;
+    await loadExtensionFromDir(loader as never, 'crm/core', {} as never, ctx, base);
+    return loader;
+  }
+
+  it('refuses a revoked extension at boot, not just at install', async () => {
+    respondWith({ revocations: [REVOKED] });
+    const loader = await load(extensionOnDisk({ version: '1.2.0' }));
+
+    expect(loader.isActive('crm/core')).toBe(false);
+    expect(loader.lastLoadError.get('crm/core')).toContain('REVOKED');
+    // The reason has to reach the operator, or the badge reads as a glitch.
+    expect(loader.lastLoadError.get('crm/core')).toContain('backdoored');
+  });
+
+  it('refuses a revoked Studio-only extension too', async () => {
+    // `contributes.engine: false` short-circuits early and marks the extension
+    // active. A gate placed after that branch would wave this one through, and
+    // a client-only extension still ships code to every operator's browser.
+    respondWith({ revocations: [REVOKED] });
+    const loader = await load(extensionOnDisk({ version: '1.2.0', engine: false }));
+
+    expect(loader.isActive('crm/core')).toBe(false);
+    expect(loader.lastLoadError.get('crm/core')).toContain('REVOKED');
+  });
+
+  // The two below assert that revocation is not what stopped the load. They
+  // deliberately do not assert the extension finished loading: later gates
+  // (publisher tier, entry resolution) have their own opinions and their own
+  // tests, and pinning those here would make this file fail for reasons that
+  // have nothing to do with revocation.
+  function stoppedByRevocation(loader: { lastLoadError: Map<string, string> }) {
+    const err = loader.lastLoadError.get('crm/core') ?? '';
+    return err.includes('REVOKED') || err.includes('has been revoked');
+  }
+
+  it('does not stop a version the list omits', async () => {
+    respondWith({ revocations: [REVOKED] });
+    const loader = await load(extensionOnDisk({ version: '1.3.0' }));
+    expect(stoppedByRevocation(loader as never)).toBe(false);
+  });
+
+  it('does not stop the load when the registry is unreachable — air-gapped installs still boot', async () => {
+    respondWithNetworkError();
+    const loader = await load(extensionOnDisk({ version: '1.2.0' }));
+    expect(stoppedByRevocation(loader as never)).toBe(false);
+  });
+
+  it('refuses to boot on an unreachable registry when the operator demands the check', async () => {
+    process.env.ZVELTIO_REQUIRE_REVOCATION_CHECK = '1';
+    respondWithNetworkError();
+    const loader = await load(extensionOnDisk({ version: '1.2.0' }));
+
+    expect(loader.isActive('crm/core')).toBe(false);
+    expect(loader.lastLoadError.get('crm/core')).toContain('unreachable');
+  });
+});

@@ -28,6 +28,7 @@ import { resolveExtensionsBase } from './extension-paths.js';
 import { runExtensionMigrations } from './migration-runner.js';
 import { embedPageSchemas } from './manifest-schema.js';
 import { enforcePublisherTier, resolveEntryPath, resolveManifest } from './load-phases.js';
+import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionContext } from './internals.js';
 import { buildAllowedTables, EXTENSION_TABLE_GRANTS, finalizeExtensionLoad } from './register.js';
 import type { ExtensionLoader } from './extension-loader.js';
@@ -47,35 +48,74 @@ export async function loadExtensionFromDir(
 
     const enginePath = join(extDir, 'engine/index.js');
 
+    const earlyManifestPath = join(extDir, 'manifest.json');
+    // biome-ignore lint/suspicious/noExplicitAny: raw manifest JSON, validated properly by resolveManifest below
+    let early: any = null;
+    if (existsSync(earlyManifestPath)) {
+      try {
+        early = JSON.parse(await Bun.file(earlyManifestPath).text());
+      } catch {
+        // Malformed manifest — leave `early` null; the engine path re-reads it
+        // below and surfaces the parse error properly.
+      }
+    }
+
+    // Revocation gate — the registry no longer stands behind this build.
+    //
+    // `revocations.ts` was written for exactly this case ("every install that
+    // already has the files keeps running it") but was wired only into the
+    // marketplace routes, so it fired on install and on hot-load and never on
+    // boot. An extension revoked after it was installed kept loading on every
+    // restart — the moment the control exists to cover. Every entry point
+    // (boot `loadFromDB`, `loadDynamic`, marketplace install) reaches this
+    // function, so one check here governs all of them.
+    //
+    // It sits above the Studio-only short-circuit deliberately: that branch
+    // marks the extension active and wires its Studio components, so a gate
+    // below it would let a revoked client-only extension through. Revocation
+    // means "we no longer stand behind this", independent of runtime.
+    //
+    // Fail-open vs fail-closed is decided inside the module, not here: a list
+    // that was never fetched fails open, because air-gapped installs are
+    // supported and a control an operator switches off protects nobody. Set
+    // ZVELTIO_REQUIRE_REVOCATION_CHECK=1 to invert that for a connected fleet.
+    const extVersion = typeof early?.version === 'string' ? early.version : undefined;
+    const verdict = await checkRevoked(extName, extVersion);
+    if (verdict.revoked && verdict.entry) {
+      const msg = revocationMessage(extName, extVersion ?? 'unknown', verdict.entry);
+      console.error(`[extensions] ${msg}`);
+      loader.lastLoadError.set(extName, msg);
+      return;
+    }
+    if (verdict.unknown && revocationCheckRequired()) {
+      const msg =
+        `Cannot verify whether "${extName}" has been revoked — the registry is unreachable ` +
+        `and ZVELTIO_REQUIRE_REVOCATION_CHECK=1 requires a successful check.`;
+      console.error(`[extensions] ${msg}`);
+      loader.lastLoadError.set(extName, msg);
+      return;
+    }
+
     // Studio/client-only extensions (`contributes.engine: false`) ship no
     // engine routes — there's nothing to load into the engine. Register
     // them as active (their Studio components are wired by the Studio
     // rebuild, separately) and skip the whole engine-load path below,
     // which would otherwise hard-fail on the missing engine bundle.
-    const earlyManifestPath = join(extDir, 'manifest.json');
-    if (existsSync(earlyManifestPath)) {
-      try {
-        const early = JSON.parse(await Bun.file(earlyManifestPath).text());
-        if (early?.contributes?.engine === false) {
-          loader.loaded.set(extName, {
-            name: extName,
-            registeredRoutes: false,
-            allowedTables: new Set<string>(),
-          });
-          loader.manifestMeta.set(extName, {
-            displayName: early.displayName,
-            description: early.description,
-            category: early.category,
-            contributes: early.contributes,
-            studio: await embedPageSchemas(extDir, early.studio),
-          });
-          console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
-          return;
-        }
-      } catch {
-        // Malformed manifest — fall through; the engine path re-reads it
-        // and surfaces the parse error properly.
-      }
+    if (early?.contributes?.engine === false) {
+      loader.loaded.set(extName, {
+        name: extName,
+        registeredRoutes: false,
+        allowedTables: new Set<string>(),
+      });
+      loader.manifestMeta.set(extName, {
+        displayName: early.displayName,
+        description: early.description,
+        category: early.category,
+        contributes: early.contributes,
+        studio: await embedPageSchemas(extDir, early.studio),
+      });
+      console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
+      return;
     }
 
     if (!existsSync(enginePath)) {
