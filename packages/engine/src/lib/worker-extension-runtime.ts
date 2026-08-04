@@ -20,6 +20,7 @@
  */
 
 import { Hono } from 'hono';
+import { assertPublicUrl } from './security/index.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -154,6 +155,41 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
   return out;
 }
 
+/**
+ * Route the worker's `fetch` through the engine's SSRF validator.
+ *
+ * Read the limit first, because the name invites the wrong reading: this is
+ * NOT a security boundary, and nothing here contains malicious code. A
+ * Bun.Worker is a thread with the full Node API — `node:http` and `node:net`
+ * are one import away, and an extension that wants to reach 169.254.169.254
+ * simply does not call `fetch`. That was measured, not assumed: `Bun.plugin`
+ * cannot block builtin imports, and a probe read `/etc/hostname` from inside
+ * a worker. Containment against hostile code needs WASM or OS-level process
+ * isolation; see the WASM decision note.
+ *
+ * What it does buy, and the reason it ships: an extension that takes a URL
+ * from its own configuration and fetches it — a webhook target, an API base
+ * URL, an avatar — stops being an SSRF pivot into the operator's private
+ * network by accident. That is the common case and it is worth closing.
+ *
+ * Scope is narrow by construction. Only `isolation: "worker"` extensions run
+ * here, which today is the third-party/community tier and nothing else. The
+ * first-party extensions that legitimately talk to loopback services (Ollama,
+ * SeaweedFS) load inline and never reach this code, so the guard cannot break
+ * them. ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH=1 lifts it for an operator running
+ * a worker extension against a deliberately internal endpoint.
+ */
+function installFetchGuard(): void {
+  if (process.env.ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH === '1') return;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+    await assertPublicUrl(url);
+    return original(input as RequestInfo, init);
+  }) as typeof fetch;
+}
+
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {
   try {
     // Convenience only — NOT the boundary. This assignment is reachable through
@@ -166,6 +202,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
         env: { NODE_ENV: msg.env.NODE_ENV },
       };
     }
+    installFetchGuard();
     const module = await import(msg.bundleUrl);
     const extension = module.default;
     if (!extension || typeof extension.register !== 'function') {
