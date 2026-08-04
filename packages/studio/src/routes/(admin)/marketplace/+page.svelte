@@ -76,6 +76,13 @@ interface Extension {
   dependencies?: string[];
   /** Subset of `dependencies` that are not yet enabled — blocks Install/Enable. */
   missing_dependencies?: string[];
+  /**
+   * Who stands behind this build. Governs whether the engine runs it inline
+   * or confines it to a worker, so it is the single most consequential fact
+   * on the card. Absent (old engine) is treated as `community`: unknown
+   * provenance is not a weaker claim than known-untrusted.
+   */
+  publisher_tier?: 'first-party' | 'verified' | 'community';
   /** Capabilities the manifest asks for. */
   declared_capabilities?: string[];
   /** Capabilities an admin approved. null = install predating consent tracking. */
@@ -554,6 +561,34 @@ onMount(loadCatalog);
 
                   <!-- Tags -->
                   <div class="flex flex-wrap gap-1 mb-2">
+                    <!--
+                      Who stands behind this build. The engine already decides
+                      with it — first-party and verified run in the engine
+                      process, community is confined to a worker — so the
+                      operator approving an install was the one person the
+                      answer was kept from. The title carries the consequence,
+                      not the label: "Community" means nothing on its own.
+                    -->
+                    {@const tier = ext.publisher_tier ?? 'community'}
+                    <span
+                      class="badge badge-xs gap-1 {tier === 'community'
+                        ? 'badge-warning'
+                        : tier === 'verified'
+                          ? 'badge-info badge-outline'
+                          : 'badge-ghost'}"
+                      title={tier === 'community'
+                        ? m['mkt.tier.communityTitle']()
+                        : tier === 'verified'
+                          ? m['mkt.tier.verifiedTitle']()
+                          : m['mkt.tier.firstPartyTitle']()}
+                    >
+                      {#if tier === 'community'}<ShieldAlert size={8} />{/if}
+                      {tier === 'community'
+                        ? m['mkt.tier.community']()
+                        : tier === 'verified'
+                          ? m['mkt.tier.verified']()
+                          : m['mkt.tier.firstParty']()}
+                    </span>
                     {#each ext.tags.slice(0, 3) as tag}
                       <span class="badge badge-xs badge-ghost">{tag}</span>
                     {/each}

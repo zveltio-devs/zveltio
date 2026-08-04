@@ -28,6 +28,7 @@ import {
   clientIp,
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
+import { resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError } from './extension-errors.js';
 import { auditLog } from '../audit.js';
 import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
@@ -295,6 +296,15 @@ export function registerMarketplaceRoutes(
         // Declared dependencies that are not yet enabled — the UI disables Enable
         // and shows "enable these first" when this is non-empty.
         missing_dependencies,
+        // Who stands behind this build. The engine already decides with it —
+        // `tierAllowsInline()` lets first-party and verified run in the engine
+        // process and confines community to a worker — but it was never sent to
+        // the Studio, so the operator approving an install could not see the
+        // one fact that governs how much of their server the code can touch.
+        // An extension missing from the catalog resolves to `community`, which
+        // is the honest answer: unknown provenance is not a lesser claim than
+        // known-untrusted.
+        publisher_tier: resolvePublisherTier(entry),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
         is_running: runtimeActive,
