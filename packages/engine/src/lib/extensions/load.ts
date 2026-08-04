@@ -26,7 +26,7 @@ import { auditLog } from '../audit.js';
 import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import { runExtensionMigrations } from './migration-runner.js';
-import { embedPageSchemas } from './manifest-schema.js';
+import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
 import { enforcePublisherTier, resolveEntryPath, resolveManifest } from './load-phases.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionContext } from './internals.js';
@@ -49,8 +49,17 @@ export async function loadExtensionFromDir(
     const enginePath = join(extDir, 'engine/index.js');
 
     const earlyManifestPath = join(extDir, 'manifest.json');
-    // biome-ignore lint/suspicious/noExplicitAny: raw manifest JSON, validated properly by resolveManifest below
-    let early: any = null;
+    // Raw manifest JSON, read once for the two decisions that must happen
+    // before the engine bundle is imported: revocation and the Studio-only
+    // short-circuit. `resolveManifest` below does the real validation.
+    let early: {
+      version?: unknown;
+      displayName?: string;
+      description?: string;
+      category?: string;
+      contributes?: { engine?: boolean };
+      studio?: ManifestMeta['studio'];
+    } | null = null;
     if (existsSync(earlyManifestPath)) {
       try {
         early = JSON.parse(await Bun.file(earlyManifestPath).text());
