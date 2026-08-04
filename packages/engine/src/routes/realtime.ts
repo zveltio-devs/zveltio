@@ -125,6 +125,39 @@ function presenceKey(tenantId: string | null, channel: string): string {
   return `presence:${tenantId ?? 'default'}:${channel}`;
 }
 
+/**
+ * The Valkey key a member's display metadata lives under.
+ *
+ * The comment above says the fix was a function "because the bug was that one
+ * of three places could differ". It was written while three template literals
+ * for THIS key were left in place, one line below — same bug, same function,
+ * untouched. The set got a tenant and the metadata beside it did not.
+ *
+ * Nothing reads this hash today, so the omission disclosed nothing: the key
+ * carries a userId and the value is that user's own name and email. It is
+ * being fixed because the first feature that reads it back — showing names in
+ * a presence list, the obvious next step — turns a dormant inconsistency into
+ * a cross-tenant leak, and whoever writes that reader will have no reason to
+ * suspect the key underneath them is unscoped.
+ */
+function presenceMetaKey(tenantId: string | null, channel: string, userId: string): string {
+  return `presence_meta:${tenantId ?? 'default'}:${channel}:${userId}`;
+}
+
+/**
+ * Test seam for the presence key shape.
+ *
+ * Exported rather than reached through a `mock.module` on the runtime: mocking
+ * `getCache` globally replaces it for every other test file in the same
+ * `bun test` run — measured at 53 unrelated failures — and these functions
+ * already take the cache as their first argument, so no mock is needed to
+ * observe what they write.
+ */
+export const _presenceInternals = {
+  join: (...args: Parameters<typeof presenceJoin>) => presenceJoin(...args),
+  leave: (...args: Parameters<typeof presenceLeave>) => presenceLeave(...args),
+};
+
 async function presenceJoin(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   cache: any,
@@ -141,8 +174,9 @@ async function presenceJoin(
       await cache.zadd(key, ts, userId);
       await cache.pexpire(key, PRESENCE_TTL_MS * 2);
       // Store user meta as hash
-      await cache.hset(`presence_meta:${channel}:${userId}`, meta);
-      await cache.pexpire(`presence_meta:${channel}:${userId}`, PRESENCE_TTL_MS * 2);
+      const metaKey = presenceMetaKey(tenantId, channel, userId);
+      await cache.hset(metaKey, meta);
+      await cache.pexpire(metaKey, PRESENCE_TTL_MS * 2);
       return;
     } catch {
       /* fall through to in-memory */
@@ -157,7 +191,7 @@ async function presenceLeave(cache: any, tenantId: string | null, channel: strin
   if (cache) {
     try {
       await cache.zrem(presenceKey(tenantId, channel), userId);
-      await cache.del(`presence_meta:${channel}:${userId}`);
+      await cache.del(presenceMetaKey(tenantId, channel, userId));
       return;
     } catch {
       /* fall through */
