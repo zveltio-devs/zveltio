@@ -17,4 +17,4 @@ export const WORKER_RUNTIME_SOURCE = "// @bun\n// node_modules/.bun/hono@4.12.28
  * source on disk, so an edit that nobody regenerated fails CI instead of
  * shipping a runtime that was never the one under test.
  */
-export const WORKER_RUNTIME_SOURCE_SHA256 = "55be8ee6931a5b3e84c91a698911800420237b997b14df92b0dea1cf0363384b";
+export const WORKER_RUNTIME_SOURCE_SHA256 = "a72452ee1c64941b67550effc420f8254a1d63f09d5a7a4f02f1be3666028b2e";
