@@ -61,8 +61,30 @@ Every submitted extension MUST:
 | Publisher tier | Required `engine.isolation` |
 | --- | --- |
 | First-party (Zveltio team) | `inline` (default) — full functionality, max speed |
-| Verified partner (vendor-vetted) | `inline` allowed, `worker` recommended |
+| Verified (source read by the Zveltio team) | `inline` allowed, `worker` recommended |
 | **Community / third-party** | **`worker` REQUIRED** |
+
+### What earns `verified` (decided 2026-08-04)
+
+**A member of the Zveltio team read the source of that version.** Nothing
+else qualifies: not a signed contract, not a passing CI run, not a
+recognisable company name. Automated checks are a precondition, never the
+grant — a scan catches carelessness, and the tier exists to answer a
+different question, which is whether this code may run in the same process
+as the database credentials.
+
+The criterion is written down because the label does security work. Without
+a definition, `verified` degrades into "we know these people", and
+`tierAllowsInline()` turns that feeling into in-process execution on every
+operator's server. If reading the code is not practical for a submission,
+the answer is `community` plus worker isolation — not a lowered bar.
+
+Verification is **per version**, which the mechanism already enforces:
+every publish inserts at `status: 'pending'` regardless of the publisher's
+tier, so a verified publisher's next release cannot reach an operator until
+it is approved. Approval means the reading happened. Approving without
+reading grants inline execution to code nobody has seen, and the system has
+no way to detect that — this document is the only control on it.
 
 The tier lives on `allowed_publishers.tier` and is copied onto each
 extension at publish (`extensions.publisher_tier`). As of beta.2 it is

@@ -161,6 +161,27 @@ d('extension marketplace routes (in-process)', () => {
     expect('needs_restart' in first).toBe(true);
   }, 20_000);
 
+  it('every catalog entry names its publisher tier', async () => {
+    // The engine has always decided with this — tierAllowsInline() lets
+    // first-party and verified run in the engine process and confines
+    // community to a worker — but the field was never in the response, so the
+    // operator approving an install could not see the one fact that governs
+    // how much of their server the code can touch. Absent must read as
+    // 'community': unknown provenance is not a weaker claim than
+    // known-untrusted, and a card that silently omits the badge would be the
+    // reassuring failure mode.
+    const res = await app.request('/api/marketplace', {
+      headers: { cookie, 'x-tenant-id': 'default' },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { extensions: Array<Record<string, unknown>> };
+
+    expect(body.extensions.length).toBeGreaterThan(0);
+    for (const ext of body.extensions) {
+      expect(['first-party', 'verified', 'community']).toContain(ext.publisher_tier as string);
+    }
+  }, 20_000);
+
   it('lists the catalog (GET /api/marketplace) — tolerates registry being offline', async () => {
     const res = await app.request('/api/marketplace', { headers: { cookie } });
     // Registry may be unreachable → the handler either returns a graceful
