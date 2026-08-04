@@ -184,7 +184,11 @@ function installFetchGuard(): void {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url =
-      typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
     await assertPublicUrl(url);
     return original(input as RequestInfo, init);
   }) as typeof fetch;

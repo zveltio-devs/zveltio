@@ -95,6 +95,21 @@ jobs:
         # before choosing.
         run: bun run scripts/check-worker-source-fresh.ts
 
+      - name: Embedded migrations freshness
+        # Same failure, different generated file. getMaxSchemaVersion() globs
+        # db/migrations/sql/ when it exists and falls back to embedded.ts when
+        # it does not, so in dev a migration nobody embedded is invisible —
+        # every suite reads the same number the database has and passes. The
+        # compiled binary has no sql/ directory, reads the stale map, and
+        # refuses to start ("schema is newer than this engine version"); a
+        # fresh install never creates the missing objects at all.
+        #
+        # Nothing on master exercises that path, because release.yml runs on
+        # tag. beta.44 shipped broken this way, and migrations 029-033 reached
+        # master the same way — caught only by compiling by hand before the
+        # tag. A gate is cheaper than remembering to.
+        run: bun run scripts/check-embedded-migrations-fresh.ts
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
