@@ -4,6 +4,40 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.50] - 2026-08-04
+
+**Telling the operator what the engine already knew.** Cut so the next
+security review has a tagged artifact to work against rather than a moving
+branch.
+
+### Added
+
+- **The marketplace shows who stands behind an extension.** The publisher
+  tier has always governed how much of the server an extension can touch —
+  `tierAllowsInline()` lets first-party and verified run inside the engine
+  process and confines community to an isolated worker, enforced at four
+  points since beta.2. The one party who never saw it was the operator
+  clicking Install. The catalog response now carries `publisher_tier` and the
+  card renders it as a badge whose tooltip states the consequence rather than
+  the label: "Community" alone tells nobody anything, "third-party code that
+  has not been reviewed, confined to an isolated worker, cannot read the
+  database credentials" is the actual claim. An extension missing from the
+  catalog resolves to community — unknown provenance is not a weaker claim
+  than known-untrusted, and a card that quietly dropped the badge would fail
+  in the reassuring direction. Keys added to all nine locales.
+
+### Changed
+
+- **`verified` now has a written criterion** (`docs/MARKETPLACE-POLICY.md`
+  §2): a member of the Zveltio team read the source of that version. Not a
+  contract, not a green CI run, not a recognisable name. The tier was
+  documented as "vendor-vetted", which is not a criterion, while
+  `tierAllowsInline()` turns it into in-process execution on every operator's
+  server. Verification is per version, which the registry already enforces —
+  every publish inserts at `status: 'pending'` regardless of the publisher's
+  tier, so a verified publisher's next release cannot reach an operator until
+  a human approves it.
+
 ## [3.0.0-beta.49] - 2026-08-04
 
 **Two controls that existed but never ran.** Both were written, tested and
