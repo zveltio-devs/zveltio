@@ -399,12 +399,16 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('POST license store refuses when the registry is unreachable', async () => {
-    // The check read `if (res && !res.ok)`, so a thrown fetch — DNS failure,
-    // connection refused, or the 8s timeout — skipped the rejection entirely
-    // and stored the key as verified. The comment above it promised
-    // "Verify with the registry before storing", and an admin saw
-    // "license set" with nothing having checked anything.
+  it('POST license store says whether the key was actually verified', async () => {
+    // Storing an unverified key offline is deliberate — an air-gapped install
+    // must be able to enter a key it paid for, and the key is validated by the
+    // registry at download time anyway. What was wrong was that the response
+    // said `{ ok: true }` identically whether the registry had approved it or
+    // had never been asked, under a comment promising verification.
+    //
+    // My first attempt at this made an unreachable registry a 503. A harness
+    // test caught it: refusing breaks the primary deployment model, which is
+    // exactly the reason the code was written that way.
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED');
     }) as unknown as typeof fetch;
@@ -414,11 +418,23 @@ describe('registerMarketplaceRoutes (unit)', () => {
       headers: { ...adminHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ license_key: 'unverifiable' }),
     });
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as { code?: string };
-    expect(body.code).toBe('REGISTRY_UNREACHABLE');
-    // And nothing was written.
-    expect(db.executed(/insert into "zv_settings"/i)).toHaveLength(0);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok?: boolean; verified?: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.verified).toBe(false);
+  });
+
+  it('POST license store reports verified when the registry approves', async () => {
+    globalThis.fetch = (async () =>
+      ({ ok: true, json: async () => ({}) }) as Response) as unknown as typeof fetch;
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: 'good' }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { verified?: boolean }).verified).toBe(true);
   });
 
   it('POST license rotate mints a new marketplace token', async () => {

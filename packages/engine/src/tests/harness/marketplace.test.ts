@@ -329,6 +329,15 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBeLessThan(600);
   }, 30_000);
 
+  // Deliberate, and worth saying so: an air-gapped or self-hosted install must
+  // be able to enter a key it paid for without reaching registry.zveltio.com.
+  // The key is validated by the registry at download time regardless, so an
+  // invalid one fails there with a message rather than silently working. Same
+  // reasoning as revocation, which also fails open for air-gapped instances.
+  //
+  // This assertion had no comment, and on 2026-08-04 it stopped a change that
+  // turned an unreachable registry into a 503 — which would have made paid
+  // extensions unusable on exactly the deployment this product targets.
   it('stores a license key when registry verify is offline (stubbed fetch)', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
