@@ -5,10 +5,30 @@ import type { Database } from '../db/index.js';
 // Preview environment middleware — when X-Preview-Token header is present,
 // look up the matching branch schema and set search_path for this request.
 // This gives the branch an isolated PostgreSQL schema without a separate server.
+//
+// HEADER ONLY. The token used to be accepted from `?_preview=` as well, and a
+// query string is the one place a credential should never travel: proxies, CDNs
+// and load balancers log query strings by default, browsers keep them in
+// history, and they ride along in Referer. The header does none of that.
+//
+// Removing it was safe to check rather than assume — the form appeared in no
+// documentation and had no consumer in the SDK, client, CLI or Studio, and this
+// middleware is mounted on `/api/data/*`, an API surface nobody navigates to.
+// A caller that still sends it gets a warning naming the replacement, because a
+// credential silently ignored is worse than one loudly refused.
 export function previewEnvMiddleware(db: Database): MiddlewareHandler {
   return async (c, next) => {
-    const token = c.req.header('x-preview-token') ?? c.req.query('_preview');
-    if (!token) return next();
+    const token = c.req.header('x-preview-token');
+    if (!token) {
+      if (c.req.query('_preview')) {
+        console.warn(
+          '[preview-env] ignoring `?_preview=` — a preview token in a query string ends up ' +
+            'in proxy logs, browser history and Referer headers. Send it as the ' +
+            '`X-Preview-Token` header instead.',
+        );
+      }
+      return next();
+    }
 
     try {
       const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
