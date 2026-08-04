@@ -240,6 +240,41 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
   app.use('/api/data/*', previewEnvMiddleware(db));
 
+  // Changing a password ends every other session, and the client does not get
+  // a say.
+  //
+  // better-auth takes `revokeOtherSessions` from the request body, so whether a
+  // password change logs the attacker out was a decision each caller made for
+  // itself. The Studio's profile page sent neither the flag nor a value, which
+  // means false: a user who changes their password *because* they think someone
+  // is in their account kept that someone signed in. The reset flow already
+  // disagreed — `revokeSessionsOnPasswordReset: true` is set in the auth config
+  // — so the same intent, expressed two ways, produced two outcomes.
+  //
+  // Forced here rather than fixed in the Studio because the SDKs and any
+  // operator's own client hit this endpoint too, and one of them will always be
+  // the one nobody updated. Found by driving a live instance: the old cookie
+  // still returned 200 after the password had changed.
+  app.post('/api/auth/change-password', async (c, next) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.raw.clone().json();
+    } catch {
+      return next(); // Not JSON — let better-auth reject it in its own words.
+    }
+    if (body.revokeOtherSessions === true) return next();
+
+    const forced = new Request(c.req.raw, {
+      body: JSON.stringify({ ...body, revokeOtherSessions: true }),
+    });
+    try {
+      return await auth.handler(forced);
+    } catch (err) {
+      console.error('[Auth Handler] Unhandled error:', err);
+      return c.json({ error: 'Auth handler failed' }, 500);
+    }
+  });
+
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
     try {
