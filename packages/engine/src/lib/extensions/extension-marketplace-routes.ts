@@ -82,7 +82,28 @@ export function registerMarketplaceRoutes(
       signal: AbortSignal.timeout(8_000),
     }).catch(() => null);
 
-    if (res && !res.ok) {
+    // `res` is null when the fetch threw — DNS failure, connection refused, or
+    // the 8s timeout. That branch used to fall straight through to the insert,
+    // so a key was stored as verified when nothing had verified it, under a
+    // comment promising the opposite. An admin then saw "license set" and had
+    // no way to know the check had not happened.
+    //
+    // Refusing is right here rather than storing-and-warning: this is a
+    // synchronous admin action with a person waiting, retrying costs nothing,
+    // and the alternative is a stored credential whose validity is unknown to
+    // everyone including the code that stored it.
+    if (!res) {
+      return c.json(
+        {
+          error:
+            'Could not reach the registry to verify this license key. ' +
+            'Nothing was saved — check connectivity and try again.',
+          code: 'REGISTRY_UNREACHABLE',
+        },
+        503,
+      );
+    }
+    if (!res.ok) {
       const err = (await res.json().catch(() => null)) as { message?: string } | null;
       return c.json({ error: err?.message || 'Invalid license key' }, 400);
     }
