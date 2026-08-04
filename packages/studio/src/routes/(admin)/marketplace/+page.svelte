@@ -254,6 +254,41 @@ async function loadCatalog() {
   }
 }
 
+/**
+ * Publisher-tier badge.
+ *
+ * A missing tier reads as `community`. An old engine that does not send the
+ * field, or an extension absent from the catalog, are both cases of unknown
+ * provenance — which is not a weaker claim than known-untrusted, so the badge
+ * must not quietly disappear and leave the card looking endorsed.
+ *
+ * The title carries the consequence rather than the label: "Community" on its
+ * own tells an operator nothing about what they are approving.
+ */
+type Tier = 'first-party' | 'verified' | 'community';
+const asTier = (t: Tier | undefined): Tier => t ?? 'community';
+
+function tierLabel(t: Tier | undefined): string {
+  const tier = asTier(t);
+  if (tier === 'community') return m['mkt.tier.community']();
+  if (tier === 'verified') return m['mkt.tier.verified']();
+  return m['mkt.tier.firstParty']();
+}
+
+function tierTitle(t: Tier | undefined): string {
+  const tier = asTier(t);
+  if (tier === 'community') return m['mkt.tier.communityTitle']();
+  if (tier === 'verified') return m['mkt.tier.verifiedTitle']();
+  return m['mkt.tier.firstPartyTitle']();
+}
+
+function tierBadgeClass(t: Tier | undefined): string {
+  const tier = asTier(t);
+  if (tier === 'community') return 'badge-warning';
+  if (tier === 'verified') return 'badge-info badge-outline';
+  return 'badge-ghost';
+}
+
 async function install(ext: Extension) {
   processingId = ext.name;
   try {
@@ -569,25 +604,14 @@ onMount(loadCatalog);
                       answer was kept from. The title carries the consequence,
                       not the label: "Community" means nothing on its own.
                     -->
-                    {@const tier = ext.publisher_tier ?? 'community'}
                     <span
-                      class="badge badge-xs gap-1 {tier === 'community'
-                        ? 'badge-warning'
-                        : tier === 'verified'
-                          ? 'badge-info badge-outline'
-                          : 'badge-ghost'}"
-                      title={tier === 'community'
-                        ? m['mkt.tier.communityTitle']()
-                        : tier === 'verified'
-                          ? m['mkt.tier.verifiedTitle']()
-                          : m['mkt.tier.firstPartyTitle']()}
+                      class="badge badge-xs gap-1 {tierBadgeClass(ext.publisher_tier)}"
+                      title={tierTitle(ext.publisher_tier)}
                     >
-                      {#if tier === 'community'}<ShieldAlert size={8} />{/if}
-                      {tier === 'community'
-                        ? m['mkt.tier.community']()
-                        : tier === 'verified'
-                          ? m['mkt.tier.verified']()
-                          : m['mkt.tier.firstParty']()}
+                      {#if (ext.publisher_tier ?? 'community') === 'community'}
+                        <ShieldAlert size={8} />
+                      {/if}
+                      {tierLabel(ext.publisher_tier)}
                     </span>
                     {#each ext.tags.slice(0, 3) as tag}
                       <span class="badge badge-xs badge-ghost">{tag}</span>
