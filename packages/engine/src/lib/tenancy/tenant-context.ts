@@ -31,6 +31,37 @@ export function runWithDomain<T>(domain: string, fn: () => T): T {
   return store.run({ domain }, fn);
 }
 
+/**
+ * Run `fn` with a tenant transaction bound to the async context, opening a
+ * store if there is not one already.
+ *
+ * `setCurrentTenantTrx` is a no-op outside a store, which is exactly the case
+ * for background work: a request enters `runWithDomain` first and then fills in
+ * the transaction, but a job has neither. So `ctx.db` — the proxy that resolves
+ * this — fell through to the global pool inside every scheduled task, queue
+ * worker and fire-and-forget job in the ecosystem, while being correctly scoped
+ * in the handler that started them.
+ *
+ * With this, `ctx.db` means the same thing everywhere, and extensions no longer
+ * need a second spelling for background code.
+ *
+ * Reuses an existing store when one is open, so a nested
+ * `withTenantIsolation` inside a request does not lose the domain.
+ */
+export function runWithTenantTrx<T>(trx: Database, tenantId: string, fn: () => T): T {
+  const existing = store.getStore();
+  if (existing) {
+    const previous = existing.trx;
+    existing.trx = trx;
+    try {
+      return fn();
+    } finally {
+      existing.trx = previous;
+    }
+  }
+  return store.run({ domain: tenantId, trx }, fn);
+}
+
 export function getCurrentDomain(): string {
   return store.getStore()?.domain ?? DEFAULT_TENANT_ID;
 }
