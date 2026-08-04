@@ -399,6 +399,28 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST license store refuses when the registry is unreachable', async () => {
+    // The check read `if (res && !res.ok)`, so a thrown fetch — DNS failure,
+    // connection refused, or the 8s timeout — skipped the rejection entirely
+    // and stored the key as verified. The comment above it promised
+    // "Verify with the registry before storing", and an admin saw
+    // "license set" with nothing having checked anything.
+    globalThis.fetch = (async () => {
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: 'unverifiable' }),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe('REGISTRY_UNREACHABLE');
+    // And nothing was written.
+    expect(db.executed(/insert into "zv_settings"/i)).toHaveLength(0);
+  });
+
   it('POST license rotate mints a new marketplace token', async () => {
     db.when(/from "zv_settings"[\s\S]*marketplace_auth_token/i, [{ value: 'old-token' }]);
     const app = mountRoutes(db, extBase);
