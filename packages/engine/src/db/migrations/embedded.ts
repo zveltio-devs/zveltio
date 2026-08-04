@@ -35,6 +35,11 @@ import m023 from './sql/024_flow_reader_role.sql' with { type: 'text' };
 import m024 from './sql/026_api_key_rls_bypass.sql' with { type: 'text' };
 import m025 from './sql/027_validation_rules_safe_activation.sql' with { type: 'text' };
 import m026 from './sql/028_media_file_visibility.sql' with { type: 'text' };
+import m027 from './sql/029_tenant_scope_predicate.sql' with { type: 'text' };
+import m028 from './sql/030_rls_enforcement_role.sql' with { type: 'text' };
+import m029 from './sql/031_insight_saved_queries_tenant.sql' with { type: 'text' };
+import m030 from './sql/032_api_key_rls_bypass_default_off.sql' with { type: 'text' };
+import m031 from './sql/033_tenant_scope_predicate_text.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -65,4 +70,9 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '026_api_key_rls_bypass.sql': m024,
   '027_validation_rules_safe_activation.sql': m025,
   '028_media_file_visibility.sql': m026,
+  '029_tenant_scope_predicate.sql': m027,
+  '030_rls_enforcement_role.sql': m028,
+  '031_insight_saved_queries_tenant.sql': m029,
+  '032_api_key_rls_bypass_default_off.sql': m030,
+  '033_tenant_scope_predicate_text.sql': m031,
 };
