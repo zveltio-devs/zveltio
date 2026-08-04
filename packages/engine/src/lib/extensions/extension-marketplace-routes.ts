@@ -83,27 +83,32 @@ export function registerMarketplaceRoutes(
     }).catch(() => null);
 
     // `res` is null when the fetch threw — DNS failure, connection refused, or
-    // the 8s timeout. That branch used to fall straight through to the insert,
-    // so a key was stored as verified when nothing had verified it, under a
-    // comment promising the opposite. An admin then saw "license set" and had
-    // no way to know the check had not happened.
+    // the 8s timeout.
     //
-    // Refusing is right here rather than storing-and-warning: this is a
-    // synchronous admin action with a person waiting, retrying costs nothing,
-    // and the alternative is a stored credential whose validity is unknown to
-    // everyone including the code that stored it.
+    // Storing anyway is deliberate, and the reason is the same one revocation
+    // gives a few files over: an air-gapped or self-hosted install must be able
+    // to enter a key it paid for without reaching registry.zveltio.com. The
+    // stored key is only ever sent as a Bearer token when downloading, where
+    // the registry validates it properly — an invalid one fails there, with a
+    // message, rather than silently working.
+    //
+    // What was wrong was the TELLING. The handler answered `{ ok: true }`
+    // identically whether the registry had approved the key or had never been
+    // asked, under a comment promising "Verify with the registry before
+    // storing". An operator had no way to distinguish "verified" from
+    // "unverifiable", which is the difference between a key that will work and
+    // one that will fail at the next download.
+    let verified = true;
     if (!res) {
-      return c.json(
-        {
-          error:
-            'Could not reach the registry to verify this license key. ' +
-            'Nothing was saved — check connectivity and try again.',
-          code: 'REGISTRY_UNREACHABLE',
-        },
-        503,
+      verified = false;
+      console.warn(
+        `[marketplace] stored license key for "${name}" WITHOUT verification — ` +
+          'the registry was unreachable. It will be checked at download time.',
       );
     }
-    if (!res.ok) {
+    // A response that came back and said no is a real rejection — refuse it.
+    // That is different from never having asked, handled above.
+    if (res && !res.ok) {
       const err = (await res.json().catch(() => null)) as { message?: string } | null;
       return c.json({ error: err?.message || 'Invalid license key' }, 400);
     }
@@ -114,7 +119,9 @@ export function registerMarketplaceRoutes(
       .onConflict((oc) => oc.column('key').doUpdateSet({ value: key.trim() }))
       .execute();
 
-    return c.json({ ok: true });
+    // `verified` says which of the two happened. Callers that care can show
+    // "saved, not yet verified" rather than implying the registry agreed.
+    return c.json({ ok: true, verified });
   };
 
   // DELETE /api/marketplace/license/:name — remove a stored license key
