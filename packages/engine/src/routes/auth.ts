@@ -154,11 +154,24 @@ export function invitationRoutes(db: Database, auth: any): Hono {
       }
       const userId = result.user.id;
 
-      // Apply the invited role, join the tenant, and mark the invitation
-      // consumed in one transaction so a partial failure leaves no half-state.
+      // Join the tenant and mark the invitation consumed in one transaction so
+      // a partial failure leaves no half-state.
+      //
+      // `user.role` is deliberately NOT written here. Migration 052 reduced that
+      // column to `'god' | 'member'` — "all other roles are Casbin-only
+      // concepts" — and this code kept assigning the invitation's role to it.
+      // The invite API offers admin, manager and member, so two of its three
+      // choices violated `user_role_check` and every acceptance of them died
+      // with a 500. `signUpEmail` above already created the row at the column
+      // default, which is the only value a non-god user should hold.
+      //
+      // The failure was worse than a broken button. The account created by
+      // `signUpEmail` lives OUTSIDE this transaction, so it survived the
+      // rollback: the invitee ended up with a working sign-in, no tenant
+      // membership, and an invitation still marked unconsumed — replayable
+      // until it expired. Found by accepting an invitation against a live
+      // instance; no test covered a role other than `member`.
       await db.transaction().execute(async (trx) => {
-        await trx.updateTable('user').set({ role: invite.role }).where('id', '=', userId).execute();
-
         // Membership in the tenant that issued the invitation.
         //
         // Accepting used to set the global role and stop there, which read as
@@ -169,9 +182,9 @@ export function invitationRoutes(db: Database, auth: any): Hono {
         // re-issued invitation is not an error.
         //
         // `zv_tenant_users.role` is a fixed four-value membership grade, while
-        // an invitation carries a Casbin role name that installs are free to
-        // define. Unrecognised names join as `member`; authorization still
-        // comes from the global role set above, not from this column.
+        // an invitation carries a Casbin role name. Unrecognised names join as
+        // `member`; authorization comes from the Casbin grant below, not from
+        // this column.
         await trx
           .insertInto('zv_tenant_users')
           .values({
@@ -196,9 +209,22 @@ export function invitationRoutes(db: Database, auth: any): Hono {
       // POST /api/tenants does for the owner it provisions. Outside the
       // transaction: a cache miss is recoverable, a rolled-back membership is
       // not.
-      if (MEMBERSHIP_ROLES.has(invite.role)) {
+      //
+      // Membership grades map to the `tenant_*` policies; any other invitable
+      // name is granted as itself, because it is already a seeded Casbin role.
+      // Without this branch an invited `manager` — one of the three choices the
+      // invite API offers — received no grant at all and signed in able to do
+      // nothing, which looked like a permissions bug rather than a missing one.
+      //
+      // Safe because the set is closed: the invite endpoint validates
+      // `z.enum(['admin','manager','member'])`, so no caller can name a role
+      // here that an operator did not define.
+      {
         const e = await getEnforcer();
-        await e.addRoleForUser(userId, `tenant_${invite.role}`, invite.tenant_id);
+        const casbinRole = MEMBERSHIP_ROLES.has(invite.role)
+          ? `tenant_${invite.role}`
+          : invite.role;
+        await e.addRoleForUser(userId, casbinRole, invite.tenant_id);
       }
       await invalidateUserPermCache(userId);
 

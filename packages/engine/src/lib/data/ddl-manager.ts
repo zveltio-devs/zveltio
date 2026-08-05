@@ -113,7 +113,20 @@ export const CollectionSchema = z.preprocess(
     routeGroup: z.enum(['public', 'partners', 'private', 'admin']).optional(),
     isPermissioned: z.boolean().optional(),
     sort: z.number().int().min(0).optional(),
-    fields: z.array(FieldSchema).min(1),
+    // Upper bound because Postgres has one: a table can hold at most 1600
+    // columns, and the engine adds its own (id, tenant_id, status, created_at,
+    // created_by, updated_at, updated_by, …) on top of whatever is declared.
+    //
+    // Without it the API answered 202 "being created" to a definition Postgres
+    // could never accept, the DDL job failed with SQLSTATE 54011, and pg-boss
+    // put it into `retry` — re-running a deterministic failure on a schedule.
+    // The operator saw a collection that never appeared and no error anywhere
+    // they would look. Measured live with 2000 fields.
+    //
+    // 1400 rather than 1600: it has to be wrong in the safe direction, since
+    // the system columns are added after this check and a collection that
+    // validates here must be creatable.
+    fields: z.array(FieldSchema).min(1).max(1400),
     description: z.string().optional(),
     singularName: z.string().optional(),
     aiSearchEnabled: z.boolean().optional(),
