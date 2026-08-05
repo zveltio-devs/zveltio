@@ -4,6 +4,46 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 
+/**
+ * Settings whose value is a credential and must never be read back.
+ *
+ * `GET /api/settings` returned every row verbatim, so `smtp_pass` — the mail
+ * account's password — came back in plaintext to anyone who could read
+ * settings. Writable and readable are not the same question: an operator has to
+ * SET the password, and nothing about that requires the API to hand it back
+ * afterwards. It was returned only because the handler had no reason to treat
+ * one key differently from another.
+ *
+ * Matched by suffix rather than by an exact list, so a `*_secret` or `*_token`
+ * added later is covered on the day it lands. A list of exact names is a list
+ * someone forgets to extend, which is how this one got here.
+ */
+const SECRET_SETTING_SUFFIXES = ['_pass', '_password', '_secret', '_token', '_api_key', '_key'];
+
+/** Keys that end in a secret-looking suffix but are not secrets. */
+const SECRET_SETTING_EXCEPTIONS = new Set(['public_key', 'storage_key_prefix']);
+
+function isSecretSettingKey(key: string): boolean {
+  if (SECRET_SETTING_EXCEPTIONS.has(key)) return false;
+  return SECRET_SETTING_SUFFIXES.some((suffix) => key.endsWith(suffix));
+}
+
+/** What a configured secret reads back as. */
+const MASKED_SECRET = '********';
+
+/**
+ * Report whether a secret is set without disclosing it.
+ *
+ * The Studio needs to render "configured" vs "not configured", which is the
+ * only thing a settings screen legitimately needs. Returning a fixed-length
+ * mask rather than one derived from the value keeps the length out of it too.
+ */
+function maskSecret(raw: unknown): string | null {
+  const present =
+    raw !== null && raw !== undefined && String(raw).replace(/^"|"$/g, '').trim() !== '';
+  return present ? MASKED_SECRET : null;
+}
+
 // Security: only these keys can be written via the API.
 // Internal/system keys that affect engine security are listed in READONLY_SETTINGS_KEYS.
 const WRITABLE_SETTINGS_KEYS = new Set([
@@ -182,18 +222,23 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     const result: Record<string, any> = {};
     for (const s of settings) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      const key = (s as any).key as string;
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const raw = (s as any).value;
+
+      if (isSecretSettingKey(key)) {
+        result[key] = maskSecret(raw);
+        continue;
+      }
+
       if (typeof raw === 'string') {
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          result[(s as any).key] = JSON.parse(raw);
+          result[key] = JSON.parse(raw);
         } catch {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          result[(s as any).key] = raw;
+          result[key] = raw;
         }
       } else {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        result[(s as any).key] = raw;
+        result[key] = raw;
       }
     }
     return c.json(result);
@@ -242,6 +287,15 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
       }
       const { value, is_public } = c.req.valid('json');
+      // Never write the mask back over the credential it stands for. A client
+      // that reads settings and submits them again — the ordinary shape of a
+      // settings form — would otherwise replace the password with `********`
+      // and break mail silently. The cost is that this literal cannot be used
+      // as a password, which is a better trade than a credential destroyed by
+      // an unrelated edit.
+      if (isSecretSettingKey(key) && value === MASKED_SECRET) {
+        return c.json({ success: true, key, unchanged: true });
+      }
       // JSON.stringify throws on circular references — return 400 with a
       // clear message instead of letting it become a generic 500.
       let serialized: string;
@@ -289,6 +343,17 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       }
     }
     for (const [key, value] of Object.entries(body)) {
+      // A secret read back as `********` and written straight through would
+      // overwrite the real credential with the mask. The Studio's settings page
+      // loads every value and submits the form, so this is the ordinary path,
+      // not an edge case: without it, masking `smtp_pass` would break mail the
+      // first time an operator edited an unrelated field.
+      //
+      // An operator who genuinely wants that literal as a password is asking
+      // for something indistinguishable from the accident, so it is refused on
+      // both write paths rather than left as a trap on one.
+      if (isSecretSettingKey(key) && value === MASKED_SECRET) continue;
+
       let serialized: string;
       try {
         serialized = JSON.stringify(value);
