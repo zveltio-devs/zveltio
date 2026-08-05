@@ -97,6 +97,24 @@ export const ManifestSchema = z
      * webhooks) sit outside this gate by design — see the developer guide.
      */
     publicRoutes: z.array(z.string()).default([]),
+    /**
+     * Routes this extension mounts on the GLOBAL app via
+     * `ctx.registerPublicRoute`, outside `/ext/<name>` and therefore outside
+     * the auth gate.
+     *
+     * Declarative only — the engine does not gate on it, because these routes
+     * exist precisely to be reached by callers with no session: an IdP posting
+     * SCIM with a bearer token, a search engine fetching /sitemap.xml, a share
+     * link. Each authenticates in its own way, which is the extension's job.
+     *
+     * It is here so the surface is VISIBLE. An audit asked why `/scim/v2/*`
+     * was undeclared and read its absence as an oversight; it was documented
+     * design, but the manifest still gave an operator no way to see that
+     * installing an extension opens a path at the root of their instance. Four
+     * extensions do this today. A reviewer reading a manifest should not have
+     * to grep the source to find out.
+     */
+    globalRoutes: z.array(z.string()).default([]),
     contributes: z
       .object({
         engine: z.boolean().default(true),

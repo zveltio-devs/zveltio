@@ -89,6 +89,8 @@ export async function resolveManifest(
   extName: string,
   extDir: string,
   db: Database,
+  /** Names already loaded in this boot — see checkExtensionDependencies. */
+  alreadyLoaded?: ReadonlySet<string>,
 ): Promise<PhaseResult<ManifestResolution>> {
   let migrationsLimit: number = DEFAULT_QUOTAS.migrationsMax;
   let extCategory = 'custom';
@@ -147,7 +149,7 @@ export async function resolveManifest(
 
     // Extension dependencies (other Zveltio extensions)
     if (manifest.dependencies && manifest.dependencies.length > 0) {
-      const deps = await checkExtensionDependencies(db, manifest.dependencies);
+      const deps = await checkExtensionDependencies(db, manifest.dependencies, alreadyLoaded);
       if (!deps.satisfied) {
         const msg = `Missing required extensions: ${deps.missing.join(', ')}. Enable them first.`;
         return {

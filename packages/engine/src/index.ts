@@ -489,7 +489,19 @@ async function buildHonoApp(): Promise<Hono> {
   app.use(
     '/api/*',
     cors({
-      origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+      // No cross-origin by default.
+      //
+      // The fallback was `['http://localhost:3000']`, which is an origin the
+      // operator never chose. With `credentials: true` that means a page served
+      // from port 3000 on a user's own machine could make authenticated
+      // requests to their Zveltio instance, and a production deployment that
+      // simply never set CORS_ORIGINS carried the allowance silently.
+      //
+      // An empty list is the honest default: the Studio and Client are served
+      // by this same engine, so same-origin requests are unaffected and nothing
+      // in a normal install needs this. An operator hosting a front end
+      // elsewhere sets CORS_ORIGINS, which is the moment to decide who may ask.
+      origin: process.env.CORS_ORIGINS?.split(',') ?? [],
       credentials: true,
       allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
     }),

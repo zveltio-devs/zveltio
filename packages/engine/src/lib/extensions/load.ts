@@ -140,7 +140,12 @@ export async function loadExtensionFromDir(
     // pg-exts / peerDeps) and compute the manifestMeta payload. The helper is
     // pure; it reports the exact console.* call + lastLoadError write the
     // pre-split inline path used, which we replay here verbatim.
-    const manifestPhase = await resolveManifest(extName, extDir, ctx.db);
+    const manifestPhase = await resolveManifest(
+      extName,
+      extDir,
+      ctx.db,
+      new Set(loader.loaded.keys()),
+    );
     if (!manifestPhase.ok) {
       if (manifestPhase.logLevel !== 'none') {
         console[manifestPhase.logLevel](...manifestPhase.logArgs);
