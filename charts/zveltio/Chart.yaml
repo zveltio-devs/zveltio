@@ -13,7 +13,7 @@ type: application
 version: 0.1.0
 
 # Engine app version (must match packages/engine/package.json on release)
-appVersion: "3.0.0-beta.51"
+appVersion: "3.0.0-beta.52"
 
 keywords:
   - zveltio

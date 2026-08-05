@@ -4,6 +4,58 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.52] - 2026-08-05
+
+**Onboarding an admin never worked.** A second live audit round, against the
+four surfaces the previous one had not reached: concurrency, client-supplied
+fields, multi-step flows, and resource limits. Two of the four held; the other
+two produced these.
+
+### Fixed
+
+- **Accepting an invitation as `admin` or `manager` always failed.**
+  `POST /api/users/invite` offers three roles. Accepting then wrote that value
+  into `user.role` — a column migration 052 had already reduced to
+  `'god' | 'member'`, on the grounds that all other roles are Casbin-only
+  concepts. The invite endpoint was never updated, so two of its three choices
+  violated `user_role_check` and died with a 500.
+
+  The damage was not a broken button. `signUpEmail` runs before the
+  transaction, so the account survived the rollback: the invitee ended up with
+  a working sign-in, **no tenant membership**, and an invitation still marked
+  unconsumed and therefore replayable until it expired. Inviting a colleague as
+  admin — the ordinary way to onboard one — produced exactly that.
+
+  `user.role` is no longer written at all; the row already exists at the column
+  default, which is the only value a non-god user should hold. The Casbin
+  bridge had the matching gap — it granted `tenant_${role}` only for membership
+  grades, so an invited `manager` joined the tenant with no authorization
+  whatsoever and signed in able to do nothing. Non-grade names are now granted
+  as themselves, which is safe because the invite endpoint's enum closes the
+  set.
+
+  Existing tests covered `member`, the one value that happened to be legal in
+  both places.
+
+- **Collection fields are capped at 1400.** Postgres allows 1600 columns and
+  the engine adds its own, so a larger definition returned 202 "being created",
+  failed in the DDL worker with SQLSTATE 54011, and left pg-boss retrying a
+  deterministic failure while the operator watched for a collection that would
+  never appear — with no error anywhere they would look. The cap sits below the
+  real limit deliberately: it is checked before the system columns are added,
+  so it has to be wrong in the safe direction.
+
+### Verified, not assumed
+
+Two of the four surfaces held under direct attack, which is worth recording so
+the next round does not repeat them. **Concurrency:** interleaved reads from
+two tenants, alternating on every request, produced no context bleed in either
+direction with positive controls passing throughout — the AsyncLocalStorage
+scoping holds. **Client-supplied fields:** `tenant_id`, `created_by` and `id`
+are ignored on both create and update; `sort` is allow-listed against
+injection; `limit` is bounded above and below; and role escalation to `god` is
+refused through both `/api/users/:id` and `/api/me`.
+
 ## [3.0.0-beta.51] - 2026-08-05
 
 **What reading the code could not find.** An external review of beta.50 and the
