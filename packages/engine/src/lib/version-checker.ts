@@ -41,10 +41,32 @@ export function isCompatible(
 export async function checkExtensionDependencies(
   db: Database,
   dependencies: Array<{ name: string; minVersion?: string }>,
+  /**
+   * Extensions already loaded in THIS boot.
+   *
+   * The registry table is the record of what an operator installed through the
+   * marketplace. It is not the record of what is running: an install driven by
+   * `ZVELTIO_EXTENSIONS` (or a fresh container whose registry has not been
+   * populated yet) loads straight from disk and never writes those rows. The
+   * check consulted only the table, so a dependency that had *just been loaded
+   * a few milliseconds earlier* was reported "not installed" — measured live
+   * with `finance/invoicing` loaded and `operations/traceability` refused for
+   * needing it. Ten extensions failed to start that way, in dependency chains
+   * that were entirely satisfied.
+   *
+   * Passing the loader's own view fixes the question being asked: not "did
+   * someone install this" but "is this available to depend on". Version
+   * constraints still fall back to the table, which is the only place a version
+   * is recorded.
+   */
+  alreadyLoaded?: ReadonlySet<string>,
 ): Promise<{ satisfied: boolean; missing: string[] }> {
   const missing: string[] = [];
 
   for (const dep of dependencies) {
+    // Loaded in this boot: available regardless of what the table says.
+    if (alreadyLoaded?.has(dep.name)) continue;
+
     const installed = await db
       .selectFrom('zv_extension_registry')
       .select(['version', 'is_enabled'])
