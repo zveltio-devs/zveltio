@@ -73,6 +73,7 @@ export interface ZvAiChatsTable {
   metadata: Generated<unknown | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiConversationsTable {
@@ -82,6 +83,7 @@ export interface ZvAiConversationsTable {
   metadata: Generated<unknown>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiFeaturesTable {
@@ -93,6 +95,7 @@ export interface ZvAiFeaturesTable {
   config: Generated<unknown>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiMemoryTable {
@@ -105,6 +108,7 @@ export interface ZvAiMemoryTable {
   importance: Generated<number>;
   source: Generated<string>;
   embedding: unknown | null;
+  tenant_id: string | null;
 }
 
 export interface ZvAiMessagesTable {
@@ -115,6 +119,7 @@ export interface ZvAiMessagesTable {
   content: string;
   metadata: Generated<unknown>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiProvidersTable {
@@ -129,6 +134,7 @@ export interface ZvAiProvidersTable {
   metadata: Generated<unknown | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiQueriesTable {
@@ -144,6 +150,7 @@ export interface ZvAiQueriesTable {
   title: string | null;
   error: string | null;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvAiUsageTable {
@@ -2353,6 +2360,7 @@ export interface ZvdAiSearchConfigTable {
   namespace: Generated<string>;
   is_enabled: Generated<boolean>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvdApiAccessTokensTable {
