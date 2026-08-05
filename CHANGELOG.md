@@ -4,6 +4,61 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.51] - 2026-08-05
+
+**What reading the code could not find.** An external review of beta.50 and the
+first audit round against a *running* instance. Two fixes here, one of which no
+amount of static analysis would have surfaced.
+
+### Fixed
+
+- **A password change now ends every other session.** better-auth reads
+  `revokeOtherSessions` from the request body, so whether changing a password
+  logged anyone else out was a decision each caller made for itself — and the
+  Studio's profile page sent neither the flag nor a value, which means false. A
+  user who changes their password *because* they believe someone is in their
+  account kept that someone signed in, which is the one situation the action
+  exists for. The reset flow already disagreed
+  (`revokeSessionsOnPasswordReset: true`), so the same intent expressed in two
+  places produced two outcomes. Now forced in the engine rather than fixed in
+  the Studio, because the SDKs and any operator's own client post to the same
+  endpoint and one of them will always be the one nobody updated. Found by
+  driving a live instance: nothing in the source says "other sessions survive"
+  — it is what the default means.
+
+- **The presence metadata key never got the tenant.** `presence:${channel}` was
+  global once, and the fix routed every use through `presenceKey()` — while
+  three raw template literals for `presence_meta:${channel}:${userId}` sat one
+  line below, untouched. The set got a tenant; the hash beside it did not.
+  Nothing reads that hash today, so nothing was disclosed: the key names a
+  userId and the value is that user's own name and email. Closed now because
+  the obvious next feature — showing names in a presence list — turns a dormant
+  inconsistency into a cross-tenant leak, and whoever writes that reader has no
+  reason to suspect the key beneath them is unscoped.
+
+### Registry (deployed separately)
+
+- **A published listing can no longer be rewritten in place.** The ownership
+  check selected `id` and `user_id`, so `status` never entered the decision.
+  The owner of an already-reviewed listing could still edit `price` — which
+  `checkDownloadEntitlement` reads before any licence check — plus
+  `zveltio_version`, a compatibility claim about an immutable signed artifact,
+  and `description`, which is what a visitor actually reads. The artifact was
+  never reachable; what was editable is everything said *about* it. Published
+  and taken-down listings now refuse edits with 409, and corrections go through
+  a new version, which publishing inserts at `pending` like any other.
+
+### Verified, not assumed
+
+The live round also confirmed what holds, which is worth recording because it
+never gets written down: tenant spoofing via header (403), cross-tenant IDOR
+(404 — the row is invisible rather than forbidden, so existence is not
+confirmed), SSE cross-tenant delivery (nothing leaked across two tenants
+subscribed to the same collection name), logout (revoked server-side), CSRF on
+auth mutations, and rate limiting (429 after eight attempts, keyed by IP so no
+account-lockout denial of service, and not bypassable with `X-Forwarded-For`
+or `X-Real-IP` while `TRUSTED_PROXY` is unset).
+
 ## [3.0.0-beta.50] - 2026-08-04
 
 **Telling the operator what the engine already knew.** Cut so the next
