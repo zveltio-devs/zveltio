@@ -7,6 +7,32 @@ import { DEFAULT_TENANT_ID } from './route-db.js';
 
 let _db: Database | null = null;
 
+/**
+ * Deliveries dispatched without a cache queue, still running.
+ *
+ * `trigger` returns as soon as it has handed each payload to `deliver`, which
+ * is the right behaviour — a write must not wait on someone else's HTTP
+ * endpoint. It left tests with nothing to await, so they polled a wall clock
+ * instead: first a 50ms sleep, which failed on CI at 52.27ms, then a 2s
+ * deadline, which failed on CI at 2007ms. Each fix widened the window and kept
+ * the race.
+ */
+const _inFlight = new Set<Promise<unknown>>();
+
+/**
+ * Resolve once every cache-less delivery started so far has finished.
+ *
+ * Test-only. Production never needs it: with a cache the payload goes to the
+ * queue and the worker owns it from there.
+ */
+export async function _settleWebhookDeliveries(): Promise<void> {
+  // A loop rather than one `Promise.all`: a delivery can start another, and
+  // awaiting the first snapshot would return with the second still running.
+  while (_inFlight.size > 0) {
+    await Promise.all([..._inFlight]);
+  }
+}
+
 export const WebhookManager = {
   init(db: Database): void {
     _db = db;
@@ -114,8 +140,12 @@ export const WebhookManager = {
         if (cache) {
           await cache.rpush('webhook:queue', JSON.stringify(payload));
         } else {
-          // No cache — fire-and-forget directly
-          WebhookManager.deliver(payload).catch(() => {});
+          // No cache — fire-and-forget directly. Tracked so a test can await
+          // the delivery instead of racing a wall clock; see
+          // `_settleWebhookDeliveries`.
+          const p = WebhookManager.deliver(payload).catch(() => {});
+          _inFlight.add(p);
+          void p.finally(() => _inFlight.delete(p));
         }
       }
     } catch {
