@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import * as fieldCrypto from '../../lib/data/field-crypto.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
-import { WebhookManager } from '../../lib/webhooks.js';
+import { WebhookManager, _settleWebhookDeliveries } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 beforeEach(() => {
@@ -76,7 +76,10 @@ describe('WebhookManager.trigger — cache + secrets', () => {
 
     try {
       await WebhookManager.trigger('record.updated', 'contacts', { id: 'r1' });
-      await new Promise((r) => setTimeout(r, 50));
+      // Same race as the collection-scoped case below, just not yet unlucky:
+      // the warning is emitted inside the delivery, so a fixed 50ms wait was
+      // measuring the runner.
+      await _settleWebhookDeliveries();
       expect(
         warn.mock.calls.some((c) =>
           String(c[0]).includes('failed to decrypt secret for webhook wh-enc'),
@@ -148,14 +151,13 @@ describe('WebhookManager.trigger — cache + secrets', () => {
 
     try {
       await WebhookManager.trigger('record.created', 'orders', { id: 'o1' });
-      // Poll rather than sleep once. Delivery is fire-and-forget, and a single
-      // 50ms window failed on CI at 52.27ms — a loaded runner is slower than a
-      // laptop, so a fixed wait tests the runner as much as the code. Waits up
-      // to 2s and returns as soon as the call lands, which is the common case.
-      const deadline = Date.now() + 2000;
-      while (!hit && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
+      // Await the delivery rather than a clock. This waited 50ms once (failed
+      // on CI at 52.27ms), then polled a 2s deadline (failed on CI at
+      // 2007.59ms). Both widened the window and kept the race: a loaded runner
+      // is slower than a laptop, so a timed wait measures the runner. `trigger`
+      // now tracks its cache-less deliveries, so there is something real to
+      // wait on and no duration to tune.
+      await _settleWebhookDeliveries();
       expect(hit).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
