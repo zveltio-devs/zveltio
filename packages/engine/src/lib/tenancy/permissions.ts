@@ -29,7 +29,7 @@ g = _, _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub, r.dom) && (p.dom == '*' || r.dom == p.dom) && (r.obj == p.obj || p.obj == '*') && (r.act == p.act || p.act == '*')
+m = g(r.sub, p.sub, r.dom) && (p.dom == '*' || r.dom == p.dom) && (r.obj == p.obj || (p.obj == '*' && (p.act == '*' || !isSensitiveResource(r.obj)))) && (r.act == p.act || p.act == '*')
 `;
 
 let _db: Database;
@@ -140,6 +140,13 @@ export async function initPermissions(db: Database): Promise<void> {
   // then applies in every tenant. Validated against casbin 5.x.
   _enforcer.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
 
+  // Consulted by the matcher above. A function rather than a policy row so the
+  // set can be extended at runtime by an extension declaring its own data
+  // sensitive, without a migration and without touching an operator's policies.
+  _enforcer.addFunction('isSensitiveResource', (obj: unknown) =>
+    SENSITIVE_RESOURCES.has(String(obj)),
+  );
+
   // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
   // to Redis could craft a valid signed value and escalate privileges.
@@ -151,6 +158,58 @@ export async function initPermissions(db: Database): Promise<void> {
         'Set BETTER_AUTH_SECRET to a strong random value before starting the engine.',
     );
   }
+}
+
+/**
+ * Resources a blanket grant does not reach.
+ *
+ * The seeded tenant roles carry `('p', 'tenant_member', '*', '*', 'read')` and
+ * the same for create and update — a deliberately coarse model, on the view
+ * that isolation is between tenants and inside one a member is a colleague.
+ *
+ * Extensions did not read it that way. Twenty-three of them guard their routes
+ * with `permissionGate(ctx, 'payroll')` and similar, and every one of those
+ * guards was inert: the wildcard answered yes before the resource name was ever
+ * considered. An audit drove it — an ordinary member read a colleague's
+ * national ID, IBAN, salary and address, and could edit them. The negative
+ * control was DELETE, which `tenant_member` does not hold and which correctly
+ * returned 403, proving the guard ran and could refuse.
+ *
+ * So the two halves of the authorization model disagreed, and the coarse half
+ * won silently.
+ *
+ * The rule here is narrow on purpose: a policy granting `*` on the OBJECT still
+ * matches everything, unless it names a specific ACTION and the resource is
+ * listed below. Read as English: "may do anything" still means anything —
+ * that is what an owner or a tenant admin holds. "May read anything" is a
+ * statement about ordinary business data, and it is not consent to read
+ * payroll. An operator who wants a role to reach these grants it by name.
+ *
+ * Enforced in the matcher rather than by rewriting the seeded policies, so no
+ * existing deployment loses access to its CRM, projects or invoices on upgrade
+ * — only these resources change, and only for grants that were never explicit.
+ */
+const SENSITIVE_RESOURCES = new Set<string>([
+  // Personal data an employer holds because it must, not because colleagues
+  // should read it: national ID, bank account, salary, home address.
+  'employees',
+  'payroll',
+  'leave',
+  // Company banking. The same argument, one level up.
+  'banking',
+]);
+
+/** Extensions may add their own; see `registerSensitiveResources`. */
+export function registerSensitiveResources(resources: readonly string[]): void {
+  for (const r of resources) {
+    const name = r.trim();
+    if (name) SENSITIVE_RESOURCES.add(name);
+  }
+}
+
+/** Test seam + introspection for the settings UI. */
+export function listSensitiveResources(): string[] {
+  return [...SENSITIVE_RESOURCES].sort();
 }
 
 export async function getEnforcer(): Promise<Enforcer> {
