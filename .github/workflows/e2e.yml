@@ -50,14 +50,23 @@ jobs:
 
       - run: bun install
 
-      # The suite exists partly to notice a Studio built for a different engine,
-      # so it must build one HERE rather than reuse whatever is lying around.
-      # `vite build` directly, not `bun run build`: the package's prebuild syncs
-      # from an extensions sibling that does not exist on a runner, and has been
-      # known to overwrite committed pages when it does.
+      # Built HERE rather than reused: the suite exists partly to notice a
+      # Studio bundled for a different engine, so it must not boot against
+      # whatever happens to be lying around.
       - name: Build the Studio
         working-directory: packages/studio
+        # `i18n:compile` then `vite build`, rather than `bun run build`.
+        #
+        # The package's `prebuild` also runs `sync-extensions`, which reads a
+        # `zveltio-extensions` sibling that does not exist on a runner — and
+        # when it does exist, it has overwritten committed pages with older
+        # copies. `i18n:compile` is the part that is genuinely required: it
+        # merges the message catalogues and runs paraglide, whose output is
+        # gitignored. Without it the build fails on a missing
+        # `./paraglide/messages.js`, which is how this step failed the first
+        # time it ran on a clean checkout.
         run: |
+          bun run i18n:compile
           bun x vite build
           bun scripts/stamp-version.ts
 
