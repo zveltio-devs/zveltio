@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { FileText, ShoppingCart, MessageSquare, LogOut, Menu } from '@lucide/svelte';
 import { useAuth } from '$stores/auth.svelte';
 
@@ -16,7 +17,7 @@ let drawerOpen = $state(false);
       <label for="sidebar" class="btn btn-ghost btn-square">
         <Menu size={20} />
       </label>
-      <span class="flex-1 text-lg font-semibold px-2">Partner Portal</span>
+      <span class="flex-1 text-lg font-semibold px-2">{m['partner.portal']()}</span>
     </div>
 
     <!-- Page content -->
@@ -29,7 +30,7 @@ let drawerOpen = $state(false);
   <div class="drawer-side z-40">
     <label for="sidebar" class="drawer-overlay"></label>
     <aside class="bg-base-200 w-64 min-h-full p-4 flex flex-col">
-      <div class="text-xl font-bold mb-6 px-2">Partner Portal</div>
+      <div class="text-xl font-bold mb-6 px-2">{m['partner.portal']()}</div>
 
       <ul class="menu flex-1">
         <li>
@@ -40,9 +41,7 @@ let drawerOpen = $state(false);
         </li>
         <li>
           <a href="/partner/orders" class="gap-2">
-            <ShoppingCart size={18} />
-            Orders
-          </a>
+            <ShoppingCart size={18} />{m['dash.orders']()}</a>
         </li>
         <li>
           <a href="/partner/messages" class="gap-2">

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * Employee dashboard — the signed-in user's personalised home in the client app.
  *
@@ -125,7 +126,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
   </div>
 
   {#if !dash}
-    <div class="alert alert-warning">Couldn't load your dashboard. Please refresh.</div>
+    <div class="alert alert-warning">{m['dash.load_failed']()}</div>
   {:else if editing}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body p-5 space-y-3">
@@ -145,7 +146,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
             <RotateCcw size={14} /> Reset
           </button>
           <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick={() => (editing = false)} disabled={saving}>Cancel</button>
+            <button class="btn btn-ghost btn-sm" onclick={() => (editing = false)} disabled={saving}>{m['common.cancel']()}</button>
             <button class="btn btn-primary btn-sm" onclick={saveEditing} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </div>
         </div>
@@ -157,12 +158,12 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         {#if dash.data.health?.ok}
           <div class="alert bg-success/10 border border-success/30">
             <CircleCheck size={20} class="text-success" />
-            <span><strong>All systems operational.</strong></span>
+            <span><strong>{m['status.all_ok']()}</strong></span>
           </div>
         {:else}
           <div class="alert bg-warning/10 border border-warning/40">
             <TriangleAlert size={20} class="text-warning" />
-            <span><strong>Attention needed.</strong> A core service isn't responding.</span>
+            <span><strong>{m['status.attention']()}</strong> A core service isn't responding.</span>
           </div>
         {/if}
       {/if}
@@ -197,7 +198,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         <div class="card bg-base-200"><div class="card-body p-5">
           <h2 class="font-semibold flex items-center gap-2"><Activity size={16} /> Recent activity</h2>
           {#if !dash.data.activity?.recent?.length}
-            <p class="text-sm text-base-content/50 py-4 text-center">No activity recorded yet.</p>
+            <p class="text-sm text-base-content/50 py-4 text-center">{m['dash.no_activity']()}</p>
           {:else}
             <ul class="divide-y divide-base-300/50 -mx-1">
               {#each dash.data.activity.recent as e (e.created_at)}
@@ -215,10 +216,10 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         <div class="card bg-base-200 border border-primary/20"><div class="card-body p-5">
           <h2 class="font-semibold flex items-center gap-2 text-primary"><ShieldCheck size={16} /> Your data is protected</h2>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/30 mt-0.5'} /><div><p class="text-sm font-medium">Encryption</p><p class="text-xs text-base-content/50">{dash.data.trust?.encryption ? 'Encrypted at rest' : 'Not configured'}</p></div></div>
-            <div class="flex items-start gap-2.5"><ScrollText size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">Audit trail</p><p class="text-xs text-base-content/50">Every change is logged</p></div></div>
-            <div class="flex items-start gap-2.5"><Server size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">Self-hosted</p><p class="text-xs text-base-content/50">On your infrastructure</p></div></div>
-            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">Backups</p><p class="text-xs text-base-content/50">{dash.data.trust?.last_backup ? `Last: ${fmtDateTime(dash.data.trust.last_backup)}` : 'None yet'}</p></div></div>
+            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/30 mt-0.5'} /><div><p class="text-sm font-medium">{m['about.encryption']()}</p><p class="text-xs text-base-content/50">{dash.data.trust?.encryption ? 'Encrypted at rest' : 'Not configured'}</p></div></div>
+            <div class="flex items-start gap-2.5"><ScrollText size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.audit_trail']()}</p><p class="text-xs text-base-content/50">{m['about.every_change']()}</p></div></div>
+            <div class="flex items-start gap-2.5"><Server size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.self_hosted']()}</p><p class="text-xs text-base-content/50">{m['about.on_your_infra']()}</p></div></div>
+            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">{m['about.backups']()}</p><p class="text-xs text-base-content/50">{dash.data.trust?.last_backup ? `Last: ${fmtDateTime(dash.data.trust.last_backup)}` : 'None yet'}</p></div></div>
           </div>
         </div></div>
       {/if}
@@ -226,7 +227,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
 
     {#if dash.personalized}
       <p class="text-xs text-base-content/40 text-center">
-        Personalized view. <button class="link" onclick={() => mutate('DELETE')}>Reset to default</button>
+        Personalized view. <button class="link" onclick={() => mutate('DELETE')}>{m['common.reset_default']()}</button>
       </p>
     {/if}
   {/if}

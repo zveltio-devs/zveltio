@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { useAuth } from '$stores/auth.svelte';
 import { Mail, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
@@ -25,7 +26,7 @@ async function handleSubmit() {
 {#if sent}
   <div class="text-center space-y-3">
     <CheckCircle size={48} class="text-success mx-auto" />
-    <p>Check your email for a reset link.</p>
+    <p>{m['auth.check_email']()}</p>
   </div>
 {:else}
   <div class="space-y-4">
@@ -35,7 +36,7 @@ async function handleSubmit() {
 
     <label class="input input-bordered flex items-center gap-2">
       <Mail size={16} class="opacity-50" />
-      <input type="email" placeholder="Email" bind:value={email} class="grow" required />
+      <input type="email" placeholder={m['auth.email']()} bind:value={email} class="grow" required />
     </label>
 
     <button onclick={handleSubmit} disabled={loading || !email} class="btn btn-primary w-full">

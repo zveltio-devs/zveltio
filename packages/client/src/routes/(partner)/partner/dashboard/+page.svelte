@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { FileText, ShoppingCart, TrendingUp } from '@lucide/svelte';
 
 let { data } = $props();
@@ -11,7 +12,7 @@ let { data } = $props();
 <div class="space-y-6">
   <div>
     <h1 class="text-3xl font-bold">Welcome, {data.user?.name}</h1>
-    <p class="text-base-content/60 mt-1">Partner portal overview.</p>
+    <p class="text-base-content/60 mt-1">{m['partner.overview']()}</p>
   </div>
 
   <!-- Stats -->
@@ -20,27 +21,27 @@ let { data } = $props();
       <div class="stat-figure text-primary">
         <FileText size={24} />
       </div>
-      <div class="stat-title">Documents</div>
+      <div class="stat-title">{m['dash.documents']()}</div>
       <div class="stat-value text-primary">—</div>
-      <div class="stat-desc">Shared with you</div>
+      <div class="stat-desc">{m['dash.shared_with_you']()}</div>
     </div>
 
     <div class="stat bg-base-100 rounded-box shadow">
       <div class="stat-figure text-secondary">
         <ShoppingCart size={24} />
       </div>
-      <div class="stat-title">Orders</div>
+      <div class="stat-title">{m['dash.orders']()}</div>
       <div class="stat-value text-secondary">—</div>
-      <div class="stat-desc">Active orders</div>
+      <div class="stat-desc">{m['dash.active_orders']()}</div>
     </div>
 
     <div class="stat bg-base-100 rounded-box shadow">
       <div class="stat-figure text-accent">
         <TrendingUp size={24} />
       </div>
-      <div class="stat-title">Performance</div>
+      <div class="stat-title">{m['about.performance']()}</div>
       <div class="stat-value text-accent text-lg">—</div>
-      <div class="stat-desc">This month</div>
+      <div class="stat-desc">{m['dash.this_month']()}</div>
     </div>
   </div>
 
