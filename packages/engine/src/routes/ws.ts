@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
 import { checkWsOrigin } from '../lib/security/index.js';
-import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
+import {
+  checkPermission,
+  DEFAULT_TENANT_ID,
+  isTenantAdmin,
+  runWithDomain,
+} from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 // Per-connection permission cache (lives only for the WS session duration).
@@ -124,6 +129,36 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
 // ── Bun native WebSocket handlers ────────────────────────────────────────────
 // Passed to Bun.serve({ websocket: websocketHandler })
 
+/**
+ * May this socket read this collection?
+ *
+ * Two bugs lived in the one line this replaces, and deny-by-default turned the
+ * pair of them from a wrong answer into a dead feature.
+ *
+ * It asked about `data:<collection>`. Migration 001 stripped that prefix from
+ * every Casbin policy years ago, and the HTTP path has asked for the bare name
+ * ever since — so no policy could match this by name, and the only reason it
+ * ever returned true was the blanket `('*', '*', 'read')` wildcard. An operator
+ * who wrote a precise rule got it honoured over HTTP and over SSE, and silently
+ * ignored here. Now that partial wildcards grant nothing, the same line would
+ * refuse every subscription from every non-administrator, and realtime would
+ * simply stop working for ordinary users with no error to explain it.
+ *
+ * It also ran outside the request, where `getCurrentDomain()` falls back to the
+ * default tenant. A user whose grants live in their own tenant's domain was
+ * checked against a domain they hold nothing in. That one failed closed, so it
+ * cost function rather than confidentiality, but it made the check meaningless
+ * either way — the answer did not depend on the asker's tenant.
+ *
+ * The socket captured its tenant at upgrade time, which is the value the
+ * request-scoped store would have held, so the fix is to put it back.
+ */
+async function socketMayRead(conn: WSConnection, collection: string): Promise<boolean> {
+  return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+    checkPermission(conn.userId, collection, 'read'),
+  ).catch(() => false);
+}
+
 export const websocketHandler = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   open(ws: any) {
@@ -186,11 +221,7 @@ export const websocketHandler = {
               // Check permission with per-session cache
               let canRead = permCache.get(collectionName);
               if (canRead === undefined) {
-                canRead = await checkPermission(
-                  conn.userId,
-                  `data:${collectionName}`,
-                  'read',
-                ).catch(() => false);
+                canRead = await socketMayRead(conn, collectionName);
                 permCache.set(collectionName, canRead);
               }
 
@@ -216,9 +247,7 @@ export const websocketHandler = {
             const collectionName = msg.channel.split(':')[0];
             let canRead = permCache.get(collectionName);
             if (canRead === undefined) {
-              canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(
-                () => false,
-              );
+              canRead = await socketMayRead(conn, collectionName);
               permCache.set(collectionName, canRead);
             }
             if (canRead) {
