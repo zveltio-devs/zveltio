@@ -1061,6 +1061,22 @@ async function bootstrap() {
   } catch (err) {
     console.warn('⚠️ Tenant RLS reconcile failed (non-fatal):', (err as Error).message);
   }
+  // The same reconcile, for authorization rather than isolation.
+  //
+  // Migration 034 wrote out the resources that existed when it ran. Anything
+  // that appeared since — a collection created on an older engine, an extension
+  // installed after the upgrade — would otherwise be reachable only by
+  // administrators, with no error message that points at the cause. Idempotent,
+  // so on a settled install this writes nothing and costs one query.
+  try {
+    const { listKnownResources, materializeDefaultGrants } = await import(
+      './lib/tenancy/resource-grants.js'
+    );
+    const n = await materializeDefaultGrants(db, await listKnownResources(db));
+    if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
+  } catch (err) {
+    console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);
+  }
   // Extensions install their own isolation policies, and every copy of the
   // template was fail-open — a query with no tenant context read every
   // tenant's rows, where the same mistake against an engine table read none.

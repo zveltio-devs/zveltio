@@ -15,6 +15,28 @@ const GOD_CACHE_TTL = 300; // seconds
 // that applies in EVERY tenant (how all pre-existing global policies are migrated
 // — see migration 008 — so authorization is unchanged until per-tenant policies
 // are added). A `g` domain-matching function (initPermissions) makes '*' wildcard.
+//
+// Deny by default: what is not explicitly permitted is forbidden.
+//
+// `*` on the OBJECT is honoured only when the grant is TOTAL — when the action is
+// `*` as well. Read the two aloud and the difference is obvious. "May do anything
+// here" is a role: an owner, a tenant administrator, and it keeps working exactly
+// as before. "May read anything" is not a decision anyone made about any
+// particular resource; it is the absence of one, and it now grants nothing.
+//
+// That second form is how `tenant_member` was seeded, and it made every
+// `permissionGate(ctx, '<resource>')` in twenty-three extensions inert — the
+// wildcard answered yes before the resource name was ever considered. An audit
+// drove it end to end: an ordinary member read a colleague's national ID, IBAN,
+// salary and home address, and could edit them. The negative control was DELETE,
+// which `tenant_member` does not hold and which correctly returned 403 — the
+// guard did run, and could refuse. Only the policy's width decided the answer.
+//
+// The seeded partial wildcards are expanded into explicit per-resource rows by
+// migration 034, and new resources get theirs from `materializeDefaultGrants`, so
+// an upgrade changes who can reach what only where nobody had decided it.
+// Afterwards every answer this enforcer gives traces to a row an operator can
+// read, revoke, and audit — which a wildcard never was.
 const CASBIN_MODEL = `
 [request_definition]
 r = sub, dom, obj, act
@@ -29,7 +51,7 @@ g = _, _, _
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub, r.dom) && (p.dom == '*' || r.dom == p.dom) && (r.obj == p.obj || (p.obj == '*' && (p.act == '*' || !isSensitiveResource(r.obj)))) && (r.act == p.act || p.act == '*')
+m = g(r.sub, p.sub, r.dom) && (p.dom == '*' || r.dom == p.dom) && (r.obj == p.obj || (p.obj == '*' && p.act == '*')) && (r.act == p.act || p.act == '*')
 `;
 
 let _db: Database;
@@ -140,13 +162,6 @@ export async function initPermissions(db: Database): Promise<void> {
   // then applies in every tenant. Validated against casbin 5.x.
   _enforcer.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
 
-  // Consulted by the matcher above. A function rather than a policy row so the
-  // set can be extended at runtime by an extension declaring its own data
-  // sensitive, without a migration and without touching an operator's policies.
-  _enforcer.addFunction('isSensitiveResource', (obj: unknown) =>
-    SENSITIVE_RESOURCES.has(String(obj)),
-  );
-
   // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
   // to Redis could craft a valid signed value and escalate privileges.
@@ -161,33 +176,17 @@ export async function initPermissions(db: Database): Promise<void> {
 }
 
 /**
- * Resources a blanket grant does not reach.
+ * Resources that do not receive a default grant when they come into existence.
  *
- * The seeded tenant roles carry `('p', 'tenant_member', '*', '*', 'read')` and
- * the same for create and update — a deliberately coarse model, on the view
- * that isolation is between tenants and inside one a member is a colleague.
+ * Under deny-by-default (see the matcher) every resource starts closed, and
+ * `materializeDefaultGrants` opens the ordinary business ones for the standard
+ * roles so that installing an extension or creating a collection does not
+ * require an administrator to go and click something before anyone can work.
+ * The names below are excluded from that convenience: they stay closed until a
+ * role is granted them explicitly, by name.
  *
- * Extensions did not read it that way. Twenty-three of them guard their routes
- * with `permissionGate(ctx, 'payroll')` and similar, and every one of those
- * guards was inert: the wildcard answered yes before the resource name was ever
- * considered. An audit drove it — an ordinary member read a colleague's
- * national ID, IBAN, salary and address, and could edit them. The negative
- * control was DELETE, which `tenant_member` does not hold and which correctly
- * returned 403, proving the guard ran and could refuse.
- *
- * So the two halves of the authorization model disagreed, and the coarse half
- * won silently.
- *
- * The rule here is narrow on purpose: a policy granting `*` on the OBJECT still
- * matches everything, unless it names a specific ACTION and the resource is
- * listed below. Read as English: "may do anything" still means anything —
- * that is what an owner or a tenant admin holds. "May read anything" is a
- * statement about ordinary business data, and it is not consent to read
- * payroll. An operator who wants a role to reach these grants it by name.
- *
- * Enforced in the matcher rather than by rewriting the seeded policies, so no
- * existing deployment loses access to its CRM, projects or invoices on upgrade
- * — only these resources change, and only for grants that were never explicit.
+ * The distinction is between data a colleague may see because you work together
+ * and data an employer holds because the law says it must.
  */
 const SENSITIVE_RESOURCES = new Set<string>([
   // Personal data an employer holds because it must, not because colleagues
@@ -210,6 +209,11 @@ export function registerSensitiveResources(resources: readonly string[]): void {
 /** Test seam + introspection for the settings UI. */
 export function listSensitiveResources(): string[] {
   return [...SENSITIVE_RESOURCES].sort();
+}
+
+/** Whether a resource is withheld from default grants. */
+export function isSensitiveResource(name: string): boolean {
+  return SENSITIVE_RESOURCES.has(name);
 }
 
 export async function getEnforcer(): Promise<Enforcer> {
