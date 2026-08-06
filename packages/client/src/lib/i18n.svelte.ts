@@ -105,5 +105,4 @@ export const i18n = new I18n();
  * Paraglide compiles `auth.sign_in` to an identifier it can export, so the
  * lookup goes through this map rather than property access on the module.
  */
-// biome-ignore lint/suspicious/noExplicitAny: generated module has no types
-export const m: Record<string, (...args: any[]) => string> = messages as any;
+export const m = messages as unknown as Record<string, (...args: unknown[]) => string>;
