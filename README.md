@@ -294,6 +294,25 @@ Building extensions: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPE
 
 ---
 
+## Running more than one tenant
+
+If you serve several tenants from one instance, read
+**[docs/MULTI-TENANT-ENABLEMENT.md](docs/MULTI-TENANT-ENABLEMENT.md)** before
+you do. One item there is not optional:
+
+> The engine's database role must not be `SUPERUSER` or carry `BYPASSRLS`.
+
+Postgres exempts superusers from row-level security, and the official Postgres
+image makes `POSTGRES_USER` a superuser — so a default install starts in that
+state. The engine mitigates it: every tenant-scoped transaction switches to a
+plain `zveltio_rls` role, which the isolation policies do bind to, and the
+engine warns at boot when it notices. Code that runs outside a request — a
+migration, a background job — has no such transaction to inherit, which is why
+the role still matters.
+
+Do not fix it with a blanket `ALTER ROLE … NOSUPERUSER`; that breaks
+`CREATE EXTENSION`. The document explains what to do instead.
+
 ## Beta caveats
 
 Honest about where we are: **3.0.0-beta.32** as of the latest release.
