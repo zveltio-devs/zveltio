@@ -80,6 +80,53 @@ let _totalRequestCount = 0;
 const STUDIO_DIST = process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
 const CLIENT_DIST = process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
 
+/**
+ * Warn when the Studio bundle was not built for this engine.
+ *
+ * `studio-dist/` is served as static files with nothing tying it to the engine
+ * that serves it. A dist from an older release still loads — the HTML is valid,
+ * the assets resolve — and then calls an API shape that has changed, so the
+ * page renders black with no message anywhere. An audit lost its entire Studio
+ * pass to exactly that and reported the UI as broken; the UI was fine, the
+ * pairing was not.
+ *
+ * The Studio's build writes `.zveltio-studio-version` into its output
+ * (`scripts/stamp-version.ts`). Missing means a dist built before this existed,
+ * which is not an error — the operator is told once, and told what to do.
+ *
+ * A warning rather than a refusal: an engine that will not start because its UI
+ * is stale is worse than one that starts and says so. The API still works, and
+ * that is what most of an instance is.
+ */
+async function warnIfStudioDistMismatched(): Promise<void> {
+  try {
+    const marker = Bun.file(join(STUDIO_DIST, '.zveltio-studio-version'));
+    if (!(await marker.exists())) {
+      // Only worth mentioning if a Studio is actually deployed here.
+      const index = Bun.file(join(STUDIO_DIST, 'index.html'));
+      if (await index.exists()) {
+        console.warn(
+          `⚠️  studio-dist carries no version marker, so it cannot be checked against ` +
+            `engine ${ENGINE_VERSION}. Rebuild the Studio to stamp one.`,
+        );
+      }
+      return;
+    }
+
+    const studioVersion = (await marker.text()).trim();
+    if (studioVersion !== ENGINE_VERSION) {
+      console.warn(
+        `⚠️  Studio/engine version mismatch: studio-dist is ${studioVersion}, engine is ` +
+          `${ENGINE_VERSION}. The admin UI may render blank or fail on API calls that ` +
+          `changed between them. Deploy the studio.tar.gz from this release, or set ` +
+          `STUDIO_DIST_PATH to a matching build.`,
+      );
+    }
+  } catch {
+    /* never block boot on a diagnostic */
+  }
+}
+
 // ─── Static file content type helper ─────────────────────────
 function getContentType(path: string): string {
   const ext = path.includes('?')
@@ -1058,6 +1105,8 @@ async function bootstrap() {
   // Build initial Hono app — all middleware, core routes, extension routes
   _currentApp = await buildHonoApp();
   console.log('✅ Routes built');
+
+  await warnIfStudioDistMismatched();
 
   // Start server with a stable proxy fetch so hot-reload can swap _currentApp
   // without restarting the server process.
