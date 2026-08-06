@@ -1,0 +1,82 @@
+name: E2E
+
+# Deliberately separate from CI, and deliberately not a required check.
+#
+# End-to-end tests are the flakiest kind there is: they depend on timing, a real
+# browser, and a database that has to come up in the right order. This
+# repository has already lost a release to a race inside a UNIT test — putting a
+# browser suite in front of every merge would be paid for daily, and the way
+# that debt gets settled is by people learning to re-run until green, which
+# costs more than the suite is worth.
+#
+# So it runs on master and before a release, where a failure is information
+# rather than an obstacle. If it starts finding things regularly, promoting it
+# to a required check is a decision worth making then, with evidence.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Browser smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      # The suite exists partly to notice a Studio built for a different engine,
+      # so it must build one HERE rather than reuse whatever is lying around.
+      # `vite build` directly, not `bun run build`: the package's prebuild syncs
+      # from an extensions sibling that does not exist on a runner, and has been
+      # known to overwrite committed pages when it does.
+      - name: Build the Studio
+        working-directory: packages/studio
+        run: |
+          bun x vite build
+          bun scripts/stamp-version.ts
+
+      - name: Install Chromium
+        # `--with-deps` needs root, which the runner has. Without the system
+        # libraries Chromium exits 127 and every browser test fails with a stack
+        # trace about process spawning.
+        run: bun x playwright install --with-deps chromium
+
+      - name: Run the smoke suite
+        env:
+          CI: 'true'
+          E2E_PG_ADMIN: postgres://postgres:postgres@localhost:5432/postgres
+        run: bun x playwright test
+
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
