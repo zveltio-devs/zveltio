@@ -4,6 +4,105 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.53] - 2026-08-06
+
+**A full external audit, worked through.** Eighteen findings across the engine,
+the extension catalogue and the registry: fifteen fixed, three disproved with
+evidence. Two of the fixes are for holes the audit pointed at without seeing.
+
+### Fixed — tenant isolation
+
+- **The AI extension had no tenant column at all.** Nine of its ten tables —
+  chats, conversations, messages, memory, saved queries, usage, and provider
+  rows holding encrypted API keys — carried no `tenant_id`, so no policy could
+  scope them. A tenant configuring its own OpenAI key shared it with every
+  other tenant on the instance. Migration `004_tenant_rls.sql` follows the
+  canonical template, with a backfill so an upgrade does not blank existing
+  history.
+
+- **A conversation id from the request body was never checked.** This is the
+  hole the missing RLS was hiding, and the sharper one:
+  `getConversationHistory` looked up whatever id the caller sent, with no owner
+  check, and fed the result to the model as context — so quoting someone else's
+  id and asking the assistant to repeat the discussion returned their
+  conversation. The write path had the same gap and a worse consequence:
+  injected turns became context for the victim's *next* request, so an attacker
+  could leave instructions for a model answering someone else.
+
+- **An admin guard covered an entire extension by accident.** `ai-schema-gen`
+  declared `router.use('*')` and is mounted at `/` beside its siblings, so one
+  sub-router's gate became the gate for chat, conversations, prompts and
+  analytics — the assistant was unusable by anyone but an admin. Narrowing it
+  exposed a `GET /conversations` that had been throwing 500 behind it.
+
+### Fixed — authorization and secrets
+
+- **Traceability had 55 routes behind a session check and nothing else**, so
+  any member of a tenant could alter lots, movements and recalls. Writes now
+  require a permission; reads stay open, deliberately — a blanket deny would
+  403 every existing deployment on upgrade, and a control an operator switches
+  off protects nobody.
+
+- **The SMTP password came back in plaintext** from `GET /api/settings`.
+  Secrets are matched by suffix rather than an exact list, and both write paths
+  refuse the mask itself — a settings form that reads every value and submits
+  the lot would otherwise destroy the credential on an unrelated edit.
+
+- **CORS defaulted to `http://localhost:3000` with credentials**, so a page on
+  that port could make authenticated requests and a production deployment that
+  never set `CORS_ORIGINS` carried the allowance silently.
+
+- **Licence keys were written to the registry's logs**, and
+  `/api/licenses/verify` distinguished "no such key" from "revoked" from
+  "expired" to anyone who asked. One answer now, and no key in the log.
+
+- **Bulk mail operations built SQL by concatenation.** Not injectable today —
+  every id is a validated UUID — but the guarantee lived in another file.
+
+### Fixed — things that were simply broken
+
+- **Ten extensions failed to start for a dependency that was already running.**
+  The check consulted the marketplace registry table, which records what an
+  operator installed, not what is loaded. A container booting from disk never
+  writes those rows.
+
+- **Every extension published through the CLI answered 404 for its own bytes.**
+  Two writers put archives in the same bucket under different keys and the
+  download probed only one form. Admin-uploaded extensions worked, which is why
+  nobody noticed.
+
+- **The client portal shipped message catalogues it never imported**, so every
+  string was hard-coded English while the repository looked translated. The
+  eleven keys were also the wrong eleven. Paraglide is wired now, with 32 keys
+  across nine locales and the compile step in `prebuild`.
+
+- **Three view renderers were placeholders** (`<div>CalendarView</div>`) that
+  nothing imported, so a saved view was a row in a table and a promise. Written,
+  and wired in as a preview. `MapView` in postgis was the same and is now a map.
+
+- **A stale `studio-dist` rendered a black page with no diagnostic.** The build
+  stamps its version and the engine names the mismatch at boot.
+
+### Added
+
+- **`globalRoutes` in the extension manifest.** An extension can mount a path at
+  the root of an instance, outside `/ext/*` and its auth gate — by design, since
+  an IdP posting SCIM carries a bearer token — but nothing in the manifest said
+  so. Declarative, with CI keeping it honest.
+
+- **A CI gate for extension authorization**, after `traceability` shipped
+  without any. It asks one question — does an extension with state-changing
+  routes reference an authorization helper — which is the question that
+  extension would have failed.
+
+### Not changed, with reasons
+
+Three findings were reported and are disproved here rather than fixed. The
+text-to-SQL path is defended in six layers, ending in a READ ONLY transaction
+under tenant RLS. The edge-functions extension has no migrations because its
+table belongs to the engine. The page-builder's raw-HTML field is safe because
+all seven `{@html}` sites in that path go through DOMPurify.
+
 ## [3.0.0-beta.52] - 2026-08-05
 
 **Onboarding an admin never worked.** A second live audit round, against the
