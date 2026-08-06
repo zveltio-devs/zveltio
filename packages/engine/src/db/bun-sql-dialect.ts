@@ -134,7 +134,19 @@ class BunSqlDriver implements Driver {
       const u = new URL(cleanUrl);
       const sslmode = u.searchParams.get('sslmode') ?? 'disable';
       sslEnabled = sslmode === 'require' || sslmode.startsWith('verify');
-      u.search = '';
+
+      // Drop only what this dialect handles itself. `u.search = ''` used to
+      // clear the lot, which silently discarded every other libpq parameter an
+      // operator or the engine had set — `options`, `application_name`,
+      // `connect_timeout`.
+      //
+      // That cost real time: `idle_in_transaction_session_timeout` was added to
+      // the URL to stop abandoned transactions holding pool connections
+      // forever, `SHOW` reported it correctly on a hand-built connection, and
+      // the leaked backends kept ageing past the timeout because the engine's
+      // pool never received the parameter. The setting was right and arrived
+      // nowhere.
+      u.searchParams.delete('sslmode');
       cleanUrl = u.toString();
     } catch {
       /* URL parsing failed — use as-is */
