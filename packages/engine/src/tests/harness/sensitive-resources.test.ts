@@ -1,7 +1,7 @@
 /**
- * A blanket grant is not consent to read payroll.
+ * Deny by default: what is not explicitly permitted is forbidden.
  *
- * The seeded tenant roles give `tenant_member` `('*', '*', 'read')` — and
+ * The seeded tenant roles gave `tenant_member` `('*', '*', 'read')` — and
  * create, and update. Twenty-three extensions guard their routes with
  * `permissionGate(ctx, '<resource>')`, and every one of those guards was inert:
  * the wildcard matched before the resource name was considered. An audit drove
@@ -12,16 +12,25 @@
  * the authorization model were present and both looked right; they simply did
  * not meet. A test that only asserts "member cannot read payroll" would pass
  * against a build where authorization is broken outright, so the cases below
- * pin all four corners:
+ * pin every corner:
  *
  *   - a member still reaches ordinary data (nothing was broken to fix this)
  *   - a member does not reach sensitive data
- *   - an owner and a tenant admin still do
- *   - an explicit grant by name still does
+ *   - a member still cannot delete — the negative control from the original
+ *     finding, and the proof that a passing suite is not just a dead enforcer
+ *   - an owner and a tenant admin still do reach everything
+ *   - an explicit grant by name works, which is how an operator opts a role in
+ *   - a resource nobody granted is closed, with no registry entry needed
+ *   - and a partial wildcard grants nothing, which is the rule itself
  *
- * The third is the one that would have caught a careless fix: a rule that
- * blocked wildcards outright would lock administrators out of HR, which is not
- * confidentiality, it is breakage.
+ * The tenant-admin case is the one a careless fix breaks: a rule that refused
+ * wildcards outright would lock administrators out of HR, which is not
+ * confidentiality, it is an outage.
+ *
+ * The last case is the one that earns its keep. Migration 034 deleted the
+ * offending rows, so every other test here would pass against the old
+ * permissive matcher — they check the migration, not the rule. That one writes
+ * the row back and asks what it means.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -32,6 +41,7 @@ import {
   getEnforcer,
   invalidateUserPermCache,
   listSensitiveResources,
+  materializeDefaultGrants,
   registerSensitiveResources,
 } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
@@ -140,20 +150,91 @@ d('sensitive resources', () => {
     });
   });
 
-  it('an extension can declare its own data sensitive', async () => {
+  it('a resource nobody granted is closed, without anyone listing it', async () => {
+    // The point of deny-by-default: this needs no registry entry, no migration
+    // and no foresight. A resource is closed because nothing opened it.
     const { db } = await getTestApp();
-    const user = await makeUser(db, 'ext');
+    const user = await makeUser(db, 'unknown-res');
     await grantRole(db, user, 'tenant_member');
 
     await runWithDomain(TENANT, async () => {
-      expect(await checkPermission(user, 'medical_records', 'read')).toBe(true);
+      expect(await checkPermission(user, 'medical_records', 'read')).toBe(false);
     });
+  });
+
+  it('default grants open ordinary resources and withhold sensitive ones', async () => {
+    // What the sensitive registry decides now that the matcher no longer
+    // consults it: not whether a grant matches, but whether one is written.
+    const { db } = await getTestApp();
+    const user = await makeUser(db, 'materialize');
+    await grantRole(db, user, 'tenant_member');
 
     registerSensitiveResources(['medical_records']);
     expect(listSensitiveResources()).toContain('medical_records');
 
+    await materializeDefaultGrants(db, ['lab_results', 'medical_records']);
+    await (await getEnforcer()).loadPolicy();
+    await invalidateUserPermCache(user);
+
     await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, 'lab_results', 'read')).toBe(true);
+      expect(await checkPermission(user, 'lab_results', 'update')).toBe(true);
+      // Withheld — an operator grants this one by name or not at all.
       expect(await checkPermission(user, 'medical_records', 'read')).toBe(false);
+    });
+  });
+
+  it('a partial wildcard grants nothing — this is the rule itself', async () => {
+    // Every other test in this file would still pass with the old permissive
+    // matcher, because migration 034 deleted the wildcard rows and left explicit
+    // ones behind. That makes them a check on the migration, not on the rule.
+    //
+    // This one writes the offending row back and asserts it does nothing. It is
+    // the test that fails if someone widens the matcher again, and the reason it
+    // is worth having is that the original bug was invisible for exactly as long
+    // as nobody thought to write a policy down and ask what it meant.
+    const { db } = await getTestApp();
+    const user = await makeUser(db, 'wildcard');
+    const role = `blanket_${Date.now()}`;
+    await sql`
+      INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+      VALUES ('p', ${role}, '*', '*', 'read')
+    `.execute(db);
+    await grantRole(db, user, role);
+
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, 'payroll', 'read')).toBe(false);
+      // Not even for ordinary data: the grant names no resource, so it decides
+      // nothing about any of them.
+      expect(await checkPermission(user, 'contacts', 'read')).toBe(false);
+    });
+
+    // The total form still works — an administrator is a role, not a resource list.
+    const boss = await makeUser(db, 'wildcard-total');
+    const totalRole = `blanket_total_${Date.now()}`;
+    await sql`
+      INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+      VALUES ('p', ${totalRole}, '*', '*', '*')
+    `.execute(db);
+    await grantRole(db, boss, totalRole);
+
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(boss, 'payroll', 'read')).toBe(true);
+      expect(await checkPermission(boss, 'contacts', 'delete')).toBe(true);
+    });
+  });
+
+  it('a member cannot delete, which is how we know the guard can still refuse', async () => {
+    // The negative control that made the original finding credible: DELETE was
+    // never in `tenant_member`'s wildcard set and correctly returned 403 even
+    // while payroll was wide open. It must stay refused now, or a test suite
+    // that passes proves nothing about a build where authorization is broken.
+    const { db } = await getTestApp();
+    const user = await makeUser(db, 'no-delete');
+    await grantRole(db, user, 'tenant_member');
+
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, 'contacts', 'delete')).toBe(false);
     });
   });
 });
