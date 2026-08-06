@@ -279,6 +279,44 @@ async function ensureContactOrganizationJunction(db: Database): Promise<void> {
     )
   `.execute(db);
 
+  // The junction is a table like any other, and it was not isolated.
+  //
+  // `zvd_contacts` and `zvd_organizations` both carry tenant RLS; the table
+  // linking them carried none — no policy, `rowsecurity = false`. It escaped the
+  // reconcile because that walks `zvd_collections`, and a junction deliberately
+  // has no row there. Nothing in the engine reads it today, so this was not
+  // leaking through any route, but "no caller happens to exist" is not
+  // isolation: any extension holding the raw pool can select from it, and what
+  // it holds is which people belong to which organizations.
+  //
+  // Backfilled from the contact BEFORE the policy goes on. `applyTenantRLS`
+  // assigns existing rows to the default tenant, which is right for a table
+  // being adopted on a single-tenant install and wrong for one whose rows
+  // already belong to different tenants. It also enables FORCE ROW LEVEL
+  // SECURITY, which applies to the table owner too — so a correcting UPDATE
+  // afterwards would be filtered by the very policy it is trying to correct.
+  // Doing it first means `applyTenantRLS`'s own `WHERE tenant_id IS NULL` pass
+  // finds nothing left to do.
+  await sql`ALTER TABLE zvd_contact_organizations ADD COLUMN IF NOT EXISTS tenant_id UUID`.execute(
+    db,
+  );
+  await sql`
+    UPDATE zvd_contact_organizations j
+       SET tenant_id = c.tenant_id
+      FROM zvd_contacts c
+     WHERE c.id = j.contact_id
+       AND j.tenant_id IS DISTINCT FROM c.tenant_id
+  `.execute(db);
+  try {
+    const { applyTenantRLS } = await import('../lib/tenancy/index.js');
+    await applyTenantRLS(db, 'zvd_contact_organizations');
+  } catch (err) {
+    console.warn(
+      '   ⚠  applyTenantRLS on zvd_contact_organizations failed:',
+      (err as Error).message,
+    );
+  }
+
   // Register in zvd_relations so Studio knows how to navigate the link.
   // ON CONFLICT avoids duplicate row on subsequent boots.
   await sql`

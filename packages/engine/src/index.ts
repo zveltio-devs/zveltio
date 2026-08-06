@@ -685,6 +685,23 @@ rm studio.tar.gz</pre>
 
   // ── Extensions list (Studio consumes this to load UI bundles) ────────────
   app.get('/api/extensions', async (c) => {
+    // Which modules a company runs describes the company.
+    //
+    // `hr/payroll`, `finance/banking`, `compliance/ro/saft`, `operations/pos`
+    // together say the size of the business, the country it files in, and
+    // whether it sells over a counter — to anyone who can spell the URL, with
+    // no account and no log entry that looks unusual. It also hands an attacker
+    // the exact list of route prefixes worth probing, which is the difference
+    // between guessing at an instance and knowing it.
+    //
+    // The Studio is the only consumer (`lib/extensions.svelte.ts`, through
+    // `api.fetch`, which carries the session), and it asks in order to load UI
+    // bundles for a signed-in user. An anonymous visitor has no bundles to
+    // load, so requiring a session costs nothing. Checked before the query, so
+    // an unauthenticated caller does not get to make the instance do work.
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
