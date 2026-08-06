@@ -206,6 +206,42 @@ export async function ensureCoreCollections(db: Database): Promise<void> {
       // Cast: CoreCollectionInput is the pre-default shape; CollectionSchema.parse()
       // inside createCollection() materialises the defaults (unique=false, etc).
       await DDLManager.createCollection(db, def as CollectionDefinition);
+
+      // Isolate it NOW, not on the next boot.
+      //
+      // `reconcileTenantRLS` runs during startup, before routes are built, and
+      // this function runs while they are built — so on a fresh install it
+      // reconciles an empty `zvd_collections`, and then these three tables come
+      // into existence with no policy on them. They stay that way until the
+      // engine restarts, at which point the reconcile finds them and the
+      // problem disappears without anyone learning it existed.
+      //
+      // That window is not theoretical: `/api/data/*` carries no
+      // application-level tenant filter and relies entirely on RLS, so during
+      // it every tenant reads every other tenant's contacts, organizations and
+      // transactions. On a self-hosted instance that runs for weeks between
+      // restarts, the window covers exactly the period when tenants are being
+      // onboarded. Reproduced from an empty database: three tables with
+      // `rowsecurity = false` after the first boot, true after the second.
+      //
+      // The DDL queue already does this for collections created through the
+      // Studio (`lib/data/ddl-queue.ts`). This path bypasses the queue, which
+      // is why it was missed. Applying it here puts the guarantee next to the
+      // creation rather than in the boot order, so a future caller that also
+      // skips the queue cannot reintroduce the gap.
+      //
+      // Best-effort and non-fatal, matching the queue: a failure here leaves
+      // the next boot's reconcile as the fallback it always was.
+      try {
+        const { applyTenantRLS } = await import('../lib/tenancy/index.js');
+        await applyTenantRLS(db, `zvd_${def.name}`);
+      } catch (err) {
+        console.warn(
+          `   ⚠  applyTenantRLS on core collection '${def.name}' failed:`,
+          (err as Error).message,
+        );
+      }
+
       created++;
       console.log(`   ✨ Core collection '${def.name}' created via DDLManager`);
     } catch (err) {

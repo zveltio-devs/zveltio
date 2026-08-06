@@ -640,6 +640,7 @@ export async function withTenantIsolation<T>(
     if (_rlsRoleAvailable) {
       await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
     }
+
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
