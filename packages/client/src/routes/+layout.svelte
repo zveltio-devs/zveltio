@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import '../app.css';
 import OfflineBanner from '$components/common/OfflineBanner.svelte';
 import { page } from '$app/state';
@@ -72,8 +73,7 @@ function isActive(href: string) {
         </nav>
         <div class="p-3 border-t border-white/10">
           <a href="/auth/login" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:bg-white/10 transition-colors">
-            <LogIn size={14}/> Sign In
-          </a>
+            <LogIn size={14}/>{m['auth.sign_in']()}</a>
         </div>
       </aside>
 
@@ -104,8 +104,7 @@ function isActive(href: string) {
 
           <div class="ml-auto flex items-center gap-2">
             <a href="/auth/login" class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-white/20 transition-colors">
-              <LogIn size={14}/> Sign In
-            </a>
+              <LogIn size={14}/>{m['auth.sign_in']()}</a>
             <!-- Mobile hamburger -->
             <button class="md:hidden btn btn-ghost btn-sm text-white" onclick={() => mobileMenuOpen = !mobileMenuOpen}>
               {#if mobileMenuOpen}<X size={18}/>{:else}<Menu size={18}/>{/if}
@@ -126,8 +125,7 @@ function isActive(href: string) {
               </a>
             {/each}
             <a href="/auth/login" class="px-3 py-2 rounded-lg text-sm hover:bg-white/20 flex items-center gap-1.5">
-              <LogIn size={13}/> Sign In
-            </a>
+              <LogIn size={13}/>{m['auth.sign_in']()}</a>
           </nav>
         {/if}
       </header>

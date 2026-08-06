@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { useAuth } from '$stores/auth.svelte';
 import { LogIn, UserPlus } from '@lucide/svelte';
 import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
@@ -54,14 +55,12 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
         <a href="/auth/login"
           class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
           style="background: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
-          <LogIn size={18}/> Sign In
-        </a>
+          <LogIn size={18}/>{m['auth.sign_in']()}</a>
         {#if registrationEnabled}
           <a href="/auth/signup"
             class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium border transition-colors hover:bg-black/5"
             style="color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
-            <UserPlus size={18}/> Create Account
-          </a>
+            <UserPlus size={18}/>{m['auth.sign_up']()}</a>
         {/if}
       </div>
     {/if}

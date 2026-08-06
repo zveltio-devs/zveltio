@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { Upload, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
 interface Props {
@@ -82,9 +83,9 @@ async function upload(file: File) {
     <span class="text-sm mt-1">{progress}%</span>
   {:else if done}
     <CheckCircle size={24} class="text-success mb-2" />
-    <span class="text-sm text-success">Uploaded!</span>
+    <span class="text-sm text-success">{m['upload.done']()}</span>
   {:else}
     <Upload size={24} class="text-base-content/50 mb-2" />
-    <span class="text-sm text-base-content/50">Click or drag to upload</span>
+    <span class="text-sm text-base-content/50">{m['upload.hint']()}</span>
   {/if}
 </label>
