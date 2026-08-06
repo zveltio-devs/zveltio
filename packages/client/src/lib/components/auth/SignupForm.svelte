@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { useAuth } from '$stores/auth.svelte';
 import { Mail, Lock, User, LoaderCircle } from '@lucide/svelte';
 
@@ -46,22 +47,22 @@ async function handleSubmit() {
 
   <label class="input input-bordered flex items-center gap-2">
     <User size={16} class="opacity-50" />
-    <input type="text" placeholder="Full name" bind:value={name} class="grow" required />
+    <input type="text" placeholder={m['auth.full_name']()} bind:value={name} class="grow" required />
   </label>
 
   <label class="input input-bordered flex items-center gap-2">
     <Mail size={16} class="opacity-50" />
-    <input type="email" placeholder="Email" bind:value={email} class="grow" required />
+    <input type="email" placeholder={m['auth.email']()} bind:value={email} class="grow" required />
   </label>
 
   <label class="input input-bordered flex items-center gap-2">
     <Lock size={16} class="opacity-50" />
-    <input type="password" placeholder="Password" bind:value={password} class="grow" required />
+    <input type="password" placeholder={m['auth.password']()} bind:value={password} class="grow" required />
   </label>
 
   <label class="input input-bordered flex items-center gap-2">
     <Lock size={16} class="opacity-50" />
-    <input type="password" placeholder="Confirm password" bind:value={confirmPassword} class="grow" required />
+    <input type="password" placeholder={m['auth.confirm_password']()} bind:value={confirmPassword} class="grow" required />
   </label>
 
   <button
