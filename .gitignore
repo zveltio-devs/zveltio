@@ -142,3 +142,8 @@ packages/engine/storage/
 # next one impossible rather than caught.
 SECURITY-AUDIT*.md
 AUDIT-*.md
+
+# Playwright — traces and reports from a local run.
+/test-results/
+/playwright-report/
+/blob-report/
