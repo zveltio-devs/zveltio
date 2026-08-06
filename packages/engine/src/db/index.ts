@@ -14,13 +14,60 @@ export function createDb(connectionString: string): Database {
   });
 }
 
+/**
+ * Ask Postgres to end a transaction nobody is going to finish.
+ *
+ * Bun's server abandons a handler after its idle timeout, and if that happens
+ * while a tenant transaction is open the connection is neither committed nor
+ * rolled back: it leaves the pool and never comes back. The pool holds ten
+ * connections, so the loss compounds — fewer connections make more requests
+ * slow, and more slowness abandons more handlers. Measured under load: nine of
+ * ten gone, no recovery after a minute of total silence, and the process still
+ * listening, so a TCP healthcheck reports a healthy instance.
+ *
+ * Set on the CONNECTION, not per transaction. The obvious version — a
+ * `SET LOCAL` beside the tenant GUC — was written first and does not work: the
+ * abandonment happens between `BEGIN` and the first statement, so the timeout
+ * is never installed on exactly the transactions that need it. Verified by
+ * reproducing the leak with it in place; seven connections stayed stuck.
+ *
+ * Sixty seconds by default, deliberately far above any legitimate request. This
+ * must never fire on a query that is merely slow — a report over a large
+ * collection can take tens of seconds, and killing one would trade a leak for a
+ * wrong answer. It fires only when nothing is left to finish the transaction.
+ *
+ * An operator who already sets the option in DATABASE_URL keeps theirs;
+ * `DB_IDLE_IN_TXN_TIMEOUT_MS=0` disables it entirely.
+ */
+export function withIdleInTransactionTimeout(url: string): string {
+  const ms = Number(process.env.DB_IDLE_IN_TXN_TIMEOUT_MS ?? 60_000);
+  if (!Number.isFinite(ms) || ms <= 0) return url;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // Not a URL we can safely rewrite (a libpq keyword string, say). Leaving it
+    // alone is right: a mangled connection string is worse than a leak.
+    return url;
+  }
+
+  const existing = parsed.searchParams.get('options') ?? '';
+  if (existing.includes('idle_in_transaction_session_timeout')) return url;
+
+  const option = `-c idle_in_transaction_session_timeout=${Math.floor(ms)}`;
+  parsed.searchParams.set('options', existing ? `${existing} ${option}` : option);
+  return parsed.toString();
+}
+
 let _db: Database | null = null;
 
 export async function initDatabase(): Promise<Database> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
     throw new Error('DATABASE_URL environment variable is required');
   }
+  const databaseUrl = withIdleInTransactionTimeout(rawDatabaseUrl);
 
   // Idle timeout default raised to 5min in alpha.128 to close the
   // Bun.SQL transaction race during studio rebuild (`bun run build`
