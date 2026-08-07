@@ -155,29 +155,50 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     # mean the policy denies everything, and a number larger than the tenant's
     # would mean it is not filtering at all. Both are disasters, in opposite
     # directions, and both pass a count of tables.
-    # A second tenant's row, so the check has a wrong answer available in BOTH
-    # directions. With one tenant, "sees its own rows" and "sees every row" are
-    # the same number, and a restore that lost its filtering entirely would pass.
-    # Written as superuser, which RLS does not apply to, and the scratch database
-    # is dropped a few lines below.
-    psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc \
-      "INSERT INTO zvd_contacts (first_name, last_name, tenant_id)
-       SELECT 'drill', 'other-tenant', gen_random_uuid()" >/dev/null 2>&1 || true
+    # Resolve the tenant BEFORE dropping into the role, and pass it as a
+    # literal.
+    #
+    # The first version of this let the isolation query pick its own tenant with
+    # `(SELECT tenant_id FROM zvd_contacts LIMIT 1)` — inside the transaction,
+    # after `SET LOCAL ROLE`. That subquery is itself subject to RLS, and with
+    # no tenant set yet the policy falls back to the default one, so on any
+    # instance whose contacts belong to some other tenant it selected nothing,
+    # set the GUC to NULL, and reported a total failure of isolation where there
+    # was none. It passed locally, where the data happened to sit in the default
+    # tenant, and failed the first time CI ran it against a database seeded
+    # differently. A check that depends on which tenant owns the sample data is
+    # not a check.
+    DRILL_TENANT=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
+      "SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1" 2>/dev/null | tr -d ' ')
 
-    ISO_SQL="BEGIN;
-      SET LOCAL ROLE zveltio_rls;
-      SELECT set_config('zveltio.current_tenant',
-             (SELECT tenant_id::text FROM zvd_contacts LIMIT 1), true);
-      SELECT 'VISIBLE=' || count(*) FROM zvd_contacts;
-      COMMIT;"
-    RESTORED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ISO_SQL" 2>/dev/null | sed -n 's/^VISIBLE=//p')
-    EXPECTED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
-      "SELECT count(*) FROM zvd_contacts WHERE tenant_id = (SELECT tenant_id FROM zvd_contacts LIMIT 1)" 2>/dev/null | tr -d ' ')
-    if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]]; then
-      pass "restored data readable under tenant isolation ($RESTORED_VISIBLE rows)" 0
+    if [[ -z "$DRILL_TENANT" ]]; then
+      fail "restored data readable under tenant isolation" "no tenant in zv_tenants to read as"
     else
-      fail "restored data not readable under tenant isolation" \
-        "as zveltio_rls the tenant sees '$RESTORED_VISIBLE', expected '$EXPECTED_VISIBLE'"
+      # One row for a real tenant and one for a tenant that does not exist, so a
+      # wrong answer is available in both directions: a restore that denies
+      # everything returns 0, and one that lost its filtering returns 2. Written
+      # as superuser, which RLS does not apply to, into a database that is
+      # dropped a few lines below.
+      psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc \
+        "INSERT INTO zvd_contacts (first_name, last_name, tenant_id)
+         VALUES ('drill', 'own-tenant', '$DRILL_TENANT'),
+                ('drill', 'other-tenant', gen_random_uuid())" >/dev/null 2>&1 || true
+
+      ISO_SQL="BEGIN;
+        SET LOCAL ROLE zveltio_rls;
+        SELECT set_config('zveltio.current_tenant', '$DRILL_TENANT', true);
+        SELECT 'VISIBLE=' || count(*) FROM zvd_contacts;
+        COMMIT;"
+      RESTORED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ISO_SQL" 2>/dev/null | sed -n 's/^VISIBLE=//p')
+      EXPECTED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
+        "SELECT count(*) FROM zvd_contacts WHERE tenant_id::text = '$DRILL_TENANT'" 2>/dev/null | tr -d ' ')
+
+      if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]]; then
+        pass "restored data readable under tenant isolation ($RESTORED_VISIBLE of its own rows)" 0
+      else
+        fail "restored data not readable under tenant isolation" \
+          "as zveltio_rls the tenant sees '$RESTORED_VISIBLE', expected '$EXPECTED_VISIBLE'"
+      fi
     fi
   else
     fail "restore to scratch DB" "psql import failed"
