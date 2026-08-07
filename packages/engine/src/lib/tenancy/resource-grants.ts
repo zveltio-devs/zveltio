@@ -91,8 +91,13 @@ export const KNOWN_EXTENSION_RESOURCES: readonly string[] = [
  * index on `zvd_permissions` makes a repeat call a no-op, so this is safe to run
  * on every boot and from every path that creates a resource.
  *
- * Returns the number of rows actually written, which is what the callers log —
- * a fresh install reports a few hundred, an upgraded one reports zero.
+ * Returns the number of rows actually written, which is what the boot reconcile
+ * logs. Zero is the normal answer and not a sign that nothing happened: on a
+ * fresh install migration 034 has already written every resource it could see,
+ * and on a settled install there is nothing new. It goes above zero exactly
+ * when something appeared that the migration could not have known about — a
+ * collection created on an older engine, an extension installed since — which
+ * is the only case worth putting on an operator's screen.
  */
 export async function materializeDefaultGrants(
   db: Database,
@@ -105,12 +110,21 @@ export async function materializeDefaultGrants(
   for (const resource of targets) {
     for (const { role, actions } of DEFAULT_ROLE_GRANTS) {
       for (const action of actions) {
-        const result = await sql`
+        // RETURNING, not `numAffectedRows`. This dialect reports 0n whether or
+        // not a row was written, and omits the field entirely for raw `sql`
+        // executes — so the obvious version counted every install as having
+        // granted nothing. It did grant; only the number was a lie, which is
+        // worse than no number, because the boot line an operator reads to
+        // confirm the upgrade would have stayed silent on the one boot where it
+        // mattered. `scripts/check-affected-rows.ts` exists for this and caught
+        // it.
+        const result = await sql<{ id: string }>`
           INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
           VALUES ('p', ${role}, '*', ${resource}, ${action})
           ON CONFLICT DO NOTHING
+          RETURNING id
         `.execute(db);
-        written += Number(result.numAffectedRows ?? 0);
+        written += result.rows.length;
       }
     }
   }
