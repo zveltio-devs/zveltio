@@ -210,10 +210,7 @@ export const CORE_COLLECTIONS: CoreCollectionInput[] = [contacts, organizations,
  * aborts — and every one of them is idempotent, so the next boot retries
  * whatever failed.
  */
-async function adoptExistingCoreCollection(
-  db: Database,
-  def: CoreCollectionInput,
-): Promise<void> {
+async function adoptExistingCoreCollection(db: Database, def: CoreCollectionInput): Promise<void> {
   try {
     const registered = await db
       .selectFrom('zvd_collections')
