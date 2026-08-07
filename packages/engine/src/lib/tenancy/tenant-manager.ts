@@ -671,10 +671,67 @@ export async function withTenantIsolation<T>(
  */
 let _rlsRoleAvailable = false;
 
+/**
+ * Recreate `zveltio_rls` if it is not here, before deciding whether it is.
+ *
+ * Migration 030 creates the role, and a migration runs once. `zveltio_rls` is a
+ * CLUSTER object, so `pg_dump` does not carry it — and the ledger of applied
+ * migrations IS in the dump. Restore a backup onto new hardware and you get
+ * every table, every policy, and a `zv_migrations` row saying 030 already ran,
+ * on a server where the role has never existed and never will.
+ *
+ * What happens next is quiet rather than loud. The policies restore fine, since
+ * they name a function and not a role. The `GRANT … TO zveltio_rls` statements
+ * in the dump fail, the restore continues past them, and at boot the engine
+ * finds no role, falls back to connecting as itself, and — if that connection
+ * is a superuser, which it is on a default install — RLS does not apply to it.
+ * There is a warning in the log. It is competing for attention with a disaster.
+ *
+ * So the role is provisioned here, at every boot, rather than once in a
+ * migration. Idempotent and identical to what 030 does; on a healthy instance
+ * it grants what is already granted and returns.
+ *
+ * Best-effort by design: a managed Postgres where the engine's user cannot
+ * create roles is a legitimate deployment, and it should keep starting and keep
+ * warning, exactly as it does now. Failing here would turn a degraded restore
+ * into no restore at all.
+ */
+async function ensureRlsEnforcementRole(db: Database): Promise<void> {
+  try {
+    await sql`
+      DO $ensure_rls$
+      DECLARE t record; s record;
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_rls') THEN
+          CREATE ROLE zveltio_rls NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+        END IF;
+        EXECUTE format('GRANT zveltio_rls TO %I', current_user);
+        GRANT USAGE ON SCHEMA public TO zveltio_rls;
+        FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+          EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
+        END LOOP;
+        FOR s IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
+          EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_rls', s.sequencename);
+        END LOOP;
+      END
+      $ensure_rls$;
+    `.execute(db);
+  } catch (err) {
+    // Not fatal, and not silent either: the caller logs the resulting mode, and
+    // `warnIfDbRoleBypassesRls` says plainly what it costs.
+    console.warn(
+      '[tenant-rls] could not provision the zveltio_rls role (continuing):',
+      (err as Error).message,
+    );
+  }
+}
+
 /** Boot check — see `_rlsRoleAvailable`. Returns the mode for logging. */
 export async function initRlsEnforcementRole(
   db: Database,
 ): Promise<'enforced' | 'native' | 'unavailable'> {
+  await ensureRlsEnforcementRole(db);
   try {
     const r = await sql<{ ok: boolean; super_user: boolean }>`
       SELECT pg_has_role(current_user, 'zveltio_rls', 'MEMBER') AS ok,

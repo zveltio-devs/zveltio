@@ -151,6 +151,27 @@ curl -sf http://localhost:3000/api/health || { echo "engine unhealthy"; exit 1; 
 
 Smoke-check (§ 5) before declaring complete.
 
+**Restoring onto a NEW server:** expect `role "zveltio_rls" does not exist`
+errors during the `psql` step, and let them pass. That role is a *cluster*
+object, so it is not in the dump — while the record saying its migration
+already ran is, which is why re-running migrations does not bring it back.
+
+Nothing is lost: the engine reprovisions the role on every boot, and the
+tenant-isolation policies themselves name a function rather than a role, so
+they restore intact. Confirm it took by looking for this line at startup:
+
+```
+🔒 Tenant RLS enforced via the zveltio_rls role
+```
+
+If instead you see a warning that isolation is **not** enforced by the
+database, the engine's user lacks permission to create roles — grant it, or
+create the role by hand from migration 030, and restart. Do not leave a
+multi-tenant instance running in that state.
+
+Belt and braces, if you would rather not rely on the boot path: take
+`pg_dumpall --roles-only` alongside the nightly dump and restore it first.
+
 ### Scenario C — PITR to a specific timestamp (T2)
 
 1. Stop the engine: `systemctl stop zveltio`
