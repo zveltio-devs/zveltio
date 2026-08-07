@@ -4,6 +4,71 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.54] - 2026-08-07
+
+**Authorization now denies by default.** What is not explicitly permitted is
+forbidden — the model a business application should have had from the start.
+This release is the ninth external audit worked through, and the finding that
+drove it was the worst of the campaign: twenty-three extensions guard their
+routes with a permission check, and every one of those checks was inert.
+
+### Deny by default
+
+The seeded roles granted `tenant_member` `('*', '*', 'read')`, and the same for
+create and update. A wildcard on the object matched before the resource name was
+ever considered, so `permissionGate(ctx, 'payroll')` answered yes to anyone. An
+audit drove it end to end: an ordinary member read a colleague's national ID,
+IBAN, salary, birth date and home address, and could edit them, plus the whole
+organisation's leave requests. The negative control was DELETE, which
+`tenant_member` does not hold and which correctly returned 403 — the guard did
+run, and could refuse. Only the policy's width decided the answer.
+
+`*` on the object is now honoured only when the grant is **total** — when the
+action is `*` as well. "May do anything here" is a role: an owner, a tenant
+administrator, unchanged. "May read anything" is not a decision anyone made
+about any particular resource, and it grants nothing.
+
+**Nobody loses access on upgrade.** Migration 034 writes out what those
+wildcards stood for, resource by resource — 121 resources, 484 explicit rows.
+The access is the same; what changes is that it is now a row an operator can
+read, revoke for a single collection, and show to an auditor.
+
+Four resources are withheld from the automatic grant and must be given by name:
+`employees`, `payroll`, `leave`, `banking`. Extensions can declare their own.
+
+Operators who want a role to reach HR data grant it explicitly, from the
+permissions UI. Tenant owners and administrators are unaffected.
+
+### Also in this release
+
+- **Realtime kept working, but only just.** `ws.ts` asked about
+  `data:<collection>` — a prefix migration 001 stripped from every policy years
+  ago — so no policy could match it by name and only the blanket wildcard ever
+  made it return true. An operator's precise rule was honoured over HTTP and
+  over SSE and silently ignored on WebSocket. Under the new rule the same line
+  would have refused every subscription from every non-administrator. Fixed
+  together with the tenant domain, which the check was also resolving wrongly.
+- **Thirty-four columns could not hold a user id.** Declared UUID, receiving a
+  32-character nanoid, answering 22P02. Creating an expense report, a purchase
+  order, a credit note, a payroll export, a POS cash movement — none of them had
+  ever worked for anybody. Thirteen extensions, migrated and repacked.
+- **The contact↔organization junction had no isolation at all.** Both tables it
+  links carry tenant RLS; the table between them had no policy. Nothing read it
+  through a route, but any extension on the raw pool could.
+- **`GET /api/extensions` answered anonymously**, listing which modules a company
+  runs — its size, the country it files in, whether it sells over a counter. Now
+  requires a session, which is what its only caller already carries.
+- **Two CI gates that could not fail, can now.** Extensions must declare the
+  resources they guard in `manifest.resources`, and the global-route gate no
+  longer accepts `<operator-defined>` as a declaration.
+
+### Upgrade notes
+
+Migration 034 runs automatically and is idempotent. On a multi-tenant install
+the boot log reports how many grants were written. If a role should reach a
+sensitive resource, grant it by name before upgrading or immediately after —
+administrators are unaffected either way.
+
 ## [3.0.0-beta.53] - 2026-08-06
 
 **A full external audit, worked through.** Eighteen findings across the engine,
