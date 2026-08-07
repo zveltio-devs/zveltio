@@ -60,20 +60,124 @@ time_ms() {
 DUMP_FILE=$(mktemp --suffix=.sql.gz)
 SCRATCH_DB="${DRILL_DB}_scratch_$TS"
 
-if time_ms pg_dump -U "$DRILL_DB_USER" -d "$DRILL_DB" | gzip >"$DUMP_FILE" 2>/dev/null; then
+# The pipeline goes INSIDE time_ms, with pipefail, for two reasons that both
+# stopped this script from ever running. `time_ms pg_dump … | gzip` puts the
+# left side of the pipe in a subshell, so `DURATION_MS` was assigned somewhere
+# the parent could not see and `set -u` aborted on the next line. And the `if`
+# was testing gzip's exit status, so a pg_dump that failed halfway would have
+# been reported as a passing backup — which is the single worst thing a drill
+# can get wrong.
+if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' | gzip > '$DUMP_FILE'"; then
   pass "pg_dump completes" "$DURATION_MS"
   DUMP_SIZE=$(stat -c%s "$DUMP_FILE" 2>/dev/null || stat -f%z "$DUMP_FILE")
   echo "  - dump size: $DUMP_SIZE bytes" >>"$REPORT"
 
   createdb -U "$DRILL_DB_USER" "$SCRATCH_DB" 2>/dev/null || true
-  if time_ms bash -c "gunzip -c '$DUMP_FILE' | psql -U '$DRILL_DB_USER' -d '$SCRATCH_DB' >/dev/null 2>&1"; then
+  if time_ms bash -c "set -o pipefail; gunzip -c '$DUMP_FILE' | psql -v ON_ERROR_STOP=1 -U '$DRILL_DB_USER' -d '$SCRATCH_DB' >/dev/null"; then
     pass "restore to scratch DB" "$DURATION_MS"
+
+    # What follows is the drill. Everything above only proves two commands
+    # exited zero.
+    #
+    # The original check compared TABLE COUNTS, which a restore passes while
+    # being useless: every table present and every one of them empty is the
+    # commonest way a backup disappoints, and it scores full marks here. So the
+    # comparisons below are about content and about the things an operator would
+    # only discover the day they need them.
     ORIG_TABLES=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
     REST_TABLES=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
     if [[ "$ORIG_TABLES" == "$REST_TABLES" ]]; then
       pass "table count matches ($ORIG_TABLES tables)" 0
     else
       fail "table count differs" "orig=$ORIG_TABLES restored=$REST_TABLES"
+    fi
+
+    # Rows, table by table, for everything that holds data. A dump that
+    # restored the schema and lost the contents is the failure this exists for.
+    ROW_SQL="SELECT string_agg(t || '=' || n, ',' ORDER BY t) FROM (
+               SELECT c.relname AS t, c.reltuples::bigint AS n
+                 FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+                WHERE ns.nspname = 'public' AND c.relkind = 'r') s"
+    psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc "ANALYZE" >/dev/null 2>&1 || true
+    psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -qc "ANALYZE" >/dev/null 2>&1 || true
+    ORIG_ROWS=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "$ROW_SQL")
+    REST_ROWS=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ROW_SQL")
+    if [[ "$ORIG_ROWS" == "$REST_ROWS" ]]; then
+      pass "row counts match across every table" 0
+    else
+      fail "row counts differ" "the restore has different contents — see the report"
+      echo "  - original: $ORIG_ROWS" >>"$REPORT"
+      echo "  - restored: $REST_ROWS" >>"$REPORT"
+    fi
+
+    # Tenant isolation is policies plus a role, and only one of them is in the
+    # dump. Losing the policies would put every tenant's rows in reach of every
+    # other one, on the day the instance is already having its worst day.
+    ORIG_POL=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "SELECT count(*) FROM pg_policy")
+    REST_POL=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT count(*) FROM pg_policy")
+    if [[ "$ORIG_POL" == "$REST_POL" ]] && [[ "$ORIG_POL" != "0" ]]; then
+      pass "RLS policies restored ($ORIG_POL policies)" 0
+    else
+      fail "RLS policies not restored" "orig=$ORIG_POL restored=$REST_POL"
+    fi
+
+    ORIG_FORCED=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "SELECT count(*) FROM pg_class WHERE relforcerowsecurity")
+    REST_FORCED=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT count(*) FROM pg_class WHERE relforcerowsecurity")
+    if [[ "$ORIG_FORCED" == "$REST_FORCED" ]]; then
+      pass "FORCE ROW LEVEL SECURITY survives ($ORIG_FORCED tables)" 0
+    else
+      fail "FORCE ROW LEVEL SECURITY lost" "orig=$ORIG_FORCED restored=$REST_FORCED"
+    fi
+
+    # `zveltio_rls` is a CLUSTER object. `pg_dump` does not carry roles, so a
+    # restore onto a fresh server has the policies and not the role they depend
+    # on. Here it passes because the drill restores into the same cluster; the
+    # report says so, because the operator restoring onto new hardware is the
+    # one who needs to know.
+    if psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='zveltio_rls'" | grep -q 1; then
+      pass "zveltio_rls role reachable from the restore" 0
+      echo "  - NOTE: roles live in the cluster, not the dump. Restoring onto a NEW" >>"$REPORT"
+      echo "    server also needs \`pg_dumpall --roles-only\`, or migration 030 re-run," >>"$REPORT"
+      echo "    or tenant isolation has policies with no role to enforce them." >>"$REPORT"
+    else
+      fail "zveltio_rls role missing in the restored cluster" "policies cannot be enforced"
+    fi
+    # The question none of the counting answers: is the restore USABLE?
+    #
+    # Everything above compares two databases. This reads the restored one the
+    # way the engine reads it — as `zveltio_rls`, inside a transaction carrying
+    # a tenant in the GUC — so it exercises the policy, the role and the data
+    # together. A restore where any one of those three is wrong looks perfect to
+    # a table count and returns nothing here.
+    #
+    # `contacts` because it is a core collection present on every install, and
+    # the assertion is that the tenant sees exactly its own rows: a zero would
+    # mean the policy denies everything, and a number larger than the tenant's
+    # would mean it is not filtering at all. Both are disasters, in opposite
+    # directions, and both pass a count of tables.
+    # A second tenant's row, so the check has a wrong answer available in BOTH
+    # directions. With one tenant, "sees its own rows" and "sees every row" are
+    # the same number, and a restore that lost its filtering entirely would pass.
+    # Written as superuser, which RLS does not apply to, and the scratch database
+    # is dropped a few lines below.
+    psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc \
+      "INSERT INTO zvd_contacts (first_name, last_name, tenant_id)
+       SELECT 'drill', 'other-tenant', gen_random_uuid()" >/dev/null 2>&1 || true
+
+    ISO_SQL="BEGIN;
+      SET LOCAL ROLE zveltio_rls;
+      SELECT set_config('zveltio.current_tenant',
+             (SELECT tenant_id::text FROM zvd_contacts LIMIT 1), true);
+      SELECT 'VISIBLE=' || count(*) FROM zvd_contacts;
+      COMMIT;"
+    RESTORED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ISO_SQL" 2>/dev/null | sed -n 's/^VISIBLE=//p')
+    EXPECTED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
+      "SELECT count(*) FROM zvd_contacts WHERE tenant_id = (SELECT tenant_id FROM zvd_contacts LIMIT 1)" 2>/dev/null | tr -d ' ')
+    if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]]; then
+      pass "restored data readable under tenant isolation ($RESTORED_VISIBLE rows)" 0
+    else
+      fail "restored data not readable under tenant isolation" \
+        "as zveltio_rls the tenant sees '$RESTORED_VISIBLE', expected '$EXPECTED_VISIBLE'"
     fi
   else
     fail "restore to scratch DB" "psql import failed"
@@ -91,21 +195,27 @@ else
   fail "engine /api/health responds" "curl failed"
 fi
 
-TOKEN=$(curl -sf -X POST "$DRILL_BASE_URL/api/auth/sign-in/email" \
+# A cookie, not a bearer token.
+#
+# Sign-in returns a `token` field and this used to send it as
+# `Authorization: Bearer`, which the engine answers 401 to — better-auth's
+# bearer plugin is not enabled, so sessions are cookies and always have been.
+# The check could never have passed; nobody found out because the script aborted
+# further up before ever reaching it.
+COOKIE_JAR=$(mktemp)
+if curl -sf -c "$COOKIE_JAR" -X POST "$DRILL_BASE_URL/api/auth/sign-in/email" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$DRILL_ADMIN_EMAIL\",\"password\":\"$DRILL_ADMIN_PASSWORD\"}" \
-  | grep -oE '"token":"[^"]+"' | cut -d'"' -f4 || echo "")
-
-if [[ -n "$TOKEN" ]]; then
+  -d "{\"email\":\"$DRILL_ADMIN_EMAIL\",\"password\":\"$DRILL_ADMIN_PASSWORD\"}" >/dev/null; then
   pass "admin sign-in succeeds" 0
-  if curl -sf -H "Authorization: Bearer $TOKEN" "$DRILL_BASE_URL/api/collections" >/dev/null; then
+  if curl -sf -b "$COOKIE_JAR" "$DRILL_BASE_URL/api/collections" >/dev/null; then
     pass "authenticated request succeeds" 0
   else
     fail "authenticated request" "GET /api/collections returned non-2xx"
   fi
 else
-  fail "admin sign-in" "no token in response"
+  fail "admin sign-in" "sign-in returned non-2xx"
 fi
+rm -f "$COOKIE_JAR"
 
 # ── 3. PITR rehearsal ───────────────────────────────────────────────
 WAL_DIR="${WAL_ARCHIVE_DIR:-/var/lib/postgresql/wal-archive}"
