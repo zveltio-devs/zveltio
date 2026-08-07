@@ -114,7 +114,17 @@ export function usersRoutes(db: Database, auth: any): Hono {
       z.object({
         name: z.string().optional(),
         image: z.string().optional(),
-        role: z.enum(['admin', 'manager', 'member']).optional(),
+        // `god` and `member` are the only global roles this database accepts.
+        //
+        // Migration 052 reduced them deliberately — "all other roles (admin,
+        // manager, employee, client) are Casbin-only concepts" — and migrated
+        // the legacy values to `member`. The route kept offering the old
+        // vocabulary, so promoting anyone to `admin` or `manager` was accepted
+        // by the schema, rejected by the CHECK constraint, and surfaced as a
+        // 500: a server error for what is a client sending a value that has not
+        // existed for months. Matching the constraint makes it a 422, which is
+        // what it always was.
+        role: z.enum(['god', 'member']).optional(),
       }),
     ),
     async (c) => {
@@ -164,6 +174,21 @@ export function usersRoutes(db: Database, auth: any): Hono {
       z.object({
         email: z.string().email(),
         name: z.string().optional(),
+        // NOT the same `role` as the PATCH handler above, despite the name.
+        //
+        // That one writes `user.role`, the global column migration 052 reduced
+        // to `god | member`. This one names a CASBIN role: `auth.ts` grants
+        // `tenant_<role>` for the membership grades and the bare name for
+        // anything else an operator has defined, and deliberately does NOT
+        // write `user.role` — an earlier round fixed exactly that, because
+        // assigning an invitation's role to the column made every acceptance of
+        // `admin` or `manager` die on the CHECK constraint.
+        //
+        // Narrowing this to match the column was tried here and broke three
+        // harness tests in one run: two of the three roles the product invites
+        // people as stopped being invitable. Two vocabularies, one word — which
+        // is the design smell the audit noted, and not something to fix by
+        // quietly deleting one of them.
         role: z.enum(['admin', 'manager', 'member']).default('member'),
       }),
     ),
