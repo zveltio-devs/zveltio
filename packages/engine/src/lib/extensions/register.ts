@@ -22,7 +22,13 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
-import { checkPermission, getUserRoles, getCurrentTenantTrx } from '../tenancy/index.js';
+import {
+  checkPermission,
+  getUserRoles,
+  getCurrentTenantTrx,
+  materializeDefaultGrants,
+  registerSensitiveResources,
+} from '../tenancy/index.js';
 import { DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { serviceRegistry } from '../service-registry.js';
@@ -31,6 +37,7 @@ import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
 import { registerExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
+import { problemOnError } from '../problem.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -333,6 +340,72 @@ export function buildRestrictedContext(
  * the main thread on the next enable/disable, running untrusted third-party
  * code with the engine's own privileges.
  */
+/**
+ * Give an extension's routers the engine's error handler, since Hono cannot.
+ *
+ * `app.route(path, sub)` decides whether the parent's error handling applies by
+ * comparing `sub.errorHandler` against its own module-level default — an
+ * IDENTITY check on a function object. Every extension bundles its own copy of
+ * Hono (4.12.28 today, against the engine's 4.13.0), because the compiled Bun
+ * binary cannot resolve bare specifiers from a dynamically-imported bundle and
+ * so `extension pack` inlines everything. Two copies mean two different default
+ * `errorHandler` objects, so that check can NEVER succeed, and Hono takes the
+ * other branch: it wraps every route in `compose([], sub.errorHandler)` — the
+ * EXTENSION's default handler, which answers a bare 500 and prints the raw
+ * error.
+ *
+ * So no error raised inside any extension has ever reached `problemOnError`.
+ * Not the 22P02 → 400 mapping that was written for exactly these routes and
+ * unit-tested in isolation; not the engine's error logging either. Two audit
+ * rounds read that mapping, agreed it was correct, and it was — it just never
+ * ran. `problemNormalizer` re-dressed the 500 into a problem+json envelope
+ * afterwards, which is why the response looked handled and only the status
+ * betrayed it.
+ *
+ * Measured, not deduced: `problemOnError` logs when it runs, and for
+ * `/api/revisions/not-a-uuid` it does while for `/ext/crm/contacts/not-a-uuid`
+ * it does not — same Postgres error underneath. The identity mechanism was then
+ * confirmed against a single Hono copy by giving a sub-app any custom handler:
+ * the parent's stops applying, exactly as with two copies.
+ *
+ * Setting `sub.onError(problemOnError)` puts the engine's handler in the branch
+ * Hono actually takes. Nested routers keep working: once a router carries this,
+ * anything routed INTO it is compared against the extension's own default, that
+ * check succeeds within one copy, and the whole tree ends up under this
+ * handler.
+ *
+ * Overriding rather than preserving is safe here and was checked: no extension
+ * bundle calls `.onError(` on its own app. If one ever does, this replaces it —
+ * which is the right default for a host that owns the error contract, and the
+ * extension can still handle errors inside its own handlers.
+ */
+/**
+ * Just enough of a router to mount it and hand it an error handler. Typed
+ * structurally rather than as `Hono`, because the object an extension passes
+ * comes from its own bundled copy and is not this module's `Hono` class.
+ */
+interface MountableApp {
+  onError?: (handler: typeof problemOnError) => unknown;
+}
+
+function propagateErrorHandler(target: Hono): () => void {
+  const original = target.route.bind(target);
+  type RouteFn = typeof original;
+  const patched = ((path: string, sub: MountableApp) => {
+    try {
+      sub?.onError?.(problemOnError);
+    } catch {
+      /* not Hono-shaped — mounting it is the caller's problem, not ours */
+    }
+    return original(path, sub as Parameters<RouteFn>[1]);
+  }) as RouteFn;
+
+  (target as unknown as { route: RouteFn }).route = patched;
+  return () => {
+    (target as unknown as { route: RouteFn }).route = original;
+  };
+}
+
 async function registerExtensionRoutes(
   extension: ZveltioExtension,
   restrictedCtx: ExtensionContext,
@@ -355,10 +428,23 @@ async function registerExtensionRoutes(
     await host.start(extName, isolation.extDir, isolation.entry);
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
-    await extension.register(subApp, restrictedCtx);
+    subApp.onError(problemOnError);
+    const restore = propagateErrorHandler(subApp);
+    try {
+      await extension.register(subApp, restrictedCtx);
+    } finally {
+      restore();
+    }
     app.route(`/ext/${extName}`, subApp);
   } else {
-    await extension.register(app, restrictedCtx);
+    // The engine's own app is the target here, so the patch is removed as soon
+    // as this extension has registered — a later caller must not inherit it.
+    const restore = propagateErrorHandler(app);
+    try {
+      await extension.register(app, restrictedCtx);
+    } finally {
+      restore();
+    }
   }
 }
 
@@ -396,6 +482,40 @@ export async function finalizeExtensionLoad(
         `${pending.join(', ')}. It is running WITHOUT them — approve at ` +
         `POST /api/marketplace/${extName}/capabilities/approve to grant.`,
     );
+  }
+
+  // The resources this extension guards, and which of them are confidential.
+  //
+  // Both halves were documented and neither was wired. `registerSensitiveResources`
+  // was exported with a comment saying "extensions may add their own" and had no
+  // caller anywhere outside its own test — so a third-party extension holding
+  // medical records or disciplinary files had no way to say so, and the only
+  // route was editing the engine's source. And the CI gate that requires
+  // `manifest.resources` tells authors that "grants for a resource are created
+  // from this declaration", which nothing read at runtime: an extension arriving
+  // after migration 034 got no default grants at all, so under deny-by-default
+  // every one of its routes answered 403 to everyone but an administrator.
+  //
+  // Sensitive first, then materialize, because the order decides the outcome:
+  // `materializeDefaultGrants` skips what `isSensitiveResource` withholds, and
+  // doing it the other way round would hand out read access to exactly the data
+  // the extension asked to keep closed.
+  const sensitive = manifest?.sensitiveResources ?? [];
+  if (sensitive.length > 0) registerSensitiveResources(sensitive);
+  const declaredResources = manifest?.resources ?? [];
+  if (declaredResources.length > 0) {
+    try {
+      const written = await materializeDefaultGrants(ctx.db, declaredResources);
+      if (written > 0) {
+        console.log(`   🔑 ${extName}: default access granted on ${written} permission(s)`);
+      }
+    } catch (err) {
+      console.warn(
+        `   ⚠  ${extName}: could not grant default access to its resources — ` +
+          `they stay administrator-only until the next boot:`,
+        (err as Error).message,
+      );
+    }
   }
 
   // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.

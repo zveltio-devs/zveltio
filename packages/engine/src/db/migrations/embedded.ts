@@ -41,6 +41,7 @@ import m029 from './sql/031_insight_saved_queries_tenant.sql' with { type: 'text
 import m030 from './sql/032_api_key_rls_bypass_default_off.sql' with { type: 'text' };
 import m031 from './sql/033_tenant_scope_predicate_text.sql' with { type: 'text' };
 import m032 from './sql/034_deny_by_default_grants.sql' with { type: 'text' };
+import m033 from './sql/035_widen_sensitive_resources.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -77,4 +78,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '032_api_key_rls_bypass_default_off.sql': m030,
   '033_tenant_scope_predicate_text.sql': m031,
   '034_deny_by_default_grants.sql': m032,
+  '035_widen_sensitive_resources.sql': m033,
 };

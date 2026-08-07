@@ -115,6 +115,49 @@ export const ManifestSchema = z
      * to grep the source to find out.
      */
     globalRoutes: z.array(z.string()).default([]),
+    /**
+     * The paths are chosen by the operator after install, so no list can exist.
+     *
+     * `developer/edge-functions` is the case: an operator writes a function and
+     * gives it a path, and the extension calls `registerPublicRoute` with a
+     * value read from a table. It cannot enumerate what it has not been told
+     * yet, and the honest statement is not an empty array — that would read as
+     * "this extension opens nothing" — but "this extension opens routes whose
+     * paths live in data".
+     *
+     * A boolean rather than a sentinel string in `globalRoutes`, because the
+     * sentinel was tried and it broke the extension: the manifest stopped
+     * matching this schema, the engine refused to load it with a 422, and the
+     * CI gate that should have caught it never ran the extension's manifest
+     * through here at all.
+     */
+    globalRoutesDynamic: z.boolean().default(false),
+    /**
+     * Authorization resource names this extension guards with
+     * `permissionGate(ctx, '<name>')`.
+     *
+     * Read at load time to create the default grants for the standard roles, so
+     * an extension installed after migration 034 is usable by ordinary staff
+     * rather than answering 403 to everyone but an administrator. A CI gate in
+     * the extensions repository fails the build when a `permissionGate` call
+     * names something absent from here.
+     *
+     * NOT `permissions`, which is the capability list the HOST grants to the
+     * extension. This is the list an OPERATOR grants to their people. Same word
+     * in English, opposite directions.
+     */
+    resources: z.array(z.string()).default([]),
+    /**
+     * Which of `resources` are withheld from the automatic default grant.
+     *
+     * Core withholds `employees`, `payroll`, `leave` and `banking` on the view
+     * that some data an employer holds because the law requires it, not because
+     * colleagues should read it. Core cannot make that judgement about an
+     * extension it has never seen — only the extension knows it stores medical
+     * records or disciplinary files — so it declares them and they stay closed
+     * until a role is granted them by name.
+     */
+    sensitiveResources: z.array(z.string()).default([]),
     contributes: z
       .object({
         engine: z.boolean().default(true),
