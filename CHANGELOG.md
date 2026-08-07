@@ -4,6 +4,66 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.55] - 2026-08-07
+
+**The deny-by-default release, made to actually work.** An independent re-audit
+of beta.54 confirmed nine of its eleven fixes and found that two had introduced
+regressions. Both were the same shape, and so was a third bug found while
+verifying the first two: a mechanism documented as working, with nothing
+checking that it did.
+
+Anyone on beta.54 should take this release.
+
+### Fixed
+
+- **A new collection was unusable until the engine restarted.** Casbin keeps its
+  policies in memory and loads them once, at boot; the default grants were
+  written straight to the table afterwards. So every collection created at
+  runtime answered 403 to every ordinary user, with the grant sitting in the
+  database the whole time. Administrators never saw it — their grant is total
+  and does not depend on any of this.
+- **Core collections were unreachable on most installs.** The crm extension
+  creates `zvd_contacts`, `zvd_organizations` and `zvd_transactions` with raw
+  SQL and its migrations run first, so the bootstrap saw the tables, took them
+  as done, and skipped everything that makes a collection real: no registration
+  (the Studio listed nothing), no tenant RLS from the host, no grants. Measured
+  on an empty database: an ordinary member with access to twenty extension
+  resources and zero collections. Core tables are now adopted rather than
+  skipped.
+- **No error raised inside an extension ever reached the engine's handler.**
+  Hono decides whether a parent's error handling applies by comparing function
+  identity, and every extension bundles its own copy of Hono — so the check
+  could never succeed and each route was wrapped in the extension's own default
+  500 instead. The 22P02 → 400 mapping written for exactly these routes had
+  never run, and neither had centralised error logging. An invalid id in an
+  extension URL now answers 400 rather than 500.
+- **`developer/edge-functions` could not be enabled at all** (invalid manifest,
+  422 on install), and the validation gate reported it as fine because it
+  checked a different schema than the one the engine parses. Both fixed; every
+  manifest now goes through the engine's own schema.
+- **Extensions can declare confidential data.** `sensitiveResources` in the
+  manifest withholds the automatic grant, and `resources` now actually creates
+  the grants the CI gate always claimed it did — an extension installed after
+  beta.54 previously got none, and answered 403 to everyone but an
+  administrator.
+
+### Changed
+
+- **Expenses, time tracking, accounting and invoices are now confidential**,
+  joining employees, payroll, leave and banking. Migration 035 revokes the
+  automatic grants; roles that were granted these by name are untouched, as are
+  tenant owners and administrators.
+
+  **This will take access away from people who have it today, invoicing most of
+  all.** That is the intent: an operator grants the roles that need it, by name,
+  once — rather than everyone holding it because nobody chose. The grant is one
+  action per role in the permissions UI.
+
+### Upgrade notes
+
+Migration 035 runs automatically and is idempotent. Review which roles need
+invoicing and accounting before or immediately after upgrading.
+
 ## [3.0.0-beta.54] - 2026-08-07
 
 **Authorization now denies by default.** What is not explicitly permitted is
