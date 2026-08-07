@@ -26,7 +26,19 @@ test.describe('Studio, in a browser', () => {
     test.skip(!(await browserAvailable()), 'no browser here — see the warning above');
   });
 
-  test('serves the admin shell and boots its JavaScript', async ({ page }) => {
+  test('boots its JavaScript and reaches a login form', async ({ page }) => {
+    // One navigation, three assertions. This was two tests loading `/admin/`
+    // into two browser contexts and asserting half each, which cost a context
+    // for no coverage — and the second one failed three runs in a row on CI
+    // with a Chromium segfault while every other test passed, on a commit that
+    // changed nothing but whitespace. Whatever the runner is doing there, the
+    // extra context was buying nothing.
+    //
+    // Merging is not a workaround dressed as a cleanup: both original
+    // assertions are here, and the ordering makes them STRONGER. The error
+    // check now runs after waiting for the login input, so anything thrown
+    // during hydration is caught. Before, it ran immediately after `goto` and
+    // an error a few hundred milliseconds later went unnoticed.
     const failures: string[] = [];
     page.on('pageerror', (e) => failures.push(e.message));
 
@@ -36,20 +48,16 @@ test.describe('Studio, in a browser', () => {
     // about content, not markup.
     await expect(page.locator('body')).not.toBeEmpty();
 
-    // And nothing threw on the way. This is the half that catches a version
-    // mismatch: the shell can paint before the first API call fails.
-    expect(failures, `Uncaught errors while loading /admin/:\n${failures.join('\n')}`).toEqual([]);
-  });
-
-  test('reaches a login form rather than an empty frame', async ({ page }) => {
-    await page.goto('/admin/');
-
     // Asserting on the input rather than a heading keeps this from breaking on
     // copy changes, which is the usual reason a smoke suite starts getting
     // ignored.
     await expect(page.locator('input[type="email"], input[name="email"]').first()).toBeVisible({
       timeout: 15_000,
     });
+
+    // And nothing threw on the way. This is the half that catches a version
+    // mismatch: the shell can paint before the first API call fails.
+    expect(failures, `Uncaught errors while loading /admin/:\n${failures.join('\n')}`).toEqual([]);
   });
 });
 
