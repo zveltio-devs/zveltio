@@ -45,21 +45,44 @@ export function runWithDomain<T>(domain: string, fn: () => T): T {
  * With this, `ctx.db` means the same thing everywhere, and extensions no longer
  * need a second spelling for background code.
  *
- * Reuses an existing store when one is open, so a nested
- * `withTenantIsolation` inside a request does not lose the domain.
+ * A nested call inherits the enclosing store's domain, so a
+ * `withTenantIsolation` inside a request does not lose it.
  */
 export function runWithTenantTrx<T>(trx: Database, tenantId: string, fn: () => T): T {
+  // ALWAYS a new context. Never mutate the one we are standing in.
+  //
+  // This used to take a second branch when a store already existed: assign
+  // `existing.trx = trx`, call `fn()`, and restore the previous value in a
+  // `finally`. That `finally` is SYNCHRONOUS and `fn` is not. `fn()` returns a
+  // promise the instant it hits its first `await`, the `finally` runs right
+  // then, and the transaction is put back to `undefined` before the handler has
+  // issued a single query. Everything after that first await — which is all of
+  // a request handler — ran with no tenant transaction at all.
+  //
+  // `ctx.db` resolves through `getCurrentTenantTrx()` and falls back to the
+  // global pool, which on a standard install connects as a superuser, which RLS
+  // does not apply to. So 302 `tenant_isolation` policies across 350 extension
+  // tables were inert on the request path: reads crossed tenants, updates ran
+  // without a tenant predicate, and every row an extension wrote landed in the
+  // DEFAULT tenant because the column default reads a GUC that was never set.
+  // An audit measured it as CRM returning 12 rows where the core returned 11,
+  // and rode it all the way to deleting the instance administrator through a
+  // SCIM token issued for an ordinary tenant.
+  //
+  // The branch existed for a good reason — background jobs have no store, and
+  // `ctx.db` used to fall through to the global pool inside every scheduled
+  // task — and it was written to reuse an open store so a nested call would not
+  // lose the domain. It fixed the untested path and broke the tested one, then
+  // went unnoticed because the branch that WORKS is the one jobs take, and jobs
+  // are where the tests are.
+  //
+  // AsyncLocalStorage already does exactly what the manual save/restore was
+  // reaching for, and does it per async context rather than per shared object,
+  // so nesting is correct by construction. The domain of an enclosing store is
+  // carried forward so the original intent — a nested `withTenantIsolation`
+  // inside a request keeps its domain — still holds.
   const existing = store.getStore();
-  if (existing) {
-    const previous = existing.trx;
-    existing.trx = trx;
-    try {
-      return fn();
-    } finally {
-      existing.trx = previous;
-    }
-  }
-  return store.run({ domain: tenantId, trx }, fn);
+  return store.run({ domain: existing?.domain ?? tenantId, trx }, fn);
 }
 
 export function getCurrentDomain(): string {
