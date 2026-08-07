@@ -75,11 +75,7 @@ d('core collections are usable, not just present', () => {
          WHERE ptype = 'p' AND v0 = 'tenant_member' AND v2 = ${def.name}
       `.execute(db);
       const actions = rows.rows.map((r) => r.v3).sort();
-      expect(actions, `no default grants for '${def.name}'`).toEqual([
-        'create',
-        'read',
-        'update',
-      ]);
+      expect(actions, `no default grants for '${def.name}'`).toEqual(['create', 'read', 'update']);
     }
   });
 
