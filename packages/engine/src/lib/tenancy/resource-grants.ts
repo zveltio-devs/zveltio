@@ -128,6 +128,43 @@ export async function materializeDefaultGrants(
       }
     }
   }
+
+  // A row in the table is not a grant until the enforcer has read it.
+  //
+  // Casbin keeps its policies in memory and `initPermissions` loads them once,
+  // at boot. Both callers of this function run AFTER that: the reconcile a few
+  // lines later in the boot sequence, and collection creation at any point
+  // afterwards. So every row written here was invisible to `checkPermission`
+  // until someone restarted the engine — which under deny-by-default means a
+  // freshly created collection answered 403 to every ordinary user, with the
+  // grant sitting in the database the whole time.
+  //
+  // In a Business OS, "create a collection" is the main activity, and an
+  // administrator testing with their own account never sees it: their grant is
+  // total and does not depend on any of this. That is the same blind spot that
+  // hid the UUID column bug.
+  //
+  // The reload is worth noticing as an omission rather than an oversight: the
+  // harness helper for these tests calls `loadPolicy()` after inserting rows,
+  // with a comment explaining that a row written behind the enforcer is
+  // invisible until reloaded. The production path was written without it.
+  //
+  // Only when something was actually written, so a settled install pays
+  // nothing, and non-fatal: the rows are committed either way and the next boot
+  // picks them up, which is the behaviour this replaces rather than one it
+  // depends on.
+  if (written > 0) {
+    try {
+      const { getEnforcer } = await import('./permissions.js');
+      await (await getEnforcer()).loadPolicy();
+    } catch (err) {
+      console.warn(
+        '[resource-grants] wrote grants but could not reload the enforcer; they take effect on restart:',
+        (err as Error).message,
+      );
+    }
+  }
+
   return written;
 }
 
