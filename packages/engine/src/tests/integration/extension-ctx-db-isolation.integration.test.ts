@@ -17,11 +17,7 @@ import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/tenant-manager.js';
-import {
-  runWithDomain,
-  setCurrentTenantTrx,
-  getCurrentTenantTrx,
-} from '../../lib/tenancy/index.js';
+import { runWithDomain, runWithTenantTrx, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
 import {
   createRestrictedDb,
   createDeniedAdminDb,
@@ -50,17 +46,30 @@ async function count(handle: Database): Promise<number> {
 }
 
 /**
- * Mimic a request/job for `tenant`: the middleware runs `runWithDomain` around a
- * tenant-GUC transaction (here under the non-superuser role so FORCE RLS binds)
- * and calls `setCurrentTenantTrx`. `ctxDb` then resolves that transaction.
+ * The chain a real request takes, not a simulation of it.
+ *
+ * This used to call `setCurrentTenantTrx(trx)` directly — which writes the
+ * transaction onto the store and leaves it there. Production does not do that.
+ * `tenantMiddleware` opens a store with `runWithDomain` and then
+ * `withTenantIsolation` calls `runWithTenantTrx`, and for three days that
+ * function took a branch which restored the previous transaction in a
+ * SYNCHRONOUS `finally` around an async callback — so it was gone before the
+ * handler's first query.
+ *
+ * These tests passed the whole time. They asserted, faithfully, that tenant
+ * isolation holds on a code path the application never executes. An audit found
+ * the truth by counting rows through a live extension: 12 where the core
+ * returned 11.
+ *
+ * So the helper now goes through `runWithTenantTrx` exactly as the middleware
+ * does. Verified against the broken revision: the two cases below fail.
  */
 function asTenantRequest<T>(tenant: string, fn: () => Promise<T>): Promise<T> {
   return runWithDomain(tenant, () =>
     db.transaction().execute(async (trx) => {
       await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
       await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
-      setCurrentTenantTrx(trx as unknown as Database);
-      return fn();
+      return runWithTenantTrx(trx as unknown as Database, tenant, fn);
     }),
   );
 }
