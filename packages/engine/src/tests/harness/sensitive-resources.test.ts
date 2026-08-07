@@ -106,6 +106,26 @@ d('sensitive resources', () => {
     });
   });
 
+  it('the four resources widened by owner decision are closed too', async () => {
+    // Migration 035. Naming them in `SENSITIVE_RESOURCES` only governs grants
+    // that have yet to be created — 034 had already written these, so without
+    // the revoke the list would have looked right and changed nothing on any
+    // running instance. This asserts the revoke happened, not the list.
+    const { db } = await getTestApp();
+    const user = await makeUser(db, 'widened');
+    await grantRole(db, user, 'tenant_member');
+
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, 'expenses', 'read')).toBe(false);
+      expect(await checkPermission(user, 'time-tracking', 'read')).toBe(false);
+      expect(await checkPermission(user, 'accounting', 'read')).toBe(false);
+      expect(await checkPermission(user, 'invoices', 'read')).toBe(false);
+      // Ordinary business data is untouched — the revoke was scoped, not broad.
+      expect(await checkPermission(user, 'crm', 'read')).toBe(true);
+      expect(await checkPermission(user, 'projects', 'read')).toBe(true);
+    });
+  });
+
   it('a tenant admin still reaches them', async () => {
     // The corner a careless fix breaks. `tenant_admin` holds ('*','*','*') —
     // "may do anything" has to keep meaning anything, or this stops being
@@ -221,6 +241,39 @@ d('sensitive resources', () => {
     await runWithDomain(TENANT, async () => {
       expect(await checkPermission(boss, 'payroll', 'read')).toBe(true);
       expect(await checkPermission(boss, 'contacts', 'delete')).toBe(true);
+    });
+  });
+
+  it('a grant works the moment it is written, without a restart', async () => {
+    // The regression this file's own helper should have prevented. That helper
+    // calls `loadPolicy()` after inserting rows, with a comment saying a row
+    // written behind the enforcer is invisible until reloaded — and the
+    // production path was shipped without it. Casbin holds policies in memory,
+    // both callers of `materializeDefaultGrants` run after the single boot-time
+    // load, so a collection created at runtime answered 403 to every ordinary
+    // user until someone restarted the engine.
+    //
+    // Deliberately does NOT reload before asserting. That is the whole point:
+    // reloading here would test the same thing the other cases already do and
+    // would pass against the broken build.
+    const { db } = await getTestApp();
+    const user = await makeUser(db, 'live-grant');
+    await grantRole(db, user, 'tenant_member');
+
+    const resource = `live_widgets_${Date.now()}`;
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, resource, 'read')).toBe(false);
+    });
+
+    const written = await materializeDefaultGrants(db, [resource]);
+    expect(written).toBe(4); // read + create + update for member, read for viewer
+    await invalidateUserPermCache(user);
+
+    await runWithDomain(TENANT, async () => {
+      expect(await checkPermission(user, resource, 'read')).toBe(true);
+      expect(await checkPermission(user, resource, 'update')).toBe(true);
+      // Still not everything — the reload must not widen anything.
+      expect(await checkPermission(user, resource, 'delete')).toBe(false);
     });
   });
 

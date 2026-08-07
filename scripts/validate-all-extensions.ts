@@ -7,6 +7,30 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
+import { ManifestSchema } from '../packages/engine/src/lib/extensions/manifest-schema.js';
+
+/**
+ * The schema that decides whether an extension loads is the engine's.
+ *
+ * This script used to delegate every manifest question to
+ * `bun cli extension validate`, which carries its own, looser idea of a valid
+ * manifest. So `developer/edge-functions` shipped with `"globalRoutes"` as a
+ * string where the engine wants an array: this report said OK, CI was green,
+ * and enabling the extension on a real instance answered
+ * 422 `invalid manifest.json`. An extension can be completely unloadable in
+ * production with every gate passing — which is the exact class of failure the
+ * report was added in R6 to prevent.
+ *
+ * Running `ManifestSchema` here closes it, because this is the object the
+ * engine parses at load time. Nothing else is authoritative about that.
+ */
+function schemaErrors(manifest: unknown): string[] {
+  const parsed = ManifestSchema.safeParse(manifest);
+  if (parsed.success) return [];
+  return parsed.error.issues.map(
+    (i) => `MANIFEST_SCHEMA: ${i.path.join('.') || '(root)'}: ${i.message}`,
+  );
+}
 
 const ROOT = process.argv[2] ?? join(import.meta.dir, '../../zveltio-extensions');
 const CLI = join(import.meta.dir, '../packages/cli/src/index.ts');
@@ -81,7 +105,10 @@ for (const manifestPath of findManifests(ROOT).sort()) {
     cwd: join(import.meta.dir, '..'),
   });
   const out = (proc.stdout ?? '') + (proc.stderr ?? '');
-  const validateOk = proc.status === 0;
+  // The CLI's verdict AND the engine's. A manifest the engine will refuse at
+  // load time is a failure here even when the CLI is happy with it.
+  const schemaIssues = schemaErrors(manifest);
+  const validateOk = proc.status === 0 && schemaIssues.length === 0;
 
   // Every SDUI_* line the validator emitted, errors and warnings alike — worth
   // printing either way.
@@ -111,7 +138,7 @@ for (const manifestPath of findManifests(ROOT).sort()) {
     sduiOk: tier === 'sdui' ? !sduiHasErrors : null,
     sduiErrors: sduiFindings,
     validateOk,
-    otherErrors: validateOk ? [] : otherErrors.slice(0, 3),
+    otherErrors: validateOk ? [] : [...schemaIssues, ...otherErrors].slice(0, 4),
     hasEngine: hasEngineTs || hasEngineJs,
     hasBundle: hasEngineJs,
     bundleHashOk,

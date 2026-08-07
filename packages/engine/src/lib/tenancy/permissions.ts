@@ -196,6 +196,20 @@ const SENSITIVE_RESOURCES = new Set<string>([
   'leave',
   // Company banking. The same argument, one level up.
   'banking',
+  // Added by owner decision (2026-08-07) after an audit measured what an
+  // ordinary member could actually reach. Expense reports carry amounts,
+  // merchants and receipts per person — where somebody was and who with — and
+  // time tracking is attendance. Both are closer to `leave`, already here, than
+  // to `crm`.
+  'expenses',
+  'time-tracking',
+  // The company's books and its invoices. The widest part of the decision and
+  // the one worth stating plainly: in many companies invoicing is daily work
+  // for ordinary staff, so this WILL take access away from people who had it.
+  // That is the intent — an operator grants the roles that need it by name,
+  // once, rather than everyone holding it because nobody chose.
+  'accounting',
+  'invoices',
 ]);
 
 /** Extensions may add their own; see `registerSensitiveResources`. */
