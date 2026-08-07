@@ -567,7 +567,7 @@ export class DDLManager {
     // Best-effort: a permissions row that fails to write must not roll back a
     // table that already exists. The boot reconcile picks it up.
     try {
-      const { materializeDefaultGrants } = await import('../tenancy/resource-grants.js');
+      const { materializeDefaultGrants } = await import('../tenancy/index.js');
       await materializeDefaultGrants(db, [validated.name]);
     } catch (err) {
       console.warn(
