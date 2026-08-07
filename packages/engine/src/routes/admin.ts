@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
@@ -87,13 +88,33 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         // reads "users see only their own records" quietly did not apply to
         // integrations, and nothing in the UI said so.
         'rls_bypass',
+        // Same argument as `rls_bypass` directly above: a key bound to the root
+        // tenant is exempted from tenant scoping on purpose — that exemption is
+        // what keeps single-tenant installs and pre-tenancy keys working — and
+        // the listing did not say which keys had it.
+        //
+        // The normal way to create a key produces exactly those: an
+        // administrator not standing in a tenant context. Measured, a key made
+        // that way reads `alpha` AND `beta`, while a key created under
+        // `x-tenant-slug: alpha` reads alpha and gets nothing from beta. The
+        // binding works; nobody could see it.
+        'tenant_id',
       ])
       .where('tenant_id', '=', getCurrentDomain())
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
       .execute();
-    return c.json({ api_keys: keys });
+    // A boolean rather than leaving an operator to recognise a UUID. This is
+    // the fact they need — "this key is not confined to one tenant" — and
+    // asking them to memorise the root tenant's id to learn it is the kind of
+    // small hostility that adds up.
+    return c.json({
+      api_keys: keys.map((k) => ({
+        ...k,
+        is_instance_wide: k.tenant_id === DEFAULT_TENANT_ID,
+      })),
+    });
   });
 
   // POST / — Create API key

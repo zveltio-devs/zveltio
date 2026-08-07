@@ -29,7 +29,7 @@ import { generatePDFAsync } from '../pdf-queue.js';
 import { generatePDF, renderTemplate } from '../doc-generator.js';
 import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
-import { checkQueryDepth, DataLoaderRegistry } from '../graphql-dataloader.js';
+import { checkQueryDepth, checkQueryWidth, DataLoaderRegistry } from '../graphql-dataloader.js';
 import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
@@ -142,6 +142,7 @@ export interface ExtensionInternals {
   scheduleFileIndexing: typeof scheduleFileIndexing;
   DataLoaderRegistry: typeof DataLoaderRegistry;
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
+  checkQueryWidth: (query: string, maxFields?: number) => string | null;
   enqueueDDLJob: typeof enqueueDDLJob;
   /**
    * Synchronous literal-host SSRF check. Throws on a blocked URL, returns
@@ -225,6 +226,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     scheduleFileIndexing,
     DataLoaderRegistry,
     checkQueryDepth,
+    checkQueryWidth,
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,

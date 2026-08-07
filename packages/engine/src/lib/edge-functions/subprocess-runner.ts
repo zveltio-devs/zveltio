@@ -35,6 +35,7 @@
  */
 
 import { spawn } from 'bun';
+import { findDynamicImport } from './no-dynamic-import.js';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -324,6 +325,10 @@ export async function runEdgeFunctionInSubprocess(
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const transpiler = new (Bun as any).Transpiler({ loader: 'ts' });
     jsCode = transpiler.transformSync(code);
+    const moduleEscape = findDynamicImport(jsCode);
+    if (moduleEscape) {
+      return { ok: false, error: moduleEscape, logs: [], duration_ms: 0 };
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     return {
