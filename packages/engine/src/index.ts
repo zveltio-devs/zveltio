@@ -1086,9 +1086,7 @@ async function bootstrap() {
   // administrators, with no error message that points at the cause. Idempotent,
   // so on a settled install this writes nothing and costs one query.
   try {
-    const { listKnownResources, materializeDefaultGrants } = await import(
-      './lib/tenancy/resource-grants.js'
-    );
+    const { listKnownResources, materializeDefaultGrants } = await import('./lib/tenancy/index.js');
     const n = await materializeDefaultGrants(db, await listKnownResources(db));
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {

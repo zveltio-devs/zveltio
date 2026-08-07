@@ -70,10 +70,23 @@ beforeAll(async () => {
 
   // Control-plane model (what /api/tenants/:id/members produces): GLOBAL role
   // policies + PER-TENANT grants. dora is admin in A, viewer in B.
+  //
+  // The admin role keeps its `('*', '*', '*')` — a TOTAL grant, which is a
+  // statement about the role rather than about any resource, and still matches
+  // everything.
+  //
+  // The viewer role is written out per resource, which is what migration 034
+  // turned it into. It used to be seeded here as `('*', '*', 'read')`, and that
+  // form now grants nothing: "may read anything" names no resource, so it is
+  // not a decision about any of them. The old seed made this file's assertions
+  // pass against a resource called `'anything'` that does not exist anywhere —
+  // which was the bug, expressed as a test.
   await e.addPolicy('rbactest_tadmin', '*', '*', '*');
-  await e.addPolicy('rbactest_tviewer', '*', '*', 'read');
+  await e.addPolicy('rbactest_tviewer', '*', 'rbactest_posts', 'read');
+  await e.addPolicy('rbactest_blanket', '*', '*', 'read');
   await e.addRoleForUser('rbactest_dora', 'rbactest_tadmin', A);
   await e.addRoleForUser('rbactest_dora', 'rbactest_tviewer', B);
+  await e.addRoleForUser('rbactest_erin', 'rbactest_blanket', B);
 });
 
 afterAll(async () => {
@@ -122,17 +135,38 @@ describe.skipIf(skipAll)('Per-tenant RBAC (Casbin domains)', () => {
   });
 
   it('control plane: admin in A can delete; only viewer in B (read yes, delete no)', async () => {
-    // dora is admin in tenant A → full access there.
+    // dora is admin in tenant A → full access there, on a resource nobody has
+    // ever named. That is what a total grant means and it is still honoured.
     expect(
       await runWithDomain(A, () => checkPermission('rbactest_dora', 'anything', 'delete')),
     ).toBe(true);
-    // dora is only viewer in tenant B → can read, cannot delete.
-    expect(await runWithDomain(B, () => checkPermission('rbactest_dora', 'anything', 'read'))).toBe(
-      true,
-    );
+    // dora is only viewer in tenant B → can read what the role names, and
+    // cannot delete it.
     expect(
-      await runWithDomain(B, () => checkPermission('rbactest_dora', 'anything', 'delete')),
+      await runWithDomain(B, () => checkPermission('rbactest_dora', 'rbactest_posts', 'read')),
+    ).toBe(true);
+    expect(
+      await runWithDomain(B, () => checkPermission('rbactest_dora', 'rbactest_posts', 'delete')),
     ).toBe(false);
+    // And nothing beyond it. Before deny-by-default the viewer's wildcard
+    // answered yes here, which is how twenty-three extensions ended up with
+    // permission checks that could not refuse.
+    expect(await runWithDomain(B, () => checkPermission('rbactest_dora', 'payroll', 'read'))).toBe(
+      false,
+    );
+  });
+
+  it('a partial wildcard grants nothing, against the real adapter', async () => {
+    // The harness pins this too, but through a seeded database. Here the policy
+    // goes in through Casbin's own `addPolicy` and comes back out through the
+    // Kysely adapter, so the rule is checked against the path an operator's
+    // grant actually travels — not a row someone wrote by hand.
+    expect(
+      await runWithDomain(B, () => checkPermission('rbactest_erin', 'rbactest_posts', 'read')),
+    ).toBe(false);
+    expect(await runWithDomain(B, () => checkPermission('rbactest_erin', 'anything', 'read'))).toBe(
+      false,
+    );
   });
 
   it('migration 008 reshapes legacy rows + survives the (sub,obj) act-collision', async () => {
