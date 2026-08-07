@@ -1,4 +1,5 @@
 import { sandboxWorkerEnv } from './edge-functions/sandbox-env.js';
+import { findDynamicImport } from './edge-functions/no-dynamic-import.js';
 
 export interface EdgeRequest {
   method: string;
@@ -164,6 +165,10 @@ export async function runEdgeFunction(
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const transpiler = new (Bun as any).Transpiler({ loader: 'ts' });
     jsCode = transpiler.transformSync(code);
+    const moduleEscape = findDynamicImport(jsCode);
+    if (moduleEscape) {
+      return { ok: false, error: moduleEscape, logs: [], duration_ms: 0 };
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     return {

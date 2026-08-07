@@ -23,7 +23,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -38,7 +38,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
@@ -70,7 +70,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.6.23",
         "@better-auth/passkey": "^1.6.23",
@@ -105,7 +105,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -129,7 +129,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -145,7 +145,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -159,7 +159,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.54",
+      "version": "3.0.0-beta.56",
       "dependencies": {
         "@inlang/paraglide-js": "^2.18.0",
         "@lucide/svelte": "^0.577.0",
@@ -205,6 +205,7 @@
     "fast-uri": "3.1.5",
     "js-yaml": "4.3.1",
     "linkify-it": "5.0.2",
+    "nanoid": "5.1.16",
     "postcss": "8.5.25",
     "protobufjs": "7.6.5",
     "qs": "6.15.3",
@@ -1532,7 +1533,7 @@
 
     "nan": ["nan@2.27.0", "", {}, "sha512-hC+0LidcL3XE4rp1C4H54KujgXKzbfyTngZTwBByQxsOxCEKZT0MPQ4hOKUH2jU1OYstqdDH4onyHPDzcV0XdQ=="],
 
-    "nanoid": ["nanoid@3.3.16", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q=="],
+    "nanoid": ["nanoid@5.1.16", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=="],
 
     "nanostores": ["nanostores@1.3.0", "", {}, "sha512-XPUa/jz+P1oJvN9VBxw4L9MtdFfaH3DAryqPssqhb2kXjmb9npz0dly6rCsgFWOPr4Yg9mTfM3MDZgZZ+7A3lA=="],
 

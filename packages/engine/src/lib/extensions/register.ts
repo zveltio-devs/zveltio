@@ -87,7 +87,11 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   ai: ['zv_flows'],
   'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
   'content/document-templates': ['zv_document_templates'],
-  'content/documents': ['zv_generated_docs'],
+  // `zv_document_templates` is engine-declared and also redeclared by
+  // `content/document-templates`; this extension reads the templates it
+  // generates documents from. Two of its seven GET routes answered 500 without
+  // this, `/templates` among them.
+  'content/documents': ['zv_generated_docs', 'zv_document_templates'],
   'content/media': [
     'zv_media_favorites',
     'zv_storage_quotas',
@@ -108,7 +112,17 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zvd_translation_keys',
     'zvd_translations',
   ],
-  'storage/cloud': ['zv_storage_quotas'],
+  // The media library's tables, because `storage/cloud` is the other half of
+  // that feature: it serves the bytes and validates the share tokens for files
+  // `content/media` owns. All three are engine-declared (`001_initial.sql`,
+  // plus `028_media_file_visibility.sql` for shares), so the table guard was
+  // right to refuse them and the extension was right to need them — nobody had
+  // written the grant.
+  //
+  // Measured cost of the omission: four of `storage/cloud`'s thirteen GET
+  // routes answered 500, including `/files`, which is the extension's main
+  // purpose. Shipped, and broken on every install since.
+  'storage/cloud': ['zv_storage_quotas', 'zv_media_files', 'zv_media_folders', 'zv_media_shares'],
   'workflow/approvals': [
     'zv_approval_decisions',
     'zv_approval_requests',
