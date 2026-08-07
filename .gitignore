@@ -143,6 +143,16 @@ packages/engine/storage/
 SECURITY-AUDIT*.md
 AUDIT-*.md
 
+# The vision document stays local for a different reason.
+#
+# It is written for whoever builds Zveltio, and it says plainly where the
+# product falls short today — the dashboard that reports database tables
+# instead of money, the 52 hand-written pages, the refusal message that reads
+# like a doorman. That candour is what makes it useful internally and what
+# makes it the wrong thing to publish: the public should see the result, not
+# the path to it.
+VISION.md
+
 # Playwright — traces and reports from a local run.
 /test-results/
 /playwright-report/
