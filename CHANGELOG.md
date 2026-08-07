@@ -4,6 +4,67 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.57] - 2026-08-07
+
+**Tenant isolation did not apply inside extensions. Take this release.**
+
+An independent audit found that every extension — CRM, HR, invoicing, payroll —
+had been running outside tenant isolation for three days, and rode it to
+deleting an instance's administrator account. Anyone on beta.54, beta.55 or
+beta.56 with more than one tenant should upgrade now.
+
+### Fixed — critical
+
+- **Every request lost its tenant transaction before the handler ran.** The
+  function that binds it restored the previous value in a synchronous `finally`
+  around an async callback, so the restore fired the moment the handler hit its
+  first `await` — before a single query. `ctx.db` then fell back to the global
+  pool, which on a standard install connects as a superuser, which RLS does not
+  apply to. 302 isolation policies across 350 extension tables were inert on the
+  request path: reads crossed tenants, updates ran with no tenant predicate, and
+  every row an extension wrote landed in the default tenant.
+
+  Introduced in beta.54 by a fix for background jobs. It repaired the untested
+  path and broke the tested one, and the tests kept passing because the branch
+  that works is the one jobs take.
+
+- **A SCIM token issued for one tenant owned the whole instance's user
+  directory.** Tokens were stored in the default tenant by the defect above, and
+  SCIM treats a default-tenant token as "any user is a member" — a shortcut that
+  is correct on single-tenant installs and became an instance-wide credential
+  everywhere else. Both halves are fixed; the shortcut now asks whether the
+  instance is single-tenant rather than which tenant the token holds.
+
+### Fixed
+
+- **Edge functions could read and write the host disk.** The sandbox blocks
+  dangerous globals, and `import()` is syntax rather than a global, so
+  `await import('node:fs')` read `/etc/passwd` and wrote files that appeared on
+  the host. Now refused at compile time in both sandbox modes.
+- **Two extensions were broken on every install.** `storage/cloud` and
+  `content/documents` are built on engine tables the table guard refused, so
+  four of the former's GET routes answered 500 — including `/files`, its main
+  purpose. `content/documents` also queried four columns that no install had,
+  which made its public share route answer 500 to anonymous visitors.
+- **Two of the three roles the admin API offered could not be saved**, failing
+  with a 500 rather than a validation error.
+- **API keys that act across every tenant looked like any other key.** The
+  listing now says which are instance-wide.
+- **GraphQL priced depth and rows but not width** — 600 aliases in one request
+  returned up to 300,000 rows and counted as a single request for rate limiting.
+- **The AI embedding hook called out with no deadline** on every row written
+  anywhere, so an unreachable provider accumulated one detached request per
+  write.
+
+### Upgrade notes
+
+No migrations in the engine. `content/documents` gains one that adopts its
+table; it is idempotent.
+
+If you run more than one tenant, assume cross-tenant reads and misfiled writes
+occurred while on beta.54 through beta.56, and check rows written in that window
+whose `tenant_id` is the default tenant.
+
 ## [3.0.0-beta.56] - 2026-08-07
 
 **Disaster recovery, actually exercised.** The restore drill had been listed as
