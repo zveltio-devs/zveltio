@@ -4,6 +4,51 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.56] - 2026-08-07
+
+**Disaster recovery, actually exercised.** The restore drill had been listed as
+done for two months and had never been run by anyone — it aborted on its first
+command. Running it surfaced a real gap in restoring onto new hardware.
+
+### Fixed
+
+- **A restore onto a NEW server came up without tenant isolation enforced by the
+  database.** `zveltio_rls` is a *cluster* object, so `pg_dump` does not carry
+  it — while the record saying its migration already created it is in the dump,
+  so re-running migrations could not bring it back. The engine then fell back to
+  connecting as itself, which on a default install is a superuser and therefore
+  not subject to RLS. There was a warning in the log, competing for attention
+  with an outage. The role is now provisioned on every boot: idempotent, and
+  best-effort so a managed Postgres that forbids creating roles keeps starting
+  and keeps warning.
+- **The drill script could not run.** A timed pipeline assigned its duration
+  inside a subshell, so `set -u` stopped the script on the next line. Worse, the
+  success test read `gzip`'s exit status rather than `pg_dump`'s, so a backup
+  that died halfway would have been recorded as passing. And the authentication
+  check sent a bearer token to an engine that has never had the bearer plugin
+  enabled.
+
+### Changed
+
+- **The drill proves the restore is usable, not merely present.** It compared
+  table counts, which every-table-present-and-empty passes with full marks. It
+  now compares row counts table by table, checks that RLS policies and FORCE
+  survive the round trip, and reads the restored data the way the engine reads
+  it — as `zveltio_rls`, with a tenant in the GUC — with a second tenant's row
+  planted so a wrong answer is available in both directions.
+- **The weekly `DR Smoke` workflow runs that script** instead of a smaller copy
+  of it, and publishes the report as an artefact on every run. One definition of
+  a good restore, exercised weekly and by hand.
+- `docs/DISASTER-RECOVERY.md` § Scenario B now says what to expect when
+  restoring onto new hardware, and which line at startup confirms isolation is
+  enforced.
+
+### Upgrade notes
+
+No migrations. Operators restoring a backup onto a rebuilt server should read
+§ Scenario B — the `role "zveltio_rls" does not exist` errors during `psql` are
+expected and harmless now.
+
 ## [3.0.0-beta.55] - 2026-08-07
 
 **The deny-by-default release, made to actually work.** An independent re-audit
