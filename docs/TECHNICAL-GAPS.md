@@ -18,7 +18,7 @@ kept current. Verified state of every P0:
 
 | P0 | Status | Evidence |
 | --- | --- | --- |
-| 1.2 Disaster recovery | ✅ **DONE** | `docs/DISASTER-RECOVERY.md` + `scripts/dr-drill.sh` (dump/restore/PITR, prod-guard) + `.github/workflows/dr-smoke.yml` (weekly, Mon 04:00, row-count verify) |
+| 1.2 Disaster recovery | ✅ **DONE** (re-verified 2026-08-07, see note) | `docs/DISASTER-RECOVERY.md` + `scripts/dr-drill.sh` + `.github/workflows/dr-smoke.yml` (weekly, Mon 04:00) — the workflow now RUNS the script |
 | 2.1 Audit completeness | ✅ **DONE** | `docs/AUDIT-COVERAGE.md` (inventory) + `third-party-isolation-enforcement.test.ts` |
 | 5.1 Live public demo | 🟡 **CODE DONE** | `middleware/demo-mode.ts` (demo-safe action gating) + seedable templates make an instance a working demo. Remaining = **hosting/deploy** (ops, not code). |
 | 5.2 Business templates | ✅ **DONE** | 5 builtin templates (`templates/builtin/*.json`) with collections **+ starter sample data**; `POST /api/templates/:id/{install,seed}`; Studio one-click install + seed. |
@@ -27,6 +27,24 @@ kept current. Verified state of every P0:
 | 7.2 Community presence | ⬜ **NON-CODE** | Discord/GitHub/social — a go-to-market action, not an engineering task. |
 | 7.3 Reference case studies | ⬜ **NON-CODE** | Requires real reference customers. |
 | 7.4 Paid support tiers | ⬜ **NON-CODE** | Website + business-ops decision (pricing, SLAs). |
+
+> **Note on 1.2, added 2026-08-07.** This row cited `scripts/dr-drill.sh` as
+> evidence for two months. The script had never been run by anyone: it aborted
+> on its first command, because a timed pipeline assigned its duration in a
+> subshell and `set -u` stopped the script on the next line. The weekly workflow
+> did not call it either — it reimplemented a smaller check inline, comparing
+> the row counts of two tables.
+>
+> Fixed, and the workflow now runs the script, so this row's evidence is a thing
+> that executes. Running it surfaced a real gap: `zveltio_rls` is a *cluster*
+> object and `pg_dump` does not carry it, while the record saying its migration
+> already ran does — so a restore onto new hardware came up with no role, could
+> not get one from re-running migrations, and fell back to a connection that on
+> a default install is a superuser and therefore not subject to RLS. The role is
+> now provisioned at every boot. See `docs/DISASTER-RECOVERY.md` § Scenario B.
+>
+> The general lesson is worth more than the fix: a ✅ in this table means
+> someone wrote code, not that anyone ran it.
 
 **Net (updated 2026-07-30):** the engineering P0 surface is closed again. The
 load-time extension isolation gap — `lib/extensions/load.ts` importing a
