@@ -13,8 +13,10 @@
  *   Concurrent creates also race on shared trigger functions. Going through
  *   DDLManager removes both failure modes.
  *
- * Idempotent: ensureCoreCollections() skips any collection whose table already
- * exists (upgraded installs), so it's safe to run on every boot.
+ * Idempotent, and it ADOPTS rather than skips: a table that already exists —
+ * crm's migrations create all three with raw SQL and run first — still needs its
+ * metadata row, its tenant RLS and its default grants, none of which the old
+ * skip did. See adoptExistingCoreCollection.
  */
 import type { Database } from '../db/index.js';
 import { DDLManager, type CollectionDefinition } from '../lib/data/index.js';
@@ -198,10 +200,78 @@ export const CORE_COLLECTIONS: CoreCollectionInput[] = [contacts, organizations,
  * zvd_relations. The junction lives here (not in DDLManager) because m2m
  * junctions are a separate concern from collection creation.
  */
+/**
+ * Make an already-existing core table into a real collection.
+ *
+ * Everything `createCollection` does APART from the DDL: register it so the
+ * Studio can see it, isolate it per tenant, and grant the standard roles their
+ * default access. Each step is guarded and non-fatal on its own, because a
+ * table that exists and is half-registered is still better than a boot that
+ * aborts — and every one of them is idempotent, so the next boot retries
+ * whatever failed.
+ */
+async function adoptExistingCoreCollection(
+  db: Database,
+  def: CoreCollectionInput,
+): Promise<void> {
+  try {
+    const registered = await db
+      .selectFrom('zvd_collections')
+      .select('name')
+      .where('name', '=', def.name)
+      .executeTakeFirst();
+    if (!registered) {
+      await DDLManager.registerMetadata(db, def as CollectionDefinition);
+      console.log(`   📇 Core collection '${def.name}' registered (table already existed)`);
+    }
+  } catch (err) {
+    console.warn(`   ⚠  registerMetadata for '${def.name}' failed:`, (err as Error).message);
+  }
+
+  try {
+    const { applyTenantRLS, materializeDefaultGrants } = await import('../lib/tenancy/index.js');
+    await applyTenantRLS(db, `zvd_${def.name}`);
+    const granted = await materializeDefaultGrants(db, [def.name]);
+    if (granted > 0) {
+      console.log(`   🔑 Core collection '${def.name}': default access granted on ${granted}`);
+    }
+  } catch (err) {
+    console.warn(`   ⚠  isolating/granting '${def.name}' failed:`, (err as Error).message);
+  }
+}
+
 export async function ensureCoreCollections(db: Database): Promise<void> {
   let created = 0;
+  let adopted = 0;
   for (const def of CORE_COLLECTIONS) {
-    if (await DDLManager.tableExists(db, def.name)) continue;
+    if (await DDLManager.tableExists(db, def.name)) {
+      // The table is here, but that does not mean the collection is.
+      //
+      // `crm/engine/migrations/001_initial.sql` creates `zvd_contacts`,
+      // `zvd_organizations` and `zvd_transactions` with raw SQL, and its
+      // migrations run before this. So on any install where crm is present the
+      // tables exist, this loop skipped them, and none of what makes a
+      // collection real ever happened: no `zvd_collections` row, so the Studio
+      // shows nothing and the schema cannot be discovered; no tenant RLS from
+      // the path below; and no default grants, which under deny-by-default
+      // means `/api/data/contacts` answers 403 to every ordinary user.
+      //
+      // Measured on a fresh install with the extensions on disk: `zvd_contacts`
+      // present, `zvd_collections` empty, and a member holding access to twenty
+      // extension resources and zero collections.
+      //
+      // This is not a new bug — the skip predates deny-by-default. What changed
+      // is that a missing grant used to be covered by the blanket wildcard and
+      // now decides the answer. Same shape as the enforcer reload: a gap that
+      // was harmless while something coarser was papering over it.
+      //
+      // Adopting rather than creating: the table stays exactly as the extension
+      // built it. All three steps are idempotent, so a settled install does
+      // nothing here.
+      await adoptExistingCoreCollection(db, def);
+      adopted++;
+      continue;
+    }
     try {
       // Cast: CoreCollectionInput is the pre-default shape; CollectionSchema.parse()
       // inside createCollection() materialises the defaults (unique=false, etc).
@@ -252,6 +322,9 @@ export async function ensureCoreCollections(db: Database): Promise<void> {
   }
   if (created > 0) {
     console.log(`   ✅ Core collections bootstrap: ${created} created`);
+  }
+  if (adopted > 0) {
+    console.log(`   ✅ Core collections bootstrap: ${adopted} adopted (table already existed)`);
   }
 
   await ensureContactOrganizationJunction(db);
