@@ -107,8 +107,19 @@ async function receivables(db: Database): Promise<Receivables> {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: better-auth instance, as elsewhere in routes/
-export function briefingRoutes(db: Database, auth: any): Hono {
+/**
+ * Just the one thing this route asks of better-auth.
+ *
+ * Other route files take the instance as `any` with a documented note, because
+ * better-auth exports no usable type for it. This needs a single method, so a
+ * structural type costs nothing and keeps the suppression count where it is —
+ * which is the whole point of the ratchet.
+ */
+interface SessionReader {
+  api: { getSession: (opts: { headers: Headers }) => Promise<unknown> };
+}
+
+export function briefingRoutes(db: Database, auth: SessionReader): Hono {
   const app = new Hono();
 
   app.get('/', async (c) => {
