@@ -9,3 +9,4 @@ export * from './entity-access.js';
 export * from './column-permissions.js';
 export * from './permissions.js';
 export * from './resource-grants.js';
+export * from './denial.js';

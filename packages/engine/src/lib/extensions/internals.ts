@@ -75,6 +75,19 @@ export interface ExtensionContext {
   fieldTypeRegistry: FieldTypeRegistry;
   events: EventBus;
   checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
+  /**
+   * Everything needed to refuse helpfully: whether the resource is
+   * confidential, and who in this tenant can grant it. See lib/tenancy/denial.
+   */
+  describeDenial?: (
+    resource: string,
+    action: string,
+  ) => Promise<{
+    resource: string;
+    action: string;
+    confidential: boolean;
+    canGrant: Array<{ name: string }>;
+  }>;
   getUserRoles: (userId: string) => Promise<string[]>;
   DDLManager: typeof DDLManager;
   /** Inter-extension service registry — see service-registry.ts */

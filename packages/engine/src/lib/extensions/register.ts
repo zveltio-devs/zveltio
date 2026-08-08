@@ -28,6 +28,7 @@ import {
   getCurrentTenantTrx,
   materializeDefaultGrants,
   registerSensitiveResources,
+  describeDenial,
 } from '../tenancy/index.js';
 import { DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
@@ -296,6 +297,12 @@ export function buildRestrictedContext(
         allowedTables,
       ),
     checkPermission: ctx.checkPermission ?? checkPermission,
+    // So `permissionGate` can tell the person who to ask, instead of naming an
+    // internal permission at them. Handed to every extension rather than left
+    // for each to reinvent — the refusal is the host's contract with the user,
+    // and fifty-seven versions of it is how a product stops feeling like one.
+    describeDenial: (resource: string, action: string) =>
+      describeDenial(getCurrentTenantTrx() ?? ctx.db, resource, action),
     getUserRoles: ctx.getUserRoles ?? getUserRoles,
     DDLManager: ctx.DDLManager ?? DDLManager,
     // Hand each extension a scoped view of the registry so its register()
