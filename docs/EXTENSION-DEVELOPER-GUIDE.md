@@ -920,6 +920,40 @@ the page:
 Most CRUD/settings pages are declarative. Reach for a code page only when the UI
 needs a genuinely bespoke widget the schema vocabulary can't express.
 
+### The page belongs to the extension
+
+Whichever form you pick, the page lives in the extension and is declared in its
+manifest. The engine must not carry a hand-written page for an extension
+feature, for a reason that is easy to state and was learned the hard way: an
+extension is optional, so anything the engine holds on its behalf ships to
+people who will never install it — and, worse, becomes a second implementation
+that drifts.
+
+`scripts/check-extension-page-ownership.ts` enforces this. It allows exactly one
+thing in `packages/studio/src/routes/(admin)` that talks to `/ext/*`: a
+**generated snapshot**, byte-identical to the extension page it came from.
+`scripts/sync-extensions.ts` produces it, and it is committed so a release build
+— which has no `zveltio-extensions` sibling — still ships a working admin.
+
+Anything else is one of three faults, and the gate names which:
+
+- **ORPHAN** — no extension declares this path. Somebody wrote an extension's UI
+  in the engine, or the extension declares a different path and this is a second
+  route for the same feature.
+- **STALE** — the snapshot has fallen behind its source. Until it is synced the
+  engine ships an older screen than the extension does. This is not theoretical:
+  the media library's committed copy drifted onto i18n keys belonging to
+  `storage/cloud` and `communications/mail`.
+- **SHADOWS** — the extension ships a declarative schema for this path and a code
+  page sits on top of it. The schema never renders, and nobody maintaining it can
+  tell.
+
+Two routes for one feature is the failure this prevents. BYOD had exactly that:
+a 223-line page in the engine at `/introspect`, a `/byod` route redirecting to
+it, and an extension page calling endpoints that did not exist. The engine's
+copy was the only working one, and the extension's had been broken since it
+shipped, because nothing looked.
+
 ### Declarative pages (SDUI schema) — preferred
 
 An extension page is a JSON file referenced from the manifest. The engine inlines
