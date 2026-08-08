@@ -55,7 +55,7 @@
     "@types/nodemailer": "^6.4.17",
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
-    "fast-check": "^4.8.0",
+    "fast-check": "^4.9.0",
     "typescript": "^5.4.0"
   }
 }
