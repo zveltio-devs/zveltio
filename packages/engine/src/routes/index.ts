@@ -43,6 +43,7 @@ import { backupRoutes } from './backup.js';
 import { savedQueriesRoutes } from './saved-queries.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
 import { insightsRoutes } from './insights.js';
+import { briefingRoutes } from './briefing.js';
 import { sqlEditorRoutes } from './sql-editor.js';
 import { templatesRoutes } from './templates.js';
 import { erdLayoutRoutes } from './erd-layout.js';
@@ -403,6 +404,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Analytics Insights — promoted to core (used to live in extensions/analytics/insights)
   app.route('/api/insights', insightsRoutes(db, auth));
+
+  // What the business needs from you today, as opposed to what the platform is
+  // doing. Derived from the core `transactions` collection, so it answers on an
+  // install with no extensions at all. See routes/briefing.ts.
+  app.route('/api/briefing', briefingRoutes(db, auth));
 
   // Database backups + PITR — promoted to core (was extensions/operations/backup)
   app.route('/api/backup', backupRoutes(db, auth));
