@@ -124,7 +124,12 @@ const RAW_NAV: NavGroup[] = [
       { href: `${base}/flows`, icon: Workflow, labelKey: 'nav.flows' },
       { href: `${base}/webhooks`, icon: Webhook, labelKey: 'nav.webhooks' },
       { href: `${base}/notifications`, icon: Bell, labelKey: 'nav.notifications' },
-      { href: `${base}/approvals`, icon: CheckSquare, labelKey: 'nav.approvals' },
+      {
+        href: `${base}/workflow/approvals`,
+        icon: CheckSquare,
+        labelKey: 'nav.approvals',
+        ext: 'workflow/approvals',
+      },
     ],
   },
   {
@@ -138,7 +143,12 @@ const RAW_NAV: NavGroup[] = [
   {
     labelKey: 'nav.group.developer',
     items: [
-      { href: `${base}/edge-functions`, icon: Code, labelKey: 'nav.edgeFunctions' },
+      {
+        href: `${base}/developer/edge-functions`,
+        icon: Code,
+        labelKey: 'nav.edgeFunctions',
+        ext: 'developer/edge-functions',
+      },
       { href: `${base}/rpc`, icon: Zap, labelKey: 'nav.rpcFunctions' },
       { href: `${base}/schema-branches`, icon: GitBranch, labelKey: 'nav.schemaBranches' },
       { href: `${base}/virtual-collections`, icon: Plug, labelKey: 'nav.virtualCollections' },
@@ -151,10 +161,15 @@ const RAW_NAV: NavGroup[] = [
     items: [
       { href: `${base}/storage`, icon: HardDrive, labelKey: 'nav.storage' },
       { href: `${base}/backup`, icon: DatabaseBackup, labelKey: 'nav.backup' },
-      { href: `${base}/import`, icon: Upload, labelKey: 'nav.import', ext: 'data/import' },
-      { href: `${base}/export`, icon: Download, labelKey: 'nav.export', ext: 'data/export' },
+      // The extensions declare `/admin/data/import` and `/admin/data/export` and
+      // ship a schema for each — richer than the pages that used to sit at the
+      // short paths, which had no upsert key, no "create missing columns" and
+      // no export history. Pointing at the canonical path means one
+      // implementation instead of two.
+      { href: `${base}/data/import`, icon: Upload, labelKey: 'nav.import', ext: 'data/import' },
+      { href: `${base}/data/export`, icon: Download, labelKey: 'nav.export', ext: 'data/export' },
       {
-        href: `${base}/translations`,
+        href: `${base}/i18n`,
         icon: Languages,
         labelKey: 'nav.translations',
         ext: 'i18n/translations',

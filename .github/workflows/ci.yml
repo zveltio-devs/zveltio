@@ -140,6 +140,24 @@ jobs:
         # out of their own tenant. Each site must pick requireInstanceAdmin or
         # isTenantAdmin explicitly.
         run: bun run scripts/admin-gate-check.ts
+      - name: Extension pages belong to their extensions
+        # Only runs when the sibling repository is present — a fork building
+        # the engine alone has nothing to compare against, and failing there
+        # would punish the wrong person.
+        #
+        # What it catches: an extension's Studio page written into the engine.
+        # BYOD had one, 223 lines, while the extension shipped its own calling
+        # routes that did not exist; `finance/accounting` had a code page on top
+        # of the extension's schema so the schema never rendered; five more sat
+        # at short paths while the extension declared the namespaced one. Two
+        # implementations of one screen, the reachable one usually the broken
+        # one, and nothing looking.
+        run: |
+          if [ -d ../zveltio-extensions ]; then
+            bun run scripts/check-extension-page-ownership.ts
+          else
+            echo "zveltio-extensions not checked out — skipping"
+          fi
       - name: No driver-reported affected-row counts
         # This dialect does not report them: numUpdatedRows/numDeletedRows are
         # 0n whether or not rows changed, and raw `sql` executes omit
