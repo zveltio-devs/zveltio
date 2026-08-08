@@ -4,6 +4,49 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.58] - 2026-08-08
+
+**The product starts saying useful things.** No security fixes in this one — the
+last four releases were that. This is the first work aimed at the person using
+Zveltio rather than at what runs underneath it.
+
+### Added
+
+- **A refusal now tells you who to ask.** Where the product answered
+  `Forbidden: missing payroll:read permission`, it says
+  *"payroll is confidential. Ana Popescu can give you access."* The name comes
+  from the database — somebody in your workspace holds an administrator role,
+  and it was one query away all along.
+
+  Two forms, deliberately: *"payroll is confidential"* is a decision somebody
+  made and you should not feel accused by it, while *"you do not have access to
+  invoices"* is an omission and probably worth fixing. Same status code, and the
+  reader needs to tell them apart.
+
+  This matters more after beta.55 and beta.57, which both made the system refuse
+  correctly where it used to wave things through. Stricter without clearer is
+  just harder to use.
+
+  Works on extensions that have not been rebuilt: the enrichment runs in the
+  engine, not in the permission gate that ships inside each extension bundle.
+
+- **The first screen answers a business question.** Before anything about the
+  platform, the dashboard now shows what you are owed — amounts per currency,
+  how many invoices are late, how old the oldest one is, and what falls due in
+  the next seven days.
+
+  Derived from the core `transactions` collection rather than the invoicing
+  extension, so it answers on an install with no extensions at all. Currencies
+  are never summed. Settled invoices are never counted as owed. And it stays
+  silent when nothing is overdue, because a dashboard that congratulates you
+  daily is one you stop reading.
+
+Both are translated across all nine locales.
+
+### Upgrade notes
+
+No migrations. Nothing to do.
+
 ## [3.0.0-beta.57] - 2026-08-07
 
 **Tenant isolation did not apply inside extensions. Take this release.**
