@@ -4,6 +4,53 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.59] - 2026-08-08
+
+**Every extension owns its own Studio page, and something checks that now.**
+
+The developer guide has always said an extension ships its admin UI as a schema
+or a code page, and that both live in the extension. Nothing verified it, so
+eight screens had drifted into the engine — and in three cases the copy people
+could actually reach was the broken one.
+
+### Fixed
+
+- **Accounting's journal tab had been failing.** The engine carried a page on top
+  of the extension's declarative schema, so the schema never rendered — and the
+  engine's page called an endpoint the extension does not serve.
+- **BYOD's page never worked.** It called routes that do not exist, asked for a
+  connection string the database has no column for, and sent a field name the
+  API discards. None of it showed, because the route redirected to a second
+  implementation in the engine. That one now lives in the extension.
+- **Two analytics screens were unreachable.** `analytics/quality` and
+  `analytics/dashboard` shipped pages that no manifest declared, so nothing
+  linked to them and they could only be opened by typing the URL.
+
+### Changed
+
+- **Import and export gained the options they were missing.** The engine's pages
+  are gone and the extensions' schemas render instead: import now offers an
+  upsert key and "create missing columns", and export keeps a job history.
+  Navigation points at `/admin/data/import` and `/admin/data/export`.
+- **Approvals and translations moved into their extensions** with their richer
+  behaviour intact — the approval-step detail view and inline key editing.
+- Edge functions now render the extension's page, which is shorter than the
+  engine's and does more.
+
+### Internal
+
+`scripts/check-extension-page-ownership.ts` runs in CI. A page in the engine
+that talks to `/ext/*` must be a byte-identical snapshot of the extension page
+it was generated from, and that extension must declare it. The snapshot itself
+stays: a release build has no extensions checkout, so the committed copy is what
+ships.
+
+### Upgrade notes
+
+Bookmarks to `/admin/import`, `/admin/export`, `/admin/approvals`,
+`/admin/translations`, `/admin/edge-functions` and `/admin/byod` now 404;
+navigation points at the canonical paths.
+
 ## [3.0.0-beta.58] - 2026-08-08
 
 **The product starts saying useful things.** No security fixes in this one — the
