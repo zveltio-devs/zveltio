@@ -141,7 +141,7 @@
  confirmState = {
  open: true,
  title: m['content.media.confirm.deleteFileTitle'](),
- message: m['storage.cloud.confirmDeleteFile'](),
+ message: m['content.media.confirm.deleteFileMsg'](),
  confirmLabel: m['common.delete'](),
  onconfirm: async () => {
  confirmState.open = false;
@@ -304,7 +304,7 @@
  <Search size={14} />
  <input
  type="text"
- placeholder={m['communications.mail.ui.search']()}
+ placeholder={m['content.media.ui.search']()}
  bind:value={searchQuery}
  onkeyup={(e) => e.key === 'Enter' && loadFiles()}
  class="grow"

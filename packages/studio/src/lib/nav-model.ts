@@ -27,7 +27,6 @@ import {
   DatabaseBackup,
   Layout,
   CheckSquare,
-  ScanSearch,
   Code,
   Bookmark,
   BarChart2,
@@ -145,12 +144,6 @@ const RAW_NAV: NavGroup[] = [
       { href: `${base}/virtual-collections`, icon: Plug, labelKey: 'nav.virtualCollections' },
       { href: `${base}/saved-queries`, icon: Bookmark, labelKey: 'nav.savedQueries' },
       { href: `${base}/sql`, icon: Terminal, labelKey: 'nav.sqlEditor' },
-      {
-        href: `${base}/introspect`,
-        icon: ScanSearch,
-        labelKey: 'nav.byodImport',
-        ext: 'developer/byod',
-      },
     ],
   },
   {
