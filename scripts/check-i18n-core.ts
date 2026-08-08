@@ -26,6 +26,10 @@ import { join, relative } from 'node:path';
 const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
 
 /** Pages converted to `m['…']()`. Add to this list as more are translated. */
+// Five entries left this list when their pages moved to the extensions that own
+// them — import, export, edge-functions, approvals, translations. They are still
+// checked, by `check-extension-page-ownership.ts` and by the extensions' own
+// SDUI i18n validator; they are simply no longer core pages.
 const TRANSLATED = [
   'src/routes/(admin)/+page.svelte',
   'src/routes/(admin)/collections/+page.svelte',
@@ -39,8 +43,6 @@ const TRANSLATED = [
   'src/routes/(admin)/flows/+page.svelte',
   'src/routes/(admin)/tenants/+page.svelte',
   'src/routes/(admin)/insights/+page.svelte',
-  'src/routes/(admin)/import/+page.svelte',
-  'src/routes/(admin)/export/+page.svelte',
   // tranche 3
   'src/routes/(admin)/schema-branches/+page.svelte',
   'src/routes/(admin)/onboarding/+page.svelte',
@@ -52,14 +54,12 @@ const TRANSLATED = [
   'src/routes/(admin)/marketplace/+page.svelte',
   'src/routes/(admin)/column-permissions/+page.svelte',
   'src/routes/(admin)/rpc/+page.svelte',
-  'src/routes/(admin)/edge-functions/+page.svelte',
   // tranche 4 — this completes the hand-written core surface. Everything left
   // untranslated under (admin) is generated from the zveltio-extensions repo
   // and has to be edited there; see biome.json for the generated slugs.
   'src/routes/(admin)/+layout.svelte',
   'src/routes/(admin)/[...extPath]/+page.svelte',
   'src/routes/(admin)/account/+page.svelte',
-  'src/routes/(admin)/approvals/+page.svelte',
   'src/routes/(admin)/backup/+page.svelte',
   'src/routes/(admin)/collections/[name]/+page.svelte',
   'src/routes/(admin)/collections/erd/+page.svelte',
@@ -72,7 +72,6 @@ const TRANSLATED = [
   'src/routes/(admin)/sql/+page.svelte',
   'src/routes/(admin)/storage/+page.svelte',
   'src/routes/(admin)/templates/+page.svelte',
-  'src/routes/(admin)/translations/+page.svelte',
   'src/routes/(admin)/views/+page.svelte',
   'src/routes/(admin)/webhooks/+page.svelte',
 ];
