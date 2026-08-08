@@ -29,8 +29,84 @@
 
 type MaybePromise<T> = T | Promise<T>;
 
+interface Granter {
+  name: string;
+}
+
+interface DenialContext {
+  resource: string;
+  action: string;
+  confidential: boolean;
+  canGrant: Granter[];
+}
+
 interface GateContext {
   checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
+  /**
+   * Supplied by the host so a refusal can say who to ask. Optional because an
+   * extension may be running against an engine older than this, and a missing
+   * courtesy must never become a missing refusal.
+   */
+  describeDenial?: (resource: string, action: string) => Promise<DenialContext>;
+}
+
+/**
+ * Turn a refusal into a next step.
+ *
+ * `Forbidden: missing payroll:read permission` is what this used to answer:
+ * English on a Romanian product, naming an internal concept, to someone from HR
+ * who opened a page. It says what is absent and nothing about what to do, so
+ * the reader cannot tell a rule from a bug.
+ *
+ * The information that fixes it is already in the database — somebody here
+ * holds an administrative role — and the host hands it over through
+ * `describeDenial`. What comes back is data, not a sentence, so the Studio can
+ * draw a screen and translate it; the English `detail` below is for logs, curl,
+ * and anything that has nowhere to put structure.
+ *
+ * `code` stays machine-stable at `permission_required`, because callers should
+ * branch on that rather than on prose.
+ */
+/** Just enough of a Hono context to answer with JSON. */
+interface JsonResponder {
+  json: (body: unknown, status: number) => unknown;
+}
+
+async function refuse(ctx: GateContext, c: JsonResponder, resource: string, action: string) {
+  let denial: DenialContext | null = null;
+  try {
+    denial = (await ctx.describeDenial?.(resource, action)) ?? null;
+  } catch {
+    /* the refusal matters more than the suggestion */
+  }
+
+  const names = denial?.canGrant.map((g) => g.name) ?? [];
+  const who =
+    names.length === 0
+      ? 'An administrator of this workspace'
+      : names.length === 1
+        ? names[0]
+        : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  const what = denial?.confidential
+    ? `${resource} is confidential`
+    : `you do not have access to ${resource}`;
+  const detail =
+    names.length === 0 ? `${what}. ${who} can grant it.` : `${what}. ${who} can give you access.`;
+
+  return c.json(
+    {
+      type: 'about:blank',
+      title: 'Forbidden',
+      status: 403,
+      code: 'permission_required',
+      detail,
+      resource,
+      action,
+      confidential: denial?.confidential ?? false,
+      can_grant: names.map((name) => ({ name })),
+    },
+    403,
+  );
 }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
@@ -105,7 +181,7 @@ export function permissionGate(
         await next();
         return;
       }
-      return c.json({ error: `Forbidden: missing ${resource}:${action} permission` }, 403);
+      return refuse(ctx, c, resource, action);
     }
     await next();
   };

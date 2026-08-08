@@ -16,6 +16,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
+import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
 import { initRls } from './lib/tenancy/index.js';
@@ -498,6 +499,10 @@ async function buildHonoApp(): Promise<Hono> {
   // Registered outermost (before tenant/cors) so it wraps all inner responses.
   app.onError(problemOnError);
   app.use('/api/*', problemNormalizer());
+  // Before the normalizer, which would flatten a refusal into a generic
+  // envelope and lose the fields that tell a person what to do next.
+  app.use('/api/*', enrichDenial(db));
+  app.use('/ext/*', enrichDenial(db));
   app.use('/ext/*', problemNormalizer());
   // Upload and import legitimately carry bodies larger than the 10 MB default,
   // so they used to be exempted from the limit entirely — which is not the same

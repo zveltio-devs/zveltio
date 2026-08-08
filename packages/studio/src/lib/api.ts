@@ -26,10 +26,22 @@ class ApiClient {
         code?: string;
         status?: number;
         traceId?: string;
+        resource?: string;
+        confidential?: boolean;
+        canGrant?: Array<{ name: string }>;
       };
       e.code = err.code;
       e.status = res.status;
       e.traceId = err.traceId;
+      // A refusal carries what the person needs to act: which resource, whether
+      // it is confidential, and who can grant it. `detail` above is the
+      // engine's English fallback for logs and curl; the UI renders these
+      // fields translated (see `denialMessage`).
+      if (err.code === 'permission_required') {
+        e.resource = err.resource;
+        e.confidential = err.confidential;
+        e.canGrant = Array.isArray(err.can_grant) ? err.can_grant : [];
+      }
       throw e;
     }
 
