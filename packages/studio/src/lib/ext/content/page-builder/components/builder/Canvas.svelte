@@ -127,21 +127,34 @@
             onclick={(e) => { e.stopPropagation(); move(i, -1); }}
             disabled={i === 0}
             title="Move up"
+            aria-label="Move block up"
           ><ChevronUp size={11} /></button>
           <button
             class="btn btn-ghost btn-xs p-0.5 h-5 min-h-0"
             onclick={(e) => { e.stopPropagation(); move(i, 1); }}
             disabled={i === blocks.length - 1}
             title="Move down"
+            aria-label="Move block down"
           ><ChevronDown size={11} /></button>
           <button
             class="btn btn-ghost btn-xs p-0.5 h-5 min-h-0 text-error"
             onclick={(e) => { e.stopPropagation(); remove(i); }}
             title="Delete block"
+            aria-label="Delete block"
           ><X size={11} /></button>
         </div>
 
         <!-- Drag handle (left side) -->
+        <!--
+          Drag handle: pointer-only, and deliberately hidden from assistive
+          technology. It announced itself as a button that no keyboard could
+          operate — `tabindex="-1"` with a drag-only interaction — which is worse
+          than silence, because it advertises an action and then refuses it.
+
+          Reordering IS reachable without a mouse: the Move up / Move down
+          buttons above are real buttons, and the toolbar reveals itself on
+          `focus-within`, so tabbing to a block surfaces its controls.
+        -->
         <div
           class="absolute -left-6 top-1/2 -translate-y-1/2 z-10
             cursor-grab active:cursor-grabbing
@@ -150,9 +163,9 @@
           draggable="true"
           ondragstart={(e) => onHandleDragStart(e, i)}
           ondragend={() => (dropZone = null)}
-          role="button"
+          role="presentation"
+          aria-hidden="true"
           tabindex="-1"
-          aria-label="Drag to reorder"
         >
           <GripVertical size={16} />
         </div>
