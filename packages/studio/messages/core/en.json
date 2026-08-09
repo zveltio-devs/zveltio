@@ -634,6 +634,7 @@
   "mkt.licenseRemoved": "License key removed",
   "mkt.licenseSaved": "License key saved",
   "mkt.licensed": "Licensed",
+  "mkt.loadFailed": "Load failed",
   "mkt.noneFound": "No extensions found",
   "mkt.paid": "Paid",
   "mkt.purchaseAt": "Purchase it at",
