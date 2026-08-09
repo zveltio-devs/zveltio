@@ -634,6 +634,7 @@
   "mkt.licenseRemoved": "Clave de licencia eliminada",
   "mkt.licenseSaved": "Clave de licencia guardada",
   "mkt.licensed": "Con licencia",
+  "mkt.loadFailed": "Error al cargar",
   "mkt.noneFound": "No se encontraron extensiones",
   "mkt.paid": "De pago",
   "mkt.purchaseAt": "Cómprala en",
