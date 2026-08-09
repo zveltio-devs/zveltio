@@ -418,7 +418,25 @@ export async function afterWrite(
       : action === 'update'
         ? 'record.updated'
         : 'record.deleted';
-  engineEvents.emit(engineEvent, {
+  // Awaited, so an async listener finishes while this request's tenant
+  // transaction is still open.
+  //
+  // Plain `emit` is EventEmitter's synchronous fan-out: an `async` listener
+  // returns a promise at its first `await` and the emitter discards it, so the
+  // remainder ran after the write had committed and `ctx.db` — which resolves
+  // the request transaction through AsyncLocalStorage — pointed at a closed
+  // one. Such listeners failed on "Transaction is already committed" inside
+  // their own try/catch, so the symptom was not an error anywhere: the side
+  // effect simply never happened. `operations/traceability` builds its chain on
+  // `record.created` and had never built a link.
+  //
+  // The bus isolates each listener, so a slow or throwing extension is logged
+  // and skipped rather than failing the write that triggered it.
+  //
+  // NOTE: `routes/sync.ts` calls afterWrite WITHOUT awaiting it, so listeners
+  // on the sync push path still run detached. That path is deliberately
+  // fire-and-forget for throughput and needs its own decision.
+  await engineEvents.emitAsync(engineEvent, {
     collection,
     record: data,
     id: recordId,
