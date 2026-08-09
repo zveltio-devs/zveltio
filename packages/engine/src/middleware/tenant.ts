@@ -44,6 +44,18 @@ const TXN_SKIP_PREFIXES = [
   '/api/relations',
   '/api/schema',
   '/api/templates',
+  // Administering tenants is not work INSIDE a tenant.
+  //
+  // Provisioning creates the tenant row through the pool — it has to, because a
+  // tenant that exists only inside one request's uncommitted transaction cannot
+  // be referenced by anything else — and the route then writes the tenant's
+  // first environment. Once the route ran inside a tenant transaction those two
+  // writes landed on different connections, and the environment INSERT failed
+  // its foreign key against a tenant row it could not yet see.
+  //
+  // Creating tenant B while scoped to tenant A is cross-tenant by definition,
+  // so scoping it was the error, not the pool write it collided with.
+  '/api/tenants',
 ];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {
