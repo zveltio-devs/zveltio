@@ -66,6 +66,19 @@ function shouldFireHooks(tableName: string): boolean {
  * @param db   The real Database instance.
  * @param extName  Extension name — included in error messages for debugging.
  */
+
+/**
+ * Is this handle already inside a transaction?
+ *
+ * Kysely's Transaction carries `isTransaction`; the pool does not. Checking the
+ * object rather than the ALS keeps this correct for a handle passed in
+ * explicitly as well as one resolved per query.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+function isTenantTransaction(db: any): boolean {
+  return Boolean(db?.isTransaction);
+}
+
 export function createRestrictedDb(
   dbOrResolver: Database | (() => Database),
   extName: string,
@@ -86,6 +99,35 @@ export function createRestrictedDb(
   return new Proxy({} as Database, {
     get(_dummy, prop: string | symbol) {
       const target = resolveDb();
+
+      // `ctx.db.transaction()` JOINS the request's transaction rather than
+      // nesting, which Kysely refuses outright with "calling the transaction
+      // method for a Transaction is not supported".
+      //
+      // `ctx.db` resolves the tenant transaction the middleware opened, so an
+      // extension that wraps its own work in a transaction — the correct
+      // instinct for a multi-statement operation — got that error instead. The
+      // same fix was made for core routes; extensions take a different proxy
+      // and were left out of it.
+      //
+      // Found through `compliance/gdpr`: the right-to-erasure route wraps its
+      // deletes in a transaction, so account erasure failed on EVERY install,
+      // reporting "referential integrity" — a guess at the cause that named
+      // the wrong thing entirely.
+      //
+      // Joining is also the correct semantics: the extension's work commits
+      // with the request that triggered it.
+      if (prop === 'transaction' && isTenantTransaction(target)) {
+        return () => {
+          const builder = {
+            setIsolationLevel: () => builder,
+            setAccessMode: () => builder,
+            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> => fn(target),
+          };
+          return builder;
+        };
+      }
+
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const value = (target as any)[prop];
 
