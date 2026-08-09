@@ -53,7 +53,7 @@ const EXCLUDE: RegExp[] = [
   // Keep in sync with the matching negations in biome.json files.includes —
   // sync-extensions.ts fails loudly if it ever writes a path not covered there.
   /^packages\/studio\/src\/lib\/ext\//,
-  /^packages\/studio\/src\/routes\/\(admin\)\/(ai|analytics\/dashboard|analytics\/quality|billing|byod|checklists|compliance\/ro\/efactura|compliance\/ro\/procurement|content\/documents|crm|developer\/api-docs|developer\/database|developer\/edge-functions|developer\/graphql|developer\/validation|developer\/views|finance\/banking|forms|geospatial\/postgis|hr\/time-tracking|i18n|mail|media|page-builder|pos|projects\/helpdesk|projects\/management|search|sms|storage\/cloud|traceability)\//,
+  /^packages\/studio\/src\/routes\/\(admin\)\/(ai|analytics\/dashboard|analytics\/quality|billing|byod|checklists|compliance\/ro\/efactura|compliance\/ro\/procurement|content\/documents|crm|developer\/api-docs|developer\/database|developer\/edge-functions|developer\/graphql|developer\/validation|developer\/views|finance\/banking|forms|geospatial\/postgis|hr\/time-tracking|i18n|introspect|mail|media|page-builder|pos|projects\/helpdesk|projects\/management|search|sms|storage\/cloud|traceability|workflow\/approvals)\//,
   // --- tests overrides (noExplicitAny → off) ---
   /\.test\.ts$/,
   /\.spec\.ts$/,
