@@ -150,6 +150,27 @@ export interface ActionDef {
    * carry an arithmetic op: "{total-amount_paid}" → subtract. e.g.
    * { amount: "{total-amount_paid}" } for invoicing markPaid. */
   body?: Record<string, string>;
+  /**
+   * Ask the person for something before calling the endpoint.
+   *
+   * Some decisions are not a yes/no: approving a request wants the reason typed
+   * next to it, opening a till wants the cash counted into it. Without this an
+   * extension has to abandon the declarative page and write its own screen for
+   * the sake of one textarea — which is how `workflow/approvals` and
+   * `operations/pos` ended up as code pages.
+   *
+   * The collected values are merged into `body`, and win over a "{field}" token
+   * of the same name. A prompt REPLACES `confirm`: being asked to type the
+   * reason is already the confirmation, and two dialogs to approve one request
+   * is how people learn to click through both.
+   */
+  prompt?: {
+    /** i18n key / literal for the dialog heading. Defaults to the action label. */
+    title?: string;
+    /** i18n key / literal for the submit button. Defaults to "common.confirm". */
+    submitLabel?: string;
+    fields: FieldDef[];
+  };
 }
 
 export interface FormDef {
@@ -246,6 +267,26 @@ export interface FieldDef {
     dataPath?: Dotted;
     valueKey?: Dotted;
     labelKey: Dotted | Dotted[];
+    /**
+     * Copy fields off the chosen record into other fields of this form —
+     * `{ description: "name", unit_price: "unit_price", tax_rate: "tax_rate" }`
+     * writes the picked catalogue item's values into those siblings.
+     *
+     * A relation could only ever store an id, so anything a catalogue exists to
+     * save you from typing still had to be typed. `finance/invoicing` grew a
+     * catalogue of what a company sells — code, unit, price, VAT rate — and it
+     * could not be used from a form at all: you picked the item and then
+     * retyped everything it knew. The rate is the part that matters, because a
+     * wrong VAT rate on a line is not a typo, it is a tax error.
+     *
+     * Only fields the person has not already filled in are written, so picking
+     * an item never silently overwrites a price somebody deliberately changed.
+     * Keys are target field names; values are paths into the selected record.
+     *
+     * Works in a `repeatable` column too, where it fills the sibling columns of
+     * the same row — which is the case invoice lines need.
+     */
+    autofill?: Record<string, Dotted>;
   };
   required?: boolean;
   colSpan?: 1 | 2;
