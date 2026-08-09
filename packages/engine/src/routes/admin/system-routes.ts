@@ -565,33 +565,61 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // GET /stats — aggregate stats for the dashboard
   app.get('/stats', async (c) => {
+    // Three of these four counts named tables that do not exist —
+    // `zv_collections`, `zv_webhooks` and `zv_tenant_quota`, where the schema
+    // has `zvd_collections`, `zvd_webhooks` and `zv_tenant_usage`. Each failure
+    // was swallowed by the `.catch(() => 0)` below, so the dashboard reported
+    // zero collections, zero active webhooks and zero API calls on an instance
+    // that had all three, and looked like an empty install rather than a broken
+    // query.
+    //
+    // A swallowed failure is worse than a wrong number here: these run inside
+    // the request's tenant transaction, and in Postgres one failed statement
+    // aborts the whole transaction, so every later query on that connection —
+    // the session lookup, the audit write, the request log — fails too. That is
+    // how a mistyped table name in a stats panel became a false 401 and a
+    // "database disconnected" banner elsewhere on the same page.
+    //
+    // The fallback stays, because a stat is not worth a 500. The silence does
+    // not: `counted` logs what failed, so the next wrong name is visible on the
+    // first request rather than after a year of plausible zeros.
+    const counted = (label: string, q: Promise<{ rows: { count: string }[] }>) =>
+      q
+        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
+        .catch((err) => {
+          console.error(
+            `[admin/stats] ${label} count failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return 0;
+        });
+
     const [collectionsCount, webhooksCount, slowCount, apiCallsToday] = await Promise.all([
-      sql<{ count: string }>`
-        SELECT COUNT(*) AS count FROM zv_collections
-      `
-        .execute(db)
-        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
-        .catch(() => 0),
-      sql<{ count: string }>`
-        SELECT COUNT(*) AS count FROM zv_webhooks WHERE active = TRUE
-      `
-        .execute(db)
-        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
-        .catch(() => 0),
-      sql<{ count: string }>`
+      counted(
+        'collections',
+        sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zvd_collections
+      `.execute(db),
+      ),
+      counted(
+        'webhooks',
+        sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zvd_webhooks WHERE active = TRUE
+      `.execute(db),
+      ),
+      counted(
+        'slow_queries',
+        sql<{ count: string }>`
         SELECT COUNT(*) AS count FROM zv_slow_queries
         WHERE created_at >= NOW() - INTERVAL '24 hours'
-      `
-        .execute(db)
-        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
-        .catch(() => 0),
-      sql<{ count: string }>`
-        SELECT COALESCE(SUM(api_calls), 0) AS count FROM zv_tenant_quota
+      `.execute(db),
+      ),
+      counted(
+        'api_calls',
+        sql<{ count: string }>`
+        SELECT COALESCE(SUM(api_calls), 0) AS count FROM zv_tenant_usage
         WHERE date = CURRENT_DATE
-      `
-        .execute(db)
-        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
-        .catch(() => 0),
+      `.execute(db),
+      ),
     ]);
 
     return c.json({
