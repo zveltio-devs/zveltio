@@ -257,6 +257,38 @@ export async function buildAllowedTables(
  * mounted route (first-load does, hot-reload does not) — controlled by
  * `logPublicRoute`. Everything else is identical.
  */
+
+/**
+ * Unsubscribe callbacks for every event listener an extension registered.
+ *
+ * `unloadExtension` already tears down services, cron schedules, query alters
+ * and auth exemptions — with a comment on the services one saying, in as many
+ * words, that hot-reload leaks without it. Event listeners were never given the
+ * same treatment, so `ctx.events.on(...)` in an extension's `register()` piled
+ * up a fresh listener on every reload: the same handler ran two, then three
+ * times for one event.
+ *
+ * Observed on `compliance/ro/efactura`, whose auto-draft ran three times for a
+ * single invoice after two reloads. It looked harmless only because that
+ * handler happens to check for an existing row first; a listener that appends,
+ * charges or notifies would have done it three times.
+ */
+const extensionListeners = new Map<string, Array<() => void>>();
+
+/** Drop every listener an extension registered. Called by unloadExtension. */
+export function unregisterExtensionListeners(extName: string): number {
+  const unsubs = extensionListeners.get(extName) ?? [];
+  for (const off of unsubs) {
+    try {
+      off();
+    } catch {
+      /* a listener already removed by other means is not a failure */
+    }
+  }
+  extensionListeners.delete(extName);
+  return unsubs.length;
+}
+
 export function buildRestrictedContext(
   ctx: ExtensionContext,
   extName: string,
@@ -271,8 +303,35 @@ export function buildRestrictedContext(
   // Drop any health checks this extension registered on a previous load so a
   // hot-reload never leaves a stale probe pointing at unloaded code (H-1.4).
   clearExtensionHealthChecks(extName);
+  // Every listener this extension registers is remembered, so unloading it can
+  // take them away again — see `extensionListeners`.
+  unregisterExtensionListeners(extName);
+  const trackedEvents = {
+    ...ctx.events,
+    // biome-ignore lint/suspicious/noExplicitAny: the bus is typed per event; the wrapper is generic by nature
+    on: (event: any, handler: any) => {
+      const off = ctx.events.on(event, handler);
+      const list = extensionListeners.get(extName) ?? [];
+      list.push(off);
+      extensionListeners.set(extName, list);
+      return off;
+    },
+    // biome-ignore lint/suspicious/noExplicitAny: as above
+    onBefore: (event: any, handler: any) => {
+      // biome-ignore lint/suspicious/noExplicitAny: as above
+      const off = (ctx.events as any).onBefore?.(event, handler);
+      if (typeof off === 'function') {
+        const list = extensionListeners.get(extName) ?? [];
+        list.push(off);
+        extensionListeners.set(extName, list);
+      }
+      return off;
+    },
+  };
+
   return {
     ...ctx,
+    events: trackedEvents as typeof ctx.events,
     // H-12: `ctx.db` is now TENANT-SCOPED. It resolves the current request/job
     // tenant transaction (with the RLS GUC set) via the ALS on every query,
     // falling back to the global pool only outside any tenant context
