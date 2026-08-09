@@ -70,6 +70,22 @@ interface Extension {
   is_running: boolean;
   needs_restart: boolean;
   files_on_disk: boolean;
+  /**
+   * Why the last load attempt failed, straight from the engine.
+   *
+   * The engine has always recorded this — it hot-loads on enable, and when that
+   * throws it stores the reason "so the operator sees WHY in the marketplace
+   * instead of the extension silently vanishing". The API has always returned
+   * it. This page never read it, so every failure looked like the one thing the
+   * card could say: "Restart".
+   *
+   * That is worse than saying nothing. `geospatial/postgis` fails to load until
+   * someone runs `CREATE EXTENSION postgis`, and the engine says exactly that.
+   * A restart does not fix it, so the badge sent people to do the one thing
+   * guaranteed not to work, twice, while the real instruction sat in the
+   * response body.
+   */
+  last_load_error?: string | null;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   config: Record<string, any>;
   /** Other extensions this one requires (by name). */
@@ -245,7 +261,11 @@ async function loadCatalog() {
   try {
     const data = await api('/api/marketplace');
     extensions = data.extensions || [];
-    restartNeeded = extensions.some((e) => e.needs_restart);
+    // An extension that failed to load does not need a restart — it needs
+    // whatever its error says. Counting it here put a banner across the top of
+    // the page telling the operator to restart, above a card that could not be
+    // fixed by restarting.
+    restartNeeded = extensions.some((e) => e.needs_restart && !e.last_load_error);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
@@ -578,6 +598,10 @@ onMount(loadCatalog);
                       <span class="badge badge-error badge-sm shrink-0 gap-1" title={m['mkt.filesMissingTitle']()}>
                         <AlertTriangle size={10} /> {m['mkt.filesMissing']()}
                       </span>
+                    {:else if ext.is_enabled && ext.last_load_error}
+                      <span class="badge badge-error badge-sm shrink-0 gap-1">
+                        <AlertTriangle size={10} /> {m['mkt.loadFailed']()}
+                      </span>
                     {:else if ext.is_enabled && ext.needs_restart}
                       <span class="badge badge-warning badge-sm shrink-0 gap-1">
                         <AlertTriangle size={10} /> {m['mkt.restart']()}
@@ -593,6 +617,18 @@ onMount(loadCatalog);
 
                   <!-- Description -->
                   <p class="text-sm opacity-60 line-clamp-2 mb-3">{ext.description}</p>
+
+                  <!--
+                    The reason, in full and not truncated. It is the engine's own
+                    sentence and it is usually a command to run — clipping it to
+                    two lines would cut off the half that matters.
+                  -->
+                  {#if ext.is_enabled && ext.last_load_error}
+                    <div class="alert alert-error alert-soft text-xs mb-3 py-2 items-start">
+                      <AlertTriangle size={14} class="shrink-0 mt-0.5" />
+                      <span class="break-words">{ext.last_load_error}</span>
+                    </div>
+                  {/if}
 
                   <!-- Tags -->
                   <div class="flex flex-wrap gap-1 mb-2">
