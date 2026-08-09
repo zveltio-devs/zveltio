@@ -306,8 +306,15 @@ export function buildRestrictedContext(
   // Every listener this extension registers is remembered, so unloading it can
   // take them away again — see `extensionListeners`.
   unregisterExtensionListeners(extName);
-  const trackedEvents = {
-    ...ctx.events,
+  //
+  // `Object.create`, NOT a spread. Spreading copies own enumerable properties
+  // only, and the bus is a class instance whose methods live on the prototype —
+  // so `{ ...ctx.events, on }` produced an object with exactly the two methods
+  // defined below and nothing else. `ctx.events.emitAsync` became "not a
+  // function" for every extension, which is to say every invoice, every record
+  // event, every hook. Delegating through the prototype keeps the rest intact
+  // and still lets `on` be overridden.
+  const trackedEvents: typeof ctx.events = Object.assign(Object.create(ctx.events), {
     // biome-ignore lint/suspicious/noExplicitAny: the bus is typed per event; the wrapper is generic by nature
     on: (event: any, handler: any) => {
       const off = ctx.events.on(event, handler);
@@ -327,11 +334,11 @@ export function buildRestrictedContext(
       }
       return off;
     },
-  };
+  });
 
   return {
     ...ctx,
-    events: trackedEvents as typeof ctx.events,
+    events: trackedEvents,
     // H-12: `ctx.db` is now TENANT-SCOPED. It resolves the current request/job
     // tenant transaction (with the RLS GUC set) via the ALS on every query,
     // falling back to the global pool only outside any tenant context
