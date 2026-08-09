@@ -49,6 +49,7 @@
       "!packages/studio/src/routes/(admin)/geospatial/postgis/**",
       "!packages/studio/src/routes/(admin)/hr/time-tracking/**",
       "!packages/studio/src/routes/(admin)/i18n/**",
+      "!packages/studio/src/routes/(admin)/introspect/**",
       "!packages/studio/src/routes/(admin)/mail/**",
       "!packages/studio/src/routes/(admin)/media/**",
       "!packages/studio/src/routes/(admin)/page-builder/**",
@@ -58,7 +59,8 @@
       "!packages/studio/src/routes/(admin)/search/**",
       "!packages/studio/src/routes/(admin)/sms/**",
       "!packages/studio/src/routes/(admin)/storage/cloud/**",
-      "!packages/studio/src/routes/(admin)/traceability/**"
+      "!packages/studio/src/routes/(admin)/traceability/**",
+      "!packages/studio/src/routes/(admin)/workflow/approvals/**"
     ]
   },
   "assist": {
