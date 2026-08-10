@@ -162,8 +162,10 @@ export function createRequestScopedDb(pool: Database): Database {
         };
       }
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const value = (target as any)[prop];
+      // `unknown`, not `any`: a proxy reading an arbitrary key off Kysely knows
+      // nothing about what comes back, and saying so keeps the narrowing below
+      // honest rather than waving the checker through.
+      const value = (target as unknown as Record<string | symbol, unknown>)[prop];
       if (typeof value !== 'function') return value;
 
       // Bind, then carry the original's own properties across.
