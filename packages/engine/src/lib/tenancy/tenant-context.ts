@@ -108,3 +108,77 @@ export function setCurrentTenantTrx(trx: Database): void {
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
 }
+
+/**
+ * A `Database` that resolves the CURRENT request's tenant transaction, falling
+ * back to the pool when there is none. What `ctx.db` has meant for extensions
+ * since H-12; core routes never got it.
+ *
+ * The dialect reserves a pooled connection when a transaction BEGINs and serves
+ * every other query through `pool.unsafe()`. So a request inside
+ * `withTenantIsolation` has pinned one connection, and each raw-pool query it
+ * then makes has to find another free one. At a concurrency near the pool size
+ * every request holds one and waits for one, and nothing can release.
+ */
+export function createRequestScopedDb(pool: Database): Database {
+  return new Proxy({} as Database, {
+    get(_dummy, prop: string | symbol) {
+      const trx = getCurrentTenantTrx();
+      const target = trx ?? pool;
+
+      // `db.transaction()` JOINS the request's transaction instead of nesting.
+      //
+      // Kysely refuses `transaction()` on a Transaction — "calling the
+      // transaction method for a Transaction is not supported" — and nine core
+      // route files open one of their own: invitations, flows, insights, the
+      // SQL editor, ERD layout, collections, relations, templates, config.
+      // Handing them the request's transaction therefore turned every one of
+      // those routes into a 500.
+      //
+      // That is what the first attempt at this got wrong, and it is worth
+      // recording HOW: 28 harness tests failed, the failing names were
+      // tenants / invitations / SQL editor / backup / saved queries, and the
+      // conclusion drawn from the NAMES was "these routes must escape tenant
+      // isolation, so this needs a per-route campaign". The change was reverted
+      // on that reasoning. Reading the actual error showed something else
+      // entirely: not one of those failures was about isolation, they were all
+      // this one message, and the fix is here rather than in twenty routes.
+      //
+      // Joining is also the correct semantics. The route's work becomes part of
+      // the transaction the request already has: it commits with it, rolls back
+      // with it, and stays inside the same tenant scope — which is more
+      // atomic than the separate transaction it used to open, not less.
+      if (prop === 'transaction' && trx) {
+        return () => {
+          const builder = {
+            // Kysely's TransactionBuilder is chainable; the ambient transaction
+            // already has its isolation level and cannot be changed mid-flight,
+            // so this accepts the call and keeps the chain working.
+            setIsolationLevel: () => builder,
+            setAccessMode: () => builder,
+            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> => fn(trx),
+          };
+          return builder;
+        };
+      }
+
+      // `unknown`, not `any`: a proxy reading an arbitrary key off Kysely knows
+      // nothing about what comes back, and saying so keeps the narrowing below
+      // honest rather than waving the checker through.
+      const value = (target as unknown as Record<string | symbol, unknown>)[prop];
+      if (typeof value !== 'function') return value;
+
+      // Bind, then carry the original's own properties across.
+      //
+      // Some of what Kysely exposes is a CALLABLE OBJECT, not a plain method:
+      // `db.fn` can be invoked as `fn('now', [])` and also carries `fn.count`,
+      // `fn.sum` and friends. `Function.prototype.bind` returns a fresh function
+      // and copies none of that, so `db.fn.count(...)` became "db.fn.count is
+      // not a function" — a failure that looks like the route is wrong and is
+      // entirely this proxy's doing.
+      const bound = value.bind(target);
+      Object.assign(bound, value);
+      return bound;
+    },
+  });
+}

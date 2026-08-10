@@ -254,10 +254,23 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         // Per row is safe here for the same reason it is safe there: a push is
         // capped at 500 operations, the same cap the bulk endpoint enforces.
         // Import is uncapped and gets different treatment.
+        // AWAITED, unlike before.
+        //
+        // `afterWrite` fans out to event listeners, and an async listener that
+        // starts inside this request but finishes after it dies on "Transaction
+        // is already committed" — inside its own try/catch, so the side effect
+        // just silently does not happen. That is the same defect that meant
+        // `compliance/ro/efactura` had never drafted a single submission.
+        //
+        // Not awaiting was deliberate, for push throughput. But a push is
+        // capped at 500 operations and the work is the same work the bulk
+        // endpoint already awaits per row; paying for it in latency is better
+        // than a sync push that writes the rows and quietly drops every
+        // revision, webhook and realtime nudge that should follow them.
         const syncTid = tenantId(c);
         for (const { recordId, payload } of creates) {
           results.push({ recordId, status: 'ok', serverVersion: now });
-          afterWrite(effectiveDb, {
+          await afterWrite(effectiveDb, {
             collection,
             recordId,
             action: 'create',
