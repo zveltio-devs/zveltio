@@ -100,6 +100,15 @@ d('unique keys are scoped to the tenant (in-process)', () => {
     const B = '00000000-0000-0000-0000-0000000000ff';
     const number = `GATE-${Date.now()}`;
 
+    // `zvd_invoices` belongs to finance/invoicing, so it is absent on an
+    // engine-only database — which is what this lane runs. The catalogue check
+    // above is the part that must hold everywhere; this one demonstrates the
+    // behaviour wherever the extension is actually installed.
+    const present = await sql<{ ok: boolean }>`
+      SELECT to_regclass('zvd_invoices') IS NOT NULL AS ok
+    `.execute(db);
+    if (!present.rows[0]?.ok) return;
+
     const rows = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
     const author = rows.rows[0]?.id;
     if (!author) return; // nothing to attribute the row to on an empty install

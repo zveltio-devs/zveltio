@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { sql } from 'kysely';
-import { getCurrentTenantTrx } from '../tenancy/tenant-context.js';
+import { getCurrentTenantTrx } from '../tenancy/index.js';
 
 // ─── Event payloads ────────────────────────────────────────────────────────────
 
