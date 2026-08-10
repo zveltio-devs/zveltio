@@ -9,7 +9,7 @@
  * extensions work with zero build toolchain on the host.
  */
 import { page } from '$app/state';
-import { extensions } from '$lib/extensions.svelte.js';
+import { extensions, refreshExtensions } from '$lib/extensions.svelte.js';
 import { validateSchema } from '$lib/sdui/validate.js';
 import SchemaPage from '$lib/sdui/SchemaPage.svelte';
 import SettingsPage from '$lib/sdui/SettingsPage.svelte';
@@ -17,6 +17,24 @@ import { m } from '$lib/i18n.svelte.js';
 import { PackageX, TriangleAlert } from '@lucide/svelte';
 
 const slug = $derived((page.params.extPath ?? '').replace(/\/$/, ''));
+
+// Re-read the schemas whenever an extension page is opened.
+//
+// `initExtensions` runs once and keeps every extension's schema in memory for
+// the life of the SPA session, and nothing refetches on navigation. So an
+// administrator who changes a page — adds a field, fixes a column, enables a
+// resource — changes nothing for anybody already logged in, and there is no
+// sign of it: the form simply keeps its old shape until someone happens to do
+// a full browser reload. Measured on this very page, which served a four-field
+// invoice form while the engine had been serving a twenty-field one for hours.
+//
+// The page that DEPENDS on a schema is the right place to revalidate it, and
+// the cost is one request per navigation. The result is a plain reassignment
+// of the store, so nothing re-renders unless the schema actually differs.
+$effect(() => {
+  void slug;
+  refreshExtensions();
+});
 
 const resolved = $derived.by(() => {
   for (const meta of extensions.meta) {

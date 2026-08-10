@@ -17,6 +17,7 @@
  * inline code — zero behaviour change.
  */
 
+import { unregisterExtensionListeners } from './register.js';
 import { auditLog } from '../audit.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
@@ -102,6 +103,13 @@ export async function unloadExtension(
   // Drop the extension's query alters so post-unload selects don't keep
   // applying its filters.
   queryAlterRegistry.unregisterAll(name);
+
+  // Event listeners, for the same reason as the services above: without this,
+  // a reloaded extension's handlers accumulate and one event runs them all.
+  const droppedListeners = unregisterExtensionListeners(name);
+  if (droppedListeners > 0) {
+    console.log(`🔌 Extension "${name}": removed ${droppedListeners} event listener(s).`);
+  }
   // Drop the extension's entity-access checks too, for the same reason.
   entityAccessRegistry.unregisterAll(name);
   // Drop the extension's scheduled tasks so the runner stops invoking them.

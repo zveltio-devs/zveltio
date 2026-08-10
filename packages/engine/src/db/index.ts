@@ -80,10 +80,40 @@ export async function initDatabase(): Promise<Database> {
   // default; if both are set, BUN_SQL_IDLE_TIMEOUT_MS wins because
   // it's the one documented in EXTENSION-DEVELOPER-GUIDE.
   const idleEnv = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS;
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
-      max: Number(process.env.DB_POOL_MAX ?? 10), // PgDog handles real pooling; 10 is sufficient
+      // Not a throughput knob — a ceiling on concurrent requests.
+      //
+      // Every `/api/*` request outside TXN_SKIP_PREFIXES pins one connection for
+      // its whole life, because that is how the tenant transaction enforces RLS.
+      // Several routes then query the pool AGAIN while holding it, so a request
+      // can want two. Ten was below what the admin dashboard asks for on a
+      // single load: it fires fourteen requests, and measured against a cold
+      // engine the first bursts took 10.6s, 12.0s and 12.0s before settling to
+      // ~70ms. Twelve seconds is Bun.serve abandoning the handler at its 10s
+      // idleTimeout, which leaves the tenant transaction open and the connection
+      // leaked — see `withIdleInTransactionTimeout`, which mitigates the leak
+      // from the Postgres side.
+      //
+      // The second checkout is gone: `createRequestScopedDb` hands core routes a
+      // proxy that resolves the current tenant transaction through
+      // AsyncLocalStorage and only reaches for the pool when there is none, so a
+      // request pins one connection rather than two. The routes that genuinely
+      // must escape RLS — tenant provisioning, invitation accept, the SQL editor,
+      // backup, saved queries — take `poolDb` explicitly and are the only ones
+      // that do.
+      //
+      // Ten was briefly raised to 25 while that defect stood. It is back down,
+      // because a ceiling sized around a bug outlives the bug and then quietly
+      // becomes a connection budget nobody agreed to: CI runs several engines
+      // against one Postgres and 25 apiece exhausted it, which is exactly what a
+      // multi-replica deployment would hit. With one connection per request the
+      // same dashboard burst settles at ~425ms; 25 buys ~76ms, which is a real
+      // gain and the reason this is an env var rather than a constant. Raise it
+      // deliberately, against a `max_connections` you have checked.
+      max: poolMax,
       idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
     }),
   });

@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import { sql } from 'kysely';
+import { getCurrentTenantTrx } from '../tenancy/index.js';
 
 // ─── Event payloads ────────────────────────────────────────────────────────────
 
@@ -96,6 +98,14 @@ export interface FlowCompletedPayload {
   error?: string;
 }
 
+export interface QualityScanCompletedPayload {
+  scanId: string;
+  collection: string;
+  scanType: string;
+  recordsScanned: number;
+  issuesFound: number;
+}
+
 export interface AiTaskDonePayload {
   userId: string;
   summary: string;
@@ -117,6 +127,7 @@ export type ZveltioEvents = {
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
   'ai.task.done': AiTaskDonePayload;
+  'quality.scanCompleted': QualityScanCompletedPayload;
 };
 
 /**
@@ -140,6 +151,7 @@ export interface EngineEventMap {
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
   'ai.task.done': AiTaskDonePayload;
+  'quality.scanCompleted': QualityScanCompletedPayload;
 }
 
 // ─── Typed event bus ───────────────────────────────────────────────────────────
@@ -174,6 +186,85 @@ class TypedEventBus {
    */
   emit<K extends keyof EngineEventMap>(event: K, payload: EngineEventMap[K]): void {
     this.emitter.emit(event as string, payload);
+  }
+
+  /**
+   * Emit and WAIT for every listener, so an async listener finishes inside the
+   * caller's transaction instead of after it.
+   *
+   * `emit` above is Node's EventEmitter: synchronous fan-out. An `async`
+   * listener returns a promise at its first `await`, the emitter drops it, and
+   * the rest of that listener runs once the request has already responded and
+   * its tenant transaction has committed. `ctx.db` resolves the request's
+   * transaction through AsyncLocalStorage, and that transaction is now closed —
+   * so every such listener died on `Transaction is already committed`.
+   *
+   * It failed quietly. The listeners that do this wrap themselves in
+   * try/catch and log, which is right for a side effect that must not fail the
+   * write, but it means the feature was simply absent: `compliance/ro/efactura`
+   * drafts an e-invoice on `invoice.created` and had never drafted one, on any
+   * install, since the day it was written.
+   *
+   * Awaiting here also makes the side effect atomic with the write that caused
+   * it — the draft and the invoice commit together, or neither does.
+   *
+   * Each listener is isolated: one extension throwing must not fail another's
+   * work, nor the write itself. Errors are logged with the event name so a
+   * broken listener is visible rather than inferred.
+   *
+   * `emit` is left exactly as it was. Sync listeners are correct on it, tests
+   * depend on its fan-out being finished when it returns, and changing it would
+   * make every existing listener suddenly asynchronous.
+   */
+  async emitAsync<K extends keyof EngineEventMap>(
+    event: K,
+    payload: EngineEventMap[K],
+  ): Promise<void> {
+    const listeners = this.emitter.listeners(event as string);
+    if (listeners.length === 0) return;
+
+    // A SAVEPOINT per listener, because a try/catch is NOT isolation in
+    // Postgres.
+    //
+    // Awaiting listeners inside the caller's transaction is what makes them
+    // work at all — but it also means a listener's failed statement aborts that
+    // transaction, and every later statement on the connection fails with
+    // 25P02. Catching the error in JavaScript changes nothing: the transaction
+    // is already poisoned, so the COMMIT rolls back the caller's own work.
+    //
+    // Measured before this was added: an invoice returned 201 with its number
+    // to the client and did not exist in the database a second later, because
+    // e-Factura's listener had failed on a date conversion. A silent rollback
+    // behind a success response is worse than the bug being fixed.
+    //
+    // The savepoint scopes the damage to the listener that caused it: its
+    // partial work is undone, the outer transaction stays usable, and the write
+    // that triggered the event still commits.
+    const trx = getCurrentTenantTrx();
+    for (const [index, listener] of listeners.entries()) {
+      // Positional and prefixed: an identifier here is never caller-supplied,
+      // and the loop is sequential, so collisions are not possible.
+      const savepoint = `zv_evt_${index}`;
+      if (trx) await sql.raw(`SAVEPOINT ${savepoint}`).execute(trx);
+      try {
+        await (listener as (p: EngineEventMap[K]) => unknown)(payload);
+        if (trx) await sql.raw(`RELEASE SAVEPOINT ${savepoint}`).execute(trx);
+      } catch (err) {
+        if (trx) {
+          await sql
+            .raw(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+            .execute(trx)
+            .catch(() => {
+              /* the transaction is gone entirely; nothing left to salvage */
+            });
+        }
+        console.error(
+          `[events] listener for "${String(event)}" failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
   }
 
   /**
