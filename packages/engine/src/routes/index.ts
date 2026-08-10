@@ -247,7 +247,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/*', apiRateLimit);
 
   // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
-  app.use('/api/*', tenantQuota(db));
+  app.use('/api/*', tenantQuota(db, poolDb));
 
   // ── God-role audit trail — logs all actions by users with role='god' ──────
   app.use('/api/*', godAuditMiddleware(db));

@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from '../lib/runtime/index.js';
 
@@ -15,7 +16,20 @@ import { getCache } from '../lib/runtime/index.js';
  *
  * Registers after the tenant middleware so `c.get('tenant')` is available.
  */
-export function tenantQuota(db: Database) {
+/**
+ * @param db      the request-scoped handle, kept for the quota LOOKUP.
+ * @param poolDb  a plain pool handle for the usage counter. Optional so existing
+ *   callers and tests keep working; falls back to `db`.
+ *
+ * The counter is deliberately NOT written through the request transaction. It is
+ * billing telemetry, not part of the caller's business transaction: a request
+ * that rolls back still consumed the call, and — the reason this is a parameter
+ * at all — an unawaited write on a transaction that is about to commit either
+ * lands on a closed one or takes the whole request down with it when it fails.
+ * It has its own connection because it has its own lifetime.
+ */
+export function tenantQuota(db: Database, poolDb?: Database) {
+  const quotaDb = poolDb ?? db;
   return async (c: Context, next: Next) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenant = c.get('tenant') as any;
@@ -77,9 +91,32 @@ export function tenantQuota(db: Database) {
       }
 
       // ── Async DB sync every 50 calls (non-blocking, for billing reports) ──
+      //
+      // `date` is a DATE column and this used to pass a JS `Date`, which the
+      // driver stringifies as "Mon Aug 10 2026 06:28:21 GMT+0000 (Coordinated
+      // Universal Time)" — rejected outright with `invalid input syntax for
+      // type date`. Every fiftieth request, on any instance with the cache
+      // enabled, for as long as this has existed.
+      //
+      // It looked harmless because the failure is caught and logged. It was not:
+      // a failed statement aborts the whole Postgres transaction, and a
+      // JavaScript `catch` does not undo that. Once this write ran on the
+      // request's tenant transaction, the read that followed it died with
+      // `25P02 current transaction is aborted` and the caller got a 500 from a
+      // GET that had nothing to do with quotas.
+      //
+      // UTC to match `counterKey`, which expires at UTC midnight.
       if (count % 50 === 0) {
-        db.insertInto('zv_tenant_usage')
-          .values({ tenant_id: tenant.id, date: new Date(), api_calls: count })
+        //
+        // Sent as a literal cast to `date` rather than a JS value. The generated
+        // schema types this column as `Date`, which is what the driver hands
+        // BACK on a read — but it is not what the driver can send, and that
+        // mismatch is the whole bug above. `sql` states the intent in the one
+        // place the type system cannot.
+        const day = sql<Date>`${new Date().toISOString().slice(0, 10)}::date`;
+        quotaDb
+          .insertInto('zv_tenant_usage')
+          .values({ tenant_id: tenant.id, date: day, api_calls: count })
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .onConflict((oc: any) =>
             oc.columns(['tenant_id', 'date']).doUpdateSet({ api_calls: count }),
