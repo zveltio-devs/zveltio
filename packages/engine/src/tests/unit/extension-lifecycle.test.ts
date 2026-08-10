@@ -10,12 +10,13 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import type { Hono } from 'hono';
+import { Hono } from 'hono';
 import {
   loadDynamic,
   reloadExtensionFromDisk,
   unloadExtension,
 } from '../../lib/extensions/lifecycle.js';
+import { buildRestrictedContext } from '../../lib/extensions/register.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { getWorkerHost, type WorkerExtensionHost } from '../../lib/worker-extension-host.js';
 
@@ -80,6 +81,34 @@ describe('unloadExtension', () => {
     const r = await unloadExtension(loader, 'e1');
     expect(r.needs_restart).toBe(true);
     expect(r.message).toMatch(/restart/i);
+  });
+
+  it('takes the extension event listeners away with it', async () => {
+    // Without this, a reload leaves the previous load's handlers alive and one
+    // event runs them all — a single invoice fired the same handler three times
+    // after two reloads, and the extension looked like it had a duplication bug.
+    const handlers = new Set<() => void>();
+    class Bus {
+      on(_event: string, h: () => void) {
+        handlers.add(h);
+        return () => handlers.delete(h);
+      }
+    }
+    const bus = new Bus();
+    const ctx = buildRestrictedContext(
+      { events: bus } as unknown as Parameters<typeof buildRestrictedContext>[0],
+      'e-listeners',
+      new Hono(),
+      undefined,
+      false,
+    );
+    (ctx.events as unknown as Bus).on('record.created', () => {});
+    expect(handlers.size).toBe(1);
+
+    const loader = fakeLoader();
+    loader.loaded.set('e-listeners', { registeredRoutes: false });
+    await unloadExtension(loader, 'e-listeners');
+    expect(handlers.size).toBe(0);
   });
 
   it('still unloads when the extension cleanup() throws', async () => {

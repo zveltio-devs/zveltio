@@ -20,6 +20,7 @@ import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
 import { initRls } from './lib/tenancy/index.js';
+import { createRequestScopedDb } from './lib/tenancy/index.js';
 import { fieldTypeRegistry } from './lib/data/index.js';
 import {
   extensionLoader,
@@ -489,6 +490,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
 async function buildHonoApp(): Promise<Hono> {
   if (!_bootstrapCtx) throw new Error('buildHonoApp called before bootstrap()');
   const { db, auth } = _bootstrapCtx;
+  const scopedDb = createRequestScopedDb(db);
 
   const app = new Hono();
 
@@ -572,8 +574,8 @@ async function buildHonoApp(): Promise<Hono> {
   // is resolved. No-op for the default tenant (single-tenant space) + public
   // requests + god/super-admin; only blocks a logged-in non-member from pivoting
   // to another tenant via X-Tenant-Slug. See docs/MULTI-TENANT-ENABLEMENT.md §3.
-  app.use('/api/*', tenantMembershipMiddleware(auth, db));
-  app.use('/ext/*', tenantMembershipMiddleware(auth, db));
+  app.use('/api/*', tenantMembershipMiddleware(auth, scopedDb));
+  app.use('/ext/*', tenantMembershipMiddleware(auth, scopedDb));
 
   // Fail-closed authentication for extension routes. `/ext/<name>/*` requires a
   // valid session unless the extension's manifest declares the sub-path in
@@ -586,7 +588,7 @@ async function buildHonoApp(): Promise<Hono> {
   app.use('/ext/*', extRateLimit);
 
   // ── Core routes ───────────────────────────────────────────────────────────
-  await registerCoreRoutes(app, { db, auth });
+  await registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth });
 
   // ── Marketplace routes ────────────────────────────────────────────────────
   extensionLoader.registerMarketplace(app, db);

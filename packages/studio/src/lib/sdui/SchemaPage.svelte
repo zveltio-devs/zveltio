@@ -134,6 +134,11 @@ let editingId = $state<string | null>(null);
 let formData = $state<Record<string, any>>({});
 // foreign-key / relation select options, loaded lazily per field
 let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
+// The records behind those options, kept so `relation.autofill` can copy fields
+// off the one that was picked. The dropdown only ever needed a value and a
+// label, which is why a relation could store an id and nothing else.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+let relationRows = $state<Record<string, Record<string, any>>>({});
 
 async function loadRelations(r: ResourceView) {
   // Top-level/section fields plus repeatable line-item columns (so a line's
@@ -146,28 +151,65 @@ async function loadRelations(r: ResourceView) {
       const res = await api.get<any>(f.relation.dataSource);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const list = (getPath(res, f.relation.dataPath) ?? []) as any[];
+      const key = f.relation.valueKey ?? 'id';
       relationOpts[f.name] = list.map((it) => ({
-        value: String(it[f.relation!.valueKey ?? 'id']),
+        value: String(it[key]),
         label: relLabel(it, f.relation!.labelKey),
       }));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      const byId: Record<string, any> = {};
+      for (const it of list) byId[String(it[key])] = it;
+      relationRows[f.name] = byId;
     } catch {
       relationOpts[f.name] = [];
+      relationRows[f.name] = {};
     }
   }
 }
 
+/**
+ * Copy the picked record's fields into `target`, per `relation.autofill`.
+ *
+ * Empty targets only. Somebody who has already typed a price meant that price,
+ * and a picker that overwrites deliberate edits is worse than one that fills
+ * nothing — it makes people distrust every field on the form.
+ */
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function defaultFor(f: FieldDef): any {
+function applyAutofill(f: FieldDef, id: unknown, target: Record<string, any>): void {
+  const map = f.relation?.autofill;
+  if (!map) return;
+  const record = relationRows[f.name]?.[String(id)];
+  if (!record) return;
+  for (const [field, path] of Object.entries(map)) {
+    const current = target[field];
+    const untouched = current === undefined || current === null || current === '' || current === 0;
+    if (!untouched) continue;
+    const value = getPath(record, path);
+    if (value !== undefined && value !== null) target[field] = value;
+  }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// `row` is present only for an action prompt, where a default may be drawn from
+// the row the action was fired on — "{total-amount_paid}" pre-fills what is
+// still outstanding, so settling an invoice in full stays one click and paying
+// part of it means editing the number down.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+function defaultFor(f: FieldDef, row?: any): any {
   if (f.default === 'today') return new Date().toISOString().split('T')[0];
+  if (row !== undefined && typeof f.default === 'string') return resolveToken(f.default, row);
   if (f.default !== undefined) return f.default;
   if (f.type === 'boolean') return false;
   if (f.type === 'json') return '{}';
   return f.type === 'number' ? 0 : '';
 }
 // Conditional form field (e.g. auth_token only when auth_type === 'bearer').
-function fieldVisible(f: FieldDef): boolean {
+// `data` defaults to the create/edit form, but an action prompt renders the
+// same fields against its own values — see `promptFor`.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+function fieldVisible(f: FieldDef, data: Record<string, any> = formData): boolean {
   if (!f.visibleWhen) return true;
-  const v = formData[f.visibleWhen.field];
+  const v = data[f.visibleWhen.field];
   if (f.visibleWhen.equals !== undefined) return v === f.visibleWhen.equals;
   if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
   return true;
@@ -400,23 +442,23 @@ async function inlineEdit(row: any, col: ColumnDef, value: string) {
 }
 
 // Action request body: "{field}" tokens from the row; "{a-b}" subtracts.
+/** "{field}" → the row's value; "{a-b}" → the difference. Anything else is a literal. */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+function resolveToken(tmpl: string, row: any): any {
+  const mt = /^\{(.+)\}$/.exec(tmpl);
+  if (!mt) return tmpl;
+  const parts = mt[1].split('-');
+  return parts.length === 2
+    ? Number(getPath(row, parts[0].trim()) || 0) - Number(getPath(row, parts[1].trim()) || 0)
+    : getPath(row, mt[1].trim());
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function buildBody(a: ActionDef, row: any): Record<string, any> {
   if (!a.body) return {};
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const out: Record<string, any> = {};
-  for (const [k, tmpl] of Object.entries(a.body)) {
-    const mt = /^\{(.+)\}$/.exec(tmpl);
-    if (mt) {
-      const parts = mt[1].split('-');
-      out[k] =
-        parts.length === 2
-          ? Number(getPath(row, parts[0].trim()) || 0) - Number(getPath(row, parts[1].trim()) || 0)
-          : getPath(row, mt[1].trim());
-    } else {
-      out[k] = tmpl;
-    }
-  }
+  for (const [k, tmpl] of Object.entries(a.body)) out[k] = resolveToken(tmpl, row);
   return out;
 }
 
@@ -474,18 +516,16 @@ function openEdit(row: any) {
 function fillEndpoint(tmpl: string, row: any): string {
   return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
 }
+/** The call itself. `extra` carries whatever an action prompt collected. */
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function runAction(row: any, a: ActionDef) {
-  if (a.kind === 'edit') return openEdit(row);
-  if (a.kind === 'download') {
-    window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
-    return;
-  }
-  const fire = async () => {
+function fireAction(row: any, a: ActionDef, extra: Record<string, any> = {}) {
+  return async () => {
     try {
       const url = (a.endpoint ?? '').replace('{id}', row.id);
       if (!guardMutation(url)) return;
-      const body = buildBody(a, row);
+      // Typed values last: a prompt exists precisely because the row cannot
+      // supply this, so it overrides a "{field}" token of the same name.
+      const body = { ...buildBody(a, row), ...extra };
       if (a.method === 'DELETE') await api.delete(url);
       else if (a.method === 'PATCH') await api.patch(url, body);
       else await api.post(url, body);
@@ -496,8 +536,47 @@ function runAction(row: any, a: ActionDef) {
       toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
     }
   };
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+function runAction(row: any, a: ActionDef) {
+  if (a.kind === 'edit') return openEdit(row);
+  if (a.kind === 'download') {
+    window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
+    return;
+  }
+  if (a.prompt) {
+    // The prompt IS the confirmation — see the note on ActionDef.prompt.
+    promptData = {};
+    for (const f of a.prompt.fields) promptData[f.name] = defaultFor(f, row);
+    promptFor = { action: a, row };
+    return;
+  }
+  const fire = fireAction(row, a);
   if (a.confirm) askConfirm(t(a.confirm), fire);
   else fire();
+}
+
+/** Action awaiting input, with the row it was fired on. */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+let promptFor = $state<{ action: ActionDef; row: any } | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+let promptData = $state<Record<string, any>>({});
+
+const promptValid = $derived.by(() =>
+  (promptFor?.action.prompt?.fields ?? [])
+    .filter((f) => f.required && fieldVisible(f, promptData))
+    .every((f) => {
+      const v = promptData[f.name];
+      return v !== undefined && v !== null && v !== '';
+    }),
+);
+
+async function submitPrompt() {
+  const pending = promptFor;
+  if (!pending || !promptValid) return;
+  promptFor = null;
+  await fireAction(pending.row, pending.action, { ...promptData })();
 }
 
 // computed fields (e.g. total weight = sum of goods.weight_kg)
@@ -826,52 +905,89 @@ const shellTabs = $derived(
   {/if}
 </ExtensionPageShell>
 
+<!--
+  One field renderer, two callers: the create/edit form and an action prompt.
+  It takes the object to write into rather than closing over `formData`, so a
+  prompt keeps its own values and cannot leave anything behind in a form the
+  person never opened.
+-->
+{#snippet fieldInput(f: FieldDef, data: Record<string, any>)}
+  {#if fieldVisible(f, data)}
+  <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
+    <label class="label py-0"><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
+    {#if f.type === 'select' || f.type === 'relation'}
+      <select
+        class="select select-sm"
+        bind:value={data[f.name]}
+        onchange={() => applyAutofill(f, data[f.name], data)}
+      >
+        <!--
+          The empty option says what leaving it alone DOES, when the field
+          knows. "Select…" describes the widget; a placeholder like "Default
+          series" describes the outcome, which is the only thing the person
+          filling in the form is deciding.
+        -->
+        {#if f.type === 'relation'}<option value="">{t(f.placeholder ?? 'common.select')}</option>{/if}
+        {#each (f.type === 'relation' ? (relationOpts[f.name] ?? []) : (f.options ?? [])) as o}
+          <option value={o.value}>{t(o.label)}</option>
+        {/each}
+      </select>
+    {:else if f.type === 'textarea' || f.type === 'json'}
+      <textarea
+        class="textarea textarea-sm {f.mono || f.type === 'json' ? 'font-mono text-xs' : ''}"
+        rows={f.rows ?? 4}
+        bind:value={data[f.name]}
+        placeholder={t(f.placeholder)}
+      ></textarea>
+    {:else if f.type === 'boolean'}
+      <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={data[f.name]} />
+    {:else if f.type === 'file'}
+      <input type="file" class="file-input file-input-sm file-input-bordered" accept={f.accept}
+        onchange={(e) => (data[f.name] = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
+    {:else}
+      <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={data[f.name]} placeholder={t(f.placeholder)} />
+    {/if}
+  </div>
+  {/if}
+{/snippet}
+
+{#if promptFor?.action.prompt}
+  {@const P = promptFor.action.prompt}
+  <dialog open aria-modal="true" class="modal modal-open">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-4">{t(P.title ?? promptFor.action.label ?? 'common.confirm')}</h3>
+      <div class="grid grid-cols-1 gap-3">
+        {#each P.fields as f}{@render fieldInput(f, promptData)}{/each}
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" onclick={() => (promptFor = null)}>{t('common.cancel')}</button>
+        <button
+          class="btn btn-primary {promptFor.action.variant ?? ''}"
+          disabled={!promptValid}
+          onclick={submitPrompt}
+        >{t(P.submitLabel ?? 'common.confirm')}</button>
+      </div>
+    </div>
+    <button class="modal-backdrop" onclick={() => (promptFor = null)}></button>
+  </dialog>
+{/if}
+
 {#if showForm && active.form}
   {@const F = active.form}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-3xl">
       <h3 class="font-bold text-lg mb-4">{editingId ? t('common.edit') : t(schema.newLabel)}</h3>
 
-      {#snippet fieldInput(f: FieldDef)}
-        {#if fieldVisible(f)}
-        <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-          <label class="label py-0"><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
-          {#if f.type === 'select' || f.type === 'relation'}
-            <select class="select select-sm" bind:value={formData[f.name]}>
-              {#if f.type === 'relation'}<option value="">{t('common.select')}</option>{/if}
-              {#each (f.type === 'relation' ? (relationOpts[f.name] ?? []) : (f.options ?? [])) as o}
-                <option value={o.value}>{t(o.label)}</option>
-              {/each}
-            </select>
-          {:else if f.type === 'textarea' || f.type === 'json'}
-            <textarea
-              class="textarea textarea-sm {f.mono || f.type === 'json' ? 'font-mono text-xs' : ''}"
-              rows={f.rows ?? 4}
-              bind:value={formData[f.name]}
-              placeholder={t(f.placeholder)}
-            ></textarea>
-          {:else if f.type === 'boolean'}
-            <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={formData[f.name]} />
-          {:else if f.type === 'file'}
-            <input type="file" class="file-input file-input-sm file-input-bordered" accept={f.accept}
-              onchange={(e) => (formData[f.name] = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
-          {:else}
-            <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={formData[f.name]} placeholder={t(f.placeholder)} />
-          {/if}
-        </div>
-        {/if}
-      {/snippet}
-
       {#if F.fields}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          {#each F.fields as f}{@render fieldInput(f)}{/each}
+          {#each F.fields as f}{@render fieldInput(f, formData)}{/each}
         </div>
       {/if}
 
       {#each F.sections ?? [] as sec}
         <div class="card bg-base-200 p-3 mb-3">
           <p class="font-semibold text-sm mb-2">{t(sec.title)}</p>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">{#each sec.fields as f}{@render fieldInput(f)}{/each}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">{#each sec.fields as f}{@render fieldInput(f, formData)}{/each}</div>
         </div>
       {/each}
 
@@ -891,7 +1007,16 @@ const shellTabs = $derived(
                   {#each rep.columns as c}
                     <td>
                       {#if c.type === 'relation'}
-                        <select class="select select-xs w-40" bind:value={formData[rep.name][i][c.name]}>
+                        <!--
+                          Autofill writes into THIS row, so picking a catalogue
+                          item fills that line's description, unit, price and
+                          VAT rate and leaves the other lines alone.
+                        -->
+                        <select
+                          class="select select-xs w-40"
+                          bind:value={formData[rep.name][i][c.name]}
+                          onchange={() => applyAutofill(c, formData[rep.name][i][c.name], formData[rep.name][i])}
+                        >
                           <option value="">—</option>
                           {#each relationOpts[c.name] ?? [] as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
                         </select>

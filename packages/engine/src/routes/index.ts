@@ -94,6 +94,23 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 
 interface RoutesContext {
   db: Database;
+  /**
+   * The raw pool, for the few routes that must NOT run inside the request's
+   * tenant transaction. Three kinds, and each has a reason rather than a
+   * preference:
+   *
+   *  - it sets transaction-level properties of its own (`insights` and the SQL
+   *    editor issue SET TRANSACTION READ ONLY and a statement_timeout, which
+   *    must not be imposed on the whole request);
+   *  - it runs SQL nobody wrote in this codebase, which may fail and, in
+   *    Postgres, would abort the shared transaction along with the request;
+   *  - it continues after the response (`backup`, flow execution), by which
+   *    time the request transaction is committed and gone.
+   *
+   * Everything else takes `db` and shares the request's transaction, which is
+   * what keeps one request to one pooled connection.
+   */
+  poolDb: Database;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   auth: any;
 }
@@ -102,7 +119,7 @@ interface RoutesContext {
 let _coreServicesInitialized = false;
 
 export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise<void> {
-  const { db, auth } = ctx;
+  const { db, auth, poolDb } = ctx;
 
   if (!_coreServicesInitialized) {
     _coreServicesInitialized = true;
@@ -230,7 +247,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/*', apiRateLimit);
 
   // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
-  app.use('/api/*', tenantQuota(db));
+  app.use('/api/*', tenantQuota(db, poolDb));
 
   // ── God-role audit trail — logs all actions by users with role='god' ──────
   app.use('/api/*', godAuditMiddleware(db));
@@ -403,7 +420,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Data Quality Dashboard — moved to extensions/analytics/quality
 
   // Analytics Insights — promoted to core (used to live in extensions/analytics/insights)
-  app.route('/api/insights', insightsRoutes(db, auth));
+  app.route('/api/insights', insightsRoutes(poolDb, auth));
 
   // What the business needs from you today, as opposed to what the platform is
   // doing. Derived from the core `transactions` collection, so it answers on an
@@ -411,13 +428,13 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/briefing', briefingRoutes(db, auth));
 
   // Database backups + PITR — promoted to core (was extensions/operations/backup)
-  app.route('/api/backup', backupRoutes(db, auth));
+  app.route('/api/backup', backupRoutes(poolDb, auth));
 
   // Schema Branches — promoted to core (was extensions/developer/schema-branches)
   app.route('/api/schema', schemaBranchesRoutes(db, auth));
 
   // Ad-hoc SQL editor — admin-only, audited
-  app.route('/api/admin/sql', sqlEditorRoutes(db, auth));
+  app.route('/api/admin/sql', sqlEditorRoutes(poolDb, auth));
 
   // Pre-built business templates (CRM / Invoicing / Project / Help Desk / Inventory)
   app.route('/api/templates', templatesRoutes(db, auth));
@@ -428,7 +445,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Documents Management — moved to extensions/content/documents
 
   // Automation flows (core)
-  app.route('/api/flows', flowsRoutes(db, auth));
+  app.route('/api/flows', flowsRoutes(poolDb, auth));
 
   // Multi-tenancy management (core)
   app.route('/api/tenants', tenantsRoutes(db, auth));
