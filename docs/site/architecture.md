@@ -441,7 +441,7 @@ If the extension is not active, routes return `404`.
 | `/api/validation` | `developer/validation` | developer |
 | `/api/export` | `data/export` | data |
 | `/api/import` | `data/import` | data |
-| `/api/translations` | `i18n/translations` | i18n |
+| `/ext/i18n/translations` | `i18n/translations` | i18n |
 | `/api/approvals` | `workflow/approvals` | workflow |
 | `/api/drafts` | `content/drafts` | content |
 | `/api/media` | `content/media` | content |
