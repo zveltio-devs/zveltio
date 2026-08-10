@@ -317,7 +317,6 @@ async function runScanAsync(
     })
     .where('id', '=', scanId)
     .execute();
-
 }
 
 /**
