@@ -74,9 +74,8 @@ function shouldFireHooks(tableName: string): boolean {
  * object rather than the ALS keeps this correct for a handle passed in
  * explicitly as well as one resolved per query.
  */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function isTenantTransaction(db: any): boolean {
-  return Boolean(db?.isTransaction);
+function isTenantTransaction(db: unknown): boolean {
+  return Boolean((db as { isTransaction?: unknown } | null | undefined)?.isTransaction);
 }
 
 export function createRestrictedDb(
@@ -128,8 +127,8 @@ export function createRestrictedDb(
         };
       }
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const value = (target as any)[prop];
+      // `unknown`, not `any` — see the same trap in `createRequestScopedDb`.
+      const value = (target as unknown as Record<string | symbol, unknown>)[prop];
 
       if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
         // Return a wrapper that validates the table argument before forwarding.
