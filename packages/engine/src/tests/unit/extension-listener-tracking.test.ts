@@ -36,9 +36,23 @@ class FakeBus {
     return () => set.delete(handler);
   }
 
+  /** Pre-hooks, tracked the same way and removed on the same unload. */
+  before = new Map<string, Set<(p: unknown) => unknown>>();
+
+  onBefore(event: string, handler: (p: unknown) => unknown) {
+    const set = this.before.get(event) ?? new Set();
+    set.add(handler);
+    this.before.set(event, set);
+    return () => set.delete(handler);
+  }
+
   /** Present on the prototype only — a spread would drop it. */
   async emitAsync(event: string, payload: unknown) {
     for (const h of this.handlers.get(event) ?? []) await h(payload);
+  }
+
+  beforeCount(event: string) {
+    return this.before.get(event)?.size ?? 0;
   }
 
   count(event: string) {
@@ -101,6 +115,34 @@ describe('extension listener tracking', () => {
     expect(bus.count('record.created')).toBe(1);
     unregisterExtensionListeners('probe/reload');
     expect(bus.count('record.created')).toBe(0);
+  });
+
+  it('tracks pre-hooks too, and drops them on the same unload', () => {
+    // `onBefore` is how an extension vetoes or rewrites a write before it
+    // happens. A stale one is worse than a stale listener: it does not merely
+    // run twice, it can reject the same write twice over.
+    const bus = new FakeBus();
+    const ctx = restricted(bus, 'probe/before');
+    (ctx.events as unknown as FakeBus).onBefore('record.beforeUpdate', () => {});
+    expect(bus.beforeCount('record.beforeUpdate')).toBe(1);
+
+    expect(unregisterExtensionListeners('probe/before')).toBe(1);
+    expect(bus.beforeCount('record.beforeUpdate')).toBe(0);
+  });
+
+  it('survives a bus with no onBefore at all', () => {
+    // Not every context carries one, and the wrapper must not invent a
+    // subscription it cannot cancel.
+    const bus = new FakeBus();
+    (bus as unknown as { onBefore?: unknown }).onBefore = undefined;
+    const ctx = restricted(bus, 'probe/no-before');
+    expect(
+      (ctx.events as unknown as { onBefore(e: string, h: () => void): unknown }).onBefore(
+        'record.beforeUpdate',
+        () => {},
+      ),
+    ).toBeUndefined();
+    expect(unregisterExtensionListeners('probe/no-before')).toBe(0);
   });
 
   it('reports nothing to remove for an extension that never registered', () => {
