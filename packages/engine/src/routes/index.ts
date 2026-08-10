@@ -25,7 +25,6 @@ import { tenantsRoutes } from './tenants.js';
 // AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
 // /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
 import { zonesRoutes, viewsRoutes } from './zones.js';
-import { translationsRoutes } from './translations.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -89,7 +88,19 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 // /api/validation       → extensions/developer/validation
 // /api/export           → extensions/data/export
 // /api/import           — data import CSV/JSON/NDJSON (routes/import.ts)
-// /api/translations     → extensions/i18n/translations
+//
+// `/api/translations` is NOT in this list, and its absence is the point. The
+// engine served fifteen translation routes here while `i18n/translations`
+// served the same fifteen under `/ext/i18n/translations` — two live
+// implementations over one set of tables, and the Studio called neither, since
+// its own text is compiled in by paraglide.
+//
+// The comparison that settled it: not one route existed only in the engine.
+// Deleting them loses nothing. And every other name in this list already
+// answers 404 at `/api/<feature>` — `/api/database` and `/api/quality` do,
+// with their extensions enabled — because extensions live under `/ext/<name>/`.
+// Translations were the single exception, and only because this file kept
+// serving them.
 // ────────────────────────────────────────────────────────────────────────────
 
 interface RoutesContext {
@@ -370,7 +381,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/revisions', revisionsRoutes(db, auth));
 
   // i18n translations (core — always available)
-  app.route('/api/translations', translationsRoutes(db, auth));
 
   // In-app notifications + web push (authenticated)
   app.route('/api/notifications', notificationsRoutes(db, auth));
