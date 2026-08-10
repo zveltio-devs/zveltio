@@ -880,48 +880,16 @@ export interface ZvdAiSearchConfigTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdTranslationKeysTable {
-  id: Generated<string>;
-  key: string;
-  context: string | null;
-  default_value: string | null;
-  description: string | null;
-  tags: Generated<unknown>; // tags TEXT[] DEFAULT '{}'
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdTranslationsTable {
-  id: Generated<string>;
-  key_id: string;
-  locale: string;
-  value: string;
-  is_machine_translated: Generated<boolean>;
-  reviewed: Generated<boolean>;
-  updated_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdLocalesTable {
-  code: string;
-  name: string;
-  is_default: Generated<boolean>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-}
-
-export interface ZvdTranslationGlossaryTable {
-  id: Generated<string>;
-  term: string;
-  locale: string;
-  translation: string;
-  definition: string | null;
-  forbidden: Generated<boolean>; // DEFAULT false
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
+// The i18n tables are NOT declared here.
+//
+// They used to be, from when translations were an engine feature. The engine
+// serves none of it now — `routes/translations.ts` is gone and the fifteen
+// routes live in `i18n/translations` — so the types went with the code.
+//
+// Extension tables in general do not appear in this file: `zvd_invoices`,
+// `zv_ro_documents` and `zvd_pos_orders` are not here either. Extensions reach
+// their own tables through `ctx.db`, and the four i18n names were leftovers
+// rather than the mechanism.
 
 export interface ZvdContactsTable {
   id: Generated<string>;
@@ -1797,10 +1765,6 @@ export interface DbSchema {
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
-  zvd_translation_keys: ZvdTranslationKeysTable;
-  zvd_translations: ZvdTranslationsTable;
-  zvd_translation_glossary: ZvdTranslationGlossaryTable;
-  zvd_locales: ZvdLocalesTable;
   zvd_contacts: ZvdContactsTable;
   zvd_organizations: ZvdOrganizationsTable;
   zvd_contact_organizations: ZvdContactOrganizationsTable;
