@@ -98,6 +98,14 @@ export interface FlowCompletedPayload {
   error?: string;
 }
 
+export interface QualityScanCompletedPayload {
+  scanId: string;
+  collection: string;
+  scanType: string;
+  recordsScanned: number;
+  issuesFound: number;
+}
+
 export interface AiTaskDonePayload {
   userId: string;
   summary: string;
@@ -119,6 +127,7 @@ export type ZveltioEvents = {
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
   'ai.task.done': AiTaskDonePayload;
+  'quality.scanCompleted': QualityScanCompletedPayload;
 };
 
 /**
@@ -142,6 +151,7 @@ export interface EngineEventMap {
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
   'ai.task.done': AiTaskDonePayload;
+  'quality.scanCompleted': QualityScanCompletedPayload;
 }
 
 // ─── Typed event bus ───────────────────────────────────────────────────────────
