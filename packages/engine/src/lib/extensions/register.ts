@@ -314,27 +314,36 @@ export function buildRestrictedContext(
   // function" for every extension, which is to say every invoice, every record
   // event, every hook. Delegating through the prototype keeps the rest intact
   // and still lets `on` be overridden.
-  const trackedEvents: typeof ctx.events = Object.assign(Object.create(ctx.events), {
-    // biome-ignore lint/suspicious/noExplicitAny: the bus is typed per event; the wrapper is generic by nature
-    on: (event: any, handler: any) => {
-      const off = ctx.events.on(event, handler);
-      const list = extensionListeners.get(extName) ?? [];
-      list.push(off);
-      extensionListeners.set(extName, list);
-      return off;
-    },
-    // biome-ignore lint/suspicious/noExplicitAny: as above
-    onBefore: (event: any, handler: any) => {
-      // biome-ignore lint/suspicious/noExplicitAny: as above
-      const off = (ctx.events as any).onBefore?.(event, handler);
-      if (typeof off === 'function') {
-        const list = extensionListeners.get(extName) ?? [];
-        list.push(off);
-        extensionListeners.set(extName, list);
-      }
-      return off;
-    },
-  });
+  //
+  // Guarded because a context may arrive without a bus at all — the unit tests
+  // build one to check route mounting and nothing else. `Object.create(undefined)`
+  // throws, where the old spread quietly produced an object carrying the two
+  // methods below and no bus behind them, which would have thrown later and
+  // further from the cause. No bus in, no bus out.
+  const trackedEvents: typeof ctx.events = !ctx.events
+    ? ctx.events
+    : Object.assign(Object.create(ctx.events), {
+        // Signatures borrowed from the bus itself rather than widened to `any`.
+        // The wrapper is generic over every event, but it never needs to look
+        // inside one — it forwards the arguments untouched and only keeps the
+        // unsubscribe function, so `Parameters<…>` says exactly that.
+        on: (...args: Parameters<typeof ctx.events.on>) => {
+          const off = ctx.events.on(...args);
+          const list = extensionListeners.get(extName) ?? [];
+          list.push(off);
+          extensionListeners.set(extName, list);
+          return off;
+        },
+        onBefore: (...args: Parameters<NonNullable<typeof ctx.events.onBefore>>) => {
+          const off = ctx.events.onBefore?.(...args);
+          if (typeof off === 'function') {
+            const list = extensionListeners.get(extName) ?? [];
+            list.push(off);
+            extensionListeners.set(extName, list);
+          }
+          return off;
+        },
+      });
 
   return {
     ...ctx,
