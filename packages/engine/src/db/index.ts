@@ -80,7 +80,7 @@ export async function initDatabase(): Promise<Database> {
   // default; if both are set, BUN_SQL_IDLE_TIMEOUT_MS wins because
   // it's the one documented in EXTENSION-DEVELOPER-GUIDE.
   const idleEnv = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS;
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
@@ -97,12 +97,22 @@ export async function initDatabase(): Promise<Database> {
       // leaked — see `withIdleInTransactionTimeout`, which mitigates the leak
       // from the Postgres side.
       //
-      // This raises the ceiling; it does NOT remove the second checkout, which
-      // is the actual defect. Making core routes reuse the request transaction
-      // was tried and reverted: routes that must escape RLS — tenant
-      // provisioning, invitation accept, the SQL editor, backup, saved queries —
-      // broke, 28 harness tests with them. That is a per-route campaign, not a
-      // wiring change.
+      // The second checkout is gone: `createRequestScopedDb` hands core routes a
+      // proxy that resolves the current tenant transaction through
+      // AsyncLocalStorage and only reaches for the pool when there is none, so a
+      // request pins one connection rather than two. The routes that genuinely
+      // must escape RLS — tenant provisioning, invitation accept, the SQL editor,
+      // backup, saved queries — take `poolDb` explicitly and are the only ones
+      // that do.
+      //
+      // Ten was briefly raised to 25 while that defect stood. It is back down,
+      // because a ceiling sized around a bug outlives the bug and then quietly
+      // becomes a connection budget nobody agreed to: CI runs several engines
+      // against one Postgres and 25 apiece exhausted it, which is exactly what a
+      // multi-replica deployment would hit. With one connection per request the
+      // same dashboard burst settles at ~425ms; 25 buys ~76ms, which is a real
+      // gain and the reason this is an env var rather than a constant. Raise it
+      // deliberately, against a `max_connections` you have checked.
       max: poolMax,
       idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
     }),
