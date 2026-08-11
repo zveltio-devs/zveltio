@@ -261,10 +261,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/*', tenantQuota(db, poolDb));
 
   // ── God-role audit trail — logs all actions by users with role='god' ──────
-  app.use('/api/*', godAuditMiddleware(db));
+  app.use('/api/*', godAuditMiddleware(poolDb));
 
   // ── Request log — persists every /api/* call to zv_request_logs ──────────
-  app.use('/api/*', requestLogMiddleware(db));
+  app.use('/api/*', requestLogMiddleware(poolDb));
 
   // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
   app.use('/api/data/*', previewEnvMiddleware(db));
@@ -327,7 +327,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/relations', relationsRoutes(db, auth));
 
   // Slow query detection for data endpoints
-  app.use('/api/data/*', slowQueryMiddleware(db));
+  app.use('/api/data/*', slowQueryMiddleware(poolDb));
 
   // Generic data CRUD (session + API key)
   app.route('/api/data', dataRoutes(db, auth));

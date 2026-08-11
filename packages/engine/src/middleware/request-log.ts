@@ -15,7 +15,26 @@ const SAMPLE_RATE = (() => {
   return Math.min(1, Math.max(0, raw));
 })();
 
-export function requestLogMiddleware(db: Database): MiddlewareHandler {
+/**
+ * @param poolDb a PLAIN pool handle, never the request-scoped proxy.
+ *
+ * This write happens after `next()` and is deliberately not awaited, which puts
+ * it outside the request's tenant transaction in both directions. Handed the
+ * scoped proxy it resolved that transaction anyway, and then:
+ *
+ *   - a request that failed on a database error left the transaction aborted,
+ *     so the INSERT came back "current transaction is aborted, commands ignored"
+ *     and the log line was dropped. Exactly inverting the intent above — errors
+ *     are never sampled away — because the requests that fail hardest are the
+ *     ones that fail this way;
+ *   - a request that succeeded raced the COMMIT. The statement is issued as the
+ *     middleware unwinds and the transaction closes right behind it, so the
+ *     INSERT can land on a connection already back in the pool.
+ *
+ * `zv_request_logs` carries no `tenant_id`, so nothing is lost by leaving the
+ * tenant transaction — the row was never scoped by it.
+ */
+export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
   return async (c, next) => {
     const path = c.req.path;
     const skip = SKIP_PREFIXES.some((p) => path.startsWith(p));
@@ -35,7 +54,8 @@ export function requestLogMiddleware(db: Database): MiddlewareHandler {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
-    db.insertInto('zv_request_logs')
+    poolDb
+      .insertInto('zv_request_logs')
       .values({
         method: c.req.method,
         path,
