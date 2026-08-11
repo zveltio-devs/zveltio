@@ -28,6 +28,12 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3000';
+/**
+ * The problem `code` the fail-closed `/ext/*` gate answers with. Anything else
+ * on a 401 came from the extension's own handler.
+ */
+const GATE_CODE = 'EXT_AUTH_REQUIRED';
+
 const EXT_ROOT = process.argv[2] ?? process.env.EXTENSIONS_DIR ?? process.cwd();
 
 const TEST_EMAIL = process.env.TEST_EMAIL ?? 'probe@test.invalid';
@@ -110,16 +116,35 @@ for (const m of manifests) {
     continue;
   }
 
-  // (1) Each declared public pattern must be reachable anonymously (not 401).
+  // (1) Each declared public pattern must not be blocked BY THE GATE.
+  //
+  // Not "must not return 401". A route can be public to the gate and still
+  // refuse an anonymous caller for its own reasons — `developer/api-docs`
+  // serves its spec only when an administrator has switched the docs public,
+  // and answers 401 otherwise. That is the route deciding, which is exactly
+  // what declaring it public is FOR: the gate steps aside so the handler can
+  // choose.
+  //
+  // The two are distinguishable and the difference is the whole point of this
+  // check, so it compares the problem CODE: the gate answers
+  // `EXT_AUTH_REQUIRED`, a handler answers whatever it likes. Checking the
+  // status alone reported a correctly-configured extension as a gate failure.
   for (const pattern of m.publicRoutes ?? []) {
     const url = concreteUrl(m.name, pattern);
     const res = await fetch(`${BASE}${url}`).catch(() => null);
     publicChecks++;
     if (res && res.status === 401) {
-      failures.push(
-        `${m.name}: declared public route "${pattern}" (${url}) returned 401 anonymously — ` +
-          `the gate is blocking a route the manifest says is public.`,
-      );
+      const code = await res
+        .clone()
+        .json()
+        .then((b: { code?: string }) => b?.code)
+        .catch(() => undefined);
+      if (code === GATE_CODE) {
+        failures.push(
+          `${m.name}: declared public route "${pattern}" (${url}) was blocked BY THE GATE ` +
+            `(code ${GATE_CODE}) for an anonymous caller — the manifest says it is public.`,
+        );
+      }
     }
   }
 
@@ -127,6 +152,9 @@ for (const m of manifests) {
   // proves the gate is mounted + enforcing for this extension.
   const control = `/ext/${m.name}/__auth_gate_control__`;
   const res = await fetch(`${BASE}${control}`).catch(() => null);
+  // Here the code is not compared: any 401 on a path no route serves can only
+  // have come from the gate, and demanding a specific code would make this
+  // brittle for no gain.
   if (!res || res.status !== 401) {
     failures.push(
       `${m.name}: control path ${control} returned ${res?.status ?? 'no-response'} for an ` +
