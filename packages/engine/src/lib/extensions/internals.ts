@@ -13,12 +13,21 @@
 import type { Context } from 'hono';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
+import { getDb } from '../../db/index.js';
+import type { RlsFilter } from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
 import { DDLManager } from '../data/index.js';
 import type { QueryAlterScope } from '../data/index.js';
 import type { EntityAccessScope } from '../tenancy/index.js';
+import {
+  applyRlsFilters,
+  getColumnAccess,
+  getRlsFilters,
+  isTenantAdmin,
+  resolveUserRole,
+} from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
 import { invalidateRulesCache } from '../validation-engine.js';
@@ -34,7 +43,7 @@ import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { encryptField } from '../data/index.js';
+import { encryptField, maybeEncrypt } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
@@ -146,6 +155,53 @@ export interface ExtensionInternals {
    */
   withTenantIsolation: <T>(tenantId: string, fn: (trx: Database) => Promise<T>) => Promise<T>;
 
+  /**
+   * The instance's own read policies, so an extension can honour them.
+   *
+   * `ctx.db` gives the TENANT boundary and nothing else. The two rules an
+   * operator writes INSIDE a tenant — the RLS rules at `/api/rls` that hide
+   * rows from a user, and the column permissions that hide a field from a role
+   * — lived here and only the engine could read them. So an extension serving
+   * the same data as a core route enforced strictly less, and nothing said so.
+   *
+   * `data/export` is the worked example: `/api/export` gained both guards on
+   * 2026-07-31, the extension kept `selectAll()` inside a tenant transaction,
+   * and the Studio calls the extension. Not overlooked — unavailable.
+   *
+   * Ungated in `INTERNALS_CAPABILITY` on purpose: every other guarded member
+   * grants authority, these only remove rows and columns from a result. An
+   * extension that cannot call them does not become safer.
+   */
+  /**
+   * Apply field encryption to a value the operator marked `encrypted: true`.
+   *
+   * Deliberately NOT `encryptSecret`, which is gated behind `secrets` — and that
+   * gate also hands over `decryptSecret`. An extension that writes rows into a
+   * collection needs to honour the marking on a column; giving it the power to
+   * read every stored secret in order to do so is the wrong trade, and it is the
+   * reason `data/import` stored plaintext instead: the capable helper cost too
+   * much, so nothing was called at all.
+   *
+   * Encrypt-only, so it grants nothing: what it can do is remove the extension's
+   * ability to persist a marked column in the clear. Fail-closed and the
+   * `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` escape hatch come with it,
+   * because this is the engine's own helper rather than a second implementation
+   * that would drift from it.
+   */
+  maybeEncrypt: typeof maybeEncrypt;
+  getRlsFilters: (
+    collection: string,
+    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+  ) => Promise<RlsFilter[]>;
+  applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]) => Q;
+  /** No db parameter: the host resolves the handle — see the SDK declaration. */
+  getColumnAccess: (
+    collection: string,
+    role: string,
+  ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
+  resolveUserRole: typeof resolveUserRole;
+  isTenantAdmin: typeof isTenantAdmin;
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
@@ -240,6 +296,24 @@ export function buildExtensionInternals(): ExtensionInternals {
     DataLoaderRegistry,
     checkQueryDepth,
     checkQueryWidth,
+    maybeEncrypt,
+    // Adapted rather than passed straight through, so the bag matches the SDK
+    // declaration exactly. The casts are between two spellings of the same
+    // shape — `RlsFilter` mirrors the engine's `FilterCondition` — and exist so
+    // neither side has to widen a parameter to `any` to stay assignable.
+    getRlsFilters: (
+      collection: string,
+      user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+      authType: 'session' | 'api_key',
+    ) => getRlsFilters(collection, user, authType) as Promise<RlsFilter[]>,
+    applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]): Q =>
+      applyRlsFilters(query, filters as Parameters<typeof applyRlsFilters>[1]),
+    // The handle is the host's to choose: column permissions are instance
+    // configuration, not tenant rows.
+    getColumnAccess: (collection: string, role: string) =>
+      getColumnAccess(getDb(), collection, role),
+    resolveUserRole,
+    isTenantAdmin,
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,

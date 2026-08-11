@@ -3,7 +3,13 @@ import type { Database } from '../db/index.js';
 
 const SLOW_THRESHOLD_MS = parseInt(process.env.SLOW_QUERY_THRESHOLD_MS ?? '200');
 
-export function slowQueryMiddleware(db: Database): MiddlewareHandler {
+/**
+ * @param poolDb a PLAIN pool handle — see `requestLogMiddleware` for why. The
+ * failure mode is sharper here: a slow request is disproportionately one that
+ * went on to fail, and the record of it was dropped on the aborted transaction
+ * it left behind. `zv_slow_queries` carries no `tenant_id`.
+ */
+export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
   return async (c, next) => {
     const start = performance.now();
     await next();
@@ -25,7 +31,8 @@ export function slowQueryMiddleware(db: Database): MiddlewareHandler {
       }
 
       // Persist to DB (fire-and-forget, non-fatal)
-      db.insertInto('zv_slow_queries')
+      poolDb
+        .insertInto('zv_slow_queries')
         .values({
           method: entry.method,
           path: entry.path,

@@ -1,8 +1,11 @@
 /**
- * Affected-row counts are NOT reported by this dialect. Count with RETURNING.
+ * Affected-row counts ARE reported by this dialect. They used not to be.
  *
- * Four places relied on `numUpdatedRows` / `numAffectedRows` / `numDeletedRows`,
- * and each failed differently:
+ * The original version of this file pinned the opposite, and it was right at the
+ * time: `BunSqlSmartConnection.executeQuery` returned `{ rows }` and nothing
+ * else, so Kysely had no `numAffectedRows` to build `DeleteResult` from and
+ * every `numDeletedRows` / `numUpdatedRows` read as `undefined` or `0n`. Four
+ * bugs came out of that, and none of them looks related in review:
  *
  *   - `moveToTrash` threw "File not found or already deleted" on every
  *     SUCCESSFUL delete. The file was trashed and the caller was told it
@@ -15,12 +18,17 @@
  *   - the garbage collector logged and totalled zero however much it purged.
  *   - the ERD layout delete always answered `deleted: 0`.
  *
- * One dialect behaviour, four bugs, none of which look related in review.
- * `routes/webhooks.ts` had already found it and documented the RETURNING
- * workaround locally; nothing stopped the pattern being used again elsewhere.
+ * The fix then was to use RETURNING at each call site and write this test so
+ * nobody rediscovered the behaviour through another incident. That was a
+ * workaround for a missing two lines, and it only ever reached the call sites
+ * somebody had already been burned by: eight handlers across four extensions
+ * (`developer/api-docs`, `graphql`, `validation`, `byod`) kept the plain idiom
+ * and answered 404 to deletes that had just removed the row. Measured on a live
+ * instance: one row before, `DELETE` → 404 "Not found", zero rows after.
  *
- * This test pins the behaviour so the next person sees WHY the codebase avoids
- * these fields, instead of rediscovering it through a data-loss incident.
+ * Bun's result array carries `count` and `command` — the dialect simply was not
+ * passing them on. It does now, so the whole class is gone rather than avoided,
+ * and the RETURNING idiom in existing call sites keeps working untouched.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -48,29 +56,40 @@ d('dialect affected-row reporting', () => {
       .catch(() => {});
   });
 
-  it('reports numUpdatedRows as 0n even when rows WERE updated', async () => {
+  it('reports the true count for an UPDATE that changed rows', async () => {
     const res = await sql.raw(`UPDATE ${T} SET v = 'y' WHERE id <= 3`).execute(db);
     const updated = await sql
       .raw<{ n: string }>(`SELECT count(*)::text AS n FROM ${T} WHERE v = 'y'`)
       .execute(db);
 
-    // Three rows really changed…
     expect(Number(updated.rows[0]!.n)).toBe(3);
-    // …and the count the driver hands back does not say so.
-    const reported = (res as unknown as { numAffectedRows?: bigint }).numAffectedRows;
-    expect(reported === undefined || reported === BigInt(0)).toBe(true);
+    expect((res as unknown as { numAffectedRows?: bigint }).numAffectedRows).toBe(BigInt(3));
   });
 
-  it('does not populate numAffectedRows for a raw INSERT', async () => {
-    const res = await sql.raw(`INSERT INTO ${T} VALUES (99, 'z')`).execute(db);
-    const reported = (res as unknown as { numAffectedRows?: bigint }).numAffectedRows;
-    // `?? BATCH_SIZE` and `?? 0` fall back differently on undefined, which is
-    // exactly how the ghost backfill ended up looping twice and stopping.
-    expect(reported).toBeUndefined();
+  it('reports numDeletedRows for a DELETE that removed a row', async () => {
+    // The exact shape of the extension bug: the handlers all wrote
+    // `(res?.numDeletedRows ?? 0n) === 0n → 404`, so a working delete answered
+    // "Not found" and the caller retried something already done.
+    const res = await db
+      .deleteFrom(T as never)
+      .where('id' as never, '=', 5 as never)
+      .executeTakeFirst();
+    expect(res?.numDeletedRows).toBe(BigInt(1));
   });
 
-  it('RETURNING gives the true count', async () => {
-    // The supported way to know. Every call site uses this now.
+  it('reports 0 when a DELETE matched nothing, so the 404 branch still works', async () => {
+    // The half that must NOT change: a genuine miss still has to be
+    // distinguishable from a hit, or the fix trades one wrong answer for another.
+    const res = await db
+      .deleteFrom(T as never)
+      .where('id' as never, '=', 100000 as never)
+      .executeTakeFirst();
+    expect(res?.numDeletedRows).toBe(BigInt(0));
+  });
+
+  it('RETURNING still gives the true count', async () => {
+    // The workaround the codebase is full of. It was never wrong, and it stays
+    // correct — nothing has to be rewritten to benefit from the dialect fix.
     const res = await sql
       .raw<{ id: number }>(`UPDATE ${T} SET v = 'w' WHERE id <= 4 RETURNING id`)
       .execute(db);
@@ -78,8 +97,6 @@ d('dialect affected-row reporting', () => {
   });
 
   it('RETURNING is empty when nothing matched', async () => {
-    // The property `moveToTrash` actually needed: distinguishing "no such row"
-    // from "row updated", which the count could not do in either direction.
     const res = await sql
       .raw<{ id: number }>(`UPDATE ${T} SET v = 'q' WHERE id = 100000 RETURNING id`)
       .execute(db);

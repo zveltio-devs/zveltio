@@ -51,8 +51,21 @@ async function logGodAction(
  * Wraps all /api/* requests and emits an audit log entry when the acting
  * user has the 'god' role. The log is written asynchronously so it does not
  * add latency to the response.
+ *
+ * @param poolDb a PLAIN pool handle, never the request-scoped proxy.
+ *
+ * "Written asynchronously" is the whole reason: the INSERT is issued after the
+ * response and outside the request's tenant transaction, so resolving that
+ * transaction meant a god action on a request that ended in a database error
+ * was never recorded — the transaction was already aborted, and the only trace
+ * was the `console.error` below. This is the accountability mechanism for the
+ * one role that bypasses every permission check, and it went quiet on precisely
+ * the requests worth reviewing.
+ *
+ * `zv_audit_log` carries no `tenant_id`; the tenant transaction was never what
+ * scoped these rows.
  */
-export function godAuditMiddleware(db: Database) {
+export function godAuditMiddleware(poolDb: Database) {
   return createMiddleware(async (c, next) => {
     const start = Date.now();
     await next();
@@ -82,7 +95,7 @@ export function godAuditMiddleware(db: Database) {
           null;
 
         // Fire-and-forget — intentionally not awaited
-        logGodAction(db, {
+        logGodAction(poolDb, {
           userId: user.id,
           method: c.req.method,
           path: c.req.path,

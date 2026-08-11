@@ -9,7 +9,6 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { engineEvents } from './runtime/index.js';
 import { DEFAULT_TENANT_ID, withTenantIsolation } from './tenancy/index.js';
 
 export type IssueType =
@@ -318,26 +317,6 @@ async function runScanAsync(
     })
     .where('id', '=', scanId)
     .execute();
-
-  // Announce it, because only this function knows when a scan is actually done.
-  //
-  // `runQualityScan` returns the id immediately and the work continues here, in
-  // its own tenant transaction. An extension that wants to react had no way to
-  // learn about the ending: `analytics/quality` guessed at it with
-  // `await new Promise(r => setTimeout(r, 2000))` and then wrote its score on a
-  // request transaction that had closed two seconds earlier — twice-swallowed,
-  // so the table stayed empty on every installation.
-  //
-  // Emitted here, inside the scan's own transaction, so a listener has somewhere
-  // live to write. `emitAsync` gives each listener a savepoint, so one that
-  // throws cannot roll back the scan that triggered it.
-  await engineEvents.emitAsync('quality.scanCompleted', {
-    scanId,
-    collection,
-    scanType,
-    recordsScanned,
-    issuesFound: allIssues.length,
-  });
 }
 
 /**

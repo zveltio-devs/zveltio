@@ -687,11 +687,16 @@ Export collection data to PDF, Excel, or CSV.
 
 ## Translations
 
-### GET /api/translations/:key
+> Served by the `i18n/translations` extension under `/ext/i18n/translations`,
+> not by the engine. The engine used to serve the same fifteen routes at
+> `/api/translations`; that duplicate was removed. As with every other
+> extension, the paths answer 404 when the extension is not enabled.
+
+### GET /ext/i18n/translations/:key
 
 Get translation for a key in all languages.
 
-### POST /api/translations
+### POST /ext/i18n/translations
 
 Create or update a translation entry.
 

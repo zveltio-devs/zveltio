@@ -17,6 +17,16 @@ export { permissionGate } from './permission-gate.js';
 // for back-compat with extensions that don't (yet) generate types.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * One row-level-security condition, as `getRlsFilters` produces it and
+ * `applyRlsFilters` consumes it. Opaque in practice — an extension passes the
+ * array straight through rather than reading it.
+ */
+export interface RlsFilter {
+  readonly field: string;
+  readonly condition: { readonly op: string; readonly value?: unknown };
+}
+
 export interface FieldTypeRegistryAPI {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   register(definition: any): void;
@@ -302,6 +312,68 @@ export interface ExtensionInternals<DB = unknown> {
    *     });
    */
   withTenantIsolation: <T>(tenantId: string, fn: (db: Kysely<DB>) => Promise<T>) => Promise<T>;
+
+  /**
+   * The instance's own read policies, so an extension can honour them.
+   *
+   * `ctx.db` gives an extension the TENANT boundary — the Postgres policies
+   * bind, and rows from another company are unreachable. It gives nothing for
+   * the two access rules an operator writes inside a tenant: the RLS rules at
+   * `/api/rls`, which hide rows from a user, and the column permissions that
+   * hide a field from a role. Those live in the engine and, until now, only the
+   * engine could read them.
+   *
+   * So an extension serving the same data as a core route enforced strictly
+   * less, and nothing said so. `data/export` is the worked example: the engine's
+   * `/api/export` gained both guards, its own copy kept `selectAll()` inside a
+   * tenant transaction, and the Studio calls the extension. The fix was
+   * impossible to write on that side — not overlooked, unavailable.
+   *
+   * Ungated, deliberately. Every other guarded member of this bag grants
+   * authority; these only ever remove rows and columns from a result. An
+   * extension that cannot call them does not become safer, it becomes the
+   * loophole.
+   *
+   *     const cols = await ctx.internals.getColumnAccess(coll, role);
+   *     const q = ctx.internals.applyRlsFilters(base, filters);
+   */
+  /**
+   * Apply field encryption to a value the operator marked `encrypted: true`.
+   * No-op when `isEncrypted` is false, when the value is not a string, or when
+   * it is already encrypted.
+   *
+   * Not `encryptSecret`: that is gated behind the `secrets` capability, which
+   * also hands over `decryptSecret`. Writing a row correctly should not cost the
+   * power to read every stored secret — and that trade is why `data/import`
+   * stored marked columns in PLAINTEXT rather than declaring the capability.
+   *
+   * Throws when `FIELD_ENCRYPTION_KEY` is unset and the field is marked, which
+   * is the engine's posture on the same path: a column an operator marked
+   * sensitive is not silently downgraded.
+   */
+  maybeEncrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
+  getRlsFilters: (
+    collection: string,
+    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+  ) => Promise<RlsFilter[]>;
+  /** Apply what `getRlsFilters` returned to a query builder. */
+  applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]) => Q;
+  /**
+   * Columns this role may not read, and may not write.
+   *
+   * No db parameter: the host resolves the handle. Column permissions are
+   * instance configuration rather than tenant rows, so letting each extension
+   * pick a handle would only be a way to get it wrong.
+   */
+  getColumnAccess: (
+    collection: string,
+    role: string,
+  ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
+  /** The Casbin role behind a user — what `getColumnAccess` keys on. */
+  resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
+  /** Is this user an administrator of the current tenant? */
+  isTenantAdmin: (userId: string) => Promise<boolean>;
 
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
