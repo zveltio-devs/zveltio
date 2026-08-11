@@ -158,14 +158,22 @@ jobs:
           else
             echo "zveltio-extensions not checked out — skipping"
           fi
-      - name: No driver-reported affected-row counts
-        # This dialect does not report them: numUpdatedRows/numDeletedRows are
-        # 0n whether or not rows changed, and raw `sql` executes omit
-        # numAffectedRows entirely. Four call sites relied on them and each
-        # broke differently — moveToTrash threw "not found" on every successful
-        # delete, and the ghost-DDL backfill copied two batches then reported
-        # success, swapping in an incomplete table. Count with RETURNING.
-        run: bun run scripts/check-affected-rows.ts
+      # The "No driver-reported affected-row counts" gate lived here. It banned
+      # numUpdatedRows / numDeletedRows / numAffectedRows because the dialect
+      # returned `{ rows }` and never filled them in, so branching on one read as
+      # "nothing matched" after a write that had worked. Four engine bugs came
+      # out of that; the gate stopped a fifth.
+      #
+      # The dialect reports them now — Bun's result array carried `count` all
+      # along and was simply not passing it on. The premise is gone, so the ban
+      # is too: it would otherwise force RETURNING forever for a problem that no
+      # longer exists, and it never covered the extensions repo, where eight
+      # handlers wrote the plain idiom and answered 404 to deletes that worked.
+      #
+      # What replaces it is a test rather than a gate:
+      # `harness/dialect-affected-rows.test.ts` asserts both directions — a
+      # delete that removed a row reports 1, one that matched nothing reports 0.
+      # `scripts/check-affected-rows.ts` is now unreferenced and can be deleted.
       - name: No hand-written copy of an existing rule
         # The best findings of the 2026-08 audit rounds were all one bug: a
         # security rule that already had a helper, written out again somewhere
