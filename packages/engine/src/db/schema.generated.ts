@@ -1470,9 +1470,9 @@ export interface ZvMediaFoldersTable {
   created_at: Generated<Date>;
   deleted_at: Generated<Date | null>;
   tenant_id: string | null;
+  updated_at: Date | null;
   description: string | null;
   cover_image_id: string | null;
-  updated_at: Generated<Date>;
 }
 
 export interface ZvMediaSharesTable {
