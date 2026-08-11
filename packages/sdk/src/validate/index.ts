@@ -248,8 +248,111 @@ function hasDestructiveDdl(upSql: string): boolean {
   return false;
 }
 
+/**
+ * Columns that record WHO did something, declared as uuid.
+ *
+ * `"user".id` is a 32-character nanoid, not a uuid. A column named `created_by`
+ * or `checked_by` reads like a foreign key to a table whose primary key happens
+ * to be one, so eleven of them were declared UUID across this codebase and
+ * Postgres answered 22P02 to every write. Creating a document, creating a
+ * purchase order, ticking an item off a checklist — none of them ever worked on
+ * any installation.
+ *
+ * Caught here rather than explained in a guide because an extension author has
+ * no way to know this. It is a property of the host's user table, it fails only
+ * at runtime, and the error names the type rather than the cause.
+ */
+function userRefUuidColumns(upSql: string): string[] {
+  const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const found = new Set<string>();
+
+  // `foo_by  UUID` in a CREATE TABLE body, or an ADD COLUMN of the same shape.
+  for (const m of s.matchAll(/(\b[a-z_][a-z0-9_]*_by)\s+UUID\b/gi)) {
+    found.add(m[1].toLowerCase());
+  }
+  // `ALTER COLUMN foo_by TYPE UUID` — the same mistake, made later.
+  for (const m of s.matchAll(/ALTER\s+COLUMN\s+(\b[a-z_][a-z0-9_]*_by)\s+TYPE\s+UUID\b/gi)) {
+    found.add(m[1].toLowerCase());
+  }
+  return [...found];
+}
+
+/** `ALTER COLUMN foo_by TYPE TEXT` — a later migration putting one right. */
+function userRefFixedColumns(upSql: string): string[] {
+  const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  return [
+    ...new Set(
+      [...s.matchAll(/ALTER\s+COLUMN\s+(\b[a-z_][a-z0-9_]*_by)\s+TYPE\s+TEXT\b/gi)].map((m) =>
+        m[1].toLowerCase(),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Unique keys over a natural column that leave out `tenant_id`.
+ *
+ * Sixty of these predated multi-tenancy here. The effect is that the SECOND
+ * company on a shared instance is refused a value the first one took — its own
+ * invoice number, its own product code, its own fiscal year — and because
+ * row-level security hides the conflicting row, it is shown a database error
+ * about something it cannot see and cannot resolve.
+ *
+ * Only flags keys made of plain names. Deliberately silent about:
+ *   - `id` alone, since a uuid is unique everywhere already;
+ *   - anything with `token`, `hash` or `secret` in it, which MUST collide across
+ *     the whole instance — that is the point of them;
+ *   - keys made of `*_id` columns, because a uuid parent already belongs to one
+ *     company, so the child cannot straddle two.
+ */
+function keyColumnSets(upSql: string): string[][] {
+  const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const sets: string[][] = [];
+  const add = (cols: string) =>
+    sets.push(
+      cols
+        .split(',')
+        .map((c) => c.trim().replace(/["`]/g, '').toLowerCase())
+        .filter(Boolean),
+    );
+  for (const m of s.matchAll(/\bUNIQUE\s*\(([^)]+)\)/gi)) add(m[1]);
+  for (const m of s.matchAll(/\bPRIMARY\s+KEY\s*\(([^)]+)\)/gi)) add(m[1]);
+  for (const m of s.matchAll(/CREATE\s+UNIQUE\s+INDEX[^(]*\(([^)]+)\)/gi)) add(m[1]);
+  return sets;
+}
+
+/** Narrow: a key over plain names with no `tenant_id`. Returns the joined columns. */
+function narrowKey(parts: string[]): string | null {
+  if (parts.length === 0) return null;
+  if (parts.includes('tenant_id')) return null;
+  if (parts.length === 1 && parts[0] === 'id') return null;
+  if (parts.some((p) => /token|hash|secret/.test(p))) return null;
+  // ANY `*_id` in the key is enough. It references a row that already belongs to
+  // one company, so the key cannot straddle two — `(fiscal_year_id, account_id,
+  // month)` and `(product_id, warehouse_id, batch_number)` are correctly scoped
+  // without naming the tenant. Requiring EVERY part to be an id was too strict
+  // and flagged sixteen keys that a hand review had already accepted.
+  if (parts.some((p) => /_id$/.test(p))) return null;
+  return parts.join(', ');
+}
+
+/** Wide: the same key WITH `tenant_id`, which is a later migration fixing it. */
+function widenedKey(parts: string[]): string | null {
+  if (!parts.includes('tenant_id')) return null;
+  const rest = parts.filter((p) => p !== 'tenant_id');
+  return rest.length > 0 ? rest.join(', ') : null;
+}
+
 export function validateMigrations(input: MigrationsValidationInput): ValidationError[] {
   const out: ValidationError[] = [];
+
+  // Accumulated across every file, because a migration set is a sequence and the
+  // only thing that matters is where it ends up.
+  const narrowKeys: Array<{ cols: string; filename: string }> = [];
+  const widened = new Set<string>();
+  const uuidRefs: Array<{ column: string; filename: string }> = [];
+  const fixedRefs = new Set<string>();
+
   for (const file of input.files) {
     if (file.sql.trim() === '') {
       out.push(err('MIGRATION_EMPTY', 'migration file is empty', file.filename));
@@ -283,6 +386,56 @@ export function validateMigrations(input: MigrationsValidationInput): Validation
         ),
       );
     }
+
+    // Schema shape is judged on the END STATE, below, not file by file: an
+    // extension that declared a column wrong in 001 and put it right in 006 is
+    // correct, and complaining about 001 would only teach people to edit
+    // history.
+    narrowKeys.push(
+      ...keyColumnSets(parsed.up)
+        .map(narrowKey)
+        .filter((k): k is string => k !== null)
+        .map((cols) => ({ cols, filename: file.filename })),
+    );
+    for (const parts of keyColumnSets(parsed.up)) {
+      const wide = widenedKey(parts);
+      if (wide) widened.add(wide);
+    }
+    uuidRefs.push(
+      ...userRefUuidColumns(parsed.up).map((column) => ({ column, filename: file.filename })),
+    );
+    for (const column of userRefFixedColumns(parsed.up)) fixedRefs.add(column);
+  }
+
+  for (const { column, filename } of uuidRefs) {
+    if (fixedRefs.has(column)) continue;
+    out.push(
+      err(
+        'SCHEMA_USER_REF_UUID',
+        `"${column}" is declared UUID and its name says it records a user. ` +
+          '`"user".id` is a 32-character nanoid, so Postgres rejects every write with ' +
+          '22P02 "invalid input syntax for type uuid" — the route then fails for ' +
+          'everybody, always, with an error naming the type rather than the cause. ' +
+          'Declare it TEXT.',
+        filename,
+      ),
+    );
+  }
+
+  for (const { cols, filename } of narrowKeys) {
+    if (widened.has(cols)) continue;
+    out.push(
+      err(
+        'SCHEMA_UNIQUE_WITHOUT_TENANT',
+        `UNIQUE (${cols}) leaves out tenant_id. Several companies share one ` +
+          'instance, so the second one to use a value is refused it — its own invoice ' +
+          'number, its own product code, its own fiscal year — and row-level security ' +
+          'hides the conflicting row, so it is shown a database error about something ' +
+          `it cannot see and cannot resolve. Use UNIQUE (tenant_id, ${cols}) unless ` +
+          'the value must be unique across the whole instance, as a token or a hash is.',
+        filename,
+      ),
+    );
   }
   return out;
 }

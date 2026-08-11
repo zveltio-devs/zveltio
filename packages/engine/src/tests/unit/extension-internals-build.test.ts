@@ -27,6 +27,52 @@ describe('buildExtensionInternals', () => {
     expect(internals.extensionRegistry).toBeDefined();
   });
 
+  it('hands over the instance read policies, ungated', async () => {
+    // An extension serving the same rows as a core route has to be able to
+    // enforce the same rules. `ctx.db` carries the tenant boundary; the RLS
+    // rules and column permissions an operator writes INSIDE a tenant are these
+    // five, and without them `data/export` could not apply what `/api/export`
+    // applies — the guard was unavailable, not forgotten.
+    const internals = buildExtensionInternals();
+    for (const name of [
+      'getRlsFilters',
+      'applyRlsFilters',
+      'getColumnAccess',
+      'resolveUserRole',
+      'isTenantAdmin',
+    ] as const) {
+      expect(typeof internals[name]).toBe('function');
+    }
+
+    // Ungated on purpose: these only ever REMOVE rows and columns from a
+    // result. Gating them would make the extension that declared no capability
+    // the one that enforces nothing.
+    const { INTERNALS_CAPABILITY } = await import('../../lib/extensions/capabilities.js');
+    for (const name of ['getRlsFilters', 'getColumnAccess', 'isTenantAdmin']) {
+      expect(INTERNALS_CAPABILITY[name]).toBeUndefined();
+    }
+  });
+
+  it('maybeEncrypt honours a marked field, and is ungated', async () => {
+    // `encryptSecret` is behind the `secrets` capability, and that gate also
+    // hands over `decryptSecret`. An extension writing rows into a collection
+    // has to honour `encrypted: true` on a column; buying that with the power to
+    // read every stored secret is the wrong trade, and it is why `data/import`
+    // wrote plaintext instead — the capable helper cost too much, so nothing was
+    // called at all. Encrypt-only grants nothing.
+    const { maybeEncrypt } = buildExtensionInternals();
+    const { INTERNALS_CAPABILITY } = await import('../../lib/extensions/capabilities.js');
+    expect(INTERNALS_CAPABILITY.maybeEncrypt).toBeUndefined();
+
+    const enc = (await maybeEncrypt('123-45-6789', true)) as string;
+    expect(enc.startsWith('enc:v1:')).toBe(true);
+    // Already-encrypted input is not double-wrapped, so re-importing a row that
+    // was exported from an encrypted column stays readable.
+    expect(await maybeEncrypt(enc, true)).toBe(enc);
+    // An unmarked column is untouched — the positive control for the above.
+    expect(await maybeEncrypt('plain', false)).toBe('plain');
+  });
+
   it('encryptSecret / decryptSecret round-trip via field-crypto', async () => {
     const { encryptSecret, decryptSecret } = buildExtensionInternals();
     const enc = await encryptSecret('api-key-secret');
