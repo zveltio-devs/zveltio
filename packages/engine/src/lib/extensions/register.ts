@@ -105,6 +105,14 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_file_tags',
   ],
   'content/page-builder': ['zv_pages'],
+  // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
+  // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
+  // DEV-EF-1). This extension is the administration surface the Studio actually
+  // calls — and it has no migrations of its own, so it owned nothing and the
+  // table guard refused every query it made. `GET /ext/developer/edge-functions`
+  // answered 500 with an ExtensionSecurityError on a fresh install: the page
+  // that lists edge functions could not list them.
+  'developer/edge-functions': ['zv_edge_functions', 'zv_edge_function_logs'],
   'data/import': ['zv_import_logs'],
   forms: ['zv_form_submissions'],
   'i18n/translations': [
