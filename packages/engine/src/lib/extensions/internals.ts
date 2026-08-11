@@ -41,7 +41,7 @@ import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { encryptField } from '../data/index.js';
+import { encryptField, maybeEncrypt } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
@@ -170,6 +170,23 @@ export interface ExtensionInternals {
    * grants authority, these only remove rows and columns from a result. An
    * extension that cannot call them does not become safer.
    */
+  /**
+   * Apply field encryption to a value the operator marked `encrypted: true`.
+   *
+   * Deliberately NOT `encryptSecret`, which is gated behind `secrets` — and that
+   * gate also hands over `decryptSecret`. An extension that writes rows into a
+   * collection needs to honour the marking on a column; giving it the power to
+   * read every stored secret in order to do so is the wrong trade, and it is the
+   * reason `data/import` stored plaintext instead: the capable helper cost too
+   * much, so nothing was called at all.
+   *
+   * Encrypt-only, so it grants nothing: what it can do is remove the extension's
+   * ability to persist a marked column in the clear. Fail-closed and the
+   * `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` escape hatch come with it,
+   * because this is the engine's own helper rather than a second implementation
+   * that would drift from it.
+   */
+  maybeEncrypt: typeof maybeEncrypt;
   getRlsFilters: typeof getRlsFilters;
   applyRlsFilters: typeof applyRlsFilters;
   getColumnAccess: typeof getColumnAccess;
@@ -269,6 +286,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     DataLoaderRegistry,
     checkQueryDepth,
     checkQueryWidth,
+    maybeEncrypt,
     getRlsFilters,
     applyRlsFilters,
     getColumnAccess,
