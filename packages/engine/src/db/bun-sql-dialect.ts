@@ -320,6 +320,28 @@ class BunSqlSmartConnection implements DatabaseConnection {
     }
   }
 
+  /**
+   * Wrap Bun's result array as a Kysely `QueryResult`, carrying the affected-row
+   * count across.
+   *
+   * Kysely reads `numAffectedRows` to build `DeleteResult.numDeletedRows` and
+   * `UpdateResult.numUpdatedRows`. This dialect returned `{ rows }` and nothing
+   * else, so both were `undefined` — and the idiom every caller reaches for,
+   * `(res?.numDeletedRows ?? 0n) === 0n`, therefore read as "nothing matched"
+   * on a delete that had just removed the row.
+   *
+   * Eight route handlers across four extensions answered 404 to a DELETE that
+   * succeeded. The caller sees "Not found", retries, gets 404 again, and
+   * concludes the row is undeletable — while it is already gone.
+   *
+   * Bun's array carries `count` and `command`; this only has to pass them on.
+   * `count` is the row count for a SELECT too, which Kysely ignores there.
+   */
+  static #wrap<R>(rows: R[]): QueryResult<R> {
+    const count = (rows as unknown as { count?: number }).count;
+    return typeof count === 'number' ? { rows, numAffectedRows: BigInt(count) } : { rows };
+  }
+
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
     const params = (compiledQuery.parameters as unknown[]).map((p) => {
       if (!Array.isArray(p)) return p;
@@ -337,13 +359,13 @@ class BunSqlSmartConnection implements DatabaseConnection {
           params.length > 0
             ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
             : await this.#reserved.unsafe<R>(compiledQuery.sql);
-        return { rows };
+        return BunSqlSmartConnection.#wrap(rows);
       }
       const rows =
         params.length > 0
           ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
           : await this.#pool.unsafe<R>(compiledQuery.sql);
-      return { rows };
+      return BunSqlSmartConnection.#wrap(rows);
     };
 
     /** Last-resort fallback after a prepared-statement failure: inline the
@@ -355,7 +377,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
       const rows = this.#reserved
         ? await this.#reserved.unsafe<R>(inlined)
         : await this.#pool.unsafe<R>(inlined);
-      return { rows };
+      return BunSqlSmartConnection.#wrap(rows);
     };
 
     try {
