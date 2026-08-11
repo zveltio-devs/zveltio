@@ -327,6 +327,21 @@ export interface ExtensionInternals<DB = unknown> {
    *     const cols = await ctx.internals.getColumnAccess(db, coll, role);
    *     const q = ctx.internals.applyRlsFilters(base, filters);
    */
+  /**
+   * Apply field encryption to a value the operator marked `encrypted: true`.
+   * No-op when `isEncrypted` is false, when the value is not a string, or when
+   * it is already encrypted.
+   *
+   * Not `encryptSecret`: that is gated behind the `secrets` capability, which
+   * also hands over `decryptSecret`. Writing a row correctly should not cost the
+   * power to read every stored secret — and that trade is why `data/import`
+   * stored marked columns in PLAINTEXT rather than declaring the capability.
+   *
+   * Throws when `FIELD_ENCRYPTION_KEY` is unset and the field is marked, which
+   * is the engine's posture on the same path: a column an operator marked
+   * sensitive is not silently downgraded.
+   */
+  maybeEncrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },

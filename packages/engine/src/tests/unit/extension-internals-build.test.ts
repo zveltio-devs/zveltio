@@ -53,6 +53,26 @@ describe('buildExtensionInternals', () => {
     }
   });
 
+  it('maybeEncrypt honours a marked field, and is ungated', async () => {
+    // `encryptSecret` is behind the `secrets` capability, and that gate also
+    // hands over `decryptSecret`. An extension writing rows into a collection
+    // has to honour `encrypted: true` on a column; buying that with the power to
+    // read every stored secret is the wrong trade, and it is why `data/import`
+    // wrote plaintext instead — the capable helper cost too much, so nothing was
+    // called at all. Encrypt-only grants nothing.
+    const { maybeEncrypt } = buildExtensionInternals();
+    const { INTERNALS_CAPABILITY } = await import('../../lib/extensions/capabilities.js');
+    expect(INTERNALS_CAPABILITY.maybeEncrypt).toBeUndefined();
+
+    const enc = (await maybeEncrypt('123-45-6789', true)) as string;
+    expect(enc.startsWith('enc:v1:')).toBe(true);
+    // Already-encrypted input is not double-wrapped, so re-importing a row that
+    // was exported from an encrypted column stays readable.
+    expect(await maybeEncrypt(enc, true)).toBe(enc);
+    // An unmarked column is untouched — the positive control for the above.
+    expect(await maybeEncrypt('plain', false)).toBe('plain');
+  });
+
   it('encryptSecret / decryptSecret round-trip via field-crypto', async () => {
     const { encryptSecret, decryptSecret } = buildExtensionInternals();
     const enc = await encryptSecret('api-key-secret');
