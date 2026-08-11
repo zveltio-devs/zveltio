@@ -17,6 +17,16 @@ export { permissionGate } from './permission-gate.js';
 // for back-compat with extensions that don't (yet) generate types.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * One row-level-security condition, as `getRlsFilters` produces it and
+ * `applyRlsFilters` consumes it. Opaque in practice — an extension passes the
+ * array straight through rather than reading it.
+ */
+export interface RlsFilter {
+  readonly field: string;
+  readonly condition: { readonly op: string; readonly value?: unknown };
+}
+
 export interface FieldTypeRegistryAPI {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   register(definition: any): void;
@@ -324,7 +334,7 @@ export interface ExtensionInternals<DB = unknown> {
    * extension that cannot call them does not become safer, it becomes the
    * loophole.
    *
-   *     const cols = await ctx.internals.getColumnAccess(db, coll, role);
+   *     const cols = await ctx.internals.getColumnAccess(coll, role);
    *     const q = ctx.internals.applyRlsFilters(base, filters);
    */
   /**
@@ -346,15 +356,17 @@ export interface ExtensionInternals<DB = unknown> {
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },
     authType: 'session' | 'api_key',
-    // biome-ignore lint/suspicious/noExplicitAny: engine-typed filter shape; cast at the call site
-  ) => Promise<Array<{ field: string; condition: any }>>;
+  ) => Promise<RlsFilter[]>;
   /** Apply what `getRlsFilters` returned to a query builder. */
-  // biome-ignore lint/suspicious/noExplicitAny: engine-typed query builder; cast at the call site
-  applyRlsFilters: <Q>(query: Q, filters: Array<{ field: string; condition: any }>) => Q;
-  /** Columns this role may not read, and may not write. */
+  applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]) => Q;
+  /**
+   * Columns this role may not read, and may not write.
+   *
+   * No db parameter: the host resolves the handle. Column permissions are
+   * instance configuration rather than tenant rows, so letting each extension
+   * pick a handle would only be a way to get it wrong.
+   */
   getColumnAccess: (
-    // biome-ignore lint/suspicious/noExplicitAny: engine-typed db handle; cast at the call site
-    db: any,
     collection: string,
     role: string,
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
