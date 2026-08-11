@@ -44,6 +44,7 @@ import m032 from './sql/034_deny_by_default_grants.sql' with { type: 'text' };
 import m033 from './sql/035_widen_sensitive_resources.sql' with { type: 'text' };
 import m034 from './sql/036_translation_keys_tenant_scoped.sql' with { type: 'text' };
 import m035 from './sql/037_user_ref_text.sql' with { type: 'text' };
+import m036 from './sql/038_rate_limit_updated_by_text.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -83,4 +84,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '035_widen_sensitive_resources.sql': m033,
   '036_translation_keys_tenant_scoped.sql': m034,
   '037_user_ref_text.sql': m035,
+  '038_rate_limit_updated_by_text.sql': m036,
 };
