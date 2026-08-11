@@ -13,6 +13,8 @@
 import type { Context } from 'hono';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
+import { getDb } from '../../db/index.js';
+import type { RlsFilter } from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -187,9 +189,17 @@ export interface ExtensionInternals {
    * that would drift from it.
    */
   maybeEncrypt: typeof maybeEncrypt;
-  getRlsFilters: typeof getRlsFilters;
-  applyRlsFilters: typeof applyRlsFilters;
-  getColumnAccess: typeof getColumnAccess;
+  getRlsFilters: (
+    collection: string,
+    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+  ) => Promise<RlsFilter[]>;
+  applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]) => Q;
+  /** No db parameter: the host resolves the handle — see the SDK declaration. */
+  getColumnAccess: (
+    collection: string,
+    role: string,
+  ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   resolveUserRole: typeof resolveUserRole;
   isTenantAdmin: typeof isTenantAdmin;
   runEdgeFunction: typeof runEdgeFunction;
@@ -287,9 +297,21 @@ export function buildExtensionInternals(): ExtensionInternals {
     checkQueryDepth,
     checkQueryWidth,
     maybeEncrypt,
-    getRlsFilters,
-    applyRlsFilters,
-    getColumnAccess,
+    // Adapted rather than passed straight through, so the bag matches the SDK
+    // declaration exactly. The casts are between two spellings of the same
+    // shape — `RlsFilter` mirrors the engine's `FilterCondition` — and exist so
+    // neither side has to widen a parameter to `any` to stay assignable.
+    getRlsFilters: (
+      collection: string,
+      user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+      authType: 'session' | 'api_key',
+    ) => getRlsFilters(collection, user, authType) as Promise<RlsFilter[]>,
+    applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]): Q =>
+      applyRlsFilters(query, filters as Parameters<typeof applyRlsFilters>[1]),
+    // The handle is the host's to choose: column permissions are instance
+    // configuration, not tenant rows.
+    getColumnAccess: (collection: string, role: string) =>
+      getColumnAccess(getDb(), collection, role),
     resolveUserRole,
     isTenantAdmin,
     enqueueDDLJob,
