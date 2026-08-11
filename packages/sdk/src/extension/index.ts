@@ -303,6 +303,51 @@ export interface ExtensionInternals<DB = unknown> {
    */
   withTenantIsolation: <T>(tenantId: string, fn: (db: Kysely<DB>) => Promise<T>) => Promise<T>;
 
+  /**
+   * The instance's own read policies, so an extension can honour them.
+   *
+   * `ctx.db` gives an extension the TENANT boundary — the Postgres policies
+   * bind, and rows from another company are unreachable. It gives nothing for
+   * the two access rules an operator writes inside a tenant: the RLS rules at
+   * `/api/rls`, which hide rows from a user, and the column permissions that
+   * hide a field from a role. Those live in the engine and, until now, only the
+   * engine could read them.
+   *
+   * So an extension serving the same data as a core route enforced strictly
+   * less, and nothing said so. `data/export` is the worked example: the engine's
+   * `/api/export` gained both guards, its own copy kept `selectAll()` inside a
+   * tenant transaction, and the Studio calls the extension. The fix was
+   * impossible to write on that side — not overlooked, unavailable.
+   *
+   * Ungated, deliberately. Every other guarded member of this bag grants
+   * authority; these only ever remove rows and columns from a result. An
+   * extension that cannot call them does not become safer, it becomes the
+   * loophole.
+   *
+   *     const cols = await ctx.internals.getColumnAccess(db, coll, role);
+   *     const q = ctx.internals.applyRlsFilters(base, filters);
+   */
+  getRlsFilters: (
+    collection: string,
+    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+    // biome-ignore lint/suspicious/noExplicitAny: engine-typed filter shape; cast at the call site
+  ) => Promise<Array<{ field: string; condition: any }>>;
+  /** Apply what `getRlsFilters` returned to a query builder. */
+  // biome-ignore lint/suspicious/noExplicitAny: engine-typed query builder; cast at the call site
+  applyRlsFilters: <Q>(query: Q, filters: Array<{ field: string; condition: any }>) => Q;
+  /** Columns this role may not read, and may not write. */
+  getColumnAccess: (
+    // biome-ignore lint/suspicious/noExplicitAny: engine-typed db handle; cast at the call site
+    db: any,
+    collection: string,
+    role: string,
+  ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
+  /** The Casbin role behind a user — what `getColumnAccess` keys on. */
+  resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
+  /** Is this user an administrator of the current tenant? */
+  isTenantAdmin: (userId: string) => Promise<boolean>;
+
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   runEdgeFunction: (...args: any[]) => Promise<unknown>;

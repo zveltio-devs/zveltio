@@ -19,6 +19,13 @@ import type { FieldTypeRegistry } from '../data/index.js';
 import { DDLManager } from '../data/index.js';
 import type { QueryAlterScope } from '../data/index.js';
 import type { EntityAccessScope } from '../tenancy/index.js';
+import {
+  applyRlsFilters,
+  getColumnAccess,
+  getRlsFilters,
+  isTenantAdmin,
+  resolveUserRole,
+} from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
 import { invalidateRulesCache } from '../validation-engine.js';
@@ -146,6 +153,28 @@ export interface ExtensionInternals {
    */
   withTenantIsolation: <T>(tenantId: string, fn: (trx: Database) => Promise<T>) => Promise<T>;
 
+  /**
+   * The instance's own read policies, so an extension can honour them.
+   *
+   * `ctx.db` gives the TENANT boundary and nothing else. The two rules an
+   * operator writes INSIDE a tenant — the RLS rules at `/api/rls` that hide
+   * rows from a user, and the column permissions that hide a field from a role
+   * — lived here and only the engine could read them. So an extension serving
+   * the same data as a core route enforced strictly less, and nothing said so.
+   *
+   * `data/export` is the worked example: `/api/export` gained both guards on
+   * 2026-07-31, the extension kept `selectAll()` inside a tenant transaction,
+   * and the Studio calls the extension. Not overlooked — unavailable.
+   *
+   * Ungated in `INTERNALS_CAPABILITY` on purpose: every other guarded member
+   * grants authority, these only remove rows and columns from a result. An
+   * extension that cannot call them does not become safer.
+   */
+  getRlsFilters: typeof getRlsFilters;
+  applyRlsFilters: typeof applyRlsFilters;
+  getColumnAccess: typeof getColumnAccess;
+  resolveUserRole: typeof resolveUserRole;
+  isTenantAdmin: typeof isTenantAdmin;
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
@@ -240,6 +269,11 @@ export function buildExtensionInternals(): ExtensionInternals {
     DataLoaderRegistry,
     checkQueryDepth,
     checkQueryWidth,
+    getRlsFilters,
+    applyRlsFilters,
+    getColumnAccess,
+    resolveUserRole,
+    isTenantAdmin,
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,
