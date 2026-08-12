@@ -277,7 +277,22 @@
             <div class="card-body p-3 gap-1">
               <div class="flex items-center gap-2">
                 <span class="font-semibold text-xs">{provider.label}</span>
-                {#if provider.isDefault}<span class="badge badge-xs badge-primary">{m['ai.providers.default']()}</span>{/if}
+                <!-- `is_default`, the column name the endpoint returns. This read
+                     `provider.isDefault`, which is never present, so the badge
+                     never appeared and no provider ever looked like the default. -->
+                {#if provider.is_default}<span class="badge badge-xs badge-primary">{m['ai.providers.default']()}</span>{/if}
+                <!-- Whether a key is stored and whether the provider is actually
+                     loaded in the running process. Both were unanswerable here:
+                     the endpoint sent a masked key computed from a column it had
+                     not selected (always blank), and a `loaded` flag compared
+                     against objects instead of names (always false). -->
+                {#if provider.loaded}
+                  <span class="badge badge-xs badge-success">{m['ai.providers.loaded']()}</span>
+                {:else if provider.has_api_key}
+                  <span class="badge badge-xs badge-warning">{m['ai.providers.notLoaded']()}</span>
+                {:else}
+                  <span class="badge badge-xs badge-ghost">{m['ai.providers.noKey']()}</span>
+                {/if}
               </div>
               <p class="text-xs font-mono text-base-content/50">{provider.name}</p>
             </div>
