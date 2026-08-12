@@ -504,13 +504,44 @@ DROP TABLE IF EXISTS zv_content_my_feature_items;
 The `-- DOWN` marker separates the UP and DOWN sections. The UP runs on
 install; the DOWN runs on full uninstall (with `purgeData=true`) (v1.0).
 
-> **`-- NO TRANSACTION` is an engine-only marker.** Engine migrations can use it
-> to opt out of the transaction wrapper and run `CREATE INDEX CONCURRENTLY`.
-> Extension migrations cannot: the whole pending chain runs in one transaction
-> so a failure halfway through an install rolls back cleanly, and the marker is
-> read as an ordinary comment here. Writing it in an extension migration will
-> not fail — it will simply do nothing, which is worse. Index an extension table
-> at creation time, while it is empty.
+### `-- NO TRANSACTION`
+
+Your pending migrations normally run as **one transaction**: the extension
+either installs or it does not, with nothing half-applied in between. Keep it
+that way unless you have the specific problem below.
+
+The problem is adding an index to a table that already has rows — a migration
+you ship in version 4 for a table created in version 1. `CREATE INDEX` locks
+that table against writes for the length of the build, which is nothing on a
+small table and an outage on a customer's `zvd_invoices`. The fix is
+`CONCURRENTLY`, and Postgres refuses that inside a transaction block.
+
+Mark such a migration and it runs on its own, outside the transaction:
+
+```sql
+-- NO TRANSACTION
+DROP INDEX IF EXISTS idx_my_items_name;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_my_items_name
+  ON zv_content_my_feature_items (name);
+```
+
+Migrations before and after it still batch into their own transactions — the
+chain is cut, not abandoned.
+
+Three things this costs you, all of them consequences of the same fact:
+
+- **Nothing rolls back.** If the third of five statements fails, the first two
+  stay. Write every statement so it survives running twice; the migration is
+  only recorded once all of it succeeds, so a failed run is retried whole.
+- **Earlier segments are already committed** when a later one fails. An
+  extension can end up on an intermediate version and must be able to reach the
+  next one from there.
+- **A failed `CONCURRENTLY` leaves an INVALID index behind**, and
+  `IF NOT EXISTS` will happily skip re-creating it. That is why the example
+  drops first.
+
+Index at creation time while the table is empty whenever you can. This marker
+is for the case where you no longer can.
 
 ### Table naming rules
 
