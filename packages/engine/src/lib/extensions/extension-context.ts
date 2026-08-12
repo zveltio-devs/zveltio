@@ -178,7 +178,31 @@ export function createRestrictedDb(
       }
 
       if (typeof value === 'function') {
-        return value.bind(target);
+        const bound = value.bind(target);
+
+        // `bind` returns a bare function and carries none of the original's own
+        // properties. Invisible for an ordinary method, fatal for a callable
+        // object with methods hanging off it — which is exactly what Kysely's
+        // `db.fn` is: callable, and carrying `count`, `sum`, `avg`, `max`,
+        // `min`, `agg`, `coalesce` and the rest as own properties.
+        //
+        // So `ctx.db.fn` came back a function and `ctx.db.fn.count` came back
+        // undefined, and any extension aggregating through the proxy threw
+        // "db.fn.count is not a function" and answered 500. `GET /ext/ai/usage`
+        // did it on every install. A comment in `ai/routes/zveltio-ai.ts`
+        // records someone meeting the same wall and rewriting that one query —
+        // which fixed the instance and left the cause untouched, with six more
+        // call sites across `ai` and `compliance/ro/procurement` still on it.
+        //
+        // `eb.fn` inside a `select(eb => …)` callback was always fine: that
+        // builder comes from Kysely and never passes through here, which is why
+        // the failure looked arbitrary from the extension side.
+        //
+        // `Object.keys` on a plain function is empty — length, name and
+        // prototype are non-enumerable — so the ordinary path pays one empty
+        // array and nothing else.
+        if (Object.keys(value).length > 0) Object.assign(bound, value);
+        return bound;
       }
 
       return value;
