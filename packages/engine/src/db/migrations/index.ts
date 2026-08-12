@@ -216,6 +216,52 @@ export function parseMigrationFile(content: string): { up: string; down: string 
   return { up: parts[0].trim(), down: parts[1].trim() || null };
 }
 
+/**
+ * A migration may opt out of the transaction wrapper with a `-- NO TRANSACTION`
+ * line, in the same spelling style as `-- DOWN`.
+ *
+ * The reason it exists: `CREATE INDEX CONCURRENTLY` is illegal inside a
+ * transaction block. Without an escape hatch every index this engine creates
+ * takes a lock that blocks writes for the length of the build — imperceptible
+ * on a small table, an outage on `zv_audit_log` at a customer who has been
+ * running for two years.
+ *
+ * The cost is real and is why this is opt-in rather than the default: without
+ * a transaction, a migration that fails halfway leaves the half behind. Nothing
+ * rolls back. The version row is only written after every statement succeeds,
+ * so a failed run is retried on next boot — which means the statements have to
+ * survive being run twice. Use `IF NOT EXISTS` throughout; the migration linter
+ * enforces exactly that for files carrying this marker, and stops asking for
+ * `CONCURRENTLY` to be avoided.
+ *
+ * One trap worth knowing: a `CREATE INDEX CONCURRENTLY` that fails leaves an
+ * INVALID index behind, and `IF NOT EXISTS` will then happily skip re-creating
+ * it. Precede it with `DROP INDEX IF EXISTS` so a retry starts clean.
+ */
+export function isNonTransactional(up: string): boolean {
+  return /^--\s*NO\s+TRANSACTION\s*$/im.test(up);
+}
+
+/**
+ * Postgres interval literals accepted for the two timeouts below. These values
+ * reach SQL through string interpolation — `SET` does not take parameters — so
+ * the shape is checked rather than trusted. An operator who fat-fingers the
+ * env var gets a startup error, not a statement built from their typo.
+ */
+const TIMEOUT_PATTERN = /^\d+(ms|s|min)?$/;
+
+export function timeoutSetting(envVar: string, fallback: string): string {
+  const raw = process.env[envVar];
+  if (raw === undefined || raw === '') return fallback;
+  if (!TIMEOUT_PATTERN.test(raw)) {
+    throw new Error(
+      `${envVar}="${raw}" is not a Postgres interval literal. ` +
+        `Use a number with an optional unit, e.g. "5s", "250ms", "2min".`,
+    );
+  }
+  return raw;
+}
+
 async function applyMigration(
   db: Database,
   migrationNumber: number,
@@ -251,25 +297,70 @@ async function applyMigration(
   // rolls back cleanly. BunSqlSmartConnection.reserveForTransaction() is called
   // by beginTransaction() to pin the connection for the duration.
   const statements = splitSqlStatements(up);
+  const nonTransactional = isNonTransactional(up);
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  await (db as any).transaction().execute(async (trx: any) => {
-    for (let si = 0; si < statements.length; si++) {
-      const stmt = statements[si];
-      try {
-        await trx.executeQuery({ sql: stmt, parameters: [] });
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      } catch (err: any) {
-        throw Object.assign(
-          new Error(
-            `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
-              `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
-          ),
-          { cause: err },
-        );
-      }
+  const runStatements = async (exec: any, si: number): Promise<void> => {
+    const stmt = statements[si];
+    try {
+      await exec.executeQuery({ sql: stmt, parameters: [] });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    } catch (err: any) {
+      throw Object.assign(
+        new Error(
+          `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
+            `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
+        ),
+        { cause: err },
+      );
     }
-  });
+  };
+
+  if (nonTransactional) {
+    // No wrapper, and deliberately no timeouts either. This path exists for
+    // `CREATE INDEX CONCURRENTLY`, which waits on in-flight transactions by
+    // design and can legitimately run for a long time on a large table — the
+    // two settings below would abort exactly the work this path is for.
+    //
+    // `SET LOCAL` would be meaningless here anyway (no transaction to be local
+    // to), and a session-level `SET` on a pooled connection outlives the
+    // migration and leaks into whoever gets that connection next.
+    console.log(`[migrations] ${filename}: running without a transaction (-- NO TRANSACTION)`);
+    for (let si = 0; si < statements.length; si++) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      await runStatements(db as any, si);
+    }
+  } else {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    await (db as any).transaction().execute(async (trx: any) => {
+      // Bound the wait for a lock, in the one place that covers every
+      // migration instead of a preamble each author has to remember.
+      //
+      // The failure this prevents is not a slow migration — it is a stalled
+      // instance. An ALTER waiting for ACCESS EXCLUSIVE parks itself at the
+      // head of the lock queue, and every ordinary read arriving behind it
+      // waits too. One migration blocked on one long-running query takes the
+      // whole table offline for as long as it is willing to wait. Failing at
+      // five seconds turns that outage into a retry on next boot.
+      //
+      // `statement_timeout` is off by default on purpose: a backfill on a big
+      // table is legitimately slow, and aborting it would leave an operator
+      // with an upgrade that can never finish. Instances that would rather
+      // fail fast can set a bound.
+      await trx.executeQuery({
+        sql: `SET LOCAL lock_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_LOCK_TIMEOUT', '5s')}'`,
+        parameters: [],
+      });
+      await trx.executeQuery({
+        sql: `SET LOCAL statement_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_STATEMENT_TIMEOUT', '0')}'`,
+        parameters: [],
+      });
+
+      for (let si = 0; si < statements.length; si++) {
+        await runStatements(trx, si);
+      }
+    });
+  }
 
   const executionMs = Date.now() - startTime;
   const name = filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
