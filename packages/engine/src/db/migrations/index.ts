@@ -251,6 +251,56 @@ export function isNonTransactional(up: string): boolean {
 const TIMEOUT_PATTERN = /^\d+(ms|s|min)?$/;
 
 /**
+ * Turn the two timeout cancellations into something an operator can act on.
+ *
+ * Both arrive as "canceling statement due to ..." with no hint that a setting
+ * this engine chose is responsible, and an upgrade that stops the instance from
+ * booting is the worst moment to be handed a bare Postgres string. The advice
+ * matters most for the operator who did not set anything and has no idea why
+ * their migration was cancelled.
+ *
+ * SQLSTATE lives on `errno` under Bun's SQL driver — `code` is the generic
+ * `ERR_POSTGRES_SERVER_ERROR` for every server-side failure, so reading it
+ * would match nothing. Verified against both cancellations.
+ */
+export function timeoutAdvice(err: unknown): string | null {
+  const sqlstate = (err as { errno?: unknown } | null)?.errno;
+
+  if (sqlstate === '55P03') {
+    const configured = process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT || '5s';
+    return (
+      `\nThis is a lock timeout, not a fault in the migration: it waited ${configured} ` +
+      `for a lock on the table and something else was holding one.\n` +
+      `Nothing was applied — the migration rolled back and will be retried on the next boot.\n` +
+      `Find the holder with:\n` +
+      `  SELECT pid, state, wait_event_type, left(query, 120) FROM pg_stat_activity\n` +
+      `   WHERE state <> 'idle' ORDER BY query_start;\n` +
+      `Waiting longer is the wrong instinct on a live instance — an ALTER queued for a lock ` +
+      `blocks every read arriving behind it. Let the other query finish, or raise\n` +
+      `ZVELTIO_MIGRATION_LOCK_TIMEOUT during a maintenance window when nothing else is running.`
+    );
+  }
+
+  if (sqlstate === '57014') {
+    const configured = process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT;
+    return (
+      `\nThe statement itself ran too long and was cancelled by a statement timeout.\n` +
+      (configured
+        ? `ZVELTIO_MIGRATION_STATEMENT_TIMEOUT is set to "${configured}". Raise it, or clear it ` +
+          `for this upgrade — it is unset by default precisely because a large but legitimate ` +
+          `backfill would otherwise leave an upgrade that can never finish.`
+        : `ZVELTIO_MIGRATION_STATEMENT_TIMEOUT is not set here, so the limit comes from the ` +
+          `server or the role — check \`SHOW statement_timeout\` and any ALTER ROLE ... SET. ` +
+          `Migrations need to outlast ordinary queries; a global limit tuned for application ` +
+          `traffic will cut a backfill short.`) +
+      `\nNothing was applied — the migration rolled back and will be retried on the next boot.`
+    );
+  }
+
+  return null;
+}
+
+/**
  * The one method a migration statement needs, present on both a Kysely instance
  * and a transaction — which is the whole point, since the same statement runs
  * on either depending on whether the migration opted out of the wrapper.
@@ -322,7 +372,7 @@ async function applyMigration(
       throw Object.assign(
         new Error(
           `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
-            `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
+            `${stmt.slice(0, 300)}\n\nCause: ${err.message}${timeoutAdvice(err) ?? ''}`,
         ),
         { cause: err },
       );
