@@ -44,7 +44,7 @@
     if (!query.trim() || !selectedCollection) return;
     loading = true; searchError = null;
     try {
-      const res = await api.get(`/extensions/search/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`);
+      const res = await api.get(`/ext/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`);
       results = [res.results];
     } catch (e: any) { searchError = e.message ?? m['ai.error.searchFailed'](); results = []; }
     finally { loading = false; }
@@ -53,7 +53,7 @@
   async function syncIndex(collection: string) {
     syncing = collection;
     try {
-      await api.post(`/extensions/search/indexes/${encodeURIComponent(collection)}/sync`, {});
+      await api.post(`/ext/search/indexes/${encodeURIComponent(collection)}/sync`, {});
       toast.success(m['ext.saved']());
     } catch (e: any) { toast.error(m['search.error.syncPrefix']() + (e.message ?? '')); }
     finally { syncing = null; }
@@ -64,7 +64,7 @@
   }
   async function removeIndexConfirmed(collection: string) {
     try {
-      await api.delete(`/extensions/search/indexes/${encodeURIComponent(collection)}`);
+      await api.delete(`/ext/search/indexes/${encodeURIComponent(collection)}`);
       indexes = indexes.map((idx) => idx.collection === collection ? { ...idx, status: 'inactive' } : idx);
     } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
   }
@@ -74,7 +74,7 @@
     if (!configCollection || !configIndexName) { toast.error(m['search.error.indexRequired']()); return; }
     configSaving = true;
     try {
-      await api.post('/extensions/search/indexes', {
+      await api.post('/ext/search/indexes', {
         collection: configCollection,
         provider: configProvider,
         index_name: configIndexName,
@@ -98,7 +98,7 @@
   }
 
   async function loadIndexes() {
-    const res = await api.get<{ indexes: any[] }>('/extensions/search/indexes');
+    const res = await api.get<{ indexes: any[] }>('/ext/search/indexes');
     indexes = res.indexes ?? [];
   }
 

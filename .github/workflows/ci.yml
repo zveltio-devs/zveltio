@@ -48,6 +48,20 @@ jobs:
         # the param route wins and the UUID cast on :id 500s). See
         # scripts/route-collision-check.ts.
         run: bun run scripts/route-collision-check.ts
+      - name: Studio API prefix
+        # `/extensions/` is not a route the engine serves; extensions mount at
+        # `/ext/<name>`. `search` and `sms` both shipped calling the former, so
+        # every panel on those pages 404'd on load for as long as the code shows.
+        # Runnable locally: `bun run scripts/check-studio-api-prefix.ts`
+        run: bun run scripts/check-studio-api-prefix.ts
+      - name: SDUI contract
+        # A declarative page is a promise about an API. Nothing checked it, and
+        # crm's deals tab posted title/stage/value to a handler accepting
+        # type/status/amount — every create 400'd for as long as the schema
+        # existed. Twelve more resources are on the baseline in the script.
+        # Runnable locally: `bun run scripts/check-sdui-contract.ts <extDir>`
+        run: bun run scripts/check-sdui-contract.ts ../zveltio-extensions
+
 
       - name: Schema drift check
         # Walks all migrations + DbSchema.ts + every route/lib file and
