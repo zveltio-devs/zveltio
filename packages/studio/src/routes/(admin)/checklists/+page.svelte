@@ -13,9 +13,24 @@
 
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type ChecklistItem = { id: string; text: string; required?: boolean };
-  type Checklist = { id: string; name: string; description: string | null; items: ChecklistItem[]; is_active: boolean; created_at: string };
-  type Response = { id: string; checklist_id: string; submitted_by: string | null; answers: Record<string, boolean | string>; notes: string | null; created_at: string };
+  /**
+   * The engine serves checklist TEMPLATES at `/ext/workflow/checklists/templates`.
+   * This page called `/ext/workflow/checklists` — a path that has never existed —
+   * so every load, save and delete answered 404 and the page opened with an
+   * error toast over an empty list.
+   *
+   * The model differed too: an item's text is `label`, not `text`, and the
+   * engine assigns item ids on insert rather than taking one from the client.
+   */
+  type ChecklistItem = { id?: string; label: string; required?: boolean; order_idx?: number };
+  type Checklist = { id: string; name: string; description: string | null; collection?: string | null; items: ChecklistItem[]; is_active: boolean; created_at: string };
+  /**
+   * There is no per-template list of submissions. What the engine has is
+   * `GET /summary`: recently filled-in checklist INSTANCES with their progress.
+   * The old tab called `/ext/workflow/checklists/:id/responses`, which is not
+   * served either.
+   */
+  type Response = { id: string; name: string; collection: string | null; record_id: string | null; total: number; checked: number; created_at: string };
 
   let checklists = $state<Checklist[]>([]);
   let loading = $state(true);
@@ -44,8 +59,8 @@
   async function load() {
     loading = true;
     try {
-      const res = await api.get<{ checklists: Checklist[] }>('/ext/workflow/checklists');
-      checklists = res.checklists ?? [];
+      const res = await api.get<{ templates: Checklist[] }>('/ext/workflow/checklists/templates');
+      checklists = res.templates ?? [];
     } catch (e) {
       toast.error(extractError(e));
     } finally {
@@ -57,15 +72,16 @@
     if (!form.name.trim()) return;
     saving = true;
     try {
-      const res = await api.post<{ checklist: Checklist }>('/ext/workflow/checklists', {
+      const res = await api.post<{ template: Checklist }>('/ext/workflow/checklists/templates', {
         name: form.name.trim(),
-        description: form.description || null,
+        // Optional string, not null — the engine rejects an explicit null here.
+        ...(form.description ? { description: form.description } : {}),
         items: [],
       });
-      checklists = [res.checklist, ...checklists];
+      checklists = [res.template, ...checklists];
       form = { name: '', description: '' };
       showNew = false;
-      openEdit(res.checklist);
+      openEdit(res.template);
     } catch (e) {
       toast.error(extractError(e));
     } finally {
@@ -83,14 +99,20 @@
     if (!selected) return;
     saving = true;
     try {
-      const res = await api.put<{ checklist: Checklist }>(`/ext/workflow/checklists/${selected.id}`, {
+      // PATCH, not PUT, and items carry `label` plus their position, which the
+      // engine stores as `order_idx`.
+      const res = await api.patch<{ template: Checklist }>(`/ext/workflow/checklists/templates/${selected.id}`, {
         name: selected.name,
-        description: selected.description || null,
-        items: editItems,
+        ...(selected.description ? { description: selected.description } : {}),
+        items: editItems.map((it, idx) => ({
+          label: it.label,
+          required: it.required ?? false,
+          order_idx: idx,
+        })),
         is_active: selected.is_active,
       });
-      selected = res.checklist;
-      checklists = checklists.map(c => c.id === res.checklist.id ? res.checklist : c);
+      selected = res.template;
+      checklists = checklists.map(c => c.id === res.template.id ? res.template : c);
       toast.success(m['workflow.checklists.toast.saved']());
     } catch (e) {
       toast.error(extractError(e));
@@ -104,7 +126,7 @@
   }
   async function deleteChecklistConfirmed(id: string) {
     try {
-      await api.delete(`/ext/workflow/checklists/${id}`);
+      await api.delete(`/ext/workflow/checklists/templates/${id}`);
       checklists = checklists.filter(c => c.id !== id);
       if (selected?.id === id) { selected = null; view = 'list'; }
     } catch (e) {
@@ -118,8 +140,10 @@
     view = 'responses';
     loadingResponses = true;
     try {
-      const res = await api.get<{ responses: Response[] }>(`/ext/workflow/checklists/${c.id}/responses`);
-      responses = res.responses ?? [];
+      // Instance activity, not per-template responses — the engine serves no
+      // endpoint for the latter.
+      const res = await api.get<{ checklists: Response[] }>('/ext/workflow/checklists/summary');
+      responses = res.checklists ?? [];
     } catch (e) {
       toast.error(extractError(e));
     } finally {
@@ -129,12 +153,13 @@
 
   function addItem() {
     if (!newItemText.trim()) return;
-    editItems = [...editItems, { id: crypto.randomUUID(), text: newItemText.trim(), required: false }];
+    // No client-side id: the engine assigns one when the template is saved.
+    editItems = [...editItems, { label: newItemText.trim(), required: false, order_idx: editItems.length }];
     newItemText = '';
   }
 
-  function removeItem(id: string) {
-    editItems = editItems.filter(i => i.id !== id);
+  function removeItem(idx: number) {
+    editItems = editItems.filter((_, i) => i !== idx);
   }
 </script>
 
@@ -209,7 +234,7 @@
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="btn btn-ghost btn-xs gap-1" onclick={() => openResponses(c)}>
-                  <BarChart2 size={13}/> {m['workflow.checklists.tab.responses']()}
+                  <BarChart2 size={13}/> {m['workflow.checklists.tab.instances']()}
                 </button>
                 <button class="btn btn-ghost btn-xs gap-1" onclick={() => openEdit(c)}>
                   {m['workflow.checklists.btn.edit']()} <ChevronRight size={13}/>
@@ -242,15 +267,15 @@
         <div>
           <p class="text-xs font-medium text-base-content/70 mb-2">{m['workflow.checklists.col.items']()}</p>
           <div class="space-y-1.5 mb-3">
-            {#each editItems as item (item.id)}
+            {#each editItems as item, idx (idx)}
               <div class="flex items-center gap-2 bg-base-100 rounded-lg px-3 py-2">
                 <CheckSquare size={13} class="text-base-content/30 shrink-0"/>
-                <span class="flex-1 text-sm">{item.text}</span>
+                <span class="flex-1 text-sm">{item.label}</span>
                 <label class="flex items-center gap-1 text-xs text-base-content/50">
                   <input type="checkbox" class="checkbox checkbox-xs" bind:checked={item.required}/>
                   {m['workflow.checklists.col.required']()}
                 </label>
-                <button class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(item.id)}>
+                <button class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(idx)}>
                   <Trash2 size={12}/>
                 </button>
               </div>
@@ -278,7 +303,7 @@
       <div class="card bg-base-200">
         <div class="card-body items-center text-center py-16 gap-3">
           <BarChart2 size={36} class="text-base-content/20"/>
-          <p class="font-medium text-sm text-base-content/50">{m['workflow.checklists.empty.responses']()}</p>
+          <p class="font-medium text-sm text-base-content/50">{m['workflow.checklists.empty.instances']()}</p>
         </div>
       </div>
     {:else}
@@ -286,25 +311,26 @@
         <table class="table table-sm">
           <thead>
             <tr>
-              <th>{m['workflow.checklists.col.submittedBy']()}</th>
+              <th>{m['common.col.name']()}</th>
+              <th>{m['workflow.checklists.col.record']()}</th>
+              <th>{m['workflow.checklists.col.progress']()}</th>
               <th>{m['common.col.date']()}</th>
-              <th>{m['common.col.notes']()}</th>
-              <th>{m['workflow.checklists.col.answers']()}</th>
             </tr>
           </thead>
           <tbody>
             {#each responses as r (r.id)}
               <tr class="hover">
-                <td class="font-mono text-xs">{r.submitted_by ?? '—'}</td>
-                <td class="text-xs">{new Date(r.created_at).toLocaleString()}</td>
-                <td class="text-xs text-base-content/60">{r.notes ?? '—'}</td>
+                <td class="text-sm">{r.name}</td>
+                <td class="font-mono text-xs text-base-content/60">
+                  {r.collection ? `${r.collection}/${(r.record_id ?? '').slice(0, 8)}` : '—'}
+                </td>
                 <td>
-                  <div class="flex flex-wrap gap-1">
-                    {#each Object.entries(r.answers ?? {}) as [k, v]}
-                      <span class="badge badge-xs {v ? 'badge-success' : 'badge-error'}">{k}</span>
-                    {/each}
+                  <div class="flex items-center gap-2">
+                    <progress class="progress progress-primary w-20" value={r.checked} max={r.total || 1}></progress>
+                    <span class="text-xs text-base-content/60">{r.checked}/{r.total}</span>
                   </div>
                 </td>
+                <td class="text-xs">{new Date(r.created_at).toLocaleString()}</td>
               </tr>
             {/each}
           </tbody>

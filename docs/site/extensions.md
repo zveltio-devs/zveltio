@@ -128,7 +128,7 @@ The two extensions in this space build on top of core flows:
 
 | Extension   | Routes                | Description                                                                                                                  |
 | ----------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **billing** | `/extensions/billing` | Usage metering (API calls, storage, records per tenant), Stripe webhook integration (HMAC-verified, no SDK), plan management |
+| **billing** | `/ext/billing` | Usage metering (API calls, storage, records per tenant), Stripe webhook integration (HMAC-verified, no SDK), plan management |
 
 **Tables:** `zv_billing_plans`, `zv_usage_events`, `zv_billing_subscriptions`
 
@@ -152,7 +152,7 @@ The two extensions in this space build on top of core flows:
 
 | Extension | Routes              | Description                                                                                                                                                                                                                |
 | --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **forms** | `/extensions/forms` | Drag-and-drop form builder. Public submit endpoint (rate-limited 10/min per IP). Submissions optionally write to any collection. Supports text, textarea, email, number, select, multiselect, checkbox, date, file fields. |
+| **forms** | `/ext/forms` | Form builder: add, edit, reorder and remove fields (not drag-and-drop). Public submit endpoint (rate-limited 10/min per IP). Submissions optionally write to any collection. Supports text, textarea, email, number, select, multiselect, checkbox, date, file fields. |
 
 **Public endpoints (no auth):**
 
@@ -163,7 +163,7 @@ The two extensions in this space build on top of core flows:
 
 | Extension  | Routes               | Description                                                                                                                                                                              |
 | ---------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **search** | `/extensions/search` | Meilisearch and Typesense adapters. Event-driven sync on record create/update/delete. Full re-index via batch of 100. Per-collection searchable/filterable/sortable field configuration. |
+| **search** | `/ext/search` | Meilisearch and Typesense adapters. Event-driven sync on record create/update/delete. Full re-index via batch of 100. Per-collection searchable/filterable/sortable field configuration. |
 
 **Env vars:** `MEILISEARCH_HOST`, `MEILISEARCH_API_KEY` or `TYPESENSE_HOST`, `TYPESENSE_PORT`, `TYPESENSE_API_KEY`
 
@@ -171,7 +171,7 @@ The two extensions in this space build on top of core flows:
 
 | Extension | Routes            | Description                                                                                                                         |
 | --------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **sms**   | `/extensions/sms` | Twilio and Vonage/Nexmo providers (raw fetch, no SDK). Template system with `{{variable}}` interpolation. Delivery status webhooks. |
+| **sms**   | `/ext/sms` | Twilio and Vonage/Nexmo providers (raw fetch, no SDK). Template system with `{{variable}}` interpolation. Delivery status webhooks. |
 
 **Env vars:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` or `VONAGE_API_KEY`, `VONAGE_API_SECRET`
 
