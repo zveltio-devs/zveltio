@@ -504,6 +504,14 @@ DROP TABLE IF EXISTS zv_content_my_feature_items;
 The `-- DOWN` marker separates the UP and DOWN sections. The UP runs on
 install; the DOWN runs on full uninstall (with `purgeData=true`) (v1.0).
 
+> **`-- NO TRANSACTION` is an engine-only marker.** Engine migrations can use it
+> to opt out of the transaction wrapper and run `CREATE INDEX CONCURRENTLY`.
+> Extension migrations cannot: the whole pending chain runs in one transaction
+> so a failure halfway through an install rolls back cleanly, and the marker is
+> read as an ordinary comment here. Writing it in an extension migration will
+> not fail — it will simply do nothing, which is worse. Index an extension table
+> at creation time, while it is empty.
+
 ### Table naming rules
 
 | Prefix | Purpose | Who owns |
