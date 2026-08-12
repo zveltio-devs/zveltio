@@ -406,6 +406,7 @@ export interface ZvChecklistItemsTable {
   assignee_user_id: string | null;
   notes: string | null;
   tenant_id: string | null;
+  template_item_id: string | null;
 }
 
 export interface ZvChecklistRecurrenceTable {
@@ -420,6 +421,41 @@ export interface ZvChecklistRecurrenceTable {
   created_by: string;
   created_at: Generated<Date>;
   tenant_id: string | null;
+}
+
+export interface ZvChecklistSchemeWeightsTable {
+  id: Generated<string>;
+  scheme_id: string;
+  template_item_id: string;
+  weight: Generated<number>;
+  tenant_id: Generated<string>;
+}
+
+export interface ZvChecklistScoresTable {
+  id: Generated<string>;
+  checklist_id: string;
+  scheme_id: string | null;
+  scheme_name: string;
+  method: string;
+  score: number;
+  passed: boolean | null;
+  snapshot: Generated<unknown>;
+  computed_at: Generated<Date>;
+  tenant_id: Generated<string>;
+}
+
+export interface ZvChecklistScoringSchemesTable {
+  id: Generated<string>;
+  template_id: string;
+  name: string;
+  description: string | null;
+  method: Generated<'weighted_completion'>;
+  pass_threshold: number | null;
+  is_active: Generated<boolean>;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: Generated<string>;
 }
 
 export interface ZvChecklistTemplateItemsTable {
@@ -605,6 +641,17 @@ export interface ZvDdlJobsTable {
   completed_at: Date | null;
   retry_count: Generated<number>;
   max_retries: Generated<number>;
+}
+
+export interface ZvDeveloperDatabaseSnippetsTable {
+  id: Generated<string>;
+  name: string;
+  description: string | null;
+  query: string;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvDocTemplatesTable {
@@ -864,6 +911,31 @@ export interface ZvEfacturaInvoicesTable {
   created_by: string | null;
   source_invoice_id: string | null;
   tenant_id: string | null;
+  seller_city: string | null;
+  seller_country: Generated<string | null>;
+  buyer_city: string | null;
+  buyer_country: Generated<string | null>;
+  seller_county: string | null;
+  buyer_county: string | null;
+}
+
+export interface ZvEfacturaSettingsTable {
+  id: Generated<string>;
+  environment: Generated<'test' | 'prod'>;
+  seller_cif: string | null;
+  client_id: string | null;
+  client_secret: string | null;
+  cert_path: string | null;
+  cert_password: string | null;
+  access_token: string | null;
+  refresh_token: string | null;
+  token_expires_at: Date | null;
+  last_verified_at: Date | null;
+  last_error: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: string | null;
+  callback_url: string | null;
 }
 
 export interface ZvEfacturaStatusLogTable {
@@ -1024,8 +1096,8 @@ export interface ZvFlowsTable {
 
 export interface ZvFormSubmissionsTable {
   id: Generated<string>;
-  page_id: string;
-  section_id: string;
+  page_id: string | null;
+  section_id: string | null;
   data: Generated<unknown>;
   submitter_ip: string | null;
   submitter_email: string | null;
@@ -2327,6 +2399,8 @@ export interface ZvdAccountsTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+  currency: Generated<string>;
+  cost_center_id: string | null;
 }
 
 export interface ZvdActiveTimersTable {
@@ -2420,6 +2494,13 @@ export interface ZvdApiCustomDocsTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+}
+
+export interface ZvdApiDocsConfigTable {
+  tenant_id: Generated<string>;
+  is_public: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface ZvdApiEndpointsTable {
@@ -2621,6 +2702,7 @@ export interface ZvdBankImportsTable {
   imported_by: string;
   imported_at: Generated<Date>;
   tenant_id: string | null;
+  source: string | null;
 }
 
 export interface ZvdBankReconciliationsTable {
@@ -2677,6 +2759,8 @@ export interface ZvdBankTransactionsTable {
   auto_categorized: Generated<boolean>;
   is_reconciled: Generated<boolean>;
   tenant_id: string | null;
+  import_id: string | null;
+  counterparty_name: string | null;
 }
 
 export interface ZvdBranchCommentsTable {
@@ -2775,6 +2859,22 @@ export interface ZvdCashFlowEntriesTable {
   tenant_id: string | null;
 }
 
+export interface ZvdCatalogueItemsTable {
+  id: Generated<string>;
+  code: string | null;
+  name: string;
+  description: string | null;
+  kind: Generated<'product' | 'service'>;
+  unit: Generated<string>;
+  unit_price: Generated<number>;
+  currency: Generated<string>;
+  tax_rate: Generated<number>;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: string | null;
+}
+
 export interface ZvdCollectionsTable {
   id: Generated<string>;
   name: string;
@@ -2810,6 +2910,30 @@ export interface ZvdColumnPermissionsTable {
   updated_at: Generated<Date>;
 }
 
+export interface ZvdCompanyProfileTable {
+  id: Generated<string>;
+  name: string;
+  legal_name: string | null;
+  tax_id: string | null;
+  reg_no: string | null;
+  vat_payer: Generated<boolean>;
+  vat_on_collection: Generated<boolean>;
+  address: string | null;
+  city: string | null;
+  county: string | null;
+  country: Generated<string>;
+  iban: string | null;
+  bank: string | null;
+  share_capital: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  logo_url: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: string | null;
+}
+
 export interface ZvdContactOrganizationsTable {
   contact_id: string;
   organization_id: string;
@@ -2836,6 +2960,31 @@ export interface ZvdContactsTable {
   source: string | null;
   metadata: Generated<unknown>;
   tenant_id: string | null;
+}
+
+export interface ZvdContractAmendmentsTable {
+  id: Generated<string>;
+  contract_id: string;
+  amendment_number: string;
+  effective_date: Date;
+  changes: Generated<unknown>;
+  reason: string | null;
+  signed_at: Date | null;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  tenant_id: Generated<string>;
+}
+
+export interface ZvdContractSuspensionsTable {
+  id: Generated<string>;
+  contract_id: string;
+  start_date: Date;
+  end_date: Date | null;
+  reason_code: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  tenant_id: Generated<string>;
 }
 
 export interface ZvdCostCentersTable {
@@ -3030,6 +3179,18 @@ export interface ZvdDepartmentsTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   description: string | null;
+  tenant_id: string | null;
+}
+
+export interface ZvdDocumentSeriesTable {
+  id: Generated<string>;
+  doc_type: Generated<'invoice' | 'proforma' | 'credit_note' | 'receipt' | 'delivery_note'>;
+  series: string;
+  next_number: Generated<number>;
+  padding: Generated<number>;
+  is_default: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -3328,6 +3489,31 @@ export interface ZvdEmployeesTable {
   work_email: string | null;
   tax_id: string | null;
   tenant_id: string | null;
+}
+
+export interface ZvdEmploymentContractsTable {
+  id: Generated<string>;
+  employee_id: string;
+  contract_number: string;
+  contract_type: Generated<'indefinite' | 'fixed_term'>;
+  start_date: Date;
+  end_date: Date | null;
+  probation_end_date: Date | null;
+  weekly_hours: Generated<number>;
+  salary: number | null;
+  currency: Generated<string>;
+  salary_period: Generated<'hour' | 'day' | 'month' | 'year'>;
+  position_id: string | null;
+  department_id: string | null;
+  status: Generated<'draft' | 'active' | 'suspended' | 'ended'>;
+  signed_at: Date | null;
+  ended_at: Date | null;
+  end_reason_code: string | null;
+  end_notes: string | null;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  tenant_id: Generated<string>;
 }
 
 export interface ZvdEscalationRulesTable {
@@ -3736,6 +3922,33 @@ export interface ZvdInvoicesTable {
   discount_amount: Generated<number>;
   discount_percent: Generated<number>;
   tenant_id: string | null;
+  series: string | null;
+  client_tax_id: string | null;
+  client_reg_no: string | null;
+  client_country: string | null;
+  seller_name: string | null;
+  seller_tax_id: string | null;
+  seller_reg_no: string | null;
+  seller_address: string | null;
+  seller_iban: string | null;
+  seller_bank: string | null;
+  delivery_date: Date | null;
+  vat_breakdown: Generated<unknown>;
+  vat_regime: Generated<string>;
+  vat_exemption_reason: string | null;
+  exchange_rate: number | null;
+  exchange_date: Date | null;
+  tax_amount_ron: number | null;
+  doc_type: Generated<string>;
+  delegate_name: string | null;
+  delegate_id_card: string | null;
+  delegate_vehicle: string | null;
+  converted_from_id: string | null;
+  seller_city: string | null;
+  seller_country: string | null;
+  client_city: string | null;
+  seller_county: string | null;
+  client_county: string | null;
 }
 
 export interface ZvdJobPositionsTable {
@@ -3777,6 +3990,13 @@ export interface ZvdJournalLinesTable {
   exchange_rate: Generated<number | null>;
   amount_foreign: number | null;
   tenant_id: string | null;
+}
+
+export interface ZvdLdapConfigTable {
+  tenant_id: Generated<string>;
+  config: unknown;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface ZvdLdapGroupMappingsTable {
@@ -4104,6 +4324,17 @@ export interface ZvdPayrollPeriodsTable {
   tenant_id: string | null;
 }
 
+export interface ZvdPayrollRatesTable {
+  tenant_id: Generated<string>;
+  cas_employee: Generated<number>;
+  cass_employee: Generated<number>;
+  income_tax: Generated<number>;
+  cas_employer: Generated<number>;
+  cam_employer: Generated<number>;
+  personal_deduction_base: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvdPayrollSickLeaveTable {
   id: Generated<string>;
   period_id: string;
@@ -4265,6 +4496,8 @@ export interface ZvdPosOrdersTable {
   loyalty_discount: Generated<number>;
   canonical_contact_id: string | null;
   tenant_id: string | null;
+  customer_name: string | null;
+  notes: string | null;
 }
 
 export interface ZvdPosSessionsTable {
@@ -4344,6 +4577,7 @@ export interface ZvdProductsTable {
   avg_cost: Generated<number | null>;
   total_value: Generated<number | null>;
   tenant_id: string | null;
+  currency: Generated<string>;
 }
 
 export interface ZvdProjectCustomFieldsTable {
@@ -4660,6 +4894,13 @@ export interface ZvdSamlAttributeMappingsTable {
   tenant_id: string | null;
 }
 
+export interface ZvdSamlConfigTable {
+  tenant_id: Generated<string>;
+  config: unknown;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvdSamlIdpMetadataTable {
   id: Generated<string>;
   entity_id: string;
@@ -4709,6 +4950,8 @@ export interface ZvdStockMovementsTable {
   batch_id: string | null;
   po_line_id: string | null;
   tenant_id: string | null;
+  unit_cost: number | null;
+  destination_warehouse_id: string | null;
 }
 
 export interface ZvdSubscribersTable {
@@ -4752,6 +4995,8 @@ export interface ZvdSubscriptionInvoicesTable {
   usage_amount: Generated<number>;
   total_amount: number | null;
   tenant_id: string | null;
+  due_date: Date | null;
+  created_by: string | null;
 }
 
 export interface ZvdSubscriptionPlansTable {
@@ -5205,6 +5450,7 @@ export interface ZvdWarehousesTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+  notes: string | null;
 }
 
 export interface ZvdWebhookDeliveriesTable {
@@ -5306,6 +5552,9 @@ export interface DbSchema {
   zv_billing_webhook_events: ZvBillingWebhookEventsTable;
   zv_checklist_items: ZvChecklistItemsTable;
   zv_checklist_recurrence: ZvChecklistRecurrenceTable;
+  zv_checklist_scheme_weights: ZvChecklistSchemeWeightsTable;
+  zv_checklist_scores: ZvChecklistScoresTable;
+  zv_checklist_scoring_schemes: ZvChecklistScoringSchemesTable;
   zv_checklist_template_items: ZvChecklistTemplateItemsTable;
   zv_checklist_templates: ZvChecklistTemplatesTable;
   zv_checklists: ZvChecklistsTable;
@@ -5319,6 +5568,7 @@ export interface DbSchema {
   zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_ddl_jobs: ZvDdlJobsTable;
+  zv_developer_database_snippets: ZvDeveloperDatabaseSnippetsTable;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_document_access_log: ZvDocumentAccessLogTable;
   zv_document_generations: ZvDocumentGenerationsTable;
@@ -5336,6 +5586,7 @@ export interface DbSchema {
   zv_edge_functions: ZvEdgeFunctionsTable;
   zv_efactura_daily_stats: ZvEfacturaDailyStatsTable;
   zv_efactura_invoices: ZvEfacturaInvoicesTable;
+  zv_efactura_settings: ZvEfacturaSettingsTable;
   zv_efactura_status_log: ZvEfacturaStatusLogTable;
   zv_efactura_storno: ZvEfacturaStornoTable;
   zv_environments: ZvEnvironmentsTable;
@@ -5445,6 +5696,7 @@ export interface DbSchema {
   zvd_api_changelogs: ZvdApiChangelogsTable;
   zvd_api_connections: ZvdApiConnectionsTable;
   zvd_api_custom_docs: ZvdApiCustomDocsTable;
+  zvd_api_docs_config: ZvdApiDocsConfigTable;
   zvd_api_endpoints: ZvdApiEndpointsTable;
   zvd_api_logs: ZvdApiLogsTable;
   zvd_api_oauth_tokens: ZvdApiOauthTokensTable;
@@ -5468,10 +5720,14 @@ export interface DbSchema {
   zvd_byod_scan_profiles: ZvdByodScanProfilesTable;
   zvd_canned_responses: ZvdCannedResponsesTable;
   zvd_cash_flow_entries: ZvdCashFlowEntriesTable;
+  zvd_catalogue_items: ZvdCatalogueItemsTable;
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
+  zvd_company_profile: ZvdCompanyProfileTable;
   zvd_contact_organizations: ZvdContactOrganizationsTable;
   zvd_contacts: ZvdContactsTable;
+  zvd_contract_amendments: ZvdContractAmendmentsTable;
+  zvd_contract_suspensions: ZvdContractSuspensionsTable;
   zvd_cost_centers: ZvdCostCentersTable;
   zvd_credit_note_lines: ZvdCreditNoteLinesTable;
   zvd_credit_notes: ZvdCreditNotesTable;
@@ -5486,6 +5742,7 @@ export interface DbSchema {
   zvd_db_ddl_log: ZvdDbDdlLogTable;
   zvd_db_query_history: ZvdDbQueryHistoryTable;
   zvd_departments: ZvdDepartmentsTable;
+  zvd_document_series: ZvdDocumentSeriesTable;
   zvd_dunning_attempts: ZvdDunningAttemptsTable;
   zvd_ec_abandoned_carts: ZvdEcAbandonedCartsTable;
   zvd_ec_categories: ZvdEcCategoriesTable;
@@ -5503,6 +5760,7 @@ export interface DbSchema {
   zvd_employee_documents: ZvdEmployeeDocumentsTable;
   zvd_employee_emergency_contacts: ZvdEmployeeEmergencyContactsTable;
   zvd_employees: ZvdEmployeesTable;
+  zvd_employment_contracts: ZvdEmploymentContractsTable;
   zvd_escalation_rules: ZvdEscalationRulesTable;
   zvd_exchange_rates: ZvdExchangeRatesTable;
   zvd_expense_reimbursements: ZvdExpenseReimbursementsTable;
@@ -5530,6 +5788,7 @@ export interface DbSchema {
   zvd_job_positions: ZvdJobPositionsTable;
   zvd_journal_entries: ZvdJournalEntriesTable;
   zvd_journal_lines: ZvdJournalLinesTable;
+  zvd_ldap_config: ZvdLdapConfigTable;
   zvd_ldap_group_mappings: ZvdLdapGroupMappingsTable;
   zvd_ldap_ip_allowlist: ZvdLdapIpAllowlistTable;
   zvd_ldap_login_log: ZvdLdapLoginLogTable;
@@ -5553,6 +5812,7 @@ export interface DbSchema {
   zvd_payroll_meal_vouchers: ZvdPayrollMealVouchersTable;
   zvd_payroll_overtime: ZvdPayrollOvertimeTable;
   zvd_payroll_periods: ZvdPayrollPeriodsTable;
+  zvd_payroll_rates: ZvdPayrollRatesTable;
   zvd_payroll_sick_leave: ZvdPayrollSickLeaveTable;
   zvd_per_diem_entries: ZvdPerDiemEntriesTable;
   zvd_performance_cycles: ZvdPerformanceCyclesTable;
@@ -5593,6 +5853,7 @@ export interface DbSchema {
   zvd_rpc_functions: ZvdRpcFunctionsTable;
   zvd_salary_history: ZvdSalaryHistoryTable;
   zvd_saml_attribute_mappings: ZvdSamlAttributeMappingsTable;
+  zvd_saml_config: ZvdSamlConfigTable;
   zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
   zvd_saml_login_log: ZvdSamlLoginLogTable;
   zvd_stock_levels: ZvdStockLevelsTable;
