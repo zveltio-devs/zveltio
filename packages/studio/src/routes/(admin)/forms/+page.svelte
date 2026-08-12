@@ -7,7 +7,9 @@
         import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
-  import { FileInput, LoaderCircle } from '@lucide/svelte';
+  import { FileInput, LoaderCircle, Plus, Pencil, Inbox } from '@lucide/svelte';
+  import { base } from '$app/paths';
+  import { goto } from '$app/navigation';
 
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
@@ -15,7 +17,37 @@
   let loading = $state(true);
   let togglingId = $state<string | null>(null);
 
+  let creating = $state(false);
+
   onMount(loadForms);
+
+  /**
+   * The manifest promised a builder at `/admin/forms/:id` and there was no way
+   * to reach one — no create button, no link from a row. A form could be listed,
+   * toggled and deleted, and never edited.
+   *
+   * A new form is created with a placeholder name and an empty field list, then
+   * opened in the builder: `slug` is required by the engine and must be unique,
+   * so it is derived from the timestamp rather than asked for up front.
+   */
+  async function createForm() {
+    creating = true;
+    try {
+      const stamp = Date.now().toString(36);
+      const res = await api.post<{ form: { id: string } }>('/ext/forms', {
+        name: m['forms.btn.new'](),
+        slug: `form-${stamp}`,
+        fields: [],
+        active: false,
+      });
+      toast.success(m['forms.toast.created']());
+      goto(`${base}/forms/${res.form.id}`);
+    } catch (e: any) {
+      toast.error(e instanceof Error ? e.message : m['ext.errorPrefix']());
+    } finally {
+      creating = false;
+    }
+  }
 
   async function loadForms() {
     loading = true;
@@ -57,6 +89,12 @@
 </script>
 
 <ExtensionPageShell title={m['forms.title']()} subtitle={m['forms.subtitle']()}>
+  <div class="flex justify-end mb-4">
+    <button class="btn btn-primary btn-sm gap-1" onclick={createForm} disabled={creating}>
+      {#if creating}<LoaderCircle size={14} class="animate-spin"/>{:else}<Plus size={14}/>{/if}
+      {m['forms.btn.new']()}
+    </button>
+  </div>
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if forms.length === 0}
