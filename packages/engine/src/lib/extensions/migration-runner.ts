@@ -11,6 +11,7 @@
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
+import { isNonTransactional, splitSqlStatements } from '../../db/migrations/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
@@ -102,27 +103,70 @@ export async function runExtensionMigrations(
 
   if (pending.length === 0) return;
 
-  // Phase 2 — run the entire chain in ONE outer transaction. If any UP
-  // fails, Postgres rolls back the whole chain (DDL is transactional for
-  // CREATE TABLE / ALTER / DROP / most CREATE INDEX variants). Migrations
-  // that need CONCURRENTLY or other non-transactional DDL cannot use this
-  // path — they must be expressed differently (e.g. split into a separate
-  // non-extension migration applied by an admin).
-  // Checked before the transaction opens: a refusal should not leave a
-  // half-applied chain behind, and the answer does not depend on the DB.
+  // Checked before anything runs: a refusal should not leave a half-applied
+  // chain behind, and the answer does not depend on the DB.
   for (const m of pending) {
     await assertMigrationTablesAllowed(extension.name, m.up);
   }
 
-  await db.transaction().execute(async (trx) => {
-    for (const m of pending) {
-      await _sql.raw(m.up).execute(trx);
-      // Persist DOWN alongside the migration row so a future uninstall with
-      // purgeData=true can replay rollbacks without the original files.
-      await trx.insertInto('zv_migrations').values({ name: m.name, down_sql: m.down }).execute();
-      console.log(`  ✓ Extension migration: ${m.name}`);
+  // Phase 2 — run the chain in as few transactions as its contents allow.
+  //
+  // The default is still one transaction for the whole chain: if any UP fails,
+  // Postgres rolls back everything (DDL is transactional for CREATE TABLE /
+  // ALTER / DROP / most CREATE INDEX variants), so an extension either installs
+  // or does not, with nothing in between.
+  //
+  // A migration marked `-- NO TRANSACTION` cannot join that, because the one
+  // thing the marker is for — `CREATE INDEX CONCURRENTLY` — is illegal inside
+  // a transaction block. Rather than refuse the marker, the chain is cut into
+  // runs of consecutive transactional migrations, each still atomic, with the
+  // marked ones executed alone and outside. An extension that never uses the
+  // marker is unaffected: one segment, one transaction, exactly as before.
+  //
+  // What is genuinely given up: if a later segment fails, earlier segments are
+  // already committed. That is inherent — a concurrent index build cannot be
+  // rolled back by a transaction that does not contain it — and it is why the
+  // marker is opt-in and why the linter demands `IF NOT EXISTS` throughout a
+  // marked migration. The migration row is written only after its own UP
+  // succeeds, so a failed run is retried whole on the next boot.
+  type Segment = { transactional: boolean; items: Pending[] };
+  const segments: Segment[] = [];
+  for (const m of pending) {
+    const transactional = !isNonTransactional(m.up);
+    const last = segments[segments.length - 1];
+    if (last && last.transactional && transactional) last.items.push(m);
+    else segments.push({ transactional, items: [m] });
+  }
+
+  for (const segment of segments) {
+    if (segment.transactional) {
+      await db.transaction().execute(async (trx) => {
+        for (const m of segment.items) {
+          await _sql.raw(m.up).execute(trx);
+          // Persist DOWN alongside the migration row so a future uninstall with
+          // purgeData=true can replay rollbacks without the original files.
+          await trx
+            .insertInto('zv_migrations')
+            .values({ name: m.name, down_sql: m.down })
+            .execute();
+          console.log(`  ✓ Extension migration: ${m.name}`);
+        }
+      });
+      continue;
     }
-  });
+
+    for (const m of segment.items) {
+      // Statement by statement, not as one raw blob. A multi-statement simple
+      // query is itself an implicit transaction block, so sending the whole UP
+      // at once would have Postgres reject CONCURRENTLY just as surely as the
+      // explicit transaction this path exists to escape.
+      for (const stmt of splitSqlStatements(m.up)) {
+        await _sql.raw(stmt).execute(db);
+      }
+      await db.insertInto('zv_migrations').values({ name: m.name, down_sql: m.down }).execute();
+      console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
+    }
+  }
 }
 
 /**
