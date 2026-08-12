@@ -250,6 +250,20 @@ export function isNonTransactional(up: string): boolean {
  */
 const TIMEOUT_PATTERN = /^\d+(ms|s|min)?$/;
 
+/**
+ * The one method a migration statement needs, present on both a Kysely instance
+ * and a transaction — which is the whole point, since the same statement runs
+ * on either depending on whether the migration opted out of the wrapper.
+ *
+ * Spelled out structurally rather than reaching for Kysely's own signature:
+ * what actually travels is `{ sql, parameters }`, and `BunSqlDialect` reads
+ * nothing else. Naming that shape says what the code depends on, where an
+ * `any` would only have said nobody checked.
+ */
+interface StatementExecutor {
+  executeQuery(query: { sql: string; parameters: readonly unknown[] }): Promise<unknown>;
+}
+
 export function timeoutSetting(envVar: string, fallback: string): string {
   const raw = process.env[envVar];
   if (raw === undefined || raw === '') return fallback;
@@ -299,8 +313,7 @@ async function applyMigration(
   const statements = splitSqlStatements(up);
   const nonTransactional = isNonTransactional(up);
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const runStatements = async (exec: any, si: number): Promise<void> => {
+  const runStatements = async (exec: StatementExecutor, si: number): Promise<void> => {
     const stmt = statements[si];
     try {
       await exec.executeQuery({ sql: stmt, parameters: [] });
@@ -327,8 +340,7 @@ async function applyMigration(
     // migration and leaks into whoever gets that connection next.
     console.log(`[migrations] ${filename}: running without a transaction (-- NO TRANSACTION)`);
     for (let si = 0; si < statements.length; si++) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      await runStatements(db as any, si);
+      await runStatements(db as unknown as StatementExecutor, si);
     }
   } else {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
