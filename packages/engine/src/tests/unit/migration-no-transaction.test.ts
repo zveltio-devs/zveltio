@@ -17,6 +17,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   isNonTransactional,
   parseMigrationFile,
+  timeoutAdvice,
   timeoutSetting,
 } from '../../db/migrations/index.js';
 
@@ -79,5 +80,73 @@ describe('timeoutSetting', () => {
       expect(() => timeoutSetting(VAR, '5s')).toThrow(/not a Postgres interval literal/);
     }
     delete process.env[VAR];
+  });
+});
+
+describe('timeoutAdvice', () => {
+  // SQLSTATE arrives on `errno` under Bun's SQL driver — `code` carries the
+  // generic ERR_POSTGRES_SERVER_ERROR for every server-side failure, so a
+  // reader that checked `code` would match nothing and stay silent forever.
+  // These shapes were taken from real cancellations against Postgres 18.
+  const lockTimeout = Object.assign(new Error('canceling statement due to lock timeout'), {
+    code: 'ERR_POSTGRES_SERVER_ERROR',
+    errno: '55P03',
+  });
+  const statementTimeout = Object.assign(
+    new Error('canceling statement due to statement timeout'),
+    { code: 'ERR_POSTGRES_SERVER_ERROR', errno: '57014' },
+  );
+
+  it('explains a lock timeout as contention rather than a broken migration', () => {
+    const out = timeoutAdvice(lockTimeout) ?? '';
+    expect(out).toContain('not a fault in the migration');
+    // The operator needs to find the holder, so hand them the query.
+    expect(out).toContain('pg_stat_activity');
+    // And must not be steered into simply waiting longer on a live instance.
+    expect(out).toContain('maintenance window');
+  });
+
+  it('reports the lock timeout actually in force, not the default', () => {
+    const prev = process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT;
+    process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT = '90s';
+    expect(timeoutAdvice(lockTimeout)).toContain('waited 90s');
+    process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT = prev ?? '';
+    if (prev === undefined) delete process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT;
+    expect(timeoutAdvice(lockTimeout)).toContain('waited 5s');
+  });
+
+  it('names the env var when it is what cancelled the statement', () => {
+    const prev = process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT;
+    process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT = '30s';
+    expect(timeoutAdvice(statementTimeout)).toContain('is set to "30s"');
+    if (prev === undefined) delete process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT;
+    else process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT = prev;
+  });
+
+  it('points at the server when nobody set the env var — the case this is really for', () => {
+    const prev = process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT;
+    delete process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT;
+    const out = timeoutAdvice(statementTimeout) ?? '';
+    // Telling someone to lower a variable they never set would send them
+    // looking in the wrong place entirely.
+    expect(out).toContain('is not set here');
+    expect(out).toContain('SHOW statement_timeout');
+    if (prev !== undefined) process.env.ZVELTIO_MIGRATION_STATEMENT_TIMEOUT = prev;
+  });
+
+  it('says nothing about anything else', () => {
+    const undefinedColumn = Object.assign(new Error('column "x" does not exist'), {
+      code: 'ERR_POSTGRES_SERVER_ERROR',
+      errno: '42703',
+    });
+    expect(timeoutAdvice(undefinedColumn)).toBeNull();
+    expect(timeoutAdvice(new Error('plain'))).toBeNull();
+    expect(timeoutAdvice(null)).toBeNull();
+    expect(timeoutAdvice(undefined)).toBeNull();
+  });
+
+  it('is not fooled by the SQLSTATE landing on `code`, which is where it is not', () => {
+    const wrongField = Object.assign(new Error('canceling statement'), { code: '55P03' });
+    expect(timeoutAdvice(wrongField)).toBeNull();
   });
 });
