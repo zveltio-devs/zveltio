@@ -34,6 +34,23 @@ const PAGES = [
 /** DaisyUI alert used by the toast store for failures. */
 const ERROR_TOAST = '.alert-error, [data-toast-type="error"]';
 
+/**
+ * Sign in before navigating, because `/admin/*` redirects to the login form
+ * otherwise — and every assertion below would then be made against that form.
+ *
+ * The first version of this file skipped it and failed on `main#admin-main`
+ * being absent. The element exists; the page never got there. `page.request`
+ * shares the context's cookie jar, so the API call is enough and there is no
+ * reason to drive the form.
+ */
+async function signIn(page: import('@playwright/test').Page): Promise<void> {
+  const res = await page.request.post(`${E2E.baseURL}/api/auth/sign-in/email`, {
+    data: { email: E2E.admin.email, password: E2E.admin.password },
+    headers: { Origin: E2E.baseURL },
+  });
+  expect(res.ok(), `sign-in failed: ${res.status()}`).toBe(true);
+}
+
 test.describe('extension pages', () => {
   test.beforeEach(async () => {
     test.skip(!(await browserAvailable()), 'no browser here — see the warning above');
@@ -55,11 +72,12 @@ test.describe('extension pages', () => {
       const consoleErrors: string[] = [];
       page.on('pageerror', (err) => consoleErrors.push(err.message));
 
+      await signIn(page);
       await page.goto(`${E2E.baseURL}/admin/${p.slug}`, { waitUntil: 'networkidle' });
 
       // The shell renders before the page's data arrives, so waiting for the
       // shell alone would pass on a page whose every request failed.
-      await expect(page.locator('main, [role="main"]')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('main#admin-main')).toBeVisible({ timeout: 15_000 });
 
       expect(consoleErrors, `uncaught error on /admin/${p.slug}`).toEqual([]);
       expect(failures, `failed API calls on /admin/${p.slug}`).toEqual([]);
@@ -72,6 +90,7 @@ test.describe('extension pages', () => {
     // nothing linked to and that called an API without the `/ext/crm` prefix.
     // They are 301s now; a bookmark has to keep working, which is the whole
     // reason they were not simply deleted.
+    await signIn(page);
     for (const old of ['contacts', 'organizations', 'transactions']) {
       await page.goto(`${E2E.baseURL}/admin/crm/${old}`, { waitUntil: 'networkidle' });
       await expect(page).toHaveURL(/\/admin\/crm\/?$/, { timeout: 10_000 });
