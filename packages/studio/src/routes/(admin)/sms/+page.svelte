@@ -37,9 +37,9 @@
     loading = true;
     try {
       const [statsRes, msgsRes, tplRes] = await Promise.all([
-        api.get<{ stats: any[] }>('/extensions/sms/stats'),
-        api.get<{ messages: any[] }>('/extensions/sms/messages?limit=50'),
-        api.get<{ templates: any[] }>('/extensions/sms/templates'),
+        api.get<{ stats: any[] }>('/ext/sms/stats'),
+        api.get<{ messages: any[] }>('/ext/sms/messages?limit=50'),
+        api.get<{ templates: any[] }>('/ext/sms/templates'),
       ]);
       const agg: Record<string, number> = {};
       for (const s of statsRes.stats ?? []) agg[s.status] = s.count;
@@ -65,7 +65,7 @@
       } else {
         payload.body = sendBody.trim();
       }
-      const res = await api.post<{ id: string }>('/extensions/sms/send', payload);
+      const res = await api.post<{ id: string }>('/ext/sms/send', payload);
       sendResult = { ok: true, msg: `Sent! ID: ${res.id}` };
       sendTo = ''; sendBody = ''; sendTemplateId = ''; sendVariables = '';
       await loadAll();
@@ -78,7 +78,7 @@
     if (!newTplName.trim() || !newTplBody.trim()) { toast.error(m['sms.error.nameBodyRequired']()); return; }
     savingTpl = true;
     try {
-      const res = await api.post<{ template: any }>('/extensions/sms/templates', { name: newTplName.trim(), body: newTplBody.trim(), provider: newTplProvider });
+      const res = await api.post<{ template: any }>('/ext/sms/templates', { name: newTplName.trim(), body: newTplBody.trim(), provider: newTplProvider });
       templates = [...templates, res.template];
       newTplName = ''; newTplBody = '';
       toast.success(m['ext.created']());
