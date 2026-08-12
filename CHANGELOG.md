@@ -4,6 +4,60 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.60] - 2026-08-12
+
+**The migration gate had never run, and the Helm chart had been empty for four
+releases.** Both looked healthy from the outside, which is the only reason
+either survived this long.
+
+### Fixed
+
+- **No migration in this repository had ever been linted.** The Migration Safety
+  job passed `dir-name: zveltio-engine` to Atlas — a Cloud feature — so the
+  action demanded a login and failed before analysing anything, 31 runs in a
+  row, on every branch. Its own comment claimed Atlas falls back to local
+  linting without a token. It does not. The job now runs squawk, which needs no
+  account and no database, and can be run locally, which the old one never
+  could.
+- **The Helm chart has been zero bytes since the beta.56 cut**, so four releases
+  shipped a chart `helm install` cannot read. The version sync could not tell
+  "already correct" from "nothing to correct": it replaces the `appVersion` line
+  by regex, and on an empty file the regex matched nothing, the result compared
+  equal to the input, and every cut printed "already at <version> — no change".
+  The chart is restored, and a missing `appVersion` line now stops the release
+  instead of being reported as success.
+
+### Added
+
+- **`lock_timeout` on migrations**, set once inside the transaction the runner
+  already opens rather than as a preamble every author has to remember. The
+  failure this prevents is not a slow migration but a stalled instance: an
+  `ALTER` waiting on `ACCESS EXCLUSIVE` parks at the head of the lock queue and
+  every ordinary read behind it waits too. Configurable via
+  `ZVELTIO_MIGRATION_LOCK_TIMEOUT` (default `5s`).
+  `ZVELTIO_MIGRATION_STATEMENT_TIMEOUT` exists too but is off by default, since
+  a legitimate backfill that gets aborted leaves an upgrade that can never
+  finish.
+- **`-- NO TRANSACTION` for migrations**, engine and extension alike. Until now
+  every index this engine created locked its table against writes for the length
+  of the build, because `CREATE INDEX CONCURRENTLY` is illegal inside a
+  transaction and there was no way out of one. That is imperceptible on today's
+  tables and is not on the ones that grow — audit log, time entries, invoices.
+  Extension chains stay atomic by default and are cut only where an author asks;
+  an extension that never uses the marker takes exactly the path it did before.
+  What the marker costs is documented in the developer guide, because every one
+  of those costs follows from the same fact and half the trade is a trap.
+
+### Changed
+
+- The migration linter reads the same `-- NO TRANSACTION` marker the runner
+  does, so linting and execution cannot drift into disagreeing about what a file
+  is. Inside a transaction it stops asking for `CONCURRENTLY`, which is illegal
+  there; outside one it asks for that and for idempotent statements, because
+  partial application is then real. It also lints only migrations that are new
+  against the base branch, and strips the `-- DOWN` section first — that section
+  is made of the statements a migration linter exists to object to.
+
 ## [3.0.0-beta.59] - 2026-08-08
 
 **Every extension owns its own Studio page, and something checks that now.**
