@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'packages/engine/src/db/migrations/sql/**'
-      - 'atlas.hcl'
+      - 'scripts/check-migration-safety.ts'
       - '.github/workflows/migrate-safety.yml'
 
 # Only one run per PR — re-running on every push wastes CI minutes.
@@ -13,40 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  atlas-lint:
-    name: Atlas Lint
+  lint:
+    name: Migration Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # Atlas computes the diff against the base ref. Need full
-          # history for that.
+          # The gate diffs against the PR base to find migrations that are new
+          # in this branch. Needs history for the merge-base.
           fetch-depth: 0
 
-      - name: Setup Atlas
-        uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          # Pin the version so an Atlas release that changes analyzer
-          # behavior doesn't surprise us mid-PR. Bump deliberately.
-          version: v0.30.0
+          bun-version: latest
 
-      - name: Lint migrations against base branch
-        uses: ariga/atlas-action/migrate/lint@bd4788aca759a66eeda1ff9561d2dcb675a7c182 # v1
-        with:
-          dir: 'file://packages/engine/src/db/migrations/sql'
-          # Use the dev database from atlas.hcl so we get the same
-          # severity policy locally + in CI.
-          config: 'file://atlas.hcl'
-          env: engine
-          # Compare against the PR base — Atlas only lints files that
-          # are NEW or CHANGED since the merge-base. Established
-          # migrations don't get re-graded as the policy tightens.
-          dir-name: zveltio-engine
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Replaced Atlas here. The previous job passed `dir-name: zveltio-engine`,
+      # an Atlas Cloud feature, so the action required `atlas login` and failed
+      # before linting anything — 31 runs, 31 failures, on every branch. Its own
+      # comment claimed Atlas "falls back to local linting" without a token; it
+      # does not. Squawk needs no account and no database: it reads the SQL.
+      #
+      # The gate is also runnable locally, which the Atlas one never was:
+      #   bun run scripts/check-migration-safety.ts
+      #   bun run scripts/check-migration-safety.ts path/to/one.sql
+      - name: Lint new migrations
         env:
-          # Atlas Cloud token — optional; without it, Atlas falls back
-          # to local linting. We use local-only here; Cloud features
-          # (versioned schema, drift detection) are a separate decision.
-          ATLAS_TOKEN: ${{ secrets.ATLAS_TOKEN }}
+          BASE_REF: origin/${{ github.base_ref }}
+        run: bun run scripts/check-migration-safety.ts

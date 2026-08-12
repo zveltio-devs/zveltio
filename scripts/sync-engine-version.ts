@@ -67,6 +67,23 @@ console.log(`\n${updated} of ${targets.length} package.json files updated to ${n
 const chartPath = join(root, 'charts/zveltio/Chart.yaml');
 try {
   const chart = readFileSync(chartPath, 'utf-8');
+
+  // "No change" and "there was nothing to change" are different answers, and
+  // this used to give the first for both. Chart.yaml was truncated to zero
+  // bytes during the beta.56 cut and stayed empty through beta.59: the replace
+  // below matched nothing, the file compared equal to itself, and every
+  // subsequent release printed "already at <version>" while shipping a chart
+  // `helm install` cannot read. Four releases of reassurance about a file that
+  // was not there.
+  const current = chart.match(/^appVersion:\s*.*$/m);
+  if (!current) {
+    throw new Error(
+      chart.trim() === ''
+        ? 'the file is empty — restore it before cutting a release'
+        : 'no appVersion line found — the chart is not in the expected shape',
+    );
+  }
+
   const next = chart.replace(/^appVersion:\s*.*$/m, `appVersion: "${newVersion}"`);
   if (next !== chart) {
     writeFileSync(chartPath, next, 'utf-8');
@@ -75,5 +92,10 @@ try {
     console.log(`ℹ️  helm chart: already at ${newVersion} — no change.`);
   }
 } catch (err) {
-  console.warn(`⚠️  helm chart: could not sync appVersion — ${(err as Error).message}`);
+  // Not a warning. A release whose chart points at the wrong image, or has no
+  // chart at all, is a broken release for every Kubernetes operator — and the
+  // whole reason this sync exists is that appVersion had once drifted far
+  // enough to deploy a months-old image by default.
+  console.error(`❌ helm chart: could not sync appVersion — ${(err as Error).message}`);
+  process.exit(1);
 }
