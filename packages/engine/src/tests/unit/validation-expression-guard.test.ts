@@ -59,6 +59,21 @@ describe('evaluateExpressionRule', () => {
     expect(outcome.status).toBe('refused');
   });
 
+  // The check and the evaluation are separate gates, and this is the gap
+  // between them: `value(1)` parses, references only `value`, and so is
+  // storable — expr-eval refuses it only when it tries to call something that
+  // is not a function. Without this the `catch` in evaluateExpressionRule was
+  // never entered, which matters because that branch is what stops a stored
+  // rule from throwing into the caller's write path.
+  test('refuses an expression that only fails once it runs', () => {
+    expect(checkValidationExpression('value(1)').ok).toBe(true);
+    const outcome = evaluateExpressionRule('value(1)', 5);
+    expect(outcome.status).toBe('refused');
+    if (outcome.status === 'refused') {
+      expect(outcome.reason).toMatch(/could not be evaluated/i);
+    }
+  });
+
   test('does not execute what it refuses', () => {
     // If the old `new Function` path were still in place this would end the
     // test run rather than fail an assertion.
