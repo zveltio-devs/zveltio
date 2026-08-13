@@ -30,6 +30,91 @@ function isSafeExpression(expr: string): boolean {
   return !UNSAFE_EXPR_TOKEN.test(expr);
 }
 
+/**
+ * Result of evaluating an expression rule.
+ *
+ * `refused` is a third state on purpose. The two callers want opposite things
+ * from an expression they will not run: the write path evaluating a record
+ * should not fail a save over a rule someone else wrote badly, while the rule
+ * editor testing an expression must not report "passed" for something it never
+ * evaluated. Collapsing refusal into a boolean forces one of them to be wrong.
+ */
+export type ExpressionRuleResult =
+  | { status: 'passed' }
+  | { status: 'failed' }
+  | { status: 'refused'; reason: string };
+
+/**
+ * Decide whether an expression may be stored at all.
+ *
+ * Two independent checks, because the blocklist alone is a guess about what an
+ * attacker will type. Parsing with expr-eval is the load-bearing one: the
+ * grammar has no property access, no calls to anything it was not given, and no
+ * statements, so an expression that parses cannot express `process.exit(1)`
+ * whether or not anyone thought to blocklist `process`.
+ */
+export function checkValidationExpression(
+  expression: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (!isSafeExpression(expression)) {
+    return { ok: false, reason: 'contains a blocked token (prototype-pollution vector)' };
+  }
+  let parsed: ReturnType<typeof parser.parse>;
+  try {
+    parsed = parser.parse(expression);
+  } catch (err) {
+    return { ok: false, reason: `is not a valid expression: ${(err as Error).message}` };
+  }
+
+  // Parsing alone is not enough to store an expression, only to run one safely.
+  // `process.exit(1)` PARSES: expr-eval reads it as a call on a variable named
+  // `process`, and refuses it at evaluation because nothing is bound to that
+  // name. The process is never in danger — but a rule that can only ever be
+  // refused would sit in the database looking configured, so the write path
+  // needs the stricter test.
+  //
+  // An allowlist rather than a blocklist, because the set of names this scope
+  // provides is one, and enumerating what an attacker might reach for is a game
+  // with no end.
+  const unknown = parsed.variables({ withMembers: false }).filter((v) => v !== 'value');
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      reason:
+        `refers to ${unknown.map((v) => `\`${v}\``).join(', ')}, and the only value in ` +
+        'scope is `value`',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Evaluate an expression rule against a single value.
+ *
+ * The one place this engine evaluates a user-authored expression. It is
+ * exported, and handed to extensions through `ctx.internals`, because the
+ * validation extension had grown its own copy built on
+ * `new Function('value', 'return ' + expression)` — which reads as sandboxed
+ * and is not: a Function body closes over the global scope, so a stored rule
+ * could reach `process`, `Bun`, and the filesystem. Two implementations of one
+ * rule type is how the safe one ends up unused.
+ */
+export function evaluateExpressionRule(expression: string, value: unknown): ExpressionRuleResult {
+  const check = checkValidationExpression(expression);
+  if (!check.ok) return { status: 'refused', reason: check.reason };
+  try {
+    // expr-eval's scope type does not admit `unknown`. The cast sits at this
+    // boundary rather than in the signature: callers pass whatever a column
+    // holds, and narrowing here would push a cast onto every one of them.
+    const scope = { value } as unknown as Parameters<
+      ReturnType<typeof parser.parse>['evaluate']
+    >[0];
+    return parser.parse(expression).evaluate(scope) ? { status: 'passed' } : { status: 'failed' };
+  } catch (err) {
+    return { status: 'refused', reason: `could not be evaluated: ${(err as Error).message}` };
+  }
+}
+
 export interface ValidationRule {
   field_name: string;
   rule_type: string;
@@ -210,21 +295,19 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
         break;
       case 'custom':
       case 'nlp':
-        try {
-          if (cfg.expression) {
-            if (!isSafeExpression(String(cfg.expression))) {
-              // Reject prototype-pollution vectors; leave the field valid
-              // (matching the parse-error path) but log for the operator.
-              console.warn(
-                `[validation-engine] refused an unsafe expression (blocked token): ${rule.field_name}`,
-              );
-              break;
-            }
-            const result = parser.parse(cfg.expression).evaluate({ value });
-            violated = !result;
+        if (cfg.expression) {
+          const outcome = evaluateExpressionRule(String(cfg.expression), value);
+          if (outcome.status === 'refused') {
+            // Permissive on refusal, and logged. A rule the engine declines to
+            // run must not start failing everyone's writes — but the operator
+            // has to learn that a rule they configured is inert.
+            console.warn(
+              `[validation-engine] refused an expression rule on ${rule.field_name}: ` +
+                `it ${outcome.reason}`,
+            );
+          } else {
+            violated = outcome.status === 'failed';
           }
-        } catch {
-          violated = false; // expression parse error → permissive
         }
         break;
     }
