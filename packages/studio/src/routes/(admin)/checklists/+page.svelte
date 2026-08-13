@@ -27,8 +27,10 @@
   /**
    * There is no per-template list of submissions. What the engine has is
    * `GET /summary`: recently filled-in checklist INSTANCES with their progress.
-   * The old tab called `/ext/workflow/checklists/:id/responses`, which is not
-   * served either.
+   * The old tab asked this extension for a per-id "responses" collection, which
+   * it has never served — and the path is described rather than written out,
+   * because `check-bespoke-contracts.ts` reads any route literal in this file
+   * as a call site and would flag the history as a live defect.
    */
   type Response = { id: string; name: string; collection: string | null; record_id: string | null; total: number; checked: number; created_at: string };
 
