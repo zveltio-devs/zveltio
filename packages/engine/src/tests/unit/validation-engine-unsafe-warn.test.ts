@@ -20,9 +20,14 @@ describe('validateFieldValue — unsafe expression guard', () => {
     try {
       const errors = await validateFieldValue(5, [rule('value.constructor')]);
       expect(errors).toEqual([]);
-      expect(
-        warn.mock.calls.some((c) => String(c[0]).includes('refused an unsafe expression')),
-      ).toBe(true);
+      // Wording follows `evaluateExpressionRule`, which both this engine and
+      // the validation extension now share. What is asserted is unchanged: a
+      // refused expression fails nobody's write, and the operator is told the
+      // rule is inert rather than left to assume it is enforcing something.
+      expect(warn.mock.calls.some((c) => /refused an expression rule/.test(String(c[0])))).toBe(
+        true,
+      );
+      expect(warn.mock.calls.some((c) => /blocked token/.test(String(c[0])))).toBe(true);
     } finally {
       warn.mockRestore();
     }

@@ -294,6 +294,23 @@ export interface ExtensionInternals<DB = unknown> {
   /** Invalidate the cached validation rules for a collection. */
   invalidateRulesCache: (collection: string) => void;
   /**
+   * Evaluate a user-authored validation expression, safely.
+   *
+   * `refused` is distinct from `failed` on purpose: an expression the engine
+   * declines to run has not passed and has not failed, and a rule editor that
+   * reports either would be lying to whoever is writing the rule.
+   *
+   * Use this instead of `new Function` or `eval`. A Function body closes over
+   * the global scope, so an expression stored by any tenant admin could reach
+   * `process` and `Bun` from inside the engine process.
+   */
+  evaluateExpressionRule: (
+    expression: string,
+    value: unknown,
+  ) => { status: 'passed' } | { status: 'failed' } | { status: 'refused'; reason: string };
+  /** Vet an expression before storing it. */
+  checkValidationExpression: (expression: string) => { ok: true } | { ok: false; reason: string };
+  /**
    * Run a callback inside a tenant transaction, outside any request.
    *
    * `ctx.reqDb(c)` covers request handlers. Background work — scheduled tasks,
