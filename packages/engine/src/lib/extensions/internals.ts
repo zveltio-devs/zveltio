@@ -30,7 +30,11 @@ import {
 } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
-import { invalidateRulesCache } from '../validation-engine.js';
+import {
+  checkValidationExpression,
+  evaluateExpressionRule,
+  invalidateRulesCache,
+} from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
 import { withTenantIsolation } from '../tenancy/index.js';
 import { extensionRegistry } from './extension-registry.js';
@@ -139,6 +143,18 @@ export interface ExtensionInternals {
   introspectSchema: typeof introspectSchema;
   runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
+  /**
+   * Evaluate and vet user-authored validation expressions.
+   *
+   * Handed to extensions because the validation extension had grown its own
+   * evaluator built on `new Function('value', 'return ' + expression)`. That
+   * reads as sandboxed and is not — a Function body closes over the global
+   * scope, so a stored rule could reach `process` and `Bun`. The engine has
+   * had a safe evaluator for the same rule type the whole time; what was
+   * missing was a way for an extension to reach it.
+   */
+  evaluateExpressionRule: typeof evaluateExpressionRule;
+  checkValidationExpression: typeof checkValidationExpression;
   /**
    * Run a callback inside a tenant transaction, outside any request.
    *
@@ -286,6 +302,8 @@ export function buildExtensionInternals(): ExtensionInternals {
     introspectSchema,
     runQualityScan,
     invalidateRulesCache,
+    evaluateExpressionRule,
+    checkValidationExpression,
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
