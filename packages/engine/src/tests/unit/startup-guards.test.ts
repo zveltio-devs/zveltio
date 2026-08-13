@@ -51,6 +51,16 @@ describe('productionGuardViolations', () => {
   it('passes a clean production environment', () => {
     expect(productionGuardViolations({ NODE_ENV: 'production' })).toEqual([]);
   });
+
+  it('reports every violation at once', () => {
+    const v = productionGuardViolations({
+      NODE_ENV: 'production',
+      ZVELTIO_EXT_AUTH_GATE: '0',
+      CORS_ORIGINS: '*',
+    });
+    expect(v).toHaveLength(2);
+    expect(v.map((x) => x.variable).sort()).toEqual(['CORS_ORIGINS', 'ZVELTIO_EXT_AUTH_GATE']);
+  });
 });
 
 describe('assertProductionConfig', () => {
