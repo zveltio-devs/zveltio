@@ -247,25 +247,81 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
   return applied;
 }
 
+export type RlsMode = 'enforced' | 'native' | 'unavailable';
+
 /**
- * Warn loudly if the engine's DB role can bypass RLS (SUPERUSER or BYPASSRLS).
- * FORCE RLS does NOT bind such roles, so tenant isolation would be silently
- * ineffective. Called once at boot.
+ * Decide whether an RLS mode is fatal at boot. Pure on purpose.
+ *
+ * The decision used to live inline in `bootstrap()`, where nothing could reach
+ * it: the only way to exercise "does production refuse to start without tenant
+ * isolation" was to start a production engine against a broken database. That
+ * is the shape every regression in this area has had — a documented mechanism
+ * with nothing asserting it — so the rule is a function and the caller only
+ * obeys it.
+ *
+ * Returns the reason to refuse, or null to proceed.
  */
-export async function warnIfDbRoleBypassesRls(db: Database): Promise<void> {
+export function rlsBootFailure(opts: {
+  mode: RlsMode;
+  nodeEnv: string | undefined;
+  override: boolean;
+}): string | null {
+  if (opts.mode !== 'unavailable') return null;
+  if (opts.nodeEnv !== 'production') return null;
+  if (opts.override) return null;
+  return (
+    'Tenant isolation cannot be enforced: the zveltio_rls role is unavailable and this ' +
+    'connection bypasses row-level security.'
+  );
+}
+
+/**
+ * Warn if the engine's DB role can bypass RLS (SUPERUSER or BYPASSRLS).
+ * FORCE RLS does NOT bind such roles. Called once at boot.
+ *
+ * Takes the mode from `initRlsEnforcementRole` because the same fact means two
+ * different things depending on it, and the message used to state only the
+ * worse one. Under `enforced`, `withTenantIsolation` drops to `zveltio_rls`
+ * before it touches a tenant row, so isolation IS applied on that path and the
+ * residual exposure is queries that never enter it — the raw pool, background
+ * jobs, migrations. Under `unavailable` there is nothing to drop to and the
+ * exposure is total; `index.ts` refuses to boot on that in production.
+ *
+ * Saying "tenant isolation is NOT enforced" in both cases printed a direct
+ * contradiction of the line above it whenever the role mechanism was working,
+ * and a contradiction at boot is read as noise by the operator it was meant to
+ * alert.
+ */
+export async function warnIfDbRoleBypassesRls(
+  db: Database,
+  mode: 'enforced' | 'native' | 'unavailable' = 'unavailable',
+): Promise<void> {
+  // `native` means the role is already plain, so there is nothing to report
+  // even if this somehow gets called with it.
+  if (mode === 'native') return;
   try {
     const r = await sql<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean }>`
       SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
     `.execute(db);
     const row = r.rows[0];
-    if (row?.rolsuper || row?.rolbypassrls) {
+    if (!row?.rolsuper && !row?.rolbypassrls) return;
+
+    const trait = row.rolsuper ? 'a SUPERUSER' : 'BYPASSRLS';
+    if (mode === 'enforced') {
       console.warn(
-        `⚠️  [tenant-rls] The engine DB role "${row.rolname}" is ${
-          row.rolsuper ? 'a SUPERUSER' : 'BYPASSRLS'
-        } — Postgres row-level security is BYPASSED, so tenant isolation is NOT enforced. ` +
-          `Run the engine as a plain (NOSUPERUSER, no BYPASSRLS) role for multi-tenant deployments.`,
+        `⚠️  [tenant-rls] The engine DB role "${row.rolname}" is ${trait}, so it is not bound by ` +
+          'row-level security on its own. Tenant requests are still isolated — they run as ' +
+          'zveltio_rls — but any query outside withTenantIsolation() (raw pool, background jobs, ' +
+          'migrations) sees every tenant. Run the engine as a plain (NOSUPERUSER, no BYPASSRLS) ' +
+          'role to close that gap.',
       );
+      return;
     }
+    console.warn(
+      `⚠️  [tenant-rls] The engine DB role "${row.rolname}" is ${trait} — Postgres row-level ` +
+        'security is BYPASSED, so tenant isolation is NOT enforced. Run the engine as a plain ' +
+        '(NOSUPERUSER, no BYPASSRLS) role for multi-tenant deployments.',
+    );
   } catch {
     /* non-fatal */
   }
@@ -697,15 +753,71 @@ let _rlsRoleAvailable = false;
  * into no restore at all.
  */
 async function ensureRlsEnforcementRole(db: Database): Promise<void> {
+  // Three steps, three statements, three independent failures — deliberately.
+  //
+  // This was one DO block, and Postgres aborts a DO block at the first error.
+  // On a non-superuser install the second step (granting membership) fails,
+  // which meant the third step never ran: `zveltio_rls` ended up with USAGE on
+  // nothing and SELECT on 11 of 378 tables. The engine then reported "Tenant
+  // RLS enforced", switched into the role for every tenant request, and every
+  // one of those requests failed with `relation "zvd_users" does not exist`.
+  //
+  // So the failure landed precisely on the configuration this mechanism exists
+  // to make possible, and reported success while doing it. Splitting the steps
+  // means a role that cannot grant membership still gets its table grants, and
+  // the log names the step that actually failed.
+
+  // 1. The role itself. Needs CREATEROLE, which a plain engine role should not
+  //    have — scripts/bootstrap-db-role.sh pre-creates it for that case.
   try {
     await sql`
-      DO $ensure_rls$
-      DECLARE t record; s record;
+      DO $ensure_rls_role$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_rls') THEN
           CREATE ROLE zveltio_rls NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
         END IF;
-        EXECUTE format('GRANT zveltio_rls TO %I', current_user);
+      END
+      $ensure_rls_role$;
+    `.execute(db);
+  } catch (err) {
+    console.warn(
+      '[tenant-rls] could not create the zveltio_rls role (continuing):',
+      (err as Error).message,
+    );
+    return; // Nothing below can succeed without it.
+  }
+
+  // 2. Membership, so `SET LOCAL ROLE zveltio_rls` is permitted. Guarded by the
+  //    membership test rather than attempted blindly: a correctly configured
+  //    plain role is already a member and cannot re-grant, and printing
+  //    "permission denied" on every boot of a correct install is how operators
+  //    learn to skim past [tenant-rls] lines.
+  try {
+    await sql`
+      DO $ensure_rls_member$
+      BEGIN
+        IF NOT pg_has_role(current_user, 'zveltio_rls', 'MEMBER') THEN
+          EXECUTE format('GRANT zveltio_rls TO %I', current_user);
+        END IF;
+      END
+      $ensure_rls_member$;
+    `.execute(db);
+  } catch (err) {
+    console.warn(
+      '[tenant-rls] could not grant zveltio_rls membership (continuing):',
+      (err as Error).message,
+    );
+  }
+
+  // 3. The privileges the role needs to be useful. The database owner can do
+  //    all of this on its own objects, so it works under a plain role — and it
+  //    has to re-run at every boot because extensions create tables after this
+  //    ran last time.
+  try {
+    await sql`
+      DO $ensure_rls_grants$
+      DECLARE t record; s record;
+      BEGIN
         GRANT USAGE ON SCHEMA public TO zveltio_rls;
         FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
           EXECUTE format(
@@ -715,13 +827,13 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
           EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_rls', s.sequencename);
         END LOOP;
       END
-      $ensure_rls$;
+      $ensure_rls_grants$;
     `.execute(db);
   } catch (err) {
     // Not fatal, and not silent either: the caller logs the resulting mode, and
     // `warnIfDbRoleBypassesRls` says plainly what it costs.
     console.warn(
-      '[tenant-rls] could not provision the zveltio_rls role (continuing):',
+      '[tenant-rls] could not grant privileges to zveltio_rls (continuing):',
       (err as Error).message,
     );
   }

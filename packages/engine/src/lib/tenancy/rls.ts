@@ -135,7 +135,11 @@ export async function getRlsFilters(
   // is the synthetic `apikey:<uuid>` — enforcing an identity policy against a
   // key returns zero rows, silently, which is a worse failure than a broad one.
   if (authType === 'api_key') {
-    if (user.rlsBypass !== false) return [];
+    // `=== true` for the reason spelled out in lib/data/auth.ts: this is the
+    // second reader of the same flag, and the two must not disagree about what
+    // an absent value means. `rlsBypass` is optional on the type, so `!== false`
+    // handed a full bypass to any caller that simply never set it.
+    if (user.rlsBypass === true) return [];
   } else if (await checkPermission(user.id, 'data', 'view_all').catch(() => false)) {
     return [];
   }

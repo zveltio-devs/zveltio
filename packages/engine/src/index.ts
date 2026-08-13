@@ -42,6 +42,7 @@ import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
 import {
   initRlsEnforcementRole,
+  rlsBootFailure,
   initTenantManager,
   reconcileTenantRLS,
   reconcileExtensionTenantRLS,
@@ -935,6 +936,11 @@ async function bootstrap() {
 
   console.log('🚀 Zveltio starting...');
 
+  // 0. Configuration that must not reach production. Before the database, so a
+  //    misconfigured deploy fails in a second instead of after migrations.
+  const { assertProductionConfig } = await import('./lib/startup-guards.js');
+  assertProductionConfig();
+
   // 1. Database
   const db = await initDatabase();
   console.log('✅ Database connected');
@@ -968,6 +974,12 @@ async function bootstrap() {
   // notices that sensitive columns are landing on disk in plaintext.
   const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
+
+  // 3b. Webhooks created before alpha.32 carry no signing secret and have been
+  // delivering unsigned payloads ever since. Repaired here rather than in a
+  // migration because the column is encrypted by application code.
+  const { repairUnsignedWebhooksAtBoot } = await import('./lib/webhooks.js');
+  await repairUnsignedWebhooksAtBoot(db);
 
   // Layer admin-saved storage config (zv_settings) over env, so a driver/S3
   // endpoint set from the Studio takes effect at boot.
@@ -1071,14 +1083,56 @@ async function bootstrap() {
   const rlsMode = await initRlsEnforcementRole(db);
   if (rlsMode === 'enforced') {
     console.log('🔒 Tenant RLS enforced via the zveltio_rls role');
+  } else if (rlsMode === 'native') {
+    // Printed rather than left silent: the safe state and a check that never
+    // ran look identical in a log that says nothing, and an operator who has
+    // just been told to move off the superuser needs to see that it took.
+    console.log('🔒 Tenant RLS enforced natively — the engine role is bound by RLS');
   } else if (rlsMode === 'unavailable') {
-    console.warn(
-      '⚠️  [tenant-rls] The zveltio_rls role is unavailable AND this connection can bypass RLS. ' +
-        'Tenant isolation is NOT enforced by the database. Either let migration 030 create the ' +
-        'role, or run the engine as a plain (NOSUPERUSER, no BYPASSRLS) role.',
-    );
+    const message =
+      '[tenant-rls] The zveltio_rls role is unavailable AND this connection can bypass RLS. ' +
+      'Tenant isolation is NOT enforced by the database: FORCE ROW LEVEL SECURITY does not bind ' +
+      'a SUPERUSER or BYPASSRLS role, and there is no plain role to drop to. Every tenant can ' +
+      'read every other tenant. Either let migration 030 create the role, or run the engine as a ' +
+      'plain (NOSUPERUSER, no BYPASSRLS) role.';
+
+    // Fatal in production. This was a warning, and a warning is the wrong
+    // instrument: it scrolls past during a deploy, it does not fail a readiness
+    // probe, and the thing it is warning about is that every tenant can read
+    // every other tenant's data. An install that cannot enforce isolation must
+    // not accept traffic that assumes it.
+    //
+    // Left as a warning outside production, because a single-tenant development
+    // box on the stock postgres superuser is a normal thing to run and blocking
+    // it would only teach people to set the escape hatch permanently.
+    const overridden = process.env.ZVELTIO_ALLOW_UNENFORCED_RLS === '1';
+    if (
+      rlsBootFailure({
+        mode: rlsMode,
+        nodeEnv: process.env.NODE_ENV,
+        override: overridden,
+      })
+    ) {
+      console.error(`❌ ${message}`);
+      throw new Error(
+        `${message} Refusing to start in production. Set ZVELTIO_ALLOW_UNENFORCED_RLS=1 to ` +
+          'override, which is appropriate only for a single-tenant install you accept the risk on.',
+      );
+    }
+    console.warn(`⚠️  ${message}`);
+    if (overridden) {
+      console.warn(
+        '⚠️  [tenant-rls] ZVELTIO_ALLOW_UNENFORCED_RLS=1 is set — starting anyway. ' +
+          'This is only defensible on a single-tenant install.',
+      );
+    }
   }
-  await warnIfDbRoleBypassesRls(db);
+  // Mode-aware on purpose. This used to print "row-level security is BYPASSED,
+  // so tenant isolation is NOT enforced" on every superuser connection —
+  // including one where the line directly above had just reported isolation
+  // ENFORCED through the zveltio_rls role. Two contradictory sentences at boot
+  // do not make an operator careful; they make both easy to ignore.
+  await warnIfDbRoleBypassesRls(db, rlsMode);
   try {
     const n = await reconcileTenantRLS(db);
     console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);
