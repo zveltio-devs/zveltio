@@ -47,7 +47,7 @@ import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { encryptField, maybeEncrypt } from '../data/index.js';
+import { encryptField, maybeDecrypt, maybeEncrypt } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
@@ -205,6 +205,15 @@ export interface ExtensionInternals {
    * that would drift from it.
    */
   maybeEncrypt: typeof maybeEncrypt;
+  /**
+   * The other half of `maybeEncrypt`, without which an extension can write a
+   * secret it cannot read back — so it stores plaintext instead.
+   *
+   * Passes through anything not carrying the `enc:v1:` prefix, which is what
+   * makes adopting encryption on an existing column safe: rows written before
+   * still verify, and rows written after are encrypted at rest.
+   */
+  maybeDecrypt: typeof maybeDecrypt;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },
@@ -329,6 +338,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     checkQueryDepth,
     checkQueryWidth,
     maybeEncrypt,
+    maybeDecrypt,
     // Adapted rather than passed straight through, so the bag matches the SDK
     // declaration exactly. The casts are between two spellings of the same
     // shape — `RlsFilter` mirrors the engine's `FilterCondition` — and exist so

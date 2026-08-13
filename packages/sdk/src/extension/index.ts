@@ -369,6 +369,16 @@ export interface ExtensionInternals<DB = unknown> {
    * sensitive is not silently downgraded.
    */
   maybeEncrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
+  /**
+   * The other half. Without it an extension can write a secret it cannot read
+   * back, so it stores plaintext instead — which is how a signing secret ends
+   * up readable by anyone with database access.
+   *
+   * Passes through values that do not carry the `enc:v1:` prefix, so adopting
+   * encryption on an existing column is safe: rows written before keep working,
+   * rows written after are encrypted at rest.
+   */
+  maybeDecrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },
