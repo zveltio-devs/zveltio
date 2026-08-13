@@ -23,6 +23,10 @@ export type AuditEventType =
   /** An administrator granted an extension the capabilities its manifest
    * declares. The one place a privilege widening is a deliberate act. */
   | 'extension.capabilities.approved'
+  // An anonymous execution of a public edge function. Its own type because the
+  // authenticated invocations are attributable by their user and these are not
+  // attributable by anything but time and address.
+  | 'edge_function.invoked_anonymously'
   | 'sql.executed'
   // Its own event, not a field on `sql.executed`. Someone asking who changed
   // the data should be able to filter for it, rather than read every ad-hoc
