@@ -83,6 +83,15 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, // 172.16.0.0/12
   /^192\.168\.\d+\.\d+$/, // 192.168.0.0/16
   /^169\.254\.\d+\.\d+$/, // 169.254.0.0/16 (link-local / cloud metadata)
+  // 100.64.0.0/10 — RFC 6598 shared address space. Not RFC 1918, which is why
+  // it was missing: it is "carrier-grade NAT" space, and reads like someone
+  // else's problem. It is not. Several managed Kubernetes offerings put pod and
+  // service networks in it, Tailscale hands out 100.64/10 addresses, and a
+  // number of hosts run their internal fabric there — so on a good many
+  // installs this is the range the interesting internal services actually sit
+  // in. Written as two alternatives because /10 stops at 100.127, and 100.128+
+  // is ordinary public space that must keep working.
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/, // 100.64.0.0/10
   /^::1$/, // IPv6 loopback
   /^::$/, // IPv6 unspecified (equivalent to 0.0.0.0)
   /^fe[89ab][0-9a-f]:/, // IPv6 link-local fe80::/10

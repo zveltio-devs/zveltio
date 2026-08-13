@@ -24,6 +24,10 @@ export type AuditEventType =
    * declares. The one place a privilege widening is a deliberate act. */
   | 'extension.capabilities.approved'
   | 'sql.executed'
+  // Its own event, not a field on `sql.executed`. Someone asking who changed
+  // the data should be able to filter for it, rather than read every ad-hoc
+  // SELECT anyone has ever run looking for the one that wrote.
+  | 'sql.write.executed'
   | 'sql.failed'
   | 'backup.created'
   | 'backup.deleted'
