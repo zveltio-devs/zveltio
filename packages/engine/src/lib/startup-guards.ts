@@ -49,6 +49,30 @@ export function productionGuardViolations(
     });
   }
 
+  // CORS_ORIGINS=* is not a loose setting, it is the absence of one. The
+  // WebSocket origin check honours `*` explicitly (lib/security/ws-origin.ts),
+  // and Better Auth's trustedOrigins is built from the same list — so a single
+  // asterisk turns off both the CSRF origin check on every auth endpoint and
+  // the origin check on the realtime socket, for every site on the internet.
+  //
+  // Unset is deliberately NOT a violation. CORS then denies by default and only
+  // trustedOrigins falls back to auto-detected local origins, which is the
+  // normal shape of a self-hosted intranet install; auth.ts already warns. `*`
+  // is different because there is no configuration under which it is what
+  // someone meant.
+  const corsOrigins = (env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (corsOrigins.includes('*')) {
+    violations.push({
+      variable: 'CORS_ORIGINS',
+      message:
+        'set to `*`, which disables the cross-origin checks on every auth endpoint and on the ' +
+        'realtime socket. List the origins that may reach this instance instead.',
+    });
+  }
+
   return violations;
 }
 
