@@ -5,8 +5,8 @@
  * and the edge-function runner before any outbound request.
  */
 
-import { describe, it, expect } from 'bun:test';
-import { validatePublicUrl } from '../../lib/security/url-validator.js';
+import { describe, it, expect, test } from 'bun:test';
+import { isBlockedHost, validatePublicUrl } from '../../lib/security/url-validator.js';
 
 describe('validatePublicUrl — allows public http(s)', () => {
   it('accepts ordinary public URLs', () => {
@@ -48,4 +48,29 @@ describe('validatePublicUrl — blocks internal/private targets (SSRF)', () => {
       expect(() => validatePublicUrl(url)).toThrow(/internal\/private address blocked/);
     });
   }
+});
+
+describe('RFC 6598 shared address space', () => {
+  // 100.64.0.0/10 was missing because it is not RFC 1918 — it is "carrier-grade
+  // NAT" space, which reads like someone else's network. On a managed
+  // Kubernetes cluster, a Tailscale network, or several hosting providers, it
+  // is where the internal services actually live, so an SSRF that reaches it
+  // reaches them.
+  test.each(['100.64.0.1', '100.64.255.255', '100.100.50.1', '100.127.255.255'])(
+    'blocks %s',
+    (host) => {
+      expect(isBlockedHost(host)).toBe(true);
+    },
+  );
+
+  // The boundaries matter more than the middle: /10 ends at 100.127, and
+  // 100.128.0.0 onwards is ordinary public space that has to keep working. A
+  // regex written as `100\.(6[4-9]|...)` is easy to get wrong by one octet in
+  // either direction, and both mistakes are silent.
+  test.each(['100.63.255.255', '100.128.0.1', '100.200.10.5', '1.100.64.1'])(
+    'leaves %s reachable',
+    (host) => {
+      expect(isBlockedHost(host)).toBe(false);
+    },
+  );
 });

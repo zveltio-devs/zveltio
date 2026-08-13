@@ -63,7 +63,9 @@ export function checkValidationExpression(
   try {
     parsed = parser.parse(expression);
   } catch (err) {
-    return { ok: false, reason: `is not a valid expression: ${(err as Error).message}` };
+    // Phrased to read after "The expression ..." in the extension's 400, which
+    // is where a rule author sees it.
+    return { ok: false, reason: `could not be parsed: ${(err as Error).message}` };
   }
 
   // Parsing alone is not enough to store an expression, only to run one safely.
