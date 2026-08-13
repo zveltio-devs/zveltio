@@ -392,7 +392,18 @@ export function rateLimit(config: RateLimitConfig) {
       // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const session = (c as any).get?.('user');
-      const identifier = session?.id ?? 'unknown';
+      // `?? listedIp`, matching the no-cache branch above and for the same
+      // reason. `'unknown'` gave every anonymous caller ONE bucket per prefix —
+      // a single counter for the whole internet — which on the pre-auth
+      // surfaces this protects is not a weaker limit but an inverted one: they
+      // are anonymous by definition, so `session?.id` is always undefined, and
+      // twenty submissions from one visitor locked out everyone else.
+      //
+      // This is the more dangerous of the two branches. It runs when Valkey
+      // FAILS, so an install that has a cache and believes itself covered
+      // degrades into the broken behaviour during an outage — while it is
+      // already busy with something else.
+      const identifier = session?.id ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
       if (!allowed) {
