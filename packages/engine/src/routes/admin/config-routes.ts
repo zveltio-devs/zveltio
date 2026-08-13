@@ -198,21 +198,21 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     return c.json({ success: true });
   });
 
-    // The SQL editor used to have a second implementation here, and this one
-    // won: mounted at `/api/admin` on line 375 of routes/index.ts, it matched
-    // POST /api/admin/sql before the dedicated mount on line 447 ever saw the
-    // request. So routes/sql-editor.ts — the version with the stronger gate —
-    // was unreachable, and the reachable one sat behind `requireAdmin`, which
-    // `checkPermission(uid, "admin", "*")` grants to a delegated tenant owner
-    // inside their own domain. That is precisely the escalation
-    // `requireInstanceAdmin` was written to close; the fix had landed in the
-    // file nobody called.
-    //
-    // Its safety was a blocklist over the query text — DROP DATABASE, DROP
-    // SCHEMA, ALTER SYSTEM, COPY — which a comment, a lowercase keyword, or a
-    // CTE walks straight through. See routes/sql-editor.ts for the one that
-    // serves now: instance-admin only, READ ONLY unless the caller asks for
-    // write, and Postgres enforcing the refusal rather than a regex.
+  // The SQL editor used to have a second implementation here, and this one
+  // won: mounted at `/api/admin` on line 375 of routes/index.ts, it matched
+  // POST /api/admin/sql before the dedicated mount on line 447 ever saw the
+  // request. So routes/sql-editor.ts — the version with the stronger gate —
+  // was unreachable, and the reachable one sat behind `requireAdmin`, which
+  // `checkPermission(uid, "admin", "*")` grants to a delegated tenant owner
+  // inside their own domain. That is precisely the escalation
+  // `requireInstanceAdmin` was written to close; the fix had landed in the
+  // file nobody called.
+  //
+  // Its safety was a blocklist over the query text — DROP DATABASE, DROP
+  // SCHEMA, ALTER SYSTEM, COPY — which a comment, a lowercase keyword, or a
+  // CTE walks straight through. See routes/sql-editor.ts for the one that
+  // serves now: instance-admin only, READ ONLY unless the caller asks for
+  // write, and Postgres enforcing the refusal rather than a regex.
 
   // GET /extensions/health — per-extension runtime status.
   //
