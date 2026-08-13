@@ -444,6 +444,16 @@ export interface ExtensionInternals<DB = unknown> {
    */
   assertPublicUrl: (url: string) => Promise<void>;
   /**
+   * `fetch` with the SSRF guard applied where it has to be.
+   *
+   * Validating a URL before calling `fetch` is not enough on its own: fetch
+   * follows redirects, so a public host answering 302 to 169.254.169.254
+   * walks past a check performed on the original URL. This re-validates
+   * every redirect target, under a hop limit. Prefer it over `fetch` for
+   * any URL a user or a stored record can influence.
+   */
+  safeFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  /**
    * SSRF guard for an admin-configured endpoint that is ALLOWED to be
    * self-hosted (local Ollama on `http://localhost:11434`, an internal
    * Meilisearch, on-prem object storage). Permits private ranges but rejects
