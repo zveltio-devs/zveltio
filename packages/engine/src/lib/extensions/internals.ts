@@ -44,7 +44,7 @@ import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { checkQueryDepth, checkQueryWidth, DataLoaderRegistry } from '../graphql-dataloader.js';
 import { enqueueDDLJob } from '../data/index.js';
-import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
+import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
 import { encryptField, maybeEncrypt } from '../data/index.js';
@@ -247,6 +247,20 @@ export interface ExtensionInternals {
    */
   assertPublicUrl: (url: string) => Promise<void>;
   /**
+   * `fetch`, with the SSRF guard applied where it actually has to be.
+   *
+   * Validating a URL before calling `fetch` is not enough on its own: fetch
+   * follows redirects, so a public host answering 302 to 169.254.169.254 walks
+   * straight past a check performed on the original URL. This intercepts each
+   * redirect and re-validates the target, under a hop limit.
+   *
+   * Exposed because api-connector had grown its own `safeFetch` around a
+   * literal-hostname blocklist — the same guard this engine had already
+   * replaced with a DNS-aware one. An extension that cannot reach the good
+   * implementation writes the bad one.
+   */
+  safeFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  /**
    * SSRF guard for an admin-configured endpoint that is ALLOWED to be
    * self-hosted (local Ollama, internal Meilisearch, on-prem object storage).
    * Permits private ranges but rejects cloud-metadata hosts. Use this — NOT
@@ -335,6 +349,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,
+    safeFetch,
     assertNonMetadataUrl,
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
