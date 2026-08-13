@@ -1,8 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
-import {
-  assertProductionConfig,
-  productionGuardViolations,
-} from '../../lib/startup-guards.js';
+import { assertProductionConfig, productionGuardViolations } from '../../lib/startup-guards.js';
 
 describe('productionGuardViolations', () => {
   it('refuses production with the extension auth gate disabled', () => {
@@ -27,6 +24,28 @@ describe('productionGuardViolations', () => {
     expect(
       productionGuardViolations({ NODE_ENV: 'production', ZVELTIO_EXT_AUTH_GATE: value }),
     ).toEqual([]);
+  });
+
+  it('refuses production with a wildcard CORS allowlist', () => {
+    const v = productionGuardViolations({ NODE_ENV: 'production', CORS_ORIGINS: '*' });
+    expect(v).toHaveLength(1);
+    expect(v[0]!.variable).toBe('CORS_ORIGINS');
+  });
+
+  // `*` buried in a list is the same `*`. The WS check tests for membership,
+  // not for the list being exactly one entry.
+  it('finds the wildcard among real origins', () => {
+    const v = productionGuardViolations({
+      NODE_ENV: 'production',
+      CORS_ORIGINS: 'https://app.example.com, *, https://admin.example.com',
+    });
+    expect(v).toHaveLength(1);
+  });
+
+  // Unset is the normal self-hosted shape: CORS denies by default and only
+  // trustedOrigins falls back. Failing it would block ordinary installs.
+  it.each([undefined, '', 'https://app.example.com'])('accepts CORS_ORIGINS=%p', (CORS_ORIGINS) => {
+    expect(productionGuardViolations({ NODE_ENV: 'production', CORS_ORIGINS })).toEqual([]);
   });
 
   it('passes a clean production environment', () => {
