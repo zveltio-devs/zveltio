@@ -48,10 +48,17 @@ export async function authenticate(
           role: 'api_key',
           // Pass scopes through so checkAccess() can enforce them per collection/action.
           scopes: apiKey.scopes,
-          // Per-key RLS exemption (migration 026). Defaults true, so this is
-          // today's behaviour — but it is now a property of THIS key rather
-          // than of every key.
-          rlsBypass: (apiKey as { rls_bypass?: boolean }).rls_bypass !== false,
+          // Per-key RLS exemption (migration 026, default flipped in 032,
+          // existing keys backfilled in 040).
+          //
+          // `=== true`, not `!== false`. The column is NOT NULL today, so the
+          // two agree — but they disagree about every state that is neither: a
+          // NULL introduced by a later migration, a row assembled by a code path
+          // that omits the field, a cache entry deserialised without it. Under
+          // `!== false` each of those grants the key instance-wide reads.
+          // Exempting a key from tenant isolation should require the database to
+          // say so, not merely to fail to deny it.
+          rlsBypass: (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
         },
         authType: 'api_key',
       };
