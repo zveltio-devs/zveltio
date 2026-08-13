@@ -8,9 +8,16 @@
  *  - Audited via auditLog so we have a paper trail of who ran what.
  *  - Statement-level timeout (default 30s, max 5min) enforced via
  *    `SET LOCAL statement_timeout` so a runaway admin query can't
- *    pin a pool connection indefinitely. Multi-statement scripts
- *    (CREATE + INSERT + …) are still allowed inside the transaction —
- *    READ ONLY is intentionally NOT set here so DDL/DML works.
+ *    pin a pool connection indefinitely.
+ *  - READ ONLY by default. `mode: 'write'` opts into DDL/DML, is recorded as a
+ *    distinct audit event, and has to be asked for.
+ *
+ * The read-only default is enforced by Postgres (`SET TRANSACTION READ ONLY`),
+ * not by inspecting the SQL. Any check that reads the query text loses: casing,
+ * comments, and `WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x` all
+ * defeat a keyword blocklist, and the statement that gets past it runs with
+ * full instance-admin rights. Postgres refusing the write is the only version
+ * of this that cannot be phrased around.
  */
 
 import { Hono } from 'hono';
@@ -26,6 +33,13 @@ const SqlSchema = z.object({
   // 100ms minimum to allow CI smoke tests; 5min ceiling to stop a
   // forgotten CREATE INDEX from squatting the connection forever.
   timeout_ms: z.number().int().min(100).max(300_000).optional(),
+  /**
+   * Default 'read'. An admin who means to change data says so, and the audit
+   * trail then distinguishes the two — which matters when the question months
+   * later is "who dropped that table", and the answer used to be a list of
+   * every query anyone had ever run from this screen.
+   */
+  mode: z.enum(['read', 'write']).default('read'),
 });
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -43,7 +57,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
   });
 
   router.post('/', zValidator('json', SqlSchema), async (c) => {
-    const { query, timeout_ms = 30_000 } = c.req.valid('json');
+    const { query, timeout_ms = 30_000, mode } = c.req.valid('json');
     const user = c.get('user') as { id: string };
     const start = Date.now();
     try {
@@ -51,12 +65,15 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
       // timeout binds to the same connection as the user query. Without
       // this wrap, `.execute(db)` on the pool can hand SET LOCAL and the
       // query to different connections and the cap becomes a no-op.
-      // We intentionally do NOT set TRANSACTION READ ONLY here — this
-      // route is the admin power tool for DDL/DML.
       const seconds = Math.max(1, Math.ceil(timeout_ms / 1000));
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await (db as any).transaction().execute(async (trx: any) => {
         await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
+        // Before the query, and inside the same transaction, so it binds to the
+        // statement that is about to run.
+        if (mode === 'read') {
+          await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
+        }
         return sql.raw(query).execute(trx);
       });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -64,11 +81,12 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
 
       // Audit every successful execution — content stored, but truncated.
       auditLog(db, {
-        type: 'sql.executed',
+        type: mode === 'write' ? 'sql.write.executed' : 'sql.executed',
         userId: user.id,
         resourceType: 'sql',
         metadata: {
           query: query.slice(0, 2000),
+          mode,
           row_count: rows.length,
           ms: Date.now() - start,
         },
@@ -83,7 +101,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
         type: 'sql.failed',
         userId: user.id,
         resourceType: 'sql',
-        metadata: { query: query.slice(0, 2000), error: message },
+        metadata: { query: query.slice(0, 2000), mode, error: message },
       }).catch((auditErr: Error) => {
         console.warn('[sql-editor] failure audit write failed:', auditErr.message);
       });
