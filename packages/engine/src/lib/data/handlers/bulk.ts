@@ -85,7 +85,11 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
       try {
         const hooked = await engineEvents.runBefore('record.beforeInsert', {
           collection,
-          data: { ...writable, created_by: user.id, updated_by: user.id },
+          // Same as the single-record path: authorship is engine-supplied and
+          // goes in as `system` below, not through a payload a hook can
+          // rewrite. Merged here before and stripped by RESERVED, so
+          // bulk-created rows landed with NULL authorship too.
+          data: { ...writable },
           userId: user.id,
         });
         finalInsert = hooked.data;
@@ -97,7 +101,10 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         throw err;
       }
 
-      const record = await dynamicInsert(trx, tableName, finalInsert);
+      const record = await dynamicInsert(trx, tableName, finalInsert, {
+        created_by: user.id,
+        updated_by: user.id,
+      });
       created.push(record as DynamicRecord);
     }
   });
