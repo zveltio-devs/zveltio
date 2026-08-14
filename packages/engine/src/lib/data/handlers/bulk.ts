@@ -220,7 +220,9 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         throw err;
       }
 
-      const record = await dynamicUpdate(trx, tableName, id, finalPatch);
+      const record = await dynamicUpdate(trx, tableName, id, finalPatch, {
+        updated_by: user.id,
+      });
       if (record) updated.push(record as DynamicRecord);
       else errors.push({ index: i, id, errors: ['Record not found'] });
     }
