@@ -50,6 +50,7 @@ import m038 from './sql/040_api_key_rls_bypass_backfill.sql' with { type: 'text'
 import m039 from './sql/041_audit_metadata_object.sql' with { type: 'text' };
 import m040 from './sql/042_flow_step_types_match_executor.sql' with { type: 'text' };
 import m041 from './sql/043_worker_sql_role.sql' with { type: 'text' };
+import m042 from './sql/044_auth_tables_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -95,4 +96,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '041_audit_metadata_object.sql': m039,
   '042_flow_step_types_match_executor.sql': m040,
   '043_worker_sql_role.sql': m041,
+  '044_auth_tables_rls.sql': m042,
 };

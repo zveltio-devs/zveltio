@@ -819,7 +819,24 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
       DECLARE t record; s record;
       BEGIN
         GRANT USAGE ON SCHEMA public TO zveltio_rls;
-        FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+        -- Every table EXCEPT the ones Better-Auth owns. This loop granting full
+        -- DML on all of public is what made C-14 and C-10 reach live session
+        -- tokens: the string guards had no rule for unprefixed tables, and the
+        -- role underneath them could read and write every one.
+        --
+        -- Excluded here rather than revoked afterwards, because a revoke in a
+        -- migration is undone by the next boot — this function runs at every
+        -- start. Migration 044 enables RLS on the same four as the second layer.
+        FOR t IN
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public'
+            -- user stays granted: it holds no credentials (the password is in
+            -- account, the token in session) and the engine reads it through
+            -- this role for /api/me, the user list and notification fan-out.
+            -- Excluding it took /api/me to a 500. The other four are where the
+            -- credentials actually are.
+            AND tablename NOT IN ('session', 'account', 'verification', 'twoFactor')
+        LOOP
           EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
         END LOOP;
