@@ -170,6 +170,10 @@ jobs:
         # internal files instead of going through the barrel index
         # (docs/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
+      - name: No backticks inside SQL template comments
+        # A backtick ends the template literal. Inside an SQL `--` comment it
+        # looks ordinary and the parse error lands lines away from the cause.
+        run: bun run sql:backticks
       - name: Admin gate check
         # Bans the bare `checkPermission(uid,'admin','*')` in route modules. It
         # reads as an instance-wide gate but a delegated tenant_admin passes it,
