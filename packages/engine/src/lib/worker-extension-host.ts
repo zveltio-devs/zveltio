@@ -794,10 +794,30 @@ async function runRawWithParams(
     // role. Failing the query outright would take every worker extension down
     // on such a deployment, which is a worse outcome than the status quo there.
     try {
-      await reserved.unsafe('SET ROLE zveltio_rls');
+      // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
+      // UPDATE and DELETE on every table in `public` — including Better-Auth's
+      // `user`, `session`, `account`, `verification` and `twoFactor`, none of
+      // which has RLS. This bridge exists to sandbox extension code the platform
+      // has decided not to trust, and it was running under a role that could
+      // read every live session token on the instance.
+      //
+      // `zveltio_worker` is granted collection tables only (migration 043), and
+      // is NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
+      // as it does for a request.
+      await reserved.unsafe('SET ROLE zveltio_worker');
       roleSet = true;
     } catch {
-      /* role absent — see migration 030 */
+      // The narrow role is absent — a managed Postgres that would not let
+      // migration 043 create it. Fall back rather than taking every worker
+      // extension down there, and let the allowlist in worker-sql-policy.ts be
+      // the layer that holds. That is why the policy was inverted first: this
+      // fallback has to be survivable on its own.
+      try {
+        await reserved.unsafe('SET ROLE zveltio_rls');
+        roleSet = true;
+      } catch {
+        /* neither role present — see migrations 030 and 043 */
+      }
     }
     if (tenantId) {
       // Parameterised: this value comes from the host's own record, but it is
