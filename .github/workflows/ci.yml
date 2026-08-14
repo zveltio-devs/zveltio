@@ -156,6 +156,15 @@ jobs:
           else
             echo "zveltio-extensions not checked out — skipping"
           fi
+      - name: Identifiers in raw SQL are escaped
+        # A manual sweep fixed eleven of these and missed a twelfth, because it
+        # enumerated variable names instead of matching the pattern.
+        run: |
+          if [ -d ../zveltio-extensions ]; then
+            bun run ext:raw-sql
+          else
+            echo "zveltio-extensions not checked out — skipping"
+          fi
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index

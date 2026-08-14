@@ -114,6 +114,40 @@ d('dynamic write authorship (in-process)', () => {
     expect(row?.tenant_id).not.toBe(forged);
   });
 
+  // H-5. `dynamicInsert` got the `system` channel and `dynamicUpdate` did not,
+  // which left `updated_by` frozen at whatever the INSERT wrote. That is worse
+  // than the NULL it replaced: a NULL is visibly unpopulated, while a stale
+  // author asserts that the creator last modified a record they may not have
+  // touched since. The value has to MOVE, so the test changes it and looks.
+  it('moves updated_by when someone else edits the record', async () => {
+    const create = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'before' }),
+    });
+    const created = (await create.json()) as { record?: { id: string }; id?: string };
+    const id = created.record?.id ?? created.id!;
+    const atInsert = await persisted(id);
+
+    // A second author — `createGodSession` mints a fresh user each call. Editing
+    // as the same user would pass whether or not the column ever moves.
+    const otherCookie = await createGodSession(app, db);
+
+    const patch = await app.request(`/api/data/${COLLECTION}/${id}`, {
+      method: 'PATCH',
+      headers: { cookie: otherCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'after' }),
+    });
+    expect(patch.status).toBe(200);
+
+    const afterEdit = await persisted(id);
+    expect(afterEdit?.updated_by).not.toBeNull();
+    // created_by must NOT move: it records who made the row, not who touched it.
+    expect(afterEdit?.created_by).toBe(atInsert!.created_by);
+    // And the point of the finding: it is no longer the value from the INSERT.
+    expect(afterEdit?.updated_by).not.toBe(atInsert!.updated_by);
+  });
+
   // Authorship is engine-supplied, so a caller claiming to be someone else must
   // not win. This is the half the RESERVED filter was always right about, and
   // it has to keep holding now that the trusted values arrive by another route.
