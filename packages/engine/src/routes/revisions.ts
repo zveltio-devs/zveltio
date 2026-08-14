@@ -129,8 +129,10 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
     }
 
-    const reverted = await dynamicUpdate(reqDb(c, db), tableName, revision.record_id, {
-      ...revertData,
+    // `updated_by` travels as `system`, not inside the payload: RESERVED strips
+    // it from `data`, so passing it there wrote nothing at all. A revert IS a
+    // modification and the person who performed it is the one to record.
+    const reverted = await dynamicUpdate(reqDb(c, db), tableName, revision.record_id, revertData, {
       updated_by: user.id,
     });
 

@@ -373,7 +373,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
-      dynamicUpdate(effectiveDb, tableName, id, finalPatch),
+      dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: user.id }),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
@@ -474,7 +474,9 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   }
 
   const result = await handlePgErrors(c, async () => {
-    const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch);
+    const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch, {
+      updated_by: user.id,
+    });
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
       collection,

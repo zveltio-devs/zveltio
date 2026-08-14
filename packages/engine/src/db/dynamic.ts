@@ -315,12 +315,29 @@ export async function dynamicUpdate(
   id: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  /**
+   * Engine-supplied columns — see `SystemColumns`. Applied after the filter.
+   *
+   * `dynamicInsert` got this and `dynamicUpdate` did not, which left the fix
+   * half-made in a way worse than the original bug. Before, `updated_by` was
+   * NULL: visibly unpopulated, and nobody was misled. After, every row carried
+   * the author from its INSERT and never moved, so the column asserted that the
+   * creator had last modified a record they may not have touched since. A wrong
+   * value that looks right is harder to notice than a missing one.
+   */
+  system: SystemColumns = {},
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
+  const fromCaller = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
 
-  if (Object.keys(clean).length === 0) return null;
+  // Emptiness is decided on the CALLER's fields, before `system` is merged.
+  // Checking afterwards would make every no-op patch write a row, stamping
+  // `updated_by` for a modification nobody made — which is the same class of
+  // false record this parameter exists to remove.
+  if (Object.keys(fromCaller).length === 0) return null;
+
+  const clean = { ...fromCaller, ...system };
 
   const setClauses = Object.entries(clean).map(
     ([k, v]) => sql`${sql.id(sanitizeIdentifier(k))} = ${v}`,
