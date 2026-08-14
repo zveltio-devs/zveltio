@@ -44,7 +44,7 @@ The engine ships with everything every business application needs. Activate plug
 | **Dynamic Collections** | Schemaless tables created at runtime. No code-side migrations for routine schema changes. |
 | **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. Tenant isolation is enforced in the database (FORCE RLS keyed on a per-transaction GUC); the per-user row rules configured under `/api/admin/rls` are applied by the engine on **read** paths — they do not currently constrain updates or deletes. |
 | **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
-| **File storage** | S3-compatible (SeaweedFS bundled, or BYO AWS/MinIO/R2). |
+| **File storage** | Local filesystem by default, zero dependencies. Any S3-compatible backend optional (AWS, MinIO, R2, or the bundled SeaweedFS). |
 | **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
 | **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. `EDGE_SANDBOX_MODE=worker` opts into the faster in-process runner, where the globals lockdown is a guard-rail against mistakes rather than a boundary — dynamic `import()` resolves through the module loader and cannot be intercepted from inside. |
@@ -197,7 +197,7 @@ No hidden dependencies. No surprises.
 | Cache & realtime | [Valkey](https://valkey.io) 8+ | Redis-compatible, fully open |
 | Auth | [Better-Auth](https://better-auth.com) 1.6+ | Sessions, OAuth, passkeys, 2FA, magic links |
 | Authorization | [Casbin](https://casbin.org) 5.30+ | RBAC + ABAC policy engine |
-| File storage | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 3.68 | S3-compatible, self-hostable |
+| File storage | Local filesystem (default) · optional S3-compatible backend, e.g. [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 3.68 | `STORAGE_DRIVER=local` needs nothing installed; `s3` talks to any S3 API |
 | Admin UI | [SvelteKit](https://kit.svelte.dev) 2 + Svelte 5 runes | Modern reactive, small bundles |
 | Job queue | [pg-boss](https://github.com/timgit/pg-boss) 12 | Postgres-native, no separate Redis queue |
 | Migration safety | [Atlas](https://atlasgo.io) lint | CI-time DDL safety analysis |
@@ -243,7 +243,7 @@ Five binaries available: `linux-x64`, `linux-x64-baseline` (older CPUs), `linux-
 git clone https://github.com/zveltio-devs/zveltio.git
 cd zveltio
 bun install
-docker compose -f docker-compose.infra.yml up -d   # Postgres, Valkey, SeaweedFS
+docker compose -f docker-compose.infra.yml up -d   # Postgres, Valkey (+ SeaweedFS, opt-in)
 cp .env.example .env
 bun run dev                                         # engine with hot reload
 cd packages/studio && bun run dev                   # admin UI on :5173
