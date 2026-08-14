@@ -70,6 +70,31 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 /** Warn once per process, not once per flow run. */
 let _warnedNoFlowRole = false;
 
+/**
+ * The step types this executor actually implements.
+ *
+ * Derived from the `switch` in `executeStep` and exported so the creation route
+ * can refuse anything else. That route declared `type: z.string().min(1)`, so
+ * any string was storable and the mistake only surfaced at run time — where the
+ * `default` arm returned success.
+ *
+ * Deliberately NOT the same list as `flow-step-schemas.ts`, which defines
+ * twelve types. Eight of those never execute and three of these have no schema.
+ * The two lists disagreeing with nothing to notice is the shape of this bug,
+ * so this one is anchored to the code that runs.
+ */
+export const EXECUTABLE_STEP_TYPES = [
+  'query_db',
+  'run_script',
+  'send_email',
+  'webhook',
+  'send_notification',
+  'export_collection',
+  'ai_decision',
+] as const;
+
+export type ExecutableStepType = (typeof EXECUTABLE_STEP_TYPES)[number];
+
 async function executeStep(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -436,7 +461,17 @@ async function executeStep(
     }
 
     default:
-      return { output: prevOutput };
+      // Was `return { output: prevOutput }` — success, silently, passing the
+      // previous step's output straight through. The Studio offers step types
+      // this switch does not implement (`condition`, `create_record`,
+      // `update_record`), so a flow reading "if total > 10,000 then create an
+      // approval" ran green and did nothing at all. A conditional that always
+      // proceeds is worse than one that fails: the run is recorded successful
+      // and nobody looks at it again.
+      throw new Error(
+        `Flow step type "${step.type}" is not implemented. Implemented types: ` +
+          `${EXECUTABLE_STEP_TYPES.join(', ')}.`,
+      );
   }
 }
 

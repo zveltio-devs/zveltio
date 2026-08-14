@@ -12,7 +12,7 @@
  * The run route fires executeFlow fire-and-forget (202), so we WAIT for the run
  * row to reach a terminal state before asserting — that's what pulls the
  * executor into coverage. query_db (SELECT) + run_script (sandboxed JS) +
- * condition all run in-process with no network.
+ * run_script all run in-process with no network.
  *
  * Skips without a test database.
  */
@@ -85,7 +85,13 @@ d('flow execution (in-process)', () => {
     flowId = await createFlow('Harness Run Flow');
     await insertStep(db, flowId, 0, 'query_db', { query: 'SELECT 1 AS ok, 2 AS two' });
     await insertStep(db, flowId, 1, 'run_script', { code: 'return { doubled: 21 * 2 };' });
-    await insertStep(db, flowId, 2, 'condition', { expression: '1 == 1' });
+    // A `condition` step used to sit here, and this suite asserted the run
+    // succeeded — which it did, because the executor had no `condition` case
+    // and its `default` arm returned success. The test encoded the bug as the
+    // expected behaviour. The type is no longer storable (migration 042) and
+    // the executor now throws on anything it does not implement, so the step
+    // is gone rather than expected-to-fail: what this flow is for is the
+    // query_db + run_script path.
 
     // Notification + webhook + email arms of the executor.
     notifyFlowId = await createFlow('Harness Notify Flow');
@@ -132,7 +138,7 @@ d('flow execution (in-process)', () => {
 
     const status = await waitForRun(db, flowId);
     expect(status).not.toBeNull();
-    // query_db (SELECT) + run_script + condition all succeed → a successful run.
+    // query_db (SELECT) + run_script both succeed → a successful run.
     expect(['completed', 'success']).toContain(status as string);
   });
 

@@ -99,17 +99,21 @@ d('flows CRUD + steps + run (in-process)', () => {
   it('appends a step (POST /:id/steps)', async () => {
     const res = await app.request(
       `/api/flows/${flowId}/steps`,
+      // `query_db`, not `condition`. This case is about step CRUD, and
+      // `condition` is no longer an accepted type: the executor never
+      // implemented it, so a flow built on it reported success and did nothing
+      // (C-6). The route refuses it at creation now.
       json('POST', {
-        type: 'condition',
+        type: 'query_db',
         name: 'gate',
-        config: { expression: '1 == 1' },
+        config: { query: 'SELECT 1 AS ok' },
         on_error: 'stop',
       }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { step: { id: string; type: string } };
     expect(body.step.id).toBeDefined();
-    expect(body.step.type).toBe('condition');
+    expect(body.step.type).toBe('query_db');
     stepId = body.step.id;
   });
 
@@ -124,14 +128,18 @@ d('flows CRUD + steps + run (in-process)', () => {
   it('updates a step (PUT /:id/steps/:stepId)', async () => {
     const res = await app.request(
       `/api/flows/${flowId}/steps/${stepId}`,
-      json('PUT', { name: 'gate (renamed)', config: { expression: '2 > 1' } }),
+      // The config has to be valid for the step's type — the route runs
+      // `validateStepConfig`, which is wired on the single-step routes. It was
+      // `{ expression: '2 > 1' }`, a `condition` shape, left over from when
+      // this step was that type.
+      json('PUT', { name: 'gate (renamed)', config: { query: 'SELECT 2 AS two' } }),
     );
     expect([200, 204]).toContain(res.status);
   });
 
   it('runs the flow (POST /:id/run) and records a run', async () => {
     const res = await app.request(`/api/flows/${flowId}/run`, json('POST', {}));
-    // The condition step evaluates in-process; tolerate the flow engine's status.
+    // The query_db step evaluates in-process; tolerate the flow engine's status.
     expect(res.status).toBeLessThan(500);
 
     const runs = await app.request(`/api/flows/${flowId}/runs`, { headers: { cookie } });

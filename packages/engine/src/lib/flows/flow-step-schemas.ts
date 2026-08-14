@@ -15,6 +15,47 @@ import { z } from 'zod';
 // ── Per-type schemas ──────────────────────────────────────────────────────────
 
 export const stepSchemas = {
+  // Three types the executor implements and this map did not list. Because
+  // `validateStepConfig` rejects anything it has no schema for, and
+  // `POST /:id/steps` calls it, `query_db`, `send_notification` and
+  // `export_collection` steps could not be added to an existing flow at all —
+  // 400 "Unknown step type", for three of the seven types that actually run.
+  //
+  // The mirror image of C-6: there, types that never execute were storable;
+  // here, types that do execute were not addable. Same root — several lists of
+  // step types, none checked against another.
+
+  /** Read-only SQL; the executor enforces SELECT/WITH and a READ ONLY tx. */
+  query_db: z.object({
+    query: z.string().min(1, 'Query is required'),
+  }),
+
+  /** In-app notification to a specific user or to everyone holding a role. */
+  send_notification: z
+    .object({
+      user_id: z.string().optional(),
+      role: z.string().optional(),
+      title: z.string().min(1, 'Title is required'),
+      message: z.string().default(''),
+      type: z.string().default('info'),
+      action_url: z.string().optional(),
+    })
+    .refine((v) => Boolean(v.user_id || v.role), {
+      message: 'Either user_id or role is required',
+    }),
+
+  /** Export rows to CSV/Excel, optionally emailing the file. */
+  export_collection: z.object({
+    collection: z.string().min(1, 'Collection is required'),
+    format: z.enum(['csv', 'excel']).default('csv'),
+    columns: z.array(z.string()).optional(),
+    filename: z.string().optional(),
+    limit: z.number().int().min(1).max(100_000).optional(),
+    email_to: z.string().optional(),
+    email_subject: z.string().optional(),
+    email_body: z.string().optional(),
+  }),
+
   /** Execute a JavaScript/TypeScript script in a sandboxed edge function */
   run_script: z.object({
     script: z.string().min(1, 'Script is required'),
