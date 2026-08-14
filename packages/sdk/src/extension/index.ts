@@ -401,6 +401,16 @@ export interface ExtensionInternals<DB = unknown> {
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
   /** Is this user an administrator of the current tenant? */
   isTenantAdmin: (userId: string) => Promise<boolean>;
+  /**
+   * Instance-level admin, as distinct from admin-within-a-tenant.
+   *
+   * `checkPermission(userId, 'admin', '*')` is TRUE for a delegated tenant
+   * owner inside their own domain — the `tenant_owner` policy is `('*','*','*')`
+   * there. That is the right answer for tenant-scoped screens and the wrong one
+   * for anything that reaches the instance: raw SQL, schema changes, role
+   * grants. Use this for those.
+   */
+  requireInstanceAdmin: (userId: string) => Promise<boolean>;
 
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01

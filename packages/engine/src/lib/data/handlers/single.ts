@@ -240,7 +240,13 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   }
 
   const effectiveDb = getDb(c, db);
-  const toInsert = { ...allowedData, created_by: user.id, updated_by: user.id };
+  // Authorship travels as `system` on the insert, not inside the payload. It
+  // used to be merged here and then stripped by `dynamicInsert`'s RESERVED
+  // filter, so every row landed with NULL authorship. Keeping it out of
+  // `toInsert` also means a `record.beforeInsert` hook cannot rewrite it — the
+  // hook already receives `userId` separately if it needs to know.
+  const toInsert = { ...allowedData };
+  const systemColumns = { created_by: user.id, updated_by: user.id };
 
   // Pre-insert hooks: extensions can mutate the payload (e.g. geocode an
   // address, attach a computed score) or abort (e.g. quota check).
@@ -261,7 +267,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.create`, () =>
-      dynamicInsert(effectiveDb, tableName, finalInsert),
+      dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns),
     );
     await afterWrite(effectiveDb, {
       collection,

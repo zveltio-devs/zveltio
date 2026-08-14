@@ -26,6 +26,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   isTenantAdmin,
+  requireInstanceAdmin,
   resolveUserRole,
 } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
@@ -227,6 +228,19 @@ export interface ExtensionInternals {
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   resolveUserRole: typeof resolveUserRole;
   isTenantAdmin: typeof isTenantAdmin;
+  /**
+   * Instance-level admin, as distinct from admin-within-a-tenant.
+   *
+   * `checkPermission(uid, 'admin', '*')` is TRUE for a delegated tenant owner
+   * inside their own domain, because the `tenant_owner` policy is `('*','*','*')`
+   * there. That is the right answer for tenant-scoped screens and the wrong one
+   * for anything touching the instance: raw SQL, schema, role grants.
+   *
+   * Exposed because an extension that cannot reach this helper writes the
+   * `checkPermission` version instead — developer/database did, on a raw-SQL
+   * route, which is how a tenant admin got an instance-wide query console.
+   */
+  requireInstanceAdmin: typeof requireInstanceAdmin;
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
@@ -356,6 +370,7 @@ export function buildExtensionInternals(): ExtensionInternals {
       getColumnAccess(getDb(), collection, role),
     resolveUserRole,
     isTenantAdmin,
+    requireInstanceAdmin,
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,
