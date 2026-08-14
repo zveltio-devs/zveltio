@@ -19,7 +19,11 @@ describe('repairUnsignedWebhooksAtBoot', () => {
   // without a key — a real install has one, and a test that omitted it was
   // measuring the refusal rather than the repair.
   beforeAll(() => {
-    process.env.FIELD_ENCRYPTION_KEY ??= 'a'.repeat(64);
+    // `||=`, not `??=`. Something in this lane sets the variable to the EMPTY
+    // STRING, which `??=` leaves alone — so the key stayed unset, `maybeEncrypt`
+    // refused, and the repair returned 0. It passed locally only because my
+    // shell had a real key exported; the lane never did.
+    process.env.FIELD_ENCRYPTION_KEY ||= 'a'.repeat(64);
   });
 
   it('gives an unsigned webhook a secret and says which one it was', async () => {
