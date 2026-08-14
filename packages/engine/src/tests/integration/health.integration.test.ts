@@ -13,7 +13,23 @@ import { describe, it, expect } from 'bun:test';
 const TEST_PORT = process.env.TEST_PORT || '3099';
 const BASE_URL = `http://localhost:${TEST_PORT}`;
 
-describe('Health — Integration', () => {
+/**
+ * Same guard as every other file in this lane.
+ *
+ * These five cases need a running engine, not a database — but without the
+ * guard they `fetch` localhost:3099 unconditionally, so running the lane
+ * anywhere the engine is not up produced five failures next to 181 skips. A
+ * suite that fails when its dependency is absent, rather than skipping, trains
+ * people to read red as normal.
+ *
+ * `TEST_DATABASE_URL` is what the rest of the lane uses to mean "the
+ * integration environment is set up", and the engine that serves these
+ * endpoints is started with it — so it is the right signal here even though
+ * these particular assertions never touch the database.
+ */
+const skipAll = !process.env.TEST_DATABASE_URL;
+
+describe.skipIf(skipAll)('Health — Integration', () => {
   it('GET /api/health — returns status ok', async () => {
     const res = await fetch(`${BASE_URL}/api/health`);
     expect(res.status).toBe(200);

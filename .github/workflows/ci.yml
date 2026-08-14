@@ -140,6 +140,22 @@ jobs:
         # Fails if any package introduced a NEW `any` suppression above its
         # baseline (docs/HARDENING-9-PLAN.md H-01). Type the value instead.
         run: bun run any:ratchet
+      - name: Lint warning ratchet
+        # `bun run lint` exits 0 with warnings, so the count drifts upward one
+        # commit at a time and nobody is ever the person who broke it. Per rule,
+        # because one total lets a fix here pay for a regression there.
+        run: bun run lint:ratchet
+      - name: Extensions own the i18n keys they render
+        # Ten extensions render keys namespaced to OTHER extensions. They resolve
+        # only because the host serves the union of installed catalogues, so
+        # installing the borrower without the owner shows a raw key. Only runs
+        # with the sibling checked out.
+        run: |
+          if [ -d ../zveltio-extensions ]; then
+            bun run ext:i18n-ownership
+          else
+            echo "zveltio-extensions not checked out — skipping"
+          fi
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index
