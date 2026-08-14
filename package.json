@@ -26,6 +26,7 @@
     "lint:ratchet": "bun run scripts/lint-warning-ratchet.ts",
     "ext:i18n-ownership": "bun run scripts/check-extension-i18n-ownership.ts",
     "ext:raw-sql": "bun run scripts/check-raw-sql-identifiers.ts",
+    "sql:backticks": "bun run scripts/check-sql-template-backticks.ts",
     "lint:fix": "biome lint --write",
     "prepush": "bun run check:schema && bun run check:shared-keys && bun run any:ratchet && bun run format:check && bun run typecheck",
     "studio:build": "cd packages/studio && bun run build",
