@@ -443,6 +443,27 @@ export async function initAuth(db: Database) {
     trustedOrigins,
     secret: process.env.BETTER_AUTH_SECRET,
     database,
+
+    // Hash single-use tokens at rest. Better-Auth 1.6 supports this and defaults
+    // to plaintext (`processIdentifier`: `if (!option || option === "plain")
+    // return identifier;`), so password-reset and e-mail-verification rows landed
+    // in `verification.identifier` as `reset-password:<raw token>` — the token
+    // itself, readable by anything that can read one table.
+    //
+    // That table is one of the unprefixed Better-Auth tables, which is exactly
+    // the set two separate SQL guards failed to block (C-14, C-10) and which had
+    // no RLS until migration 044. Those holes are closed; this is the layer that
+    // decides how bad the next one is. With plaintext, one SELECT is every live
+    // reset token on the instance and a full account takeover of anyone who
+    // clicked "forgot password" in the last hour — including an admin. With the
+    // rows hashed, the same SELECT yields digests that cannot be presented to
+    // `/api/auth/reset-password`.
+    //
+    // `hashed` uses Better-Auth's own SHA-256 + base64url. That is the right
+    // primitive here and not a password-hashing question: these tokens are
+    // high-entropy random values with a one-hour life, so there is nothing to
+    // brute-force and a slow KDF would only add latency to every verification.
+    verification: { storeIdentifier: 'hashed' },
     advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
@@ -600,6 +621,11 @@ export async function initAuth(db: Database) {
               // Operators who want open registration turn it on, and the sign-up
               // route provides it under the gate that exists for the purpose.
               disableSignUp: true,
+              // Same reason as `verification` above: the plugin's own default is
+              // `storeToken: "plain"`, which puts the literal magic-link token in
+              // `verification.identifier`. A magic link is a bearer credential —
+              // whoever reads the row can sign in as that person.
+              storeToken: 'hashed',
               sendMagicLink: async ({ email, url }) => {
                 await sendEmail(
                   email,
