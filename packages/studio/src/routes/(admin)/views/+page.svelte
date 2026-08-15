@@ -46,15 +46,30 @@ let form = $state({
   page_size: 20,
 });
 
+/**
+ * `rendered` says whether anything in this product can actually DISPLAY a view of
+ * this type. Only three renderers exist — list, card and calendar — and this
+ * picker offers eight types, so five of them save a definition that nothing will
+ * ever draw. The admin had no way to know which.
+ *
+ * That is the same untruth M-1 corrected on the other views page: choosing
+ * "Kanban board" there fell through to a plain list with nothing to say a
+ * renderer was missing. Marking it here is the honest version at the point the
+ * choice is made, rather than after saving.
+ *
+ * Marked, not removed. Which of the two views pages is canonical — this one, or
+ * the extension's page behind the 301, which does render three of these — is a
+ * product decision, and deleting half a dropdown would pre-empt it.
+ */
 const VIEW_TYPES = [
-  { value: 'table', label: m['views.typeTable'], icon: Table2 },
-  { value: 'kanban', label: m['views.typeKanban'], icon: Columns3 },
-  { value: 'calendar', label: m['views.typeCalendar'], icon: CalendarDays },
-  { value: 'gallery', label: m['views.typeGallery'], icon: GalleryHorizontal },
-  { value: 'stats', label: m['views.typeStats'], icon: BarChart2 },
-  { value: 'chart', label: m['views.typeChart'], icon: BarChart2 },
-  { value: 'list', label: m['views.typeList'], icon: List },
-  { value: 'timeline', label: m['views.typeTimeline'], icon: Clock },
+  { value: 'table', label: m['views.typeTable'], icon: Table2, rendered: false },
+  { value: 'kanban', label: m['views.typeKanban'], icon: Columns3, rendered: false },
+  { value: 'calendar', label: m['views.typeCalendar'], icon: CalendarDays, rendered: true },
+  { value: 'gallery', label: m['views.typeGallery'], icon: GalleryHorizontal, rendered: false },
+  { value: 'stats', label: m['views.typeStats'], icon: BarChart2, rendered: false },
+  { value: 'chart', label: m['views.typeChart'], icon: BarChart2, rendered: false },
+  { value: 'list', label: m['views.typeList'], icon: List, rendered: true },
+  { value: 'timeline', label: m['views.typeTimeline'], icon: Clock, rendered: false },
 ];
 
 const filtered = $derived(
@@ -244,6 +259,9 @@ function viewTypeIcon(type: string) {
             </button>
           {/each}
         </div>
+        {#if !VIEW_TYPES.find((t) => t.value === form.view_type)?.rendered}
+          <p class="mt-2 text-xs text-warning">{m['views.noRendererYet']()}</p>
+        {/if}
       </div>
 
       <div class="form-control mb-3">

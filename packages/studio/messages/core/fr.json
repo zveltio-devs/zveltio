@@ -1066,6 +1066,7 @@
   "views.filterPh": "Filtrer les vues…",
   "views.newView": "Nouvelle vue",
   "views.noMatch": "Aucune vue ne correspond à « {q} »",
+  "views.noRendererYet": "Aucun rendu n'existe encore pour ce type — la vue sera enregistrée mais ne s'affichera pas.",
   "views.perPage": "/ page",
   "views.publicBadge": "publique",
   "views.rowsPerPage": "Lignes par page",
