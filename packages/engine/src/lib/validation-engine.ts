@@ -7,6 +7,7 @@
  */
 
 import { Parser } from 'expr-eval-fork';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 
 const parser = new Parser({
@@ -118,6 +119,16 @@ export function evaluateExpressionRule(expression: string, value: unknown): Expr
 }
 
 export interface ValidationRule {
+  /**
+   * Needed to decide group membership — `zvd_validation_rule_groups.rule_ids`
+   * is an array of these.
+   *
+   * Optional because `validateFieldValue` is also called directly with
+   * hand-built rules (the extension's rule tester, and a good many unit tests),
+   * and those have no row behind them. A rule with no id belongs to no group,
+   * which is the correct reading.
+   */
+  id?: string;
   field_name: string;
   rule_type: string;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -160,7 +171,7 @@ export async function getValidationRules(
 
   let query = db
     .selectFrom('zv_validation_rules')
-    .select(['field_name', 'rule_type', 'rule_config', 'error_message'])
+    .select(['id', 'field_name', 'rule_type', 'rule_config', 'error_message'])
     .where('collection', '=', collection)
     .where('is_active', '=', true);
 
@@ -168,6 +179,7 @@ export async function getValidationRules(
 
   // rule_config is JSONB → typed as unknown; coerce to the runtime contract.
   const rules: ValidationRule[] = (await query.execute()).map((row) => ({
+    id: String(row.id),
     field_name: row.field_name,
     rule_type: row.rule_type,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -178,7 +190,84 @@ export async function getValidationRules(
   return rules;
 }
 
+/**
+ * A `uuid[]` column as a JS array.
+ *
+ * Bun's driver returns array columns as PostgreSQL's own text literal —
+ * `"{6c675ffa-…,18215b10-…}"` — not as a JS array. Calling `.map` on that throws,
+ * and the throw was caught by the guard below, so every group silently vanished
+ * and the OR logic looked implemented while behaving exactly as before. Two hours
+ * of "the fix does not work" before measuring what the driver actually returns.
+ *
+ * Same shape as the NUMERIC problem in `lib/numeric.ts`: the wire format is text,
+ * the code assumed a native type, and nothing said otherwise.
+ */
+function toIdArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value !== 'string') return [];
+  const inner = value.trim().replace(/^\{/, '').replace(/\}$/, '');
+  if (inner === '') return [];
+  return inner.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+}
+
+/** A rule group as `developer/validation` stores it. */
+interface RuleGroup {
+  field_name: string;
+  logic: string;
+  rule_ids: string[];
+}
+
+const groupsCache = new Map<string, { groups: RuleGroup[]; ts: number }>();
+
+/**
+ * Rule groups for a collection — or none, when the feature is not installed.
+ *
+ * An administrator could create a group with `logic: "OR"`, see it listed as
+ * active, and have it change nothing: `zvd_validation_rule_groups` was read only
+ * by its own CRUD, and this engine evaluated every rule on a field with AND,
+ * unconditionally. So "either a VAT number or a registration number" — the case
+ * the feature exists for — was expressible in the UI and could not work. The
+ * write was refused citing a rule the group had said was optional.
+ *
+ * Note which way that failed: AND is the STRICTER reading, so no invalid record
+ * ever got in. The damage was valid records refused and an administrator shown a
+ * green, active group that was doing nothing.
+ *
+ * The table belongs to the `developer/validation` extension while
+ * `zv_validation_rules` belongs to the engine, so this reads across a boundary
+ * that points the wrong way. It is guarded rather than typed: absent table,
+ * uninstalled extension, or any error means no groups and the previous
+ * behaviour, which is the safe direction. The honest fix is to move the table
+ * into the engine beside the rules it groups — a schema change to a table
+ * holding customer configuration, and an owner's call rather than mine.
+ */
+async function getRuleGroups(db: Database, collection: string): Promise<RuleGroup[]> {
+  const cached = groupsCache.get(collection);
+  if (cached && Date.now() - cached.ts < 60_000) return cached.groups;
+
+  let groups: RuleGroup[] = [];
+  try {
+    const rows = await sql<{ field_name: string; logic: string; rule_ids: string[] | null }>`
+      SELECT field_name, logic, rule_ids
+      FROM zvd_validation_rule_groups
+      WHERE collection = ${collection} AND is_active = true
+    `.execute(db);
+    groups = rows.rows.map((r) => ({
+      field_name: r.field_name,
+      logic: String(r.logic ?? 'AND').toUpperCase(),
+      rule_ids: toIdArray(r.rule_ids),
+    }));
+  } catch {
+    // The extension is not installed, so the table does not exist. Not an error
+    // — it is the state of most instances.
+    groups = [];
+  }
+  groupsCache.set(collection, { groups, ts: Date.now() });
+  return groups;
+}
+
 export function invalidateRulesCache(collection: string): void {
+  groupsCache.delete(collection);
   // L7 FIX: Use exact match + prefix with ':' separator to avoid "user" matching "users".
   for (const key of rulesCache.keys()) {
     if (key === collection || key.startsWith(`${collection}:`)) rulesCache.delete(key);
@@ -331,11 +420,34 @@ export async function validateRecord(
   data: Record<string, any>,
 ): Promise<{ valid: boolean; errors: Record<string, string[]> }> {
   const errors: Record<string, string[]> = {};
+  const groups = await getRuleGroups(db, collection);
 
   for (const [fieldName, value] of Object.entries(data)) {
     const fieldRules = await getValidationRules(db, collection, fieldName);
     if (fieldRules.length === 0) continue;
-    const fieldErrors = await validateFieldValue(value, fieldRules);
+
+    const fieldGroups = groups.filter((g) => g.field_name === fieldName);
+    const grouped = new Set(fieldGroups.flatMap((g) => g.rule_ids));
+
+    // Rules nobody grouped keep the old behaviour: all of them must hold.
+    const ungrouped = fieldRules.filter((r) => r.id === undefined || !grouped.has(r.id));
+    const fieldErrors = ungrouped.length > 0 ? await validateFieldValue(value, ungrouped) : [];
+
+    for (const group of fieldGroups) {
+      const members = fieldRules.filter((r) => r.id !== undefined && group.rule_ids.includes(r.id));
+      if (members.length === 0) continue;
+      if (group.logic === 'OR') {
+        // Satisfying ONE member satisfies the group — "either a VAT number or a
+        // registration number" is the case the feature exists for. Only when
+        // every member fails does the group contribute, and then it contributes
+        // all of their messages, because none of them is the one that had to hold.
+        const perRule = await Promise.all(members.map((r) => validateFieldValue(value, [r])));
+        if (perRule.every((e) => e.length > 0)) fieldErrors.push(...perRule.flat());
+      } else {
+        fieldErrors.push(...(await validateFieldValue(value, members)));
+      }
+    }
+
     if (fieldErrors.length > 0) errors[fieldName] = fieldErrors;
   }
 

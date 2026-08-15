@@ -138,7 +138,31 @@ export async function processInput(
   // free by iterating `processed`.
   const vdb = getValidationDb();
   if (vdb && collectionDef?.name && Object.keys(processed).length > 0) {
-    const verdict = await validateRecord(vdb, collectionDef.name, processed).catch(() => null);
+    // Fail CLOSED. This used to be `.catch(() => null)`, and `null` fell through
+    // the `if` below as though every rule had passed — no error, no log, a 201
+    // indistinguishable from a validated one.
+    //
+    // That inverts the posture at the one place it matters most. These are
+    // constraints an administrator deliberately put in place; failing open means
+    // they hold exactly when nothing is wrong and vanish exactly when something
+    // is — a transient database error, a malformed `rule_config` that survived
+    // JSONB storage, a rule type nobody implemented.
+    //
+    // The neighbouring regex path already gets this right: `safeRegexTest`
+    // returns `false` — a non-match, hence a validation error — on both a bad
+    // pattern and a ReDoS timeout. This was the one place the posture inverted.
+    let verdict: Awaited<ReturnType<typeof validateRecord>> | null = null;
+    try {
+      verdict = await validateRecord(vdb, collectionDef.name, processed);
+    } catch (err) {
+      console.error(
+        `[validation] rules for "${collectionDef.name}" could not be evaluated; refusing the write:`,
+        err instanceof Error ? err.message : err,
+      );
+      errors.push(
+        'validation: the rules for this collection could not be evaluated, so the write was refused',
+      );
+    }
     if (verdict && !verdict.valid) {
       for (const [fieldName, messages] of Object.entries(verdict.errors)) {
         for (const message of messages) errors.push(`${fieldName}: ${message}`);
