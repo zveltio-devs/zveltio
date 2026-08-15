@@ -93,6 +93,31 @@ async function buildTemplate(admin: SQL): Promise<string[]> {
        VALUES ('00000000-0000-0000-0000-000000000001', 'root', 'Root')
        ON CONFLICT DO NOTHING`,
     );
+    // Then every extension's migrations, so the template is what a real install
+    // looks like rather than an engine with one extension bolted on.
+    //
+    // This closes a blind spot that hid a live defect. `ecommerce/store` writes
+    // `zvd_products`, which `operations/inventory` owns; with only the store's
+    // own schema built, that table did not exist and the check was skipped.
+    // `zvd_products.created_by` is NOT NULL with no default and the INSERT never
+    // supplied it, so the canonical product was never created and the storefront
+    // product was never linked to inventory — on any install, ever. Checking an
+    // extension against only its own tables answers the smaller question.
+    for (const dir of extensionDirs(EXT_ROOT)) {
+      const migDir = join(dir, 'engine', 'migrations');
+      if (!existsSync(migDir)) continue;
+      for (const f of readdirSync(migDir)
+        .filter((x) => x.endsWith('.sql'))
+        .sort()) {
+        try {
+          await db.unsafe(upHalf(readFileSync(join(migDir, f), 'utf8')));
+        } catch (err) {
+          problems.push(
+            `${dir.slice(EXT_ROOT.length + 1)}/${f}: ${(err as Error).message.split('\n')[0]}`,
+          );
+        }
+      }
+    }
   } finally {
     await db.end();
   }
@@ -356,6 +381,25 @@ function findInserts(src: string): InsertSite[] {
   return sites;
 }
 
+/**
+ * Does this file's request validator leave `field` open?
+ *
+ * `operations/assets` declares `category: z.string().default('equipment')` while
+ * `zvd_assets.category` has a CHECK listing seven values. Any other value passes
+ * validation, reaches PostgreSQL, and answers 500 — measured live with
+ * `"category":"IT"`. A closed domain in the database and an open one in the
+ * validator is the same disagreement this whole file is about, one layer up.
+ *
+ * Scoped to the file rather than the handler: a `z.enum` anywhere in it for that
+ * field is enough to call it constrained. That under-reports and never
+ * over-reports, which is the right direction for a gate.
+ */
+function validatorIsOpen(src: string, field: string): boolean {
+  const enumed = new RegExp(`\\b${field}\\s*:\\s*z\\.enum\\(`).test(src);
+  if (enumed) return false;
+  return new RegExp(`\\b${field}\\s*:\\s*z\\.string\\(\\)`).test(src);
+}
+
 /** A bare `'literal'` value, or null when it is a placeholder or expression. */
 function literalOf(value: string): string | null {
   const t = value.trim();
@@ -525,7 +569,8 @@ async function main(): Promise<void> {
 
       for (const file of tsFiles(join(dir, 'engine'))) {
         const rel = `${ext}/${file.slice(dir.length + 1)}`;
-        for (const site of findInserts(readFileSync(file, 'utf8'))) {
+        const fileSrc = readFileSync(file, 'utf8');
+        for (const site of findInserts(fileSrc)) {
           insertSites++;
           const table = tables.get(site.table);
           // A table this extension does not own — the engine's, or another
@@ -567,6 +612,18 @@ async function main(): Promise<void> {
                     line: site.line,
                     kind: 'check-violation',
                     detail: `${site.table}.${col} = '${lit}' is outside its CHECK (${[...allowed].sort().join(', ')})`,
+                  });
+                }
+                // The value is a placeholder — so whatever the request carries
+                // reaches a column with a closed domain. Ask what the validator
+                // permits.
+                if (allowed && allowed.size > 1 && lit === null && validatorIsOpen(fileSrc, col)) {
+                  findings.push({
+                    ext,
+                    file: rel,
+                    line: site.line,
+                    kind: 'unconstrained-validator',
+                    detail: `${site.table}.${col} accepts only (${[...allowed].sort().join(', ')}) but the validator declares it z.string() — any other value is a 500`,
                   });
                 }
               }
