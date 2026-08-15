@@ -1,0 +1,13 @@
+{
+  "_what": "Sites where a `+` touches a column PostgreSQL returns as a string. Counts may shrink, never grow.",
+  "_why_these_are_allowed": "Every entry below was read: the operands come from a zod-validated request body (`d.lines`), where they are real JS numbers, or already carry a unary `+`. The detector cannot see that; a human did. Anything NEW is unreviewed and fails the gate.",
+  "_how_to_fix": "toNumber() from '@zveltio/sdk/extension' (extensions) or lib/numeric.js (engine). Never `Number(x) || 0` \u2014 that turns a corrupt value into a confident zero.",
+  "_regenerate": "DATABASE_URL=\u2026 bun run scripts/check-numeric-string-arithmetic.ts",
+  "ext:compliance/ro/efactura/engine/ubl-generator.ts": 1,
+  "ext:finance/accounting/engine/routes.ts": 4,
+  "ext:finance/expenses/engine/routes.ts": 1,
+  "ext:finance/invoicing/engine/routes.ts": 7,
+  "ext:finance/quotes/engine/routes.ts": 3,
+  "ext:operations/inventory/engine/routes.ts": 3,
+  "ext:operations/pos/engine/routes.ts": 3
+}

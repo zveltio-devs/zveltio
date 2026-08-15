@@ -7,6 +7,7 @@ import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenanc
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
+import { toNumber, toNumberSafe } from '../lib/numeric.js';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
 
@@ -38,7 +39,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const result = await sql<{
       id: string;
       filename: string;
-      size_bytes: number | null;
+      size_bytes: string | null; // BIGINT — the driver returns a string
       status: string;
       created_by: string | null;
       created_at: Date;
@@ -53,7 +54,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     const backups = result.rows.map((row) => ({
       ...row,
-      size_human: row.size_bytes ? formatBytes(row.size_bytes) : null,
+      size_human: row.size_bytes === null ? null : formatBytes(row.size_bytes),
     }));
 
     return c.json({ backups });
@@ -211,7 +212,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
       current_lsn: row?.lsn ?? null,
       last_checkpoint: row?.last_checkpoint ?? null,
       db_size_bytes: row?.db_size_bytes ? Number(row.db_size_bytes) : null,
-      db_size_human: row?.db_size_bytes ? formatBytes(Number(row.db_size_bytes)) : null,
+      db_size_human: row?.db_size_bytes ? formatBytes(row.db_size_bytes) : null,
     });
   });
 
@@ -222,7 +223,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const result = await sql<{
       id: string;
       status: string;
-      size_bytes: number | null;
+      size_bytes: string | null; // BIGINT — the driver returns a string
       completed_at: Date | null;
       error: string | null;
     }>`
@@ -234,7 +235,8 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     return c.json({
       ...result.rows[0],
-      size_human: result.rows[0].size_bytes ? formatBytes(result.rows[0].size_bytes) : null,
+      size_human:
+        result.rows[0].size_bytes === null ? null : formatBytes(result.rows[0].size_bytes),
     });
   });
 
@@ -846,12 +848,8 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     return c.json({
       total_backups: parseInt(totalResult.rows[0]?.count || '0'),
-      total_size_bytes: totalResult.rows[0]?.total_size
-        ? parseInt(totalResult.rows[0].total_size)
-        : 0,
-      total_size_human: totalResult.rows[0]?.total_size
-        ? formatBytes(parseInt(totalResult.rows[0].total_size))
-        : '0 B',
+      total_size_bytes: toNumber(totalResult.rows[0]?.total_size, 0, 'SUM(size_bytes)'),
+      total_size_human: formatBytes(totalResult.rows[0]?.total_size ?? 0),
       last_successful_backup: lastSuccessResult.rows[0] ?? null,
       success_rate_30d: successRate,
       active_schedule_count: parseInt(scheduleCountResult.rows[0]?.count || '0'),
@@ -861,12 +859,31 @@ export function backupRoutes(db: Database, auth: any): Hono {
   return router;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
+/**
+ * A byte count as something an operator can read.
+ *
+ * Takes `unknown` on purpose. `zv_backups.size_bytes` is `BIGINT` and the driver
+ * returns BIGINTs as strings, so the old `(bytes: number)` signature was a
+ * promise the callers could not keep — and TypeScript accepted them all, because
+ * the row types were hand-written as `number` too. Two ways it broke:
+ *
+ *     formatBytes("0")             → "NaN undefined"   (`"0" === 0` is false,
+ *                                     so Math.log(0) = -Infinity, index -Infinity)
+ *     formatBytes("5497558138880") → "5 undefined"     (the table stopped at GB)
+ *
+ * The first is reachable from an empty backup, the second from any instance over
+ * a terabyte — both on a page whose whole job is reporting size.
+ */
+function formatBytes(bytes: unknown): string {
+  const n = toNumberSafe(bytes, Number.NaN);
+  if (!Number.isFinite(n) || n < 0) return 'unknown';
+  if (n === 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  // Clamped: a size past the last unit used to index off the end of the array
+  // and concatenate the word "undefined" into the answer.
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1);
+  return `${parseFloat((n / k ** i).toFixed(2))} ${sizes[i]}`;
 }
 
 async function cleanupOldBackups(db: Database): Promise<void> {

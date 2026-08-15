@@ -2,6 +2,15 @@ import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
+export {
+  isStorableNumeric,
+  NumericConversionError,
+  roundMoney,
+  sumNumeric,
+  toNumber,
+  toNumberOrNull,
+  toNumberSafe,
+} from './numeric.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zveltio Extension API — public types for extension authors
