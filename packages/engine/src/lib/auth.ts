@@ -602,6 +602,18 @@ export async function initAuth(db: Database) {
       twoFactor({
         issuer: process.env.APP_NAME || 'Zveltio',
         totpOptions: { digits: 6, period: 30 },
+        // Backup codes were stored in the clear. Better-Auth encrypts them only
+        // when told to — `encodeBackupCodes` ends `return json` otherwise — and
+        // this passed no options, so `twoFactor.backupCodes` held a plaintext
+        // JSON array of ten `xxxxx-xxxxx` codes.
+        //
+        // The TOTP secret in the SAME ROW was already encrypted with
+        // `BETTER_AUTH_SECRET`. That is the part that makes this worth fixing
+        // rather than merely noting: a backup code is a complete second factor,
+        // so encrypting the secret beside ten plaintext equivalents of it
+        // protects nothing. Anything with a raw connection or a copy of a backup
+        // had the second factor for every account that enabled 2FA.
+        backupCodeOptions: { storeBackupCodes: 'encrypted' },
       }),
 
       // Magic link + password reset — enabled only when SMTP is configured
