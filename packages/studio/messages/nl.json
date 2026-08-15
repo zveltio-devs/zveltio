@@ -2873,6 +2873,7 @@
   "views.filterPh": "Weergaven filteren…",
   "views.newView": "Nieuwe weergave",
   "views.noMatch": "Geen weergaven komen overeen met \"{q}\"",
+  "views.noRendererYet": "Voor dit type bestaat nog geen weergave — de view wordt opgeslagen maar niet getoond.",
   "views.perPage": "/ pagina",
   "views.publicBadge": "openbaar",
   "views.rowsPerPage": "Rijen per pagina",

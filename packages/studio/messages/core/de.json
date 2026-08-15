@@ -1066,6 +1066,7 @@
   "views.filterPh": "Ansichten filtern…",
   "views.newView": "Neue Ansicht",
   "views.noMatch": "Keine Ansichten passen zu „{q}“",
+  "views.noRendererYet": "Für diesen Typ gibt es noch keine Darstellung — die Ansicht wird gespeichert, aber nicht angezeigt.",
   "views.perPage": "/ Seite",
   "views.publicBadge": "öffentlich",
   "views.rowsPerPage": "Zeilen pro Seite",
