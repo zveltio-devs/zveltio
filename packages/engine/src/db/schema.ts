@@ -11,7 +11,49 @@
  * - User-created collection tables (`zvd_<collection>`) are dynamic and use db/dynamic.ts
  */
 
-import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
+import type { ColumnType, Generated, Insertable, Selectable, Updateable } from 'kysely';
+
+/**
+ * A column PostgreSQL hands back as a **string**, not a number.
+ *
+ * `BIGINT`, `NUMERIC` and `DECIMAL` can hold values an IEEE-754 double cannot
+ * represent, so the wire protocol sends them as text and Bun's driver — which
+ * has no type-parser hook — passes the text straight through. Verified against
+ * PostgreSQL 18 with the engine's own client:
+ *
+ *     c_bigint  typeof=string   9007199254740993
+ *     c_num     typeof=string   1234.56          -- NUMERIC(14,2)
+ *     count(*)  typeof=string   1
+ *
+ * Declaring these `number` was worse than declaring nothing, because it asked
+ * `tsc` to certify arithmetic that does not work:
+ *
+ *     row.size_bytes + 1        // "10241"  — CONCATENATION
+ *     (row.a + row.b) - 1       // NaN
+ *
+ * Only `+` misbehaves. `-`, `*`, `/`, `<` and `>` all coerce and give the right
+ * answer, which is why this survives for months and then surfaces somewhere
+ * unrelated. And once a `NaN` reaches the database, PostgreSQL stores it in a
+ * `NUMERIC` without complaint and compares it as LARGER than every number — so
+ * `WHERE balance > 0` says yes to a poisoned row. That is how the leave module
+ * came to grant unlimited days.
+ *
+ * The select side is `string`, so reading one and doing arithmetic is now a type
+ * error; run it through `toNumber()` from `lib/numeric.js`. The insert/update
+ * sides stay permissive: passing a JS number to PostgreSQL is unambiguous and
+ * always was fine — it is only the read direction that lies.
+ */
+export type PgNumeric = ColumnType<string, number | string, number | string>;
+
+/** {@link PgNumeric} for a nullable column. */
+export type PgNumericNull = ColumnType<
+  string | null,
+  number | string | null,
+  number | string | null
+>;
+
+/** {@link PgNumeric} for a column with a database default. */
+export type PgNumericGenerated = ColumnType<string, number | string | undefined, number | string>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Better-Auth tables
@@ -151,7 +193,7 @@ export interface ZvApiKeysTable {
   description: string | null;
   permissions_mode: string | null;
   casbin_subject: string | null;
-  request_count: Generated<number>; // DEFAULT 0
+  request_count: PgNumericGenerated; // BIGINT DEFAULT 0 — read as string
   last_ip: string | null;
   /** When true (default) this key is not constrained by RLS policies. */
   rls_bypass: Generated<boolean>;
@@ -199,7 +241,7 @@ export interface ZvTenantsTable {
   plan: Generated<'free' | 'pro' | 'enterprise' | 'custom'>;
   status: Generated<'active' | 'suspended' | 'deleted'>;
   max_records: Generated<number>;
-  max_storage_gb: Generated<number>;
+  max_storage_gb: PgNumericGenerated; // NUMERIC — read as string
   max_api_calls_day: Generated<number>;
   max_users: Generated<number>;
   billing_email: string | null;
@@ -223,7 +265,7 @@ export interface ZvTenantUsageTable {
   tenant_id: string;
   date: Generated<Date>; // DEFAULT CURRENT_DATE
   api_calls: Generated<number>; // DEFAULT 0
-  storage_bytes: Generated<number>; // DEFAULT 0
+  storage_bytes: PgNumericGenerated; // BIGINT DEFAULT 0 — read as string
   record_count: Generated<number>; // DEFAULT 0
 }
 
@@ -378,7 +420,7 @@ export interface ZvMediaFilesTable {
   filename: string;
   original_name: string;
   mimetype: string;
-  size: Generated<number>; // BIGINT DEFAULT 0
+  size: PgNumericGenerated; // BIGINT DEFAULT 0 — read as string
   storage_path: string;
   url: string | null; // nullable in migration
   width: number | null;
@@ -424,7 +466,7 @@ export interface ZvMediaVersionsTable {
   file_id: string;
   version_num: number;
   storage_path: string;
-  size_bytes: number;
+  size_bytes: PgNumeric; // BIGINT — read as string
   mime_type: string;
   checksum: string | null;
   uploaded_by: string | null;
@@ -454,8 +496,8 @@ export interface ZvMediaFavoritesTable {
 
 export interface ZvStorageQuotasTable {
   user_id: string;
-  quota_bytes: number;
-  used_bytes: number;
+  quota_bytes: PgNumeric; // BIGINT — read as string
+  used_bytes: PgNumeric; // BIGINT — read as string
   updated_at: Generated<Date>;
 }
 
@@ -480,7 +522,7 @@ export interface ZvImportLogsTable {
 export interface ZvBackupsTable {
   id: Generated<string>;
   filename: string;
-  size_bytes: number | null;
+  size_bytes: PgNumericNull; // BIGINT — read as string
   status: string;
   error: string | null;
   notes: string | null;
@@ -541,7 +583,7 @@ export interface ZvPromptTemplatesTable {
   category: string | null;
   provider: string | null;
   model: string | null;
-  temperature: number | null;
+  temperature: PgNumericNull; // NUMERIC — read as string
   max_tokens: number | null;
   is_active: boolean;
   created_by: string | null;
@@ -693,7 +735,7 @@ export interface ZvRevisionsTable {
 }
 
 export interface ZvRequestLogsTable {
-  id: Generated<number>;
+  id: PgNumericGenerated; // BIGSERIAL — read as string
   method: string;
   path: string;
   status: number;
@@ -1564,7 +1606,7 @@ export interface ZvMailAttachmentsTable {
   message_id: string;
   filename: string;
   mime_type: string;
-  size_bytes: number;
+  size_bytes: PgNumeric; // BIGINT — read as string
   storage_path: string | null;
   content_id: string | null;
   is_inline: boolean;

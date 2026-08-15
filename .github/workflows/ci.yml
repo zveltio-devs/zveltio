@@ -446,6 +446,21 @@ jobs:
           echo "--- Engine logs at smoke test time ---"
           cat /tmp/engine.log || true
           echo "--- End engine logs ---"
+      - name: No `+` on a column PostgreSQL returns as a string
+        # This lane is the one with a migrated database, and the gate needs one:
+        # it reads the BIGINT/NUMERIC column list out of `information_schema`
+        # rather than parsing migrations, then flags JavaScript that adds those
+        # columns without converting first.
+        #
+        # Why it earns a lane of its own: `-`, `*`, `/`, `<` and `>` all coerce
+        # and give the right answer. Only `+` concatenates — and the result is
+        # not a wrong number, it is `NaN`, which PostgreSQL stores in a NUMERIC
+        # without complaint and then compares as LARGER than every number. The
+        # leave module granted unlimited days this way, and the guard that should
+        # have stopped it ran and agreed.
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun run sql:numeric-arith
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
