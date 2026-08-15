@@ -2873,6 +2873,7 @@
   "views.filterPh": "Nézetek szűrése…",
   "views.newView": "Új nézet",
   "views.noMatch": "Nincs a(z) „{q}” kifejezésnek megfelelő nézet",
+  "views.noRendererYet": "Ehhez a típushoz még nincs megjelenítő — a nézet mentésre kerül, de nem jelenik meg.",
   "views.perPage": "/ oldal",
   "views.publicBadge": "nyilvános",
   "views.rowsPerPage": "Sorok oldalanként",

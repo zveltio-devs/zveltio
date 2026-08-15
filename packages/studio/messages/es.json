@@ -2873,6 +2873,7 @@
   "views.filterPh": "Filtrar vistas…",
   "views.newView": "Vista nueva",
   "views.noMatch": "Ninguna vista coincide con «{q}»",
+  "views.noRendererYet": "Todavía no existe un renderizador para este tipo: la vista se guardará pero no se mostrará.",
   "views.perPage": "/ página",
   "views.publicBadge": "pública",
   "views.rowsPerPage": "Filas por página",
