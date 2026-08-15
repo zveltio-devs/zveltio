@@ -179,7 +179,7 @@
     {:else}
       <div class="overflow-x-auto rounded-xl border border-base-300/60 bg-base-100">
         <table class="table table-sm">
-          <thead><tr><th>{m['crm.col.title']()}</th><th>{m['content.page-builder.ui.slug']()}</th><th>{m['common.col.status']()}</th><th></th></tr></thead>
+          <thead><tr><th>{m['content.pageBuilder.col.title']()}</th><th>{m['content.page-builder.ui.slug']()}</th><th>{m['common.col.status']()}</th><th></th></tr></thead>
           <tbody>
             {#each pages as p (p.id)}
               <tr class="hover">
@@ -253,7 +253,7 @@
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body p-4 gap-3">
             <p class="text-xs font-medium text-base-content/70 uppercase tracking-wider">{m['content.page-builder.section.settings']()}</p>
-            <label class="form-control gap-1"><span class="label-text text-xs">{m['crm.col.title']()}</span><input class="input input-sm" bind:value={selected.title} /></label>
+            <label class="form-control gap-1"><span class="label-text text-xs">{m['content.pageBuilder.col.title']()}</span><input class="input input-sm" bind:value={selected.title} /></label>
             <label class="form-control gap-1"><span class="label-text text-xs">{m['content.page-builder.ui.slug']()}</span><input class="input input-sm font-mono" bind:value={selected.slug} /></label>
             <label class="form-control gap-1"><span class="label-text text-xs">{m['content.page-builder.ui.meta_title']()}</span><input class="input input-sm" bind:value={selected.meta_title} /></label>
             <label class="form-control gap-1"><span class="label-text text-xs">{m['content.page-builder.ui.meta_description']()}</span><textarea class="textarea textarea-sm text-xs h-16" bind:value={selected.meta_description}></textarea></label>
@@ -313,7 +313,7 @@
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['content.pageBuilder.newPage']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showNew = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <label class="form-control gap-1"><span class="label-text text-xs">{m['crm.col.title']()}</span>
+        <label class="form-control gap-1"><span class="label-text text-xs">{m['content.pageBuilder.col.title']()}</span>
           <input class="input input-sm" bind:value={form.title} oninput={() => { if (!form.slug) form.slug = slugify(form.title); }} />
         </label>
         <label class="form-control gap-1"><span class="label-text text-xs">{m['content.page-builder.ui.slug']()}</span><input class="input input-sm font-mono" bind:value={form.slug} /></label>

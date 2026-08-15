@@ -46,7 +46,7 @@
     try {
       const res = await api.get(`/ext/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`);
       results = [res.results];
-    } catch (e: any) { searchError = e.message ?? m['ai.error.searchFailed'](); results = []; }
+    } catch (e: any) { searchError = e.message ?? m['search.error.searchFailed'](); results = []; }
     finally { loading = false; }
   }
 
@@ -215,7 +215,7 @@
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['search.ui.configure_search_index']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showConfigModal = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['analytics.quality.ui.collection']()}</span></label>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.collection']()}</span></label>
           <select class="select select-sm" bind:value={configCollection}>
             <option value="">{m['search.ui.select_collection']()}</option>
             {#each collections as col}<option value={col}>{col}</option>{/each}

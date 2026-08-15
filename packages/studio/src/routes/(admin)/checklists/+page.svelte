@@ -193,7 +193,7 @@
         <h4 class="font-semibold text-sm">{m['workflow.checklists.section.new']()}</h4>
         <div class="grid sm:grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">{m['content.document-templates.ui.name']()}</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['workflow.checklists.ui.name']()}</span></label>
             <input type="text" class="input input-sm" placeholder={m['workflow.checklists.ui.e_g_onboarding_checklist']()} bind:value={form.name}/>
           </div>
           <div class="form-control">
