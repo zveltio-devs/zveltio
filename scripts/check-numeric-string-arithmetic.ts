@@ -84,6 +84,19 @@ const PATTERNS: [RegExp, string][] = [
     new RegExp(`\\+=\\s*(?!\\+)[\\w.\\[\\]?]*\\.(${alt})\\b`, 'i'),
     'numeric column accumulated with `+=`',
   ],
+  // A comparison with a NUMBER on one side coerces and is fine — that is why the
+  // audit framed this as a `+`-only problem. With a STRING on BOTH sides it never
+  // does: `"9.0000" >= "10.0000"` is true, lexicographically. `operations/inventory`
+  // compared quantity_received against quantity_ordered that way and stamped a
+  // partially-received purchase order as fully received, closing it so the
+  // shortfall could never be recorded.
+  [
+    new RegExp(
+      `[\\w.\\[\\]?]*\\.(${alt})\\s*(?:>=|<=|>|<)\\s*(?!\\+)[\\w.\\[\\]?]*\\.(${alt})\\b`,
+      'i',
+    ),
+    'two numeric columns compared directly — that is a string comparison',
+  ],
 ];
 /**
  * Is this line inside an SQL template literal?
