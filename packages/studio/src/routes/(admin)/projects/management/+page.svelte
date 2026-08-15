@@ -140,7 +140,7 @@
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_project']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showProjectForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['content.document-templates.ui.name']()}</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.name']()}</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={projectForm.description}></textarea></div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.start_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.start_date} /></div>
@@ -162,17 +162,17 @@
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_task']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showTaskForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.title']()}</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.title']()}</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={taskForm.description}></textarea></div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.status']()}</span></label>
             <select class="select select-sm" bind:value={taskForm.status}>{#each STATUSES as s (s.id)}<option value={s.id}>{s.label}</option>{/each}</select>
           </div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.priority']()}</span></label>
-            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">{m['communications.mail.ui.low']()}</option><option value="medium">{m['projects.helpdesk.ui.medium']()}</option><option value="high">{m['communications.mail.ui.high']()}</option><option value="urgent">{m['projects.helpdesk.ui.urgent']()}</option></select>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.priority']()}</span></label>
+            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">{m['projects.management.ui.low']()}</option><option value="medium">{m['projects.management.ui.medium']()}</option><option value="high">{m['projects.management.ui.high']()}</option><option value="urgent">{m['projects.management.ui.urgent']()}</option></select>
           </div>
         </div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['invoicing.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>{m['common.cancel']()}</button>

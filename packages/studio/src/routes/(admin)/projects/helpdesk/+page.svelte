@@ -120,7 +120,7 @@
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.subject']()}</span></label><input class="input input-sm" bind:value={form.subject} /></div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.requester_email']()}</span></label><input type="email" class="input input-sm" bind:value={form.requester_email} /></div>
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['finance.expenses.col.category']()}</span></label>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.col.category']()}</span></label>
             <select class="select select-sm" bind:value={form.category_id}>
               <option value="">—</option>
               {#each categories as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
@@ -128,7 +128,7 @@
           </div>
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.priority']()}</span></label>
             <select class="select select-sm" bind:value={form.priority}>
-              <option value="low">{m['communications.mail.ui.low']()}</option><option value="medium">{m['projects.helpdesk.ui.medium']()}</option><option value="high">{m['communications.mail.ui.high']()}</option><option value="urgent">{m['projects.helpdesk.ui.urgent']()}</option>
+              <option value="low">{m['projects.helpdesk.ui.low']()}</option><option value="medium">{m['projects.helpdesk.ui.medium']()}</option><option value="high">{m['projects.helpdesk.ui.high']()}</option><option value="urgent">{m['projects.helpdesk.ui.urgent']()}</option>
             </select>
           </div>
         </div>

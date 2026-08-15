@@ -632,7 +632,7 @@
 
     {:else if activeTab === 'drafts'}
       <div class="flex-1 p-6 overflow-y-auto">
-        <h2 class="text-lg font-bold mb-4">{m['invoicing.stat.drafts']()}</h2>
+        <h2 class="text-lg font-bold mb-4">{m['communications.mail.stat.drafts']()}</h2>
         <div class="space-y-2">
           {#each drafts as d}
             <div class="card bg-base-200 shadow-sm">
