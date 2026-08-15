@@ -105,7 +105,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 ### Engine extensions
 - TypeScript modules that mount Hono routes at `/ext/<name>/`, declare migrations, hook pre/post-write triggers, alter queries, gate entity access, run cron jobs.
 - Signed with Ed25519 at publish time and **verified at install**: a missing or invalid signature fails the install. Set `REQUIRE_EXTENSION_SIGNATURES=false` only for a private mirror that does not sign; to trust an additional signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON` instead.
-- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and from there the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, with a minimal environment so engine credentials are not reachable. The trade-off is that a worker-isolated extension cannot contribute engine-side field types, cron schedules or a cleanup hook, since those would require running its code in-process. See `docs/SECURITY.md`.
+- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and from there the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, running as a database role (`zveltio_worker`) that holds no grant at all on the tables Better-Auth owns. Until 3.0.0-beta.61 that restriction was a denylist of table-name prefixes with no rule for unprefixed names, so an extension could read `session` and `account` directly; it is an allowlist now, with the role beneath it as the layer that survives the next mistake in the string matching. Worker isolation is a boundary against accident and a real attacker's first obstacle — it is not a sandbox that has been adversarially tested, and an instance that installs untrusted community code is still trusting the review.
 - The capability policy (`db.read` / `db.write` / `fetch.https` / …) is currently enforced for the WASM host only; JS extensions are governed by the worker/table restrictions above rather than per-capability grants.
 - Optional WASM runtime for strict isolation (Rust / TinyGo / AssemblyScript).
 
@@ -156,17 +156,21 @@ A platform, not a category. Here's where it lands relative to neighbours:
 
 | | **Zveltio** | Salesforce / Monday / HubSpot | Odoo | Supabase / Pocketbase | Retool / Tooljet |
 |---|---|---|---|---|---|
-| **Self-hosted** | ✅ | ❌ SaaS only | ✅ | partial (community) | partial (paid) |
-| **License** | MIT | proprietary | LGPL / proprietary | Apache / MIT | Elastic / proprietary |
-| **Modern stack** | ✅ TS + Bun | N/A | ❌ Python / PHP era | ✅ TS | ✅ TS |
-| **AI-native** | ✅ | partial | ❌ | partial | partial |
-| **Per-seat fee** | ❌ | $30-300 / seat / mo | partial | tier-based | $10-50 / user / mo |
-| **Plugin ecosystem** | ✅ open, growing | ✅ closed marketplace | ✅ ERP-shaped | ❌ | ❌ |
-| **Custom code first-class** | ✅ | platform-only | constrained | ✅ | constrained (low-code) |
-| **GDPR built-in** | ✅ | bolted on | partial | partial | partial |
-| **Total ownership** | ✅ MIT + self-host | ❌ | partial | partial | partial |
+| **Licence** | MIT | proprietary | LGPLv3 (Community) / proprietary (Enterprise) | Apache-2.0 / MIT | Retool proprietary, Tooljet AGPLv3 |
+| **Self-hostable** | ✅ | ❌ | ✅ | ✅ | Retool paid, Tooljet ✅ |
+| **Per-seat fee** | ❌ | ✅ | Enterprise only | ❌ | Retool per builder |
 
-We're closest to **Odoo conceptually** (full business platform with plugins) but rebuilt on a modern stack with AI as a first-class concern, not an afterthought. We're closest to **Salesforce Platform / Microsoft Power Platform** in the "build your business apps on this foundation" sense — but FOSS, self-hosted, and a fraction of the cost.
+*Licence and hosting facts as published by each project, checked August 2026. Everything else — "modern stack", "AI-native", "GDPR built-in" — used to be
+scored in this table and has been removed: those are judgements, they were sourced
+from nobody, and an audit found eight of eleven cells wrong with every single error
+running in our favour. Odoo has never had a line of PHP and ships an AI app; Tooljet
+is AGPLv3 and self-hosts free; Supabase publishes Docker Compose for the full stack.
+A table that only ever errs one way is marketing, not a comparison.*
+
+We're closest to **Odoo conceptually** — a full business platform with plugins —
+rebuilt on TypeScript and Bun, with AI wired into the platform rather than added
+alongside it. What that is worth against any particular alternative is a judgement
+for the person evaluating it, on their own workload.
 
 ---
 
