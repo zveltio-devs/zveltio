@@ -48,7 +48,39 @@ function mapPgType(pgType: string): string {
 // Zveltio/system table prefixes — never import these
 const PLATFORM_PREFIXES = ['zv_', 'zvd_', '_zv_', 'pg_'];
 
-function isPlatformTable(tableName: string): boolean {
+/**
+ * The platform's own tables that carry NO prefix.
+ *
+ * A prefix test alone is a denylist over an open namespace, and the engine's
+ * most sensitive tables are exactly the ones outside it: Better-Auth creates
+ * `user`, `session`, `account`, `verification` and `twoFactor` unprefixed in
+ * `public` (`db/migrations/sql/001_initial.sql`). None matches a prefix, so
+ * importing the default schema registered them as ordinary collections with
+ * `is_managed = false`.
+ *
+ * That is not merely untidy. They then appear in the Studio collection list and
+ * are addressable through the generic record API, which resolves `:collection`
+ * from the URL with no allowlist. Deny-by-default means a grant is needed first
+ * — but the import is what turns "grant the Support role read on a collection"
+ * into one-click disclosure of `account.password` hashes and `session.token`
+ * bearer values, and a write grant on `session` is session forgery.
+ * `is_managed = false` blocks Zveltio's DDL, not its DML.
+ *
+ * Same shape as the worker SQL bridge and the AI text-to-SQL validator, both
+ * fixed by inversion. Inversion is not available here — importing tables nobody
+ * has seen before is the entire point of this feature — so the platform's own
+ * names are enumerated instead, and `introspection-covers-engine-tables.test.ts`
+ * fails if a migration ever adds an unprefixed table that is not in this list.
+ */
+const PLATFORM_TABLES = new Set(['user', 'session', 'account', 'verification', 'twoFactor']);
+
+export function isPlatformTable(tableName: string): boolean {
+  if (PLATFORM_TABLES.has(tableName)) return true;
+  // Case-insensitively too: PostgreSQL folds unquoted identifiers, so a table
+  // created as `TwoFactor` and one created as `twofactor` are the same table,
+  // and `twoFactor` only survives here because 001 quotes it.
+  const lower = tableName.toLowerCase();
+  for (const t of PLATFORM_TABLES) if (t.toLowerCase() === lower) return true;
   return PLATFORM_PREFIXES.some((p) => tableName.startsWith(p));
 }
 
