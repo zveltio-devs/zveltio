@@ -81,7 +81,6 @@ Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for
 | Cloudflare Workers / Lambda | `developer/edge-functions` — sandboxed TypeScript serverless |
 | Contentful / Sanity | `content/page-builder` — block-based CMS with headless API |
 | ChatGPT Teams / Copilot | `ai` — multi-provider, native to your data |
-| AppSheet / Glide | `developer/views` — kanban, calendar, gallery, map layouts |
 
 A typical SME running 10-15 of these subscriptions saves **€2 000-5 000 / month** — without per-seat fees.
 
@@ -125,9 +124,13 @@ Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension pu
 
 ## What you can install today
 
-54 first-party plugins, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
+58 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
 
-**Data & Content** · `collections` (core) · `views` (kanban, calendar, gallery, map) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
+Some capabilities in the table above are the engine itself rather than an
+extension — flows, collections, permissions, storage, realtime — so they are not
+in that 58 and are not counted twice here.
+
+**Data & Content** · `collections` (core) · `views` (list, card, calendar) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
 
 **Customer & Business** · `crm` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking`
 
