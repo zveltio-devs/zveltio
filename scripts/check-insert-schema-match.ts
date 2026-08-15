@@ -237,6 +237,54 @@ function readGroup(src: string, open: number): { body: string; end: number } | n
   return null;
 }
 
+/**
+ * `UPDATE <table> SET a = …, b = …` — the column names it assigns.
+ *
+ * The gate read only INSERTs at first, and `operations/inventory` had a PATCH
+ * assigning `unit_cost`, `unit_price` and `reorder_quantity` on a table whose
+ * columns are `cost_price`, `sale_price` and `reorder_qty` — the API names, used
+ * as column names. Its own create route maps them correctly two screens up.
+ * Every edit of a product answered 500, and the gate ran clean over it.
+ *
+ * Stops at the first keyword that ends the SET list. Qualified assignments like
+ * `zvd_stock_levels.quantity = …` inside an ON CONFLICT clause are skipped: the
+ * table there is not necessarily this statement's target.
+ */
+function findUpdates(src: string): InsertSite[] {
+  const masked = stripSqlComments(maskPlaceholders(sqlTemplateBodies(src)));
+  const sites: InsertSite[] = [];
+  const re = /\bUPDATE\s+(?:ONLY\s+)?(?:public\.)?"?([a-zA-Z_][\w]*)"?\s+SET\s+/gi;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
+  while ((m = re.exec(masked)) !== null) {
+    const table = m[1]!;
+    const rest = masked.slice(m.index + m[0].length);
+    const stop = /\b(?:WHERE|RETURNING|FROM|ON\s+CONFLICT)\b/i.exec(rest);
+    const body = rest.slice(0, stop ? stop.index : Math.min(rest.length, 2000));
+    const columns: string[] = [];
+    const values: string[] = [];
+    for (const part of splitTopLevel(body)) {
+      const a = /^\s*"?([a-zA-Z_][\w]*)"?\s*=\s*([\s\S]*)$/.exec(part);
+      if (!a) continue;
+      columns.push(a[1]!);
+      values.push(a[2]!.trim());
+    }
+    if (columns.length === 0) continue;
+    sites.push({
+      table,
+      columns,
+      // Not an arity check — the lists are the same length by construction. This
+      // carries the assigned values so a literal outside a CHECK domain is caught
+      // on UPDATE too. `status = 'refunded'` on a domain of (open, paid, voided)
+      // is how POS refunds failed, and reading only INSERTs missed it.
+      valueGroups: [values],
+      line: masked.slice(0, m.index).split('\n').length,
+      hasOnConflict: false,
+    });
+  }
+  return sites;
+}
+
 interface InsertSite {
   table: string;
   columns: string[];
@@ -570,7 +618,8 @@ async function main(): Promise<void> {
       for (const file of tsFiles(join(dir, 'engine'))) {
         const rel = `${ext}/${file.slice(dir.length + 1)}`;
         const fileSrc = readFileSync(file, 'utf8');
-        for (const site of findInserts(fileSrc)) {
+        const updateLines = new Set(findUpdates(fileSrc).map((u) => u.line));
+        for (const site of [...findInserts(fileSrc), ...findUpdates(fileSrc)]) {
           insertSites++;
           const table = tables.get(site.table);
           // A table this extension does not own — the engine's, or another
@@ -591,7 +640,7 @@ async function main(): Promise<void> {
 
           if (site.valueGroups) {
             for (const values of site.valueGroups) {
-              if (values.length !== site.columns.length) {
+              if (!updateLines.has(site.line) && values.length !== site.columns.length) {
                 findings.push({
                   ext,
                   file: rel,
@@ -630,9 +679,9 @@ async function main(): Promise<void> {
             }
           }
 
-          // Required columns. `ON CONFLICT … DO UPDATE` is exempt for nothing —
-          // the INSERT still has to be valid — but a column list that omits a
-          // required column is only a defect if the column has no default.
+          // Required columns — an INSERT question only. An UPDATE that does not
+          // mention a NOT NULL column is leaving it alone, which is correct.
+          if (updateLines.has(site.line)) continue;
           const supplied = new Set(site.columns);
           for (const c of table.columns.values()) {
             if (c.nullable || c.hasDefault || c.isGenerated) continue;
