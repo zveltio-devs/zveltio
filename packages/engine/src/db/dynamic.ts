@@ -28,6 +28,28 @@ async function withLockTimeout(
       `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
     );
   }
+  // Already inside a transaction? Set the timeout on it and carry on.
+  //
+  // This used to open a transaction unconditionally, and Kysely refuses a nested
+  // one — "calling the transaction method for a Transaction is not supported".
+  // Three of the five DDL queue handlers hand a transaction handle straight to
+  // `DDLManager`, which calls this, so `add_field`, `remove_field` and
+  // `drop_collection` threw before emitting a single statement. Reproduced with
+  // the engine's own dialect against PostgreSQL 18.
+  //
+  // Nothing noticed because only `create_collection` is ever enqueued today —
+  // the other three paths are wired but unreachable, so the failure waits for
+  // whoever first routes a field change through the queue.
+  //
+  // `SET LOCAL` is transaction-scoped either way, so the caller's transaction
+  // gets exactly the timeout it asked for. Same short-circuit as `runAtomic`
+  // in `lib/data/write-pipeline.ts`, which was written for this reason.
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+    await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(db);
+    await fn(db);
+    return;
+  }
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);

@@ -21,6 +21,20 @@ async function withLockTimeout(
       `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
     );
   }
+  // Same short-circuit as the twin in `db/dynamic.ts`, and for the same reason:
+  // three of the five DDL queue handlers hand a transaction handle to this
+  // manager, and Kysely refuses a nested `.transaction()` outright — "calling
+  // the transaction method for a Transaction is not supported". Those handlers
+  // threw before emitting a statement.
+  //
+  // `SET LOCAL` is transaction-scoped either way, so the caller's transaction
+  // gets the timeout it asked for.
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+    await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(db);
+    await fn(db);
+    return;
+  }
+
   await db.transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);
@@ -186,7 +200,13 @@ export class DDLManager {
   /**
    * Adds a UUID FK column to `tableName` referencing `targetTable(id)` with
    * lock_timeout, then creates a CONCURRENTLY index on it.
-   * Must be called OUTSIDE an open transaction (CONCURRENTLY requires that).
+   *
+   * Must be called OUTSIDE an open transaction — and that is now checked rather
+   * than only written down. `CREATE INDEX CONCURRENTLY` inside a transaction
+   * block raises SQLSTATE 25001 several statements after the mistake, which
+   * reads as a database problem rather than a call in the wrong place. The
+   * comment has been here since the method was written and did not stop the DDL
+   * queue handing this a transaction handle.
    */
   static async applyRelationFK(
     db: Database,
@@ -196,6 +216,13 @@ export class DDLManager {
     onDelete = 'SET NULL',
     onUpdate = 'CASCADE',
   ): Promise<void> {
+    if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+      throw new Error(
+        'DDLManager.applyRelationFK must run on the pool, not inside a transaction: ' +
+          'it issues CREATE INDEX CONCURRENTLY, which PostgreSQL refuses in a ' +
+          'transaction block (SQLSTATE 25001).',
+      );
+    }
     const od = onDelete.toUpperCase();
     const ou = onUpdate.toUpperCase();
     if (!ON_DELETE_SAFE.has(od) || !ON_DELETE_SAFE.has(ou)) {
