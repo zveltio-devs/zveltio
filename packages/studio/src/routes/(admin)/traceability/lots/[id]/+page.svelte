@@ -89,7 +89,7 @@
   {/snippet}
   <div class="p-6 space-y-4 pt-0">
   <div class="flex items-center gap-3 mb-2">
-    <a href="/admin/trace/lots" class="btn btn-ghost btn-sm">{m['workflow.checklists.btn.back']()}</a>
+    <a href="/admin/trace/lots" class="btn btn-ghost btn-sm">{m['operations.traceability.btn.back']()}</a>
   </div>
 
   {#if error}
@@ -143,7 +143,7 @@
         </div>
 
         <div class="card bg-base-200 p-4 space-y-2">
-          <h3 class="font-bold">{m['compliance.ro.procurement.ui.furnizor']()}</h3>
+          <h3 class="font-bold">{m['operations.traceability.ui.furnizor']()}</h3>
           <div>{lot.supplier_name ?? 'N/A'}</div>
           {#if lot.supplier_cui}
             <div><span class="text-sm opacity-60">{m['operations.traceability.lot.label.cui']()}</span> {lot.supplier_cui}</div>

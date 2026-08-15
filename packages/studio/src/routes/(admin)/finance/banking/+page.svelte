@@ -137,7 +137,7 @@
                 <th>{m['common.col.name']()}</th>
                 <th>{m['common.col.bank']()}</th>
                 <th>{m['common.col.iban']()}</th>
-                <th>{m['crm.form.currency']()}</th>
+                <th>{m['finance.banking.form.currency']()}</th>
                 <th class="text-right">{m['common.col.balance']()}</th>
               </tr>
             </thead>
@@ -265,7 +265,7 @@
           <input class="input input-sm font-mono" bind:value={form.iban} />
         </div>
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">{m['crm.form.currency']()}</span></label>
+          <label class="label py-0"><span class="label-text text-xs">{m['finance.banking.form.currency']()}</span></label>
           <input class="input input-sm" bind:value={form.currency} maxlength={3} />
         </div>
         <div class="form-control">
