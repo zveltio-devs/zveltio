@@ -446,6 +446,32 @@ jobs:
           echo "--- Engine logs at smoke test time ---"
           cat /tmp/engine.log || true
           echo "--- End engine logs ---"
+      - name: Extensions can write the rows they claim to
+        # THE seam. Ten extensions were examined between their code and their own
+        # migrations and NINE had a defect that stopped or corrupted their primary
+        # function: POS could not record a sale, banking could not import a
+        # statement, subscriptions could not create a subscriber or issue an
+        # invoice. Every one was an INSERT naming a column that does not exist,
+        # omitting a NOT NULL column with no default, counting values wrong, or
+        # writing a literal outside a CHECK.
+        #
+        # Nothing stood here before. TypeScript cannot — these are strings. The
+        # tests could not — they run against mocks or an already-shaped database.
+        # This builds the engine schema once, clones it per extension, applies
+        # that extension's real migrations, and asks `information_schema` whether
+        # each INSERT is possible. 54 extensions in about twelve seconds.
+        #
+        # Proved by reintroducing C-3 (POS): both halves are reported.
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          if [ -d ../zveltio-extensions ]; then
+            bun run ext:seam
+          else
+            echo "zveltio-extensions not checked out — skipping"
+          fi
       - name: No `+` on a column PostgreSQL returns as a string
         # This lane is the one with a migrated database, and the gate needs one:
         # it reads the BIGINT/NUMERIC column list out of `information_schema`

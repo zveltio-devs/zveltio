@@ -173,10 +173,10 @@ export async function isPathInsideBase(base: string, target: string): Promise<bo
 /**
  * Parsed SQL migration with separated UP / DOWN sections.
  *
- * The DOWN section starts at the first line that matches `-- DOWN` (case
- * insensitive). Everything before the marker is UP; everything after the
- * marker line is DOWN. If the marker is absent, the whole file is UP and
- * DOWN is null.
+ * The DOWN section starts at the first line that is EXACTLY `-- DOWN` (case
+ * insensitive, trailing whitespace allowed). Everything before the marker is
+ * UP; everything after the marker line is DOWN. If the marker is absent, the
+ * whole file is UP and DOWN is null.
  */
 export interface ParsedMigration {
   up: string;
@@ -184,7 +184,22 @@ export interface ParsedMigration {
 }
 
 export function parseMigrationSql(raw: string): ParsedMigration {
-  const downIdx = raw.search(/^--\s*DOWN\b/im);
+  // `\s*$`, not `\b`. This used to accept any line STARTING with `-- DOWN`, so
+  // a comment like
+  //
+  //     -- DOWN: manual rollback required
+  //
+  // ended the UP section there and silently discarded every statement after
+  // it — the extension installs, reports success, and has half a schema. The
+  // engine's own runner (`db/migrations/index.ts:213`) has always used the
+  // anchored form; the two parsers disagreeing about one marker is the whole
+  // defect.
+  //
+  // Not hypothetical phrasing: the engine's `001_initial.sql:1207` contains
+  // exactly that line, and running these two rules over it gives a schema of
+  // 61 tables under one and 113 under the other. No extension uses the loose
+  // form today, which is why nothing has broken yet.
+  const downIdx = raw.search(/^--\s*DOWN\s*$/im);
   if (downIdx < 0) {
     return { up: raw.trim(), down: null };
   }
