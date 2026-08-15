@@ -19,6 +19,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { tenantMiddleware } from '../../middleware/tenant.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
@@ -55,7 +56,10 @@ import type { ExtensionLoader } from './extension-loader.js';
  */
 export type HonoRouteFn = (
   path: string,
-  handler: (c: Context) => Response | Promise<Response>,
+  // Hono accepts any number of middlewares before the handler; public routes are
+  // mounted with `tenantMiddleware` in front of theirs.
+  // biome-ignore lint/suspicious/noExplicitAny: Hono's variadic handler signature
+  ...handlers: any[]
 ) => unknown;
 
 // ── Extension table access helpers ───────────────────────────────────────────
@@ -411,7 +415,30 @@ export function buildRestrictedContext(
         return;
       }
       try {
-        fn.call(app, spec.path, spec.handler);
+        // Behind `tenantMiddleware`, like `/api/*` and `/ext/*`.
+        //
+        // A public route is outside both prefixes by design — an IdP wants
+        // `/scim/v2/Users`, not `/ext/auth/scim/...` — and that meant it ran with
+        // NO tenant context at all: `ctx.db` falls through to the global pool
+        // with `zveltio.current_tenant` unset, and the SCIM tables carry FORCE
+        // ROW LEVEL SECURITY. With the GUC unset the policy resolves to the
+        // default tenant, so on a correctly-configured (non-superuser) engine
+        // role every non-default tenant's SCIM token lookup returned zero rows
+        // and answered `401 Invalid bearer token`, permanently and with no
+        // diagnostic. On a superuser role the policies were skipped and RLS
+        // provided no second layer at all.
+        //
+        // "Public" here has only ever meant "outside the /ext namespace" and
+        // "no session required" — it was never meant to mean "no tenant". When
+        // the request cannot name a tenant the middleware falls through exactly
+        // as before, so a genuinely tenant-less public route is unaffected.
+        //
+        // This does not by itself make multi-tenant SCIM work: the bearer token
+        // IS the tenant identity, so the token lookup has to happen before a
+        // tenant can be resolved from the request. That is the extension's
+        // question to answer; this is the engine no longer removing the context
+        // when the request does carry one (per-tenant hostname, x-tenant-slug).
+        fn.call(app, spec.path, tenantMiddleware, spec.handler);
         if (logPublicRoute) {
           console.log(
             `🛣️  Extension "${extName}" registered public route: ${spec.method} ${spec.path}`,
