@@ -9,6 +9,7 @@
 import 'reflect-metadata';
 
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { logger } from 'hono/logger';
 import { sql } from 'kysely';
 import { cors } from 'hono/cors';
@@ -63,6 +64,25 @@ import {
 import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
+
+/**
+ * `/api/thing/` should reach `/api/thing`.
+ *
+ * Hono matches paths exactly, so a trailing slash produced a 404 on every route
+ * in the product — `/ext/crm/contacts` 200, `/ext/crm/contacts/` 404. Uniform,
+ * and uniformly misleading: it reads as a missing route rather than a spelling.
+ *
+ * 308 preserves the method and body, so a POST stays a POST. A 301 would turn it
+ * into a GET and answer 405 to a caller who did nothing wrong.
+ */
+const trailingSlashRedirect: MiddlewareHandler = async (c, next) => {
+  const url = new URL(c.req.url);
+  if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    if (url.pathname !== '') return c.redirect(url.toString(), 308);
+  }
+  await next();
+};
 
 // ─── Mutable app reference for hot-reload ────────────────────────────────────
 // The fetch handler passed to Bun.serve() is a stable closure that always
@@ -496,6 +516,22 @@ async function buildHonoApp(): Promise<Hono> {
   const app = new Hono();
 
   // ── Middleware (identical to original bootstrap) ──────────────────────────
+  //
+  // A trailing slash used to 404 on every route in the product, uniformly:
+  // `/ext/crm/contacts` answered 200 and `/ext/crm/contacts/` answered 404, and
+  // the same on `/api/users`. Consistent, and consistently surprising — an
+  // auditor first read it as six extensions whose create route was unreachable,
+  // which is exactly the wrong conclusion it invites.
+  //
+  // 308 rather than 301: it preserves the method and the body, so a POST to
+  // `/plans/` still arrives as a POST. A 301 would turn it into a GET and the
+  // caller would see a confusing 405 instead of their created row.
+  //
+  // Only for API surfaces, and never for the bare root. `/admin/` and the studio
+  // asset paths are served by their own handlers where a trailing slash is
+  // meaningful, and rewriting those would break the Studio.
+  app.use('/api/*', trailingSlashRedirect);
+  app.use('/ext/*', trailingSlashRedirect);
   app.use('*', logger());
   // Unified error envelope (H-13): thrown errors → problem+json; and every
   // non-2xx a route RETURNS under /api|/ext gets rewrapped into the envelope.
