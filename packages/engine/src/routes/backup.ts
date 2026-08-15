@@ -7,7 +7,7 @@ import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenanc
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
-import { toNumber, toNumberSafe } from '../lib/numeric.js';
+import { toNumber, toNumberOrNull, toNumberSafe } from '../lib/numeric.js';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
 
@@ -753,13 +753,14 @@ export function backupRoutes(db: Database, auth: any): Hono {
   router.post('/integrity/:id', async (c) => {
     const id = c.req.param('id');
 
-    const backup = await sql<{ filename: string; status: string; size_bytes: number | null }>`
+    const backup = await sql<{ filename: string; status: string; size_bytes: string | null }>`
       SELECT filename, status, size_bytes FROM zv_backups WHERE id = ${id}
     `.execute(db);
 
     if (!backup.rows[0]) return c.json({ error: 'Backup not found' }, 404);
 
-    const { filename } = backup.rows[0];
+    const recorded = backup.rows[0];
+    const { filename } = recorded;
 
     // Prevent path traversal
     if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
@@ -786,9 +787,62 @@ export function backupRoutes(db: Database, auth: any): Hono {
       }
 
       actualSize = bunFile.size;
-      const buffer = await bunFile.arrayBuffer();
-      checksumHex = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
-      isValid = true;
+
+      // Hash in chunks instead of `await bunFile.arrayBuffer()`. A backup is the
+      // largest file this product produces, and that line materialised it in the
+      // JS heap on a request handler, then copied it again into a Buffer — two
+      // full copies of the database in memory at once.
+      const hasher = createHash('sha256');
+      const reader = bunFile.stream().getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        hasher.update(value);
+      }
+      checksumHex = hasher.digest('hex');
+
+      // `isValid = true` used to sit here unconditionally, so the only thing that
+      // could make it false was the file being absent or unreadable. That is not
+      // an integrity check: a truncated dump, a half-written file from a crashed
+      // pg_dump, or a backup quietly replaced on disk all reported
+      // `is_valid: true`. This flag is the product's answer to "is my backup
+      // restorable", and it was answering "did the file open".
+      //
+      // Three comparisons, all against what the system already recorded.
+      const problems: string[] = [];
+
+      if (recorded.status !== 'completed') {
+        problems.push(`backup status is "${recorded.status}", not "completed"`);
+      }
+
+      const expectedSize = toNumberOrNull(recorded.size_bytes);
+      if (expectedSize === null) {
+        problems.push('no size was recorded for this backup, so it cannot be verified');
+      } else if (expectedSize !== actualSize) {
+        problems.push(
+          `size is ${actualSize} bytes, recorded as ${expectedSize} — the file changed after it was written`,
+        );
+      }
+
+      // A checksum from an earlier passing check is the strongest evidence
+      // available: if it differs, the bytes changed after that check passed. The
+      // first check has nothing to compare against and sets the baseline.
+      const prior = await sql<{ checksum_md5: string | null }>`
+        SELECT checksum_md5 FROM zv_backup_integrity_checks
+        WHERE backup_id = ${id} AND is_valid = true AND checksum_md5 IS NOT NULL
+        ORDER BY checked_at DESC LIMIT 1
+      `.execute(db);
+      const priorChecksum = prior.rows[0]?.checksum_md5 ?? null;
+      // Length separates legacy MD5 rows (32 chars) from SHA-256 (64). An old
+      // MD5 cannot be compared against a SHA-256 and is not a mismatch.
+      if (priorChecksum && priorChecksum.length === 64 && priorChecksum !== checksumHex) {
+        problems.push(
+          'checksum differs from the last successful check — the file has been modified',
+        );
+      }
+
+      isValid = problems.length === 0;
+      if (!isValid) errorMsg = problems.join('; ');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       errorMsg = err.message;
