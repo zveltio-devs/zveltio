@@ -108,10 +108,29 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_tags',
     'zv_media_file_tags',
   ],
-  'content/page-builder': ['zv_pages'],
-  // Zones/views left the engine with the headless split; the extension owns
-  // these four and needs its own tables allowed through the worker SQL policy.
-  'content/portals': ['zvd_zones', 'zvd_pages', 'zvd_views', 'zvd_page_views'],
+  // The merge of page-builder and portals. `zv_page*` is not the extension's
+  // own `zv_content_pages_*` namespace, so every one of these has to be named
+  // here or the table guard refuses the query.
+  //
+  // `zvd_zones/pages/views/page_views` stay listed even though nothing reads
+  // them any more: the data migration in 001_initial.sql does, and it runs on
+  // the first boot after the upgrade.
+  'content/pages': [
+    'zv_pages',
+    'zv_page_sites',
+    'zv_page_block_types',
+    'zv_page_revisions',
+    'zv_page_seo_scores',
+    'zv_page_ab_variants',
+    'zv_page_metrics',
+    'zv_page_redirects',
+    'zv_page_sitemap_config',
+    'zv_page_menus',
+    'zvd_zones',
+    'zvd_pages',
+    'zvd_views',
+    'zvd_page_views',
+  ],
   // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
   // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
   // DEV-EF-1). This extension is the administration surface the Studio actually

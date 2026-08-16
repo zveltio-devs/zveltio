@@ -77,7 +77,7 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 // ── Extension routes (registered by extension on load) ───────────────────────
 // /api/mail             → extensions/communications/mail
 // /api/cloud + /share   → extensions/storage/cloud
-// /api/pages            → extensions/content/page-builder
+// /api/pages            → extensions/content/pages
 // /api/document-templates → extensions/content/document-templates
 // /api/documents        → extensions/content/documents
 // /api/approvals        → extensions/workflow/approvals

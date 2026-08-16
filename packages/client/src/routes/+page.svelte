@@ -27,7 +27,7 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
 </svelte:head>
 
 {#if homepage?.page}
-  <BlockRenderer blocks={homepage.blocks} />
+  <BlockRenderer blocks={homepage.blocks} blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />
 {:else}
 <!-- Default `/`: the login landing (app/intranet-first). A published page-builder
      homepage would override this; none here, so login is the intended entry. -->

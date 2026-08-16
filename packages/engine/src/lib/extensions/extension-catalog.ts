@@ -287,14 +287,20 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     permissions: ['database', 'storage'],
   },
   {
-    name: 'content/page-builder',
-    displayName: 'Page Builder',
+    // The merge of `content/page-builder` and `content/portals`, which were two
+    // halves of one product: blocks, SEO and revisions on one side; sites,
+    // branding, base paths and access roles on the other; and a single genuine
+    // overlap — "show rows of a collection" — spelled `collection_list` in one
+    // and a view in the other. Both predecessors were deleted in the commit that
+    // introduced this, so no install can end up running two of them.
+    name: 'content/pages',
+    displayName: 'Pages',
     description:
-      'Visual CMS page builder with drag-and-drop sections, blocks, SEO fields, and live preview',
+      'Pages built from blocks — content or live collection data — grouped into sites: a public website with SEO and a sitemap, or an authenticated portal with its own branding and access roles',
     category: 'content',
     version: '1.0.0',
     author: 'Zveltio',
-    tags: ['cms', 'pages', 'content'],
+    tags: ['cms', 'pages', 'content', 'portals', 'sites'],
     permissions: ['database', 'storage'],
   },
   {
@@ -415,21 +421,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['validation', 'rules', 'ai'],
-    permissions: ['database'],
-  },
-  {
-    // Was `developer/views`, and was half a feature: the renderers were in that
-    // extension while the tables, the API and a second Studio page were in the
-    // engine. Zones and views are one thing — `zvd_page_views` joins them with a
-    // foreign key — so they moved out together when the engine became headless.
-    name: 'content/portals',
-    displayName: 'Portals (Zones)',
-    description:
-      'Authenticated portals: a base path, its own navigation and branding, access by role, and pages composed of saved views over your collections',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['portals', 'zones', 'views', 'intranet'],
     permissions: ['database'],
   },
   {

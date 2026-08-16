@@ -1,65 +1,30 @@
 <!--
-  Block registry — the reference host's renderer for the page-builder public
-  contract (ADR 0001). A page is `blocks: [{ type, content }]`; this maps each
-  `type` to markup. Types mirror the live Studio editor's vocabulary
-  (heading/text/image/button/divider/html). Unknown types degrade to a visible
-  placeholder, never a crash — that is the contract's forward-compat rule.
+  The reference host's block renderer — now a delegation, not an implementation.
 
-  `html`/`text` render authored HTML with {@html}. That content is authored by
-  admins through the page builder (a trusted, permissioned surface), the same
-  trust boundary as any CMS theme — but it is still sanitized with `safeHtml()`
-  (DOMPurify) before rendering, so injected script markup can never execute in a
-  visitor's browser.
+  This file used to draw the blocks itself, against the vocabulary of a Studio
+  editor that was replaced in April 2026 and accidentally restored in May. The
+  extension that DEFINES the blocks kept evolving; this copy did not, and nothing
+  connected the two, so they ended up sharing two block types out of twelve. A
+  page built from the full library rendered as ten "Unsupported block"
+  placeholders and one `<hr>` — and `image` drew nothing at all, because the
+  builder writes `content.url` and this file read `content.src`.
+
+  Per the owner's rule — everything belonging to an extension lives in the
+  extension — the renderer is now `content/pages/client/BlockRenderer.svelte`,
+  and `scripts/sync-extension-clients.ts` copies it here at build time. The copy
+  under `$lib/ext/` is GENERATED and committed, exactly like the Studio's
+  extension routes: a release build with no extensions checked out keeps the
+  committed snapshot rather than overwriting it with nothing.
+
+  Keeping this wrapper rather than importing the generated file everywhere means
+  the host still has one name for "draw a page", and the swap stays invisible to
+  callers and to this directory's tests.
 -->
 <script lang="ts">
-import { safeHtml } from '$lib/sanitize';
+import ExtensionBlockRenderer from '$lib/ext/content/pages/BlockRenderer.svelte';
 
 // biome-ignore lint/suspicious/noExplicitAny: contract blocks are untyped JSON
-let { blocks = [] as any[] } = $props();
-
-function headingTag(level: unknown): 'h1' | 'h2' | 'h3' | 'h4' {
-  const n = Number(level);
-  return (['h1', 'h1', 'h2', 'h3', 'h4'][n] ?? 'h2') as 'h1' | 'h2' | 'h3' | 'h4';
-}
-const BTN: Record<string, string> = {
-  primary: 'btn btn-primary',
-  secondary: 'btn btn-secondary',
-  ghost: 'btn btn-ghost',
-  link: 'btn btn-link',
-};
+let { blocks = [] as any[], blocksBaseUrl = '' } = $props();
 </script>
 
-<div class="mx-auto max-w-3xl px-4 sm:px-6 py-10 space-y-6">
-  {#each blocks as block (block)}
-    {@const c = block.content ?? {}}
-    {#if block.type === 'heading'}
-      <svelte:element this={headingTag(c.level)} class="font-bold tracking-tight
-        {c.level === 1 ? 'text-4xl sm:text-5xl' : c.level === 2 ? 'text-3xl' : 'text-2xl'}">
-        {c.text ?? ''}
-      </svelte:element>
-    {:else if block.type === 'text'}
-      <!-- authored HTML from the page builder -->
-      <div class="prose max-w-none">{@html safeHtml(c.html)}</div>
-    {:else if block.type === 'image'}
-      {#if c.src}
-        <img src={c.src} alt={c.alt ?? ''} style={c.width ? `width:${c.width}` : undefined}
-          class="rounded-lg max-w-full h-auto" />
-      {/if}
-    {:else if block.type === 'button'}
-      <div>
-        <a href={c.href ?? '#'} class={BTN[c.variant as string] ?? 'btn btn-primary'}>
-          {c.label ?? 'Button'}
-        </a>
-      </div>
-    {:else if block.type === 'divider'}
-      <hr class="border-base-300" />
-    {:else if block.type === 'html'}
-      <!-- authored raw HTML from the page builder -->
-      <div>{@html safeHtml(c.code)}</div>
-    {:else}
-      <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm opacity-50">
-        Unsupported block: {block.type}
-      </div>
-    {/if}
-  {/each}
-</div>
+<ExtensionBlockRenderer {blocks} {blocksBaseUrl} />
