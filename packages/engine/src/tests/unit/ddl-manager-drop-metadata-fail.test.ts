@@ -46,7 +46,13 @@ describe('DDLManager.dropCollection — metadata edge cases', () => {
     expect(db.executed(/DROP TABLE IF EXISTS zvd_notes CASCADE/)).toHaveLength(1);
   });
 
-  it('warns when relation metadata delete fails but still drops the table', async () => {
+  /**
+   * This asserted "warns but still drops", and that was the defect. Warning past
+   * the metadata delete leaves `zvd_relations` rows pointing at a collection that
+   * no longer exists — ghost relations in the schema view — and the row that
+   * would have told an operator what happened is the row that failed to write.
+   */
+  it('refuses rather than dropping the table and leaving orphan relation metadata', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const db = setup(['zvd_notes']);
@@ -57,11 +63,15 @@ describe('DDLManager.dropCollection — metadata edge cases', () => {
       );
       db.fail(/delete from "zvd_relations"/, new Error('permission denied'));
 
-      await DDLManager.dropCollection(asDb(db), 'notes');
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('relation metadata cleanup'))).toBe(
-        true,
+      await expect(DDLManager.dropCollection(asDb(db), 'notes')).rejects.toThrow(
+        /permission denied/,
       );
+      // The table IS already dropped here — the metadata delete runs after it —
+      // so the throw is what stops `zvd_collections` from being deleted too,
+      // leaving a row that says the collection still exists and an operator who
+      // can see something went wrong.
       expect(db.executed(/DROP TABLE IF EXISTS zvd_notes CASCADE/)).toHaveLength(1);
+      expect(db.executed(/delete from "zvd_collections"/i)).toHaveLength(0);
     } finally {
       warn.mockRestore();
     }

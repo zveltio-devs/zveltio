@@ -100,7 +100,39 @@ export async function processInput(
 
   for (const field of fields) {
     const typeDef = fieldTypeRegistry.get(field.type);
-    if (!typeDef || typeDef.db.virtual) continue;
+
+    // A field type the registry cannot resolve is an ERROR, not a skip.
+    //
+    // This was `if (!typeDef || ...) continue`, which meant the field was never
+    // validated and never copied into `processed` — so the value the caller sent
+    // was dropped on the floor and the write returned 201 as though it had been
+    // stored. Reading the record back showed the column empty, with nothing
+    // anywhere saying why.
+    //
+    // It matters more than a typo would, because extensions REGISTER field
+    // types. Disable the extension that owns a type, or load it after the first
+    // write, and every column of that type silently stops accepting data on a
+    // collection that still declares it. Nothing distinguishes that from a user
+    // who left the field blank.
+    //
+    // A virtual field is a different statement: it is declared as having no
+    // column, so skipping it is correct.
+    if (!typeDef) {
+      // Only when something is actually at stake: the caller sent a value for
+      // this field (which would otherwise be silently dropped), or the field is
+      // required on a full write and we cannot enforce a constraint we cannot
+      // resolve. A PATCH that never mentions the field is not harmed by it, and
+      // failing those would make one broken type break every update on the
+      // collection.
+      const sent = data[field.name] !== undefined;
+      if (sent || (!partial && field.required)) {
+        errors.push(
+          `${field.name}: unknown field type "${field.type}" — the extension that provides it may not be enabled`,
+        );
+      }
+      continue;
+    }
+    if (typeDef.db.virtual) continue;
 
     const value = data[field.name];
 
