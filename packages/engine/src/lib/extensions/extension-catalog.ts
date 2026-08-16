@@ -418,15 +418,19 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     permissions: ['database'],
   },
   {
-    name: 'developer/views',
-    displayName: 'Alternative Views',
+    // Was `developer/views`, and was half a feature: the renderers were in that
+    // extension while the tables, the API and a second Studio page were in the
+    // engine. Zones and views are one thing — `zvd_page_views` joins them with a
+    // foreign key — so they moved out together when the engine became headless.
+    name: 'content/portals',
+    displayName: 'Portals (Zones)',
     description:
-      'Calendar, Card, and List views for collection data — installable alongside the default Table view',
-    category: 'developer',
+      'Authenticated portals: a base path, its own navigation and branding, access by role, and pages composed of saved views over your collections',
+    category: 'content',
     version: '1.0.0',
     author: 'Zveltio',
-    tags: ['views', 'calendar', 'kanban', 'list'],
-    permissions: [],
+    tags: ['portals', 'zones', 'views', 'intranet'],
+    permissions: ['database'],
   },
   {
     name: 'search',
