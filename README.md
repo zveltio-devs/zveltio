@@ -23,7 +23,7 @@ Zveltio is a self-hosted foundation for building business applications. It bundl
 
 Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
 
-> 🟢 **Beta (3.0.0-beta.32)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
+> 🟢 **Beta (3.0.0-beta.60)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
 
 ```bash
 curl -fsSL https://get.zveltio.com/install.sh | bash
@@ -322,7 +322,7 @@ Do not fix it with a blanket `ALTER ROLE … NOSUPERUSER`; that breaks
 
 ## Beta caveats
 
-Honest about where we are: **3.0.0-beta.32** as of the latest release.
+Honest about where we are: **3.0.0-beta.60** as of the latest release — `packages/engine/package.json` is the source of truth if this line has drifted again.
 
 > **Why 3.x while still beta?** Early in the project a few npm packages were
 > mis-published at `2.0.x` (those version numbers can never be reused). The
@@ -351,7 +351,7 @@ Honest about where we are: **3.0.0-beta.32** as of the latest release.
 
 **Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. We test on every commit (399 unit + 148 integration tests in CI).
 
-**Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 3.0.0-beta.32`. Full policy: [docs/ALPHA-TRACK-EOL.md](docs/ALPHA-TRACK-EOL.md).
+**Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 3.0.0-beta.60`. Full policy: [docs/ALPHA-TRACK-EOL.md](docs/ALPHA-TRACK-EOL.md).
 
 **Migration from alpha**: see [docs/MIGRATION-ALPHA-TO-BETA.md](docs/MIGRATION-ALPHA-TO-BETA.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
 
