@@ -86,11 +86,19 @@ async function detectMissingData(
 ): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
 
+  // No `.catch(() => ({ rows: [{ total: '0' }] }))` here any more.
+  //
+  // That fabricated a zero, and the very next line returns early on zero — so a
+  // table this could not count reported a clean bill of health. The one input
+  // that gates the entire missing-data detector was also the one input allowed
+  // to fail silently, and the answer it produced on failure was indistinguishable
+  // from "we looked and everything is fine".
+  //
+  // A scan that could not run must say so. The caller decides what to do with a
+  // failed scan; it must not be handed a passing one.
   const totalResult = await sql<{ total: string }>`
     SELECT COUNT(*)::text AS total FROM ${sql.id(tableName)}
-  `
-    .execute(db)
-    .catch(() => ({ rows: [{ total: '0' }] }));
+  `.execute(db);
   const totalCount = parseInt(totalResult.rows[0]?.total || '0');
   if (totalCount === 0) return issues;
 

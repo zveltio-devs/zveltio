@@ -27,6 +27,7 @@
     "ext:i18n-ownership": "bun run scripts/check-extension-i18n-ownership.ts",
     "ext:raw-sql": "bun run scripts/check-raw-sql-identifiers.ts",
     "sql:backticks": "bun run scripts/check-sql-template-backticks.ts",
+    "catch:fabricated": "bun run scripts/check-fabricated-success.ts",
     "sql:numeric-arith": "bun run scripts/check-numeric-string-arithmetic.ts",
     "ext:seam": "bun run scripts/check-insert-schema-match.ts",
     "lint:fix": "biome lint --write",
