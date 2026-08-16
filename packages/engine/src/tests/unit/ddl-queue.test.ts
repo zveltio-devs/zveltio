@@ -57,7 +57,7 @@ describe('mapJobToPublic', () => {
     ];
     for (const [state, status] of cases) {
       const out = mapJobToPublic(
-        { id: 'j1', data: { x: 1 }, state, createdon: '2026-07-09T00:00:00Z' },
+        { id: 'j1', data: { x: 1 }, state, createdOn: '2026-07-09T00:00:00Z' },
         'add_field',
       );
       expect(String(out.status)).toBe(status);
@@ -73,9 +73,9 @@ describe('mapJobToPublic', () => {
         startedOn: '2026-07-09T01:00:00Z',
         completedOn: '2026-07-09T01:05:00Z',
         output: { message: 'boom' },
-        retrycount: 2,
-        retrylimit: 5,
-        createdon: '2026-07-09T00:00:00Z',
+        retryCount: 2,
+        retryLimit: 5,
+        createdOn: '2026-07-09T00:00:00Z',
       },
       'create_collection',
     );
@@ -92,7 +92,7 @@ describe('mapJobToPublic', () => {
         id: 'j3',
         state: 'failed',
         output: 'plain string error',
-        createdon: '2026-07-09T00:00:00Z',
+        createdOn: '2026-07-09T00:00:00Z',
       },
       'add_field',
     );
@@ -200,15 +200,37 @@ describe('runCreateRelation (m2o / m2m DDL emitter)', () => {
     expect(create.sql).toContain('tags_id UUID REFERENCES zvd_tags(id) ON DELETE CASCADE');
   });
 
-  it('m2m with an unsafe junction name emits nothing', async () => {
+  /**
+   * This used to assert `emits nothing`, and that was the defect: the m2m branch
+   * wrapped its whole body in `if (valid)` with no else, so an unsafe junction
+   * name created nothing and the job still reported `completed`. The m2o branch
+   * beside it threw. Two branches of one function, opposite postures.
+   *
+   * A DDL job saying `completed` is the only signal anyone has that the schema
+   * changed. Saying it after doing nothing is worse than failing.
+   */
+  it('m2m with an unsafe junction name refuses, rather than completing silently', async () => {
     const db = new CannedDb();
-    await runCreateRelation(asDb(db), {
-      type: 'm2m',
-      source_collection: 'notes',
-      target_collection: 'tags',
-      junction_table: 'bad name',
-    });
+    await expect(
+      runCreateRelation(asDb(db), {
+        type: 'm2m',
+        source_collection: 'notes',
+        target_collection: 'tags',
+        junction_table: 'bad name',
+      }),
+    ).rejects.toThrow(/Invalid identifier/);
     expect(db.log).toHaveLength(0);
+  });
+
+  it('refuses a relation type nobody implemented instead of reporting success', async () => {
+    const db = new CannedDb();
+    await expect(
+      runCreateRelation(asDb(db), {
+        type: 'quantum',
+        source_collection: 'a',
+        target_collection: 'b',
+      }),
+    ).rejects.toThrow(/unsupported relation type/);
   });
 });
 
@@ -230,13 +252,18 @@ describe('runDropRelation', () => {
     expect(db2.executed(/DROP TABLE IF EXISTS zvd_jnc_notes_tags CASCADE/)).toHaveLength(1);
   });
 
-  it('emits nothing for unsafe identifiers', async () => {
+  // Same reasoning as create. A drop that could not run must not report success:
+  // it would leave the column or junction table in place while every record of
+  // the relation was removed.
+  it('refuses unsafe identifiers, rather than dropping nothing and completing', async () => {
     const db = new CannedDb();
-    await runDropRelation(asDb(db), {
-      type: 'm2o',
-      source_collection: 'books; DROP',
-      source_field: 'author',
-    });
+    await expect(
+      runDropRelation(asDb(db), {
+        type: 'm2o',
+        source_collection: 'books; DROP',
+        source_field: 'author',
+      }),
+    ).rejects.toThrow(/Invalid identifier/);
     expect(db.log).toHaveLength(0);
   });
 });

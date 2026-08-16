@@ -665,11 +665,17 @@ export class DDLManager {
         eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
       )
       .where('type', '=', 'm2m')
-      .execute()
-      .catch((err: Error) => {
-        console.warn(`[ddl-manager] m2m relations lookup failed for ${name}: ${err.message}`);
-        return [];
-      });
+      .execute();
+    // No `.catch(() => [])` here.
+    //
+    // That turned "I could not find out which junction tables exist" into "there
+    // are none", and the code below then dropped the collection and DELETEd every
+    // `zvd_relations` row for it — destroying the only record of where those
+    // junction tables were. The tables stay on disk, holding rows, referenced by
+    // nothing, and no query can now tell you they belong to a collection that is
+    // gone. Undoing that means reading table names by hand.
+    //
+    // A drop that cannot enumerate what it is dropping must not proceed.
 
     for (const rel of m2mRelations) {
       // Use stored junction_table name if available; fall back to legacy naming
@@ -679,7 +685,13 @@ export class DDLManager {
         await withLockTimeout(db, async (trx) => {
           await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
         }).catch((err: Error) => {
-          console.warn(`[ddl-manager] DROP TABLE ${junctionName} failed: ${err.message}`);
+          // Rethrown, not warned past. Continuing here left the junction table
+          // in place and then deleted the relation rows that named it, which is
+          // the same orphan by a different route.
+          throw new Error(
+            `Cannot drop collection "${name}": its junction table ${junctionName} could not be ` +
+              `dropped (${err.message}). Nothing has been deleted.`,
+          );
         });
       }
     }
@@ -697,10 +709,11 @@ export class DDLManager {
       .where((eb: any) =>
         eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
       )
-      .execute()
-      .catch((err: Error) => {
-        console.warn(`[ddl-manager] relation metadata cleanup for ${name} failed: ${err.message}`);
-      });
+      .execute();
+    // Also no `.catch`. Warning past this leaves `zvd_relations` rows pointing at
+    // a collection that no longer exists, which the schema view renders as ghost
+    // relations — and the row that would have told an operator what happened is
+    // the row that failed to be written.
 
     await db.deleteFrom('zvd_collections').where('name', '=', name).execute();
 

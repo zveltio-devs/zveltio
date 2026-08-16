@@ -25,14 +25,27 @@ const collectionDef = {
 } as never;
 
 describe('processInput — branch coverage', () => {
-  it('skips fields whose type is not registered in the field-type registry', async () => {
+  /**
+   * This asserted `errors: []` — that an unresolvable field type is silently
+   * skipped — and that assertion was the defect. The field was never validated
+   * and never copied, so the value the caller sent was dropped and the write
+   * still answered 201. Reading the record back showed the column empty, with
+   * nothing anywhere saying why.
+   *
+   * It matters because extensions REGISTER field types. Disable the extension
+   * that owns one and every column of that type quietly stops accepting data on
+   * a collection that still declares it — indistinguishable from a user who left
+   * the field blank.
+   */
+  it('refuses a field whose type the registry cannot resolve, instead of dropping the value', async () => {
     const { errors, processed } = await processInput(
       { code: 'A', ghost: 'ignored' },
       collectionDef,
       false,
     );
-    expect(errors).toEqual([]);
-    expect(processed.code).toBe('A');
+    expect(errors).toEqual([
+      'ghost: unknown field type "not_a_registered_type" — the extension that provides it may not be enabled',
+    ]);
     expect(processed).not.toHaveProperty('ghost');
   });
 

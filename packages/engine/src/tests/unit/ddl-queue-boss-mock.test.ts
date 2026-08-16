@@ -16,7 +16,7 @@ type WorkHandler = (jobs: Array<{ id: string; data: unknown }>) => Promise<void>
 const workHandlers = new Map<string, WorkHandler>();
 const jobsByQueue = new Map<
   string,
-  Map<string, { id: string; data: unknown; state: string; createdon: string }>
+  Map<string, { id: string; data: unknown; state: string; createdOn: string }>
 >();
 let startShouldFail = false;
 let sendReturnsNull = false;
@@ -48,7 +48,7 @@ class FakePgBoss {
       id,
       data,
       state: process.env.NODE_ENV === 'test' ? 'completed' : 'created',
-      createdon: new Date().toISOString(),
+      createdOn: new Date().toISOString(),
     });
     return id;
   }

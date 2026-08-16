@@ -29,7 +29,15 @@ beforeEach(() => DDLManager.invalidateCache());
 afterEach(() => {});
 
 describe('missing-data detection — COUNT failure', () => {
-  it('completes without issues when the table COUNT query throws', async () => {
+  /**
+   * This asserted `completed`, and that was the defect. The COUNT was wrapped in
+   * `.catch(() => ({ rows: [{ total: '0' }] }))`, and the next line returns early
+   * on zero — so a table the scan could not count reported a clean bill of
+   * health. The one input gating the whole missing-data detector was also the
+   * one allowed to fail silently, and what it produced on failure was
+   * indistinguishable from "we looked and everything is fine".
+   */
+  it('reports the scan as failed when the table COUNT query throws', async () => {
     const fields = [{ name: 'email', type: 'email', required: true }];
     const db = setup('contacts', fields);
     db.fail(/SELECT COUNT\(\*\)::text AS total/i, new Error('relation does not exist'));
@@ -39,6 +47,6 @@ describe('missing-data detection — COUNT failure', () => {
 
     expect(db.executed(/WITH missing/)).toHaveLength(0);
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
-    expect(end.parameters).toContain('completed');
+    expect(end.parameters).toContain('failed');
   });
 });
