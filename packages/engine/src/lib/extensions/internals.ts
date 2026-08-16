@@ -38,6 +38,9 @@ import {
 } from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
 import { withTenantIsolation } from '../tenancy/index.js';
+import { applyColumnAccess } from '../tenancy/index.js';
+import { checkAccess } from '../data/index.js';
+import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { generatePDF, renderTemplate } from '../doc-generator.js';
@@ -141,6 +144,19 @@ export interface ExtensionInternals {
   // Fields typed as `typeof <helper>` mirror the engine helper's real signature
   // (single source of truth) — no `any`, no cast in buildExtensionInternals().
   dynamicInsert: typeof dynamicInsert;
+  /**
+   * The three an extension needs to render a collection the way the engine's own
+   * data routes do: the access check, the column mask, and the filter compiler.
+   *
+   * Exposed when the zones/views feature moved out of the engine. It renders
+   * arbitrary collections for a portal audience, so it has to apply exactly the
+   * rules `/api/data` applies — reimplementing them in the extension would be a
+   * second, quietly diverging copy of the authorisation path, which is the shape
+   * that produced four separate defects in this codebase already.
+   */
+  checkAccess: typeof checkAccess;
+  applyColumnAccess: typeof applyColumnAccess;
+  buildCondition: typeof buildCondition;
   introspectSchema: typeof introspectSchema;
   runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
@@ -335,6 +351,9 @@ export interface ExtensionInternals {
 export function buildExtensionInternals(): ExtensionInternals {
   return {
     withTenantIsolation,
+    checkAccess,
+    applyColumnAccess,
+    buildCondition,
     dynamicInsert,
     introspectSchema,
     runQualityScan,

@@ -9,7 +9,7 @@
 
 # Zveltio
 
-> **The open-source platform for any business application.**
+> **A headless CMS that becomes a self-hosted SaaS through its extensions.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-blue)](https://github.com/zveltio-devs/zveltio/releases)
@@ -17,9 +17,11 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-17+-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-Zveltio is a self-hosted foundation for building business applications. It bundles the core every business app needs — collections, auth, permissions, real-time, AI, audit trail, automation, file storage, edge functions — into a single binary with an extensible plugin system.
+The engine is headless and stays that way: collections with a dynamic schema, auth, row-level multi-tenancy, permissions, a REST/RPC API over your data, automation, realtime, storage, and an admin Studio to run it all. No opinion about how anything is presented — that is what extensions are for.
 
-**Use the included plugins to replace your SaaS stack. Build custom applications on the core. Or do both.**
+Install the official extensions and it becomes a business stack: CRM, invoicing, accounting, payroll, inventory, POS, e-commerce, e-Factura. Install none and it is a backend your own app talks to. **Both are supported deployments, not one of them a workaround for the other.**
+
+**Use it headless. Use the extensions to replace your SaaS stack. Or do both.**
 
 Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
 
@@ -92,7 +94,7 @@ The engine handles plumbing; you focus on domain logic. A typical vertical SaaS 
 
 ### 3. Custom internal tools
 
-Intranet portals. Employee dashboards. Client area portals. Document workflows. Internal analytics. Approval chains tied to your specific process.
+Intranet portals. Employee dashboards. Client area portals — the `content/portals` extension. Document workflows. Internal analytics. Approval chains tied to your specific
 
 Self-hosted, owned, modifiable. No SaaS vendor reading your operations data.
 
@@ -124,13 +126,13 @@ Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension pu
 
 ## What you can install today
 
-58 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
+57 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
 
 Some capabilities in the table above are the engine itself rather than an
 extension — flows, collections, permissions, storage, realtime — so they are not
 in that 58 and are not counted twice here.
 
-**Data & Content** · `collections` (core) · `views` (list, card, calendar) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
+**Data & Content** · `collections` (core) · `content/portals` (authenticated portals: list, card, calendar views) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
 
 **Customer & Business** · `crm` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking`
 
@@ -167,10 +169,15 @@ running in our favour. Odoo has never had a line of PHP and ships an AI app; Too
 is AGPLv3 and self-hosts free; Supabase publishes Docker Compose for the full stack.
 A table that only ever errs one way is marketing, not a comparison.*
 
-We're closest to **Odoo conceptually** — a full business platform with plugins —
-rebuilt on TypeScript and Bun, with AI wired into the platform rather than added
-alongside it. What that is worth against any particular alternative is a judgement
-for the person evaluating it, on their own workload.
+Read the table with the shape of the product in mind. The engine on its own sits
+where **Supabase and Pocketbase** sit — a headless backend with auth, a database
+API and row-level security — and if that is all you install, that is the honest
+comparison to make. With the official extensions it sits where **Odoo** sits: a
+full business platform assembled from modules.
+
+That is the whole positioning. Neither half is a lesser mode of the other, and
+what either is worth against a particular alternative is a judgement for the
+person evaluating it, on their own workload.
 
 ---
 
@@ -186,7 +193,7 @@ for the person evaluating it, on their own workload.
 
 ✅ **Startups** that need a full business stack but don't have €3-5K / month for SaaS.
 
-❌ **Not for**: bloggers (use WordPress / Ghost), pure mobile-app backends (use Supabase / Firebase), single-purpose CRUD apps (use a boilerplate), teams with zero ops capability (use managed SaaS).
+❌ **Not for**: bloggers (use WordPress / Ghost), single-purpose CRUD apps (use a boilerplate)
 
 ---
 
@@ -297,7 +304,7 @@ Building extensions: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPE
                  └─────────┘ └──────────┘ └─────────┘ └────────────┘
 ```
 
-**Engine** is framework-agnostic. We ship a Svelte 5 Studio + Intranet + Client zones, but you can replace any of them with a custom React / Vue / HTMX UI that consumes `/api/*`. The plugin marketplace is Svelte-first because the bundled Studio is Svelte; the engine API is open to anyone.
+**Engine** is framework-agnostic. We ship a Svelte 5 Studio for administration; portals for your users are the `content/portals` extension, and you can replace either with a custom Rea
 
 ---
 

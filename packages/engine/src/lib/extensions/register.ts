@@ -109,6 +109,9 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_file_tags',
   ],
   'content/page-builder': ['zv_pages'],
+  // Zones/views left the engine with the headless split; the extension owns
+  // these four and needs its own tables allowed through the worker SQL policy.
+  'content/portals': ['zvd_zones', 'zvd_pages', 'zvd_views', 'zvd_page_views'],
   // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
   // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
   // DEV-EF-1). This extension is the administration surface the Studio actually
@@ -236,7 +239,14 @@ export async function buildAllowedTables(
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   for (const p of migrationPaths) {
     try {
-      const content = await Bun.file(p).text();
+      // Comments stripped first. This reads migration files to decide which
+      // tables an extension may be granted, and it was reading PROSE: a comment
+      // saying `CREATE TABLE IF NOT EXISTS` (backtick-quoted, so no space after
+      // EXISTS) made the optional group fail and the capture land on "IF" —
+      // whereupon the engine announced it would not grant access to a table
+      // called IF. Harmless there, but the same misparse in the other direction
+      // would grant on the strength of a sentence.
+      const content = (await Bun.file(p).text()).replace(/--[^\n]*/g, '');
       let m: RegExpExecArray | null;
       re.lastIndex = 0;
       while ((m = re.exec(content)) !== null) {

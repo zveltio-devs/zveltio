@@ -24,7 +24,6 @@ import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
 // AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
 // /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
-import { zonesRoutes, viewsRoutes } from './zones.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -416,8 +415,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
   // Zones / Pages / Views — 3-layer portal architecture
-  app.route('/api/zones', zonesRoutes(db, auth));
-  app.route('/api/views', viewsRoutes(db, auth));
 
   // Approval Workflows (core)
   app.route('/api/approvals', approvalsRoutes(db, auth));

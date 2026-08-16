@@ -32,15 +32,33 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
   // Collections use actions: view, create, update, delete.
   // Zones use actions: read, write (portal/intranet access model).
   app.get('/resources', async (c) => {
-    const [collections, zones] = await Promise.all([
-      DDLManager.getCollections(db),
-      db
-        .selectFrom('zvd_zones')
-        .select(['slug', 'name'])
-        .where('tenant_id', '=', tenantId(c))
-        .orderBy('name', 'asc')
-        .execute(),
-    ]);
+    const collections = await DDLManager.getCollections(db);
+
+    // Zones are an extension now (`content/zones`), so this reads the table only
+    // if that extension is installed. The engine no longer owns the concept and
+    // must not fail when it is absent — which is most installs, since portals
+    // are not enabled by default.
+    //
+    // Read defensively rather than through a service, because this endpoint
+    // exists to ENUMERATE what can be granted: an extension that is present but
+    // broken should cost its own rows here, not the collection list that the
+    // permissions screen is mainly about.
+    let zones: Array<{ slug: string; name: string }> = [];
+    try {
+      zones = (
+        await sql<{ slug: string; name: string }>`
+          SELECT slug, name FROM zvd_zones ORDER BY name ASC
+        `.execute(db)
+      ).rows;
+    } catch (err) {
+      // "The table does not exist" is the expected answer on most installs and
+      // means exactly what it says: no portals to grant access to. Anything else
+      // — a permission error, a timeout — is a failure, and answering it with an
+      // empty list would tell an administrator there are no zones to grant when
+      // there may be several.
+      const code = (err as { errno?: string; code?: string }).errno ?? '';
+      if (code !== '42P01') throw err;
+    }
     const resources = [
       ...collections.map((col) => ({
         name: col.name,
