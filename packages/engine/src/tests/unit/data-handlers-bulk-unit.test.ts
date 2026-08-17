@@ -13,7 +13,9 @@ import { beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { bulkCreate, bulkUpdate, bulkDelete } from '../../lib/data/handlers/bulk.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, fieldTypeRegistry } from '../../lib/data/index.js';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
+import { engineEvents } from '../../lib/runtime/event-bus.js';
 import { initPermissions, initRls } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -64,6 +66,12 @@ describe('bulk handlers (unit)', () => {
 
   beforeAll(async () => {
     process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
+    // `fieldTypeRegistry` is a module singleton, and these handlers validate
+    // every record against it. Run alone, nothing had registered `text`, so a
+    // perfectly ordinary insert came back 207 with "unknown field type" per
+    // record — the suite only passed because some other file happened to load
+    // first and populate it. Register them here, as the DDL suites already do.
+    registerCoreFieldTypes(fieldTypeRegistry);
     const seed = new CannedDb();
     seed.when(/FROM zvd_permissions/i, POLICY_ROWS);
     await initPermissions(asDb(seed));
@@ -73,6 +81,11 @@ describe('bulk handlers (unit)', () => {
     db = new CannedDb();
     initRls(asDb(db));
     DDLManager.invalidateCache();
+    // The bulk handlers run `record.beforeInsert` hooks, and `engineEvents` is a
+    // module singleton shared with every other test file in the process. Clear
+    // it here as well as in the file that registers them: this suite should not
+    // depend on which file bun happened to load first.
+    engineEvents.clearPreHooks();
     db.when(/from "zvd_collections"/i, [COLLECTION_DEF]);
   });
 
