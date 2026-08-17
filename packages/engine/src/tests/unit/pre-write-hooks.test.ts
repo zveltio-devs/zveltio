@@ -1,7 +1,22 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { engineEvents, AbortHookError } from '../../lib/runtime/event-bus.js';
 
+/**
+ * `engineEvents` is a module singleton, and bun runs many test files in one
+ * process — so a handler registered here outlives this file.
+ *
+ * `beforeEach` alone protected this file from itself and nobody else: whatever
+ * the LAST test registered stayed registered for the next file to load. The
+ * last one registers a handler that throws "database explosion", which is how
+ * `data-handlers-bulk-unit.test.ts` came to answer 500 where it expected 201 —
+ * a failure that never reproduced locally, because it only appears when the two
+ * files land in the same process in that order.
+ */
 beforeEach(() => {
+  engineEvents.clearPreHooks();
+});
+
+afterEach(() => {
   engineEvents.clearPreHooks();
 });
 
