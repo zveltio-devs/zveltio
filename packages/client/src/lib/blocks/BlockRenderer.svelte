@@ -24,7 +24,10 @@
 import ExtensionBlockRenderer from '$lib/ext/content/pages/BlockRenderer.svelte';
 
 // biome-ignore lint/suspicious/noExplicitAny: contract blocks are untyped JSON
-let { blocks = [] as any[], blocksBaseUrl = '' } = $props();
+// Forwarded wholesale rather than named one by one: a wrapper that lists props
+// silently drops the next one added to the component it delegates to, which is
+// how `record` arrived here and went nowhere.
+let props = $props();
 </script>
 
-<ExtensionBlockRenderer {blocks} {blocksBaseUrl} />
+<ExtensionBlockRenderer {...props} />

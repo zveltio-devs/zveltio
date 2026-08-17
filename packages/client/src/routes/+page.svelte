@@ -28,7 +28,8 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
 </svelte:head>
 
 {#if homepage?.page}
-  <BlockRenderer blocks={homepage.blocks} blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />
+  <BlockRenderer blocks={homepage.blocks} record={homepage.record ?? null}
+    blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />
   <!-- Popups that belong on this page, already resolved by the server. -->
   {#each (homepage.popups ?? []) as popup (popup.id)}
     <Popup {popup} blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />

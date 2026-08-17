@@ -423,3 +423,66 @@ describe('item template', () => {
     expect(container.querySelectorAll('h3')).toHaveLength(0);
   });
 });
+
+describe('a record page', () => {
+  afterEach(() => cleanup());
+
+  const PAGE = [
+    {
+      id: 'h',
+      type: 'hero',
+      content: { title: '{{first_name}} {{last_name}}', subtitle: '{{company}}' },
+    },
+    {
+      id: 'b',
+      type: 'button',
+      content: { label: 'Email {{first_name}}', href: 'mailto:{{email}}' },
+    },
+    {
+      id: 'c',
+      type: 'container',
+      content: {
+        children: [
+          { id: 'n', type: 'richtext', content: { content: '<p>Works at {{company}}</p>' } },
+        ],
+      },
+    },
+  ];
+  const RECORD = {
+    first_name: 'Ana',
+    last_name: 'Pop',
+    company: 'Acme',
+    email: 'ana@example.test',
+  };
+
+  it('binds every block, at every depth, to the record', () => {
+    const { container } = render(BlockRenderer, { props: { blocks: PAGE, record: RECORD } });
+    const text = container.textContent ?? '';
+    expect(text).toContain('Ana Pop');
+    expect(text).toContain('Acme');
+    expect(text).toContain('Email Ana');
+    // Nested inside a container, through the same single pass.
+    expect(text).toContain('Works at Acme');
+    expect(container.innerHTML).not.toContain('{{');
+  });
+
+  it('binds attributes too', () => {
+    const { container } = render(BlockRenderer, { props: { blocks: PAGE, record: RECORD } });
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('mailto:ana@example.test');
+  });
+
+  it('a page with no record leaves the placeholders alone', () => {
+    // An ordinary page is not a record page, and rewriting its text would be a
+    // surprise. The server sends no record; the renderer changes nothing.
+    const { container } = render(BlockRenderer, { props: { blocks: PAGE } });
+    expect(container.innerHTML).toContain('{{first_name}}');
+  });
+
+  it('a record value cannot inject markup into a bound page', () => {
+    const { container } = render(BlockRenderer, {
+      props: { blocks: PAGE, record: { ...RECORD, company: '<img src=x onerror=alert(1)>' } },
+    });
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});

@@ -63,7 +63,27 @@
     nested = false,
     /** Gap between a container's children. */
     gap = 'md',
+    /**
+     * The record a RECORD page shows, if this is one.
+     *
+     * When present, every block is bound against it before drawing — so
+     * `{{title}}` in a hero, or `{{price}}` in a button label, resolves to this
+     * row. The substitution and its escaping rules are the ones an item
+     * template already uses; the only new idea is that a page can have a
+     * current record at all.
+     */
+    record = null as Record<string, any> | null,
   } = $props();
+
+  /**
+   * Blocks as drawn: bound to the record when there is one, untouched otherwise.
+   *
+   * Bound once here rather than per block, so a nested container's children are
+   * covered by the same pass — `bindBlock` already recurses.
+   */
+  const drawn = $derived(
+    record ? blocks.map((b, i) => bindBlock(b, record, `r${i}`)) : blocks,
+  );
 
   function headingTag(level: unknown): 'h1' | 'h2' | 'h3' | 'h4' {
     const n = Number(level);
@@ -147,7 +167,7 @@
 <div bind:this={root} class={nested
   ? `grid grid-cols-12 items-start ${GAP[gap] ?? GAP.md}`
   : 'mx-auto max-w-5xl px-4 sm:px-6 py-10 grid grid-cols-12 gap-6 items-start'}>
-  {#each blocks as block, i (block.id ?? i)}
+  {#each drawn as block, i (block.id ?? i)}
     {@const c = block.content ?? {}}
     {@const mo = motionAttrs(block)}
     <div class="zv-b {spanClasses(block)} {mo.class}" style={styleVars(block) ? `${styleVars(block)};${mo.style}` : mo.style}>
@@ -278,6 +298,11 @@
           same thing at every depth. This is what replaced the `columns` block,
           which held raw HTML strings and therefore could not contain an image, a
           data block, or anything else the builder makes.
+        -->
+        <!--
+          The record is NOT passed down: the parent pass already bound every
+          nested block, and binding twice would substitute into text that a
+          record value had just produced.
         -->
         <Self
           blocks={Array.isArray(c.children) ? c.children : []}

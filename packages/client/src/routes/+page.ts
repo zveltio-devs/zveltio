@@ -14,15 +14,16 @@ export const ssr = false;
 
 export const load: PageLoad = async ({ fetch }) => {
   // Optional public homepage (only present if content/pages is installed AND a
-  // `home` page is published on a PUBLIC site). Any failure just means "no public homepage".
+  // page is flagged as the homepage on a PUBLIC site). Any failure just means "no public homepage".
   let homepage: {
     page: unknown;
     blocks: unknown[];
     popups: unknown[];
+    record: Record<string, unknown> | null;
     blocksBaseUrl: string;
   } | null = null;
   try {
-    const res = await fetch(`${ENGINE_URL}/ext/content/pages/cms/home`);
+    const res = await fetch(`${ENGINE_URL}/ext/content/pages/cms/_home`);
     if (res.ok) {
       const data = await res.json();
       if (data?.page) {
@@ -30,9 +31,12 @@ export const load: PageLoad = async ({ fetch }) => {
           page: data.page,
           blocks: data.blocks ?? [],
           popups: data.popups ?? [],
+          record: data.record ?? null,
           // Where a data block asks for its next window. Built here because this
           // is where the engine's base URL is resolved.
-          blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/home/blocks`,
+          // Built from the slug the server resolved, not from a guess: the
+          // homepage is whichever page the site flags, not the one called `home`.
+          blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/${data.page?.slug ?? 'home'}/blocks`,
         };
       }
     }

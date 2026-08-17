@@ -52,6 +52,8 @@
     allowed_roles: string[]; sort_order: number; icon: string | null;
     kind: 'page' | 'popup';
     popup_config: Record<string, Any>;
+    record_collection: string | null;
+    record_field: string | null;
   };
   type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
 
@@ -74,7 +76,7 @@
   let iconNames = $state<string[]>([]);
   let motionTypes = $state<string[]>([]);
   let siteForm = $state({ name: '', slug: '', base_path: '', is_public: false });
-  let pageForm = $state({ title: '', slug: '' });
+  let pageForm = $state({ title: '', slug: '', auth_required: false });
 
   let menus = $state<{ main: MenuItem[]; footer: MenuItem[] }>({ main: [], footer: [] });
   let savingMenu = $state<'main' | 'footer' | null>(null);
@@ -541,10 +543,10 @@
         kind: newPageKind,
         // A popup is drawn over a page, never navigated to, so it is never
         // behind its own role gate — the page it appears on decides that.
-        auth_required: newPageKind === 'popup' ? false : undefined,
+        auth_required: newPageKind === 'popup' ? false : pageForm.auth_required,
       });
       pages = [...pages, res.page];
-      pageForm = { title: '', slug: '' };
+      pageForm = { title: '', slug: '', auth_required: !activeSite.is_public };
       showNewPage = false;
       openEdit(res.page);
     } catch (e) {
@@ -627,6 +629,8 @@
           icon: selected.icon ?? undefined,
           kind: selected.kind,
           popup_config: selected.popup_config ?? {},
+          record_collection: selected.record_collection || null,
+          record_field: selected.record_field || null,
         },
       );
       selected = res.page;
@@ -729,7 +733,11 @@
         <Plus size={14} /> {m['content.pages.newPopup']()}
       </button>
       <button type="button" class="btn btn-primary btn-sm gap-1"
-        onclick={() => { newPageKind = 'page'; showNewPage = true; }}>
+        onclick={() => {
+          newPageKind = 'page';
+          pageForm = { ...pageForm, auth_required: !(activeSite?.is_public ?? false) };
+          showNewPage = true;
+        }}>
         <Plus size={14} /> {m['content.pages.newPage']()}
       </button>
     {:else}
@@ -1032,6 +1040,45 @@
                 <input type="checkbox" class="toggle toggle-xs" bind:checked={selected.is_homepage} />
                 <span class="label-text text-[10px]">{m['content.pages.homepage']()}</span>
               </label>
+              {#if selected.kind !== 'popup'}
+                <!--
+                  A record page. Naming a collection here turns the page into the
+                  page OF one row: `/products/chair`. Every `{{field}}` in its
+                  blocks then resolves against that row — the same substitution
+                  a data block's item template uses.
+                -->
+                <div class="pt-1 border-t border-base-300 space-y-1.5">
+                  <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">
+                    {m['content.pages.record.title']()}
+                  </p>
+                  <label class="form-control gap-1">
+                    <span class="label-text text-[10px]">{m['content.pages.record.collection']()}</span>
+                    <select class="select select-xs" value={selected.record_collection ?? ''}
+                      onchange={(e) => { if (selected) selected.record_collection = e.currentTarget.value || null; }}>
+                      <option value="">{m['content.pages.record.none']()}</option>
+                      {#each collections as col (col)}<option value={col}>{col}</option>{/each}
+                    </select>
+                  </label>
+                  {#if selected.record_collection}
+                    <label class="form-control gap-1">
+                      <span class="label-text text-[10px]">{m['content.pages.record.field']()}</span>
+                      <select class="select select-xs" value={selected.record_field ?? 'slug'}
+                        onchange={(e) => { if (selected) selected.record_field = e.currentTarget.value; }}>
+                        {#each (collectionFields[selected.record_collection] ?? ['slug', 'id']) as f (f)}
+                          <option value={f}>{f}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <p class="text-[9px] text-base-content/40 leading-snug font-mono">
+                      {activeSite?.base_path}/{selected.slug}/&lt;{selected.record_field ?? 'slug'}&gt;
+                    </p>
+                    <p class="text-[9px] text-base-content/40 leading-snug">
+                      {m['content.pages.record.hint']()}
+                    </p>
+                  {/if}
+                </div>
+              {/if}
+
               {#if selected.kind === 'popup'}
                 <!--
                   A popup is drawn over a page, so what it needs is when to
@@ -1283,6 +1330,18 @@
             oninput={() => { if (!pageForm.slug) pageForm.slug = slugify(pageForm.title); }} /></label>
         <label class="form-control gap-1"><span class="label-text text-xs">{m['content.pages.col.slug']()}</span>
           <input class="input input-sm font-mono" bind:value={pageForm.slug} /></label>
+        {#if newPageKind === 'page'}
+          <!--
+            Asked here because it is the decision an author has in mind while
+            creating the page, and changing it afterwards means finding the
+            setting. The default follows the site: a page on a public site is
+            public, a page in a portal is not.
+          -->
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" bind:checked={pageForm.auth_required} />
+            <span class="label-text text-xs">{m['content.pages.field.authRequired']()}</span>
+          </label>
+        {/if}
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick={() => (showNewPage = false)}>{m['common.cancel']()}</button>
