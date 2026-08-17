@@ -23,7 +23,15 @@ export type AuditEventType =
   /** An administrator granted an extension the capabilities its manifest
    * declares. The one place a privilege widening is a deliberate act. */
   | 'extension.capabilities.approved'
+  // An anonymous execution of a public edge function. Its own type because the
+  // authenticated invocations are attributable by their user and these are not
+  // attributable by anything but time and address.
+  | 'edge_function.invoked_anonymously'
   | 'sql.executed'
+  // Its own event, not a field on `sql.executed`. Someone asking who changed
+  // the data should be able to filter for it, rather than read every ad-hoc
+  // SELECT anyone has ever run looking for the one that wrote.
+  | 'sql.write.executed'
   | 'sql.failed'
   | 'backup.created'
   | 'backup.deleted'
@@ -52,6 +60,14 @@ export interface AuditEvent {
 
 export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
   try {
+    // `::text::jsonb` on the metadata, not `::jsonb`. The driver already sends
+    // that parameter as jsonb, so a bare `::jsonb` is a no-op and Postgres
+    // stores the serialized string AS a jsonb string scalar — the whole object
+    // wrapped in quotes with its own quotes escaped. Every row written that way
+    // answers NULL to `metadata->>'anything'`, so the audit trail could be read
+    // by a human and queried by nobody: no filtering by outcome, no counting
+    // failed attempts, no alerting. Going through text makes Postgres parse it.
+    // Migration 041 repairs the rows already written.
     await sql`
       INSERT INTO zv_audit_log (
         event_type, user_id, resource_id, resource_type, metadata, ip, created_at
@@ -60,7 +76,7 @@ export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
         ${event.userId ?? null},
         ${event.resourceId ?? null},
         ${event.resourceType ?? null},
-        ${JSON.stringify(event.metadata ?? {})}::jsonb,
+        ${JSON.stringify(event.metadata ?? {})}::text::jsonb,
         ${event.ip ?? null},
         NOW()
       )

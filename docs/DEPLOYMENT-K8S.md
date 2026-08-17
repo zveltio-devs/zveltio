@@ -104,6 +104,43 @@ helm upgrade --install zveltio ./charts/zveltio \
   -f values-prod.yaml
 ```
 
+## The database role
+
+Point `DATABASE_URL` at a plain role, not at `postgres`.
+
+Postgres does not apply row-level security to a `SUPERUSER` or `BYPASSRLS`
+role — not even with `FORCE ROW LEVEL SECURITY`. Every tenant-isolation policy
+in the schema is inert against such a connection, so a multi-tenant install
+running as `postgres` has no database-level isolation between tenants at all.
+The engine refuses to start in production when it detects this and has no way
+to compensate.
+
+Two of the things a fresh install needs genuinely do require a superuser, so
+they are done once, up front, by a script that ships with the engine:
+
+```bash
+PGHOST=… PGUSER=postgres PGPASSWORD=… \
+  ./scripts/bootstrap-db-role.sh zveltio zveltio_app '<engine password>'
+```
+
+That creates the database, creates `zveltio_app` as `NOSUPERUSER NOBYPASSRLS`,
+installs the `vector` and `postgis` extensions (neither is a "trusted"
+extension, so only a superuser can create them), and pre-creates the
+`zveltio_rls` role that tenant transactions switch into. Afterwards the engine
+never needs superuser again — migrations, extension installs, and DDL all run
+as the owning role.
+
+At boot the engine reports which of three states it is in:
+
+| Log line | Meaning |
+|---|---|
+| `🔒 Tenant RLS enforced via the zveltio_rls role` | Tenant requests run as `zveltio_rls`; RLS applies. |
+| `🔒 Tenant RLS enforced natively` | The connection is already a plain role; RLS binds it directly. |
+| `❌ [tenant-rls] … isolation is NOT enforced` | No enforcement role **and** the connection bypasses RLS. Fatal in production. |
+
+If you accept the risk on a genuinely single-tenant install, `ZVELTIO_ALLOW_UNENFORCED_RLS=1`
+overrides the refusal. It is not appropriate anywhere more than one tenant exists.
+
 ## Secret management
 
 The chart's `engine.config.*` fields can hold secrets inline — fine for local dev. For production, set `engine.existingSecret: <name>` to reuse a Secret managed externally. The chart reads `envFrom: secretRef` so every key in the Secret becomes an engine env var.
@@ -112,7 +149,7 @@ Expected keys in the existing Secret:
 
 | Key | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | `postgres://...` |
+| `DATABASE_URL` | yes | `postgres://...` — **must not be a superuser**, see below |
 | `NATIVE_DATABASE_URL` | when behind PgBouncer | Bypasses pooler for LISTEN/NOTIFY |
 | `VALKEY_URL` | recommended when replicas ≥ 3 | `redis://...` |
 | `BETTER_AUTH_SECRET` | yes | 32+ random chars |

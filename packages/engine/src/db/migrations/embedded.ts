@@ -46,6 +46,8 @@ import m034 from './sql/036_translation_keys_tenant_scoped.sql' with { type: 'te
 import m035 from './sql/037_user_ref_text.sql' with { type: 'text' };
 import m036 from './sql/038_rate_limit_updated_by_text.sql' with { type: 'text' };
 import m037 from './sql/039_media_folders_updated_at.sql' with { type: 'text' };
+import m038 from './sql/040_api_key_rls_bypass_backfill.sql' with { type: 'text' };
+import m039 from './sql/041_audit_metadata_object.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -87,4 +89,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '037_user_ref_text.sql': m035,
   '038_rate_limit_updated_by_text.sql': m036,
   '039_media_folders_updated_at.sql': m037,
+  '040_api_key_rls_bypass_backfill.sql': m038,
+  '041_audit_metadata_object.sql': m039,
 };

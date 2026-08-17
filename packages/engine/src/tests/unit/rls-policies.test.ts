@@ -68,10 +68,9 @@ describe('getRlsFilters — overrides', () => {
   });
 
   it('an API key bypasses only when ITS OWN flag says so', async () => {
-    // Was blanket for every key. Defaults to true (today's behaviour) because
-    // RLS values resolve from user_id/user_email and a key's identity is the
-    // synthetic `apikey:<uuid>` — enforcing an identity policy against a key
-    // returns zero rows silently, which breaks integrations with no error.
+    // Was blanket for every key, then per key with a default of true, and now
+    // opt-in: migration 032 flipped the default and 040 backfilled the keys
+    // issued before it.
     const db = setup();
     expect(await getRlsFilters('contacts', { ...USER, rlsBypass: true }, 'api_key')).toEqual([]);
     expect(db.log).toHaveLength(0);
@@ -81,6 +80,19 @@ describe('getRlsFilters — overrides', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
     const filters = await getRlsFilters('contacts', { ...USER, rlsBypass: false }, 'api_key');
+    expect(filters).toHaveLength(1);
+  });
+
+  it('a key with NO flag at all is filtered, not exempted', async () => {
+    // The case the other two miss, and the only one where `!== false` and
+    // `=== true` disagree. `rlsBypass` is optional on the type, so every caller
+    // that builds a user without it — a cache entry deserialised without the
+    // field, a row from a query that does not select the column — used to get
+    // instance-wide reads out of an omission nobody wrote down.
+    const db = setup();
+    db.when(/FROM zvd_rls_policies/i, [policy()]);
+    const { rlsBypass: _omitted, ...noFlag } = { ...USER, rlsBypass: undefined };
+    const filters = await getRlsFilters('contacts', noFlag, 'api_key');
     expect(filters).toHaveLength(1);
   });
 

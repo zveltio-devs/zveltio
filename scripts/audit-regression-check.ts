@@ -34,7 +34,17 @@ const MANDATORY: ReadonlySet<string> = new Set([
   // H-07 split (register-fn pattern; auditLog() calls preserved). Keys track the
   // new owning file. audit-inventory.ts now recurses into routes/admin/.
   'system-routes.ts:POST /migrate',
-  'config-routes.ts:POST /sql',
+  // The SQL editor. It lived in config-routes.ts as a second implementation
+  // that shadowed the dedicated one — mounted at /api/admin, it matched
+  // POST /api/admin/sql before routes/index.ts:447 ever saw the request, so the
+  // version with the stronger gate was unreachable. The duplicate is gone and
+  // the key follows the surviving route.
+  //
+  // Worth noting what this list did here: it is the only thing that objected to
+  // the removal. Deleting the entry would have been the quick way past it, and
+  // would have quietly dropped the requirement that ad-hoc SQL be audited at
+  // all.
+  'sql-editor.ts:POST /',
   'permission-routes.ts:POST /roles',
   'permission-routes.ts:DELETE /roles/:id',
   'permission-routes.ts:POST /permissions/bulk',

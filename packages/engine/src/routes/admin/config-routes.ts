@@ -198,69 +198,21 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     return c.json({ success: true });
   });
 
-  // ── SQL Editor (admin-only, safe read/write with timeout) ─────
-
-  app.post(
-    '/sql',
-    zValidator(
-      'json',
-      z.object({
-        query: z.string().min(1).max(50_000),
-        timeout_ms: z.number().int().min(100).max(30_000).optional(),
-      }),
-    ),
-    async (c) => {
-      const { query, timeout_ms: _timeout_ms = 10_000 } = c.req.valid('json');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const user = c.get('user' as never) as any;
-
-      // Reject obviously dangerous patterns
-      const normalized = query.trim().toUpperCase();
-      const BLOCKED = ['DROP DATABASE', 'DROP SCHEMA', 'ALTER SYSTEM', 'COPY TO', 'COPY FROM'];
-      for (const pat of BLOCKED) {
-        if (normalized.includes(pat)) {
-          await auditLog(db, {
-            type: 'sql.failed',
-            userId: user?.id,
-            resourceType: 'sql_editor',
-            metadata: { blocked: pat, query: query.slice(0, 500) },
-          });
-          return c.json({ error: `Blocked statement: ${pat}` }, 400);
-        }
-      }
-
-      try {
-        // Wrap in a transaction so SET LOCAL statement_timeout applies on
-        // the same connection that runs the user query — without this the
-        // pool can route them to different sessions and the timeout is a
-        // no-op. Caller-supplied timeout_ms is clamped by the zod schema.
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const result = (await db.transaction().execute(async (trx: any) => {
-          const seconds = Math.max(1, Math.ceil(_timeout_ms / 1000));
-          await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
-          return sql.raw(query).execute(trx);
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        })) as any;
-        const rows = result.rows ?? [];
-        await auditLog(db, {
-          type: 'sql.executed',
-          userId: user?.id,
-          resourceType: 'sql_editor',
-          metadata: { query: query.slice(0, 500), rowCount: rows.length },
-        });
-        return c.json({ rows, rowCount: rows.length });
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      } catch (err: any) {
-        await auditLog(db, {
-          type: 'sql.failed',
-          userId: user?.id,
-          resourceType: 'sql_editor',
-          metadata: { query: query.slice(0, 500), error: err?.message ?? String(err) },
-        });
-        return c.json({ error: err.message ?? String(err) }, 400);
-      }
-    },
-  );
+  // The SQL editor used to have a second implementation here, and this one
+  // won: mounted at `/api/admin` on line 375 of routes/index.ts, it matched
+  // POST /api/admin/sql before the dedicated mount on line 447 ever saw the
+  // request. So routes/sql-editor.ts — the version with the stronger gate —
+  // was unreachable, and the reachable one sat behind `requireAdmin`, which
+  // `checkPermission(uid, "admin", "*")` grants to a delegated tenant owner
+  // inside their own domain. That is precisely the escalation
+  // `requireInstanceAdmin` was written to close; the fix had landed in the
+  // file nobody called.
+  //
+  // Its safety was a blocklist over the query text — DROP DATABASE, DROP
+  // SCHEMA, ALTER SYSTEM, COPY — which a comment, a lowercase keyword, or a
+  // CTE walks straight through. See routes/sql-editor.ts for the one that
+  // serves now: instance-admin only, READ ONLY unless the caller asks for
+  // write, and Postgres enforcing the refusal rather than a regex.
 
   // GET /extensions/health — per-extension runtime status.
   //
