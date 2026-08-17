@@ -30,6 +30,11 @@ const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
 // them — import, export, edge-functions, approvals, translations. They are still
 // checked, by `check-extension-page-ownership.ts` and by the extensions' own
 // SDUI i18n validator; they are simply no longer core pages.
+//
+// Three more left for the same reason when the engine went headless: zones,
+// zones/[slug] and views. Their pages are now owned by the extension that
+// received portals, and this list naming files that no longer exist is what
+// made the gate fail rather than what it is there to catch.
 const TRANSLATED = [
   'src/routes/(admin)/+page.svelte',
   'src/routes/(admin)/collections/+page.svelte',
@@ -47,8 +52,6 @@ const TRANSLATED = [
   'src/routes/(admin)/schema-branches/+page.svelte',
   'src/routes/(admin)/onboarding/+page.svelte',
   'src/routes/(admin)/saved-queries/+page.svelte',
-  'src/routes/(admin)/zones/+page.svelte',
-  'src/routes/(admin)/zones/[slug]/+page.svelte',
   'src/routes/(admin)/virtual-collections/+page.svelte',
   'src/routes/(admin)/rls/+page.svelte',
   'src/routes/(admin)/marketplace/+page.svelte',
@@ -72,7 +75,6 @@ const TRANSLATED = [
   'src/routes/(admin)/sql/+page.svelte',
   'src/routes/(admin)/storage/+page.svelte',
   'src/routes/(admin)/templates/+page.svelte',
-  'src/routes/(admin)/views/+page.svelte',
   'src/routes/(admin)/webhooks/+page.svelte',
 ];
 
