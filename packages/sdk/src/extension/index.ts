@@ -294,6 +294,23 @@ export interface ExtensionInternals<DB = unknown> {
   /** Invalidate the cached validation rules for a collection. */
   invalidateRulesCache: (collection: string) => void;
   /**
+   * Evaluate a user-authored validation expression, safely.
+   *
+   * `refused` is distinct from `failed` on purpose: an expression the engine
+   * declines to run has not passed and has not failed, and a rule editor that
+   * reports either would be lying to whoever is writing the rule.
+   *
+   * Use this instead of `new Function` or `eval`. A Function body closes over
+   * the global scope, so an expression stored by any tenant admin could reach
+   * `process` and `Bun` from inside the engine process.
+   */
+  evaluateExpressionRule: (
+    expression: string,
+    value: unknown,
+  ) => { status: 'passed' } | { status: 'failed' } | { status: 'refused'; reason: string };
+  /** Vet an expression before storing it. */
+  checkValidationExpression: (expression: string) => { ok: true } | { ok: false; reason: string };
+  /**
    * Run a callback inside a tenant transaction, outside any request.
    *
    * `ctx.reqDb(c)` covers request handlers. Background work — scheduled tasks,
@@ -352,6 +369,16 @@ export interface ExtensionInternals<DB = unknown> {
    * sensitive is not silently downgraded.
    */
   maybeEncrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
+  /**
+   * The other half. Without it an extension can write a secret it cannot read
+   * back, so it stores plaintext instead — which is how a signing secret ends
+   * up readable by anyone with database access.
+   *
+   * Passes through values that do not carry the `enc:v1:` prefix, so adopting
+   * encryption on an existing column is safe: rows written before keep working,
+   * rows written after are encrypted at rest.
+   */
+  maybeDecrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },
@@ -426,6 +453,16 @@ export interface ExtensionInternals<DB = unknown> {
    * record pointing at cloud metadata). MUST be awaited.
    */
   assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * `fetch` with the SSRF guard applied where it has to be.
+   *
+   * Validating a URL before calling `fetch` is not enough on its own: fetch
+   * follows redirects, so a public host answering 302 to 169.254.169.254
+   * walks past a check performed on the original URL. This re-validates
+   * every redirect target, under a hop limit. Prefer it over `fetch` for
+   * any URL a user or a stored record can influence.
+   */
+  safeFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   /**
    * SSRF guard for an admin-configured endpoint that is ALLOWED to be
    * self-hosted (local Ollama on `http://localhost:11434`, an internal

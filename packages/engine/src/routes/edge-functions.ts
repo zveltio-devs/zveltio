@@ -6,6 +6,28 @@ import { auditLog } from '../lib/audit.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { rateLimit } from '../middleware/rate-limit.js';
+
+/**
+ * Rate limit for ANONYMOUS invocations of a public edge function.
+ *
+ * `ZVELTIO_PUBLIC=true` in a function's env vars makes it callable with no
+ * session and no API key. That is a deliberate, opt-in feature — a webhook
+ * receiver has to be reachable — but what it opts into is unauthenticated code
+ * execution, and that had no ceiling at all: an anonymous caller could invoke
+ * a function as fast as the process would answer.
+ *
+ * Its own bucket, not the shared auth one. A limiter shared across pre-auth
+ * surfaces means an unrelated burst takes this down, and a public webhook
+ * endpoint failing because someone else was probing SCIM is an outage with no
+ * explanation in it.
+ */
+const publicEdgeInvokeRateLimit = rateLimit({
+  keyPrefix: 'edge-public',
+  max: 60,
+  windowMs: 60_000,
+  message: 'Too many anonymous invocations of this function.',
+});
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -343,6 +365,25 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       }
     }
     if (!authed && !isPublic) return c.json({ error: 'Unauthorized' }, 401);
+
+    if (!authed) {
+      // Anonymous, and therefore public. Applied here rather than as route
+      // middleware because whether this request is anonymous is only known
+      // after the session and API-key checks above have both come back empty.
+      const limited = await publicEdgeInvokeRateLimit(c, async () => undefined);
+      if (limited) return limited;
+
+      // Recorded, because otherwise the only executions with no trace are the
+      // ones nobody authenticated. `ZVELTIO_PUBLIC` on the function says it
+      // COULD be called anonymously; this says it WAS.
+      await auditLog(db, {
+        type: 'edge_function.invoked_anonymously',
+        resourceType: 'edge_function',
+        metadata: { name, tenant_id: tenantId(c) },
+      }).catch((err: Error) => {
+        console.warn('[edge-functions] audit write failed on public invoke:', err.message);
+      });
+    }
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fn = await (reqDb(c, db) as any)

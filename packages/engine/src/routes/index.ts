@@ -50,6 +50,9 @@ import { initDDLQueue } from '../lib/data/index.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
 import {
   authRateLimit,
+  publicFormRateLimit,
+  scimRateLimit,
+  shareLinkRateLimit,
   apiRateLimit,
   aiRateLimit,
   writeRateLimit,
@@ -247,6 +250,30 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // a small set of IPs and well below 10/min — anyone hitting this
   // limit is almost certainly probing.
   app.use('/ext/billing/webhook/*', authRateLimit);
+
+  // Pre-auth and anonymous extension surfaces. Everything under /ext/* already
+  // has extRateLimit, but that is 600/min — a denial-of-service ceiling, not a
+  // guessing one. At 600 attempts a minute a four-digit share password falls in
+  // under twenty minutes, and nothing about the traffic looks unusual.
+  //
+  // Mounted here rather than inside each extension on purpose: this limiter is
+  // Valkey-backed, so the count is shared across replicas and survives a
+  // restart, which a counter living inside an extension process cannot be. It
+  // also means no extension needs a version bump to become defended.
+  //
+  // Public form submission — anonymous by declaration (`publicRoutes:
+  // ["/public/*"]`). The extension carried its own in-memory limiter, which
+  // reset on every deploy and counted separately on every replica.
+  app.use('/ext/forms/public/*', publicFormRateLimit);
+  // Share links. `/share/:token` takes a password, so it is a login form that
+  // does not look like one.
+  app.use('/ext/storage/cloud/share/*', shareLinkRateLimit);
+  // SCIM. The scim extension mounts this at the ROOT through
+  // `registerPublicRoute`, so an IdP can reach the well-known path — which also
+  // means it sits outside /ext/* and never had even the 600/min ceiling. It
+  // authenticates a bearer token on every request, and until now an attacker
+  // could try them without limit.
+  app.use('/scim/v2/*', scimRateLimit);
   app.use('/api/ai/*', aiRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
