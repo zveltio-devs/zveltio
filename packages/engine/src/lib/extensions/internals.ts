@@ -30,7 +30,11 @@ import {
 } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
-import { invalidateRulesCache } from '../validation-engine.js';
+import {
+  checkValidationExpression,
+  evaluateExpressionRule,
+  invalidateRulesCache,
+} from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
 import { withTenantIsolation } from '../tenancy/index.js';
 import { extensionRegistry } from './extension-registry.js';
@@ -40,10 +44,10 @@ import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { checkQueryDepth, checkQueryWidth, DataLoaderRegistry } from '../graphql-dataloader.js';
 import { enqueueDDLJob } from '../data/index.js';
-import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
+import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { encryptField, maybeEncrypt } from '../data/index.js';
+import { encryptField, maybeDecrypt, maybeEncrypt } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
@@ -140,6 +144,18 @@ export interface ExtensionInternals {
   runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
   /**
+   * Evaluate and vet user-authored validation expressions.
+   *
+   * Handed to extensions because the validation extension had grown its own
+   * evaluator built on `new Function('value', 'return ' + expression)`. That
+   * reads as sandboxed and is not — a Function body closes over the global
+   * scope, so a stored rule could reach `process` and `Bun`. The engine has
+   * had a safe evaluator for the same rule type the whole time; what was
+   * missing was a way for an extension to reach it.
+   */
+  evaluateExpressionRule: typeof evaluateExpressionRule;
+  checkValidationExpression: typeof checkValidationExpression;
+  /**
    * Run a callback inside a tenant transaction, outside any request.
    *
    * Extensions get `reqDb(c)` for request handlers, and nothing at all for
@@ -189,6 +205,15 @@ export interface ExtensionInternals {
    * that would drift from it.
    */
   maybeEncrypt: typeof maybeEncrypt;
+  /**
+   * The other half of `maybeEncrypt`, without which an extension can write a
+   * secret it cannot read back — so it stores plaintext instead.
+   *
+   * Passes through anything not carrying the `enc:v1:` prefix, which is what
+   * makes adopting encryption on an existing column safe: rows written before
+   * still verify, and rows written after are encrypted at rest.
+   */
+  maybeDecrypt: typeof maybeDecrypt;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role: string; rlsBypass?: boolean },
@@ -230,6 +255,20 @@ export interface ExtensionInternals {
    * name pointing at cloud metadata. MUST be awaited.
    */
   assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * `fetch`, with the SSRF guard applied where it actually has to be.
+   *
+   * Validating a URL before calling `fetch` is not enough on its own: fetch
+   * follows redirects, so a public host answering 302 to 169.254.169.254 walks
+   * straight past a check performed on the original URL. This intercepts each
+   * redirect and re-validates the target, under a hop limit.
+   *
+   * Exposed because api-connector had grown its own `safeFetch` around a
+   * literal-hostname blocklist — the same guard this engine had already
+   * replaced with a DNS-aware one. An extension that cannot reach the good
+   * implementation writes the bad one.
+   */
+  safeFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   /**
    * SSRF guard for an admin-configured endpoint that is ALLOWED to be
    * self-hosted (local Ollama, internal Meilisearch, on-prem object storage).
@@ -286,6 +325,8 @@ export function buildExtensionInternals(): ExtensionInternals {
     introspectSchema,
     runQualityScan,
     invalidateRulesCache,
+    evaluateExpressionRule,
+    checkValidationExpression,
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
@@ -297,6 +338,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     checkQueryDepth,
     checkQueryWidth,
     maybeEncrypt,
+    maybeDecrypt,
     // Adapted rather than passed straight through, so the bag matches the SDK
     // declaration exactly. The casts are between two spellings of the same
     // shape — `RlsFilter` mirrors the engine's `FilterCondition` — and exist so
@@ -317,6 +359,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,
+    safeFetch,
     assertNonMetadataUrl,
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],

@@ -304,7 +304,23 @@ export function rateLimit(config: RateLimitConfig) {
 
     // Fallback in-memory when Redis is not available — fail CLOSED for safety
     if (!cache) {
-      const identifier = session?.id ?? 'unknown';
+      // The same identity the cache branch below uses. It was `?? 'unknown'`,
+      // which never looked at the address at all, so every anonymous client
+      // shared one bucket per prefix — a single global counter for the whole
+      // internet.
+      //
+      // On an authenticated API that is merely wrong. On the surfaces this
+      // middleware now guards it inverts the fix: public form submission, share
+      // links and SCIM are anonymous by definition, so `session?.id` is always
+      // undefined there, and twenty form submissions from anyone locked out
+      // every other visitor for the rest of the window. Measured before the
+      // change — client A exhausting SCIM made a completely fresh client B
+      // answer 429 on its first request.
+      //
+      // It only bites without a cache backend, which is the default shape of a
+      // small self-hosted install: the one least likely to notice, and the one
+      // where a single visitor can take the public forms down.
+      const identifier = session?.id ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
       if (!allowed) {
@@ -376,7 +392,18 @@ export function rateLimit(config: RateLimitConfig) {
       // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const session = (c as any).get?.('user');
-      const identifier = session?.id ?? 'unknown';
+      // `?? listedIp`, matching the no-cache branch above and for the same
+      // reason. `'unknown'` gave every anonymous caller ONE bucket per prefix —
+      // a single counter for the whole internet — which on the pre-auth
+      // surfaces this protects is not a weaker limit but an inverted one: they
+      // are anonymous by definition, so `session?.id` is always undefined, and
+      // twenty submissions from one visitor locked out everyone else.
+      //
+      // This is the more dangerous of the two branches. It runs when Valkey
+      // FAILS, so an install that has a cache and believes itself covered
+      // degrades into the broken behaviour during an outage — while it is
+      // already busy with something else.
+      const identifier = session?.id ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
       if (!allowed) {
@@ -423,6 +450,36 @@ export const destructiveRateLimit = rateLimit({
 
 // Extension traffic (SDUI panels, extension APIs). Generous so a dashboard's
 // burst of panel loads never trips it, but still caps automated abuse.
+// Pre-auth surfaces each get their OWN budget, not a share of one.
+//
+// `authRateLimit` keys on `rl:auth:<ip>`, so every route carrying it draws from
+// a single per-IP bucket. Measured: ten failed SCIM requests left a public form
+// and a share link answering 429 to the same address, having never been touched.
+// Behind one office NAT that is everyone, and the three surfaces have nothing to
+// do with each other.
+//
+// The ceilings differ because the traffic does. A person filling in a public
+// form submits once; twenty a minute from one address is already abuse, but ten
+// is within reach of a shared address. Guessing a share-link password is the
+// thing being stopped, so that one stays tight. SCIM is machine-to-machine and
+// provisions in bulk — a directory sync pushing a few hundred users would trip
+// anything lower, which is how a limiter ends up removed instead of tuned.
+export const publicFormRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  keyPrefix: 'form',
+});
+export const shareLinkRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: 'share',
+});
+export const scimRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 100,
+  keyPrefix: 'scim',
+});
+
 export const extRateLimit = rateLimit({
   windowMs: 60_000,
   max: 600,

@@ -106,10 +106,36 @@ header — they don't contain the nonce.
 | `/api/data/*` deletes (collection-level) | 10/min/user |
 | `/api/*` (default) | 200/min/user |
 
+Pre-auth surfaces get their own budgets rather than a share of one, because
+they are unrelated and a shared bucket means exhausting one locks out the
+others for the same address:
+
+| Surface | Limit |
+|---|---|
+| `/ext/forms/public/*` | 20/min |
+| `/ext/storage/cloud/share/*` | 10/min (a password prompt that does not look like one) |
+| `/scim/v2/*` | 100/min (machine-to-machine, provisions in bulk) |
+| public edge-function invoke | 60/min |
+| `POST /api/permissions/bootstrap` | 5/15min |
+
+### Running behind a proxy
+
 `TRUSTED_PROXY=true` is required when running behind nginx/Caddy/Cloudflare
 to honour `X-Forwarded-For`. Without it, every client behind the proxy
 shares the same rate-limit bucket. The middleware warns once at boot if
 it detects forwarded headers without `TRUSTED_PROXY` set.
+
+**Your edge must strip the inbound `X-Forwarded-For` before setting its
+own.** This is the half that matters and it is not optional. With
+`TRUSTED_PROXY=true` the engine believes the first address in that header,
+so if the edge appends to a client-supplied value instead of replacing it,
+any caller picks their own identity: a new one per request evades every
+limit above, and a chosen one attributes their traffic to somebody else.
+An engine reachable directly from the internet must leave `TRUSTED_PROXY`
+unset, which is why it is not the default.
+
+Identity falls back to the TCP peer address when no trusted header is
+present, so a direct-to-engine deployment is still limited per client.
 
 ---
 

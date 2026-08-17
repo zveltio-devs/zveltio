@@ -8,6 +8,79 @@ import { DEFAULT_TENANT_ID } from './route-db.js';
 let _db: Database | null = null;
 
 /**
+ * Give every unsigned webhook a signing secret, once, at boot.
+ *
+ * `POST /api/webhooks` has generated a secret for every webhook since
+ * alpha.32 — but only for webhooks created after alpha.32. Rows older than
+ * that kept `secret = NULL`, and the delivery path signs conditionally
+ * (`if (payload.secret)`), so those webhooks have been posting unsigned
+ * payloads ever since. A receiver has no way to tell such a delivery from
+ * anyone else who learned the URL, and nothing anywhere reports it: the
+ * webhook works, the deliveries succeed, and the missing header is not an
+ * error to either side.
+ *
+ * Repaired here rather than in a migration because the column is encrypted
+ * with FIELD_ENCRYPTION_KEY through `maybeEncrypt`, which SQL cannot reach.
+ * Writing a plaintext secret into an otherwise-encrypted column would trade
+ * one silent inconsistency for another.
+ *
+ * Non-breaking by construction: a receiver that was never given a secret
+ * cannot have been verifying signatures, so gaining a header it ignores costs
+ * it nothing. It does mean the operator must fetch the new secret and
+ * configure it before the signature is worth anything, which is what the log
+ * line is for.
+ */
+export async function repairUnsignedWebhooksAtBoot(db: Database): Promise<number> {
+  try {
+    const { rows } = await sql<{ id: string; name: string | null }>`
+      SELECT id, name FROM zvd_webhooks WHERE secret IS NULL OR secret = ''
+    `.execute(db);
+    if (rows.length === 0) return 0;
+
+    const { maybeEncrypt } = await import('./data/index.js');
+
+    // The secret column is an `encrypted: true` field, and `maybeEncrypt`
+    // refuses to write one without FIELD_ENCRYPTION_KEY. Checked once, up
+    // front, because the alternative — discovering it inside the loop — turns
+    // "this install still delivers unsigned webhooks" into a line that reads
+    // like a transient hiccup and stops the repair for every remaining row.
+    try {
+      await maybeEncrypt('probe', true);
+    } catch (err) {
+      console.warn(
+        `⚠️  [webhooks] ${rows.length} webhook(s) have no signing secret and will keep ` +
+          'delivering unsigned payloads: a secret cannot be stored because ' +
+          `${(err as Error).message}`,
+      );
+      return 0;
+    }
+
+    let repaired = 0;
+    for (const row of rows) {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      const secret = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      const stored = (await maybeEncrypt(secret, true)) as string;
+      await sql`UPDATE zvd_webhooks SET secret = ${stored} WHERE id = ${row.id}`.execute(db);
+      repaired++;
+      console.warn(
+        `⚠️  [webhooks] "${row.name ?? row.id}" had no signing secret and was delivering ` +
+          'unsigned payloads. A secret has been generated — rotate it from the admin UI and ' +
+          'configure the receiver to verify X-Zveltio-Signature.',
+      );
+    }
+    return repaired;
+  } catch (err) {
+    // Non-fatal: a webhook that cannot be repaired is no worse off than it was
+    // this morning, and refusing to boot over it would be out of proportion.
+    console.warn('[webhooks] could not repair unsigned webhooks:', (err as Error).message);
+    return 0;
+  }
+}
+
+/**
  * Deliveries dispatched without a cache queue, still running.
  *
  * `trigger` returns as soon as it has handed each payload to `deliver`, which
