@@ -54,6 +54,7 @@
     popup_config: Record<string, Any>;
     record_collection: string | null;
     record_field: string | null;
+    record_filter: { field: string; op: string; value?: Any }[];
   };
   type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
 
@@ -631,6 +632,11 @@
           popup_config: selected.popup_config ?? {},
           record_collection: selected.record_collection || null,
           record_field: selected.record_field || null,
+          // An unnamed field would be rejected by the server, and a filter the
+          // server refuses to read makes the page answer 404 for every record.
+          // Half-written rows are normal while editing, so they are dropped on
+          // the way out rather than sent.
+          record_filter: (selected.record_filter ?? []).filter((f) => f.field),
         },
       );
       selected = res.page;
@@ -642,6 +648,60 @@
     } finally {
       saving = false;
     }
+  }
+
+  // ── The record page's filter ────────────────────────────────────────────────
+  //
+  // Deliberately the same vocabulary as the data-block filter editor in
+  // PropertiesPanel: these are the cases `buildCondition` implements, and the
+  // server compiles both lists with it. Two panels offering different operators
+  // for the same mechanism is how an author learns the wrong thing once and
+  // carries it everywhere.
+
+  const RECORD_FILTER_OPS = [
+    { value: 'eq',       label: 'equals' },
+    { value: 'neq',      label: 'not equals' },
+    { value: 'ilike',    label: 'contains' },
+    { value: 'gt',       label: 'greater than' },
+    { value: 'gte',      label: 'greater or equal' },
+    { value: 'lt',       label: 'less than' },
+    { value: 'lte',      label: 'less or equal' },
+    { value: 'in',       label: 'is one of' },
+    { value: 'not_in',   label: 'is not one of' },
+    { value: 'null',     label: 'is empty' },
+    { value: 'not_null', label: 'is not empty' },
+  ] as const;
+
+  const RECORD_UNARY_OPS = new Set(['null', 'not_null']);
+  const RECORD_LIST_OPS = new Set(['in', 'not_in']);
+
+  function patchRecordFilter(index: number, patch: Record<string, unknown>) {
+    if (!selected) return;
+    const next = [...(selected.record_filter ?? [])];
+    next[index] = { ...next[index], ...patch };
+    if (typeof patch.op === 'string' && RECORD_UNARY_OPS.has(patch.op)) delete next[index].value;
+    selected.record_filter = next;
+  }
+
+  function addRecordFilter() {
+    if (!selected) return;
+    selected.record_filter = [...(selected.record_filter ?? []), { field: '', op: 'eq', value: '' }];
+  }
+
+  function removeRecordFilter(index: number) {
+    if (!selected) return;
+    selected.record_filter = (selected.record_filter ?? []).filter((_, j) => j !== index);
+  }
+
+  /** `in`/`not_in` hold arrays; everything else holds a scalar. */
+  function parseRecordValue(op: string, raw: string): unknown {
+    if (RECORD_LIST_OPS.has(op)) return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return raw;
+  }
+
+  function recordValueText(f: { op: string; value?: Any }): string {
+    if (Array.isArray(f.value)) return f.value.join(', ');
+    return f.value == null ? '' : String(f.value);
   }
 
   function deletePage(p: Page) {
@@ -1075,6 +1135,64 @@
                     <p class="text-[9px] text-base-content/40 leading-snug">
                       {m['content.pages.record.hint']()}
                     </p>
+
+                    <!--
+                      Which rows get an address.
+
+                      Without this the page answered for EVERY row of the
+                      collection: a homepage table filtered to active staff
+                      still served the archived ones by URL, and listed them in
+                      the sitemap. Same operators as a data block's filter, and
+                      the same compiler runs both — so what the table shows and
+                      what the site will answer for can finally be made to
+                      agree.
+                    -->
+                    <div class="pt-1.5 border-t border-base-300/60 space-y-1.5">
+                      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">
+                        {m['content.pages.record.filter']()}
+                      </p>
+                      {#each (selected.record_filter ?? []) as f, i (i)}
+                        <div class="rounded border border-base-300 p-1.5 space-y-1 bg-base-200/40">
+                          <div class="flex gap-1">
+                            <select class="select select-xs flex-1 min-w-0 font-mono" value={f.field}
+                              onchange={(e) => patchRecordFilter(i, { field: e.currentTarget.value })}>
+                              <option value="">{m['content.pages.record.pickField']()}</option>
+                              {#each (collectionFields[selected.record_collection] ?? []) as col (col)}
+                                <option value={col}>{col}</option>
+                              {/each}
+                            </select>
+                            <button class="btn btn-ghost btn-xs text-error px-1"
+                              title={m['content.pages.record.removeFilter']()}
+                              onclick={() => removeRecordFilter(i)}
+                            >×</button>
+                          </div>
+                          <div class="flex gap-1">
+                            <select class="select select-xs flex-1 min-w-0" value={f.op}
+                              onchange={(e) => patchRecordFilter(i, { op: e.currentTarget.value })}>
+                              {#each RECORD_FILTER_OPS as op (op.value)}
+                                <option value={op.value}>{op.label}</option>
+                              {/each}
+                            </select>
+                            {#if !RECORD_UNARY_OPS.has(f.op)}
+                              <input class="input input-xs flex-1 min-w-0" placeholder="value"
+                                value={recordValueText(f)}
+                                oninput={(e) => patchRecordFilter(i, { value: parseRecordValue(f.op, e.currentTarget.value) })} />
+                            {/if}
+                          </div>
+                          {#if RECORD_LIST_OPS.has(f.op)}
+                            <p class="text-[9px] text-base-content/40">{m['content.pages.b.commaList']()}</p>
+                          {/if}
+                        </div>
+                      {/each}
+                      <button class="btn btn-xs btn-ghost w-full border border-dashed border-base-300"
+                        onclick={addRecordFilter}
+                      >+ {m['content.pages.b.addFilter']()}</button>
+                      <p class="text-[9px] text-base-content/40 leading-snug">
+                        {(selected.record_filter ?? []).length > 0
+                          ? m['content.pages.record.filterHint']()
+                          : m['content.pages.record.filterNone']()}
+                      </p>
+                    </div>
                   {/if}
                 </div>
               {/if}
