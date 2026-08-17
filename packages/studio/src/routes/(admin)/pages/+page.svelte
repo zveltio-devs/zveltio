@@ -1087,10 +1087,21 @@
                 -->
                 <div>{@render popupSettings()}</div>
               {:else}
-                <label class="label cursor-pointer justify-start gap-2 py-0">
-                  <input type="checkbox" class="toggle toggle-xs" bind:checked={selected.auth_required} />
-                  <span class="label-text text-[10px]">{m['content.pages.field.authRequired']()}</span>
-                </label>
+                <div>
+                  <span class="label-text text-[10px]">{m['content.pages.visibility.label']()}</span>
+                  <div class="grid grid-cols-2 gap-1 mt-1">
+                    <button type="button"
+                      class="btn btn-xs gap-1 {!selected.auth_required ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+                      onclick={() => { if (selected) selected.auth_required = false; }}>
+                      <Globe size={11} /> {m['content.pages.visibility.public']()}
+                    </button>
+                    <button type="button"
+                      class="btn btn-xs gap-1 {selected.auth_required ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+                      onclick={() => { if (selected) selected.auth_required = true; }}>
+                      <Lock size={11} /> {m['content.pages.visibility.private']()}
+                    </button>
+                  </div>
+                </div>
               {/if}
               {#if selected.auth_required}
                 <label class="form-control gap-1"><span class="label-text text-[10px]">{m['content.pages.field.allowedRoles']()}</span>
@@ -1332,15 +1343,33 @@
           <input class="input input-sm font-mono" bind:value={pageForm.slug} /></label>
         {#if newPageKind === 'page'}
           <!--
-            Asked here because it is the decision an author has in mind while
-            creating the page, and changing it afterwards means finding the
-            setting. The default follows the site: a page on a public site is
-            public, a page in a portal is not.
+            Two named options rather than a checkbox. "Requires sign-in: off" and
+            "Public" are the same fact, but only one of them is what an author is
+            deciding, and this is the decision they have in mind while creating
+            the page. The default follows the site.
+
+            The choice is stored on the page (`auth_required`), not in the URL:
+            a page can be moved between public and private without anything
+            moving, which a route-shaped answer could not do.
           -->
-          <label class="label cursor-pointer justify-start gap-2">
-            <input type="checkbox" class="toggle toggle-sm" bind:checked={pageForm.auth_required} />
-            <span class="label-text text-xs">{m['content.pages.field.authRequired']()}</span>
-          </label>
+          <div>
+            <span class="label-text text-xs">{m['content.pages.visibility.label']()}</span>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <button type="button"
+                class="btn btn-sm justify-start gap-2 {!pageForm.auth_required ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+                onclick={() => (pageForm.auth_required = false)}>
+                <Globe size={14} /> {m['content.pages.visibility.public']()}
+              </button>
+              <button type="button"
+                class="btn btn-sm justify-start gap-2 {pageForm.auth_required ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+                onclick={() => (pageForm.auth_required = true)}>
+                <Lock size={14} /> {m['content.pages.visibility.private']()}
+              </button>
+            </div>
+            <p class="text-[10px] text-base-content/50 mt-1 leading-snug">
+              {pageForm.auth_required ? m['content.pages.visibility.privateHint']() : m['content.pages.visibility.publicHint']()}
+            </p>
+          </div>
         {/if}
       </div>
       <div class="modal-action">

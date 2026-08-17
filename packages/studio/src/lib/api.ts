@@ -207,45 +207,59 @@ export const importApi = {
   jobs: () => api.get<{ jobs: any[] }>('/ext/data/import/jobs'),
 };
 
-export const zonesApi = {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  list: () => api.get<{ zones: any[] }>('/api/zones'),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  create: (data: any) => api.post<{ zone: any }>('/api/zones', data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  get: (slug: string) => api.get<{ zone: any }>(`/api/zones/${slug}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  update: (slug: string, data: any) => api.put<{ zone: any }>(`/api/zones/${slug}`, data),
-  delete: (slug: string) => api.delete(`/api/zones/${slug}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  listPages: (slug: string) => api.get<{ pages: any[] }>(`/api/zones/${slug}/pages`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  createPage: (slug: string, data: any) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    api.post<{ page: any }>(`/api/zones/${slug}/pages`, data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  updatePage: (slug: string, pageSlug: string, data: any) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    api.put<{ page: any }>(`/api/zones/${slug}/pages/${pageSlug}`, data),
+/**
+ * Sites — what zones became when portals and page-builder merged.
+ *
+ * The engine stopped answering `/api/zones` when portals was extracted into an
+ * extension, and every caller here kept asking: the intranet, the client portal
+ * and this helper all 404'd. The name is kept so existing call sites read
+ * unchanged; the routes are the extension's.
+ */
+/**
+ * One loose `any` for the whole helper, rather than a suppression comment on
+ * every line. Reflowing moved those comments off the lines they covered, which
+ * is the trouble with a per-line suppression on code a formatter owns.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: untyped extension payloads; tracked in docs/HARDENING-9-PLAN.md H-01
+type Json = any;
+
+export const sitesApi = {
+  list: () => api.get<{ sites: Json[] }>('/ext/content/pages/sites'),
+  create: (data: Json) => api.post<{ site: Json }>('/ext/content/pages/sites', data),
+  get: (slug: string) => api.get<{ site: Json }>(`/ext/content/pages/sites/${slug}`),
+  update: (slug: string, data: Json) =>
+    api.put<{ site: Json }>(`/ext/content/pages/sites/${slug}`, data),
+  delete: (slug: string) => api.delete(`/ext/content/pages/sites/${slug}`),
+
+  listPages: (slug: string) => api.get<{ pages: Json[] }>(`/ext/content/pages/sites/${slug}/pages`),
+  createPage: (slug: string, data: Json) =>
+    api.post<{ page: Json }>(`/ext/content/pages/sites/${slug}/pages`, data),
+  updatePage: (slug: string, pageSlug: string, data: Json) =>
+    api.put<{ page: Json }>(`/ext/content/pages/sites/${slug}/pages/${pageSlug}`, data),
   deletePage: (slug: string, pageSlug: string) =>
-    api.delete(`/api/zones/${slug}/pages/${pageSlug}`),
+    api.delete(`/ext/content/pages/sites/${slug}/pages/${pageSlug}`),
   reorderPages: (slug: string, ids: string[]) =>
-    api.post(`/api/zones/${slug}/pages/reorder`, { ids }),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  render: (slug: string) => api.get<{ zone: any; pages: any[] }>(`/api/zones/${slug}/render`),
+    api.post(`/ext/content/pages/sites/${slug}/pages/reorder`, { ids }),
+
+  // The render endpoints answer `site` and `blocks` — zones became sites and a
+  // page's views became its blocks when the two extensions merged.
+  render: (slug: string) =>
+    api.get<{ site: Json; nav: Json[] }>(`/ext/content/pages/sites/${slug}/render`),
   renderPage: (slug: string, pageSlug: string) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    api.get<{ page: any; zone: any; views: any[] }>(`/api/zones/${slug}/render/${pageSlug}`),
+    api.get<{ page: Json; site: Json; blocks: Json[]; record: Json }>(
+      `/ext/content/pages/sites/${slug}/render/${pageSlug}`,
+    ),
 };
 
-export const viewsApi = {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  list: () => api.get<{ views: any[] }>('/api/views'),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  create: (data: any) => api.post<{ view: any }>('/api/views', data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  get: (id: string) => api.get<{ view: any }>(`/api/views/${id}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  update: (id: string, data: any) => api.put<{ view: any }>(`/api/views/${id}`, data),
-  delete: (id: string) => api.delete(`/api/views/${id}`),
-};
+/** The name this had while zones were zones. */
+export const zonesApi = sitesApi;
+
+/**
+ * Views are gone.
+ *
+ * A view was "show rows of a collection, filtered and sorted", which is what a
+ * `collection_list` BLOCK is — so views became blocks when portals and
+ * page-builder merged, and `/api/views` stopped existing with them. Nothing in
+ * the Studio calls this any more; it is removed rather than left pointing at a
+ * route that answers 404.
+ */

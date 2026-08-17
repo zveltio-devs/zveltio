@@ -13,13 +13,22 @@ export const ssr = false;
 
 export const load: PageLoad = async ({ params, fetch }) => {
   try {
+    // `content/pages`, not `content/page-builder`: that extension was merged
+    // away, and this loader kept calling it — every public page 404'd.
     const res = await fetch(
-      `${ENGINE_URL}/ext/content/page-builder/cms/${encodeURIComponent(params.slug)}`,
+      `${ENGINE_URL}/ext/content/pages/cms/${encodeURIComponent(params.slug)}`,
     );
-    if (!res.ok) return { page: null, blocks: [], status: res.status };
+    if (!res.ok) return { page: null, blocks: [], popups: [], record: null, status: res.status };
     const data = await res.json();
-    return { page: data.page ?? null, blocks: data.blocks ?? [], status: 200 };
+    return {
+      page: data.page ?? null,
+      blocks: data.blocks ?? [],
+      popups: data.popups ?? [],
+      record: data.record ?? null,
+      blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/${encodeURIComponent(params.slug)}/blocks`,
+      status: 200,
+    };
   } catch {
-    return { page: null, blocks: [], status: 502 };
+    return { page: null, blocks: [], popups: [], record: null, status: 502 };
   }
 };

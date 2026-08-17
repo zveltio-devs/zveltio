@@ -12,7 +12,7 @@ let { children } = $props();
 let mobileOpen = $state(false);
 let dark = $state(false);
 
-// Zone resolved dynamically from /api/zones/:slug/render
+// Site resolved dynamically from /ext/content/pages/sites/:slug/render
 let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
 let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
 
@@ -42,10 +42,13 @@ onMount(async () => {
 
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
-    zone = res.zone;
+    const res = await api.get<{ site: any; nav: any[] }>(
+      `/ext/content/pages/sites/${ZONE_SLUG}/render`,
+    );
+    // The render endpoint answers `site` since zones became sites.
+    zone = res.site;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    navPages = (res.pages ?? []).filter((p: any) => p.is_active);
+    navPages = (res.nav ?? []).filter((p: any) => p.is_active !== false);
   } catch {
     // Zone not configured yet — show empty nav
   }

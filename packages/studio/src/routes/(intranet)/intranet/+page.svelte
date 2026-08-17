@@ -19,7 +19,7 @@ onMount(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    api.get<{ nav: any[] }>('/api/zones/intranet/render'),
+    api.get<{ nav: any[] }>('/ext/content/pages/sites/intranet/render'),
   ]);
   if (notifRes.status === 'fulfilled') {
     notifications = (notifRes.value.notifications ?? []).slice(0, 5);
@@ -103,7 +103,7 @@ const quickLinks = [
     {/each}
   </div>
 
-  <!-- Zone pages — admin-configured pages from /api/zones/intranet/render -->
+  <!-- Site pages — admin-configured, from /ext/content/pages/sites/intranet/render -->
   {#if zonePages.length > 0}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body p-5">

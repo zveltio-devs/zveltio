@@ -6,7 +6,7 @@ import { api } from '$lib/api.js';
 const ZONE_SLUG = 'client';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
+let pageData = $state<{ page: any; site: any; blocks: any[]; record: any } | null>(null);
 let loading = $state(true);
 let error = $state<string | null>(null);
 
@@ -15,8 +15,8 @@ const slug = $derived(page.params.slug);
 onMount(async () => {
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const res = await api.get<{ page: any; zone: any; views: any[] }>(
-      `/api/zones/${ZONE_SLUG}/render/${slug}`,
+    const res = await api.get<{ page: any; site: any; blocks: any[]; record: any }>(
+      `/ext/content/pages/sites/${ZONE_SLUG}/render/${slug}`,
     );
     pageData = res;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -47,64 +47,25 @@ onMount(async () => {
       {/if}
     </div>
 
-    {#each pageData.views as view}
-      <div class="card bg-base-200 border border-base-300">
-        <div class="card-body p-4">
-          {#if view.definition.name}
-            <h2 class="text-sm font-semibold text-base-content/70 mb-3">
-              {view.title_override ?? view.definition.name}
-            </h2>
-          {/if}
+    <!--
+      Blocks, drawn by the extension's own renderer.
 
-          {#if view.definition.view_type === 'table'}
-            <!-- Table view -->
-            {#if view.data?.records?.length}
-              <div class="overflow-x-auto">
-                <table class="table table-sm w-full">
-                  <thead>
-                    <tr>
-                      {#each (view.definition.fields ?? []) as field}
-                        <th class="text-xs">{field.label ?? field.key}</th>
-                      {/each}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each view.data.records as record}
-                      <tr class="hover">
-                        {#each (view.definition.fields ?? []) as field}
-                          <td class="text-sm">{record[field.key] ?? ''}</td>
-                        {/each}
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            {:else}
-              <p class="text-sm text-base-content/40 text-center py-6">No records found.</p>
-            {/if}
+      This hand-rolled a table for `view_type === 'table'`, a stats strip for
+      `stats`, and dumped JSON for everything else — a third rendering of the
+      same data, beside the public host's and the editor's preview. Since the
+      pages merge a portal page IS blocks, so it is drawn by the component that
+      draws blocks, and a new block type appears here without anyone editing
+      this file.
+    -->
+    <BlockRenderer
+      blocks={pageData.blocks ?? []}
+      record={pageData.record ?? null}
+      blocksBaseUrl={`/ext/content/pages/sites/${ZONE_SLUG}/render/${slug}/blocks`}
+    />
 
-          {:else if view.definition.view_type === 'stats'}
-            <!-- Stats view -->
-            <div class="stats stats-horizontal w-full">
-              {#each (view.data?.records ?? []).slice(0, 4) as record}
-                <div class="stat">
-                  <div class="stat-value text-2xl">{Object.values(record)[0]}</div>
-                  <div class="stat-desc">{Object.keys(record)[0]}</div>
-                </div>
-              {/each}
-            </div>
-
-          {:else}
-            <!-- Fallback: raw data -->
-            <pre class="text-xs bg-base-300 rounded p-3 overflow-auto max-h-64">{JSON.stringify(view.data, null, 2)}</pre>
-          {/if}
-        </div>
-      </div>
-    {/each}
-
-    {#if pageData.views.length === 0}
+    {#if (pageData.blocks ?? []).length === 0}
       <div class="text-center py-12 text-base-content/40 text-sm">
-        No views configured for this page.
+        This page has no blocks yet.
       </div>
     {/if}
   </div>

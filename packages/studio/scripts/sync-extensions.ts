@@ -164,6 +164,21 @@ for (const extRoot of EXT_ROOTS) {
       copyTreeSkippingTests(srcDir, libDest);
     }
 
+    // …and the extension's `client/` under `client/`.
+    //
+    // The Studio hosts authenticated surfaces — the intranet and the client
+    // portal — and those draw PAGES, which since the pages merge means drawing
+    // blocks. The renderer that knows how belongs to the extension, so the
+    // Studio takes the same copy the public host does rather than growing a
+    // second one. That is how the public renderer and the block library drifted
+    // apart for three months.
+    const clientDir = join(extRoot, extName, 'client');
+    if (existsSync(clientDir)) {
+      const clientDest = join(LIB_EXT, extName, 'client');
+      mkdirSync(clientDest, { recursive: true });
+      copyTreeSkippingTests(clientDir, clientDest);
+    }
+
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
     syncedSlugs.push(slug);
     synced++;
