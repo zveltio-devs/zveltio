@@ -12,6 +12,8 @@
     block, onPatch, collections = [], sitePublic = false, publicCollections = [],
     collectionFields = {},
     device = 'base',
+    iconNames = [],
+    motionTypes = [],
   }: {
     block: Block;
     onPatch: (fn: (b: Block) => Block) => void;
@@ -20,6 +22,9 @@
     collectionFields?: Record<string, string[]>;
     /** Which device the Style tab is editing — the canvas switcher decides. */
     device?: Breakpoint;
+    /** Served by the engine from the renderer's own lists — see /vocabulary. */
+    iconNames?: string[];
+    motionTypes?: string[];
     /** Is the site this page belongs to served to anonymous visitors? */
     sitePublic?: boolean;
     /** Collections that site publishes anonymously — see engine/hydrate.ts. */
@@ -85,6 +90,15 @@
   /** The style bag being edited, and the value shown for a property. */
   const activeStyle = $derived(((block as any)[styleKey(device)] ?? {}) as BlockStyle);
   const activeSpan = $derived((block as any)[spanKey(device)]);
+
+  /**
+   * Motion lives beside `style`, not inside it: it is not per-device. A block
+   * that fades in on a phone fades in on a desktop, and offering three copies of
+   * that setting would be three chances to leave two of them wrong.
+   */
+  function patchMotion(key: string, value: any) {
+    onPatch(b => ({ ...b, motion: { ...((b as any).motion ?? {}), [key]: value } }));
+  }
 
   function patchItems(items: any[]) {
     onPatch(b => ({ ...b, content: { ...b.content, items } }));
@@ -239,6 +253,42 @@
           <input type="range" min="0" max="100" class="range range-xs range-primary w-full"
             value={p.overlay_opacity ?? 40}
             oninput={(e) => patchContent('overlay_opacity', Number(e.currentTarget.value))} /></div>
+
+      {:else if block.type === 'icon'}
+        <div>{@render label(m['content.pages.b.iconName']())}
+          <div class="grid grid-cols-6 gap-1 max-h-40 overflow-y-auto rounded border border-base-300 p-1">
+            {#each iconNames as name (name)}
+              <button type="button" title={name}
+                class="aspect-square rounded flex items-center justify-center text-[9px] font-mono
+                  {p.name === name ? 'bg-primary text-primary-content' : 'hover:bg-base-200'}"
+                onclick={() => patchContent('name', name)}
+              >{name.slice(0, 3)}</button>
+            {/each}
+          </div>
+        </div>
+        <div>{@render label(m['content.pages.b.iconSize']())}
+          <input type="number" min="12" max="160" class="input input-xs w-full" value={p.size ?? 32}
+            oninput={(e) => patchContent('size', Number(e.currentTarget.value))} /></div>
+        <div>{@render label(m['content.pages.b.color']())}
+          {@render colorRow(p.color ?? '', (v) => patchContent('color', v))}</div>
+        <div>{@render label(m['content.pages.b.iconLabel']())}
+          <input class="input input-xs w-full" value={p.label ?? ''}
+            oninput={(e) => patchContent('label', e.currentTarget.value)} /></div>
+
+      {:else if block.type === 'button'}
+        <div>{@render label(m['content.pages.b.buttonText']())}
+          <input class="input input-xs w-full" value={p.label ?? ''}
+            oninput={(e) => patchContent('label', e.currentTarget.value)} /></div>
+        <div>{@render label(m['content.pages.b.buttonUrl']())}
+          <input class="input input-xs w-full font-mono" value={p.href ?? ''}
+            oninput={(e) => patchContent('href', e.currentTarget.value)} /></div>
+        <div>{@render label(m['content.pages.b.variant']())}
+          <select class="select select-xs w-full" value={p.variant ?? 'primary'}
+            onchange={(e) => patchContent('variant', e.currentTarget.value)}>
+            <option value="primary">{m['content.pages.b.primary']()}</option>
+            <option value="dark">{m['content.pages.b.dark']()}</option>
+            <option value="light">{m['content.pages.b.light']()}</option>
+          </select></div>
 
       {:else if block.type === 'richtext'}
         <div>{@render label(m['content.pages.b.contentHtml']())}
@@ -541,6 +591,42 @@
         <button class="btn btn-ghost btn-xs w-full text-[10px]"
           onclick={() => onPatch((b) => { const n = { ...b }; delete (n as any)[spanKey(device)]; return n; })}
         >{m['content.pages.b.clearOverride']()}</button>
+      {/if}
+
+      <!--
+        Motion. A short list on purpose: "fade this in when it appears" and
+        "keep this at the top" are the two a portal or a public-sector page
+        actually uses. A visitor who asked for reduced motion gets none of it,
+        decided in the stylesheet so it responds without a reload.
+      -->
+      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.motion']()}</p>
+      <div>{@render label(m['content.pages.b.motionType']())}
+        <select class="select select-xs w-full" value={block.motion?.type ?? 'none'}
+          onchange={(e) => patchMotion('type', e.currentTarget.value)}>
+          {#each motionTypes as t (t)}<option value={t}>{t}</option>{/each}
+        </select></div>
+      {#if (block.motion?.type ?? 'none') !== 'none'}
+        <div class="grid grid-cols-2 gap-1.5">
+          <div>{@render label(m['content.pages.b.motionDuration']())}
+            <input type="number" min="100" max="3000" step="50" class="input input-xs w-full"
+              value={block.motion?.duration ?? 500}
+              oninput={(e) => patchMotion('duration', Number(e.currentTarget.value))} /></div>
+          <div>{@render label(m['content.pages.b.motionDelay']())}
+            <input type="number" min="0" max="2000" step="50" class="input input-xs w-full"
+              value={block.motion?.delay ?? 0}
+              oninput={(e) => patchMotion('delay', Number(e.currentTarget.value))} /></div>
+        </div>
+      {/if}
+      <label class="label cursor-pointer justify-start gap-2 py-0">
+        <input type="checkbox" class="checkbox checkbox-xs" checked={block.motion?.sticky === true}
+          onchange={(e) => patchMotion('sticky', e.currentTarget.checked)} />
+        <span class="label-text text-[10px]">{m['content.pages.b.motionSticky']()}</span>
+      </label>
+      {#if block.motion?.sticky}
+        <div>{@render label(m['content.pages.b.motionOffset']())}
+          <input type="number" min="0" max="400" class="input input-xs w-full"
+            value={block.motion?.stickyOffset ?? 0}
+            oninput={(e) => patchMotion('stickyOffset', Number(e.currentTarget.value))} /></div>
       {/if}
 
       <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.padding']()}</p>

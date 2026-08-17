@@ -33,10 +33,14 @@
   import CollectionList from './CollectionList.svelte';
   import { bindBlock } from './bind.js';
   import { spanClasses, styleVars } from './responsive.js';
+  import { ICONS } from './icons.js';
+  import { motionAttrs } from './motion.js';
   // A container draws its children with this same component. Svelte allows the
   // self-import; the recursion terminates because only `container` recurses and
   // the editor refuses to nest a container inside itself.
   import Self from './BlockRenderer.svelte';
+
+  import { onMount } from 'svelte';
 
   // biome-ignore lint/suspicious/noExplicitAny: contract blocks are untyped JSON
   let {
@@ -75,6 +79,42 @@
     link: 'btn btn-link',
   };
 
+  /**
+   * Reveal animated blocks as they scroll into view.
+   *
+   * Only ever ADDS a class. The stylesheet's resting state is visible, and
+   * `zv-anim` hides a block only once `zv-anim-armed` is on the page — set here,
+   * on mount. So a visitor whose script never ran, or ran late, sees every
+   * block; the animation is an enhancement and cannot become a blank page.
+   */
+  let root: HTMLElement | undefined = $state();
+
+  onMount(() => {
+    if (!root) return;
+    const animated = root.querySelectorAll<HTMLElement>('.zv-anim');
+    if (animated.length === 0) return;
+
+    root.classList.add('zv-anim-armed');
+
+    if (typeof IntersectionObserver === 'undefined') {
+      for (const el of animated) el.classList.add('zv-seen');
+      return;
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add('zv-seen');
+          io.unobserve(e.target);
+        }
+      },
+      { rootMargin: '0px 0px -10% 0px' },
+    );
+    for (const el of animated) io.observe(el);
+    return () => io.disconnect();
+  });
+
   /** Container gap, as whole class names — see the note on `col-span-`. */
   const GAP: Record<string, string> = {
     none: 'gap-0', sm: 'gap-2', md: 'gap-6', lg: 'gap-10',
@@ -104,12 +144,13 @@
   A twelve-column grid, so `col_span` means what it says. A page whose blocks
   are all full width looks exactly as it did when this was a vertical stack.
 -->
-<div class={nested
+<div bind:this={root} class={nested
   ? `grid grid-cols-12 items-start ${GAP[gap] ?? GAP.md}`
   : 'mx-auto max-w-5xl px-4 sm:px-6 py-10 grid grid-cols-12 gap-6 items-start'}>
   {#each blocks as block, i (block.id ?? i)}
     {@const c = block.content ?? {}}
-    <div class="zv-b {spanClasses(block)}" style={styleVars(block)}>
+    {@const mo = motionAttrs(block)}
+    <div class="zv-b {spanClasses(block)} {mo.class}" style={styleVars(block) ? `${styleVars(block)};${mo.style}` : mo.style}>
 
       {#if block.type === 'hero'}
         <div class="rounded-xl px-6 py-14 text-center"
@@ -209,6 +250,21 @@
       {:else if block.type === 'html' || block.type === 'embed'}
         <div>{@html safeHtml(c.code ?? c.html ?? '')}</div>
 
+      {:else if block.type === 'icon'}
+        {@const d = ICONS[String(c.name ?? 'star')]}
+        {#if d}
+          <div class="inline-flex items-center gap-2">
+            <svg width={Number(c.size) || 32} height={Number(c.size) || 32}
+              viewBox="0 0 24 24" fill="none" stroke={c.color || 'currentColor'}
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              role={c.label ? 'img' : 'presentation'} aria-label={c.label || undefined}
+              aria-hidden={c.label ? undefined : 'true'}>
+              <path d={d} />
+            </svg>
+            {#if c.label}<span>{c.label}</span>{/if}
+          </div>
+        {/if}
+
       {:else if block.type === 'divider'}
         <hr class="border-base-300" style:border-top-width={c.thickness ? `${c.thickness}px` : undefined}
           style:border-color={c.color ?? undefined} />
@@ -291,6 +347,47 @@
       background-color: var(--zv-bg-sm, var(--zv-bg, transparent));
       color: var(--zv-fg-sm, var(--zv-fg, inherit));
       text-align: var(--zv-ta-sm, var(--zv-ta, inherit));
+    }
+  }
+
+  /*
+    Motion. The resting state is VISIBLE — `zv-anim` only hides a block once the
+    renderer has added `zv-anim-armed`, which it does on mount. A page whose
+    script failed shows everything.
+  */
+  :global(.zv-anim-armed .zv-anim) {
+    opacity: 0;
+    transition:
+      opacity var(--zv-anim-dur, 500ms) ease-out var(--zv-anim-delay, 0ms),
+      transform var(--zv-anim-dur, 500ms) ease-out var(--zv-anim-delay, 0ms);
+  }
+  :global(.zv-anim-armed .zv-anim-up)    { transform: translateY(24px); }
+  :global(.zv-anim-armed .zv-anim-down)  { transform: translateY(-24px); }
+  :global(.zv-anim-armed .zv-anim-left)  { transform: translateX(24px); }
+  :global(.zv-anim-armed .zv-anim-right) { transform: translateX(-24px); }
+  :global(.zv-anim-armed .zv-anim-zoom)  { transform: scale(0.94); }
+
+  :global(.zv-anim.zv-seen) {
+    opacity: 1;
+    transform: none;
+  }
+
+  :global(.zv-sticky) {
+    position: sticky;
+    top: var(--zv-sticky-top, 0px);
+    z-index: 20;
+  }
+
+  /*
+    A visitor who asked for less motion gets none, and gets it without a reload —
+    which is why this lives in the stylesheet and not in the code that decides
+    the classes.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    :global(.zv-anim-armed .zv-anim) {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
     }
   }
 

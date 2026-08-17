@@ -25,6 +25,8 @@ export const BLOCK_TYPES = [
   'video',
   'gallery',
   'divider',
+  'icon',
+  'button',
   'collection_list',
 ] as const;
 
@@ -33,12 +35,14 @@ export const BLOCK_TYPES = [
  * renderer draws them; nothing rewrites them, because reading an old name is
  * cheaper and safer than a data migration over every page on every install.
  *
- * `heading`, `text`, `button` and `html` came from the textarea editor.
+ * `heading`, `text` and `html` came from the textarea editor. `button` came from
+ * there too and has been PROMOTED: the renderer always drew it, the builder
+ * never offered it, so a page could contain a button that nobody could add.
  * `columns` is newer and retires for a different reason: it stored its columns
  * as raw HTML STRINGS, so nothing could be placed inside one — not an image,
  * not a data block. `container` replaces it by holding real blocks.
  */
-export const LEGACY_BLOCK_TYPES = ['heading', 'text', 'button', 'html', 'columns'] as const;
+export const LEGACY_BLOCK_TYPES = ['heading', 'text', 'html', 'columns'] as const;
 
 /** The block type that holds other blocks. Nothing else nests. */
 export const CONTAINER_TYPE = 'container';

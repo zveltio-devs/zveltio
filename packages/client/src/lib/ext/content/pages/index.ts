@@ -21,10 +21,17 @@
  * imports keep working. They cover four block types out of sixteen and know
  * nothing about layout — new code should use `BlockRenderer`.
  *
+ * A page's payload also carries `popups: [...]` — pages with `kind = 'popup'`
+ * that belong on it, already resolved. Draw each with `<Popup {popup} />`; it
+ * handles its own trigger, frequency and dismissal.
+ *
  * Requires: the `content/pages` extension active on your Zveltio instance.
  */
 export { default as BlockRenderer } from './BlockRenderer.svelte';
 export { default as CollectionList } from './CollectionList.svelte';
+export { default as Popup } from './Popup.svelte';
+export { ICONS, ICON_NAMES, type IconName } from './icons.js';
+export { motionAttrs, MOTION_TYPES, type MotionType } from './motion.js';
 export { BLOCK_TYPES, LEGACY_BLOCK_TYPES, ALL_BLOCK_TYPES, type BlockType } from './block-types.js';
 
 // Superseded by BlockRenderer — kept for compatibility.

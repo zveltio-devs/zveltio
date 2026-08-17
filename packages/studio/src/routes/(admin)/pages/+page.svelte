@@ -50,6 +50,8 @@
     status: 'draft' | 'published' | 'archived';
     is_active: boolean; is_homepage: boolean; auth_required: boolean;
     allowed_roles: string[]; sort_order: number; icon: string | null;
+    kind: 'page' | 'popup';
+    popup_config: Record<string, Any>;
   };
   type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
 
@@ -66,6 +68,11 @@
 
   let showNewSite = $state(false);
   let showNewPage = $state(false);
+  /** Creating a popup rather than a page — the same form, one flag different. */
+  let newPageKind = $state<'page' | 'popup'>('page');
+  /** The engine serves these from the renderer's own lists. */
+  let iconNames = $state<string[]>([]);
+  let motionTypes = $state<string[]>([]);
   let siteForm = $state({ name: '', slug: '', base_path: '', is_public: false });
   let pageForm = $state({ title: '', slug: '' });
 
@@ -165,7 +172,9 @@
   }
 
   onMount(async () => {
-    await Promise.all([loadSites(), loadCollections(), loadTemplates(), loadStats()]);
+    await Promise.all([
+      loadSites(), loadCollections(), loadTemplates(), loadStats(), loadVocabulary(),
+    ]);
     loading = false;
   });
 
@@ -175,6 +184,17 @@
       stats = await api.get<Any>(`${BASE}/pages/stats`);
     } catch {
       stats = null;
+    }
+  }
+
+  async function loadVocabulary() {
+    try {
+      const res = await api.get<{ icons: string[]; motion: string[] }>(`${BASE}/pages/vocabulary`);
+      iconNames = res.icons ?? [];
+      motionTypes = res.motion ?? [];
+    } catch {
+      iconNames = [];
+      motionTypes = [];
     }
   }
 
@@ -518,6 +538,10 @@
         slug: pageForm.slug.trim(),
         blocks: [],
         status: 'draft',
+        kind: newPageKind,
+        // A popup is drawn over a page, never navigated to, so it is never
+        // behind its own role gate — the page it appears on decides that.
+        auth_required: newPageKind === 'popup' ? false : undefined,
       });
       pages = [...pages, res.page];
       pageForm = { title: '', slug: '' };
@@ -601,6 +625,8 @@
           auth_required: selected.auth_required,
           allowed_roles: selected.allowed_roles,
           icon: selected.icon ?? undefined,
+          kind: selected.kind,
+          popup_config: selected.popup_config ?? {},
         },
       );
       selected = res.page;
@@ -664,6 +690,12 @@
     }
   }
 
+  /** One popup setting, merged into its config. */
+  function setPopup(key: string, value: Any) {
+    if (!selected) return;
+    selected.popup_config = { ...(selected.popup_config ?? {}), [key]: value };
+  }
+
   function togglePublicCollection(name: string) {
     if (!activeSite) return;
     const cur = activeSite.public_collections ?? [];
@@ -692,7 +724,12 @@
       <button type="button" class="btn btn-ghost btn-sm gap-1" onclick={openRedirects}>
         <CornerDownRight size={14} /> {m['content.pages.redirects.title']()}
       </button>
-      <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showNewPage = true)}>
+      <button type="button" class="btn btn-ghost btn-sm gap-1"
+        onclick={() => { newPageKind = 'popup'; showNewPage = true; }}>
+        <Plus size={14} /> {m['content.pages.newPopup']()}
+      </button>
+      <button type="button" class="btn btn-primary btn-sm gap-1"
+        onclick={() => { newPageKind = 'page'; showNewPage = true; }}>
         <Plus size={14} /> {m['content.pages.newPage']()}
       </button>
     {:else}
@@ -855,8 +892,14 @@
           <tbody>
             {#each pages as p (p.id)}
               <tr class="hover">
-                <td class="font-medium">{p.title}{#if p.is_homepage} <span class="badge badge-xs badge-primary">{m['content.pages.homepage']()}</span>{/if}</td>
-                <td class="font-mono text-xs">{activeSite.base_path}/{p.slug}</td>
+                <td class="font-medium">{p.title}
+                  {#if p.is_homepage}<span class="badge badge-xs badge-primary">{m['content.pages.homepage']()}</span>{/if}
+                  {#if p.kind === 'popup'}<span class="badge badge-xs badge-secondary">{m['content.pages.popup']()}</span>{/if}
+                </td>
+                <td class="font-mono text-xs">
+                  {#if p.kind === 'popup'}<span class="opacity-40">{m['content.pages.popupNoAddress']()}</span>
+                  {:else}{activeSite.base_path}/{p.slug}{/if}
+                </td>
                 <td><span class="badge badge-sm {p.status === 'published' ? 'badge-success' : 'badge-ghost'}">{p.status}</span></td>
                 <td>
                   {#if p.auth_required}
@@ -970,6 +1013,8 @@
             {collections}
             {collectionFields}
             {device}
+            {iconNames}
+            {motionTypes}
             sitePublic={activeSite?.is_public ?? false}
             publicCollections={activeSite?.public_collections ?? []}
           />
@@ -987,10 +1032,19 @@
                 <input type="checkbox" class="toggle toggle-xs" bind:checked={selected.is_homepage} />
                 <span class="label-text text-[10px]">{m['content.pages.homepage']()}</span>
               </label>
-              <label class="label cursor-pointer justify-start gap-2 py-0">
-                <input type="checkbox" class="toggle toggle-xs" bind:checked={selected.auth_required} />
-                <span class="label-text text-[10px]">{m['content.pages.field.authRequired']()}</span>
-              </label>
+              {#if selected.kind === 'popup'}
+                <!--
+                  A popup is drawn over a page, so what it needs is when to
+                  appear and where — not a slug and a role. The role that
+                  matters belongs to the page it appears on.
+                -->
+                <div>{@render popupSettings()}</div>
+              {:else}
+                <label class="label cursor-pointer justify-start gap-2 py-0">
+                  <input type="checkbox" class="toggle toggle-xs" bind:checked={selected.auth_required} />
+                  <span class="label-text text-[10px]">{m['content.pages.field.authRequired']()}</span>
+                </label>
+              {/if}
               {#if selected.auth_required}
                 <label class="form-control gap-1"><span class="label-text text-[10px]">{m['content.pages.field.allowedRoles']()}</span>
                   <input class="input input-xs" placeholder="client, partner"
@@ -1110,6 +1164,81 @@
     </div>
   {/if}
 </ExtensionPageShell>
+
+{#snippet popupSettings()}
+  {#if selected}
+    {@const cfg = selected.popup_config ?? {}}
+    <div class="space-y-2">
+      <label class="form-control gap-1">
+        <span class="label-text text-[10px]">{m['content.pages.popup.trigger']()}</span>
+        <select class="select select-xs" value={cfg.trigger ?? 'delay'}
+          onchange={(e) => setPopup('trigger', e.currentTarget.value)}>
+          <option value="load">{m['content.pages.popup.onLoad']()}</option>
+          <option value="delay">{m['content.pages.popup.afterDelay']()}</option>
+          <option value="scroll">{m['content.pages.popup.onScroll']()}</option>
+          <option value="exit">{m['content.pages.popup.onExit']()}</option>
+          <option value="click">{m['content.pages.popup.onClick']()}</option>
+        </select>
+      </label>
+
+      {#if (cfg.trigger ?? 'delay') === 'delay'}
+        <label class="form-control gap-1">
+          <span class="label-text text-[10px]">{m['content.pages.popup.delaySeconds']()}</span>
+          <input type="number" min="0" max="120" class="input input-xs" value={cfg.delay_seconds ?? 3}
+            oninput={(e) => setPopup('delay_seconds', Number(e.currentTarget.value))} />
+        </label>
+      {:else if cfg.trigger === 'scroll'}
+        <label class="form-control gap-1">
+          <span class="label-text text-[10px]">{m['content.pages.popup.scrollPercent']()}</span>
+          <input type="number" min="1" max="100" class="input input-xs" value={cfg.scroll_percent ?? 50}
+            oninput={(e) => setPopup('scroll_percent', Number(e.currentTarget.value))} />
+        </label>
+      {:else if cfg.trigger === 'click'}
+        <label class="form-control gap-1">
+          <span class="label-text text-[10px]">{m['content.pages.popup.selector']()}</span>
+          <input class="input input-xs font-mono" placeholder=".open-offer" value={cfg.selector ?? ''}
+            oninput={(e) => setPopup('selector', e.currentTarget.value)} />
+        </label>
+      {/if}
+
+      <label class="form-control gap-1">
+        <span class="label-text text-[10px]">{m['content.pages.popup.frequency']()}</span>
+        <select class="select select-xs" value={cfg.frequency ?? 'session'}
+          onchange={(e) => setPopup('frequency', e.currentTarget.value)}>
+          <option value="always">{m['content.pages.popup.always']()}</option>
+          <option value="session">{m['content.pages.popup.session']()}</option>
+          <option value="once">{m['content.pages.popup.once']()}</option>
+        </select>
+      </label>
+
+      <div class="grid grid-cols-2 gap-1.5">
+        <label class="form-control gap-1">
+          <span class="label-text text-[10px]">{m['content.pages.popup.position']()}</span>
+          <select class="select select-xs" value={cfg.position ?? 'center'}
+            onchange={(e) => setPopup('position', e.currentTarget.value)}>
+            <option value="center">{m['content.pages.popup.center']()}</option>
+            <option value="top">{m['content.pages.popup.top']()}</option>
+            <option value="bottom">{m['content.pages.popup.bottom']()}</option>
+          </select>
+        </label>
+        <label class="form-control gap-1">
+          <span class="label-text text-[10px]">{m['content.pages.popup.width']()}</span>
+          <input type="number" min="240" max="1200" step="20" class="input input-xs"
+            value={cfg.width ?? 560}
+            oninput={(e) => setPopup('width', Number(e.currentTarget.value))} />
+        </label>
+      </div>
+
+      <label class="form-control gap-1">
+        <span class="label-text text-[10px]">{m['content.pages.popup.targets']()}</span>
+        <input class="input input-xs font-mono" placeholder="home, pricing"
+          value={(cfg.targets ?? []).join(', ')}
+          oninput={(e) => setPopup('targets', e.currentTarget.value.split(',').map((t) => t.trim()).filter(Boolean))} />
+      </label>
+      <p class="text-[9px] text-base-content/40 leading-snug">{m['content.pages.popup.targetsHint']()}</p>
+    </div>
+  {/if}
+{/snippet}
 
 {#if showNewSite}
   <div class="modal modal-open">

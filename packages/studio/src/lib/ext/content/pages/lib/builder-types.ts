@@ -99,6 +99,16 @@ export const LIBRARY: LibraryBlock[] = [
     category: 'media', emoji: '</>',
     defaultContent: { html: '' },
   },
+  {
+    type: 'icon', label: 'Icon', description: 'A single icon at any size',
+    category: 'media', emoji: '★',
+    defaultContent: { name: 'star', size: 32, label: '' },
+  },
+  {
+    type: 'button', label: 'Button', description: 'A link styled as a button',
+    category: 'content', emoji: '▭',
+    defaultContent: { label: 'Click here', href: '/', variant: 'primary' },
+  },
   // Zveltio
   {
     type: 'collection_list', label: 'Collection Data', description: 'Live rows from a collection',

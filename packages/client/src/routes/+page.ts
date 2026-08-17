@@ -15,7 +15,12 @@ export const ssr = false;
 export const load: PageLoad = async ({ fetch }) => {
   // Optional public homepage (only present if content/pages is installed AND a
   // `home` page is published on a PUBLIC site). Any failure just means "no public homepage".
-  let homepage: { page: unknown; blocks: unknown[]; blocksBaseUrl: string } | null = null;
+  let homepage: {
+    page: unknown;
+    blocks: unknown[];
+    popups: unknown[];
+    blocksBaseUrl: string;
+  } | null = null;
   try {
     const res = await fetch(`${ENGINE_URL}/ext/content/pages/cms/home`);
     if (res.ok) {
@@ -24,6 +29,7 @@ export const load: PageLoad = async ({ fetch }) => {
         homepage = {
           page: data.page,
           blocks: data.blocks ?? [],
+          popups: data.popups ?? [],
           // Where a data block asks for its next window. Built here because this
           // is where the engine's base URL is resolved.
           blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/home/blocks`,

@@ -33,6 +33,7 @@ const SAMPLES: Record<string, Record<string, unknown>> = {
   video: { url: 'https://player.test/1' },
   gallery: { images: [{ url: 'https://example.test/g.png', alt: 'g' }] },
   divider: {},
+  icon: { name: 'star', size: 32, label: 'Featured' },
   collection_list: {
     collection: 'contacts',
     view_type: 'table',
@@ -42,7 +43,7 @@ const SAMPLES: Record<string, Record<string, unknown>> = {
   },
   heading: { level: 2, text: 'Legacy heading' },
   text: { html: '<p>Legacy text</p>' },
-  button: { label: 'Legacy button', href: '/b' },
+  button: { label: 'Press me', href: '/b', variant: 'primary' },
   html: { code: '<p>Legacy html</p>' },
 };
 
@@ -121,6 +122,78 @@ describe('block coverage', () => {
     expect(container.querySelector('script')).toBeNull();
     expect(container.innerHTML).not.toContain('alert(1)');
     expect(container.innerHTML).not.toContain('onerror');
+  });
+});
+
+describe('icons and motion', () => {
+  afterEach(() => cleanup());
+
+  it('an icon block draws an svg and its label', () => {
+    const { container } = render(BlockRenderer, {
+      props: {
+        blocks: [
+          { id: '1', type: 'icon', content: { name: 'heart', size: 40, label: 'Favourites' } },
+        ],
+      },
+    });
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg?.getAttribute('width')).toBe('40');
+    expect(container.textContent).toContain('Favourites');
+  });
+
+  it('an unknown icon name draws nothing rather than a broken glyph', () => {
+    const { container } = render(BlockRenderer, {
+      props: { blocks: [{ id: '1', type: 'icon', content: { name: 'not-an-icon' } }] },
+    });
+    expect(container.querySelector('svg')).toBeNull();
+    expect(container.innerHTML).not.toContain('Unsupported block');
+  });
+
+  it('an icon with no label is hidden from assistive technology', () => {
+    const { container } = render(BlockRenderer, {
+      props: { blocks: [{ id: '1', type: 'icon', content: { name: 'star' } }] },
+    });
+    expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('motion becomes a class and timing variables', () => {
+    const { container } = render(BlockRenderer, {
+      props: {
+        blocks: [
+          {
+            id: '1',
+            type: 'divider',
+            content: {},
+            motion: { type: 'up', duration: 600, delay: 100 },
+          },
+        ],
+      },
+    });
+    const el = container.querySelector('.zv-anim') as HTMLElement;
+    expect(el).not.toBeNull();
+    expect(el.className).toContain('zv-anim-up');
+    // Read off the element rather than the HTML string: the DOM normalises
+    // custom properties to `--x: 600ms` with a space.
+    expect(el.style.getPropertyValue('--zv-anim-dur').trim()).toBe('600ms');
+    expect(el.style.getPropertyValue('--zv-anim-delay').trim()).toBe('100ms');
+  });
+
+  it('without IntersectionObserver every block is revealed, not hidden', () => {
+    // jsdom has no observer, which is the same situation as a browser where the
+    // script failed. The fallback marks everything seen — an animation library
+    // that leaves the page blank in that case is the failure being avoided.
+    const { container } = render(BlockRenderer, {
+      props: { blocks: [{ id: '1', type: 'divider', content: {}, motion: { type: 'fade' } }] },
+    });
+    expect(container.querySelector('.zv-anim')?.className).toContain('zv-seen');
+  });
+
+  it('a block with no motion carries no animation class', () => {
+    const { container } = render(BlockRenderer, {
+      props: { blocks: [{ id: '1', type: 'divider', content: {} }] },
+    });
+    expect(container.innerHTML).not.toContain('zv-anim');
   });
 });
 
