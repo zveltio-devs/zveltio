@@ -2,6 +2,7 @@ import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
+export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export {
   isStorableNumeric,
   NumericConversionError,
