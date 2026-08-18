@@ -31,23 +31,42 @@
  * passwords are under their own key, and rotating it does not touch field data.
  */
 
-export type Keyring = 'field' | 'mail';
+export type Keyring = 'field' | 'mail' | 'ai';
 
 const FIELD_PREFIX = 'enc:v1:';
 /** Legacy envelope written by integrations/migrators. Decrypt-only. */
 const LEGACY_ENC1_PREFIX = 'enc1:';
 const MAIL_PREFIX = 'aes256gcm:';
+/**
+ * The `ai` keyring's envelope.
+ *
+ * It has to differ from `MAIL_PREFIX` even though the layout is byte-identical.
+ * `decryptWithKeyring` picks the key from the ENVELOPE, not from the caller's
+ * argument, which is what stops a caller naming the wrong keyring and getting a
+ * confusing failure. Two keyrings sharing one prefix would defeat that: an AI
+ * provider key would be handed to the mail key and fail as if it were corrupt.
+ */
+const AI_PREFIX = 'aes256gcm-ai:';
 
 /** Read keys per call, never at module load — see field-crypto for the why. */
 function keyHexFor(keyring: Keyring): string {
   const raw =
-    keyring === 'mail' ? process.env.MAIL_ENCRYPTION_KEY : process.env.FIELD_ENCRYPTION_KEY;
+    keyring === 'mail'
+      ? process.env.MAIL_ENCRYPTION_KEY
+      : keyring === 'ai'
+        ? process.env.AI_KEY_ENCRYPTION_KEY
+        : process.env.FIELD_ENCRYPTION_KEY;
   return (raw ?? '').trim();
 }
 
 export class MissingKeyError extends Error {
   constructor(readonly keyring: Keyring) {
-    const env = keyring === 'mail' ? 'MAIL_ENCRYPTION_KEY' : 'FIELD_ENCRYPTION_KEY';
+    const env =
+      keyring === 'mail'
+        ? 'MAIL_ENCRYPTION_KEY'
+        : keyring === 'ai'
+          ? 'AI_KEY_ENCRYPTION_KEY'
+          : 'FIELD_ENCRYPTION_KEY';
     super(
       `${env} is not set, so the "${keyring}" keyring cannot encrypt or decrypt. ` +
         `Generate one with \`openssl rand -hex 32\`.`,
@@ -93,6 +112,7 @@ export function isKeyringValue(value: unknown): value is string {
     typeof value === 'string' &&
     (value.startsWith(FIELD_PREFIX) ||
       value.startsWith(LEGACY_ENC1_PREFIX) ||
+      value.startsWith(AI_PREFIX) ||
       value.startsWith(MAIL_PREFIX))
   );
 }
@@ -105,8 +125,9 @@ export async function encryptWithKeyring(plaintext: string, keyring: Keyring): P
     await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext)),
   );
 
-  if (keyring === 'mail') {
-    return `${MAIL_PREFIX}${toHex(iv)}:${toHex(ct)}`;
+  if (keyring === 'mail' || keyring === 'ai') {
+    const prefix = keyring === 'mail' ? MAIL_PREFIX : AI_PREFIX;
+    return `${prefix}${toHex(iv)}:${toHex(ct)}`;
   }
   const combined = new Uint8Array(iv.length + ct.length);
   combined.set(iv, 0);
@@ -126,9 +147,12 @@ export async function encryptWithKeyring(plaintext: string, keyring: Keyring): P
 export async function decryptWithKeyring(value: string, keyring: Keyring): Promise<string> {
   if (typeof value !== 'string' || !isKeyringValue(value)) return value;
 
-  if (value.startsWith(MAIL_PREFIX)) {
-    const [, ivHex, ctHex] = value.split(':');
-    const key = await importKey('mail', ['decrypt']);
+  if (value.startsWith(AI_PREFIX) || value.startsWith(MAIL_PREFIX)) {
+    // `AI_PREFIX` is checked first: it starts with `aes256gcm-`, which does not
+    // collide with `aes256gcm:`, but reading the wider test first would.
+    const isAi = value.startsWith(AI_PREFIX);
+    const [ivHex, ctHex] = value.slice(isAi ? AI_PREFIX.length : MAIL_PREFIX.length).split(':');
+    const key = await importKey(isAi ? 'ai' : 'mail', ['decrypt']);
     const plain = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: fromHex(ivHex) },
       key,
