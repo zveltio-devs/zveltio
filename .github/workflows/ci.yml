@@ -187,6 +187,19 @@ jobs:
         # the gate was added: those were not reviewed one by one, but no new one
         # can appear unnoticed.
         run: bun run catch:fabricated
+      - name: Ambient authority check
+        # An in-process extension reading `process.env` sees the ENGINE's whole
+        # environment — DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY —
+        # and can do by hand whatever the capability gate on ctx.internals was
+        # meant to mediate.
+        #
+        # This step is new because the gate existed and ran NOWHERE: no package
+        # script, no workflow. It also walked a fixed <category>/<name>/engine
+        # path, and 12 of 57 extensions live at another depth, so it printed
+        # "with no exceptions" about the 45 it could see while four of the twelve
+        # read process.env the whole time. Both are fixed; the 24 sites it now
+        # sees are ratcheted, not approved.
+        run: bun run ext:ambient
       - name: Admin gate check
         # Bans the bare `checkPermission(uid,'admin','*')` in route modules. It
         # reads as an instance-wide gate but a delegated tenant_admin passes it,
