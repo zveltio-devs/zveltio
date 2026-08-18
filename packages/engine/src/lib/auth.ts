@@ -256,12 +256,28 @@ export async function revokeAllUserSessions(
   }
 
   // Explicit rather than left to the FK cascade: this runs before the user row
-  // is gone, and it is what makes the function correct on its own.
+  // is gone, and it is what makes the function correct on its own. It is also
+  // the ONLY thing that revokes sessions on the 2FA path, where nothing is being
+  // deleted and no cascade can help.
+  //
+  // `db` must be a PRIVILEGED handle, not the request's tenant-scoped one.
+  // Requests run under `SET LOCAL ROLE zveltio_rls`, and migration 044 took that
+  // role's grants on `session` away on purpose — reading a bearer token is what
+  // C-14 and C-10 did. So this statement cannot run there, and both call sites
+  // pass `poolDb`.
+  //
+  // No `.catch` here any more. It swallowed the JavaScript error and did not
+  // un-abort the PostgreSQL transaction, so a `permission denied` surfaced three
+  // statements later as `current transaction is aborted` — the only error anyone
+  // could see, on a line that had nothing to do with it. The comment said "table
+  // shape varies on fresh installs"; the shape was always fine, it was the grant.
+  //
+  // A failure here has to reach the caller. Revoking sessions is the security
+  // half of both operations that call this, and a silent no-op is the worst
+  // possible outcome: the account looks hardened and every other session lives.
   let del = db.deleteFrom('session').where('userId', '=', userId);
   if (exceptToken) del = del.where('token', '!=', exceptToken);
-  await del.execute().catch(() => {
-    /* table shape varies on fresh installs */
-  });
+  await del.execute();
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
