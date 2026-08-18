@@ -301,6 +301,30 @@ field-encryption key — and reading it goes around this contract entirely. CI
 rejects `process.env` and the authority-bearing `node:*` modules in extension
 code.
 
+Your own deployment settings arrive on `ctx.config.vars`: everything the
+operator set as `ZVELTIO_EXT_<YOUR_NAME>_<KEY>`, with the prefix stripped, and
+nothing else. `<YOUR_NAME>` is your extension name uppercased with `/` and `-`
+replaced by `_`.
+
+```ts
+// operator sets ZVELTIO_EXT_SEARCH_MEILISEARCH_URL=http://meili:7700
+const url = ctx.config.vars.MEILISEARCH_URL ?? 'http://localhost:7700';
+```
+
+Values are strings; coerce at the point of use, and treat a missing key as *not
+configured* rather than defaulting to something that half-works. The object is
+frozen, and another extension's keys are not in it.
+
+Settings an **administrator** should be able to change at runtime do not belong
+here — put those in a table in your own `zv_<name>_*` namespace and give them a
+route, the way `ai` keeps providers in `zv_ai_providers`. `ctx.config.vars` is
+for what the deployment decides, not what the tenant decides.
+
+Secrets you need to store go through `ctx.internals.encryptSecret` /
+`decryptSecret` under the `secrets` capability. Do not hold key material: the
+host has the keys, and asking it to encrypt is the whole point of the
+capability.
+
 **Consent.** The manifest *asks*; an administrator *decides*. What was approved
 is recorded at install, and a later version that declares more runs **without**
 the additions until an admin approves them
