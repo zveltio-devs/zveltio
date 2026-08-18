@@ -130,6 +130,34 @@ describe('revokeAllUserSessions', () => {
     expect(db.executed(/delete from "session"/i).length).toBe(1);
   });
 
+  /**
+   * The one behaviour nothing asserted, and the one that broke.
+   *
+   * The DELETE used to end `.catch(() => { /* table shape varies on fresh
+   * installs *\/ })`. Migration 044 then took `zveltio_rls`'s grants on
+   * `session` away — correctly; reading a bearer token from a tenant-scoped
+   * request is what C-14 and C-10 did — and every revocation started raising
+   * `permission denied`. The catch swallowed the JavaScript error and did NOT
+   * un-abort the PostgreSQL transaction, so the caller's next statement failed
+   * with `current transaction is aborted` and that was the only error anyone
+   * saw, on a line unrelated to the cause.
+   *
+   * Deleting a user was broken outright. Enabling 2FA silently stopped revoking
+   * anyone's other sessions — the behaviour that gives the feature its point —
+   * and no test noticed, because the swallow made the failure look like success.
+   *
+   * A caller that cannot revoke must be told. This asserts the propagation, not
+   * the message.
+   */
+  it('propagates a database failure instead of reporting success', async () => {
+    _setCacheForTests(null);
+    const db = new CannedDb();
+    db.fail(/delete from "session"/i, new Error('permission denied for table session'));
+    expect(revokeAllUserSessions(db.kysely as unknown as Database, USER)).rejects.toThrow(
+      /permission denied/,
+    );
+  });
+
   it('tolerates a malformed index without deleting nothing else', async () => {
     const cache = new FakeCache();
     cache.store.set(`active-sessions-${USER}`, 'not json at all');

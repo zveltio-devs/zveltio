@@ -229,9 +229,14 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
       const userId = before?.user?.id;
       if (!userId) return;
       const currentToken = (before as { session?: { token?: string } } | null)?.session?.token;
-      await revokeAllUserSessions(db, userId, currentToken).catch((err: Error) => {
-        // The 2FA change itself succeeded; failing the response now would tell
-        // the user it did not.
+      // `poolDb`, not `db`. The request runs as `zveltio_rls`, which has no
+      // grants on `session` since migration 044 — see the third reason in the
+      // `poolDb` doc-comment above, which describes this exact failure.
+      await revokeAllUserSessions(poolDb, userId, currentToken).catch((err: Error) => {
+        // Still caught, and this one is a real judgement rather than a swallow:
+        // the 2FA change has already committed, so failing the response now would
+        // tell the user their factor was not enabled when it was. The log is the
+        // signal, and with the handle fixed this should no longer fire.
         console.error(`[auth] could not revoke other sessions for ${userId}:`, err.message);
       });
     },
@@ -359,7 +364,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/data', dataRoutes(db, auth));
 
   // Users management (admin)
-  app.route('/api/users', usersRoutes(db, auth));
+  // `poolDb` as a third argument: deleting a user revokes their sessions, and
+  // `session` is off-limits to the request's `zveltio_rls` role. Same shape as
+  // `insightsRoutes(poolDb, auth)` and `backupRoutes(poolDb, auth)` below.
+  app.route('/api/users', usersRoutes(db, auth, poolDb));
 
   // Permissions / Casbin (admin)
   app.route('/api/permissions', permissionsRoutes(db, auth));
