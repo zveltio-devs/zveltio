@@ -72,9 +72,9 @@ export interface OfflineProviderConfig {
 }
 
 /**
- * Public interface every provider implements. Today the CRDT provider
- * wraps `SyncManager`; the Electric provider wraps a websocket. Both
- * expose the same surface.
+ * Public interface every provider implements. The CRDT provider wraps
+ * `SyncManager`; the Electric provider wraps a websocket. Both expose the same
+ * surface.
  */
 export interface OfflineProvider {
   readonly kind: OfflineProviderKind;
@@ -135,27 +135,72 @@ export async function createOfflineProvider(
 
 // ── CRDT adapter (today's working path) ─────────────────────────────────────
 
-async function makeCrdtAdapter(_config: OfflineProviderConfig): Promise<OfflineProvider> {
-  // The existing SyncManager lives in `sync-manager.ts`. We don't import
-  // it at the top of this file to keep the bundle tree-shakeable for
-  // consumers who only want the type definitions. Lazy import here.
-  const { SyncManager } = await import('../sync-manager.js');
-  void SyncManager;
+/**
+ * The CRDT provider, wrapping `SyncManager`.
+ *
+ * It did not wrap anything. `pull()` was an empty body, `subscribe()` returned
+ * an unsubscribe that unsubscribed from nothing, and `push()` returned `0` —
+ * which is the worst of the four, because `0` reads as "there was nothing to
+ * send" rather than "I did not look". `SyncManager` was imported and then
+ * discarded with `void SyncManager`, and the interface docs a few lines up said
+ * "Today the CRDT provider wraps SyncManager" while it did not.
+ *
+ * This is the DEFAULT provider (`config.provider ?? 'crdt'`), so an application
+ * that called `createOfflineProvider({ engineUrl })` and pushed on a timer got a
+ * clean run and an empty server, forever, with nothing in any log.
+ *
+ * The store is opened but background sync is NOT started: this interface is
+ * explicitly pull/push, and a timer firing `syncNow()` underneath would make the
+ * number `push()` returns meaningless.
+ */
+async function makeCrdtAdapter(config: OfflineProviderConfig): Promise<OfflineProvider> {
+  // Lazy imports keep the bundle tree-shakeable for consumers who only want the
+  // type definitions.
+  const [{ SyncManager }, { ZveltioClient }] = await Promise.all([
+    import('../sync-manager.js'),
+    import('../client.js'),
+  ]);
+
+  const client = new ZveltioClient({ baseUrl: config.engineUrl });
+  const sync = new SyncManager(client);
+  await sync.open();
+
+  const tables = config.tables ?? [];
+
   return {
     kind: 'crdt',
+
     async pull() {
-      /* delegated to SyncManager in the full impl */
+      // Silence here is what the old implementation was. A provider asked to
+      // pull with nothing to pull from is a configuration mistake, and saying so
+      // costs one throw; not saying so costs an empty local database that looks
+      // like an empty server.
+      if (tables.length === 0) {
+        throw new Error(
+          'createOfflineProvider: `tables` is empty, so there is nothing to pull. ' +
+            'List the collections to replicate, e.g. { tables: ["orders", "customers"] }.',
+        );
+      }
+      await sync.pull(tables);
     },
+
     async push() {
-      return 0;
+      // The count is the drop in pending operations across the sync. Operations
+      // that failed stay pending and are therefore not counted, which is what
+      // "the number of ops sent" has to mean if the number is to be worth
+      // anything.
+      const before = await sync.getStatus();
+      await sync.syncNow();
+      const after = await sync.getStatus();
+      return Math.max(0, before.pending - after.pending);
     },
-    subscribe(_table, _cb) {
-      return () => {
-        /* */
-      };
+
+    subscribe(table, cb) {
+      return sync.collection(table).subscribe((rows: unknown[]) => cb(rows));
     },
+
     async close() {
-      /* */
+      await sync.stop();
     },
   };
 }
