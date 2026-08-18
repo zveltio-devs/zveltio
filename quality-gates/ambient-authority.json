@@ -1,13 +1,6 @@
 {
   "_what": "An extension reading process.env or importing an authority-bearing node:* module. Counts may shrink, never grow.",
-  "_why_it_has_a_gate": "An in-process extension reading process.env sees the ENGINE's whole environment - DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY - which is both far more than it needs and a way around the capability gate on ctx.internals.",
-  "_this_baseline_is_a_debt": "These 24 sites were invisible until 2026-08-18: the gate walked a fixed <category>/<name>/engine path and 12 of the 57 extensions live at another depth (6 at the top level, 5 under compliance/ro). It reported 'with no exceptions' about the 45 it could see. Four of the twelve read process.env all along.",
-  "_why_not_fixed_here": "ExtensionConfig is a curated interface, not an env passthrough, so moving OPENAI_API_KEY or STRIPE_WEBHOOK_SECRET onto it would put Stripe and OpenAI specifics into the engine - the opposite of the single-source-of-truth rule. The established alternative is the extension's own zv_settings row (see communications/mail), but switching to it changes how every EXISTING install configures these four extensions. That is an owner decision, not a refactor.",
-  "_regenerate": "bun run scripts/check-ambient-authority.ts --list > quality-gates/ambient-authority.json",
-  "search/engine/lib/search-manager.ts": 5,
-  "ai/engine/lib/ai-provider.ts": 7,
-  "ai/engine/lib/ai-crypto.ts": 1,
-  "billing/engine/routes.ts": 1,
-  "sms/engine/routes.ts": 2,
-  "sms/engine/lib/sms-manager.ts": 8
+  "_why_it_has_a_gate": "An in-process extension reading process.env sees the ENGINE's whole environment - DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY - which is both far more than it needs and a way around the capability gate on ctx.internals: an extension wanting to decrypt without declaring 'secrets' could take the key and do it itself.",
+  "_it_is_empty_and_that_is_the_point": "It held 24 sites for about an hour. They were invisible until 2026-08-18 because the gate walked a fixed <category>/<name>/engine path while 12 of 57 extensions live at another depth, so it reported 'with no exceptions' about the 45 it could see. Once visible they were converted: ai reads its providers from zv_ai_providers and its key through the host's 'ai' keyring, and search, billing and sms read ctx.config.vars - the host's slice of the environment, ZVELTIO_EXT_<NAME>_*, which contains that extension's keys and nothing else.",
+  "_regenerate": "bun run scripts/check-ambient-authority.ts --list > quality-gates/ambient-authority.json"
 }

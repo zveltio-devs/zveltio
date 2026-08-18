@@ -93,6 +93,21 @@ export interface ObjectStorageConfig {
  * scope, because an administrator can change storage settings at runtime.
  */
 export interface ExtensionConfig {
+  /**
+   * This extension's own slice of the environment.
+   *
+   * Everything the deployment set as `ZVELTIO_EXT_<NAME>_<KEY>` appears here as
+   * `<KEY>`, and nothing else does. `search` reading `vars.MEILISEARCH_URL` gets
+   * `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL`; it cannot see `DATABASE_URL`,
+   * `BETTER_AUTH_SECRET`, or another extension's keys.
+   *
+   * Use this instead of `process.env`, which from inside an in-process extension
+   * is the ENGINE's environment in full.
+   *
+   * Values are strings — coerce at the point of use, and treat a missing key as
+   * "not configured" rather than defaulting to something that half-works.
+   */
+  readonly vars: Readonly<Record<string, string>>;
   readonly env: 'production' | 'development' | 'test';
   readonly isProduction: boolean;
   /** The engine's public base URL, when the deployment sets one. */

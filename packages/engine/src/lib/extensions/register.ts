@@ -390,7 +390,7 @@ export function buildRestrictedContext(
     db: createRestrictedDb(() => getCurrentTenantTrx() ?? ctx.db, extName, allowedTables),
     // Configuration resolved host-side, so extensions stop reading the engine's
     // whole environment (and stop missing the admin's Studio storage settings).
-    config: buildExtensionConfig(capabilities),
+    config: buildExtensionConfig(capabilities, extName),
     // Explicit, capability-gated cross-tenant handle (the global pool). Present
     // only when the manifest declares the `db:admin` permission — otherwise any
     // use throws, so the escape hatch is visible at review + install time.
