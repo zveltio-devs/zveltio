@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
   import type { Block, BlockStyle } from '../../lib/builder-types.js';
-  import { safeHtml, safeCssColor, safeCssNumber, safeIframeSrc } from '../../lib/sanitize.js';
+  import { safeHtml } from '../../lib/sanitize.js';
 
   let { block }: { block: Block } = $props();
 
@@ -19,7 +20,7 @@
     return parts.join(';');
   }
 
-  const p = $derived(block.props);
+  const p = $derived(block.content);
   const outer = $derived(styleStr(block.style));
 </script>
 
@@ -28,11 +29,11 @@
   {#if block.type === 'hero'}
     <div
       class="relative flex flex-col items-center justify-center px-8 py-16 text-center min-h-[180px]"
-      style="background-color:{safeCssColor(p.bg_color, '#1e293b')}; color:{safeCssColor(p.text_color, '#fff')}"
+      style="background-color:{p.bg_color ?? '#1e293b'}; color:{p.text_color ?? '#fff'}"
     >
       {#if p.image_url}
         <img src={p.image_url} alt="" class="absolute inset-0 w-full h-full object-cover pointer-events-none select-none" />
-        <div class="absolute inset-0" style="background:rgba(0,0,0,{safeCssNumber(p.overlay_opacity, 40, 0, 100) / 100})"></div>
+        <div class="absolute inset-0" style="background:rgba(0,0,0,{(p.overlay_opacity ?? 40)/100})"></div>
       {/if}
       <div class="relative z-10 space-y-2">
         <h1 class="text-3xl font-bold leading-tight">{p.title ?? 'Hero Title'}</h1>
@@ -46,7 +47,7 @@
   {:else if block.type === 'richtext'}
     <div class="prose prose-sm max-w-none px-4 py-3">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      {@html safeHtml(p.content) || '<p>Rich text…</p>'}
+      {@html p.content ?? `<p>${m['content.pages.b.richTextPh']()}</p>`}
     </div>
 
   {:else if block.type === 'cta'}
@@ -80,19 +81,19 @@
       {#each (p.items ?? []) as col}
         <div class="min-h-[60px] bg-base-200 rounded-lg p-3 text-sm prose prose-sm max-w-none">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html safeHtml(col)}
+          {@html col}
         </div>
       {/each}
     </div>
 
   {:else if block.type === 'spacer'}
-    <div style="height:{safeCssNumber(p.height, 48, 0, 2000)}px" class="w-full flex items-center justify-center">
+    <div style="height:{p.height ?? 48}px" class="w-full flex items-center justify-center">
       <span class="text-[10px] text-base-content/20 font-mono">{p.height ?? 48}px</span>
     </div>
 
   {:else if block.type === 'divider'}
     <div class="px-4 py-3">
-      <hr style="border-color:{safeCssColor(p.color, '#e5e7eb')};border-top-width:{safeCssNumber(p.thickness, 1, 0, 50)}px;border-style:{['solid','dashed','dotted','double'].includes(p.line_style) ? p.line_style : 'solid'}" />
+      <hr style="border-color:{p.color ?? '#e5e7eb'};border-top-width:{p.thickness ?? 1}px;border-style:{p.line_style ?? 'solid'}" />
     </div>
 
   {:else if block.type === 'image'}
@@ -115,13 +116,13 @@
     <div class="w-full aspect-video bg-base-300 rounded flex items-center justify-center">
       {#if p.url}
         {@const embedUrl = p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url}
-        <iframe src={safeIframeSrc(embedUrl)} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
+        <iframe src={embedUrl} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
       {:else}
         <div class="flex flex-col items-center gap-2 text-base-content/30">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
             <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
           </svg>
-          <span class="text-xs">Video</span>
+          <span class="text-xs">{m['content.pages.b.videoLabel']()}</span>
         </div>
       {/if}
     </div>
@@ -144,7 +145,7 @@
     {#if p.html}
       <div class="p-3">
         <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        {@html safeHtml(p.html)}
+        {@html p.html}
       </div>
     {:else}
       <div class="flex items-center justify-center h-16 bg-base-200 rounded text-base-content/30 text-xs gap-1.5 font-mono">
@@ -152,7 +153,64 @@
       </div>
     {/if}
 
-  {:else if block.type === 'data_table'}
+  {:else if block.type === 'button'}
+    <!--
+      A neutral button, not the variant's real classes. Those live in the public
+      renderer, and copying the map here would make a second one to keep in
+      step — which is the defect this whole file was part of. The canvas shows
+      that a button is here and what it says; how it is skinned is the renderer's
+      answer.
+    -->
+    <div class="p-3">
+      <span class="btn btn-primary btn-sm pointer-events-none">
+        {p.label ?? p.text ?? 'Button'}
+      </span>
+      {#if p.variant}<span class="ml-2 text-[10px] font-mono opacity-40">{p.variant}</span>{/if}
+    </div>
+
+  {:else if block.type === 'icon'}
+    <!--
+      The name and size, not the glyph. The icon paths are `client/icons.ts`,
+      which ships with the RENDERER and is not synced into the Studio — the
+      editor only ever receives the names, from `GET /pages/vocabulary`. Drawing
+      the real glyph here would mean a second copy of the icon set.
+    -->
+    <div class="p-3 flex items-center gap-2 text-base-content/60">
+      <span class="inline-flex items-center justify-center rounded border border-dashed"
+        style="width:{Math.min(Number(p.size) || 32, 48)}px;height:{Math.min(Number(p.size) || 32, 48)}px;color:{p.color || 'currentColor'}">
+        <span class="text-[9px] font-mono">icon</span>
+      </span>
+      <span class="text-xs font-mono">{p.name ?? 'star'}</span>
+      {#if p.label}<span class="text-sm">{p.label}</span>{/if}
+    </div>
+
+  <!--
+    Legacy types. The builder cannot add these, but stored pages contain them —
+    they came from the textarea editor this builder replaced — and the public
+    renderer draws them. The canvas showed a grey box with the type name instead,
+    so an author editing an older page saw a placeholder where a visitor saw
+    content, with no way to tell that apart from a block that was broken.
+  -->
+  {:else if block.type === 'heading'}
+    <div class="p-3"><span class="text-xl font-bold">{p.text ?? p.content ?? 'Heading'}</span></div>
+
+  {:else if block.type === 'text'}
+    <div class="p-3 text-sm opacity-80">{p.text ?? p.content ?? ''}</div>
+
+  {:else if block.type === 'html'}
+    <div class="p-3">
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+      {@html safeHtml(String(p.html ?? p.content ?? ''))}
+    </div>
+
+  {:else if block.type === 'container'}
+    <!-- Reached only if a container is previewed outside the canvas; the canvas
+         draws containers as their real contents instead. -->
+    <div class="p-4 text-xs text-base-content/40 border border-dashed rounded">
+      Container — {(block.content?.children ?? []).length} block(s)
+    </div>
+
+  {:else if block.type === 'collection_list'}
     <div class="p-3">
       <div class="flex items-center justify-between mb-2">
         {#if p.title}<p class="text-sm font-semibold">{p.title}</p>{/if}
@@ -165,7 +223,7 @@
               {#if p.fields?.length > 0}
                 {#each p.fields as f}<th class="font-mono text-[10px]">{f}</th>{/each}
               {:else}
-                <th class="text-base-content/30 text-[10px] italic">Configure fields in properties →</th>
+                <th class="text-base-content/30 text-[10px] italic">{m['content.pages.b.configFields']()}</th>
               {/if}
             </tr>
           </thead>
