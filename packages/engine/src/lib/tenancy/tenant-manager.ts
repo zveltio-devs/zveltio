@@ -944,12 +944,30 @@ export async function enableRLS(tableName: string): Promise<void> {
   //
   //    We surface this loudly so the operator runs a backfill UPDATE
   //    before considering the table multi-tenant-safe.
-  const orphans = await sql<{ orphan_count: number }>`
-    SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
-  `
-    .execute(_db)
-    .catch(() => ({ rows: [{ orphan_count: 0 }] }));
-  const orphanCount = orphans.rows[0]?.orphan_count ?? 0;
+  // The `.catch(() => ({ rows: [{ orphan_count: 0 }] }))` this used to carry
+  // answered "no orphans" when the count could not run, and the `if (orphanCount
+  // > 0)` below then skipped the warning entirely. The comment above says this is
+  // surfaced LOUDLY so an operator backfills before treating the table as
+  // multi-tenant-safe; the catch made it silent in exactly the case where the
+  // operator has least reason to suspect anything.
+  let orphanCount: number;
+  try {
+    const orphans = await sql<{ orphan_count: number }>`
+      SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
+    `.execute(_db);
+    orphanCount = orphans.rows[0]?.orphan_count ?? 0;
+  } catch (err) {
+    // Not fatal — RLS is already enabled by this point and the enable itself
+    // succeeded. But "I could not check" and "there is nothing to fix" must not
+    // read the same to whoever is watching the log.
+    console.warn(
+      `[tenant-manager] enableRLS(${tableName}): could not count rows with a NULL ` +
+        `tenant_id, so it is UNKNOWN whether any are now invisible to every tenant. ` +
+        `Check by hand: SELECT COUNT(*) FROM ${tableName} WHERE tenant_id IS NULL. ` +
+        `Cause: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
   if (orphanCount > 0) {
     console.warn(
       `[tenant-manager] enableRLS(${tableName}): ${orphanCount} row(s) ` +

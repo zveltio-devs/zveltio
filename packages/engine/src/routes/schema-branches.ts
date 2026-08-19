@@ -11,6 +11,34 @@ import { sql } from 'kysely';
 import { DDLManager } from '../lib/data/index.js';
 import { GhostDDL } from '../lib/data/index.js';
 
+/** Rows in `tableName`, or `Infinity` when the count cannot be taken.
+ *
+ * The caller uses this to choose between Ghost DDL (online, no downtime) and a
+ * direct `ALTER TABLE` (an exclusive lock for the duration). Both call sites
+ * used to read the count with `.catch(() => ({ rows: [{ cnt: '0' }] }))`, so a
+ * failed count came back as ZERO — under the 100k threshold — and the branch
+ * took the locking path on a table whose size was unknown. On a large table
+ * that is a production outage chosen by a swallowed error.
+ *
+ * `Infinity` is the safe answer: an unknown size is treated as large, so the
+ * online path is taken. The cost of being wrong that way is a slower migration;
+ * the cost of being wrong the other way is downtime.
+ */
+async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<number> {
+  try {
+    const result = await sql<{ cnt: string }>`
+      SELECT count(*) AS cnt FROM ${sql.id(tableName)}
+    `.execute(db);
+    return Number(result.rows[0]?.cnt ?? 0);
+  } catch (err) {
+    console.warn(
+      `[schema-branches] could not count rows in ${tableName}; assuming it is large and ` +
+        `using the online (Ghost DDL) path. Cause: ${err instanceof Error ? err.message : err}`,
+    );
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function schemaBranchesRoutes(db: Database, auth: any): Hono {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -329,12 +357,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
               if (colDDL) {
                 // Use Ghost DDL for large tables (>100k rows) to avoid downtime
-                const countResult = await sql<{ cnt: string }>`
-                  SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-                `
-                  .execute(db)
-                  .catch(() => ({ rows: [{ cnt: '0' }] }));
-                const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
+                const rowCount = await rowCountOrAssumeLarge(db, tableName);
 
                 if (rowCount > 100_000) {
                   await GhostDDL.execute(
@@ -359,12 +382,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               const tableName = DDLManager.getTableName(change.payload.collection);
 
               // Use Ghost DDL for large tables (>100k rows) to avoid downtime
-              const countResult = await sql<{ cnt: string }>`
-                SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-              `
-                .execute(db)
-                .catch(() => ({ rows: [{ cnt: '0' }] }));
-              const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
+              const rowCount = await rowCountOrAssumeLarge(db, tableName);
 
               if (rowCount > 100_000) {
                 await GhostDDL.execute(
