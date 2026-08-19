@@ -5,16 +5,5 @@
   "_not_flagged": ".catch(() => {}) and .catch(() => undefined) \u2014 discarding a result nobody reads says this did not matter, which is different from this succeeded. Request-body parsing is out of scope: the body was not JSON is a true statement.",
   "_regenerate": "bun run scripts/check-fabricated-success.ts --list",
   "_runtime_install_dir_excluded": "packages/engine/extensions is where the engine INSTALLS extensions at runtime: gitignored, populated by whatever a developer happened to install, and a verbatim copy of source already scanned in zveltio-extensions. It was contributing 23 sites across 6 files - the same handlers counted twice under a second path - so the baseline recorded a number that depended on one machine's install state. Excluding it removed double-counting; it fixed nothing.",
-  "ext:ai/engine/lib/ai-provider.ts": 1,
-  "ext:ai/engine/lib/zveltio-ai/engine.ts": 4,
-  "ext:ai/engine/routes/ai.ts": 3,
-  "ext:ai/engine/routes/zveltio-ai.ts": 1,
-  "ext:analytics/dashboard/engine/routes.ts": 1,
-  "ext:analytics/quality/engine/routes.ts": 2,
-  "ext:compliance/ro/efactura/engine/routes.ts": 4,
-  "ext:developer/byod/engine/routes.ts": 3,
-  "ext:developer/edge-functions/engine/routes.ts": 1,
-  "ext:ecommerce/store/engine/routes.ts": 1,
-  "ext:geospatial/postgis/engine/routes.ts": 4,
-  "ext:i18n/translations/engine/routes.ts": 4
+  "_it_is_empty": "Zero. The class the audit called out - sixteen of this engine's twenty defects shared it - is gone from both repos. Sites that were reviewed and deliberately kept carry `// fabricated-ok: <reason>` at the site instead of a number here, so a reader sees the judgement rather than re-deriving it. If this file grows again, each entry is a site nobody has looked at yet."
 }
