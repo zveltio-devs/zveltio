@@ -5,6 +5,7 @@ import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import Pagination from '$lib/components/common/Pagination.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -223,9 +224,7 @@ function formatRelative(dateStr: string): string {
 
 <!-- Create modal -->
 {#if showCreateModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box w-11/12 max-w-lg">
-      <h3 class="font-bold text-lg mb-4">{m['apiKeys.create']()}</h3>
+  <Modal bind:open={showCreateModal} title={m['apiKeys.create']()} size="md">
       <div class="space-y-4">
         <div class="form-control">
           <label class="label" for="api-key-name"><span class="label-text">{m['apiKeys.nameLabel']()}</span></label>
@@ -294,16 +293,15 @@ function formatRelative(dateStr: string): string {
           Create
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreateModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Newly created key display -->
 {#if newlyCreatedKey}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-2">{m['apiKeys.created']()}</h3>
+  <!-- Not dismissible: the key is shown once and never again, so a stray Escape
+       or backdrop click would lose it silently. The Done button is the only way
+       out, which is what the original markup meant by having no backdrop. -->
+  <Modal open={true} dismissible={false} title={m['apiKeys.created']()} size="md">
       <p class="text-sm text-base-content/70 mb-4">{m['apiKeys.copyNow']()}</p>
       <div class="flex items-center gap-2">
         <code class="flex-1 bg-base-300 px-3 py-2 rounded text-sm font-mono break-all">{newlyCreatedKey}</code>
@@ -314,8 +312,7 @@ function formatRelative(dateStr: string): string {
       <div class="modal-action">
         <button class="btn btn-primary" onclick={() => { newlyCreatedKey = null; }}>{m['common.done']()}</button>
       </div>
-    </div>
-  </dialog>
+  </Modal>
 {/if}
 
 <ConfirmModal

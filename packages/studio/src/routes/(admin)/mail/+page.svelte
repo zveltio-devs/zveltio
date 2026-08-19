@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from '$lib/i18n.svelte.js';
+  import Modal from '$lib/components/common/Modal.svelte';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { ENGINE_URL } from '$lib/config.js';
   import { api } from '$lib/api.js';
@@ -780,15 +781,12 @@
 
 <!-- COMPOSE MODAL -->
 {#if showCompose}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-2xl">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-bold text-lg">{replyToMessageId ? m['communications.mail.ui.reply']() : draftId ? m['common.status.draft']() : m['communications.mail.ui.newMessage']()}</h3>
-        <div class="flex gap-2 items-center">
-          {#if draftId}<span class="text-xs text-base-content/40">{m['communications.mail.ui.draftSaved']()}</span>{/if}
-          <button class="btn btn-sm btn-ghost" onclick={() => showCompose = false}><X class="w-4 h-4" /></button>
-        </div>
-      </div>
+  <Modal bind:open={showCompose} title={replyToMessageId ? m['communications.mail.ui.reply']() : draftId ? m['common.status.draft']() : m['communications.mail.ui.newMessage']()} size="lg">
+        <!-- The heading and the close control belong to the Modal now; the
+             draft indicator was the only content this header ever owned. -->
+        {#if draftId}
+          <div class="mb-2 text-xs text-base-content/40">{m['communications.mail.ui.draftSaved']()}</div>
+        {/if}
       <div class="space-y-2">
         <div class="form-control relative">
           <div class="label py-1"><span class="label-text text-sm">{m['common.col.to']()}</span></div>
@@ -845,16 +843,12 @@
           {#if sendingMail}<span class="loading loading-spinner loading-sm"></span>{:else}<Send class="w-4 h-4" />{/if} {m['common.send']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showCompose = false}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- ADD ACCOUNT MODAL -->
 {#if showAddAccount}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-xl max-h-[90vh] overflow-y-auto">
-      <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.add_mail_account']()}</h3>
+  <Modal bind:open={showAddAccount} title={m['communications.mail.ui.add_mail_account']()} size="lg">
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
@@ -928,16 +922,12 @@
           {#if addingAccount}<span class="loading loading-spinner loading-sm"></span>{/if} Add Account
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showAddAccount = false}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- NEW FILTER MODAL -->
 {#if showFilterModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.new_mail_filter']()}</h3>
+  <Modal bind:open={showFilterModal} title={m['communications.mail.ui.new_mail_filter']()} size="md">
       <div class="space-y-3">
         <div class="form-control">
           <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.label.filterName']()}</span></div>
@@ -999,9 +989,7 @@
           {m['communications.mail.ui.save_filter']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showFilterModal = false}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <ConfirmModal

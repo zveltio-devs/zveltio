@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import Modal from '$lib/components/common/Modal.svelte';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -301,12 +302,7 @@ function formatRelative(dateStr: string): string {
 
 {#if showDetailModal && selectedRequest}
  {@const req = selectedRequest}
- <dialog open aria-modal="true" class="modal modal-open">
- <div class="modal-box max-w-2xl">
- <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">{m['approvals.detailTitle']()}</h3>
- <button class="btn btn-ghost btn-sm btn-square" onclick={closeDetail}><X size={16} /></button>
- </div>
+ <Modal bind:open={showDetailModal} onClose={closeDetail} title={m['approvals.detailTitle']()} size="lg">
 
  <div class="bg-base-200 rounded-lg p-4 mb-4 grid grid-cols-2 gap-3 text-sm">
  <div><span class="opacity-60">{m['approvals.labelCollection']()}</span> <code class="ml-1">{req.collection}</code></div>
@@ -376,9 +372,7 @@ function formatRelative(dateStr: string): string {
  </div>
  </div>
  {/if}
- </div>
- <button class="modal-backdrop" aria-label={m['common.close']()} onclick={closeDetail}></button>
- </dialog>
+ </Modal>
 {/if}
 
 <ConfirmModal
