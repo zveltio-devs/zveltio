@@ -21,12 +21,42 @@ function makeStubDb() {
 }
 
 describe('createRestrictedDb — table access policy', () => {
-  it('allows zvd_* user tables and non-zv tables', () => {
+  it('allows zvd_* user tables', () => {
     const { db, selects } = makeStubDb();
     const rdb = createRestrictedDb(db as never, 'forms');
     rdb.selectFrom('zvd_contacts' as never);
-    rdb.selectFrom('user' as never);
-    expect(selects).toEqual(['zvd_contacts', 'user']);
+    expect(selects).toEqual(['zvd_contacts']);
+  });
+
+  /**
+   * This assertion used to be `rdb.selectFrom('user')` in the test above, with
+   * the title "allows zvd_* user tables AND NON-ZV TABLES", and it passed.
+   *
+   * The guard only ever refused a table whose name began `zv_`, and Better-Auth's
+   * tables have no prefix at all. Measured through this proxy against a real
+   * database, with an extension holding no capability and no grant: `session`
+   * (including its `token` column, a live bearer credential), `user` and
+   * `account` all read clean, while `zv_api_keys` was refused — which is exactly
+   * what made the guard look like it worked.
+   */
+  it('refuses the unprefixed Better-Auth tables, which have no RLS', () => {
+    const { db } = makeStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    for (const table of ['user', 'session', 'account', 'verification', 'twoFactor']) {
+      expect(() => rdb.selectFrom(table as never)).toThrow(/attempted to access table/);
+    }
+  });
+
+  it('still refuses an engine table, and still allows one that is granted', () => {
+    const { db, selects } = makeStubDb();
+    expect(() =>
+      createRestrictedDb(db as never, 'forms').selectFrom('zv_api_keys' as never),
+    ).toThrow();
+    // A grant is how an extension reaches a table the engine also declares —
+    // `content/media` owns `zv_media_folders` and the engine's 001 still creates it.
+    const granted = createRestrictedDb(db as never, 'forms', new Set(['zv_media_folders']));
+    granted.selectFrom('zv_media_folders' as never);
+    expect(selects).toEqual(['zv_media_folders']);
   });
 
   it('allows the extension owned zv_<name>_ namespace', () => {
@@ -69,9 +99,11 @@ describe('createRestrictedDb — table access policy', () => {
       resolves++;
       return db as never;
     }, 'ext');
-    rdb.selectFrom('user' as never);
-    rdb.selectFrom('account' as never);
+    // Permitted tables on purpose: this asserts the resolver runs per query, and
+    // a refused table would never reach it.
+    rdb.selectFrom('zvd_a' as never);
+    rdb.selectFrom('zv_ext_b' as never);
     expect(resolves).toBe(2);
-    expect(selects).toEqual(['user', 'account']);
+    expect(selects).toEqual(['zvd_a', 'zv_ext_b']);
   });
 });

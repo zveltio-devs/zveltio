@@ -137,15 +137,63 @@ export function createRestrictedDb(
           // Strip alias syntax e.g. "zv_users as u"
           const baseTable = table.split(/\s+/)[0].trim();
 
-          if (
-            baseTable.startsWith('zv_') &&
-            !baseTable.startsWith(ownedPrefix) &&
-            !allowedTables?.has(baseTable)
-          ) {
+          // `withSchema` names a SCHEMA, not a table, and the two cannot share one
+          // rule. Under the old prefix denylist `withSchema('public')` passed by
+          // accident — `public` does not begin `zv_` — and an allowlist of table names
+          // refuses it, breaking a legitimate call. `public` is the only schema an
+          // extension has business in; anything else is a way around every rule below.
+          if (prop === 'withSchema') {
+            if (baseTable !== 'public') {
+              throw new ExtensionSecurityError(
+                `Extension "${extName}" attempted withSchema("${baseTable}"). ` +
+                  `Extensions may only work in the public schema.`,
+              );
+            }
+            return (target as never as Record<string, (...a: unknown[]) => unknown>)[prop](
+              tableName,
+              ...rest,
+            );
+          }
+
+          // An ALLOWLIST, not a prefix denylist.
+          //
+          // This used to refuse a table only when it began `zv_`. Better-Auth's tables
+          // have no prefix at all — `session`, `user`, `account`, `verification`,
+          // `twoFactor` — so every one of them fell straight through, and none of them
+          // has RLS. Measured on a real database through this very proxy, with an
+          // extension holding no capability and no table grant:
+          //
+          //   session       CITIT — coloane: id, expiresAt, token, createdAt
+          //   user          CITIT — coloane: id, name, email, emailVerified
+          //   account       CITIT — coloane: id, accountId, providerId, userId
+          //   zv_api_keys   refuzat
+          //
+          // `session.token` is a live bearer credential and `account` holds password
+          // hashes, so the one table an extension must never read was the one the guard
+          // was shaped to miss. That `zv_api_keys` WAS refused is what made it look like
+          // it worked.
+          //
+          // The same shape — a denylist over an open namespace — is what let the AI
+          // text-to-SQL validator accept `SELECT token FROM session`, and what the worker
+          // SQL path was moved away from in beta.61. This is the in-process path, which
+          // every first-party extension uses.
+          //
+          // Permitted, and nothing else: user-data collections, the extension's own
+          // namespace, and the tables its migrations created or a grant names.
+          const permitted =
+            baseTable === '' ||
+            baseTable.startsWith('zvd_') ||
+            baseTable.startsWith(ownedPrefix) ||
+            allowedTables?.has(baseTable) === true;
+
+          if (!permitted) {
             throw new ExtensionSecurityError(
-              `Extension "${extName}" attempted to access system table "${baseTable}" via ${prop}(). ` +
-                `Extensions may only access user data tables (zvd_*) and their own namespace (${ownedPrefix}*). ` +
-                `Other zv_* system tables are reserved for Zveltio engine internals.`,
+              `Extension "${extName}" attempted to access table "${baseTable}" via ${prop}(). ` +
+                `Extensions may access user data tables (zvd_*), their own namespace ` +
+                `(${ownedPrefix}*), and tables their migrations create. Everything else — engine ` +
+                `tables and the unprefixed Better-Auth tables (user, session, account) — is ` +
+                `refused. Add an entry to EXTENSION_TABLE_GRANTS if this extension genuinely ` +
+                `owns "${baseTable}".`,
             );
           }
 
