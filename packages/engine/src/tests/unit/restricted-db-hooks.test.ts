@@ -239,7 +239,14 @@ describe('S2-02 follow-up: insertInto interception', () => {
     expect(methods).toContain('execute');
   });
 
-  it('does NOT fire hooks for non-zvd tables (e.g. user, account)', async () => {
+  /**
+   * The table was `user` here, which the proxy now refuses outright — an
+   * extension cannot reach the Better-Auth directory at all, so "would a hook
+   * fire on it" is no longer a question that can be asked. The property under
+   * test is unchanged and still worth holding: hooks fire on `zvd_*` user data
+   * and on nothing else, including a table the extension legitimately owns.
+   */
+  it('does NOT fire hooks outside zvd_*, e.g. the extension own namespace', async () => {
     let fired = 0;
     engineEvents.onBefore('record.beforeInsert', async () => {
       fired++;
@@ -248,8 +255,8 @@ describe('S2-02 follow-up: insertInto interception', () => {
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
     await rdb
-      .insertInto('user' as any)
-      .values({ email: 'a@b.com' } as any)
+      .insertInto('zv_forms_settings' as any)
+      .values({ key: 'a', value: 'b' } as any)
       .execute();
 
     expect(fired).toBe(0);
