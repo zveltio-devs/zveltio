@@ -40,6 +40,18 @@ import { join } from 'node:path';
 const ROOT = join(import.meta.dir, '..');
 const BASELINE = join(ROOT, 'quality-gates', 'fabricated-success.json');
 const DIRS = [join(ROOT, 'packages'), join(ROOT, '..', 'zveltio-extensions')];
+
+/**
+ * Where the engine INSTALLS extensions at runtime.
+ *
+ * Gitignored, populated by whatever a developer happened to install, and a
+ * verbatim copy of source this gate already scans in `zveltio-extensions`. It
+ * was contributing 23 sites across 6 files — the same `.catch` handlers counted
+ * a second time under a second path — so the baseline recorded a number that
+ * depended on one machine's install state, and fixing a site in the extensions
+ * repo could not clear its twin here until someone reinstalled.
+ */
+const RUNTIME_INSTALL_DIR = join(ROOT, 'packages', 'engine', 'extensions');
 const LIST = process.argv.includes('--list');
 
 /**
@@ -81,6 +93,7 @@ function tsFiles(dir: string): string[] {
     for (const e of readdirSync(d)) {
       if (e === 'node_modules' || e === 'dist' || e === 'coverage' || e.startsWith('.')) continue;
       const p = join(d, e);
+      if (p === RUNTIME_INSTALL_DIR) continue;
       if (statSync(p).isDirectory()) walk(p);
       else if (e.endsWith('.ts') && !e.endsWith('.d.ts') && !e.includes('.test.')) out.push(p);
     }
