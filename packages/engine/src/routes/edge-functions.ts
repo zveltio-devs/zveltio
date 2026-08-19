@@ -342,6 +342,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       .where('is_active', '=', true)
       .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst()
+      // fabricated-ok: leaves `isPublic` false, so an unreadable function is treated as NOT public and still requires auth.
       .catch(() => null);
     const probeEnv = publicProbe?.env_vars;
     const parsedEnv = typeof probeEnv === 'string' ? JSON.parse(probeEnv) : (probeEnv ?? {});

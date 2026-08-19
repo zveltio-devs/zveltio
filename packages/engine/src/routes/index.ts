@@ -524,9 +524,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     try {
       const pages = await sql<{ slug: string; updated_at: Date }>`
         SELECT slug, updated_at FROM zv_pages WHERE is_active = true ORDER BY slug
-      `
-        .execute(db)
-        .catch(() => ({ rows: [] }));
+      `.execute(db);
 
       const urls = pages.rows
         .map(
@@ -549,12 +547,24 @@ ${urls}
 </urlset>`;
 
       return c.text(xml, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
-    } catch {
-      return c.text(
-        '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>',
-        200,
-        { 'Content-Type': 'application/xml; charset=utf-8' },
+    } catch (err) {
+      // A 500, not an empty sitemap with 200.
+      //
+      // Both this handler and a `.catch(() => ({ rows: [] }))` on the query above
+      // answered a failed read with `<urlset></urlset>` and a 200. To a crawler that
+      // is not an error — it is the site stating, successfully, that it has no
+      // pages, and acting on it is what a crawler is for. Pages drop out of the
+      // index and come back only when someone notices.
+      //
+      // 5xx is the documented way to say "ask again later": the previous sitemap is
+      // kept and the fetch is retried.
+      console.error(
+        '[sitemap] could not list pages; serving 500 rather than an empty sitemap:',
+        err,
       );
+      return c.text('sitemap temporarily unavailable', 500, {
+        'Content-Type': 'text/plain; charset=utf-8',
+      });
     }
   });
 

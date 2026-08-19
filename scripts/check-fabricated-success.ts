@@ -108,6 +108,9 @@ interface Finding {
   text: string;
 }
 
+/** `// fabricated-ok: <reason>` — reviewed and deliberately kept. Reason required. */
+const REVIEWED_OK = /^\s*\/\/\s*fabricated-ok:\s*\S/;
+
 const findings: Finding[] = [];
 for (const dir of DIRS) {
   for (const file of tsFiles(dir)) {
@@ -120,6 +123,16 @@ for (const dir of DIRS) {
       const t = line.trimStart();
       if (t.startsWith('//') || t.startsWith('*')) continue;
       if (DISCARDING.test(line)) continue;
+      // `// fabricated-ok: <reason>` on the line above marks a site that WAS reviewed
+      // and deliberately kept — a fallback that states something true, like a health
+      // check answering "disconnected" because the database is, or a guard whose
+      // fabricated value is the refusing one. Without this the baseline cannot tell
+      // those apart from the ones nobody has looked at, and a number that mixes the
+      // two stops meaning anything.
+      //
+      // The reason is required and is not decoration: it is what the next person reads
+      // instead of re-deriving the judgement.
+      if (REVIEWED_OK.test(lines[i - 1] ?? '')) continue;
       if (!FABRICATED.test(line)) continue;
       // The catch must belong to the query, not merely live near one. Either the
       // same line performs it (`await q.execute(db).catch(...)`), or the line IS
