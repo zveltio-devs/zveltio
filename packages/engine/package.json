@@ -24,7 +24,7 @@
     "test:unit": "bun test src/tests/unit",
     "test:unit:coverage": "bun test src/tests/unit --coverage --coverage-reporter=lcov --coverage-dir=coverage",
     "test:integration": "bun test src/tests/integration",
-    "test:harness": "bun test src/tests/harness",
+    "test:harness": "bun test src/tests/harness --timeout 30000",
     "test:harness:coverage": "bun test src/tests/harness --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=coverage-harness"
   },
   "dependencies": {

@@ -162,3 +162,6 @@ VISION.md
 # database names of whoever ran them, and this repository is public. The drill
 # writes them so an operator has something to file; git is not where they go.
 docs/dr-drills/*.md
+
+# Personal Claude Code overrides (permissions etc.) — not for the team
+.claude/settings.local.json

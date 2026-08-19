@@ -70,6 +70,31 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 /** Warn once per process, not once per flow run. */
 let _warnedNoFlowRole = false;
 
+/**
+ * The step types this executor actually implements.
+ *
+ * Derived from the `switch` in `executeStep` and exported so the creation route
+ * can refuse anything else. That route declared `type: z.string().min(1)`, so
+ * any string was storable and the mistake only surfaced at run time — where the
+ * `default` arm returned success.
+ *
+ * Deliberately NOT the same list as `flow-step-schemas.ts`, which defines
+ * twelve types. Eight of those never execute and three of these have no schema.
+ * The two lists disagreeing with nothing to notice is the shape of this bug,
+ * so this one is anchored to the code that runs.
+ */
+export const EXECUTABLE_STEP_TYPES = [
+  'query_db',
+  'run_script',
+  'send_email',
+  'webhook',
+  'send_notification',
+  'export_collection',
+  'ai_decision',
+] as const;
+
+export type ExecutableStepType = (typeof EXECUTABLE_STEP_TYPES)[number];
+
 async function executeStep(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -257,10 +282,17 @@ async function executeStep(
       const timeoutMs = Math.min(Number(cfg.timeout_ms) || 10_000, 60_000);
       // SSRF protection: validate URL targets a public address before fetching
       validatePublicUrl(cfg.url as string);
+      // A body is attached only when the method can carry one. `fetch` refuses
+      // outright — "GET/HEAD/OPTIONS method cannot have body" — so a flow whose
+      // webhook step was configured as a GET threw before it sent anything, and the
+      // step failed with a TypeError about argument values rather than anything an
+      // author could act on. The default is POST, which is why this went unseen.
+      const method = String((cfg.method as string) ?? 'POST').toUpperCase();
+      const carriesBody = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
       const response = await safeFetch(cfg.url as string, {
-        method: (cfg.method as string) ?? 'POST',
+        method,
         headers: sanitizedHeaders,
-        body: JSON.stringify(cfg.body ?? prevOutput),
+        ...(carriesBody ? { body: JSON.stringify(cfg.body ?? prevOutput) } : {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
       return { output: { status: response.status, ok: response.ok } };
@@ -436,7 +468,17 @@ async function executeStep(
     }
 
     default:
-      return { output: prevOutput };
+      // Was `return { output: prevOutput }` — success, silently, passing the
+      // previous step's output straight through. The Studio offers step types
+      // this switch does not implement (`condition`, `create_record`,
+      // `update_record`), so a flow reading "if total > 10,000 then create an
+      // approval" ran green and did nothing at all. A conditional that always
+      // proceeds is worse than one that fails: the run is recorded successful
+      // and nobody looks at it again.
+      throw new Error(
+        `Flow step type "${step.type}" is not implemented. Implemented types: ` +
+          `${EXECUTABLE_STEP_TYPES.join(', ')}.`,
+      );
   }
 }
 

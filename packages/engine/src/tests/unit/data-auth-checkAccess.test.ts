@@ -28,9 +28,31 @@ describe('checkAccess', () => {
     expect(spy).toHaveBeenCalledWith('u-1', 'contacts', 'read');
   });
 
-  it('api_key with empty scopes grants full collection access', async () => {
-    expect(await checkAccess(db, apiUser([]), 'articles', 'read')).toBe(true);
-    expect(await checkAccess(db, apiUser(undefined), 'articles', 'write')).toBe(true);
+  /**
+   * This test used to assert the opposite, and asserting it is what kept the
+   * defect stable: an empty scope list meant FULL access to every `zvd_*`
+   * collection in the tenant, and both the create route and the column default
+   * to `[]`. `POST /api/api-keys {"name":"x"}` minted a permanent tenant-wide
+   * data credential, while the operator most likely to leave the field blank is
+   * the one aiming for least privilege.
+   *
+   * Migration 045 writes the existing keys' access down explicitly before this
+   * meaning flips, so nothing already issued loses anything.
+   */
+  it('api_key with no scopes is denied — an empty list grants nothing', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await checkAccess(db, apiUser([]), 'articles', 'read')).toBe(false);
+      expect(await checkAccess(db, apiUser(undefined), 'articles', 'write')).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('api_key with an explicit wildcard still gets full access', async () => {
+    const all = [{ collection: '*', actions: ['*'] }];
+    expect(await checkAccess(db, apiUser(all), 'articles', 'read')).toBe(true);
+    expect(await checkAccess(db, apiUser(all), 'invoices', 'delete')).toBe(true);
   });
 
   it('api_key enforces per-collection and per-action scopes', async () => {

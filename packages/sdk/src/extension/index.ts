@@ -2,6 +2,16 @@ import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
+export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
+export {
+  isStorableNumeric,
+  NumericConversionError,
+  roundMoney,
+  sumNumeric,
+  toNumber,
+  toNumberOrNull,
+  toNumberSafe,
+} from './numeric.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zveltio Extension API — public types for extension authors
@@ -83,6 +93,21 @@ export interface ObjectStorageConfig {
  * scope, because an administrator can change storage settings at runtime.
  */
 export interface ExtensionConfig {
+  /**
+   * This extension's own slice of the environment.
+   *
+   * Everything the deployment set as `ZVELTIO_EXT_<NAME>_<KEY>` appears here as
+   * `<KEY>`, and nothing else does. `search` reading `vars.MEILISEARCH_URL` gets
+   * `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL`; it cannot see `DATABASE_URL`,
+   * `BETTER_AUTH_SECRET`, or another extension's keys.
+   *
+   * Use this instead of `process.env`, which from inside an in-process extension
+   * is the ENGINE's environment in full.
+   *
+   * Values are strings — coerce at the point of use, and treat a missing key as
+   * "not configured" rather than defaulting to something that half-works.
+   */
+  readonly vars: Readonly<Record<string, string>>;
   readonly env: 'production' | 'development' | 'test';
   readonly isProduction: boolean;
   /** The engine's public base URL, when the deployment sets one. */
@@ -401,6 +426,16 @@ export interface ExtensionInternals<DB = unknown> {
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
   /** Is this user an administrator of the current tenant? */
   isTenantAdmin: (userId: string) => Promise<boolean>;
+  /**
+   * Instance-level admin, as distinct from admin-within-a-tenant.
+   *
+   * `checkPermission(userId, 'admin', '*')` is TRUE for a delegated tenant
+   * owner inside their own domain — the `tenant_owner` policy is `('*','*','*')`
+   * there. That is the right answer for tenant-scoped screens and the wrong one
+   * for anything that reaches the instance: raw SQL, schema changes, role
+   * grants. Use this for those.
+   */
+  requireInstanceAdmin: (userId: string) => Promise<boolean>;
 
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01

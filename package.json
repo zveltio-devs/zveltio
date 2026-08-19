@@ -3,7 +3,7 @@
   "version": "3.0.0-beta.60",
   "private": true,
   "packageManager": "bun@1.3.14",
-  "description": "Self-hosted Business OS — own your hardware, own your data.",
+  "description": "Self-hosted Business OS \u2014 own your hardware, own your data.",
   "workspaces": [
     "packages/*"
   ],
@@ -23,6 +23,14 @@
     "format": "biome format --write",
     "format:check": "biome format",
     "lint": "biome lint",
+    "lint:ratchet": "bun run scripts/lint-warning-ratchet.ts",
+    "ext:i18n-ownership": "bun run scripts/check-extension-i18n-ownership.ts",
+    "ext:raw-sql": "bun run scripts/check-raw-sql-identifiers.ts",
+    "sql:backticks": "bun run scripts/check-sql-template-backticks.ts",
+    "catch:fabricated": "bun run scripts/check-fabricated-success.ts",
+    "ext:ambient": "bun run scripts/check-ambient-authority.ts",
+    "sql:numeric-arith": "bun run scripts/check-numeric-string-arithmetic.ts",
+    "ext:seam": "bun run scripts/check-insert-schema-match.ts",
     "lint:fix": "biome lint --write",
     "prepush": "bun run check:schema && bun run check:shared-keys && bun run any:ratchet && bun run format:check && bun run typecheck",
     "studio:build": "cd packages/studio && bun run build",
@@ -33,6 +41,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "turbo run typecheck",
+    "typecheck:force": "turbo run typecheck --force",
     "version-packages": "changeset version && bun run scripts/sync-engine-version.ts"
   },
   "devDependencies": {

@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
-import { executeFlow } from '../lib/flows/index.js';
+import { EXECUTABLE_STEP_TYPES, executeFlow } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
 import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
 
@@ -33,7 +33,16 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
 // routes treat the request array as the canonical order.
 const StepSchema = z.object({
   id: z.string().uuid().optional(),
-  type: z.string().min(1),
+  // Was `z.string().min(1)`, so any string was storable and the mistake only
+  // surfaced at run time — where the executor's `default` arm reported success.
+  // Anchored to what the executor implements, not to flow-step-schemas.ts,
+  // which lists twelve types of which eight never run.
+  //
+  // This makes the Studio's `condition` / `create_record` / `update_record`
+  // options fail at save with a message naming the supported types. That is a
+  // visible regression against an invisible one: those steps never did anything,
+  // and a builder who picks one now learns it while they can still change it.
+  type: z.enum(EXECUTABLE_STEP_TYPES),
   name: z.string().optional(),
   config: z.record(z.string(), z.unknown()).default({}),
   on_error: z.enum(['stop', 'continue', 'retry']).default('stop'),
@@ -661,8 +670,7 @@ export async function triggerDataFlows(
       .where('is_active', '=', true)
       .where('trigger_type', '=', triggerType)
       .where('tenant_id', '=', tenantId || DEFAULT_TENANT)
-      .execute()
-      .catch(() => []);
+      .execute();
 
     for (const flow of flows) {
       const cfg = (
@@ -674,7 +682,18 @@ export async function triggerDataFlows(
         executeFlow(db, flow.id, { collection, event, record }).catch(console.error);
       }
     }
-  } catch {
-    // Flow triggering must not break data operations
+  } catch (err) {
+    // Flow triggering must not break data operations — the write already
+    // succeeded and failing it now would be worse than the automation not running.
+    //
+    // But this was a bare `catch {}` with only that sentence in it, and the flow
+    // lookup above carried `.catch(() => [])` on top, so an automation that
+    // stopped firing produced no error, no warning, and no count. The operator
+    // sees the event happen and no consequence, with nothing to search for. The
+    // swallow stays; the silence does not.
+    console.error(
+      `[flows] trigger "${event}" on ${collection} did not run its automations:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 }

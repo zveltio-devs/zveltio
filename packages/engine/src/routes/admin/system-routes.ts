@@ -30,10 +30,12 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       sql`SELECT 1`
         .execute(db)
         .then(() => 'connected')
+        // fabricated-ok: a failed ping IS a disconnected database. The value states what happened.
         .catch(() => 'disconnected'),
       sql<{ version: string }>`SELECT version()`
         .execute(db)
         .then((r) => r.rows[0]?.version)
+        // fabricated-ok: 'unknown' is what an unreadable server version is. It claims nothing.
         .catch(() => 'unknown'),
       sql<{ count: string }>`
         SELECT COUNT(*) as count FROM information_schema.tables
@@ -41,7 +43,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       `
         .execute(db)
         .then((r) => r.rows[0]?.count ?? '0')
-        .catch(() => '0'),
+        // `null`, not '0' and not 'unknown'. Zero is a statement about the database;
+        // this is a statement about the read. 'unknown' was the first attempt and it
+        // went wrong for a reason worth writing down: the value is consumed as
+        // `parseInt(tableCount)`, `parseInt('unknown')` is NaN, and `JSON.stringify`
+        // renders NaN as `null` — so the field arrived as null anyway, by accident,
+        // through a path nobody chose.
+        .catch(() => null),
       cache
         ? cache
             .ping()
@@ -50,9 +58,21 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         : Promise.resolve('not_configured'),
     ]);
 
+    // `status` was the literal 'ok', always — this endpoint reported a healthy
+    // system while saying three lines down that the database was disconnected. A
+    // status field that cannot say anything else is not a status field, and it is
+    // the one an uptime check reads.
+    const degraded = dbStatus !== 'connected' || cacheStatus === 'disconnected';
+
     return c.json({
-      status: 'ok',
-      database: { status: dbStatus, version: pgVersion, tables: parseInt(tableCount) },
+      status: degraded ? 'degraded' : 'ok',
+      database: {
+        status: dbStatus,
+        version: pgVersion,
+        // Null when the count could not be taken, so it is not confused with a
+        // database that genuinely has no tables.
+        tables: tableCount === null ? null : Number.parseInt(tableCount, 10),
+      },
       cache: { status: cacheStatus },
       uptime: process.uptime(),
       memory: process.memoryUsage(),

@@ -245,12 +245,35 @@ cat zveltio/zveltio.log
 | `METRICS_TOKEN` | — | Bearer token protecting `GET /metrics`. If unset, metrics are public. |
 | `SLOW_QUERY_THRESHOLD_MS` | — | Log requests slower than this (default: `200`) |
 | `TRUSTED_PROXY` | — | Set to `true` to trust `X-Forwarded-For` headers (behind nginx/ALB) |
-| `STRIPE_WEBHOOK_SECRET` | — | Billing extension: Stripe webhook HMAC secret |
-| `MEILISEARCH_HOST` | — | Search extension: Meilisearch URL |
-| `MEILISEARCH_API_KEY` | — | Search extension: Meilisearch API key |
-| `TYPESENSE_HOST` | — | Search extension: Typesense host |
-| `TWILIO_ACCOUNT_SID` | — | SMS extension: Twilio account SID |
-| `TWILIO_AUTH_TOKEN` | — | SMS extension: Twilio auth token |
+
+### Extension settings
+
+An extension never reads the engine's environment. It is handed only the
+variables named `ZVELTIO_EXT_<EXTENSION>_<KEY>`, with the prefix stripped, and
+sees nothing else — not `DATABASE_URL`, not `BETTER_AUTH_SECRET`, and not
+another extension's keys. `<EXTENSION>` is the extension name uppercased with
+`/` and `-` replaced by `_`, so `finance/banking` reads
+`ZVELTIO_EXT_FINANCE_BANKING_*`.
+
+| Variable | Extension | Description |
+|----------|-----------|-------------|
+| `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` | `billing` | Stripe webhook HMAC secret |
+| `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL` | `search` | Meilisearch URL (default `http://localhost:7700`) |
+| `ZVELTIO_EXT_SEARCH_MEILISEARCH_API_KEY` | `search` | Meilisearch API key |
+| `ZVELTIO_EXT_SEARCH_TYPESENSE_HOST` | `search` | Typesense host (default `http://localhost`) |
+| `ZVELTIO_EXT_SEARCH_TYPESENSE_PORT` | `search` | Typesense port (default `8108`) |
+| `ZVELTIO_EXT_SEARCH_TYPESENSE_API_KEY` | `search` | Typesense API key |
+| `ZVELTIO_EXT_SMS_TWILIO_ACCOUNT_SID` | `sms` | Twilio account SID |
+| `ZVELTIO_EXT_SMS_TWILIO_AUTH_TOKEN` | `sms` | Twilio auth token |
+| `ZVELTIO_EXT_SMS_TWILIO_FROM_NUMBER` | `sms` | Sender number |
+| `ZVELTIO_EXT_SMS_VONAGE_API_KEY` | `sms` | Vonage API key |
+| `ZVELTIO_EXT_SMS_VONAGE_API_SECRET` | `sms` | Vonage API secret |
+| `ZVELTIO_EXT_SMS_VONAGE_FROM_NUMBER` | `sms` | Sender number |
+
+The unprefixed forms (`STRIPE_WEBHOOK_SECRET`, `MEILISEARCH_HOST`,
+`TWILIO_AUTH_TOKEN`, …) are no longer read. AI providers moved further: they are
+rows in `zv_ai_providers` managed from the admin UI, not environment variables
+at all.
 
 ---
 

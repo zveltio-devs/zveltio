@@ -9,6 +9,7 @@
 import 'reflect-metadata';
 
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { logger } from 'hono/logger';
 import { sql } from 'kysely';
 import { cors } from 'hono/cors';
@@ -63,6 +64,25 @@ import {
 import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
+
+/**
+ * `/api/thing/` should reach `/api/thing`.
+ *
+ * Hono matches paths exactly, so a trailing slash produced a 404 on every route
+ * in the product — `/ext/crm/contacts` 200, `/ext/crm/contacts/` 404. Uniform,
+ * and uniformly misleading: it reads as a missing route rather than a spelling.
+ *
+ * 308 preserves the method and body, so a POST stays a POST. A 301 would turn it
+ * into a GET and answer 405 to a caller who did nothing wrong.
+ */
+const trailingSlashRedirect: MiddlewareHandler = async (c, next) => {
+  const url = new URL(c.req.url);
+  if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    if (url.pathname !== '') return c.redirect(url.toString(), 308);
+  }
+  await next();
+};
 
 // ─── Mutable app reference for hot-reload ────────────────────────────────────
 // The fetch handler passed to Bun.serve() is a stable closure that always
@@ -424,9 +444,14 @@ if (_cmd === 'create-god') {
 async function ensureDefaultExtensions(db: any): Promise<void> {
   const defaults = [
     {
-      name: 'content/page-builder',
-      display_name: 'Page Builder',
-      description: 'Visual CMS page builder with blocks, SEO fields, and publish workflow',
+      // `content/page-builder` until the merge. That extension no longer exists —
+      // it and `content/portals` became `content/pages`, and the engine's own
+      // catalogue records the merge — so every boot was auto-activating a name
+      // nothing can resolve, and the directory check below quietly skipped it.
+      name: 'content/pages',
+      display_name: 'Pages',
+      description:
+        'Public sites and authenticated portals: pages built from blocks, live collection data, SEO, revisions and publish workflow',
       category: 'content',
     },
     {
@@ -441,12 +466,32 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
   const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
 
   for (const def of defaults) {
-    const existing = await db
-      .selectFrom('zv_extension_registry')
-      .select('name')
-      .where('name', '=', def.name)
-      .executeTakeFirst()
-      .catch(() => null);
+    // `.catch(() => null)` meant "not registered yet", so a failed read fell
+    // through to the INSERT below. That insert tolerates a duplicate key, so the
+    // net effect was a no-op — and the success line at the end of the loop
+    // printed anyway. Migrations have already run by this point, so this table
+    // exists; a failure here is a real one and is said out loud.
+    //
+    // Caught per default rather than thrown, though. This function sits in a
+    // `.then()` chain immediately before `extensionLoader.loadFromDB`, so
+    // throwing skips it and NO extension loads at all — one unreadable row for
+    // one default would take out the whole catalogue. Skipping this default and
+    // continuing costs at most one auto-activation.
+    let existing: { name: string } | undefined;
+    try {
+      existing = await db
+        .selectFrom('zv_extension_registry')
+        .select('name')
+        .where('name', '=', def.name)
+        .executeTakeFirst();
+    } catch (err) {
+      console.error(
+        `[bootstrap] could not check whether "${def.name}" is registered, so it was ` +
+          `not auto-activated. Other extensions still load. Cause:`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
 
     if (existing) continue;
 
@@ -462,6 +507,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
       continue;
     }
 
+    let activated = true;
     await db
       .insertInto('zv_extension_registry')
       .values({
@@ -474,9 +520,10 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
       })
       .execute()
       .catch((err: Error) => {
-        // Unique-constraint races are expected when multiple replicas
-        // boot together — log at debug level so unexpected errors still
-        // surface but the common case stays quiet.
+        activated = false;
+        // Unique-constraint races are expected when multiple replicas boot
+        // together — log at debug level so unexpected errors still surface but the
+        // common case stays quiet.
         if (!/duplicate key|unique constraint/i.test(err.message)) {
           console.warn(
             `[bootstrap] default extension activation (${def.name}) failed:`,
@@ -484,7 +531,10 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
           );
         }
       });
-    console.log(`🔌 Default extension auto-activated: ${def.name}`);
+    // Only when it actually happened. This line used to print after the catch
+    // regardless, so an operator watching boot was told an extension had been
+    // auto-activated on the runs where the insert had just failed.
+    if (activated) console.log(`🔌 Default extension auto-activated: ${def.name}`);
   }
 }
 
@@ -496,6 +546,22 @@ async function buildHonoApp(): Promise<Hono> {
   const app = new Hono();
 
   // ── Middleware (identical to original bootstrap) ──────────────────────────
+  //
+  // A trailing slash used to 404 on every route in the product, uniformly:
+  // `/ext/crm/contacts` answered 200 and `/ext/crm/contacts/` answered 404, and
+  // the same on `/api/users`. Consistent, and consistently surprising — an
+  // auditor first read it as six extensions whose create route was unreachable,
+  // which is exactly the wrong conclusion it invites.
+  //
+  // 308 rather than 301: it preserves the method and the body, so a POST to
+  // `/plans/` still arrives as a POST. A 301 would turn it into a GET and the
+  // caller would see a confusing 405 instead of their created row.
+  //
+  // Only for API surfaces, and never for the bare root. `/admin/` and the studio
+  // asset paths are served by their own handlers where a trailing slash is
+  // meaningful, and rewriting those would break the Studio.
+  app.use('/api/*', trailingSlashRedirect);
+  app.use('/ext/*', trailingSlashRedirect);
   app.use('*', logger());
   // Unified error envelope (H-13): thrown errors → problem+json; and every
   // non-2xx a route RETURNS under /api|/ext gets rewrapped into the envelope.
@@ -710,15 +776,17 @@ rm studio.tar.gz</pre>
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
+    // No `.catch(() => [])`. This route reports which extensions are ACTIVE, and a
+    // failed read silently narrows the answer to what the in-process loader happens
+    // to hold — so an extension enabled in the database but not yet loaded simply
+    // vanishes from the list an operator uses to check that it is on.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
       .select('name')
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where('is_enabled' as any, '=', true)
-      .execute()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .catch(() => [] as any[]);
+      .execute();
     const allActive = [
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),

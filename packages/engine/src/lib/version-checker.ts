@@ -67,13 +67,24 @@ export async function checkExtensionDependencies(
     // Loaded in this boot: available regardless of what the table says.
     if (alreadyLoaded?.has(dep.name)) continue;
 
+    // No `.catch(() => null)`. It fell into the `missing.push(... not installed)`
+    // branch below, so a failed read told an operator a dependency was NOT
+    // INSTALLED when the truth was that it could not be checked — and they go and
+    // install something that is already there.
+    //
+    // Letting it throw is safe and says the right thing: `loadExtensionFromDir`
+    // wraps this in a per-extension boundary that logs
+    // `❌ Failed to load extension "<name>"` and records the database's own error
+    // as `lastLoadError`. So this extension still refuses to load, which is the
+    // correct direction, and the reason recorded is the read failure rather than
+    // a fabricated claim about what is installed. One extension's boot fails, not
+    // the boot.
     const installed = await db
       .selectFrom('zv_extension_registry')
       .select(['version', 'is_enabled'])
       .where('name', '=', dep.name)
       .where('is_enabled', '=', true)
-      .executeTakeFirst()
-      .catch(() => null);
+      .executeTakeFirst();
 
     if (!installed) {
       missing.push(`${dep.name} (not installed)`);

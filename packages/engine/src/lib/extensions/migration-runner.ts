@@ -88,12 +88,15 @@ export async function runExtensionMigrations(
   const pending: Pending[] = [];
   for (const migrationPath of migrations) {
     const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
+    // "Already applied?" — and `null` means "no, run it". A `.catch(() => null)`
+    // here therefore re-ran an extension's migration whenever the question could not
+    // be answered, which is only safe while every extension's SQL happens to be
+    // idempotent. A seed INSERT or a backfill is not.
     const existing = await db
       .selectFrom('zv_migrations')
       .select('id')
       .where('name', '=', name)
-      .executeTakeFirst()
-      .catch(() => null);
+      .executeTakeFirst();
     if (existing) continue;
 
     const rawSql = await Bun.file(migrationPath).text();
@@ -180,13 +183,18 @@ export async function runExtensionMigrations(
  */
 export async function purgeExtensionData(extensionName: string, db: Database): Promise<void> {
   const prefix = `ext:${extensionName}:`;
+  // No `.catch(() => [])` here.
+  //
+  // This is the rollback path. An empty list means "this extension has no
+  // migrations to undo", and two lines down that returns immediately — so a read
+  // failure used to make an uninstall drop nothing and report success, leaving
+  // every table the extension created behind while the registry says it is gone.
   const rows = await db
     .selectFrom('zv_migrations')
     .select(['id', 'name', 'down_sql'])
     .where('name', 'like', `${prefix}%`)
     .orderBy('id', 'desc')
-    .execute()
-    .catch(() => []);
+    .execute();
 
   if (rows.length === 0) return;
 

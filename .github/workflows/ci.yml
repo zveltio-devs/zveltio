@@ -134,17 +134,74 @@ jobs:
           bun-version: '1.3.14'
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Clone zveltio-extensions sibling
+        # Three steps below check the extension catalogue and every one of them was
+        # guarded with `if [ -d ../zveltio-extensions ]` … `else echo "skipping"`.
+        # This job never cloned it, so `ext:i18n-ownership` and `ext:raw-sql` printed
+        # "zveltio-extensions not checked out — skipping" on every run since they were
+        # added, and the job went green. Nobody noticed because a skipped gate and a
+        # passing gate look identical in the summary.
+        #
+        # It surfaced when `ext:ambient` landed here: that script exits 1 rather than
+        # report a pass over zero extensions, so it failed loudly where the other two
+        # had been quiet.
+        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
       - name: Lint
         run: bun run lint
       - name: noExplicitAny ratchet
         # Fails if any package introduced a NEW `any` suppression above its
         # baseline (docs/HARDENING-9-PLAN.md H-01). Type the value instead.
         run: bun run any:ratchet
+      - name: Lint warning ratchet
+        # `bun run lint` exits 0 with warnings, so the count drifts upward one
+        # commit at a time and nobody is ever the person who broke it. Per rule,
+        # because one total lets a fix here pay for a regression there.
+        run: bun run lint:ratchet
+      - name: Extensions own the i18n keys they render
+        # Ten extensions render keys namespaced to OTHER extensions. They resolve
+        # only because the host serves the union of installed catalogues, so
+        # installing the borrower without the owner shows a raw key. Only runs
+        # with the sibling checked out.
+        run: bun run ext:i18n-ownership
+      - name: Identifiers in raw SQL are escaped
+        # A manual sweep fixed eleven of these and missed a twelfth, because it
+        # enumerated variable names instead of matching the pattern.
+        run: bun run ext:raw-sql
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index
         # (docs/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
+      - name: No backticks inside SQL template comments
+        # A backtick ends the template literal. Inside an SQL `--` comment it
+        # looks ordinary and the parse error lands lines away from the cause.
+        run: bun run sql:backticks
+      - name: No `.catch` that invents a successful answer
+        # An independent audit found sixteen of this engine's twenty defects were
+        # one shape: a failure that renders as a success. A data-quality scan
+        # reporting a clean bill of health on a table it could not count; a write
+        # going through unvalidated because the rule engine threw; a VAT
+        # declaration filed empty; a collection drop deleting the only record of
+        # the junction tables it orphaned.
+        #
+        # Scoped to database calls — `c.req.json().catch(() => ({}))` is "the body
+        # was not JSON", which is true. Ratcheted at the count that existed when
+        # the gate was added: those were not reviewed one by one, but no new one
+        # can appear unnoticed.
+        run: bun run catch:fabricated
+      - name: Ambient authority check
+        # An in-process extension reading `process.env` sees the ENGINE's whole
+        # environment — DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY —
+        # and can do by hand whatever the capability gate on ctx.internals was
+        # meant to mediate.
+        #
+        # This step is new because the gate existed and ran NOWHERE: no package
+        # script, no workflow. It also walked a fixed <category>/<name>/engine
+        # path, and 12 of 57 extensions live at another depth, so it printed
+        # "with no exceptions" about the 45 it could see while four of the twelve
+        # read process.env the whole time. Both are fixed; the 24 sites it now
+        # sees are ratcheted, not approved.
+        run: bun run ext:ambient
       - name: Admin gate check
         # Bans the bare `checkPermission(uid,'admin','*')` in route modules. It
         # reads as an instance-wide gate but a delegated tenant_admin passes it,
@@ -166,12 +223,30 @@ jobs:
         # at short paths while the extension declared the namespaced one. Two
         # implementations of one screen, the reachable one usually the broken
         # one, and nothing looking.
-        run: |
-          if [ -d ../zveltio-extensions ]; then
-            bun run scripts/check-extension-page-ownership.ts
-          else
-            echo "zveltio-extensions not checked out — skipping"
-          fi
+        #
+        # REPORTING ONLY, TEMPORARILY — remove `continue-on-error` together with
+        # the `ext:` keys in quality-gates/fabricated-success.json, in the commit
+        # that follows zveltio-extensions#35.
+        #
+        # This gate compares the engine's GENERATED snapshot of extension Studio
+        # pages against the sibling checkout, and CI checks out extensions master.
+        # The two repositories are mid-migration: `content/portals` and
+        # `content/page-builder` merged into `content/pages`, which exists only on
+        # the extensions branch #35 carries, and #35 cannot merge before this
+        # engine (it needs SDK members that ship here). So the snapshot cannot
+        # match both trees at once, and the tree it is generated from is the one
+        # that is about to become master.
+        #
+        # Regenerating it from extensions master WAS tried and rejected: it
+        # deletes the content/pages Studio UI and restores the page-builder pages
+        # the headless refactor removed. That trades a red gate for a release
+        # candidate shipping the wrong interface, which is the worse of the two.
+        #
+        # Nothing that existed yesterday is lost by deferring it: this gate has
+        # never blocked CI. It only began running when the extensions clone was
+        # added to this job, in this same branch.
+        continue-on-error: true
+        run: bun run scripts/check-extension-page-ownership.ts
       # The "No driver-reported affected-row counts" gate lived here. It banned
       # numUpdatedRows / numDeletedRows / numAffectedRows because the dialect
       # returned `{ rows }` and never filled them in, so branching on one read as
@@ -417,6 +492,42 @@ jobs:
           echo "--- Engine logs at smoke test time ---"
           cat /tmp/engine.log || true
           echo "--- End engine logs ---"
+      - name: Extensions can write the rows they claim to
+        # THE seam. Ten extensions were examined between their code and their own
+        # migrations and NINE had a defect that stopped or corrupted their primary
+        # function: POS could not record a sale, banking could not import a
+        # statement, subscriptions could not create a subscriber or issue an
+        # invoice. Every one was an INSERT naming a column that does not exist,
+        # omitting a NOT NULL column with no default, counting values wrong, or
+        # writing a literal outside a CHECK.
+        #
+        # Nothing stood here before. TypeScript cannot — these are strings. The
+        # tests could not — they run against mocks or an already-shaped database.
+        # This builds the engine schema once, clones it per extension, applies
+        # that extension's real migrations, and asks `information_schema` whether
+        # each INSERT is possible. 54 extensions in about twelve seconds.
+        #
+        # Proved by reintroducing C-3 (POS): both halves are reported.
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bun run ext:seam
+      - name: No `+` on a column PostgreSQL returns as a string
+        # This lane is the one with a migrated database, and the gate needs one:
+        # it reads the BIGINT/NUMERIC column list out of `information_schema`
+        # rather than parsing migrations, then flags JavaScript that adds those
+        # columns without converting first.
+        #
+        # Why it earns a lane of its own: `-`, `*`, `/`, `<` and `>` all coerce
+        # and give the right answer. Only `+` concatenates — and the result is
+        # not a wrong number, it is `NaN`, which PostgreSQL stores in a NUMERIC
+        # without complaint and then compares as LARGER than every number. The
+        # leave module granted unlimited days this way, and the guard that should
+        # have stopped it ran and agreed.
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun run sql:numeric-arith
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test

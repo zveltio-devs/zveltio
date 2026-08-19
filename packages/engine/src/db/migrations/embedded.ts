@@ -48,6 +48,11 @@ import m036 from './sql/038_rate_limit_updated_by_text.sql' with { type: 'text' 
 import m037 from './sql/039_media_folders_updated_at.sql' with { type: 'text' };
 import m038 from './sql/040_api_key_rls_bypass_backfill.sql' with { type: 'text' };
 import m039 from './sql/041_audit_metadata_object.sql' with { type: 'text' };
+import m040 from './sql/042_flow_step_types_match_executor.sql' with { type: 'text' };
+import m041 from './sql/043_worker_sql_role.sql' with { type: 'text' };
+import m042 from './sql/044_auth_tables_rls.sql' with { type: 'text' };
+import m043 from './sql/045_api_key_empty_scopes_deny.sql' with { type: 'text' };
+import m044 from './sql/046_two_factor_verified.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -91,4 +96,9 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '039_media_folders_updated_at.sql': m037,
   '040_api_key_rls_bypass_backfill.sql': m038,
   '041_audit_metadata_object.sql': m039,
+  '042_flow_step_types_match_executor.sql': m040,
+  '043_worker_sql_role.sql': m041,
+  '044_auth_tables_rls.sql': m042,
+  '045_api_key_empty_scopes_deny.sql': m043,
+  '046_two_factor_verified.sql': m044,
 };

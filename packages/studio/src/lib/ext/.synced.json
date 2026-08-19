@@ -1,0 +1,38 @@
+{
+  "routes": [
+    "ai",
+    "analytics/dashboard",
+    "analytics/quality",
+    "billing",
+    "checklists",
+    "compliance/ro/efactura",
+    "compliance/ro/procurement",
+    "content/documents",
+    "crm",
+    "developer/api-docs",
+    "developer/database",
+    "developer/graphql",
+    "developer/validation",
+    "finance/banking",
+    "forms",
+    "geospatial/postgis",
+    "hr/time-tracking",
+    "introspect",
+    "mail",
+    "media",
+    "pages",
+    "pos",
+    "projects/helpdesk",
+    "projects/management",
+    "search",
+    "sms",
+    "storage/cloud",
+    "traceability",
+    "workflow/approvals"
+  ],
+  "libs": [
+    "content/pages",
+    "geospatial/postgis",
+    "storage/cloud"
+  ]
+}

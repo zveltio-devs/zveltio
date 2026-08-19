@@ -4,6 +4,7 @@ import { onMount } from 'svelte';
 import { webhooksApi, collectionsApi } from '$lib/api.js';
 import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import Pagination from '$lib/components/common/Pagination.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -259,9 +260,7 @@ async function testWebhook(id: string) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
 {#if showModal}
- <dialog open aria-modal="true" class="modal modal-open">
- <div class="modal-box w-11/12 max-w-2xl">
- <h3 class="font-bold text-lg mb-4">{editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()}</h3>
+ <Modal bind:open={showModal} title={editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()} size="lg">
  <div class="space-y-4">
  <div class="form-control">
  <label class="label" for="webhook-name"><span class="label-text">{m['common.nameRequired']()}</span></label>
@@ -339,9 +338,7 @@ async function testWebhook(id: string) {
  {editTarget ? m['common.save']() : m['common.create']()}
  </button>
  </div>
- </div>
- <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showModal = false)}></button>
- </dialog>
+ </Modal>
 {/if}
 
 <ConfirmModal

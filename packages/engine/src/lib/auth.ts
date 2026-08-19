@@ -256,12 +256,28 @@ export async function revokeAllUserSessions(
   }
 
   // Explicit rather than left to the FK cascade: this runs before the user row
-  // is gone, and it is what makes the function correct on its own.
+  // is gone, and it is what makes the function correct on its own. It is also
+  // the ONLY thing that revokes sessions on the 2FA path, where nothing is being
+  // deleted and no cascade can help.
+  //
+  // `db` must be a PRIVILEGED handle, not the request's tenant-scoped one.
+  // Requests run under `SET LOCAL ROLE zveltio_rls`, and migration 044 took that
+  // role's grants on `session` away on purpose — reading a bearer token is what
+  // C-14 and C-10 did. So this statement cannot run there, and both call sites
+  // pass `poolDb`.
+  //
+  // No `.catch` here any more. It swallowed the JavaScript error and did not
+  // un-abort the PostgreSQL transaction, so a `permission denied` surfaced three
+  // statements later as `current transaction is aborted` — the only error anyone
+  // could see, on a line that had nothing to do with it. The comment said "table
+  // shape varies on fresh installs"; the shape was always fine, it was the grant.
+  //
+  // A failure here has to reach the caller. Revoking sessions is the security
+  // half of both operations that call this, and a silent no-op is the worst
+  // possible outcome: the account looks hardened and every other session lives.
   let del = db.deleteFrom('session').where('userId', '=', userId);
   if (exceptToken) del = del.where('token', '!=', exceptToken);
-  await del.execute().catch(() => {
-    /* table shape varies on fresh installs */
-  });
+  await del.execute();
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
@@ -443,6 +459,27 @@ export async function initAuth(db: Database) {
     trustedOrigins,
     secret: process.env.BETTER_AUTH_SECRET,
     database,
+
+    // Hash single-use tokens at rest. Better-Auth 1.6 supports this and defaults
+    // to plaintext (`processIdentifier`: `if (!option || option === "plain")
+    // return identifier;`), so password-reset and e-mail-verification rows landed
+    // in `verification.identifier` as `reset-password:<raw token>` — the token
+    // itself, readable by anything that can read one table.
+    //
+    // That table is one of the unprefixed Better-Auth tables, which is exactly
+    // the set two separate SQL guards failed to block (C-14, C-10) and which had
+    // no RLS until migration 044. Those holes are closed; this is the layer that
+    // decides how bad the next one is. With plaintext, one SELECT is every live
+    // reset token on the instance and a full account takeover of anyone who
+    // clicked "forgot password" in the last hour — including an admin. With the
+    // rows hashed, the same SELECT yields digests that cannot be presented to
+    // `/api/auth/reset-password`.
+    //
+    // `hashed` uses Better-Auth's own SHA-256 + base64url. That is the right
+    // primitive here and not a password-hashing question: these tokens are
+    // high-entropy random values with a one-hour life, so there is nothing to
+    // brute-force and a slow KDF would only add latency to every verification.
+    verification: { storeIdentifier: 'hashed' },
     advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
@@ -581,6 +618,18 @@ export async function initAuth(db: Database) {
       twoFactor({
         issuer: process.env.APP_NAME || 'Zveltio',
         totpOptions: { digits: 6, period: 30 },
+        // Backup codes were stored in the clear. Better-Auth encrypts them only
+        // when told to — `encodeBackupCodes` ends `return json` otherwise — and
+        // this passed no options, so `twoFactor.backupCodes` held a plaintext
+        // JSON array of ten `xxxxx-xxxxx` codes.
+        //
+        // The TOTP secret in the SAME ROW was already encrypted with
+        // `BETTER_AUTH_SECRET`. That is the part that makes this worth fixing
+        // rather than merely noting: a backup code is a complete second factor,
+        // so encrypting the secret beside ten plaintext equivalents of it
+        // protects nothing. Anything with a raw connection or a copy of a backup
+        // had the second factor for every account that enabled 2FA.
+        backupCodeOptions: { storeBackupCodes: 'encrypted' },
       }),
 
       // Magic link + password reset — enabled only when SMTP is configured
@@ -600,6 +649,11 @@ export async function initAuth(db: Database) {
               // Operators who want open registration turn it on, and the sign-up
               // route provides it under the gate that exists for the purpose.
               disableSignUp: true,
+              // Same reason as `verification` above: the plugin's own default is
+              // `storeToken: "plain"`, which puts the literal magic-link token in
+              // `verification.identifier`. A magic link is a bearer credential —
+              // whoever reads the row can sign in as that person.
+              storeToken: 'hashed',
               sendMagicLink: async ({ email, url }) => {
                 await sendEmail(
                   email,

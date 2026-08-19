@@ -151,7 +151,7 @@
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['developer.api-docs.ui.new_doc_page']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showCustomForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['content.page-builder.ui.slug']()}</span></label><input class="input input-sm font-mono" bind:value={customForm.slug} placeholder={m['developer.api-docs.ui.getting_started']()} /></div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.slug']()}</span></label><input class="input input-sm font-mono" bind:value={customForm.slug} placeholder={m['developer.api-docs.ui.getting_started']()} /></div>
           <div class="flex items-end pb-1"><label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" bind:checked={customForm.is_published} /><span class="label-text text-xs">{m['developer.api-docs.ui.public']()}</span></label></div>
         </div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.title']()}</span></label><input class="input input-sm" bind:value={customForm.title} /></div>

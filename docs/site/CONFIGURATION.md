@@ -171,33 +171,34 @@ VALKEY_URL=rediss://valkey:6380
 
 ## AI Providers
 
-At least one provider must be configured for AI features to work.
+AI providers are **not** configured through the environment. They live in the
+`zv_ai_providers` table and are managed from the admin UI, or over the API:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | — | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o` | Default OpenAI model |
-| `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
-| `ANTHROPIC_MODEL` | `claude-opus-4-6` | Default Anthropic model |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama server URL (self-hosted) |
-| `OLLAMA_MODEL` | `llama3` | Default Ollama model |
+```http
+PUT /api/ext/ai/providers/openai
+{ "api_key": "sk-...", "default_model": "gpt-4o", "is_active": true, "is_default": true }
+```
+
+Supported names are `openai`, `anthropic`, `ollama`, and any OpenAI-compatible
+provider given both an `api_key` and a `base_url`.
+
+API keys are encrypted at rest by the host under `AI_KEY_ENCRYPTION_KEY` — the
+extension never holds the key material.
+
+> **Changed.** `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`,
+> `ANTHROPIC_MODEL`, `OLLAMA_URL`, `OLLAMA_MODEL` and `AI_EMBED_TIMEOUT_MS` were
+> read directly by the AI extension and are no longer consulted. They were a
+> second source of truth for a setting that already had one: a provider
+> configured that way did not appear in `GET /providers`, could not be edited or
+> disabled from the admin UI, and its key sat unencrypted in the process
+> environment — so "which model is this instance using" had two answers and only
+> one of them was on screen.
 
 ### Provider priority
 
-The first configured provider becomes the default. Configure multiple for fallback:
-
-```env
-# Primary: OpenAI
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-
-# Secondary: Anthropic (fallback)
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Local: Ollama (dev/air-gap)
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1
-```
+The provider whose row has `is_default = true` is used when a caller does not
+name one. Configure several rows for fallback; each is enabled independently
+with `is_active`.
 
 ---
 
@@ -357,8 +358,9 @@ S3_BUCKET=zveltio
 S3_REGION=us-east-1
 S3_PUBLIC_URL=http://localhost:9000/zveltio
 
-# AI (optional for dev)
-OPENAI_API_KEY=sk-...
+# AI providers are configured in the admin UI, not here — see "AI Providers".
+# The host still needs this to encrypt the keys it stores:
+AI_KEY_ENCRYPTION_KEY=<openssl rand -hex 32>
 
 # Extensions
 ZVELTIO_EXTENSIONS=ai,workflow/approvals
@@ -399,10 +401,9 @@ S3_BUCKET=yourapp-zveltio
 S3_REGION=eu-west-1
 S3_PUBLIC_URL=https://cdn.yourapp.com
 
-# AI
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-ANTHROPIC_API_KEY=sk-ant-...
+# AI providers are rows in zv_ai_providers, managed from the admin UI.
+# This key encrypts them at rest.
+AI_KEY_ENCRYPTION_KEY=<openssl rand -hex 32>
 
 # Extensions
 ZVELTIO_EXTENSIONS=ai,workflow/approvals,workflow/checklists

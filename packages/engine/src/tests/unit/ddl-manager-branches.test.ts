@@ -136,7 +136,16 @@ describe('introspection helpers', () => {
 });
 
 describe('dropCollection — failure tolerance', () => {
-  it('warns when m2m relation lookup fails but still drops the table', async () => {
+  /**
+   * This asserted "warns but still drops". The `.catch(() => [])` turned "I could
+   * not find out which junction tables exist" into "there are none", and the drop
+   * then proceeded and deleted every `zvd_relations` row for the collection —
+   * destroying the only record of where those junction tables were. They stay on
+   * disk, holding rows, referenced by nothing.
+   *
+   * A drop that cannot enumerate what it is dropping must not proceed.
+   */
+  it('refuses when the m2m relation lookup fails, instead of dropping blind', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const db = setup(['zvd_items']);
@@ -144,11 +153,8 @@ describe('dropCollection — failure tolerance', () => {
         /select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i,
         new Error('timeout'),
       );
-      await DDLManager.dropCollection(asDb(db), 'items');
-      expect(db.executed(/DROP TABLE IF EXISTS zvd_items CASCADE/)).toHaveLength(1);
-      expect(
-        warn.mock.calls.some((c) => String(c[0]).includes('m2m relations lookup failed')),
-      ).toBe(true);
+      await expect(DDLManager.dropCollection(asDb(db), 'items')).rejects.toThrow(/timeout/);
+      expect(db.executed(/DROP TABLE IF EXISTS zvd_items CASCADE/)).toHaveLength(0);
     } finally {
       warn.mockRestore();
     }

@@ -52,7 +52,7 @@
       "!packages/studio/src/routes/(admin)/introspect/**",
       "!packages/studio/src/routes/(admin)/mail/**",
       "!packages/studio/src/routes/(admin)/media/**",
-      "!packages/studio/src/routes/(admin)/page-builder/**",
+      "!packages/studio/src/routes/(admin)/pages/**",
       "!packages/studio/src/routes/(admin)/pos/**",
       "!packages/studio/src/routes/(admin)/projects/helpdesk/**",
       "!packages/studio/src/routes/(admin)/projects/management/**",
