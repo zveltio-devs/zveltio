@@ -282,10 +282,17 @@ async function executeStep(
       const timeoutMs = Math.min(Number(cfg.timeout_ms) || 10_000, 60_000);
       // SSRF protection: validate URL targets a public address before fetching
       validatePublicUrl(cfg.url as string);
+      // A body is attached only when the method can carry one. `fetch` refuses
+      // outright — "GET/HEAD/OPTIONS method cannot have body" — so a flow whose
+      // webhook step was configured as a GET threw before it sent anything, and the
+      // step failed with a TypeError about argument values rather than anything an
+      // author could act on. The default is POST, which is why this went unseen.
+      const method = String((cfg.method as string) ?? 'POST').toUpperCase();
+      const carriesBody = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
       const response = await safeFetch(cfg.url as string, {
-        method: (cfg.method as string) ?? 'POST',
+        method,
         headers: sanitizedHeaders,
-        body: JSON.stringify(cfg.body ?? prevOutput),
+        ...(carriesBody ? { body: JSON.stringify(cfg.body ?? prevOutput) } : {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
       return { output: { status: response.status, ok: response.ok } };
