@@ -234,12 +234,16 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 
   // GET /roles/hierarchy — All role-role inheritance edges
   app.get('/roles/hierarchy', async (c) => {
+    // No `.catch(() => [])`. An empty list here renders as "no role inherits from
+    // any other", which an administrator reads off the inheritance tree and acts on
+    // — granting directly what a parent role already confers, or removing a role in
+    // the belief nothing depends on it. A 500 says the tree could not be drawn,
+    // which is the only honest answer when it could not be read.
     const edges = await db
       .selectFrom('zvd_permissions')
       .select(['v0 as child', 'v1 as parent'])
       .where('ptype', '=', 'g')
-      .execute()
-      .catch(() => [] as { child: string; parent: string }[]);
+      .execute();
 
     // Filter out user-role assignments (UUID v0) — keep only role-role edges
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
