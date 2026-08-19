@@ -231,12 +231,12 @@
         <div class="space-y-3">
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['hr.time-tracking.ui.project_name']()}</span></label>
             <input class="input input-sm" bind:value={projectForm.name} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['invoicing.col.client']()}</span></label>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['hr.time-tracking.col.client']()}</span></label>
             <input class="input input-sm" bind:value={projectForm.client_name} /></div>
           <div class="grid grid-cols-2 gap-2">
             <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['hr.time-tracking.ui.hourly_rate']()}</span></label>
               <input class="input input-sm" type="number" bind:value={projectForm.hourly_rate} /></div>
-            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['crm.form.currency']()}</span></label>
+            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['hr.time-tracking.form.currency']()}</span></label>
               <input class="input input-sm" bind:value={projectForm.currency} /></div>
           </div>
           <label class="flex items-center gap-2 cursor-pointer">

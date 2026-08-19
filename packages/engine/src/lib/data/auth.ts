@@ -145,8 +145,23 @@ export async function checkAccess(
     if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
 
     // Scopes format: Array<{ collection: string; actions: string[] }>.
-    // Empty array = full access (backwards-compatible default).
-    // Wildcard collection '*' or action '*' grants broad access.
+    //
+    // An EMPTY array is DENY-ALL. It used to be full access: the guard was
+    // `if (scopes.length > 0) { ...enforce... }` followed by `return true`, so an
+    // empty list skipped enforcement altogether — and both the create route and
+    // the column defaulted to `[]`. `POST /api/api-keys {"name":"x"}` minted a
+    // permanent, tenant-wide data credential.
+    //
+    // The old comment said "Empty array = full access (backwards-compatible
+    // default)", which is the defect written down. To anyone filling in a form,
+    // "no permissions selected" means "cannot do anything", and the operator most
+    // likely to leave it blank is the one aiming for least privilege.
+    //
+    // Migration 045 wrote the existing keys' access down explicitly before this
+    // flipped, so no key already issued lost anything.
+    //
+    // Wildcard collection '*' or action '*' still grants broad access — it just
+    // has to be said out loud now.
     //
     // A malformed JSON blob in `scopes` used to crash the auth check
     // (uncaught JSON.parse). Fail closed — if we can't tell what the key
@@ -172,13 +187,22 @@ export async function checkAccess(
         console.warn(`[auth] api_key ${user.id} scopes is not an array — refusing access`);
         return false;
       }
-      if (scopes.length > 0) {
-        const match = scopes.find((s) => s.collection === collection || s.collection === '*');
-        if (!match) return false;
-        if (!match.actions.includes(action) && !match.actions.includes('*')) return false;
+      if (scopes.length === 0) {
+        console.warn(
+          `[auth] api_key ${user.id} has no scopes — refusing ${action} on ${collection}. ` +
+            'Grant it explicitly, or [{"collection":"*","actions":["*"]}] for full access.',
+        );
+        return false;
       }
+      const match = scopes.find((s) => s.collection === collection || s.collection === '*');
+      if (!match) return false;
+      if (!match.actions.includes(action) && !match.actions.includes('*')) return false;
+      return true;
     }
-    return true;
+    // No `scopes` value at all (a NULL column) says the same thing an empty list
+    // says: nothing was granted.
+    console.warn(`[auth] api_key ${user.id} has no scopes at all — refusing access`);
+    return false;
   }
   return checkPermission(user.id, collection, action);
 }

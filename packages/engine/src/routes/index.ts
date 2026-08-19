@@ -24,7 +24,6 @@ import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
 // AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
 // /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
-import { zonesRoutes, viewsRoutes } from './zones.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -230,9 +229,14 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
       const userId = before?.user?.id;
       if (!userId) return;
       const currentToken = (before as { session?: { token?: string } } | null)?.session?.token;
-      await revokeAllUserSessions(db, userId, currentToken).catch((err: Error) => {
-        // The 2FA change itself succeeded; failing the response now would tell
-        // the user it did not.
+      // `poolDb`, not `db`. The request runs as `zveltio_rls`, which has no
+      // grants on `session` since migration 044 — see the third reason in the
+      // `poolDb` doc-comment above, which describes this exact failure.
+      await revokeAllUserSessions(poolDb, userId, currentToken).catch((err: Error) => {
+        // Still caught, and this one is a real judgement rather than a swallow:
+        // the 2FA change has already committed, so failing the response now would
+        // tell the user their factor was not enabled when it was. The log is the
+        // signal, and with the handle fixed this should no longer fire.
         console.error(`[auth] could not revoke other sessions for ${userId}:`, err.message);
       });
     },
@@ -360,7 +364,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/data', dataRoutes(db, auth));
 
   // Users management (admin)
-  app.route('/api/users', usersRoutes(db, auth));
+  // `poolDb` as a third argument: deleting a user revokes their sessions, and
+  // `session` is off-limits to the request's `zveltio_rls` role. Same shape as
+  // `insightsRoutes(poolDb, auth)` and `backupRoutes(poolDb, auth)` below.
+  app.route('/api/users', usersRoutes(db, auth, poolDb));
 
   // Permissions / Casbin (admin)
   app.route('/api/permissions', permissionsRoutes(db, auth));
@@ -416,8 +423,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
   // Zones / Pages / Views — 3-layer portal architecture
-  app.route('/api/zones', zonesRoutes(db, auth));
-  app.route('/api/views', viewsRoutes(db, auth));
 
   // Approval Workflows (core)
   app.route('/api/approvals', approvalsRoutes(db, auth));
@@ -519,9 +524,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     try {
       const pages = await sql<{ slug: string; updated_at: Date }>`
         SELECT slug, updated_at FROM zv_pages WHERE is_active = true ORDER BY slug
-      `
-        .execute(db)
-        .catch(() => ({ rows: [] }));
+      `.execute(db);
 
       const urls = pages.rows
         .map(
@@ -544,12 +547,24 @@ ${urls}
 </urlset>`;
 
       return c.text(xml, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
-    } catch {
-      return c.text(
-        '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>',
-        200,
-        { 'Content-Type': 'application/xml; charset=utf-8' },
+    } catch (err) {
+      // A 500, not an empty sitemap with 200.
+      //
+      // Both this handler and a `.catch(() => ({ rows: [] }))` on the query above
+      // answered a failed read with `<urlset></urlset>` and a 200. To a crawler that
+      // is not an error — it is the site stating, successfully, that it has no
+      // pages, and acting on it is what a crawler is for. Pages drop out of the
+      // index and come back only when someone notices.
+      //
+      // 5xx is the documented way to say "ask again later": the previous sitemap is
+      // kept and the fetch is retried.
+      console.error(
+        '[sitemap] could not list pages; serving 500 rather than an empty sitemap:',
+        err,
       );
+      return c.text('sitemap temporarily unavailable', 500, {
+        'Content-Type': 'text/plain; charset=utf-8',
+      });
     }
   });
 

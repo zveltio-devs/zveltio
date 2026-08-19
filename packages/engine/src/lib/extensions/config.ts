@@ -40,10 +40,54 @@ function flag(name: string): boolean {
  * review and install time, and the `undefined` tells an extension that storage
  * is absent so it can degrade instead of throwing.
  */
-export function buildExtensionConfig(capabilities: readonly string[]): ExtensionConfig {
+/**
+ * The slice of the environment that belongs to one extension.
+ *
+ * An extension reading `process.env` itself sees the ENGINE's entire
+ * environment — `DATABASE_URL`, `BETTER_AUTH_SECRET`, `FIELD_ENCRYPTION_KEY` —
+ * which is both far more than it needs and a way around the capability gate on
+ * `ctx.internals`: an extension wanting to decrypt without declaring `secrets`
+ * could take the key and do it itself.
+ *
+ * The answer is not to move each extension's settings onto `ExtensionConfig`.
+ * Deployment configuration for `billing` is Stripe's webhook secret and for
+ * `search` it is a Meilisearch URL, and putting either on this interface would
+ * put Stripe and Meilisearch into the engine — the engine would then have to
+ * know every extension that will ever exist.
+ *
+ * So the rule is generic and the names stay in the extension: everything under
+ * `ZVELTIO_EXT_<NAME>_` is handed to `<NAME>` with the prefix stripped, and
+ * nothing else is handed to it at all. `finance/banking` reads
+ * `ZVELTIO_EXT_FINANCE_BANKING_*`; `ai` reads `ZVELTIO_EXT_AI_*`. Operators keep
+ * configuring through the environment, which is where a self-hosted deployment
+ * expects to configure things, and the engine learns nothing about what any
+ * particular extension wants.
+ *
+ * Read at build time, not per access: `register()` runs once per load, and a
+ * frozen snapshot means an extension cannot be handed a value that changed
+ * underneath it mid-request.
+ */
+function namespacedEnv(extName: string | undefined): Readonly<Record<string, string>> {
+  if (!extName) return Object.freeze({});
+  const prefix = `ZVELTIO_EXT_${extName.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_`;
+  const vars: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string' && key.startsWith(prefix)) {
+      vars[key.slice(prefix.length)] = value;
+    }
+  }
+  return Object.freeze(vars);
+}
+
+export function buildExtensionConfig(
+  capabilities: readonly string[],
+  extName?: string,
+): ExtensionConfig {
   const mayReadStorage = capabilities.includes('storage');
+  const vars = namespacedEnv(extName);
 
   return Object.freeze({
+    vars,
     get env(): 'production' | 'development' | 'test' {
       const v = process.env.NODE_ENV;
       return v === 'production' || v === 'test' ? v : 'development';

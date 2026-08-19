@@ -45,7 +45,13 @@ describe('dropCollection m2m junction tables', () => {
     expect(db.executed(/DROP TABLE IF EXISTS zvd_tags CASCADE/)).toHaveLength(1);
   });
 
-  it('warns and continues when junction drop fails', async () => {
+  /**
+   * This asserted "warns and continues". Continuing left the junction table on
+   * disk, holding rows, and then deleted the `zvd_relations` rows that named it —
+   * so nothing in the database could tell you the table belonged to a collection
+   * that is gone. Undoing that means reading table names by hand.
+   */
+  it('refuses when a junction table cannot be dropped, before deleting anything', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const db = setup();
@@ -60,13 +66,13 @@ describe('dropCollection m2m junction tables', () => {
         ],
       );
       db.fail(/DROP TABLE IF EXISTS "zvd_jnc_articles_tags"/i, new Error('locked'));
-      await DDLManager.dropCollection(asDb(db), 'tags');
-      expect(
-        warn.mock.calls.some((c) =>
-          String(c[0]).includes('DROP TABLE zvd_jnc_articles_tags failed'),
-        ),
-      ).toBe(true);
-      expect(db.executed(/DROP TABLE IF EXISTS zvd_tags CASCADE/)).toHaveLength(1);
+      await expect(DDLManager.dropCollection(asDb(db), 'tags')).rejects.toThrow(
+        /junction table zvd_jnc_articles_tags could not be dropped/,
+      );
+      // The collection's own table is NOT dropped: the refusal happens before it,
+      // so an operator retries a whole operation rather than discovering that
+      // half of it already happened.
+      expect(db.executed(/DROP TABLE IF EXISTS zvd_tags CASCADE/)).toHaveLength(0);
     } finally {
       warn.mockRestore();
     }

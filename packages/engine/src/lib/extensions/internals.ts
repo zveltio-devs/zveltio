@@ -26,6 +26,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   isTenantAdmin,
+  requireInstanceAdmin,
   resolveUserRole,
 } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
@@ -37,6 +38,9 @@ import {
 } from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
 import { withTenantIsolation } from '../tenancy/index.js';
+import { applyColumnAccess } from '../tenancy/index.js';
+import { checkAccess } from '../data/index.js';
+import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { generatePDF, renderTemplate } from '../doc-generator.js';
@@ -140,6 +144,19 @@ export interface ExtensionInternals {
   // Fields typed as `typeof <helper>` mirror the engine helper's real signature
   // (single source of truth) — no `any`, no cast in buildExtensionInternals().
   dynamicInsert: typeof dynamicInsert;
+  /**
+   * The three an extension needs to render a collection the way the engine's own
+   * data routes do: the access check, the column mask, and the filter compiler.
+   *
+   * Exposed when the zones/views feature moved out of the engine. It renders
+   * arbitrary collections for a portal audience, so it has to apply exactly the
+   * rules `/api/data` applies — reimplementing them in the extension would be a
+   * second, quietly diverging copy of the authorisation path, which is the shape
+   * that produced four separate defects in this codebase already.
+   */
+  checkAccess: typeof checkAccess;
+  applyColumnAccess: typeof applyColumnAccess;
+  buildCondition: typeof buildCondition;
   introspectSchema: typeof introspectSchema;
   runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
@@ -227,6 +244,19 @@ export interface ExtensionInternals {
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   resolveUserRole: typeof resolveUserRole;
   isTenantAdmin: typeof isTenantAdmin;
+  /**
+   * Instance-level admin, as distinct from admin-within-a-tenant.
+   *
+   * `checkPermission(uid, 'admin', '*')` is TRUE for a delegated tenant owner
+   * inside their own domain, because the `tenant_owner` policy is `('*','*','*')`
+   * there. That is the right answer for tenant-scoped screens and the wrong one
+   * for anything touching the instance: raw SQL, schema, role grants.
+   *
+   * Exposed because an extension that cannot reach this helper writes the
+   * `checkPermission` version instead — developer/database did, on a raw-SQL
+   * route, which is how a tenant admin got an instance-wide query console.
+   */
+  requireInstanceAdmin: typeof requireInstanceAdmin;
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
@@ -321,6 +351,9 @@ export interface ExtensionInternals {
 export function buildExtensionInternals(): ExtensionInternals {
   return {
     withTenantIsolation,
+    checkAccess,
+    applyColumnAccess,
+    buildCondition,
     dynamicInsert,
     introspectSchema,
     runQualityScan,
@@ -356,6 +389,7 @@ export function buildExtensionInternals(): ExtensionInternals {
       getColumnAccess(getDb(), collection, role),
     resolveUserRole,
     isTenantAdmin,
+    requireInstanceAdmin,
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,

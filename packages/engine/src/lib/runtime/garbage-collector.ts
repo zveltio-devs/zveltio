@@ -72,9 +72,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
           RETURNING 1
         )
         SELECT COUNT(*)::int AS deleted FROM d
-      `
-        .execute(db)
-        .catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      `.execute(db);
       const n = reqDeleted.rows[0]?.deleted ?? 0;
       if (n > 0) {
         console.log(`[GC] zv_request_logs: ${n} rows older than ${retentionDays}d purged`);
@@ -92,9 +90,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
           RETURNING 1
         )
         SELECT COUNT(*)::int AS deleted FROM d
-      `
-        .execute(db)
-        .catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      `.execute(db);
       const n = slowDeleted.rows[0]?.deleted ?? 0;
       if (n > 0) {
         console.log(`[GC] zv_slow_queries: ${n} rows older than ${retentionDays}d purged`);
@@ -117,9 +113,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
           RETURNING 1
         )
         SELECT COUNT(*)::int AS deleted FROM d
-      `
-        .execute(db)
-        .catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      `.execute(db);
       const n = auditDeleted.rows[0]?.deleted ?? 0;
       if (n > 0) {
         console.log(`[GC] zv_audit_log: ${n} rows older than ${auditRetentionDays}d purged`);

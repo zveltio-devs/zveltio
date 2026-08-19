@@ -50,6 +50,7 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
       .where('tenant_id', '=', tenant.id)
       .where('user_id', '=', userId)
       .executeTakeFirst()
+      // fabricated-ok: `!member` throws a 403. An unreadable membership denies access rather than granting it.
       .catch(() => null);
 
     if (!member) {

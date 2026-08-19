@@ -19,6 +19,18 @@
  *
  *  3. No extension source at all — release runner: leave the committed bundle
  *     untouched and let Paraglide compile it as-is.
+ *
+ * NOT run by `predev` any more, and that is deliberate. Merely starting the dev
+ * server used to rewrite all nine tracked `messages/*.json` — `git status` went
+ * dirty for a reason unrelated to anything the developer had edited, so the
+ * change read as build noise and got discarded. That is exactly how eight
+ * locales stayed stale while `en.json` did not: someone had regenerated once,
+ * the other eight diffs looked like noise, and nobody committed them.
+ *
+ * Regeneration is now an explicit step — `bun run i18n:merge`, or `i18n:compile`
+ * to compile after it — and still automatic in `prebuild`, where producing the
+ * bundle IS the job. A forgotten merge does not ship silently: `i18n-core` in CI
+ * fails on any key a page calls that the bundle does not resolve.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';

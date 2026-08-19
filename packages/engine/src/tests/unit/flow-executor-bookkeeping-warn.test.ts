@@ -16,7 +16,11 @@ describe('executeFlow — bookkeeping update failures', () => {
     const db = new CannedDb();
     db.when(RUN_INSERT, [{ id: 'run-ok' }]);
     db.when(STEPS_SELECT, [
-      { id: 's1', name: 'noop', type: 'unknown_kind', step_order: 1, config: {} },
+      // `query_db` with no query: implemented, returns the previous output.
+      // It was `unknown_kind`, which succeeded only via the executor's old
+      // default arm — this case is about the bookkeeping UPDATE failing, and
+      // needs a step that genuinely succeeds to isolate that.
+      { id: 's1', name: 'noop', type: 'query_db', step_order: 1, config: {} },
     ]);
     db.fail(RUN_UPDATE, new Error('update denied'));
 

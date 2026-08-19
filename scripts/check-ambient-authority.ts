@@ -29,7 +29,7 @@
  * Usage: bun scripts/check-ambient-authority.ts [extensionsWorkspace]
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 /**
@@ -120,68 +120,160 @@ interface Finding {
   what: string;
 }
 
+/**
+ * Every extension directory in the workspace, at whatever depth it lives.
+ *
+ * This used to be a fixed two-level loop over `<category>/<name>/engine`, and
+ * the catalogue does not have that shape. 12 of the 57 extensions sit at another
+ * depth — 6 at the top level (`ai`, `billing`, `crm`, `forms`, `search`, `sms`)
+ * and 5 nested a level deeper (`compliance/ro/*`) — and the gate walked straight
+ * past every one of them. It then printed "with no exceptions", which was true
+ * of the 45 it looked at and false of the catalogue.
+ *
+ * Not a small blind spot in practice: four of the twelve read `process.env` in
+ * engine code, which is the exact thing this gate exists to refuse, and it had
+ * been reporting them clean for as long as it has existed.
+ *
+ * A directory is an extension if it has a `manifest.json` and an `engine/`.
+ * That is the same test the packer and the registry use, so a new extension
+ * cannot arrive at a depth this gate does not know about.
+ */
+function extensionDirs(root: string, out: string[] = [], depth = 0): string[] {
+  if (depth > 4) return out;
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return out;
+  }
+  for (const name of entries) {
+    if (name.startsWith('.') || name === 'node_modules') continue;
+    const dir = join(root, name);
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (existsSync(join(dir, 'manifest.json')) && existsSync(join(dir, 'engine'))) {
+      out.push(dir);
+    }
+    // Recurse either way: `compliance/ro/*` sits under a plain grouping
+    // directory that is not itself an extension.
+    extensionDirs(dir, out, depth + 1);
+  }
+  return out;
+}
+
 function scan(root: string): Finding[] {
   const findings: Finding[] = [];
-  // Extensions live at <category>/<name>/engine/**.
-  for (const category of readdirSync(root)) {
-    const catDir = join(root, category);
-    if (category.startsWith('.') || !statSync(catDir).isDirectory()) continue;
-    for (const name of readdirSync(catDir)) {
-      const engineDir = join(catDir, name, 'engine');
-      try {
-        if (!statSync(engineDir).isDirectory()) continue;
-      } catch {
-        continue;
-      }
-      for (const file of walk(engineDir)) {
-        const rel = relative(root, file);
-        if (ALLOWLIST[rel]) continue;
-        const lines = stripComments(readFileSync(file, 'utf-8')).split('\n');
-        lines.forEach((line, i) => {
-          if (/\bprocess\.env\b/.test(line)) {
-            findings.push({ file: rel, line: i + 1, text: line.trim(), what: 'process.env' });
-          }
-          const nodeImport = line.match(/(?:from|import|require)\s*\(?\s*['"]node:([a-z_/]+)['"]/);
-          if (nodeImport && AUTHORITY_MODULES.includes(nodeImport[1])) {
-            findings.push({
-              file: rel,
-              line: i + 1,
-              text: line.trim(),
-              what: `node:${nodeImport[1]}`,
-            });
-          }
-        });
-      }
+  const dirs = extensionDirs(root);
+  // A traversal that matches nothing must not be allowed to read as a pass —
+  // that is how this gate spent its whole life green over 45 of 57 extensions.
+  if (dirs.length === 0) {
+    console.error(
+      `[ambient-authority] no extensions found under ${root}; refusing to report a pass.`,
+    );
+    process.exit(1);
+  }
+  console.error(`[ambient-authority] scanning ${dirs.length} extension(s) under ${root}`);
+  for (const extDir of dirs) {
+    const engineDir = join(extDir, 'engine');
+    for (const file of walk(engineDir)) {
+      const rel = relative(root, file);
+      if (ALLOWLIST[rel]) continue;
+      const lines = stripComments(readFileSync(file, 'utf-8')).split('\n');
+      lines.forEach((line, i) => {
+        if (/\bprocess\.env\b/.test(line)) {
+          findings.push({ file: rel, line: i + 1, text: line.trim(), what: 'process.env' });
+        }
+        const nodeImport = line.match(/(?:from|import|require)\s*\(?\s*['"]node:([a-z_/]+)['"]/);
+        if (nodeImport && AUTHORITY_MODULES.includes(nodeImport[1])) {
+          findings.push({
+            file: rel,
+            line: i + 1,
+            text: line.trim(),
+            what: `node:${nodeImport[1]}`,
+          });
+        }
+      });
     }
   }
   return findings;
 }
 
-const root = process.argv[2] ?? join(import.meta.dir, '..', '..', 'zveltio-extensions');
+const root =
+  process.argv.slice(2).find((a) => !a.startsWith('--')) ??
+  join(import.meta.dir, '..', '..', 'zveltio-extensions');
+const BASELINE = join(import.meta.dir, '..', 'quality-gates', 'ambient-authority.json');
+const LIST = process.argv.includes('--list');
+
 const findings = scan(root);
 
-if (findings.length === 0) {
-  const allowed = Object.keys(ALLOWLIST).length;
-  console.log(
-    `✅ ambient-authority: no extension reads process.env or imports an authority-bearing node:* module` +
-      (allowed === 0
-        ? ', with no exceptions.'
-        : ` (${allowed} tracked exception${allowed === 1 ? '' : 's'}).`),
-  );
+// Counts per file, so a file may lose sites but never gain them. Line numbers
+// would make the baseline churn on every unrelated edit above.
+const counts: Record<string, number> = {};
+for (const f of findings) counts[f.file] = (counts[f.file] ?? 0) + 1;
+
+if (LIST) {
+  console.log(JSON.stringify(counts, null, 2));
   process.exit(0);
 }
 
-console.error(`❌ ambient-authority: ${findings.length} finding(s).\n`);
-for (const f of findings) {
-  console.error(`  ${f.file}:${f.line}  [${f.what}]`);
-  console.error(`      ${f.text}`);
+let baseline: Record<string, number> = {};
+try {
+  baseline = JSON.parse(readFileSync(BASELINE, 'utf-8'));
+} catch {
+  // No baseline yet: every finding is new.
 }
-console.error(
-  `\nExtensions must not reach for ambient authority.\n` +
-    `  • configuration      → ctx.config  (see ExtensionConfig in @zveltio/sdk/extension)\n` +
-    `  • encrypt / decrypt  → ctx.internals.encryptSecret / decryptSecret  ("secrets" capability)\n` +
-    `  • object storage     → ctx.config.objectStorage  ("storage" capability)\n\n` +
-    `If a value genuinely has no home on ctx.config, add it there — deliberately,\n` +
-    `as part of the capability contract — rather than reading the engine's environment.\n`,
+
+const grew: string[] = [];
+const shrank: string[] = [];
+for (const [file, n] of Object.entries(counts)) {
+  if (file.startsWith('_')) continue;
+  const was = typeof baseline[file] === 'number' ? baseline[file] : 0;
+  if (n > was) grew.push(`  ${file}: ${was} → ${n}`);
+}
+for (const [file, was] of Object.entries(baseline)) {
+  if (file.startsWith('_') || typeof was !== 'number') continue;
+  const n = counts[file] ?? 0;
+  if (n < was) shrank.push(`  ${file}: ${was} → ${n}`);
+}
+
+if (grew.length > 0) {
+  console.error(
+    `❌ ambient-authority: ${grew.length} file(s) reach for MORE ambient authority than the baseline.\n`,
+  );
+  for (const line of grew) console.error(line);
+  console.error('');
+  for (const f of findings) {
+    if (grew.some((g) => g.trim().startsWith(`${f.file}:`))) {
+      console.error(`  ${f.file}:${f.line}  [${f.what}]`);
+      console.error(`      ${f.text}`);
+    }
+  }
+  console.error(
+    `\nExtensions must not reach for ambient authority.\n` +
+      `  • configuration      → ctx.config  (see ExtensionConfig in @zveltio/sdk/extension)\n` +
+      `  • per-extension settings → the extension's own zv_settings row (see communications/mail)\n` +
+      `  • encrypt / decrypt  → ctx.internals.encryptSecret / decryptSecret  ("secrets" capability)\n` +
+      `  • object storage     → ctx.config.objectStorage  ("storage" capability)\n\n` +
+      `If a value genuinely has no home on ctx.config, add it there — deliberately,\n` +
+      `as part of the capability contract — rather than reading the engine's environment.\n`,
+  );
+  process.exit(1);
+}
+
+const total = Object.values(counts).reduce((a, b) => a + b, 0);
+if (shrank.length > 0) {
+  console.log(`ambient-authority: ${shrank.length} file(s) improved — update the baseline:`);
+  for (const line of shrank) console.log(line);
+  console.log(
+    '  bun run scripts/check-ambient-authority.ts --list > quality-gates/ambient-authority.json',
+  );
+}
+console.log(
+  total === 0
+    ? '✅ ambient-authority: no extension reads process.env or imports an authority-bearing node:* module.'
+    : `✅ ambient-authority: ${total} known site(s) in ${Object.keys(counts).length} file(s), none new.`,
 );
-process.exit(1);
+process.exit(0);

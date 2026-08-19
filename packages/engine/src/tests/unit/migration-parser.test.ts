@@ -53,4 +53,46 @@ describe('parseMigrationSql', () => {
     expect(parsed.up).toContain('CREATE TABLE solo');
     expect(parsed.down).toBeNull();
   });
+
+  /**
+   * `-- DOWN: manual rollback required` is a comment about the migration, not
+   * the section marker. The parser used to match any line beginning `-- DOWN`,
+   * so this ended the UP section and every statement after it was silently
+   * discarded — the install reports success with half a schema.
+   *
+   * Measured on the engine's own `001_initial.sql`, which contains exactly that
+   * line at 1207: the loose rule builds 61 tables, the anchored rule 113.
+   */
+  it('does not treat an annotated comment as the DOWN marker', () => {
+    const raw = [
+      'CREATE TABLE foo (id UUID PRIMARY KEY);',
+      '',
+      '-- DOWN: manual rollback required',
+      '-- To revert: ALTER DATABASE <db> RESET "zveltio.current_tenant";',
+      '',
+      'CREATE TABLE bar (id UUID PRIMARY KEY);',
+    ].join('\n');
+    const parsed = parseMigrationSql(raw);
+    expect(parsed.down).toBeNull();
+    // The point: the table declared AFTER the annotated comment survives.
+    expect(parsed.up).toContain('CREATE TABLE bar');
+  });
+
+  it('still splits when the annotated comment is followed by a real marker', () => {
+    const raw = [
+      'CREATE TABLE foo (id UUID PRIMARY KEY);',
+      '-- DOWN: manual rollback required',
+      'CREATE TABLE bar (id UUID PRIMARY KEY);',
+      '-- DOWN',
+      'DROP TABLE IF EXISTS bar;',
+    ].join('\n');
+    const parsed = parseMigrationSql(raw);
+    expect(parsed.up).toContain('CREATE TABLE bar');
+    expect(parsed.down).toBe('DROP TABLE IF EXISTS bar;');
+  });
+
+  it('tolerates trailing whitespace on the marker line', () => {
+    const parsed = parseMigrationSql('CREATE TABLE foo (id UUID);\n--  down   \nDROP TABLE foo;');
+    expect(parsed.down).toBe('DROP TABLE foo;');
+  });
 });

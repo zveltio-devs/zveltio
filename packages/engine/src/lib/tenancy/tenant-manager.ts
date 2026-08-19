@@ -819,7 +819,24 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
       DECLARE t record; s record;
       BEGIN
         GRANT USAGE ON SCHEMA public TO zveltio_rls;
-        FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+        -- Every table EXCEPT the ones Better-Auth owns. This loop granting full
+        -- DML on all of public is what made C-14 and C-10 reach live session
+        -- tokens: the string guards had no rule for unprefixed tables, and the
+        -- role underneath them could read and write every one.
+        --
+        -- Excluded here rather than revoked afterwards, because a revoke in a
+        -- migration is undone by the next boot — this function runs at every
+        -- start. Migration 044 enables RLS on the same four as the second layer.
+        FOR t IN
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public'
+            -- user stays granted: it holds no credentials (the password is in
+            -- account, the token in session) and the engine reads it through
+            -- this role for /api/me, the user list and notification fan-out.
+            -- Excluding it took /api/me to a 500. The other four are where the
+            -- credentials actually are.
+            AND tablename NOT IN ('session', 'account', 'verification', 'twoFactor')
+        LOOP
           EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
         END LOOP;
@@ -927,12 +944,30 @@ export async function enableRLS(tableName: string): Promise<void> {
   //
   //    We surface this loudly so the operator runs a backfill UPDATE
   //    before considering the table multi-tenant-safe.
-  const orphans = await sql<{ orphan_count: number }>`
-    SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
-  `
-    .execute(_db)
-    .catch(() => ({ rows: [{ orphan_count: 0 }] }));
-  const orphanCount = orphans.rows[0]?.orphan_count ?? 0;
+  // The `.catch(() => ({ rows: [{ orphan_count: 0 }] }))` this used to carry
+  // answered "no orphans" when the count could not run, and the `if (orphanCount
+  // > 0)` below then skipped the warning entirely. The comment above says this is
+  // surfaced LOUDLY so an operator backfills before treating the table as
+  // multi-tenant-safe; the catch made it silent in exactly the case where the
+  // operator has least reason to suspect anything.
+  let orphanCount: number;
+  try {
+    const orphans = await sql<{ orphan_count: number }>`
+      SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
+    `.execute(_db);
+    orphanCount = orphans.rows[0]?.orphan_count ?? 0;
+  } catch (err) {
+    // Not fatal — RLS is already enabled by this point and the enable itself
+    // succeeded. But "I could not check" and "there is nothing to fix" must not
+    // read the same to whoever is watching the log.
+    console.warn(
+      `[tenant-manager] enableRLS(${tableName}): could not count rows with a NULL ` +
+        `tenant_id, so it is UNKNOWN whether any are now invisible to every tenant. ` +
+        `Check by hand: SELECT COUNT(*) FROM ${tableName} WHERE tenant_id IS NULL. ` +
+        `Cause: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
   if (orphanCount > 0) {
     console.warn(
       `[tenant-manager] enableRLS(${tableName}): ${orphanCount} row(s) ` +

@@ -26,7 +26,12 @@ function dbForFlow(steps: unknown[], runId = 'run-1'): CannedDb {
 }
 
 describe('executeFlow (CannedDb)', () => {
-  it('creates a run, executes unknown step types, and marks success', async () => {
+  // Was 'creates a run, executes unknown step types, and marks success'. It
+  // asserted the C-6 defect as the contract: a step type the executor does not
+  // implement reported success and passed the previous output through, so a
+  // flow built on `condition` ran green and did nothing. The run is expected to
+  // FAIL now, and the bookkeeping is what this case is really about.
+  it('creates a run and marks an unimplemented step type as failed', async () => {
     const db = dbForFlow([
       {
         id: 's1',
@@ -40,7 +45,8 @@ describe('executeFlow (CannedDb)', () => {
     const result = await executeFlow(db.kysely as unknown as Database, 'flow-1', {
       source: 'unit',
     });
-    expect(result.status).toBe('success');
+    expect(result.status).toBe('failed');
+    expect(result.error ?? '').toMatch(/not implemented/i);
     expect(result.runId).toBe('run-1');
     expect(db.executed(RUN_UPDATE).length).toBeGreaterThanOrEqual(1);
   });
@@ -59,7 +65,12 @@ describe('executeFlow (CannedDb)', () => {
         {
           id: 's2',
           name: 'after',
-          type: 'noop_step',
+          // `query_db` with no query, which returns the previous output —
+          // implemented, and does nothing. It was `noop_step`, an unimplemented
+          // type that only "worked" because the executor's default arm reported
+          // success. This case is about `on_error: continue`, not about what an
+          // unknown type does.
+          type: 'query_db',
           step_order: 2,
           config: {},
         },
@@ -292,14 +303,19 @@ describe('executeStep — CannedDb branches', () => {
     expect(String(output.error)).toMatch(/not configured|Email/i);
   });
 
-  it('unknown step types pass through the previous output', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      { type: 'custom_step', config: {} },
-      { kept: true },
-      {},
-    );
-    expect(output).toEqual({ kept: true });
+  it('refuses an unknown step type instead of passing the previous output through', async () => {
+    // The pass-through was the defect: `{ kept: true }` flowing onward made the
+    // step indistinguishable from one that had done its work. The message names
+    // the offending type and what IS implemented, because whoever reads it is
+    // looking at a flow they believed was running.
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        { type: 'custom_step', config: {} },
+        { kept: true },
+        {},
+      ),
+    ).rejects.toThrow(/custom_step.*not implemented/is);
   });
 
   it('query_db with no query returns the previous output unchanged', async () => {

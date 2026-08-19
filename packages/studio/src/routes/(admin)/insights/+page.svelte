@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { api } from '$lib/api.js';
 
@@ -393,9 +394,7 @@ function statValue(p: Panel): string {
 
 <!-- Modal: New Dashboard -->
 {#if showNewDash}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-4">{m['insights.newDashboard']()}</h3>
+  <Modal bind:open={showNewDash} title={m['insights.newDashboard']()} size="md">
       <div class="space-y-3">
         <div class="form-control">
           <label class="label py-0" for="dash-name"><span class="label-text text-xs">{m['common.nameRequired']()}</span></label>
@@ -416,16 +415,12 @@ function statValue(p: Panel): string {
         <button class="btn btn-ghost btn-sm" onclick={() => (showNewDash = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm" onclick={createDashboard} disabled={!newDashName}>{m['common.create']()}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showNewDash = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Modal: New Panel -->
 {#if showNewPanel}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">{m['insights.addPanel']()}</h3>
+  <Modal bind:open={showNewPanel} title={m['insights.addPanel']()} size="md">
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
@@ -458,9 +453,7 @@ function statValue(p: Panel): string {
         <button class="btn btn-ghost btn-sm" onclick={() => (showNewPanel = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm" onclick={addPanel} disabled={!newPanelName || !newPanelQuery}>{m['insights.addPanel']()}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showNewPanel = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Ad-hoc SQL Console (right-side drawer) -->

@@ -1066,6 +1066,7 @@
   "views.filterPh": "Filtrează vizualizările…",
   "views.newView": "Vizualizare nouă",
   "views.noMatch": "Nicio vizualizare nu se potrivește cu „{q}”",
+  "views.noRendererYet": "Acest tip nu are încă un randare — vizualizarea se salvează, dar nu se afișează.",
   "views.perPage": "/ pagină",
   "views.publicBadge": "public",
   "views.rowsPerPage": "Rânduri pe pagină",

@@ -336,14 +336,32 @@ async function applyMigration(
   const { up } = parseMigrationFile(fileContent);
   const checksum = createHash('sha256').update(up).digest('hex').slice(0, 16);
 
-  // Check if already applied in zv_schema_versions
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const existing = await (db as any)
-    .selectFrom('zv_schema_versions')
-    .select(['version', 'checksum'])
-    .where('version', '=', migrationNumber)
-    .executeTakeFirst()
-    .catch(() => null);
+  // Has this migration already been applied?
+  //
+  // The read used to end `.catch(() => null)`, and `null` here means "not applied
+  // yet — run it". So any failure to answer the question re-ran the migration.
+  // The tracking write further down says what that costs, in its own words: "a
+  // chronic failure means the next run will re-apply the same migration, which
+  // can break idempotence." `CREATE TABLE IF NOT EXISTS` survives that; a seed
+  // INSERT, a backfill UPDATE, or an ADD COLUMN without IF NOT EXISTS does not.
+  //
+  // One failure IS expected and is not a failure at all: `zv_schema_versions` is
+  // created by `001_initial.sql`, so before the first migration runs the table
+  // genuinely does not exist. That is 42P01, and it means "nothing has been
+  // applied", which is true. Every other error means the answer is unknown.
+  let existing: { version: number; checksum: string } | undefined;
+  try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    existing = await (db as any)
+      .selectFrom('zv_schema_versions')
+      .select(['version', 'checksum'])
+      .where('version', '=', migrationNumber)
+      .executeTakeFirst();
+  } catch (err) {
+    const code =
+      (err as { errno?: string; code?: string }).errno ?? (err as { code?: string }).code ?? '';
+    if (code !== '42P01') throw err;
+  }
 
   if (existing) {
     if (existing.checksum !== checksum && existing.checksum !== 'baseline') {
