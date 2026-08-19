@@ -1652,6 +1652,7 @@ export interface ZvPageBlockTypesTable {
   default_props: Generated<unknown>;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvPageMenusTable {
@@ -1748,41 +1749,6 @@ export interface ZvPageSitemapConfigTable {
   tenant_id: string | null;
 }
 
-export interface ZvPageSitesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-  is_public: Generated<boolean>;
-  access_roles: Generated<string[]>;
-  public_collections: Generated<string[]>;
-  base_path: string;
-  site_name: string | null;
-  site_logo_url: string | null;
-  primary_color: Generated<string | null>;
-  secondary_color: string | null;
-  custom_css: string | null;
-  nav_position: Generated<'sidebar' | 'topbar' | 'both' | null>;
-  show_breadcrumbs: Generated<boolean>;
-  legacy_zone_id: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvPageTemplatesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  description: string | null;
-  kind: Generated<'block' | 'page'>;
-  blocks: Generated<unknown>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvPagesTable {
   id: Generated<string>;
   title: string;
@@ -1803,23 +1769,11 @@ export interface ZvPagesTable {
   meta: Generated<unknown>;
   published_at: Date | null;
   updated_by: string | null;
-  tenant_id: string | null;
   locale: Generated<string>;
   is_noindex: Generated<boolean>;
   reading_time_minutes: number | null;
   canonical_page_id: string | null;
-  site_id: string | null;
-  parent_id: string | null;
-  icon: string | null;
-  auth_required: Generated<boolean>;
-  allowed_roles: Generated<string[]>;
-  sort_order: Generated<number>;
-  legacy_zone_page_id: string | null;
-  kind: Generated<string>;
-  popup_config: Generated<unknown>;
-  record_collection: string | null;
-  record_field: string | null;
-  record_filter: Generated<unknown>;
+  tenant_id: string | null;
 }
 
 export interface ZvPanelsTable {
@@ -2697,7 +2651,6 @@ export interface ZvdAssetsTable {
   accumulated_dep_account_id: string | null;
   next_maintenance_date: Date | null;
   tenant_id: string | null;
-  disposal_reason: string | null;
 }
 
 export interface ZvdAuditLogTable {
@@ -2743,7 +2696,7 @@ export interface ZvdBankBalanceHistoryTable {
 export interface ZvdBankImportsTable {
   id: Generated<string>;
   account_id: string;
-  filename: string | null;
+  filename: string;
   rows_imported: Generated<number>;
   rows_skipped: Generated<number>;
   imported_by: string;
@@ -4513,14 +4466,6 @@ export interface ZvdPosLoyaltyLogTable {
   tenant_id: string | null;
 }
 
-export interface ZvdPosOrderCountersTable {
-  tenant_id: Generated<string>;
-  next_number: Generated<number>;
-  prefix: Generated<string>;
-  padding: Generated<number>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvdPosOrderLinesTable {
   id: Generated<string>;
   order_id: string;
@@ -4555,7 +4500,6 @@ export interface ZvdPosOrdersTable {
   tenant_id: string | null;
   customer_name: string | null;
   notes: string | null;
-  updated_at: Generated<Date>;
 }
 
 export interface ZvdPosSessionsTable {
@@ -4569,7 +4513,6 @@ export interface ZvdPosSessionsTable {
   notes: string | null;
   warehouse_id: string | null;
   tenant_id: string | null;
-  expected_float: number | null;
 }
 
 export interface ZvdPosZReportsTable {
@@ -5037,7 +4980,6 @@ export interface ZvdSubscribersTable {
   dunning_count: Generated<number>;
   payment_failure_at: Date | null;
   tenant_id: string | null;
-  cancellation_reason: string | null;
 }
 
 export interface ZvdSubscriptionInvoicesTable {
@@ -5055,7 +4997,6 @@ export interface ZvdSubscriptionInvoicesTable {
   usage_amount: Generated<number>;
   total_amount: number | null;
   tenant_id: string | null;
-  updated_at: Generated<Date>;
   due_date: Date | null;
   created_by: string | null;
 }
@@ -5704,8 +5645,6 @@ export interface DbSchema {
   zv_page_sections: ZvPageSectionsTable;
   zv_page_seo_scores: ZvPageSeoScoresTable;
   zv_page_sitemap_config: ZvPageSitemapConfigTable;
-  zv_page_sites: ZvPageSitesTable;
-  zv_page_templates: ZvPageTemplatesTable;
   zv_pages: ZvPagesTable;
   zv_panels: ZvPanelsTable;
   zv_pitr_config: ZvPitrConfigTable;
@@ -5886,7 +5825,6 @@ export interface DbSchema {
   zvd_pos_customers: ZvdPosCustomersTable;
   zvd_pos_held_orders: ZvdPosHeldOrdersTable;
   zvd_pos_loyalty_log: ZvdPosLoyaltyLogTable;
-  zvd_pos_order_counters: ZvdPosOrderCountersTable;
   zvd_pos_order_lines: ZvdPosOrderLinesTable;
   zvd_pos_orders: ZvdPosOrdersTable;
   zvd_pos_sessions: ZvdPosSessionsTable;
