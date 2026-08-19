@@ -11,7 +11,6 @@
   "ext:ai/engine/routes/zveltio-ai.ts": 1,
   "ext:analytics/dashboard/engine/routes.ts": 1,
   "ext:analytics/quality/engine/routes.ts": 2,
-  "ext:compliance/gdpr/engine/routes.ts": 6,
   "ext:compliance/ro/efactura/engine/routes.ts": 4,
   "ext:developer/byod/engine/routes.ts": 3,
   "ext:developer/edge-functions/engine/routes.ts": 1,
