@@ -131,6 +131,7 @@ export async function isRegistrationEnabled(db: Database): Promise<boolean> {
     .select('value')
     .where('key', '=', 'registration_enabled')
     .executeTakeFirst()
+    // fabricated-ok: falls to `return false` — registration stays CLOSED when the setting cannot be read, which is the refusing direction.
     .catch(() => null);
   if (!row) return false;
   const raw = (row as { value: unknown }).value;

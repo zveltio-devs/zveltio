@@ -200,13 +200,16 @@ export function registerMarketplaceRoutes(
   // GET /api/admin/license/history — last 50 audit entries (most recent first)
   app.get('/api/admin/license/history', async (c) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
+    // An audit trail that renders empty is a statement — "no licence action has
+    // ever been taken here" — and it is the statement an administrator checking for
+    // unauthorised changes is least able to verify independently. A failed read must
+    // not look like a clean history.
     const rows = await db
       .selectFrom('zv_license_audit')
       .selectAll()
       .orderBy('performed_at', 'desc')
       .limit(50)
-      .execute()
-      .catch(() => []);
+      .execute();
     return c.json({ history: rows });
   });
 
@@ -217,19 +220,21 @@ export function registerMarketplaceRoutes(
     const tenantId = getTenantId(c);
     const extBase = resolveExtensionsBase();
 
+    // Neither read carries a `.catch(() => [])` any more.
+    //
+    // This route merges the registry catalogue with what the database says is
+    // installed and licensed. An empty registry read renders EVERY extension as not
+    // installed, and an empty licence read renders every paid one as unlicensed — so
+    // an administrator looking at the marketplace after a transient failure sees a
+    // blank slate and starts installing things that are already there. The screen is
+    // the one place they have to check that from.
+    //
+    // `fetchCatalog()` handles its own registry-unreachable fallback; that is a
+    // different failure with a real local answer.
     const [catalog, rows, licenseRows] = await Promise.all([
       fetchCatalog(),
-      db
-        .selectFrom('zv_extension_registry')
-        .selectAll()
-        .execute()
-        .catch(() => []),
-      db
-        .selectFrom('zv_settings')
-        .select(['key'])
-        .where('key', 'like', 'ext_license:%')
-        .execute()
-        .catch(() => []),
+      db.selectFrom('zv_extension_registry').selectAll().execute(),
+      db.selectFrom('zv_settings').select(['key']).where('key', 'like', 'ext_license:%').execute(),
     ]);
 
     // When a tenant is specified: prefer tenant-scoped row, fall back to global (tenant_id IS NULL).
@@ -641,12 +646,15 @@ export function registerMarketplaceRoutes(
   const enableAllExtensions = async (c: Context) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
+    // No `.catch(() => [])`. This is "enable every installed extension": an empty
+    // list means there is nothing to enable, so a failed read enabled nothing and
+    // answered the operator with a success. They watch the button succeed and the
+    // extensions stay off.
     const installed = await db
       .selectFrom('zv_extension_registry')
       .select(['name'])
       .where('is_installed', '=', true)
-      .execute()
-      .catch(() => [] as { name: string }[]);
+      .execute();
 
     const extBase = resolveExtensionsBase();
     const names = installed.map((r) => r.name);
