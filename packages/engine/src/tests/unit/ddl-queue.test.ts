@@ -279,10 +279,24 @@ describe('skipForByod', () => {
     expect(await skipForByod(asDb(byod), { name: 'external' }, 'drop_collection')).toBe(true);
   });
 
-  it('returns false when the collection lookup fails', async () => {
+  /**
+   * This test used to assert `false` — "go ahead" — and it passed, which is what
+   * kept the defect in place.
+   *
+   * `skipForByod` answers "is this collection ours to alter?". Its callers are
+   * `drop_collection`, `remove_field` and `add_field`. Returning false on a
+   * FAILED lookup meant a transient database error while asking that question
+   * answered yes, and the engine would drop a column — or a whole table — that
+   * an operator had explicitly marked `is_managed = false`, a BYOD table holding
+   * their own data.
+   *
+   * Unknown ownership is the one case where doing nothing is always recoverable
+   * and doing something may not be.
+   */
+  it('skips the job when the collection lookup fails, rather than running DDL blind', async () => {
     const db = new CannedDb();
     db.fail(/select "is_managed" from "zvd_collections"/i, new Error('relation missing'));
-    expect(await skipForByod(asDb(db), { collection: 'ghost' }, 'add_field')).toBe(false);
+    expect(await skipForByod(asDb(db), { collection: 'ghost' }, 'add_field')).toBe(true);
   });
 
   it('returns false when the payload names no collection', async () => {

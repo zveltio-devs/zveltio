@@ -337,14 +337,37 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 async function skipForByod(trx: any, payload: any, _kind: string): Promise<boolean> {
   const collectionName: string | undefined = payload.collection ?? payload.name;
   if (!collectionName) return false;
-  const meta = await trx
-    .selectFrom('zvd_collections')
-    .select('is_managed')
-    .where('name', '=', collectionName)
-    .executeTakeFirst()
-    .catch(() => null);
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  return Boolean(meta && (meta as any).is_managed === false);
+
+  // A failed lookup means SKIP, not proceed.
+  //
+  // This read used to end `.catch(() => null)`, and `Boolean(null && …)` is
+  // false — which this function's contract defines as "go ahead". So a transient
+  // database error while asking "am I allowed to alter this table?" answered
+  // yes, and the callers are `drop_collection`, `remove_field` and `add_field`:
+  // the engine would drop a column, or a whole table, that an operator had
+  // explicitly marked as not ours to manage (is_managed = false, a BYOD table
+  // holding their own data).
+  //
+  // Unknown ownership is the one case where doing nothing is always recoverable
+  // and doing something may not be.
+  let meta: { is_managed: boolean | null } | undefined;
+  try {
+    meta = await trx
+      .selectFrom('zvd_collections')
+      .select('is_managed')
+      .where('name', '=', collectionName)
+      .executeTakeFirst();
+  } catch (err) {
+    console.error(
+      `[ddl-queue] could not read is_managed for "${collectionName}", so it is unknown ` +
+        `whether this collection is ours to alter. Skipping the ${_kind} job rather than ` +
+        `running destructive DDL on a table that may not be managed. Cause:`,
+      err instanceof Error ? err.message : err,
+    );
+    return true;
+  }
+
+  return meta?.is_managed === false;
 }
 
 const SAFE_NAME = /^[a-z][a-z0-9_]*$/;

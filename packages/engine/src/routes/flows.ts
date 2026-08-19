@@ -670,8 +670,7 @@ export async function triggerDataFlows(
       .where('is_active', '=', true)
       .where('trigger_type', '=', triggerType)
       .where('tenant_id', '=', tenantId || DEFAULT_TENANT)
-      .execute()
-      .catch(() => []);
+      .execute();
 
     for (const flow of flows) {
       const cfg = (
@@ -683,7 +682,18 @@ export async function triggerDataFlows(
         executeFlow(db, flow.id, { collection, event, record }).catch(console.error);
       }
     }
-  } catch {
-    // Flow triggering must not break data operations
+  } catch (err) {
+    // Flow triggering must not break data operations — the write already
+    // succeeded and failing it now would be worse than the automation not running.
+    //
+    // But this was a bare `catch {}` with only that sentence in it, and the flow
+    // lookup above carried `.catch(() => [])` on top, so an automation that
+    // stopped firing produced no error, no warning, and no count. The operator
+    // sees the event happen and no consequence, with nothing to search for. The
+    // swallow stays; the silence does not.
+    console.error(
+      `[flows] trigger "${event}" on ${collection} did not run its automations:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 }
