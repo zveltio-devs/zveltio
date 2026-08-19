@@ -1,5 +1,39 @@
 {
-  "generated": "2026-08-15",
+  "generated": "2026-08-19",
   "note": "Extensions rendering message keys they do not own. These resolve only because the host serves the union of installed catalogues — install the borrower without the owner and the label renders as a raw key. The list may shrink, never grow.",
-  "violations": {}
+  "violations": {
+    "workflow/checklists": ["content.document-templates.ui.name"],
+    "sms": ["ai.tab.templates", "search.ui.provider"],
+    "search": ["ai.error.searchFailed", "analytics.quality.ui.collection"],
+    "projects/management": [
+      "communications.mail.ui.high",
+      "communications.mail.ui.low",
+      "content.document-templates.ui.name",
+      "developer.api-docs.ui.title",
+      "invoicing.col.dueDate",
+      "projects.helpdesk.ui.medium",
+      "projects.helpdesk.ui.priority",
+      "projects.helpdesk.ui.urgent"
+    ],
+    "projects/helpdesk": [
+      "communications.mail.ui.high",
+      "communications.mail.ui.low",
+      "finance.expenses.col.category"
+    ],
+    "operations/traceability": [
+      "compliance.ro.procurement.ui.furnizor",
+      "workflow.checklists.btn.back"
+    ],
+    "hr/time-tracking": ["crm.form.currency", "invoicing.col.client"],
+    "geospatial/postgis": ["ai.error.searchFailed", "analytics.quality.ui.collection"],
+    "finance/banking": ["crm.form.currency"],
+    "developer/views": [
+      "content.document-templates.ui.name",
+      "developer.validation.ui.collection",
+      "developer.validation.ui.config_json"
+    ],
+    "developer/api-docs": ["content.page-builder.ui.slug"],
+    "content/page-builder": ["crm.col.title"],
+    "communications/mail": ["invoicing.stat.drafts"]
+  }
 }

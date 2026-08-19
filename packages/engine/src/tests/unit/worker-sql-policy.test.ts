@@ -168,3 +168,41 @@ describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
     expect(allowed('SELECT $tag$ zv_api_keys $tag$, x FROM zvd_orders')).toBe(true);
   });
 });
+
+/**
+ * The catalogue is reconnaissance, not data.
+ *
+ * `information_schema.tables` and `pg_catalog.pg_authid` disclose every table
+ * name, column and role on the instance. A schema-qualified reference is
+ * therefore refused on the schema alone — before any of the table-name rules
+ * below it get a say, because a table name is not what makes those dangerous.
+ *
+ * This is the worker bridge's half of the same allowlist that `ctx.db` enforces
+ * in-process. Both were prefix denylists once, and both missed the unprefixed
+ * Better-Auth tables for the same reason.
+ */
+describe('assertWorkerSqlAllowed — schema-qualified references', () => {
+  it('refuses the system catalogues by schema, whatever the table is called', () => {
+    for (const q of [
+      'SELECT * FROM information_schema.tables',
+      'SELECT * FROM pg_catalog.pg_authid',
+      'SELECT rolname FROM pg_catalog.pg_roles',
+    ]) {
+      expect(() => assertWorkerSqlAllowed('finance/banking', q)).toThrow(WorkerSqlPolicyError);
+    }
+  });
+
+  it('names what it refused, so the author can see which reference was the problem', () => {
+    expect(() =>
+      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM information_schema.columns'),
+    ).toThrow(/information_schema\.columns/);
+  });
+
+  it('allows an explicit public-schema reference to a table the extension may read', () => {
+    // `public` is where everything the extension owns lives, so qualifying with it
+    // must not itself be an offence — only another schema is.
+    expect(() =>
+      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM public.zvd_invoices'),
+    ).not.toThrow();
+  });
+});
