@@ -7,6 +7,7 @@ import { usersApi } from '$lib/api.js';
 import { UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
 import { base } from '$app/paths';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import Pagination from '$lib/components/common/Pagination.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
@@ -345,9 +346,7 @@ function confirmDelete(user: any) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showInviteModal = false; }} />
 
 {#if showInviteModal}
- <dialog open aria-modal="true" class="modal modal-open">
- <div class="modal-box max-w-md">
- <h3 class="font-bold text-lg mb-4">{m['dashboard.inviteUser']()}</h3>
+ <Modal bind:open={showInviteModal} title={m['dashboard.inviteUser']()} size="md">
 
  <SchemaForm
    bind:this={inviteFormRef}
@@ -364,9 +363,7 @@ function confirmDelete(user: any) {
  Send Invite
  </button>
  </div>
- </div>
- <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showInviteModal = false)}></button>
- </dialog>
+ </Modal>
 {/if}
 
 <ConfirmModal

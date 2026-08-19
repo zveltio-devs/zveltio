@@ -28,6 +28,28 @@ async function withLockTimeout(
       `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
     );
   }
+  // Already inside a transaction? Set the timeout on it and carry on.
+  //
+  // This used to open a transaction unconditionally, and Kysely refuses a nested
+  // one — "calling the transaction method for a Transaction is not supported".
+  // Three of the five DDL queue handlers hand a transaction handle straight to
+  // `DDLManager`, which calls this, so `add_field`, `remove_field` and
+  // `drop_collection` threw before emitting a single statement. Reproduced with
+  // the engine's own dialect against PostgreSQL 18.
+  //
+  // Nothing noticed because only `create_collection` is ever enqueued today —
+  // the other three paths are wired but unreachable, so the failure waits for
+  // whoever first routes a field change through the queue.
+  //
+  // `SET LOCAL` is transaction-scoped either way, so the caller's transaction
+  // gets exactly the timeout it asked for. Same short-circuit as `runAtomic`
+  // in `lib/data/write-pipeline.ts`, which was written for this reason.
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+    await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(db);
+    await fn(db);
+    return;
+  }
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
@@ -252,17 +274,47 @@ const RESERVED = new Set([
   'created_by',
   'updated_by',
   'search_vector',
+  // The payload never chooses the tenant. The column DEFAULT reads
+  // `current_setting('zveltio.current_tenant')`, so omitting it here means the
+  // row is stamped from the transaction rather than from whatever the caller
+  // sent. RLS refuses a forged value on the enforcing role — but only there,
+  // and a superuser connection writes it happily, so the filter is what makes
+  // the guarantee independent of how the database is configured.
+  'tenant_id',
 ]);
+
+/**
+ * Trusted values the ENGINE supplies, applied after the filter above.
+ *
+ * `RESERVED` and authorship were in conflict: the engine set
+ * `created_by`/`updated_by` from the session and then handed them to a function
+ * whose job was to strip exactly those keys. It stripped them. Every row
+ * written through this path had NULL authorship — measured, not inferred — and
+ * every RLS policy scoping "own records" by `created_by` matched nothing as a
+ * result. The filter was doing what it was told; the two rules were just never
+ * read together.
+ *
+ * Two parameters rather than one merged object, so the distinction is in the
+ * signature: `data` is whatever the caller received, `system` is what the
+ * engine decided. A `before` hook cannot forge authorship either, because it
+ * only ever sees `data`.
+ */
+export type SystemColumns = Record<string, unknown>;
 
 export async function dynamicInsert(
   db: Database,
   tableName: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  /** Engine-supplied columns — see `SystemColumns`. Applied after the filter. */
+  system: SystemColumns = {},
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<Record<string, any>> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
+  const clean = {
+    ...Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k))),
+    ...system,
+  };
 
   const cols = Object.keys(clean).map((k) => sql.id(sanitizeIdentifier(k)));
   const vals = Object.values(clean).map((v) => sql`${v}`);
@@ -285,12 +337,29 @@ export async function dynamicUpdate(
   id: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  /**
+   * Engine-supplied columns — see `SystemColumns`. Applied after the filter.
+   *
+   * `dynamicInsert` got this and `dynamicUpdate` did not, which left the fix
+   * half-made in a way worse than the original bug. Before, `updated_by` was
+   * NULL: visibly unpopulated, and nobody was misled. After, every row carried
+   * the author from its INSERT and never moved, so the column asserted that the
+   * creator had last modified a record they may not have touched since. A wrong
+   * value that looks right is harder to notice than a missing one.
+   */
+  system: SystemColumns = {},
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
+  const fromCaller = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
 
-  if (Object.keys(clean).length === 0) return null;
+  // Emptiness is decided on the CALLER's fields, before `system` is merged.
+  // Checking afterwards would make every no-op patch write a row, stamping
+  // `updated_by` for a modification nobody made — which is the same class of
+  // false record this parameter exists to remove.
+  if (Object.keys(fromCaller).length === 0) return null;
+
+  const clean = { ...fromCaller, ...system };
 
   const setClauses = Object.entries(clean).map(
     ([k, v]) => sql`${sql.id(sanitizeIdentifier(k))} = ${v}`,

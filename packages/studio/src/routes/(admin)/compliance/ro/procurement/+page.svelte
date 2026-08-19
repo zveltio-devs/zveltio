@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from '$lib/i18n.svelte.js';
+  import Modal from '$lib/components/common/Modal.svelte';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
   import { onMount } from 'svelte';
@@ -209,9 +210,7 @@
 </ExtensionPageShell>
 
 {#if showOrderModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box w-11/12 max-w-3xl">
-      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.comanda_noua_de_achizitie']()}</h3>
+  <Modal bind:open={showOrderModal} title={m['compliance.ro.procurement.ui.comanda_noua_de_achizitie']()} size="xl">
       <div class="grid grid-cols-2 gap-3 mb-4">
         <div class="form-control">
           <label class="label" for="order-number"><span class="label-text">{m['compliance.ro.procurement.ui.num_r_comanda']()}</span></label>
@@ -265,15 +264,11 @@
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}{m['compliance.ro.procurement.btn.createOrderModal']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (showOrderModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 {#if showSupplierModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.furnizor_nou']()}</h3>
+  <Modal bind:open={showSupplierModal} title={m['compliance.ro.procurement.ui.furnizor_nou']()} size="md">
       <div class="space-y-3">
         <div class="form-control">
           <label class="label" for="supplier-name"><span class="label-text">{m['compliance.ro.documents.ui.denumire']()}</span></label>
@@ -304,7 +299,5 @@
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}{m['compliance.ro.procurement.btn.recordReception']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (showSupplierModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}

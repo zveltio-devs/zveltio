@@ -19,6 +19,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { tenantMiddleware } from '../../middleware/tenant.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
@@ -55,7 +56,10 @@ import type { ExtensionLoader } from './extension-loader.js';
  */
 export type HonoRouteFn = (
   path: string,
-  handler: (c: Context) => Response | Promise<Response>,
+  // Hono accepts any number of middlewares before the handler; public routes are
+  // mounted with `tenantMiddleware` in front of theirs.
+  // biome-ignore lint/suspicious/noExplicitAny: Hono's variadic handler signature
+  ...handlers: any[]
 ) => unknown;
 
 // ── Extension table access helpers ───────────────────────────────────────────
@@ -104,7 +108,22 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_tags',
     'zv_media_file_tags',
   ],
-  'content/page-builder': ['zv_pages'],
+  // `content/page-builder` and `content/portals` merged into `content/pages`.
+  // The four `zvd_*` tables from portals are migrated into this set by the
+  // extension's own migrations; what it owns now is the `zv_page*` family.
+  'content/pages': [
+    'zv_pages',
+    'zv_page_sites',
+    'zv_page_block_types',
+    'zv_page_menus',
+    'zv_page_redirects',
+    'zv_page_revisions',
+    'zv_page_seo_scores',
+    'zv_page_sitemap_config',
+    'zv_page_ab_variants',
+    'zv_page_metrics',
+    'zv_page_templates',
+  ],
   // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
   // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
   // DEV-EF-1). This extension is the administration surface the Studio actually
@@ -232,7 +251,14 @@ export async function buildAllowedTables(
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   for (const p of migrationPaths) {
     try {
-      const content = await Bun.file(p).text();
+      // Comments stripped first. This reads migration files to decide which
+      // tables an extension may be granted, and it was reading PROSE: a comment
+      // saying `CREATE TABLE IF NOT EXISTS` (backtick-quoted, so no space after
+      // EXISTS) made the optional group fail and the capture land on "IF" —
+      // whereupon the engine announced it would not grant access to a table
+      // called IF. Harmless there, but the same misparse in the other direction
+      // would grant on the strength of a sentence.
+      const content = (await Bun.file(p).text()).replace(/--[^\n]*/g, '');
       let m: RegExpExecArray | null;
       re.lastIndex = 0;
       while ((m = re.exec(content)) !== null) {
@@ -364,7 +390,7 @@ export function buildRestrictedContext(
     db: createRestrictedDb(() => getCurrentTenantTrx() ?? ctx.db, extName, allowedTables),
     // Configuration resolved host-side, so extensions stop reading the engine's
     // whole environment (and stop missing the admin's Studio storage settings).
-    config: buildExtensionConfig(capabilities),
+    config: buildExtensionConfig(capabilities, extName),
     // Explicit, capability-gated cross-tenant handle (the global pool). Present
     // only when the manifest declares the `db:admin` permission — otherwise any
     // use throws, so the escape hatch is visible at review + install time.
@@ -411,7 +437,30 @@ export function buildRestrictedContext(
         return;
       }
       try {
-        fn.call(app, spec.path, spec.handler);
+        // Behind `tenantMiddleware`, like `/api/*` and `/ext/*`.
+        //
+        // A public route is outside both prefixes by design — an IdP wants
+        // `/scim/v2/Users`, not `/ext/auth/scim/...` — and that meant it ran with
+        // NO tenant context at all: `ctx.db` falls through to the global pool
+        // with `zveltio.current_tenant` unset, and the SCIM tables carry FORCE
+        // ROW LEVEL SECURITY. With the GUC unset the policy resolves to the
+        // default tenant, so on a correctly-configured (non-superuser) engine
+        // role every non-default tenant's SCIM token lookup returned zero rows
+        // and answered `401 Invalid bearer token`, permanently and with no
+        // diagnostic. On a superuser role the policies were skipped and RLS
+        // provided no second layer at all.
+        //
+        // "Public" here has only ever meant "outside the /ext namespace" and
+        // "no session required" — it was never meant to mean "no tenant". When
+        // the request cannot name a tenant the middleware falls through exactly
+        // as before, so a genuinely tenant-less public route is unaffected.
+        //
+        // This does not by itself make multi-tenant SCIM work: the bearer token
+        // IS the tenant identity, so the token lookup has to happen before a
+        // tenant can be resolved from the request. That is the extension's
+        // question to answer; this is the engine no longer removing the context
+        // when the request does carry one (per-tenant hostname, x-tenant-slug).
+        fn.call(app, spec.path, tenantMiddleware, spec.handler);
         if (logPublicRoute) {
           console.log(
             `🛣️  Extension "${extName}" registered public route: ${spec.method} ${spec.path}`,

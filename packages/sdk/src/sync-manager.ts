@@ -315,6 +315,53 @@ export class SyncManager {
     });
   }
 
+  /**
+   * Open the local store without starting background sync.
+   *
+   * `start()` opens the store, attaches online/offline listeners, connects
+   * realtime and installs a periodic timer. A caller driving `pull()` and
+   * `push()` explicitly — the `OfflineProvider` contract in `offline/` — wants
+   * the store and none of the rest, and a timer firing `syncNow()` underneath it
+   * makes "how many operations did that push send" unanswerable.
+   */
+  async open(): Promise<void> {
+    await this.store.open();
+  }
+
+  /**
+   * Pull rows for the named collections from the server into the local store.
+   *
+   * There was no way to do this. Records reached the local store only through
+   * realtime events, one at a time, which means a client that was offline while
+   * a row was created never learns it exists: it missed the event and nothing
+   * ever asks the server what it has. `syncNow()` is push-only despite the name.
+   *
+   * Pages through `list()` rather than asking for everything at once, and stops
+   * on the first page that comes back empty or short.
+   */
+  async pull(collections: string[], pageSize = 200): Promise<number> {
+    let applied = 0;
+    for (const name of collections) {
+      for (let page = 1; ; page++) {
+        const result = await this.client.collection(name).list({ page, limit: pageSize });
+        const rows = result?.data ?? [];
+        for (const row of rows) {
+          const id = (row as { id?: string }).id;
+          if (!id) continue;
+          // `Date.now()` as the server version: the collections API does not
+          // return a version column, and the local store only compares versions
+          // to decide whether an incoming row is newer than one it already has.
+          // A server row arriving now IS newer than anything already local.
+          await this.store.applyServerUpdate(name, id, row as Record<string, unknown>, Date.now());
+          applied++;
+        }
+        if (rows.length < pageSize) break;
+      }
+      await this.notifyListeners(name);
+    }
+    return applied;
+  }
+
   /** Status: pending operations count, conflicts count */
   async getStatus(): Promise<{
     pending: number;

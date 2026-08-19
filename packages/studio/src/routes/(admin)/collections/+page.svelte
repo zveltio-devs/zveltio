@@ -6,6 +6,7 @@ import { collectionsApi } from '$lib/api.js';
 import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
 import { base } from '$app/paths';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 
@@ -442,9 +443,7 @@ function clearTemplate() {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box w-11/12 max-w-2xl">
-      <h3 class="font-bold text-lg mb-5">{m['dashboard.newCollection']()}</h3>
+  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg">
 
       <!-- Template picker -->
       <div class="mb-5">
@@ -572,9 +571,7 @@ function clearTemplate() {
           Create Collection
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => { showCreateModal = false; nameError = ''; }}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <ConfirmModal

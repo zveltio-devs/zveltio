@@ -1,5 +1,6 @@
 <script lang="ts">
 import { fmtDate } from '$lib/stores/format.svelte.js';
+import Modal from '$lib/components/common/Modal.svelte';
 /**
  * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
  * components — no per-extension code. Reuses ExtensionPageShell + ConfirmModal
@@ -887,9 +888,7 @@ const shellTabs = $derived(
     onconfirm={runConfirmAction} oncancel={cancelConfirm} />
 
   {#if revealValue && active.form?.reveal}
-    <dialog open aria-modal="true" class="modal modal-open">
-      <div class="modal-box max-w-xl">
-        <h3 class="font-bold text-lg">{t(active.form.reveal.title ?? 'ext.reveal.title')}</h3>
+    <Modal open={true} title={t(active.form.reveal.title ?? 'ext.reveal.title')} size="lg" dismissible={false}>
         <p class="text-sm text-warning py-2">{t(active.form.reveal.note ?? 'ext.reveal.note')}</p>
         <div class="flex items-center gap-2">
           <code class="bg-base-200 rounded px-3 py-2 text-sm break-all flex-1 select-all">{revealValue}</code>
@@ -900,8 +899,7 @@ const shellTabs = $derived(
         <div class="modal-action">
           <button class="btn btn-sm" onclick={() => (revealValue = null)}>{t('common.close')}</button>
         </div>
-      </div>
-    </dialog>
+    </Modal>
   {/if}
 </ExtensionPageShell>
 
@@ -953,9 +951,7 @@ const shellTabs = $derived(
 
 {#if promptFor?.action.prompt}
   {@const P = promptFor.action.prompt}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">{t(P.title ?? promptFor.action.label ?? 'common.confirm')}</h3>
+  <Modal open={true} onClose={() => (promptFor = null)} title={t(P.title ?? promptFor.action.label ?? 'common.confirm')} size="md">
       <div class="grid grid-cols-1 gap-3">
         {#each P.fields as f}{@render fieldInput(f, promptData)}{/each}
       </div>
@@ -967,16 +963,12 @@ const shellTabs = $derived(
           onclick={submitPrompt}
         >{t(P.submitLabel ?? 'common.confirm')}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (promptFor = null)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 {#if showForm && active.form}
   {@const F = active.form}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box w-11/12 max-w-3xl">
-      <h3 class="font-bold text-lg mb-4">{editingId ? t('common.edit') : t(schema.newLabel)}</h3>
+  <Modal bind:open={showForm} title={editingId ? t('common.edit') : t(schema.newLabel)} size="xl">
 
       {#if F.fields}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -1047,7 +1039,5 @@ const shellTabs = $derived(
           {:else}{editingId ? t('common.save') : t('common.create')}{/if}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (showForm = false)}></button>
-  </dialog>
+  </Modal>
 {/if}

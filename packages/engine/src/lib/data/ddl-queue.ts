@@ -233,9 +233,24 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
     started_at: job.startedOn ? new Date(job.startedOn) : null,
     completed_at: job.completedOn ? new Date(job.completedOn) : null,
     error: job.output?.message ?? (typeof job.output === 'string' ? job.output : null),
-    retry_count: job.retrycount ?? 0,
-    max_retries: job.retrylimit ?? DEFAULT_RETRY.retryLimit,
-    created_at: new Date(job.createdon),
+    // camelCase, because that is what pg-boss returns. Its SELECT aliases every
+    // snake_case column — `retry_count as "retryCount"`, `retry_limit as
+    // "retryLimit"`, `created_on as "createdOn"` (plans.js:298-309 in the
+    // installed 12.18.2). Reading `job.retrycount` therefore always found
+    // `undefined`:
+    //
+    //   retry_count  always 0                — a job that had retried four times
+    //                                          reported none, so the retry
+    //                                          mechanism looked idle while working
+    //   max_retries  always the local default — not the queue's actual limit
+    //   created_at   `new Date(undefined)`   — Invalid Date, serialised as null
+    //
+    // The neighbouring `startedOn` / `completedOn` reads on the two lines above
+    // were already correct, which is what makes this easy to miss on a read: the
+    // block looks consistent and three of six fields are wrong.
+    retry_count: job.retryCount ?? 0,
+    max_retries: job.retryLimit ?? DEFAULT_RETRY.retryLimit,
+    created_at: job.createdOn ? new Date(job.createdOn) : new Date(0),
   };
 }
 
@@ -322,14 +337,37 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 async function skipForByod(trx: any, payload: any, _kind: string): Promise<boolean> {
   const collectionName: string | undefined = payload.collection ?? payload.name;
   if (!collectionName) return false;
-  const meta = await trx
-    .selectFrom('zvd_collections')
-    .select('is_managed')
-    .where('name', '=', collectionName)
-    .executeTakeFirst()
-    .catch(() => null);
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  return Boolean(meta && (meta as any).is_managed === false);
+
+  // A failed lookup means SKIP, not proceed.
+  //
+  // This read used to end `.catch(() => null)`, and `Boolean(null && …)` is
+  // false — which this function's contract defines as "go ahead". So a transient
+  // database error while asking "am I allowed to alter this table?" answered
+  // yes, and the callers are `drop_collection`, `remove_field` and `add_field`:
+  // the engine would drop a column, or a whole table, that an operator had
+  // explicitly marked as not ours to manage (is_managed = false, a BYOD table
+  // holding their own data).
+  //
+  // Unknown ownership is the one case where doing nothing is always recoverable
+  // and doing something may not be.
+  let meta: { is_managed: boolean | null } | undefined;
+  try {
+    meta = await trx
+      .selectFrom('zvd_collections')
+      .select('is_managed')
+      .where('name', '=', collectionName)
+      .executeTakeFirst();
+  } catch (err) {
+    console.error(
+      `[ddl-queue] could not read is_managed for "${collectionName}", so it is unknown ` +
+        `whether this collection is ours to alter. Skipping the ${_kind} job rather than ` +
+        `running destructive DDL on a table that may not be managed. Cause:`,
+      err instanceof Error ? err.message : err,
+    );
+    return true;
+  }
+
+  return meta?.is_managed === false;
 }
 
 const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
@@ -364,24 +402,41 @@ async function runCreateRelation(trx: any, payload: any): Promise<void> {
       .execute(trx);
   } else if (relType === 'm2m') {
     const junctionTable: string = payload.junction_table ?? '';
+    // Throws, like the m2o branch above.
+    //
+    // This used to be `if (valid) { create }` with no else, so an m2m relation
+    // with a missing or unsafe junction-table name created nothing and the job
+    // still reported `completed`. The two branches of the same function had
+    // opposite postures: m2o refused loudly, m2m shrugged.
+    //
+    // A DDL job that says `completed` is the only signal anyone has that the
+    // schema changed. Saying it after doing nothing is worse than failing.
     if (
-      junctionTable &&
-      SAFE_NAME.test(junctionTable) &&
-      SAFE_NAME.test(srcCol) &&
-      SAFE_NAME.test(tgtCol)
+      !junctionTable ||
+      !SAFE_NAME.test(junctionTable) ||
+      !SAFE_NAME.test(srcCol) ||
+      !SAFE_NAME.test(tgtCol)
     ) {
-      await sql
-        .raw(
-          `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
-            `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
-            `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
-            `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
-            `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-        )
-        .execute(trx);
+      throw new Error(
+        `Invalid identifier in create_relation payload (m2m): junction="${junctionTable}" ` +
+          `source="${srcCol}" target="${tgtCol}"`,
+      );
     }
+    await sql
+      .raw(
+        `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
+          `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+          `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
+          `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
+          `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      )
+      .execute(trx);
+  } else if (relType !== 'o2m' && relType !== 'm2a') {
+    // o2m and m2a are genuinely handled from the other side of the relation, so
+    // there is nothing to do here for them. Any OTHER type is a payload nobody
+    // implemented, and falling through would report `completed` for it.
+    throw new Error(`create_relation: unsupported relation type "${relType}"`);
   }
-  // o2m / m2a handled on the other side.
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -391,10 +446,22 @@ async function runDropRelation(trx: any, payload: any): Promise<void> {
   const srcField: string = payload.source_field ?? '';
   const junctionTable: string = payload.junction_table ?? '';
 
-  if (relType === 'm2o' && SAFE_NAME.test(srcCol) && SAFE_NAME.test(srcField)) {
+  // Same posture as create: a drop that could not run must not report success.
+  // These conditions used to be the whole `if`, so an unsafe identifier dropped
+  // nothing and the job completed — leaving the column or junction table in
+  // place while every record of the relation was removed.
+  if (relType === 'm2o') {
+    if (!SAFE_NAME.test(srcCol) || !SAFE_NAME.test(srcField)) {
+      throw new Error('Invalid identifier in drop_relation payload (m2o)');
+    }
     await sql.raw(`ALTER TABLE zvd_${srcCol} DROP COLUMN IF EXISTS "${srcField}"`).execute(trx);
-  } else if (relType === 'm2m' && junctionTable && SAFE_NAME.test(junctionTable)) {
+  } else if (relType === 'm2m') {
+    if (!junctionTable || !SAFE_NAME.test(junctionTable)) {
+      throw new Error('Invalid identifier in drop_relation payload (m2m)');
+    }
     await sql.raw(`DROP TABLE IF EXISTS ${junctionTable} CASCADE`).execute(trx);
+  } else if (relType !== 'o2m' && relType !== 'm2a') {
+    throw new Error(`drop_relation: unsupported relation type "${relType}"`);
   }
 }
 

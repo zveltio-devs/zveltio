@@ -287,14 +287,20 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     permissions: ['database', 'storage'],
   },
   {
-    name: 'content/page-builder',
-    displayName: 'Page Builder',
+    // `content/page-builder` and `content/portals` merged into this. They were
+    // two halves of one product: the CMS had blocks, SEO, redirects, revisions
+    // and A/B but no access control and no branding; portals had access roles,
+    // per-site branding and several sites but its pages could hold nothing but
+    // views. Their only real overlap was one block type — `collection_list` and
+    // a saved view are the same idea — and views are that block type now.
+    name: 'content/pages',
+    displayName: 'Pages',
     description:
-      'Visual CMS page builder with drag-and-drop sections, blocks, SEO fields, and live preview',
+      'Pages built from blocks — content or live collection data — grouped into sites. A site can be public with SEO, sitemap and redirects, or authenticated with access by role and its own branding',
     category: 'content',
     version: '1.0.0',
     author: 'Zveltio',
-    tags: ['cms', 'pages', 'content'],
+    tags: ['cms', 'pages', 'sites', 'portals', 'content'],
     permissions: ['database', 'storage'],
   },
   {
@@ -416,17 +422,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     author: 'Zveltio',
     tags: ['validation', 'rules', 'ai'],
     permissions: ['database'],
-  },
-  {
-    name: 'developer/views',
-    displayName: 'Alternative Views',
-    description:
-      'Calendar, Card, and List views for collection data — installable alongside the default Table view',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['views', 'calendar', 'kanban', 'list'],
-    permissions: [],
   },
   {
     name: 'search',

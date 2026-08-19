@@ -102,8 +102,6 @@ const RAW_NAV: NavGroup[] = [
     items: [
       { href: `${base}/collections`, icon: Database, labelKey: 'nav.collections' },
       { href: `${base}/templates`, icon: Sparkles, labelKey: 'nav.templates' },
-      { href: `${base}/views`, icon: Layout, labelKey: 'nav.views' },
-      { href: `${base}/zones`, icon: LayoutGrid, labelKey: 'nav.zones' },
       { href: `${base}/media`, icon: Images, labelKey: 'nav.media', ext: 'content/media' },
     ],
   },

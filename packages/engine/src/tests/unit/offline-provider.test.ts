@@ -13,28 +13,30 @@ import {
  * the test doesn't require a real Electric service.
  */
 
-describe('S5-07 createOfflineProvider — crdt path', () => {
-  it('builds a working stub for the default crdt provider', async () => {
-    const p = await createOfflineProvider({ engineUrl: 'http://localhost:3000' });
-    expect(p.kind).toBe('crdt');
-    expect(typeof p.pull).toBe('function');
-    expect(typeof p.push).toBe('function');
-    expect(typeof p.subscribe).toBe('function');
-    expect(typeof p.close).toBe('function');
-  });
-
-  it('pull/push/subscribe/close all callable without throw on the CRDT shim', async () => {
-    const p = await createOfflineProvider({ engineUrl: 'http://localhost:3000' });
-    await expect(p.pull()).resolves.toBeUndefined();
-    await expect(p.push()).resolves.toBe(0);
-    const off = p.subscribe('zvd_contacts', () => {
-      /* */
-    });
-    expect(typeof off).toBe('function');
-    off();
-    await expect(p.close()).resolves.toBeUndefined();
-  });
-});
+/**
+ * The CRDT half of this file is gone, deliberately.
+ *
+ * It used to read:
+ *
+ *   it('builds a working stub for the default crdt provider', ...)
+ *   await expect(p.push()).resolves.toBe(0);
+ *
+ * which was accurate — the provider WAS a stub — and passed for the whole life
+ * of the defect while certifying that the default sync path did nothing. A test
+ * asserting the current behaviour of a placeholder is not coverage; it is a lock
+ * on the placeholder.
+ *
+ * The provider now opens a real local store, which needs IndexedDB, and
+ * `fake-indexeddb` is a dependency of the SDK package rather than this one. So
+ * the CRDT path is asserted where it can actually be driven:
+ * `packages/sdk/src/tests/offline-provider-crdt.test.ts` — rows land in the
+ * store, `push()` counts what left the machine, `subscribe()` stops on
+ * unsubscribe, and an empty `tables` list is refused rather than answered with
+ * silence.
+ *
+ * What remains here is the Electric path, which needs the mocked fetch and
+ * WebSocket set up below.
+ */
 
 // ── Mocks for the electric path ────────────────────────────────────────────
 

@@ -1066,6 +1066,7 @@
   "views.filterPh": "Filter views…",
   "views.newView": "New view",
   "views.noMatch": "No views match \"{q}\"",
+  "views.noRendererYet": "No renderer exists for this type yet — the view will be saved but will not display.",
   "views.perPage": "/ page",
   "views.publicBadge": "public",
   "views.rowsPerPage": "Rows per page",

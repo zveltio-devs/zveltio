@@ -86,11 +86,19 @@ async function detectMissingData(
 ): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
 
+  // No `.catch(() => ({ rows: [{ total: '0' }] }))` here any more.
+  //
+  // That fabricated a zero, and the very next line returns early on zero — so a
+  // table this could not count reported a clean bill of health. The one input
+  // that gates the entire missing-data detector was also the one input allowed
+  // to fail silently, and the answer it produced on failure was indistinguishable
+  // from "we looked and everything is fine".
+  //
+  // A scan that could not run must say so. The caller decides what to do with a
+  // failed scan; it must not be handed a passing one.
   const totalResult = await sql<{ total: string }>`
     SELECT COUNT(*)::text AS total FROM ${sql.id(tableName)}
-  `
-    .execute(db)
-    .catch(() => ({ rows: [{ total: '0' }] }));
+  `.execute(db);
   const totalCount = parseInt(totalResult.rows[0]?.total || '0');
   if (totalCount === 0) return issues;
 
@@ -259,12 +267,30 @@ async function runScanAsync(
 
   const allIssues: QualityIssue[] = [];
 
-  const countResult = await sql<{ count: string }>`
-    SELECT COUNT(*)::text AS count FROM ${sql.id(tableName)}
-  `
-    .execute(db)
-    .catch(() => ({ rows: [{ count: '0' }] }));
-  const recordsScanned = parseInt(countResult.rows[0]?.count || '0');
+  // The count used to carry `.catch(() => ({ rows: [{ count: '0' }] }))`, so a
+  // table this could not read came out as zero records — and the scan went on to
+  // write `status: 'completed', records_scanned: 0, issues_found: 0`. A clean bill
+  // of health on a table it never looked at, which is the single worst thing a
+  // data-quality scan can report.
+  let recordsScanned: number;
+  try {
+    const countResult = await sql<{ count: string }>`
+      SELECT COUNT(*)::text AS count FROM ${sql.id(tableName)}
+    `.execute(db);
+    recordsScanned = Number.parseInt(countResult.rows[0]?.count || '0', 10);
+  } catch (err) {
+    await db
+      .updateTable('zv_quality_scans')
+      .set({ status: 'failed', completed_at: new Date() })
+      .where('id', '=', scanId)
+      .execute();
+    console.error(
+      `[data-quality] scan ${scanId} on ${tableName}: could not count records, so nothing ` +
+        `was scanned. Marked failed rather than reporting a clean result. Cause:`,
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
 
   if (scanType === 'duplicates' || scanType === 'full') {
     allIssues.push(...(await detectDuplicates(db, tableName, fields)));
@@ -277,14 +303,24 @@ async function runScanAsync(
   }
   if (scanType === 'normalization' || scanType === 'full') {
     // tableName is dynamic (zvd_<collection>), not in DbSchema.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const sample = await (db as any)
-      .selectFrom(tableName)
-      .selectAll()
-      .limit(20)
-      .execute()
-      .catch(() => []);
-    allIssues.push(...(await aiAnalyzeQuality(collection, sample, fields)));
+    // `.catch(() => [])` handed the analyser an empty sample, which finds nothing
+    // and reports nothing — indistinguishable from a table with no problems. The
+    // check is skipped out loud instead, so the scan's other findings still stand
+    // and nobody reads silence as a pass.
+    let sample: unknown[] | null = null;
+    try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      sample = await (db as any).selectFrom(tableName).selectAll().limit(20).execute();
+    } catch (err) {
+      console.warn(
+        `[data-quality] scan ${scanId} on ${tableName}: could not sample rows, so the ` +
+          `normalization check did not run. Cause:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    if (sample) {
+      allIssues.push(...(await aiAnalyzeQuality(collection, sample, fields)));
+    }
   }
 
   if (allIssues.length > 0) {

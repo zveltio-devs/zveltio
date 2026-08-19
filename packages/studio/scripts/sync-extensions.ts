@@ -7,7 +7,7 @@
  * Run automatically as `prebuild`. Safe to run multiple times (overwrites).
  */
 
-import { copyFileSync, existsSync, mkdirSync, cpSync, readdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, cpSync, readdirSync, rmSync } from 'fs';
 import { join } from 'path';
 
 const STUDIO_ROOT = join(import.meta.dir, '..');
@@ -119,6 +119,8 @@ const SKIP_SLUGS = new Map<string, string>([
 let synced = 0;
 /** Destination slugs written this run — verified against biome ignores below. */
 const syncedSlugs: string[] = [];
+/** `$lib/ext/<name>` directories written this run. */
+const syncedLibDirs: string[] = [];
 
 for (const extRoot of EXT_ROOTS) {
   const extensions = findExtensions(extRoot);
@@ -162,12 +164,72 @@ for (const extRoot of EXT_ROOTS) {
       const libDest = join(LIB_EXT, extName);
       mkdirSync(libDest, { recursive: true });
       copyTreeSkippingTests(srcDir, libDest);
+      syncedLibDirs.push(extName);
     }
 
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
     syncedSlugs.push(slug);
     synced++;
   }
+}
+
+/**
+ * Remove what a PREVIOUS sync wrote and this one did not.
+ *
+ * Sync only ever added. When `content/page-builder` and `content/portals` merged
+ * into `content/pages`, the admin route `(admin)/page-builder/` and the snapshot
+ * `$lib/ext/content/page-builder/` stayed exactly where they were — so the Studio
+ * kept a Page Builder screen whose every call went to
+ * `/ext/content/page-builder/blocks`, an extension the engine no longer has. The
+ * screen loaded and every button on it 404'd.
+ *
+ * The list of what to remove comes from a manifest this script writes, NOT from
+ * "everything under (admin) that is not an extension". That distinction is the
+ * whole safety argument: `(admin)/` also holds hand-written core routes, and a
+ * prune that inferred generated-ness from the filesystem would delete them the
+ * first time it was run somewhere the extensions repo was missing. Nothing is
+ * ever removed that a previous run of this script did not create.
+ */
+const MANIFEST = join(LIB_EXT, '.synced.json');
+
+interface SyncManifest {
+  routes: string[];
+  libs: string[];
+}
+
+let previous: SyncManifest = { routes: [], libs: [] };
+if (existsSync(MANIFEST)) {
+  try {
+    previous = JSON.parse(await Bun.file(MANIFEST).text()) as SyncManifest;
+  } catch {
+    // Unreadable manifest: prune nothing this run and rewrite it below. Deleting
+    // on a guess is the one thing this must not do.
+    previous = { routes: [], libs: [] };
+  }
+}
+
+if (synced > 0) {
+  const goneRoutes = previous.routes.filter((slug) => !syncedSlugs.includes(slug));
+  const goneLibs = previous.libs.filter((name) => !syncedLibDirs.includes(name));
+
+  for (const slug of goneRoutes) {
+    const dir = join(ROUTES_EXT, slug);
+    if (!existsSync(dir)) continue;
+    rmSync(dir, { recursive: true, force: true });
+    console.log(`[sync-ext] ✗  removed (admin)/${slug}/ — no extension claims it any more`);
+  }
+  for (const name of goneLibs) {
+    const dir = join(LIB_EXT, name);
+    if (!existsSync(dir)) continue;
+    rmSync(dir, { recursive: true, force: true });
+    console.log(`[sync-ext] ✗  removed $lib/ext/${name}/ — no extension claims it any more`);
+  }
+
+  mkdirSync(LIB_EXT, { recursive: true });
+  await Bun.write(
+    MANIFEST,
+    `${JSON.stringify({ routes: syncedSlugs.sort(), libs: syncedLibDirs.sort() }, null, 2)}\n`,
+  );
 }
 
 /**

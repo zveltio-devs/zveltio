@@ -40,7 +40,7 @@
     try {
       const data = await api.post<{ records: any[] }>('/ext/geospatial/postgis/near', nearForm);
       nearResults = data.records ?? [];
-    } catch (e: any) { toast.error(e?.message ?? m['ai.error.searchFailed']()); }
+    } catch (e: any) { toast.error(e?.message ?? m['geospatial.postgis.error.searchFailed']()); }
     finally { searching = false; }
   }
 
@@ -79,7 +79,7 @@
       <div class="card-body gap-3">
         <h2 class="font-medium text-sm">{m['geospatial.postgis.ui.find_records_near_a_point']()}</h2>
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control col-span-2"><label class="label py-0"><span class="label-text text-xs">{m['analytics.quality.ui.collection']()}</span></label><input type="text" bind:value={nearForm.collection} placeholder={m['geospatial.postgis.ui.locations']()} class="input input-sm" /></div>
+          <div class="form-control col-span-2"><label class="label py-0"><span class="label-text text-xs">{m['geospatial.postgis.ui.collection']()}</span></label><input type="text" bind:value={nearForm.collection} placeholder={m['geospatial.postgis.ui.locations']()} class="input input-sm" /></div>
           <div class="form-control col-span-2"><label class="label py-0"><span class="label-text text-xs">{m['geospatial.postgis.ui.location_field']()}</span></label><input type="text" bind:value={nearForm.location_field} class="input input-sm" /></div>
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['geospatial.postgis.ui.latitude']()}</span></label><input type="number" step="0.000001" bind:value={nearForm.lat} class="input input-sm" /></div>
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['geospatial.postgis.ui.longitude']()}</span></label><input type="number" step="0.000001" bind:value={nearForm.lng} class="input input-sm" /></div>

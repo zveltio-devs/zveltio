@@ -10,7 +10,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
 const d = harnessAvailable() ? describe : describe.skip;
@@ -26,11 +26,28 @@ d('executeStep — flow-executor branches', () => {
   let godUserId: string;
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
+    const { app, db: database } = await getTestApp();
+    db = database;
+
+    // This read whatever god user happened to already be in the table and indexed
+    // `[0]!` into the result. On a database that has only just been migrated there
+    // is none, so the file threw in `beforeAll` and every test in it failed — but
+    // only when it ran first. In a full-suite run some earlier file had made one,
+    // so the dependency was invisible and the order was load bearing.
+    //
+    // It makes its own now, through the same helper every other harness test uses.
     const row = await sql<{
       id: string;
     }>`SELECT id FROM "user" WHERE role = 'god' ORDER BY "createdAt" DESC LIMIT 1`.execute(db);
-    godUserId = row.rows[0]!.id;
+    if (row.rows[0]) {
+      godUserId = row.rows[0].id;
+    } else {
+      await createGodSession(app, db);
+      const made = await sql<{
+        id: string;
+      }>`SELECT id FROM "user" WHERE role = 'god' ORDER BY "createdAt" DESC LIMIT 1`.execute(db);
+      godUserId = made.rows[0]!.id;
+    }
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,

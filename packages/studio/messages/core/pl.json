@@ -1066,6 +1066,7 @@
   "views.filterPh": "Filtruj widoki…",
   "views.newView": "Nowy widok",
   "views.noMatch": "Żaden widok nie pasuje do „{q}”",
+  "views.noRendererYet": "Dla tego typu nie ma jeszcze widoku — widok zostanie zapisany, ale nie będzie wyświetlany.",
   "views.perPage": "/ strona",
   "views.publicBadge": "publiczny",
   "views.rowsPerPage": "Wierszy na stronę",

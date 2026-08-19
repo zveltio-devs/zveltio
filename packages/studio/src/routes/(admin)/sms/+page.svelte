@@ -104,7 +104,7 @@
       <div class="card-body p-4 gap-3">
         <h2 class="font-medium text-sm">{m['sms.ui.send_sms']()}</h2>
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.provider']()}</span></label>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['sms.ui.provider']()}</span></label>
             <select class="select select-sm" bind:value={sendProvider}><option value="twilio">{m['sms.ui.twilio']()}</option><option value="vonage">{m['sms.ui.vonage']()}</option></select>
           </div>
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['sms.ui.to_number']()}</span></label>
@@ -157,7 +157,7 @@
     </div>
 
     <div>
-      <h2 class="font-medium text-sm mb-3">{m['ai.tab.templates']()}</h2>
+      <h2 class="font-medium text-sm mb-3">{m['sms.tab.templates']()}</h2>
       <div class="space-y-2 mb-4">
         {#each templates as tpl (tpl.id)}
           <div class="card bg-base-200 border border-base-300">

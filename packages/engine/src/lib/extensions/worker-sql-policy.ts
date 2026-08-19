@@ -153,23 +153,134 @@ export function assertWorkerSqlAllowed(extName: string, sql: string): void {
     }
   }
 
-  // `zv_` followed by anything identifier-ish. `zvd_` never matches: the third
-  // character is `d`, not `_`, which is exactly how the inline proxy separates
-  // user-data tables from engine tables.
-  const IDENT_RE = /(?<![A-Za-z0-9_])"?(zv_[A-Za-z0-9_]+)"?/gi;
-
+  // ── Table references: ALLOWLIST ───────────────────────────────────────────
+  //
+  // This matched `zv_*` and nothing else, which made it a denylist over an open
+  // namespace: it had no rule at all for UNPREFIXED tables, and that is exactly
+  // where Better-Auth keeps `user`, `session`, `account`, `verification` and
+  // `twoFactor`. None of them has RLS, and the worker role holds DML on every
+  // table in `public`, so `SELECT token FROM "session"` and
+  // `UPDATE "user" SET role = 'admin'` were both accepted — by the sandbox whose
+  // entire purpose is to contain code the platform has decided not to trust.
+  //
+  // A denylist over an open namespace is not a control. Every table anyone adds
+  // in future is reachable until someone remembers to name it. So the rule is
+  // inverted: a table reference is refused unless it is a user-data collection
+  // (`zvd_*`) or this extension's own namespace. Anything unrecognised —
+  // `user`, `pg_catalog.pg_authid`, a table added next year — is refused
+  // because it was never permitted, not because it was listed.
+  const cteNames = collectCteNames(code);
   const offenders = new Set<string>();
-  for (const m of code.matchAll(IDENT_RE)) {
-    const ident = m[1].toLowerCase();
-    if (!ident.startsWith(owned)) offenders.add(ident);
+
+  for (const ref of tableReferences(code)) {
+    // A CTE is a name this statement itself defined; it is not a table.
+    if (cteNames.has(ref.table)) continue;
+
+    if (ref.schema !== null && ref.schema !== 'public') {
+      // `information_schema.tables`, `pg_catalog.pg_authid` — the catalogue
+      // discloses every table name, column and role on the instance, which is
+      // reconnaissance for whatever comes next.
+      offenders.add(`${ref.schema}.${ref.table}`);
+      continue;
+    }
+    if (ref.table.startsWith('zvd_')) continue;
+    if (ref.table.startsWith(owned)) continue;
+    offenders.add(ref.table);
   }
 
   if (offenders.size > 0) {
     throw new WorkerSqlPolicyError(
-      `Extension "${extName}" attempted to access engine system table(s) ` +
-        `${[...offenders].sort().join(', ')} through the worker SQL bridge. ` +
-        `Extensions may query user data tables (zvd_*) and their own namespace ` +
-        `(${ownedPrefixFor(extName)}*) only.`,
+      `Extension "${extName}" attempted to access ${[...offenders].sort().join(', ')} ` +
+        `through the worker SQL bridge. Extensions may query user data tables ` +
+        `(zvd_*) and their own namespace (${ownedPrefixFor(extName)}*) only — ` +
+        `anything else is refused because it was never permitted, which is what ` +
+        `makes this an allowlist rather than a list of tables someone remembered.`,
     );
   }
+}
+
+/**
+ * Names bound by `WITH … AS (…)` in this statement.
+ *
+ * A CTE is not a table; refusing one would break `WITH recent AS (SELECT …
+ * FROM zvd_orders) SELECT * FROM recent`, which is an ordinary query over
+ * permitted data. Collected from the code with literals and comments already
+ * blanked, so a name mentioned in a string cannot introduce one.
+ */
+function collectCteNames(code: string): Set<string> {
+  const out = new Set<string>();
+  // `WITH a AS (`, `WITH RECURSIVE a AS (`, and each `, b AS (` that follows.
+  const re = /(?:\bwith\s+(?:recursive\s+)?|,\s*)("?[A-Za-z_][A-Za-z0-9_$]*"?)\s+as\s*\(/gi;
+  for (const m of code.matchAll(re)) out.add(unquote(m[1]!));
+  return out;
+}
+
+interface TableRef {
+  /** Lower-cased schema, or null when the reference is unqualified. */
+  schema: string | null;
+  /** Lower-cased table name. */
+  table: string;
+}
+
+/**
+ * Every identifier appearing in a TABLE position.
+ *
+ * Keyed off the keywords that introduce one — `FROM`, `JOIN`, `INTO`,
+ * `UPDATE`, `DELETE FROM` — rather than by trying to parse SQL. A subquery
+ * (`FROM (SELECT …`) does not match, because the next token is a parenthesis
+ * and not an identifier; its own inner `FROM` is matched on its own.
+ *
+ * This does not have to be a complete parser to be a sound allowlist: anything
+ * it fails to recognise as a table simply is not granted, and the database role
+ * added in migration 043 refuses the statement regardless of what this saw.
+ */
+function tableReferences(code: string): TableRef[] {
+  const IDENT_SRC = '(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)';
+  // Where a table list begins.
+  const INTRO = /\b(?:from|join|into|update)\b/gi;
+  // One entry: `schema.table`, `table`, optionally followed by an alias.
+  const ENTRY = new RegExp(`^\\s*(${IDENT_SRC})(?:\\s*\\.\\s*(${IDENT_SRC}))?`, 'i');
+  // A word that ends the list. `FROM a, b WHERE …` stops at WHERE; without this
+  // the alias-and-comma walk below would run into the rest of the statement.
+  const STOP =
+    /^\s*(?:where|group|order|having|limit|offset|on|using|union|intersect|except|returning|set|values|window|for|left|right|inner|outer|full|cross|natural|join|select|as)\b/i;
+
+  const out: TableRef[] = [];
+  for (const intro of code.matchAll(INTRO)) {
+    let rest = code.slice(intro.index! + intro[0].length);
+
+    // Comma-separated lists, which the first version of this missed entirely:
+    // it read the identifier after FROM and stopped, so `FROM zvd_orders,
+    // "user"` was permitted on the strength of its first entry. The existing
+    // suite caught it — the case that failed was the one asserting the error
+    // NAMES every offending table, which is the same fact seen from the side.
+    for (;;) {
+      // A keyword here means this intro did not introduce a table list at all.
+      // `ON CONFLICT (id) DO UPDATE SET x = $1` contains the word UPDATE, and
+      // reading `SET` as a table name refused an ordinary upsert — a gate that
+      // rejects `ON CONFLICT DO UPDATE` is a gate someone turns off.
+      if (STOP.test(rest)) break;
+
+      const m = ENTRY.exec(rest);
+      if (!m) break;
+      // A subquery (`FROM (SELECT …`) has a parenthesis here, not an identifier,
+      // so ENTRY does not match and its own FROM is picked up separately.
+      const first = unquote(m[1]!);
+      const second = m[2] ? unquote(m[2]) : null;
+      out.push(second === null ? { schema: null, table: first } : { schema: first, table: second });
+
+      rest = rest.slice(m[0].length);
+      // Skip an alias, with or without AS, then look for a comma.
+      const alias = /^\s+(?:as\s+)?(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)/i.exec(rest);
+      if (alias && !STOP.test(rest)) rest = rest.slice(alias[0].length);
+      const comma = /^\s*,/.exec(rest);
+      if (!comma) break;
+      rest = rest.slice(comma[0].length);
+    }
+  }
+  return out;
+}
+
+function unquote(ident: string): string {
+  return ident.replace(/^"|"$/g, '').toLowerCase();
 }

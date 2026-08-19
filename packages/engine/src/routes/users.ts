@@ -37,8 +37,19 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-export function usersRoutes(db: Database, auth: any): Hono {
+export function usersRoutes(
+  db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  auth: any,
+  /**
+   * The raw pool, for the one statement here that must not run inside the
+   * request's tenant transaction: revoking a user's sessions. Requests run as
+   * `zveltio_rls`, which has had no grants on `session` since migration 044 —
+   * reading a bearer token from a tenant-scoped request is what C-14 and C-10
+   * did, and that stays closed. Session revocation is a platform operation.
+   */
+  poolDb: Database = db,
+): Hono {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
@@ -284,7 +295,17 @@ export function usersRoutes(db: Database, auth: any): Hono {
     // FK cascade removes the `session` rows but not better-auth's
     // `secondaryStorage` copy, so a deleted user's cookie kept working until
     // the entry aged out of Valkey.
-    await revokeAllUserSessions(db, userId);
+    // On `poolDb`. This used to run on `db` and raise `permission denied`,
+    // which a `.catch` in the revoker swallowed — leaving the request's
+    // transaction aborted, so the `deleteFrom('user')` below failed with
+    // `current transaction is aborted` and that was the only error anyone saw.
+    // Deleting a user has never worked since migration 044.
+    //
+    // Not atomic with the delete below, and that is the safe direction: if the
+    // delete then fails, the user still exists with their sessions revoked and
+    // simply signs in again. The reverse — user gone, sessions live — is the one
+    // that would matter, and `session.userId` is ON DELETE CASCADE anyway.
+    await revokeAllUserSessions(poolDb, userId);
 
     await db.deleteFrom('user').where('id', '=', userId).execute();
 

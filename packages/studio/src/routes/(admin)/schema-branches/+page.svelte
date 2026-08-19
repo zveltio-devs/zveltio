@@ -19,6 +19,7 @@ import {
   MessageSquare,
 } from '@lucide/svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import Modal from '$lib/components/common/Modal.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
 interface SchemaBranch {
@@ -395,9 +396,7 @@ function fmt(d: string | null) {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.createModalTitle']()}</h3>
+  <Modal bind:open={showCreateModal} title={m['schemaBranches.createModalTitle']()} size="md">
       <div class="space-y-3">
         <div class="form-control">
           <label class="label" for="branch-name"><span class="label-text">{m['schemaBranches.branchName']()}</span></label>
@@ -415,16 +414,12 @@ function fmt(d: string | null) {
           {m['common.create']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreateModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Diff Modal -->
 {#if showDiffModal && selectedBranch}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-2xl">
-      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.diffTitle']({ name: selectedBranch.name })}</h3>
+  <Modal bind:open={showDiffModal} title={m['schemaBranches.diffTitle']({ name: selectedBranch.name })} size="lg">
       {#if loadingDiff}
         <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
       {:else if branchDiff}
@@ -461,18 +456,12 @@ function fmt(d: string | null) {
       <div class="modal-action">
         <button class="btn btn-ghost" onclick={() => (showDiffModal = false)}>{m['common.close']()}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showDiffModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Review Modal -->
 {#if showReviewModal && reviewBranch}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
-        <MessageSquare size={18} /> {m['schemaBranches.reviewTitle']({ name: reviewBranch.name })}
-      </h3>
+  <Modal bind:open={showReviewModal} title={m['schemaBranches.reviewTitle']({ name: reviewBranch.name })} size="md">
 
       <!-- Past reviews -->
       {#if loadingReviews}
@@ -529,16 +518,12 @@ function fmt(d: string | null) {
           {m['schemaBranches.submitReview']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showReviewModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Merge Modal -->
 {#if showMergeModal && selectedBranch}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.mergeTitle']({ name: selectedBranch.name })}</h3>
+  <Modal bind:open={showMergeModal} title={m['schemaBranches.mergeTitle']({ name: selectedBranch.name })} size="md">
       {#if !mergeResult}
         {#if selectedBranch.requires_approval && selectedBranch.review_status !== 'approved'}
           <div class="alert alert-warning mb-4">
@@ -581,16 +566,12 @@ function fmt(d: string | null) {
           <button class="btn btn-ghost" onclick={() => { showMergeModal = false; mergeResult = null; }}>{m['common.close']()}</button>
         </div>
       {/if}
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showMergeModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Preview Token Modal -->
 {#if previewToken}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-1 flex items-center gap-2"><Globe size={18} /> {m['schemaBranches.previewActive']()}</h3>
+  <Modal open={true} title={m['schemaBranches.previewActive']()} size="md" dismissible={false}>
       <p class="text-sm opacity-70 mb-3">{m['schemaBranches.previewTokenDesc']()}</p>
       <div class="bg-base-200 rounded p-3 font-mono text-sm break-all select-all mb-2">{previewToken}</div>
       <p class="text-xs opacity-50 mb-4">{m['schemaBranches.headerLabel']()} <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
@@ -598,22 +579,16 @@ function fmt(d: string | null) {
         <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>{m['common.copyShort']()}</button>
         <button class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => { previewToken = null; previewBranch = null; }}></button>
-  </dialog>
+  </Modal>
 {/if}
 
 <!-- Close Branch Confirmation -->
 {#if deleteTarget}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-2">{m['schemaBranches.closeBranch']()}</h3>
+  <Modal open={true} title={m['schemaBranches.closeBranch']()} size="md" dismissible={false}>
       <p class="text-sm opacity-70">{m['schemaBranches.closeConfirm']({ name: deleteTarget.name })}</p>
       <div class="modal-action">
         <button class="btn btn-ghost" onclick={() => (deleteTarget = null)}>{m['common.cancel']()}</button>
         <button class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> {m['schemaBranches.closeBranch']()}</button>
       </div>
-    </div>
-    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (deleteTarget = null)}></button>
-  </dialog>
+  </Modal>
 {/if}

@@ -362,14 +362,31 @@ export class GhostDDL {
     ddlStatements: string[],
     onProgress?: (phase: string, detail: string) => void,
   ): Promise<void> {
-    // BYOD Guard: don't run Ghost DDL on unmanaged tables
+    // BYOD Guard: don't run Ghost DDL on unmanaged tables.
+    //
+    // The same guard as `skipForByod` in `ddl-queue.ts`, and it had the same hole.
+    // `.catch(() => null)` made `meta` null, the `is_managed === false` test below
+    // never fired, and Ghost DDL proceeded — on a table whose ownership could not be
+    // established. Ghost DDL is not a small operation to get wrong: it copies the
+    // table, applies the DDL to the copy, backfills, and swaps. Running that over a
+    // BYOD table holding a customer's own data is the outcome this guard exists to
+    // prevent, and a transient read error was enough to disable it.
     const collectionName = tableName.replace(/^zvd_/, '');
-    const meta = await db
-      .selectFrom('zvd_collections')
-      .select('is_managed')
-      .where('name', '=', collectionName)
-      .executeTakeFirst()
-      .catch(() => null);
+    let meta: { is_managed: boolean | null } | undefined;
+    try {
+      meta = await db
+        .selectFrom('zvd_collections')
+        .select('is_managed')
+        .where('name', '=', collectionName)
+        .executeTakeFirst();
+    } catch (err) {
+      onProgress?.(
+        'skipped',
+        `Table "${tableName}": could not read is_managed, so ownership is unknown. ` +
+          `Refusing to run Ghost DDL. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
 
     if (meta && meta.is_managed === false) {
       onProgress?.('skipped', `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`);

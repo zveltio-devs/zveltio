@@ -14,6 +14,7 @@
  */
 
 import type { Database } from '../db/index.js';
+import { toNumber } from './numeric.js';
 
 /** 5 GiB, the default when a user has no explicit row. */
 export const DEFAULT_QUOTA_BYTES = 5_368_709_120;
@@ -48,7 +49,13 @@ export async function checkStorageQuota(
     db.selectFrom('zv_storage_quotas').selectAll().where('user_id', '=', userId).executeTakeFirst(),
   ]);
 
-  const usedBytes = Number(usageResult?.total || 0);
-  const quotaBytes = quotaRecord?.quota_bytes ?? DEFAULT_QUOTA_BYTES;
+  // `SUM('size')` and `quota_bytes` are both BIGINT, so both arrive as strings.
+  // This function was already right — the `Number()` on the sum meant the `+`
+  // added rather than concatenated, and `<=` coerced the quota. It was right by
+  // habit, not by construction: drop the `Number()` and `usedBytes + incomingBytes`
+  // becomes "1024000512", compared lexicographically against the quota.
+  // Converting both explicitly is what makes the next edit here safe.
+  const usedBytes = toNumber(usageResult?.total, 0, 'zv_media_files.size sum');
+  const quotaBytes = toNumber(quotaRecord?.quota_bytes, DEFAULT_QUOTA_BYTES, 'quota_bytes');
   return { ok: usedBytes + incomingBytes <= quotaBytes, usedBytes, quotaBytes };
 }
