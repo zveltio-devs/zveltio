@@ -51,12 +51,31 @@ export function tenantQuota(db: Database, poolDb?: Database) {
       if (cached !== null) {
         maxCalls = parseInt(cached, 10);
       } else {
-        const row = await db
-          .selectFrom('zv_tenants')
-          .select('max_api_calls_day')
-          .where('id', '=', tenant.id)
-          .executeTakeFirst()
-          .catch(() => null);
+        // `.catch(() => null)` here collapsed into `maxCalls = 0`, which three lines
+        // down means "no limit configured - allow all traffic". So a transient database
+        // error switched the quota OFF, and the line below then CACHED that fabricated
+        // zero for five minutes: every request in the window re-read it and passed. A
+        // quota a database hiccup disables, and then remembers, is not a quota.
+        //
+        // A read failure is now told apart from a configured zero. The request still
+        // passes - refusing traffic because a metering lookup blipped would turn a
+        // nuisance into an outage - but it passes LOUDLY, and the value is not cached,
+        // so the next request tries again instead of inheriting the mistake.
+        let row: { max_api_calls_day: number | null } | undefined;
+        try {
+          row = await db
+            .selectFrom('zv_tenants')
+            .select('max_api_calls_day')
+            .where('id', '=', tenant.id)
+            .executeTakeFirst();
+        } catch (err) {
+          console.error(
+            `[tenant-quota] could not read the API limit for tenant ${tenant.id}; this ` +
+              `request is NOT being metered and the limit is not being cached:`,
+            err instanceof Error ? err.message : err,
+          );
+          return next();
+        }
 
         maxCalls = row?.max_api_calls_day ?? 0;
         // Cache for 5 minutes — plan upgrades propagate within that window
