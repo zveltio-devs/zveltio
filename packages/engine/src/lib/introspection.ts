@@ -158,12 +158,16 @@ export async function introspectSchema(
     }
 
     // Upsert into zvd_collections
+    // `.catch(() => null)` meant "no such collection", and the branch below turns
+    // that into an INSERT. So a failed read made introspection try to CREATE a
+    // collection row that already existed — a unique-violation at best, a duplicate
+    // registration at worst, on a path whose whole job is to reconcile what is
+    // already there.
     const existing = await db
       .selectFrom('zvd_collections')
       .select('id')
       .where('name', '=', table_name)
-      .executeTakeFirst()
-      .catch(() => null);
+      .executeTakeFirst();
 
     if (existing) {
       // Update fields but DON'T change is_managed — it may have been already managed
