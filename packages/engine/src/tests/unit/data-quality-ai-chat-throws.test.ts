@@ -18,6 +18,11 @@ function setup(collection: string, fields: unknown[]): CannedDb {
   db.when(/select \* from "zvd_collections" where "name" = /, [
     { name: collection, fields: JSON.stringify(fields) },
   ]);
+  // The row count has to answer, or the scan aborts before it reaches the AI
+  // provider and this file stops testing what its name says. It was unstubbed
+  // and the old code turned that into `0` and carried on — so the test passed
+  // while exercising a path the product does not take.
+  db.when(/SELECT COUNT\(\*\)::text AS count FROM/i, [{ count: '1' }]);
   initTenantManager(db.kysely as unknown as Database);
   return db;
 }
