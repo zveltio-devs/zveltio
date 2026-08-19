@@ -1,0 +1,52 @@
+/**
+ * DDLManager and the handle it is given.
+ *
+ * Two rules pull in opposite directions, and both were arrived at by something
+ * failing in production.
+ *
+ * `withLockTimeout` used to open its own transaction unconditionally. Three of
+ * the five DDL queue handlers hand it a transaction handle, and Kysely refuses a
+ * nested `.transaction()` outright — "calling the transaction method for a
+ * Transaction is not supported" — so those handlers threw before emitting a
+ * single statement. It short-circuits on `isTransaction` now; `SET LOCAL` is
+ * transaction-scoped either way, so the caller's transaction gets the timeout it
+ * asked for.
+ *
+ * `applyRelationFK` is the opposite: it issues `CREATE INDEX CONCURRENTLY`,
+ * which PostgreSQL refuses inside a transaction block (SQLSTATE 25001). Given a
+ * transaction handle it must refuse with a message that says which, rather than
+ * emit DDL that the server will reject halfway through.
+ */
+
+import { describe, expect, it } from 'bun:test';
+import type { Database } from '../../db/index.js';
+import { DDLManager } from '../../lib/data/index.js';
+import { CannedDb } from './fixtures/canned-db.js';
+
+/** A handle that claims to be a transaction, as Kysely's Transaction does. */
+function asTransaction(db: CannedDb): Database {
+  const handle = db.kysely as unknown as Record<string, unknown>;
+  return new Proxy(handle, {
+    get: (t, p) => (p === 'isTransaction' ? true : Reflect.get(t, p)),
+  }) as unknown as Database;
+}
+
+describe('DDLManager — transaction handles', () => {
+  it('applyRelationFK refuses a transaction handle, naming CREATE INDEX CONCURRENTLY', async () => {
+    const db = new CannedDb();
+    await expect(
+      DDLManager.applyRelationFK(asTransaction(db), 'zvd_orders', 'customer_id', 'zvd_customers'),
+    ).rejects.toThrow(/CREATE INDEX CONCURRENTLY/);
+
+    // And it refused before emitting anything, rather than part-way through.
+    expect(db.executed(/CREATE INDEX/i)).toHaveLength(0);
+    expect(db.executed(/ALTER TABLE/i)).toHaveLength(0);
+  });
+
+  it('applyRelationFK names the SQLSTATE, so the message is searchable', async () => {
+    const db = new CannedDb();
+    await expect(
+      DDLManager.applyRelationFK(asTransaction(db), 'zvd_orders', 'customer_id', 'zvd_customers'),
+    ).rejects.toThrow(/25001/);
+  });
+});
