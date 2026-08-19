@@ -23,12 +23,20 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-/** A handle that claims to be a transaction, as Kysely's Transaction does. */
+/**
+ * A handle that claims to be a transaction, the way Kysely's `Transaction` does.
+ *
+ * Defined on the instance rather than wrapped in a Proxy: Kysely reads
+ * `this.#props` internally, and a private field does not survive a Proxy — the
+ * first real query throws "Cannot access invalid private field" instead of
+ * exercising the branch under test.
+ */
 function asTransaction(db: CannedDb): Database {
-  const handle = db.kysely as unknown as Record<string, unknown>;
-  return new Proxy(handle, {
-    get: (t, p) => (p === 'isTransaction' ? true : Reflect.get(t, p)),
-  }) as unknown as Database;
+  const k = db.kysely as unknown as object;
+  // `isTransaction` is a readonly getter on the prototype; an own data property
+  // shadows it without touching the instance's internals.
+  Object.defineProperty(k, 'isTransaction', { value: true, configurable: true });
+  return k as unknown as Database;
 }
 
 describe('DDLManager — transaction handles', () => {
@@ -48,5 +56,27 @@ describe('DDLManager — transaction handles', () => {
     await expect(
       DDLManager.applyRelationFK(asTransaction(db), 'zvd_orders', 'customer_id', 'zvd_customers'),
     ).rejects.toThrow(/25001/);
+  });
+  it('withLockTimeout does NOT open a transaction when handed one', async () => {
+    // Kysely refuses a nested `.transaction()` outright — "calling the transaction
+    // method for a Transaction is not supported" — and three of the five DDL queue
+    // handlers pass a transaction handle in. Those handlers threw before emitting
+    // a single statement.
+    const db = new CannedDb();
+    await DDLManager.dropJunctionTable(asTransaction(db), 'zvd_jnc_orders_tags');
+
+    // The work still happened, on the caller's transaction.
+    expect(db.executed(/DROP TABLE IF EXISTS "zvd_jnc_orders_tags"/i).length).toBeGreaterThan(0);
+    // And the timeout was still applied — `SET LOCAL` is transaction-scoped either
+    // way, so the caller's transaction gets what it asked for.
+    expect(db.executed(/SET LOCAL lock_timeout/i).length).toBeGreaterThan(0);
+  });
+
+  it('still validates the junction name before any of that', async () => {
+    const db = new CannedDb();
+    await expect(
+      DDLManager.dropJunctionTable(asTransaction(db), 'zvd_orders; DROP DATABASE x'),
+    ).rejects.toThrow(/Invalid junction table name/);
+    expect(db.executed(/DROP/i)).toHaveLength(0);
   });
 });

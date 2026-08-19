@@ -108,4 +108,28 @@ describe('validateRecord — rule groups', () => {
       (await validateRecord(db2.kysely as unknown as Database, c2, { code: 'nope' })).valid,
     ).toBe(false);
   });
+  it('an AND group still requires every member, which is the default logic', async () => {
+    // `logic` is anything other than 'OR'. The group exists to say "these belong
+    // together"; only OR changes what satisfying it means. Getting this branch
+    // wrong would quietly turn every AND group into an OR — the permissive
+    // direction, on rules an administrator wrote to be strict.
+    const c = freshCollection();
+    const db = dbWith(
+      [{ field_name: 'code', logic: 'AND', rule_ids: `{${RULE_A},${RULE_B}}` }],
+      [rule(RULE_A, 'code', '^VAT'), rule(RULE_B, 'code', '-1$')],
+    );
+
+    // Satisfies the first member only.
+    const partial = await validateRecord(db.kysely as unknown as Database, c, { code: 'VAT-9' });
+    expect(partial.valid).toBe(false);
+
+    const c2 = freshCollection();
+    const db2 = dbWith(
+      [{ field_name: 'code', logic: 'AND', rule_ids: `{${RULE_A},${RULE_B}}` }],
+      [rule(RULE_A, 'code', '^VAT'), rule(RULE_B, 'code', '-1$')],
+    );
+    // Satisfies both.
+    const both = await validateRecord(db2.kysely as unknown as Database, c2, { code: 'VAT-1' });
+    expect(both.valid).toBe(true);
+  });
 });
