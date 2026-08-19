@@ -107,3 +107,43 @@ describe('createRestrictedDb — table access policy', () => {
     expect(selects).toEqual(['zvd_a', 'zv_ext_b']);
   });
 });
+
+/**
+ * `withSchema` names a SCHEMA, not a table.
+ *
+ * Under the old prefix denylist `withSchema('public')` passed by accident —
+ * `public` does not begin `zv_` — so switching the guard to an allowlist of
+ * table names would have refused a legitimate call. It gets its own rule, and
+ * that rule is a boundary in its own right: an extension that can select
+ * another schema is past every check below it.
+ */
+describe('createRestrictedDb — withSchema', () => {
+  /** `makeStubDb` only records query methods; withSchema needs its own. */
+  function schemaStub() {
+    const seen: string[] = [];
+    return {
+      seen,
+      db: {
+        withSchema: (s: string) => {
+          seen.push(s);
+          return {};
+        },
+      },
+    };
+  }
+
+  it('allows the public schema', () => {
+    const { db, seen } = schemaStub();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    rdb.withSchema('public' as never);
+    expect(seen).toEqual(['public']);
+  });
+
+  it('refuses any other schema, including one that looks harmless', () => {
+    const { db } = schemaStub();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    for (const schema of ['information_schema', 'pg_catalog', 'other_tenant', 'zvd_public']) {
+      expect(() => rdb.withSchema(schema as never)).toThrow(/only work in the public schema/);
+    }
+  });
+});
