@@ -134,6 +134,18 @@ jobs:
           bun-version: '1.3.14'
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Clone zveltio-extensions sibling
+        # Three steps below check the extension catalogue and every one of them was
+        # guarded with `if [ -d ../zveltio-extensions ]` … `else echo "skipping"`.
+        # This job never cloned it, so `ext:i18n-ownership` and `ext:raw-sql` printed
+        # "zveltio-extensions not checked out — skipping" on every run since they were
+        # added, and the job went green. Nobody noticed because a skipped gate and a
+        # passing gate look identical in the summary.
+        #
+        # It surfaced when `ext:ambient` landed here: that script exits 1 rather than
+        # report a pass over zero extensions, so it failed loudly where the other two
+        # had been quiet.
+        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
       - name: Lint
         run: bun run lint
       - name: noExplicitAny ratchet
@@ -150,21 +162,11 @@ jobs:
         # only because the host serves the union of installed catalogues, so
         # installing the borrower without the owner shows a raw key. Only runs
         # with the sibling checked out.
-        run: |
-          if [ -d ../zveltio-extensions ]; then
-            bun run ext:i18n-ownership
-          else
-            echo "zveltio-extensions not checked out — skipping"
-          fi
+        run: bun run ext:i18n-ownership
       - name: Identifiers in raw SQL are escaped
         # A manual sweep fixed eleven of these and missed a twelfth, because it
         # enumerated variable names instead of matching the pattern.
-        run: |
-          if [ -d ../zveltio-extensions ]; then
-            bun run ext:raw-sql
-          else
-            echo "zveltio-extensions not checked out — skipping"
-          fi
+        run: bun run ext:raw-sql
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index
@@ -221,12 +223,7 @@ jobs:
         # at short paths while the extension declared the namespaced one. Two
         # implementations of one screen, the reachable one usually the broken
         # one, and nothing looking.
-        run: |
-          if [ -d ../zveltio-extensions ]; then
-            bun run scripts/check-extension-page-ownership.ts
-          else
-            echo "zveltio-extensions not checked out — skipping"
-          fi
+        run: bun run scripts/check-extension-page-ownership.ts
       # The "No driver-reported affected-row counts" gate lived here. It banned
       # numUpdatedRows / numDeletedRows / numAffectedRows because the dialect
       # returned `{ rows }` and never filled them in, so branching on one read as
@@ -492,12 +489,7 @@ jobs:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
-        run: |
-          if [ -d ../zveltio-extensions ]; then
-            bun run ext:seam
-          else
-            echo "zveltio-extensions not checked out — skipping"
-          fi
+        run: bun run ext:seam
       - name: No `+` on a column PostgreSQL returns as a string
         # This lane is the one with a migrated database, and the gate needs one:
         # it reads the BIGINT/NUMERIC column list out of `information_schema`
