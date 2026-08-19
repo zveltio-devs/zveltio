@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from '$lib/i18n.svelte.js';
+  import Modal from '$lib/components/common/Modal.svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
@@ -213,9 +214,7 @@ function invoiceStatusLabel(s: string): string {
 </ExtensionPageShell>
 
 {#if showCreateModal}
-  <dialog open aria-modal="true" class="modal modal-open">
-    <div class="modal-box w-11/12 max-w-4xl">
-      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.efactura.ui.new_invoice']()}</h3>
+  <Modal bind:open={showCreateModal} title={m['compliance.ro.efactura.ui.new_invoice']()} size="xl">
 
       <div class="grid grid-cols-2 gap-4 mb-4">
         <div class="form-control">
@@ -303,7 +302,5 @@ function invoiceStatusLabel(s: string): string {
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if} {m['compliance.ro.efactura.btn.createInvoice']()}
         </button>
       </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
-  </dialog>
+  </Modal>
 {/if}
