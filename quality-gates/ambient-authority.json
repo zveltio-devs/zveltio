@@ -1,13 +1,1 @@
-{
-  "_what": "An extension reading process.env or importing an authority-bearing node:* module. Counts may shrink, never grow.",
-  "_why_it_has_a_gate": "An in-process extension reading process.env sees the ENGINE's whole environment - DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY - which is both far more than it needs and a way around the capability gate on ctx.internals: an extension wanting to decrypt without declaring 'secrets' could take the key and do it itself.",
-  "_it_is_empty_and_that_is_the_point": "It held 24 sites for about an hour. They were invisible until 2026-08-18 because the gate walked a fixed <category>/<name>/engine path while 12 of 57 extensions live at another depth, so it reported 'with no exceptions' about the 45 it could see. Once visible they were converted: ai reads its providers from zv_ai_providers and its key through the host's 'ai' keyring, and search, billing and sms read ctx.config.vars - the host's slice of the environment, ZVELTIO_EXT_<NAME>_*, which contains that extension's keys and nothing else.",
-  "_regenerate": "bun run scripts/check-ambient-authority.ts --list > quality-gates/ambient-authority.json",
-  "_why_it_is_not_zero_yet": "It IS zero against the extensions branch that removes these. CI clones zveltio-extensions master, which still has them, and this gate fails on GROWTH - so a zero here fails CI until that branch merges. The number below is master's reality, measured against a fresh clone. Once the extensions PR lands, this drops to zero and the gate reports the improvement.",
-  "ai/engine/lib/ai-crypto.ts": 1,
-  "ai/engine/lib/ai-provider.ts": 7,
-  "billing/engine/routes.ts": 1,
-  "search/engine/lib/search-manager.ts": 5,
-  "sms/engine/lib/sms-manager.ts": 8,
-  "sms/engine/routes.ts": 2
-}
+{}
