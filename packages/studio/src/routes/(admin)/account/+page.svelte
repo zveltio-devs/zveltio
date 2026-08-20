@@ -1,4 +1,5 @@
 <script lang="ts">
+import { api } from '$lib/api';
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { auth } from '$lib/auth.svelte.js';
@@ -25,7 +26,7 @@ async function saveProfile(): Promise<void> {
   }
   saving = true;
   try {
-    const res = await fetch('/api/auth/update-user', {
+    const res = await api.fetch('/api/auth/update-user', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

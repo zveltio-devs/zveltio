@@ -116,8 +116,11 @@ export async function materializeDefaultGrants(
         // granted nothing. It did grant; only the number was a lie, which is
         // worse than no number, because the boot line an operator reads to
         // confirm the upgrade would have stayed silent on the one boot where it
-        // mattered. `scripts/check-affected-rows.ts` exists for this and caught
-        // it.
+        // mattered. The gate that caught it,
+        // `scripts/check-affected-rows.ts`, has since been deleted: the dialect
+        // reports affected rows now, so the ban it enforced would force RETURNING
+        // forever for a problem that no longer exists. The RETURNING below stays —
+        // it is what makes the count true, gate or no gate.
         const result = await sql<{ id: string }>`
           INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
           VALUES ('p', ${role}, '*', ${resource}, ${action})
