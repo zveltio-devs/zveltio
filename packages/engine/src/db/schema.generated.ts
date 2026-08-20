@@ -1304,6 +1304,7 @@ export interface ZvMailAttachmentsTable {
   is_inline: Generated<boolean>;
   created_at: Generated<Date>;
   tenant_id: string | null;
+  part: string | null;
 }
 
 export interface ZvMailContactsTable {
