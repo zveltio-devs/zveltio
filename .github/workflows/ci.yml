@@ -239,7 +239,8 @@ jobs:
       # What replaces it is a test rather than a gate:
       # `harness/dialect-affected-rows.test.ts` asserts both directions — a
       # delete that removed a row reports 1, one that matched nothing reports 0.
-      # `scripts/check-affected-rows.ts` is now unreferenced and can be deleted.
+      # `scripts/check-affected-rows.ts` has been deleted — the premise is gone
+      # and a retired gate left on disk still exits 1 for anyone who runs it.
       - name: No hand-written copy of an existing rule
         # The best findings of the 2026-08 audit rounds were all one bug: a
         # security rule that already had a helper, written out again somewhere

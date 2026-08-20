@@ -83,6 +83,13 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, // 172.16.0.0/12
   /^192\.168\.\d+\.\d+$/, // 192.168.0.0/16
   /^169\.254\.\d+\.\d+$/, // 169.254.0.0/16 (link-local / cloud metadata)
+  // 192.0.0.192 — Oracle Cloud's instance metadata service. It is NOT link-local
+  // and NOT private: 192.0.0.0/24 is a globally-routable IANA special-purpose
+  // block, so it passes every range test above and reads as an ordinary public
+  // address. That is what makes it worth naming individually — the reasoning
+  // that catches 169.254.169.254 does not catch this one, and it hands out the
+  // same thing: cloud credentials.
+  /^192\.0\.0\.192$/,
   // 100.64.0.0/10 — RFC 6598 shared address space. Not RFC 1918, which is why
   // it was missing: it is "carrier-grade NAT" space, and reads like someone
   // else's problem. It is not. Several managed Kubernetes offerings put pod and
@@ -196,8 +203,17 @@ const METADATA_PATTERNS: RegExp[] = [
   /^169\.254\.\d+\.\d+$/, // IPv4 link-local (AWS/GCP/Azure IMDS 169.254.169.254)
   /^fe[89ab][0-9a-f]:/, // IPv6 link-local
   /^fd00:ec2:/, // AWS IMDSv6 (fd00:ec2::254)
+  // Oracle Cloud's IMDS is NOT link-local. 192.0.0.192 sits in 192.0.0.0/24, a
+  // globally-routable IANA special-purpose block, so every pattern above misses
+  // it and so does any "is this a private address" test — which is exactly what
+  // makes it the one worth naming: it looks public to a check that reasons about
+  // ranges. Same class as the denylists inverted elsewhere in this codebase, and
+  // it cannot be inverted here (an object-storage endpoint is legitimately any
+  // host), so the enumeration has to be right.
+  /^192\.0\.0\.192$/,
   /(^|\.)metadata\.google\.internal$/,
   /(^|\.)metadata\.azure\.com$/,
+  /(^|\.)metadata\.oraclecloud\.com$/,
 ];
 
 /**
