@@ -214,7 +214,7 @@ No hidden dependencies. No surprises.
 | File storage | Local filesystem (default) · optional S3-compatible backend, e.g. [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 3.68 | `STORAGE_DRIVER=local` needs nothing installed; `s3` talks to any S3 API |
 | Admin UI | [SvelteKit](https://kit.svelte.dev) 2 + Svelte 5 runes | Modern reactive, small bundles |
 | Job queue | [pg-boss](https://github.com/timgit/pg-boss) 12 | Postgres-native, no separate Redis queue |
-| Migration safety | [Atlas](https://atlasgo.io) lint | CI-time DDL safety analysis |
+| Migration safety | [squawk](https://squawkhq.com) lint | CI-time DDL safety analysis |
 | Observability | [OpenTelemetry](https://opentelemetry.io) | Industry-standard tracing |
 | i18n | [Paraglide JS](https://inlang.com) 2.18+ | Type-safe translations, tree-shakeable |
 | Charts | [Layerchart](https://layerchart.com) | Svelte 5 first, D3-powered |

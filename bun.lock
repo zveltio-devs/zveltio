@@ -24,7 +24,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -39,12 +39,12 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
         "better-auth": "^1.6.13",
-        "dompurify": "3.4.12",
+        "dompurify": "3.4.14",
         "leaflet": "^1.9.4",
         "qrcode": "^1.5.4",
       },
@@ -71,7 +71,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.6.23",
         "@better-auth/passkey": "^1.6.23",
@@ -84,7 +84,7 @@
         "better-auth": "1.6.23",
         "casbin": "^5.30.0",
         "expr-eval-fork": "^3.0.3",
-        "hono": "^4.12.28",
+        "hono": "^4.13.3",
         "imagescript": "^1.3.1",
         "ioredis": "^5.3.2",
         "kysely": "^0.29.0",
@@ -106,7 +106,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -114,7 +114,7 @@
         "@testcontainers/postgresql": "^11.14.0",
         "@types/pg": "^8.11.0",
         "fake-indexeddb": "^6.2.5",
-        "hono": "^4.12.5",
+        "hono": "^4.13.3",
         "kysely": "^0.29.0",
         "pg": "^8.13.0",
         "typescript": "^5.4.0",
@@ -130,7 +130,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -146,7 +146,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -160,7 +160,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.59",
+      "version": "3.0.0-beta.61",
       "dependencies": {
         "@inlang/paraglide-js": "^2.18.0",
         "@lucide/svelte": "^0.577.0",
@@ -179,7 +179,7 @@
         "@zveltio/sdk": "workspace:*",
         "d3-scale": "^4.0.2",
         "daisyui": "^5.0.0",
-        "dompurify": "3.4.12",
+        "dompurify": "3.4.14",
         "layerchart": "^1.0.13",
         "leaflet": "^1.9.4",
         "svelte": "^5.0.0",
@@ -1220,7 +1220,7 @@
 
     "dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "dompurify": ["dompurify@3.4.12", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-zQvGet8Z2sWbQhCmfFz/T5QWH2oBmjnqK3qvOjaqaNLrLEF912WamU+ohnTp0TCep/MFVHpdJuCZEdFOdTnEFg=="],
+    "dompurify": ["dompurify@3.4.14", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg=="],
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
@@ -1342,7 +1342,7 @@
 
     "hasown": ["hasown@2.0.4", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A=="],
 
-    "hono": ["hono@4.12.28", "", {}, "sha512-YwUvVpSF7m1yOblFPrU3Hbo8XhPheBoiyfGuII6z19LnOr6JpDnyyp7LFNrfV56wS8tpvtBFGRISHN02pDdLOA=="],
+    "hono": ["hono@4.13.3", "", {}, "sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw=="],
 
     "html-encoding-sniffer": ["html-encoding-sniffer@6.0.0", "", { "dependencies": { "@exodus/bytes": "^1.6.0" } }, "sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg=="],
 
