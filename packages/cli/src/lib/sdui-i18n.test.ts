@@ -127,7 +127,7 @@ describe('shared vocabulary', () => {
   it('does not bless core page-specific keys', () => {
     // Borrowing `insights.title` couples an extension to a core page it does
     // not own; the validator should report it, not accept it.
-    for (const k of ['insights.title', 'zones.emptyDesc', 'nav.collections']) {
+    for (const k of ['insights.title', 'rls.allCollectionsOpt', 'nav.collections']) {
       expect(SHARED_MESSAGE_KEYS.has(k)).toBe(false);
     }
   });
