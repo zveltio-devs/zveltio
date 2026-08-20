@@ -27,7 +27,7 @@ async function saveProfile() {
   saving = true;
   try {
     // Better-Auth update-user endpoint
-    const res = await fetch('/api/auth/update-user', {
+    const res = await api.fetch('/api/auth/update-user', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -51,7 +51,7 @@ async function changePassword() {
   }
   pwBusy = true;
   try {
-    const res = await fetch('/api/auth/change-password', {
+    const res = await api.fetch('/api/auth/change-password', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

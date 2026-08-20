@@ -71,7 +71,7 @@ async function upload(fileList: FileList | null) {
     for (const f of Array.from(fileList)) {
       const fd = new FormData();
       fd.append('file', f);
-      const res = await fetch('/api/storage/upload', {
+      const res = await api.fetch('/api/storage/upload', {
         method: 'POST',
         credentials: 'include',
         body: fd,
