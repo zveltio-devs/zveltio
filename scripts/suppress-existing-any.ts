@@ -2,7 +2,7 @@
 /**
  * One-shot codemod: suppress every pre-existing `noExplicitAny` violation.
  *
- * Part of docs/HARDENING-9-PLAN.md item H-01. We flip `noExplicitAny` to
+ * Part of docs/private/HARDENING-9-PLAN.md item H-01. We flip `noExplicitAny` to
  * `error` in `biome.json`, but the codebase already has ~800 legacy `any`
  * escapes. Failing the whole build on day one is not the goal — the goal is a
  * RATCHET: freeze the existing violations behind explicit suppression comments,
@@ -26,7 +26,7 @@
 
 import { enumerateTargets } from './lib/any-targets.ts';
 
-const REASON = 'legacy any; tracked in docs/HARDENING-9-PLAN.md H-01';
+const REASON = 'legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01';
 const BATCH = 150; // keep argv under the Windows ~32k command-line limit
 
 const dry = process.argv.includes('--dry');

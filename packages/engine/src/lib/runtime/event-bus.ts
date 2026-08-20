@@ -6,7 +6,7 @@ import { getCurrentTenantTrx } from '../tenancy/index.js';
 
 export interface RecordCreatedPayload {
   collection: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   record: any;
   userId: string;
   /**
@@ -23,7 +23,7 @@ export interface RecordCreatedPayload {
 
 export interface RecordUpdatedPayload {
   collection: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   record: any;
   userId: string;
   tenantId?: string | null;
@@ -159,7 +159,7 @@ class TypedEventBus {
    *   3. They can short-circuit (abort throws).
    */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   private readonly preHooks = new Map<keyof ZveltioBeforeEvents, Array<PreHookHandler<any>>>();
 
   constructor() {
@@ -270,9 +270,9 @@ class TypedEventBus {
     event: K,
     handler: (payload: EngineEventMap[K]) => void,
   ): () => void {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     this.emitter.on(event as string, handler as (...args: any[]) => void);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     return () => this.emitter.off(event as string, handler as (...args: any[]) => void);
   }
 
@@ -283,7 +283,7 @@ class TypedEventBus {
     event: K,
     handler: (payload: EngineEventMap[K]) => void,
   ): void {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     this.emitter.once(event as string, handler as (...args: any[]) => void);
   }
 
@@ -294,7 +294,7 @@ class TypedEventBus {
     event: K,
     handler: (payload: EngineEventMap[K]) => void,
   ): void {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     this.emitter.off(event as string, handler as (...args: any[]) => void);
   }
 
@@ -313,13 +313,13 @@ class TypedEventBus {
    */
   onBefore<K extends keyof ZveltioBeforeEvents>(event: K, handler: PreHookHandler<K>): () => void {
     const list = this.preHooks.get(event) ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     list.push(handler as PreHookHandler<any>);
     this.preHooks.set(event, list);
     return () => {
       const cur = this.preHooks.get(event);
       if (!cur) return;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const idx = cur.indexOf(handler as PreHookHandler<any>);
       if (idx >= 0) cur.splice(idx, 1);
     };
@@ -345,7 +345,7 @@ class TypedEventBus {
     // Disambiguate update vs insert via the event name: mutate(...) targets
     // `patch` on beforeUpdate, `data` everywhere else. beforeDelete has no
     // mutable shape, so mutate() is omitted.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const payload: any = { ...seed };
     payload.abort = (reason: string): never => {
       throw new AbortHookError(reason);

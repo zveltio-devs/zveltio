@@ -23,12 +23,12 @@ export const CHANNELS = {
 interface SubscriptionFilter {
   field: string;
   op: 'eq' | 'neq' | 'in';
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   value: any;
 }
 
 interface StreamSub {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   stream: any;
   collections: string[]; // empty = all
   recordId?: string; // filter to specific record ID
@@ -159,12 +159,12 @@ export const _presenceInternals = {
 };
 
 async function presenceJoin(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   cache: any,
   tenantId: string | null,
   channel: string,
   userId: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   meta: Record<string, any>,
 ) {
   const ts = Date.now();
@@ -186,7 +186,7 @@ async function presenceJoin(
   presenceStore.get(channel)!.set(userId, ts);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function presenceLeave(cache: any, tenantId: string | null, channel: string, userId: string) {
   if (cache) {
     try {
@@ -201,7 +201,7 @@ async function presenceLeave(cache: any, tenantId: string | null, channel: strin
 }
 
 async function presenceList(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   cache: any,
   tenantId: string | null,
   channel: string,
@@ -227,7 +227,7 @@ async function presenceList(
   return [...members.entries()].map(([userId, lastSeen]) => ({ userId, lastSeen }));
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
   if (sub.collections.length > 0 && !sub.collections.includes(collection)) return false;
   if (sub.recordId && record?.id !== sub.recordId) return false;
@@ -252,7 +252,7 @@ function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
 export function broadcastDataEvent(
   collection: string,
   event: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   record: any,
   tenantId: string | null = null,
 ): void {
@@ -312,11 +312,11 @@ export function broadcastDataEvent(
  * `tenantId` scopes delivery the way `broadcastDataEvent` does. Equality is
  * required in both directions: null does not match a tenant.
  */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function broadcastSSE(
   channel: string,
   event: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   data: any,
   tenantId: string | null = null,
 ): void {
@@ -348,7 +348,7 @@ function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
     if (typeof obj !== 'object' || Array.isArray(obj)) return [];
     return Object.entries(obj).map(([field, value]) => {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         const [op, val] = Object.entries(value)[0] as [string, any];
         const mappedOp = op === 'neq' ? 'neq' : op === 'in' ? 'in' : 'eq';
         return { field, op: mappedOp, value: val };
@@ -360,7 +360,7 @@ function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function realtimeRoutes(_db: Database, _auth: any): Hono {
   const app = new Hono();
 
@@ -461,7 +461,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       }
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
 
     // Resolve row + column authorisation for every collection this stream may
@@ -497,7 +497,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
       // Subscribe to cache channels if cache is available
       const cache = getCache();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       let subscriber: any = null;
 
       if (cache) {

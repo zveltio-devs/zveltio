@@ -40,7 +40,7 @@ async function mayDeleteFile(rdb: Database, fileId: string, userId: string): Pro
   return isTenantAdmin(userId).catch(() => false);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function mediaRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -78,7 +78,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       const data = c.req.valid('json');
       const folder = {
@@ -114,7 +114,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst();
       if (!folder) return c.json({ error: 'Folder not found' }, 404);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       if (folder.created_by !== user.id && !(await isTenantAdmin(user.id))) {
         return c.json({ error: 'Forbidden' }, 403);
@@ -141,7 +141,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!folder) return c.json({ error: 'Folder not found' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     if (folder.created_by !== user.id && user.role !== 'god') {
       return c.json({ error: 'Forbidden' }, 403);
@@ -205,7 +205,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       // Cap at 100 chars — longer patterns give no additional selectivity but
       // multiply matching cost across 4 ilike columns (each O(N) without trigram index).
       const safeSearch = `%${escapeLike(search.substring(0, 100))}%`;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       query = query.where(({ or, cmpr }: any) =>
         or([
           cmpr('filename', 'ilike', safeSearch),
@@ -228,7 +228,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     // P1: batch-load all tags in a single query instead of N+1 per-file queries
     if (files.length > 0) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const fileIds = files.map((f: any) => f.id);
       const allTags = await reqDb(c, db)
         .selectFrom('zv_media_file_tags')
@@ -241,7 +241,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         ])
         .where('zv_media_file_tags.file_id', 'in', fileIds)
         .execute();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const tagsByFile = new Map<string, any[]>();
       for (const tag of allTags) {
         const list = tagsByFile.get(tag.file_id) ?? [];
@@ -249,7 +249,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         tagsByFile.set(tag.file_id, list);
       }
       for (const file of files) {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         (file as any).tags = tagsByFile.get((file as any).id) ?? [];
       }
     }
@@ -264,7 +264,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (mime_type) countQuery = countQuery.where('mimetype', 'ilike', `${mime_type}%`);
     if (search) {
       const safeSearchCount = `%${escapeLike(search.substring(0, 100))}%`;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       countQuery = countQuery.where(({ or, cmpr }: any) =>
         or([
           cmpr('filename', 'ilike', safeSearchCount),
@@ -315,7 +315,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   });
 
   router.post('/upload', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const formData = await c.req.formData();
     const file = formData.get('file') as File;
@@ -567,7 +567,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst();
       if (!file) return c.json({ error: 'File not found' }, 404);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       if (file.created_by !== user.id && !(await isTenantAdmin(user.id))) {
         return c.json({ error: 'Forbidden' }, 403);
@@ -584,7 +584,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   );
 
   router.delete('/files/:id', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const id = c.req.param('id');
 
@@ -594,7 +594,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       }
       await moveToTrash(reqDb(c, db), id, user.id, tenantId(c));
       return c.json({ success: true });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 404);
     }
@@ -605,7 +605,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     '/files/batch-delete',
     zValidator('json', z.object({ ids: z.array(z.string()) })),
     async (c) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       const { ids } = c.req.valid('json');
 
@@ -712,7 +712,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         await reqDb(c, db)
           .insertInto('zv_media_file_tags')
           .values({ file_id: fileId, tag_id, tenant_id: tenantId(c) })
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           .onConflict((oc: any) => oc.doNothing())
           .execute();
         return c.json({ success: true });

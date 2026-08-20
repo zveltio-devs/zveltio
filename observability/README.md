@@ -60,7 +60,7 @@ committing.
 ## What it intentionally does NOT cover (yet)
 
 - Per-route p95 latency — engine doesn't emit a histogram yet. Track in
-  `docs/TECHNICAL-GAPS.md` § 1.3.
+  `docs/private/TECHNICAL-GAPS.md` § 1.3.
 - Error rate by status code.
 - DB query timing — requires the `pg_stat_statements` exporter.
 - Realtime WS connection count (already collected via `/api/ws/info` but

@@ -31,7 +31,7 @@ export async function extensionsListCommand(opts: {
     process.exit(1);
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const { extensions } = (await res.json()) as { extensions: any[] };
 
   if (opts.json) {
@@ -50,7 +50,7 @@ export async function extensionsListCommand(opts: {
   }
 
   // Group by category
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const byCategory: Record<string, any[]> = {};
   for (const ext of filtered) {
     const cat = ext.category || 'custom';

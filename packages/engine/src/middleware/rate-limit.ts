@@ -273,7 +273,7 @@ export function rateLimit(config: RateLimitConfig) {
   return async (c: Context, next: Next) => {
     // Resolve live limits from DB (falls back to compiled defaults)
     // Per-API-key override: if request uses API key auth, check apikey:<id> prefix first
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const session = (c as any).get?.('user');
     const apiKeyId = session?.id?.startsWith('apikey:') ? session.id.slice(7) : null;
     const perKeyPrefix = apiKeyId ? `apikey:${apiKeyId}` : null;
@@ -390,7 +390,7 @@ export function rateLimit(config: RateLimitConfig) {
       // Valkey error — fall back to in-memory limiter instead of failing open.
       // Failing open here would disable ALL rate limits on Valkey outage,
       // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const session = (c as any).get?.('user');
       // `?? listedIp`, matching the no-cache branch above and for the same
       // reason. `'unknown'` gave every anonymous caller ONE bucket per prefix —

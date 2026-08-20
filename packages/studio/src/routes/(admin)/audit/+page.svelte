@@ -7,7 +7,7 @@ import Pagination from '$lib/components/common/Pagination.svelte';
 import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 import { api } from '$lib/api.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let revisions = $state<any[]>([]);
 let loading = $state(true);
 let page = $state(1);
@@ -36,7 +36,7 @@ async function load() {
   const res = await api
     .fetch(`/api/admin/revisions?${params}`, { credentials: 'include' })
     .then((r) => r.json());
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
   total =
     res.total ??
@@ -58,7 +58,7 @@ function opBadge(op: string): string {
   return map[op] || 'badge-ghost';
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function formatDiff(before: any, after: any): string[] {
   if (!before && after) return ['Created'];
   if (before && !after) return ['Deleted'];

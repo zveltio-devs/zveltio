@@ -18,7 +18,7 @@ import { sync } from '$lib/zveltio';
  * ```
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function useCollection<T extends Record<string, any> = Record<string, any>>(
   collectionName: string,
 ) {
@@ -34,9 +34,9 @@ export function useCollection<T extends Record<string, any> = Record<string, any
     // 1. Citire initiala din IndexedDB (instant)
     coll
       .list()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .then((records: any[]) => {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         data = records as any;
         loading = false;
       })
@@ -46,9 +46,9 @@ export function useCollection<T extends Record<string, any> = Record<string, any
       });
 
     // 2. Subscribe la updates (realtime + local writes)
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     unsubscribe = coll.subscribe((records: any[]) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       data = records as any;
     });
 

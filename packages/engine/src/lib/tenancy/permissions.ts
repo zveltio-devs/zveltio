@@ -58,7 +58,7 @@ let _db: Database;
 let _enforcer: Enforcer | null = null;
 
 class KyselyCasbinAdapter {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async loadPolicy(model: any): Promise<void> {
     const policies = await sql<{
       ptype: string;
@@ -86,7 +86,7 @@ class KyselyCasbinAdapter {
     }
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async savePolicy(model: any): Promise<boolean> {
     // Wrap TRUNCATE + INSERT in a single transaction so there's never a
     // window where zvd_permissions is empty. A crash in the middle would
@@ -106,7 +106,7 @@ class KyselyCasbinAdapter {
         }
       }
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     await (_db as any).transaction().execute(async (trx: Database) => {
       await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
       for (const [ptype, ...values] of lines) {
@@ -143,7 +143,7 @@ class KyselyCasbinAdapter {
     _fieldIndex: number,
     ...fieldValues: (string | undefined)[]
   ): Promise<void> {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const conditions: any[] = [sql`ptype = ${ptype}`];
     if (fieldValues[0] !== undefined) conditions.push(sql`v0 = ${fieldValues[0]}`);
     if (fieldValues[1] !== undefined) conditions.push(sql`v1 = ${fieldValues[1]}`);

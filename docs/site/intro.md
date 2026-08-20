@@ -6,7 +6,7 @@
 >
 > **Alpha track EOL:** `1.0.0-alpha.*` is closed (last: alpha.129). New installs
 > should use beta only — see
-> [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/ALPHA-TRACK-EOL.md).
+> [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/private/ALPHA-TRACK-EOL.md).
 
 Zveltio is a self-hosted **Business OS** — not just a BaaS, but a complete operating layer for your business. Data, API, CRM, automation, compliance, AI, and real-time sync — all in a single binary that runs on a €20 VPS.
 
