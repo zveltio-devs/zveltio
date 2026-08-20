@@ -124,7 +124,7 @@ interface RoutesContext {
    * what keeps one request to one pooled connection.
    */
   poolDb: Database;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   auth: any;
 }
 

@@ -10,7 +10,7 @@ import {
   deleteRlsPolicy,
 } from '../lib/tenancy/index.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -28,7 +28,7 @@ const PolicySchema = z.object({
   description: z.string().max(512).optional(),
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function rlsRoutes(_db: Database, auth: any): Hono {
   const app = new Hono();
 

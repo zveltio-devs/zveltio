@@ -167,7 +167,7 @@ export async function resolveManifest(
       try {
         const result = await _sql<{ extname: string }>`
               SELECT extname FROM pg_extension WHERE extname = ANY(${
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
                 requiredPgExts as any
               })
             `.execute(db);

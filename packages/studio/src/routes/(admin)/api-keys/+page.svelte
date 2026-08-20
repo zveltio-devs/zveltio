@@ -59,7 +59,7 @@ async function loadKeys() {
     );
     apiKeys = res.api_keys || [];
     total = res.total ?? apiKeys.length;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Something went wrong');
   } finally {
@@ -81,7 +81,7 @@ async function createKey() {
     showCreateModal = false;
     form = emptyForm();
     await loadKeys();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Failed to create key');
   } finally {
@@ -100,7 +100,7 @@ async function revokeKey(id: string) {
       try {
         await api.delete(`/api/api-keys/${id}`);
         await loadKeys();
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message || 'Failed to revoke key');
       }

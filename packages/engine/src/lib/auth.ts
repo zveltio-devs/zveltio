@@ -284,13 +284,13 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
   try {
     const rows = await db
       .selectFrom('account')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .select((eb: any) => eb.fn.count('id').as('count'))
       .where('password', 'is not', null)
       // SQL pattern: anything that DOES NOT start with `$`.
       .where('password', 'not like', '$%')
       .executeTakeFirst();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     return Number((rows as any)?.count ?? 0);
   } catch {
     return 0; // table missing on fresh installs, etc.
@@ -425,11 +425,11 @@ export async function initAuth(db: Database) {
   // This form is explicit: we reuse the already-working engine Kysely instance and
   // tell better-auth it's postgres, so all feature flags (booleans, UUIDs, JSON)
   // are enabled correctly.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const database: any = { db, type: 'postgres' };
 
   // Optional cache secondary storage for sessions
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   let secondaryStorage: any;
   if (process.env.VALKEY_URL) {
     const { createCacheSecondaryStorage } = await import('./runtime/index.js');
@@ -594,7 +594,7 @@ export async function initAuth(db: Database) {
               clientSecret: process.env.APPLE_CLIENT_SECRET || '',
               teamId: process.env.APPLE_TEAM_ID || '',
               keyId: process.env.APPLE_KEY_ID || '',
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             } as any,
           }
         : {}),
@@ -687,7 +687,7 @@ export async function initAuth(db: Database) {
   // proper 500 instead of swallowing it into a silent 401. Without this
   // narrowing, every infrastructure failure looked like "logged out".
   const origGetSession = authInstance.api.getSession.bind(authInstance.api);
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   (authInstance.api as any).getSession = wrapGetSession(origGetSession);
 
   // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>

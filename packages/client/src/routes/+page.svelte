@@ -8,7 +8,7 @@ let { data } = $props();
 
 const auth = useAuth();
 const theme = $derived(data?.theme ?? null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 const nav = $derived((data?.nav ?? []) as any[]);
 const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
 // `/` is the login landing by DEFAULT (ADR 0001). A published page-builder

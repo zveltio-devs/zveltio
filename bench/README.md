@@ -90,4 +90,4 @@ performance, which is what users feel.
 - AI extension semantic-search latency (depends on pgvector + model)
 - Realtime under load (1000+ concurrent WS clients)
 
-Tracked in `docs/TECHNICAL-GAPS.md` § 3 (Performance & Scale).
+Tracked in `docs/private/TECHNICAL-GAPS.md` § 3 (Performance & Scale).

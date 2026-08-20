@@ -202,7 +202,7 @@ export async function generateTypes(options: GenerateTypesOptions = {}): Promise
   };
 
   const collections: CollectionSchema[] = Array.isArray(data.collections)
-    ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       data.collections.filter((c: any) => !c.is_system)
     : data.collection
       ? [data.collection]

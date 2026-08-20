@@ -281,7 +281,7 @@ await loadExtensions();
 > (`engine/index.js` produced by `zveltio extension pack`), not raw
 > `.ts` source. The engine binary refuses to load v1-style manifests
 > in production. See the full developer guide at
-> [`docs/EXTENSION-DEVELOPER-GUIDE.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md).
+> [`docs/site/EXTENSION-DEVELOPER-GUIDE.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/site/EXTENSION-DEVELOPER-GUIDE.md).
 
 ### Quick start
 
@@ -366,7 +366,7 @@ user-deployed endpoints).
 | Tier | `engine.isolation` | Use for | Tradeoff |
 |---|---|---|---|
 | **Inline** (default) | omit or `"inline"` | First-party / audited code | Max speed, full functionality, no crash isolation |
-| **Worker** | `"worker"` | Community / third-party / untrusted code | Crash isolation + no DB credentials in worker. **MANDATORY** for community submissions per [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/MARKETPLACE-POLICY.md) §2. ~1-2ms IPC overhead per route hit. |
+| **Worker** | `"worker"` | Community / third-party / untrusted code | Crash isolation + no DB credentials in worker. **MANDATORY** for community submissions per [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/site/MARKETPLACE-POLICY.md) §2. ~1-2ms IPC overhead per route hit. |
 | **Subprocess / WASM** | _not yet implemented_ | True OS sandbox + RSS limit | Future track. See `EXTENSION-DEVELOPER-GUIDE.md` §13.5 for the threat model. |
 
 The engine refuses to enable a non-official extension that doesn't
@@ -402,7 +402,7 @@ resolve it at pack time.
 > marketplace admin approves manually. As of beta.2 the marketplace
 > admin team is multi-user — owner + reviewers managed at
 > `/admin/team` on `apps.zveltio.com`. See
-> [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/MARKETPLACE-POLICY.md)
+> [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/site/MARKETPLACE-POLICY.md)
 > for review criteria, SLA expectations, and takedown process.
 
 ### Step-by-step

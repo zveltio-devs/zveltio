@@ -118,7 +118,7 @@ export async function instantiateWasmExtension(
     throw new Error(
       `WASM extension "${opts.extName}" does not export a register() function. ` +
         `Every Zveltio WASM extension must export at least register(). ` +
-        `See docs/EXTENSION-DEVELOPER-GUIDE.md §16 (WASM extensions).`,
+        `See docs/site/EXTENSION-DEVELOPER-GUIDE.md §16 (WASM extensions).`,
     );
   }
   const shutdownFn = exports.shutdown as (() => void | Promise<void>) | undefined;

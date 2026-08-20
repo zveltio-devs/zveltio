@@ -15,7 +15,7 @@
 import { runFunction } from './edge-functions/sandbox.js';
 
 export interface ScriptResult {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   output: any;
   logs: string[];
   error?: string;
@@ -24,7 +24,7 @@ export interface ScriptResult {
 
 export async function runScript(
   code: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   input: Record<string, any> = {},
   timeoutMs = 30_000,
 ): Promise<ScriptResult> {
@@ -79,7 +79,7 @@ async function handler(ctx) {
       };
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     let parsed: { output?: any; logs?: string[]; error?: string } = {};
     try {
       parsed = JSON.parse(result.body);

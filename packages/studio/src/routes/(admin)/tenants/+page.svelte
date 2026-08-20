@@ -20,7 +20,7 @@ import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
 // ── State ──────────────────────────────────────────────────────────────────
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let tenants = $state<any[]>([]);
 let loading = $state(false);
 
@@ -37,20 +37,20 @@ let createForm = $state({
 let createError = $state('');
 
 // Edit limits modal
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let editingTenant = $state<any>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let editForm = $state<any>({});
 let saving = $state(false);
 
 // Environments panel
 let expandedTenant = $state<string | null>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let envsByTenant = $state<Record<string, any[]>>({});
 let loadingEnvs = $state<string | null>(null);
 
 // Create environment modal
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let creatingEnvForTenant = $state<any>(null);
 let envForm = $state({ slug: '', name: '' });
 let creatingEnv = $state(false);
@@ -71,10 +71,10 @@ onMount(loadTenants);
 async function loadTenants() {
   loading = true;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ tenants: any[] }>('/api/tenants');
     tenants = data.tenants;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Something went wrong');
   } finally {
@@ -96,7 +96,7 @@ async function createTenant() {
     showCreateModal = false;
     createForm = { slug: '', name: '', plan: 'free', billing_email: '', admin_user_email: '' };
     await loadTenants();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     createError = e.message;
   } finally {
@@ -104,7 +104,7 @@ async function createTenant() {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function suspendTenant(tenant: any) {
   const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
   const action = newStatus === 'suspended' ? 'Suspend' : 'Reactivate';
@@ -118,7 +118,7 @@ async function suspendTenant(tenant: any) {
       try {
         await api.patch(`/api/tenants/${tenant.id}`, { status: newStatus });
         await loadTenants();
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message);
       }
@@ -126,7 +126,7 @@ async function suspendTenant(tenant: any) {
   };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function openEditLimits(tenant: any) {
   editingTenant = tenant;
   editForm = {
@@ -144,7 +144,7 @@ async function saveLimits() {
     await api.patch(`/api/tenants/${editingTenant.id}`, editForm);
     editingTenant = null;
     await loadTenants();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message);
   } finally {
@@ -152,7 +152,7 @@ async function saveLimits() {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function toggleEnvironments(tenant: any) {
   if (expandedTenant === tenant.id) {
     expandedTenant = null;
@@ -162,7 +162,7 @@ async function toggleEnvironments(tenant: any) {
   if (!envsByTenant[tenant.id]) {
     loadingEnvs = tenant.id;
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const data = await api.get<{ environments: any[] }>(`/api/tenants/${tenant.id}/environments`);
       envsByTenant[tenant.id] = data.environments;
     } catch {
@@ -175,7 +175,7 @@ async function toggleEnvironments(tenant: any) {
 }
 
 // ── Members + per-tenant roles ──────────────────────────────────────────────
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let membersByTenant = $state<Record<string, any[]>>({});
 let loadingMembers = $state<string | null>(null);
 let memberForm = $state<Record<string, { email: string; role: string }>>({});
@@ -185,7 +185,7 @@ const TENANT_ROLES = ['owner', 'admin', 'member', 'viewer'];
 async function loadMembers(tenantId: string) {
   loadingMembers = tenantId;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ members: any[] }>(`/api/tenants/${tenantId}/members`);
     membersByTenant[tenantId] = data.members;
   } catch {
@@ -207,7 +207,7 @@ async function addMember(tenantId: string) {
     memberForm[tenantId] = { email: '', role: 'member' };
     await loadMembers(tenantId);
     toast.success('Member added');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Failed to add member');
   } finally {
@@ -220,13 +220,13 @@ async function removeMember(tenantId: string, userId: string) {
     await api.delete(`/api/tenants/${tenantId}/members/${userId}`);
     await loadMembers(tenantId);
     toast.success('Member removed');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Failed to remove member');
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function openCreateEnv(tenant: any) {
   creatingEnvForTenant = tenant;
   envForm = { slug: '', name: '' };
@@ -238,13 +238,13 @@ async function createEnvironment() {
   createEnvError = '';
   try {
     await api.post(`/api/tenants/${creatingEnvForTenant.id}/environments`, envForm);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ environments: any[] }>(
       `/api/tenants/${creatingEnvForTenant.id}/environments`,
     );
     envsByTenant[creatingEnvForTenant.id] = data.environments;
     creatingEnvForTenant = null;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     createEnvError = e.message;
   } finally {

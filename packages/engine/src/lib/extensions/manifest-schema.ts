@@ -186,14 +186,14 @@ export const ManifestSchema = z
      * — the engine reads `engine/extension.wasm` and runs it inside a
      * capability-bound WebAssembly instance. WASM extensions get real
      * isolation (separate linear memory, no V8 heap access) at the cost
-     * of a small ABI surface; see `docs/EXTENSION-DEVELOPER-GUIDE.md` §16.
+     * of a small ABI surface; see `docs/site/EXTENSION-DEVELOPER-GUIDE.md` §16.
      */
     runtime: z.enum(['js', 'wasm']).default('js').optional(),
     /**
      * v2 engine block. When present with `bundled: true`, the loader
      * imports `engine.entry` (a pre-built `.js` artifact) directly
      * without checking for the CORE_NPM_PACKAGES on disk — the bundle
-     * has them inlined. See docs/EXTENSIONS-V2-PHASE1.md.
+     * has them inlined. See docs/private/EXTENSIONS-V2-PHASE1.md.
      */
     engine: z
       .object({
@@ -210,7 +210,7 @@ export const ManifestSchema = z
          * registry write access, and all SQL is proxied through the
          * host. Use for third-party / untrusted extensions where
          * security trumps the +0.5-2ms IPC overhead per route hit.
-         * See docs/EXTENSIONS-V2-PHASE1.md §10 for the threat model.
+         * See docs/private/EXTENSIONS-V2-PHASE1.md §10 for the threat model.
          */
         isolation: z.enum(['inline', 'worker']).default('inline'),
       })

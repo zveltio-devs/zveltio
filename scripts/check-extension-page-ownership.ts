@@ -2,7 +2,7 @@
 /**
  * Gate: an extension's Studio page belongs to the extension.
  *
- * `docs/EXTENSION-DEVELOPER-GUIDE.md` § 10 says how to ship a Studio UI — a
+ * `docs/site/EXTENSION-DEVELOPER-GUIDE.md` § 10 says how to ship a Studio UI — a
  * declarative schema, or a code page under `studio/pages/` — and both live in
  * the extension. Nothing checked that, so pages drifted into the engine and
  * stayed there.
@@ -170,7 +170,7 @@ if (problems.length > 0) {
   );
   for (const p of problems) console.error(`  ${p}\n`);
   console.error(
-    '  An extension owns its Studio page — see docs/EXTENSION-DEVELOPER-GUIDE.md § 10.\n' +
+    '  An extension owns its Studio page — see docs/site/EXTENSION-DEVELOPER-GUIDE.md § 10.\n' +
       '  The engine may carry a GENERATED copy so releases work without the extensions\n' +
       '  repository, and that copy must match what it was generated from.\n',
   );
