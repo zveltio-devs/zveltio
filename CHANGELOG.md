@@ -4,6 +4,111 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.61] - 2026-08-20
+
+**Any installed extension could read `session.token` out of the `session`
+table.** Not through a bug in one extension — through `ctx.db`, the handle the
+engine hands every extension, whose table guard was a denylist over an open
+namespace. It listed the `zv_`-prefixed tables an extension may not touch, and
+Better-Auth's tables carry no prefix at all: `user`, `session`, `account`. The
+same mistake was found in three separate places, written by three different
+people, none of whom could have caught it by reading their own code — a
+denylist over a namespace anyone can add to is wrong the moment someone does.
+
+### Security
+
+- **`createRestrictedDb` allowed any extension to read `session.token`,
+  `user` and `account`** — proven on a live database, not inferred from the
+  diff. The guard is now an allowlist: an extension reaches its own tables,
+  `zvd_` data tables, and whatever its manifest grants it. Nothing else.
+  `withSchema` is refused outright for any schema but `public`, which the
+  denylist never considered.
+- **The same denylist shape, in two more places**: the AI text-to-SQL
+  validator and the worker SQL bridge. Both permitted the unprefixed
+  Better-Auth tables. Both are allowlists now.
+- **2FA backup codes were stored in plaintext, and 2FA could not be enabled at
+  all** — the second defect hid the first.
+- **An API key with no scopes had access to everything.** An empty scope list
+  read as "unrestricted" instead of "nothing".
+- **Password-reset and magic-link tokens were stored in the clear.**
+- **`tenant_id` was taken from the request body**, so a caller could write into
+  another company's data by asking for it.
+- **`created_by` and `updated_by` were silently dropped** by a `RESERVED` field
+  filter — authorship was discarded on every write, and `updated_by` never
+  moved at all.
+- **The worker SQL sandbox permitted session tokens and self-promotion.**
+- **A public extension route ran with no tenant context**, and RLS with no
+  context is RLS that matches nothing.
+- Pre-auth rate limits (SEC-10/11/12), anonymous edge invocations (SEC-09),
+  wildcard CORS (SEC-13), the recovery bootstrap (SEC-07), and a read-only SQL
+  editor that was outranked by a duplicate route (SEC-03).
+- RLS on the credential tables — with session revocation moved to the
+  privileged pool, because the request's tenant role can no longer touch them.
+
+### Fixed
+
+- **A failure that renders as a success — 16 of 20 defects in an independent
+  audit shared this one shape.** `.catch(() => [])` on a database query hands
+  the caller an empty result that is indistinguishable from "there is nothing
+  there". The class is now burned to zero in **both** repositories, with a gate
+  that fails on any new one. Sites reviewed and deliberately kept carry
+  `// fabricated-ok: <reason>` at the site, so the judgement is visible instead
+  of buried in a count. Fixing them surfaced real defects underneath: a GDPR
+  right-of-access export delivered incomplete as complete, a payroll run paid
+  people at the wrong rates after a database error, and `byod /stats` had been
+  querying a table that never existed, so `imported_tables` read 0 on every
+  install ever made.
+- **A failed ownership check ran the destructive DDL anyway.** The guard threw,
+  the catch swallowed it, and the drop proceeded.
+- **The content/pages Studio screen shipped without any of its 236 message
+  keys.** `m['missing']` is `undefined`, and calling it throws — the page did
+  not render untranslated, it blanked.
+- **A webhook step configured as GET threw before it sent anything**, because
+  the executor attached a body regardless of method.
+- **A trailing slash 404'd on every route in the product.**
+- **The block-type library was empty for every company but the first**, so the
+  page builder opened onto nothing for anyone else.
+- **Validation rule groups never ran**, and a rule engine that cannot load its
+  rules now refuses the write instead of letting it through.
+- **The integrity check now checks integrity.**
+- **`/api/admin/system/status` reported `status: 'ok'` while also reporting
+  `database.status: 'disconnected'`.**
+- **Session revocation stopped working after RLS landed on the credential
+  tables** — so a user could not be deleted, and enabling 2FA no longer threw
+  out your other sessions. Both call sites now use the privileged pool, and the
+  `.catch` that turned `permission denied` into `transaction is aborted` three
+  statements later is gone.
+- **`bulkCreate` failed only in CI**, from two module singletons leaking in
+  opposite directions between test files.
+
+### Changed
+
+- **BREAKING: the engine is headless.** `content/portals` and
+  `content/page-builder` merged into a single `content/pages` extension, and
+  the engine's own `zones` and `views` routes are gone. Public sites and
+  authenticated portals are the same object now, built and served by the
+  extension.
+- Extensions get their own slice of the environment — `ctx.config.vars`,
+  namespaced `ZVELTIO_EXT_<NAME>_*`. Reading `process.env` directly is now a
+  gate failure, and the gate sees all extensions rather than the 12 it had been
+  blind to.
+- The SDK gained `readMultipart`, `roundMoney`/`toNumber`, and an SSRF-safe
+  fetch, so extensions stop hand-rolling the parts that were getting them
+  wrong.
+
+### Infrastructure
+
+- **Four gates in the Lint job had never run.** They were guarded by a silent
+  skip that was always taken, because the job never checked out the sibling
+  repository they scan.
+- **The migration-safety gate and the seam gate both read only half of what
+  they claimed to** — the seam gate looked at `INSERT` and not `UPDATE`, and
+  could not see one extension writing another's table.
+- The coverage baseline was corrected from a number no longer reproducible
+  (98.0, measured five weeks and one refactor ago) to what master actually
+  measures (97.5, in its own CI and rebuilt locally), so the ratchet compares
+  against reality and has its intended headroom back.
+
 ## [3.0.0-beta.60] - 2026-08-12
 
 **The migration gate had never run, and the Helm chart had been empty for four
