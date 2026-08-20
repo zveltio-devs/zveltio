@@ -47,7 +47,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       const { keyPrefix } = c.req.param() as { keyPrefix: string };
       const body = c.req.valid('json');
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const updates: any = { updated_at: new Date(), updated_by: user.id };
       if (body.window_ms !== undefined) updates.window_ms = body.window_ms;
       if (body.max_requests !== undefined) updates.max_requests = body.max_requests;
@@ -76,7 +76,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
 
   // POST /rate-limits/reset — restore all tiers to compiled defaults
   app.post('/rate-limits/reset', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const defaults = [
       { key_prefix: 'auth', window_ms: 60000, max_requests: 10 },
@@ -132,7 +132,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     const row = await db
       .insertInto('zvd_column_permissions')
       .values(data)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .onConflict((oc: any) =>
         oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
           can_read: data.can_read,
@@ -143,7 +143,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .returningAll()
       .executeTakeFirst();
     await invalidateColumnPermCache(data.collection_name);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -165,9 +165,9 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .returningAll()
       .executeTakeFirst();
     if (!row) return c.json({ error: 'Not found' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     await invalidateColumnPermCache((row as any).collection_name);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -187,7 +187,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .returning('collection_name')
       .executeTakeFirst();
     if (deleted?.collection_name) await invalidateColumnPermCache(deleted.collection_name);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',

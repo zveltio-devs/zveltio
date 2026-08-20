@@ -72,7 +72,7 @@ const DecideSchema = z.object({
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/HARDENING-9-PLAN.md H-05
+// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/private/HARDENING-9-PLAN.md H-05
 export function approvalsRoutes(db: Database, auth: any) {
   // ── Helpers (auth-scoped) ────────────────────────────────────────────────
 

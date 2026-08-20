@@ -42,7 +42,7 @@ interface FieldDef {
   name: string;
   type: string;
   required?: boolean;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   options?: any;
 }
 interface CollectionDef {
@@ -69,7 +69,7 @@ let installing = $state(false);
 let installedCollections = $state<string[]>([]);
 let installCompletedCount = $state(0);
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 const ICONS: Record<string, any> = {
   Users,
   Receipt,
@@ -97,7 +97,7 @@ async function openPreview(id: string) {
   try {
     const r = await api.get<{ template: TemplateFull }>(`/api/templates/${id}`);
     preview = r.template;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? 'Failed to load template');
     openId = '';
@@ -149,7 +149,7 @@ async function install() {
           const j = await collectionsApi.jobStatus(jobId);
           // Route returns { job: { status, error, ... } } — see
           // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts.
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           const status = (j.job as any)?.status;
           if (status === 'completed') {
             pending.delete(jobId);
@@ -157,7 +157,7 @@ async function install() {
           } else if (status === 'failed') {
             throw new Error(
               `Job ${jobId} failed: ${
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
                 (j.job as any)?.error ?? 'unknown'
               }`,
             );
@@ -199,7 +199,7 @@ async function install() {
         `Template install timed out — ${pending.size} collections still pending. Check the collections page.`,
       );
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? 'Install failed');
   } finally {

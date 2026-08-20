@@ -133,7 +133,7 @@ CSV/JSON upload + download of any collection) behind nothing more than
 **What.** Two doc updates that close out everything the peer review
 flagged as undocumented.
 
-**1. `docs/SECURITY.md`** gains a new top-level "RBAC" section explaining
+**1. `docs/private/SECURITY.md`** gains a new top-level "RBAC" section explaining
 the three authorization layers, in increasing strictness:
 
    - Layer 1: auth guard (every extension's first `app.use`).
@@ -150,7 +150,7 @@ the three authorization layers, in increasing strictness:
    `compliance/ro/efactura` as ✅ tenant-safe; everything else as ⏳
    pending the §6.1 backlog.
 
-**2. `docs/AUDIT-2026-05-24.md`** §6.1 + §6.2 updated to reflect PR #1-#3
+**2. `audit/AUDIT-2026-05-24.md`** §6.1 + §6.2 updated to reflect PR #1-#3
 completion. The original "highest-risk first" list is now a
 commit-tracked progress table. §6.2 points operators to the new
 SECURITY.md RBAC section instead of repeating the explanation in two

@@ -322,7 +322,7 @@ worker service bridge, admin health endpoint.
 | Engine verifies archive bytes against header at install | ✅ DONE (alpha.123) | `extension-loader.ts` SHA-256s the ZIP, refuses extract on mismatch |
 | Registry enforces `integrity.archiveSha256` declared in manifest at upload | ✅ DONE (alpha.124) | Sync flow now compares manifest hash against ZIP bytes; mismatch rejected with 400 |
 | `createExtensionBuildConfig` export in `@zveltio/sdk` | ✅ DONE (alpha.123) | `@zveltio/sdk/build` — CLI imports from there (single source of truth) |
-| Marketplace public policy doc | ✅ DONE (alpha.129) | `docs/MARKETPLACE-POLICY.md` — v1.0 effective beta.1. §0 maps each policy claim to enforcing code; §8 operator runbook; §9 lists what's still human (review team / SLA / appeals) |
+| Marketplace public policy doc | ✅ DONE (alpha.129) | `docs/site/MARKETPLACE-POLICY.md` — v1.0 effective beta.1. §0 maps each policy claim to enforcing code; §8 operator runbook; §9 lists what's still human (review team / SLA / appeals) |
 | Enforce `isolation: 'worker'` for third-party at engine load | ✅ DONE (alpha.124) | Catalog entry carries `is_official`; loader refuses to enable non-official extensions without `engine.isolation: 'worker'` |
 | Unit tests for worker host bookkeeping | ✅ DONE (alpha.123) | 7 tests covering lifecycle, health record shape, duplicate guard |
 | Unit test: archive SHA mismatch refused | ✅ DONE (alpha.124) | `extension-loader-archive.test.ts` |

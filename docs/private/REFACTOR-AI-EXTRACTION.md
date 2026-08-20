@@ -169,7 +169,7 @@ services: serviceRegistry,
 
 ### 1.4 — Documentation
 
-**File**: `docs/EXTENSION-AUTHORING.md`
+**File**: `docs/site/EXTENSION-AUTHORING.md`
 
 Add new section "Inter-extension services" with `register` / `get` / `waitFor` examples. State explicitly: extensions must NOT directly import from other extensions — communication goes exclusively via `ctx.services`.
 

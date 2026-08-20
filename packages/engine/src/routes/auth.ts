@@ -11,7 +11,7 @@ import { withAuthorizedUserCreation } from '../lib/auth.js';
 /** The membership grades `zv_tenant_users.role` accepts (a CHECK constraint). */
 const MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'member', 'viewer']);
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function authRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -80,7 +80,7 @@ export function authRoutes(db: Database, auth: any): Hono {
  * Companion to POST /api/users/invite (admin-side) + migration 004_invitations.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function invitationRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 

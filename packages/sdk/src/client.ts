@@ -12,7 +12,7 @@ export interface ListParams {
   sort?: string;
   order?: 'asc' | 'desc';
   search?: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   filter?: Record<string, any>;
   cursor?: string;
 }
@@ -25,11 +25,11 @@ export interface ListResult<T> {
   next_cursor?: string;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 class CollectionRef<T extends Record<string, any>> {
   constructor(
     private readonly name: string,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     private readonly client: ZveltioClient<any>,
   ) {}
 
@@ -85,7 +85,7 @@ class CollectionRef<T extends Record<string, any>> {
  *   const client = createZveltioClient({ baseUrl: '...' });
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export class ZveltioClient<Schema extends Record<string, any> = Record<string, any>> {
   private baseUrl: string;
   private headers: Record<string, string>;
@@ -99,7 +99,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     };
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   private async request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
@@ -113,24 +113,24 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     return res.json();
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   get<T = any>(path: string): Promise<T> {
     return this.request<T>('GET', path);
   }
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   post<T = any>(path: string, body?: unknown): Promise<T> {
     return this.request<T>('POST', path, body);
   }
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   patch<T = any>(path: string, body?: unknown): Promise<T> {
     return this.request<T>('PATCH', path, body);
   }
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   delete<T = any>(path: string): Promise<T> {
     return this.request<T>('DELETE', path);
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async upload<T = any>(path: string, formData: FormData): Promise<T> {
     const headers = { ...this.headers };
     delete headers['Content-Type'];
@@ -150,9 +150,9 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
    * the return type reflects the collection's record shape.
    */
   collection<K extends keyof Schema & string>(name: K): CollectionRef<Schema[K]>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   collection(name: string): CollectionRef<Record<string, any>>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   collection(name: string): CollectionRef<any> {
     return new CollectionRef(name, this);
   }
@@ -180,7 +180,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
   } as const;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function createZveltioClient<Schema extends Record<string, any> = Record<string, any>>(
   config: ZveltioClientConfig,
 ): ZveltioClient<Schema> {

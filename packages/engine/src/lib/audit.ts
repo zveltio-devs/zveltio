@@ -53,7 +53,7 @@ export interface AuditEvent {
   userId?: string;
   resourceId?: string;
   resourceType?: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   metadata?: Record<string, any>;
   ip?: string;
 }

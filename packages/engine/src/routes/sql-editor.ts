@@ -42,7 +42,7 @@ const SqlSchema = z.object({
   mode: z.enum(['read', 'write']).default('read'),
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function sqlEditorRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -66,7 +66,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
       // this wrap, `.execute(db)` on the pool can hand SET LOCAL and the
       // query to different connections and the cap becomes a no-op.
       const seconds = Math.max(1, Math.ceil(timeout_ms / 1000));
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const result = await (db as any).transaction().execute(async (trx: any) => {
         await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
         // Before the query, and inside the same transaction, so it binds to the
@@ -76,7 +76,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
         }
         return sql.raw(query).execute(trx);
       });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const rows = ((result as any).rows ?? []) as Record<string, unknown>[];
 
       // Audit every successful execution — content stored, but truncated.

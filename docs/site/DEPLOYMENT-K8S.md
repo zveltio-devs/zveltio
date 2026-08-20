@@ -160,7 +160,7 @@ Expected keys in the existing Secret:
 | `METRICS_TOKEN` | recommended | Bearer for `/metrics` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | OpenTelemetry collector |
 | `S3_*` | when using S3 storage | endpoint / bucket / region / keys |
-| `REGISTRY_PUBLIC_KEYS_JSON` | when verifying signed extensions | See `docs/EXTENSION-DEVELOPER-GUIDE.md` |
+| `REGISTRY_PUBLIC_KEYS_JSON` | when verifying signed extensions | See `docs/site/EXTENSION-DEVELOPER-GUIDE.md` |
 
 **External Secrets Operator** + Vault / AWS Secrets Manager / GCP Secret Manager is the recommended pattern. Sealed-secrets works too if you prefer GitOps.
 

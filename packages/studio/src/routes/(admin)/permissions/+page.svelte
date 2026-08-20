@@ -28,7 +28,7 @@ type Resource = {
 };
 
 let resources = $state<Resource[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let roles = $state<any[]>([]);
 let permissions = $state(new Map<string, Set<string>>());
 let loading = $state(true);
@@ -90,9 +90,9 @@ async function loadAll() {
   try {
     const [resRes, rolRes, permRes] = await Promise.all([
       api.get<{ resources: Resource[] }>('/api/admin/resources'),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       api.get<{ roles: any[] }>('/api/admin/roles'),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       api.get<{ permissions: any[] }>('/api/admin/permissions'),
     ]);
     resources = resRes.resources || [];
@@ -134,7 +134,7 @@ async function saveMatrix() {
   saving = true;
   saved = false;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const list: any[] = [];
     for (const [key, acts] of permissions) {
       const [role_id, resource] = key.split(':');
@@ -196,7 +196,7 @@ async function addInheritance() {
     hierChild = '';
     hierParent = '';
     await loadHierarchy();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to add inheritance');
   } finally {
