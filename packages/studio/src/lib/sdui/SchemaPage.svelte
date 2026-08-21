@@ -39,6 +39,7 @@ import {
   Save,
   Pencil,
   Inbox,
+  ScanSearch,
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 import BuilderLayout from './BuilderLayout.svelte';
@@ -94,6 +95,7 @@ const ICONS: Record<string, any> = {
   Save,
   Pencil,
   Inbox,
+  ScanSearch,
 };
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
@@ -725,6 +727,11 @@ function runAction(row: any, a: ActionDef) {
     void goto(`${base}${href}`);
     return;
   }
+  if (a.kind === 'open') {
+    const path = fillEndpoint(a.endpoint ?? a.href ?? '', row);
+    window.open(`${ENGINE_URL}${path.startsWith('/') ? path : `/${path}`}`, '_blank');
+    return;
+  }
   if (a.kind === 'download') {
     let ep = fillEndpoint(a.endpoint ?? '', row);
     const [path, existingQs] = ep.split('?');
@@ -931,6 +938,12 @@ const shellTabs = $derived(
   searchPlaceholder={t(active.search?.placeholder)}
 >
   {#snippet actions()}
+    {#each schema.pageActions ?? [] as a}
+      <button type="button" class="btn btn-ghost btn-sm gap-1 {a.variant ?? ''}" onclick={() => runAction({}, a)}>
+        {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={14} />{/if}
+        {t(a.label)}
+      </button>
+    {/each}
     {#if active.form}
       <button type="button" class="btn btn-primary btn-sm gap-1" onclick={openCreate}>
         <Plus size={14} /> {t(schema.newLabel)}
