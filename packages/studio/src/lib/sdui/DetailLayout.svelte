@@ -104,14 +104,18 @@ async function selectPanel(id: string) {
   panelId = id;
   const p = d.panels.find((x) => x.id === id);
   if (!p) return;
-  if ((p.kind === 'tree' || p.kind === 'table') && p.dataSource && panelData[id] === undefined) {
+  if (
+    (p.kind === 'tree' || p.kind === 'table' || p.kind === 'image') &&
+    p.dataSource &&
+    panelData[id] === undefined
+  ) {
     panelLoading[id] = true;
     try {
       const res = await api.get(fill(p.dataSource));
       panelData[id] = getPath(res, p.dataPath) ?? res;
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
-      panelData[id] = p.kind === 'tree' ? null : [];
+      panelData[id] = p.kind === 'tree' ? null : p.kind === 'image' ? null : [];
     } finally {
       panelLoading[id] = false;
     }
@@ -324,6 +328,24 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
             </tbody>
           </table>
         </div>
+      {/if}
+    {:else if activePanel?.kind === 'image'}
+      {#if panelLoading[activePanel.id]}
+        <div class="flex justify-center py-12"><LoaderCircle size={24} class="animate-spin text-primary" /></div>
+      {:else if panelData[activePanel.id]}
+        <div class="flex flex-col items-center gap-3 py-6">
+          <img
+            src={String(panelData[activePanel.id])}
+            alt={t(activePanel.caption) || t(activePanel.label)}
+            class="bg-base-100 rounded-lg border border-base-300 p-3"
+            style="max-width: {activePanel.maxWidth ?? '280px'}; width: 100%; height: auto;"
+          />
+          {#if activePanel.caption}
+            <p class="text-xs text-base-content/60">{t(activePanel.caption)}</p>
+          {/if}
+        </div>
+      {:else}
+        <p class="text-center text-sm text-base-content/40 py-12">{t('common.noResults')}</p>
       {/if}
     {:else if activePanel?.kind === 'form' && activePanel.form && visiblePanelForm(activePanel)}
       <div class="card bg-base-200 max-w-xl">

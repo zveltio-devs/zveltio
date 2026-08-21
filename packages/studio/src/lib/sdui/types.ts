@@ -442,12 +442,16 @@ export interface FieldDef {
 export interface DetailPanel {
   id: string;
   label: string;
-  kind: 'fields' | 'tree' | 'table' | 'form';
+  kind: 'fields' | 'tree' | 'table' | 'form' | 'image';
   /** fields: display these keys from the loaded record. */
   fields?: { key: Dotted; label: string; type?: ColumnDef['type'] }[];
-  /** tree/table: fetch on first open (lazy). "{id}" from route. */
+  /** tree/table/image: fetch on first open (lazy). "{id}" from route. */
   dataSource?: string;
   dataPath?: Dotted;
+  /** image: optional caption under the media. */
+  caption?: string;
+  /** image: CSS max width (default 280px). */
+  maxWidth?: string;
   /** tree: child array key on each node (default "inputs"). */
   childrenKey?: Dotted;
   /** tree: how to render a node line — "{item_name} — {lot_number} [{status}]". */
