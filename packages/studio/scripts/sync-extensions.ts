@@ -165,6 +165,13 @@ for (const extRoot of EXT_ROOTS) {
     const skipReason = SKIP_SLUGS.get(slug);
     if (skipReason) {
       console.log(`[sync-ext] ·  ${extName} → ${slug}/ SKIPPED — duplicates ${skipReason}`);
+      // Still sync studio/src for field components even when the admin page is skipped.
+      if (hasSrc) {
+        const libDest = join(LIB_EXT, extName);
+        mkdirSync(libDest, { recursive: true });
+        copyTreeSkippingTests(srcDir, libDest);
+        syncedLibDirs.push(extName);
+      }
       continue;
     }
 
@@ -179,7 +186,10 @@ for (const extRoot of EXT_ROOTS) {
 
     // Copy studio/src/ (shared components, libs) → $lib/ext/<name>/ so pages and
     // field types can import via $lib/ext/<extName>/components/Foo.svelte.
+<<<<<<< HEAD
     // Mirrors runtime studio-builder.ts; keeps dev parity with prod hot-install.
+=======
+>>>>>>> 3459bcc1 (fix(studio): sync studio/src for schema-only extensions)
     if (hasSrc) {
       const libDest = join(LIB_EXT, extName);
       mkdirSync(libDest, { recursive: true });
