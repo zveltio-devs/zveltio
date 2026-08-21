@@ -11,7 +11,16 @@ import { api } from '$lib/api.js';
 import { m } from '$lib/i18n.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import { ArrowLeft, Plus, Trash2, Save, LoaderCircle, Inbox } from '@lucide/svelte';
+import {
+  ArrowLeft,
+  Plus,
+  Trash2,
+  Save,
+  LoaderCircle,
+  Inbox,
+  ChevronUp,
+  ChevronDown,
+} from '@lucide/svelte';
 import type { FieldDef, ResourceView } from './types.js';
 
 let {
@@ -134,6 +143,15 @@ function addItem() {
 function removeItem(idx: number) {
   if (!draft) return;
   draft[collKey] = draft[collKey].filter((_: unknown, i: number) => i !== idx);
+}
+
+function moveItem(idx: number, dir: -1 | 1) {
+  if (!draft) return;
+  const arr = [...draft[collKey]];
+  const j = idx + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  draft[collKey] = arr;
 }
 
 function optionsText(item: Record<string, unknown>): string {
@@ -379,13 +397,22 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
                 </label>
               {/if}
             {/each}
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs text-error md:col-span-1"
-              onclick={() => removeItem(idx)}
-            >
-              <Trash2 size={12} />
-            </button>
+            <div class="flex gap-0.5 md:col-span-1 justify-end">
+              <button type="button" class="btn btn-ghost btn-xs" disabled={idx === 0} onclick={() => moveItem(idx, -1)}>
+                <ChevronUp size={12} />
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                disabled={idx >= draft[collKey].length - 1}
+                onclick={() => moveItem(idx, 1)}
+              >
+                <ChevronDown size={12} />
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(idx)}>
+                <Trash2 size={12} />
+              </button>
+            </div>
 
             {#if takesOptions(item)}
               <label class="form-control md:col-span-12">
