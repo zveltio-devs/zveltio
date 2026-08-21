@@ -3,7 +3,6 @@
     "ai",
     "analytics/dashboard",
     "billing",
-    "compliance/ro/efactura",
     "content/documents",
     "crm",
     "developer/database",
@@ -18,7 +17,6 @@
     "projects/helpdesk",
     "projects/management",
     "search",
-    "sms",
     "storage/cloud",
     "traceability"
   ],
