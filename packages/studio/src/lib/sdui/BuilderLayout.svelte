@@ -11,7 +11,17 @@ import { api } from '$lib/api.js';
 import { m } from '$lib/i18n.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import { ArrowLeft, Plus, Trash2, Save, LoaderCircle, Inbox } from '@lucide/svelte';
+import {
+  ArrowLeft,
+  Plus,
+  Trash2,
+  Save,
+  LoaderCircle,
+  Inbox,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+} from '@lucide/svelte';
 import type { FieldDef, ResourceView } from './types.js';
 
 let {
@@ -134,6 +144,50 @@ function addItem() {
 function removeItem(idx: number) {
   if (!draft) return;
   draft[collKey] = draft[collKey].filter((_: unknown, i: number) => i !== idx);
+}
+
+function moveItem(idx: number, dir: -1 | 1) {
+  if (!draft) return;
+  const arr = [...draft[collKey]];
+  const j = idx + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  draft[collKey] = arr;
+}
+
+let dragFrom = $state<number | null>(null);
+let dragOver = $state<number | null>(null);
+
+function onDragStart(e: DragEvent, idx: number) {
+  dragFrom = idx;
+  e.dataTransfer?.setData('text/plain', String(idx));
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragOver(e: DragEvent, idx: number) {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  dragOver = idx;
+}
+
+function onDrop(e: DragEvent, idx: number) {
+  e.preventDefault();
+  if (!draft || dragFrom === null || dragFrom === idx) {
+    dragFrom = null;
+    dragOver = null;
+    return;
+  }
+  const arr = [...draft[collKey]];
+  const [item] = arr.splice(dragFrom, 1);
+  arr.splice(idx, 0, item);
+  draft[collKey] = arr;
+  dragFrom = null;
+  dragOver = null;
+}
+
+function onDragEnd() {
+  dragFrom = null;
+  dragOver = null;
 }
 
 function optionsText(item: Record<string, unknown>): string {
@@ -356,7 +410,23 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
         </div>
 
         {#each draft[collKey] as item, idx (item[idKey] ?? idx)}
-          <div class="bg-base-100 rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+          <div
+            class="bg-base-100 rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-end transition-shadow"
+            class:ring-2={dragOver === idx && dragFrom !== idx}
+            class:ring-primary={dragOver === idx && dragFrom !== idx}
+            class:opacity-60={dragFrom === idx}
+            ondragover={(e) => onDragOver(e, idx)}
+            ondrop={(e) => onDrop(e, idx)}
+          >
+            <div
+              class="md:col-span-1 flex items-center justify-center pb-1 cursor-grab active:cursor-grabbing text-base-content/30"
+              draggable="true"
+              ondragstart={(e) => onDragStart(e, idx)}
+              ondragend={onDragEnd}
+              title={t('forms.hint.dragReorder') || 'Drag to reorder'}
+            >
+              <GripVertical size={16} />
+            </div>
             {#each b.collection.itemFields as f}
               {#if f.type === 'boolean'}
                 <label class="flex items-center gap-1 md:col-span-1 pb-1">
@@ -373,19 +443,29 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
                   </select>
                 </label>
               {:else}
-                <label class="form-control md:col-span-4">
+                <label class="form-control md:col-span-3">
                   <span class="label-text text-xs">{t(f.label)}</span>
                   <input class={fieldInputClass(f, 'xs')} bind:value={item[f.name]} />
                 </label>
               {/if}
             {/each}
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs text-error md:col-span-1"
-              onclick={() => removeItem(idx)}
-            >
-              <Trash2 size={12} />
-            </button>
+            <div class="flex gap-0.5 md:col-span-1 justify-end">
+              <button type="button" class="btn btn-ghost btn-xs" disabled={idx === 0} onclick={() => moveItem(idx, -1)} title="Move up">
+                <ChevronUp size={12} />
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                disabled={idx >= draft[collKey].length - 1}
+                onclick={() => moveItem(idx, 1)}
+                title="Move down"
+              >
+                <ChevronDown size={12} />
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(idx)}>
+                <Trash2 size={12} />
+              </button>
+            </div>
 
             {#if takesOptions(item)}
               <label class="form-control md:col-span-12">

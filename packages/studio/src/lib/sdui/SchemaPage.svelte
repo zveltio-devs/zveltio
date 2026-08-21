@@ -39,9 +39,11 @@ import {
   Save,
   Pencil,
   Inbox,
+  ScanSearch,
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 import BuilderLayout from './BuilderLayout.svelte';
+import DetailLayout from './DetailLayout.svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 
@@ -93,6 +95,7 @@ const ICONS: Record<string, any> = {
   Save,
   Pencil,
   Inbox,
+  ScanSearch,
 };
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
@@ -215,7 +218,6 @@ function applyAutofill(f: FieldDef, id: unknown, target: Record<string, any>): v
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 // `row` is present only for an action prompt, where a default may be drawn from
 // the row the action was fired on — "{total-amount_paid}" pre-fills what is
 // still outstanding, so settling an invoice in full stays one click and paying
@@ -239,6 +241,32 @@ function fieldVisible(f: FieldDef, data: Record<string, any> = formData): boolea
   if (f.visibleWhen.equals !== undefined) return v === f.visibleWhen.equals;
   if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
   return true;
+}
+
+/** GS1 / barcode lookup: POST then map response paths into sibling fields. */
+// biome-ignore lint/suspicious/noExplicitAny: form draft bag
+async function runLookup(f: FieldDef, data: Record<string, any>) {
+  if (!f.lookup) return;
+  try {
+    const body: Record<string, string> = {};
+    if (f.lookup.body) {
+      for (const [k, tmpl] of Object.entries(f.lookup.body)) {
+        body[k] = tmpl.replace(/\{([^}]+)\}/g, (_, key) => String(data[key.trim()] ?? ''));
+      }
+    } else {
+      body[f.name] = String(data[f.name] ?? '');
+    }
+    const method = f.lookup.method ?? 'POST';
+    const res =
+      method === 'GET' ? await api.get(f.lookup.endpoint) : await api.post(f.lookup.endpoint, body);
+    for (const [target, path] of Object.entries(f.lookup.map)) {
+      const v = getPath(res, path);
+      if (v !== undefined && v !== null && v !== '') data[target] = v;
+    }
+    toast.success(t('ext.saved'));
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  }
 }
 function allFields(r: ResourceView): FieldDef[] {
   const fs = [...(r.form?.fields ?? [])];
@@ -417,6 +445,7 @@ const checklistSelectedIds = $derived(
 async function load() {
   const r = active;
   if (r.layout === 'builder' && r.builder) return;
+  if (r.layout === 'detail' && r.detail) return;
   if (r.layout === 'checklist' && r.checklist) return loadChecklist(r);
   if (r.master) return loadMasterDetail(r);
   loading = true;
@@ -424,8 +453,26 @@ async function load() {
     const qs = new URLSearchParams();
     if (r.search?.param && search) qs.set(r.search.param, search);
     for (const fl of r.filters ?? []) {
-      const v = filterValues[fl.param];
-      if (v && v !== 'all') qs.set(fl.param, v);
+      if (fl.type === 'dateRange') {
+        const fromP = fl.fromParam ?? 'from';
+        const toP = fl.toParam ?? 'to';
+        const from = filterValues[fromP];
+        const to = filterValues[toP];
+        if (fl.required && (!from || !to)) {
+          rows = [];
+          total = 0;
+          return;
+        }
+        if (from) qs.set(fromP, from);
+        if (to) qs.set(toP, to);
+      } else if (fl.type === 'date') {
+        const p = fl.param ?? 'date';
+        const v = filterValues[p];
+        if (v) qs.set(p, v);
+      } else if (fl.param) {
+        const v = filterValues[fl.param];
+        if (v && v !== 'all') qs.set(fl.param, v);
+      }
     }
     if (r.pagination) {
       qs.set('page', String(page));
@@ -680,8 +727,34 @@ function runAction(row: any, a: ActionDef) {
     void goto(`${base}${href}`);
     return;
   }
+  if (a.kind === 'open') {
+    const path = fillEndpoint(a.endpoint ?? a.href ?? '', row);
+    window.open(`${ENGINE_URL}${path.startsWith('/') ? path : `/${path}`}`, '_blank');
+    return;
+  }
   if (a.kind === 'download') {
-    window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
+    let ep = fillEndpoint(a.endpoint ?? '', row);
+    const [path, existingQs] = ep.split('?');
+    const qs = new URLSearchParams(existingQs ?? '');
+    for (const fl of active.filters ?? []) {
+      if (fl.type === 'dateRange') {
+        const fromP = fl.fromParam ?? 'from';
+        const toP = fl.toParam ?? 'to';
+        const from = filterValues[fromP];
+        const to = filterValues[toP];
+        if (from) qs.set(fromP, from);
+        if (to) qs.set(toP, to);
+      } else if (fl.type === 'date') {
+        const p = fl.param ?? 'date';
+        const v = filterValues[p];
+        if (v) qs.set(p, v);
+      } else if (fl.param) {
+        const v = filterValues[fl.param];
+        if (v && v !== 'all') qs.set(fl.param, v);
+      }
+    }
+    const q = qs.toString();
+    window.open(`${ENGINE_URL}${path}${q ? `?${q}` : ''}`, '_blank');
     return;
   }
   if (a.prompt) {
@@ -746,6 +819,13 @@ function endpointTokens(tmpl: string): string[] {
   return [...tmpl.matchAll(/\{([^}]+)\}/g)].map((mt) => mt[1].trim());
 }
 
+let formPreview = $state<{
+  // biome-ignore lint/suspicious/noExplicitAny: preview KPI bag
+  stats: Record<string, any>;
+  // biome-ignore lint/suspicious/noExplicitAny: preview list rows
+  list: any[];
+} | null>(null);
+
 async function submitForm() {
   const F = active.form!;
   const sub = F.submit?.kind;
@@ -765,6 +845,25 @@ async function submitForm() {
     window.open(qs.toString() ? `${url}?${qs}` : url, '_blank');
     showForm = false;
     setTimeout(load, 800);
+    return;
+  }
+
+  // Preview step (e.g. recall simulate) before the real create.
+  if (!editingId && F.preview && !formPreview) {
+    saving = true;
+    try {
+      const ep = fillEndpoint(F.preview.endpoint, formData);
+      // biome-ignore lint/suspicious/noExplicitAny: preview API
+      const res = (await api.post(ep, {})) as any;
+      const root = F.preview.statsPath ? getPath(res, F.preview.statsPath) : (res?.data ?? res);
+      const list = F.preview.listPath ? (getPath(res, F.preview.listPath) ?? []) : [];
+      formPreview = { stats: root ?? {}, list: Array.isArray(list) ? list : [] };
+      showForm = false;
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+    } finally {
+      saving = false;
+    }
     return;
   }
 
@@ -795,6 +894,7 @@ async function submitForm() {
         if (typeof v === 'string' && v) revealValue = v;
       }
     }
+    formPreview = null;
     showForm = false;
     await load();
     toast.success(t('ext.saved'));
@@ -804,6 +904,11 @@ async function submitForm() {
   } finally {
     saving = false;
   }
+}
+
+function cancelPreview() {
+  formPreview = null;
+  showForm = true;
 }
 
 const shellTabs = $derived(
@@ -819,6 +924,8 @@ const shellTabs = $derived(
 
 {#if active.layout === 'builder' && active.builder}
   <BuilderLayout resource={active} {routeParams} {extName} />
+{:else if active.layout === 'detail' && active.detail}
+  <DetailLayout resource={active} {routeParams} {extName} />
 {:else}
 <ExtensionPageShell
   title={t(schema.title)}
@@ -831,6 +938,12 @@ const shellTabs = $derived(
   searchPlaceholder={t(active.search?.placeholder)}
 >
   {#snippet actions()}
+    {#each schema.pageActions ?? [] as a}
+      <button type="button" class="btn btn-ghost btn-sm gap-1 {a.variant ?? ''}" onclick={() => runAction({}, a)}>
+        {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={14} />{/if}
+        {t(a.label)}
+      </button>
+    {/each}
     {#if active.form}
       <button type="button" class="btn btn-primary btn-sm gap-1" onclick={openCreate}>
         <Plus size={14} /> {t(schema.newLabel)}
@@ -840,14 +953,76 @@ const shellTabs = $derived(
 
   {#if active.filters}
     {#each active.filters as fl}
-      <div class="tabs tabs-boxed bg-base-200 w-fit mb-4">
-        {#each fl.options as opt}
-          <button class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
-            onclick={() => { filterValues = { ...filterValues, [fl.param]: opt.value }; page = 1; }}>
-            {t(opt.label)}
-          </button>
-        {/each}
-      </div>
+      {#if fl.type === 'dateRange'}
+        <div class="flex flex-wrap items-end gap-3 mb-4">
+          {#if fl.label}<span class="text-xs font-medium text-base-content/60 pb-2">{t(fl.label)}</span>{/if}
+          <label class="form-control">
+            <span class="label-text text-xs">{t('common.col.from')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.fromParam ?? 'from'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.fromParam ?? 'from']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs">{t('common.col.to')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.toParam ?? 'to'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.toParam ?? 'to']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+          {#if fl.required && (!filterValues[fl.fromParam ?? 'from'] || !filterValues[fl.toParam ?? 'to'])}
+            <span class="text-xs text-warning pb-2">{t('operations.traceability.report.needDates')}</span>
+          {/if}
+        </div>
+      {:else if fl.type === 'date'}
+        <div class="flex items-end gap-3 mb-4">
+          <label class="form-control">
+            <span class="label-text text-xs">{t(fl.label) || t('common.col.date')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.param ?? 'date'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.param ?? 'date']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+        </div>
+      {:else if fl.param && fl.options}
+        <div class="tabs tabs-boxed bg-base-200 w-fit mb-4">
+          {#each fl.options as opt}
+            <button
+              class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
+              onclick={() => {
+                filterValues = { ...filterValues, [fl.param!]: opt.value };
+                page = 1;
+              }}
+            >
+              {t(opt.label)}
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/each}
   {/if}
 
@@ -1131,6 +1306,49 @@ const shellTabs = $derived(
         </div>
     </Modal>
   {/if}
+
+  {#if formPreview && active.form?.preview}
+    <Modal open={true} title={t(schema.newLabel)} size="lg" dismissible={false}>
+      {#if active.form.preview.stats?.length}
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+          {#each active.form.preview.stats as card}
+            <div class="stat bg-base-200 rounded-xl py-3">
+              <div class="stat-title text-xs">{t(card.label)}</div>
+              <div class="stat-value text-lg">{getPath(formPreview.stats, card.key) ?? '—'}</div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if active.form.preview.listColumns?.length && formPreview.list.length}
+        <div class="overflow-x-auto max-h-64">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                {#each active.form.preview.listColumns as col}
+                  <th>{t(col.label)}</th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each formPreview.list as row}
+                <tr>
+                  {#each active.form.preview.listColumns as col}
+                    <td>{getPath(row, col.key) ?? '—'}</td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+      <div class="modal-action">
+        <button class="btn btn-ghost" onclick={cancelPreview}>{t('common.cancel')}</button>
+        <button class="btn btn-error" onclick={submitForm} disabled={saving}>
+          {saving ? '…' : t(active.form.preview.confirmLabel ?? 'operations.traceability.action.confirm')}
+        </button>
+      </div>
+    </Modal>
+  {/if}
 </ExtensionPageShell>
 
 <!--
@@ -1173,7 +1391,14 @@ const shellTabs = $derived(
       <input type="file" class="file-input file-input-sm file-input-bordered" accept={f.accept}
         onchange={(e) => (data[f.name] = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
     {:else}
-      <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={data[f.name]} placeholder={t(f.placeholder)} />
+      <div class="flex gap-2 items-center">
+        <input class="input input-sm flex-1 {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={data[f.name]} placeholder={t(f.placeholder)} />
+        {#if f.lookup}
+          <button type="button" class="btn btn-sm btn-outline shrink-0" onclick={() => runLookup(f, data)}>
+            {t(f.lookup.label)}
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
   {/if}
@@ -1266,6 +1491,7 @@ const shellTabs = $derived(
           {#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}
           {#if F.submit?.kind === 'download'}{t('common.download')}
           {:else if F.submit?.kind === 'upload'}{t('common.upload')}
+          {:else if !editingId && F.preview}{t(F.preview.submitLabel ?? 'operations.traceability.action.simulate')}
           {:else}{editingId ? t('common.save') : t('common.create')}{/if}
         </button>
       </div>
