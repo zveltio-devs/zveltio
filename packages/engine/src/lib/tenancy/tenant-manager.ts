@@ -923,13 +923,30 @@ export async function enableRLS(tableName: string): Promise<void> {
   await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(_db);
   await sql`ALTER TABLE ${sql.id(tableName)} FORCE ROW LEVEL SECURITY`.execute(_db);
 
-  // 4. Isolation policy — uses SET LOCAL value from middleware
-  //    DROP + CREATE so this function is safe to call multiple times (idempotent)
+  // 4. Isolation policy — the SAME predicate `applyTenantRLS` uses.
+  //
+  //    This spelled the rule out inline as
+  //      tenant_id::text = current_setting('zveltio.current_tenant', true)
+  //    while `applyTenantRLS` calls `zveltio_tenant_scope_ok(tenant_id)`. Two
+  //    spellings of one rule is exactly what the comment on that function warns
+  //    about: it records an earlier pair that "behaved oppositely when a query
+  //    arrived with no tenant context", and says naming it once is what makes
+  //    the divergence impossible to repeat. This site kept the old spelling, so
+  //    a table enabled through THIS path got the other behaviour.
+  //
+  //    They are not equivalent. `current_setting(..., true)` returns NULL when
+  //    the GUC is unset, and `tenant_id::text = NULL` is NULL — not false — so
+  //    the row is invisible on USING while an INSERT's WITH CHECK is also NULL,
+  //    which Postgres treats as a violation. `zveltio_tenant_scope_ok`
+  //    (migration 029) decides that case deliberately instead of inheriting
+  //    three-valued logic.
+  //
+  //    DROP + CREATE so this function stays idempotent.
   await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(_db);
   await sql`
     CREATE POLICY tenant_isolation ON ${sql.id(tableName)}
-    USING (tenant_id::text = current_setting('zveltio.current_tenant', true))
-    WITH CHECK (tenant_id::text = current_setting('zveltio.current_tenant', true))
+    USING (zveltio_tenant_scope_ok(tenant_id))
+    WITH CHECK (zveltio_tenant_scope_ok(tenant_id))
   `.execute(_db);
 
   // 5. NULL tenant_id row warning.

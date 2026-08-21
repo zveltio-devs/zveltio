@@ -509,14 +509,20 @@ describe('executeStep — CannedDb branches', () => {
     }
   });
 
-  it('run_script with empty code passes through previous output', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      { type: 'run_script', config: { code: '' } },
-      { kept: 1 },
-      {},
-    );
-    expect(output).toEqual({ kept: 1 });
+  it('run_script with no script REFUSES instead of passing the previous output through', async () => {
+    // This used to assert the opposite, and in doing so pinned a defect: the
+    // schema requires `script`, the executor read `code`, so every validated
+    // step silently returned the previous output and the flow reported success.
+    // Passing through is indistinguishable from having run, which is the whole
+    // problem — a step that cannot run must say so.
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        { name: 'empty', type: 'run_script', config: { code: '' } },
+        { kept: 1 },
+        {},
+      ),
+    ).rejects.toThrow(/no script/i);
   });
 
   it('query_db rejects non-read-only statements', async () => {
