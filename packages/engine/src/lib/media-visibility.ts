@@ -1,11 +1,11 @@
 /**
  * Who may read a stored file.
  *
- * `GET /api/media/files` required a session and nothing else — no permission
- * check, no owner filter — so every authenticated user could list and download
- * every file any colleague had ever uploaded. On a Business OS for companies
- * and public institutions that is HR's scanned ID and finance's payroll export,
- * readable by anyone with a login.
+ * Historically `GET /api/media/files` (now extension-owned) required a session
+ * and nothing else — no permission check, no owner filter — so every
+ * authenticated user could list and download every file any colleague had ever
+ * uploaded. On a Business OS for companies and public institutions that is HR's
+ * scanned ID and finance's payroll export, readable by anyone with a login.
  *
  * It was not obviously wrong because `zv_media_files` serves two purposes
  * through one table. A CMS asset library WANTS tenant-wide reach: an editor

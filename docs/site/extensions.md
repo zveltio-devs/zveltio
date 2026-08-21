@@ -121,7 +121,7 @@ The two extensions in this space build on top of core flows:
 
 | Extension      | Path                       | Routes            | Description                                                                |
 | -------------- | -------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| **approvals**  | `workflow/approvals`       | `/api/approvals`  | Multi-step approval workflows with configurable reviewers                  |
+| **approvals**  | `workflow/approvals`       | `/ext/workflow/approvals`  | Multi-step approval workflows with configurable reviewers                  |
 | **checklists** | `workflow/checklists`      | `/api/checklists` | Checklist management tied to records or workflows                          |
 
 ### Billing (`extensions/billing/`)
@@ -183,7 +183,7 @@ The two extensions in this space build on top of core flows:
 | **document-templates** | `/api/document-templates`                | HTML/PDF template management and rendering       |
 | **documents**          | `/api/documents`                         | Rich text document management                    |
 | **drafts**             | `/api/drafts`                            | Draft/publish workflow for any collection        |
-| **media**              | `/api/media`                             | File and media management with SeaweedFS         |
+| **media**              | `/ext/content/media`                     | File and media management with SeaweedFS         |
 
 ### CRM (`extensions/crm/`)
 

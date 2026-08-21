@@ -442,9 +442,9 @@ If the extension is not active, routes return `404`.
 | `/api/export` | `data/export` | data |
 | `/api/import` | `data/import` | data |
 | `/ext/i18n/translations` | `i18n/translations` | i18n |
-| `/api/approvals` | `workflow/approvals` | workflow |
+| `/ext/workflow/approvals` | `workflow/approvals` | workflow |
 | `/api/drafts` | `content/drafts` | content |
-| `/api/media` | `content/media` | content |
+| `/ext/content/media` | `content/media` | content |
 | `/api/documents` | `content/documents` | content |
 | `/api/ai/*` | `ai` | ai |
 | `/api/graphql` | `developer/graphql` | developer |
