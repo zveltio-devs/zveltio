@@ -12,7 +12,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('gone dual doors (media + approvals)', () => {
+d('gone dual doors (media + approvals + briefing)', () => {
   let app: Hono;
 
   beforeAll(async () => {
@@ -33,5 +33,13 @@ d('gone dual doors (media + approvals)', () => {
     const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
     expect(body.errors?.replacement ?? '').toBe('/ext/workflow/approvals');
     expect(body.detail ?? '').toMatch(/workflow\/approvals/);
+  });
+
+  it('GET /api/briefing returns 410 with CRM replacement', async () => {
+    const res = await app.request('/api/briefing');
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/crm/briefing');
+    expect(body.detail ?? '').toMatch(/crm\/briefing/);
   });
 });
