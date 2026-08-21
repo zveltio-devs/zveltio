@@ -51,10 +51,28 @@ export interface ResourceView {
    * (pick an option, toggle catalog items, save the selected id list — e.g.
    * dashboard role × widget layouts), or "builder" (meta fields + ordered
    * item collection — e.g. form field editor). */
-  layout?: 'table' | 'cards' | 'checklist' | 'builder';
+  layout?: 'table' | 'cards' | 'checklist' | 'builder' | 'detail';
   /** Card-grid mapping (used when layout:'cards'): which row keys are the
    * title / badge / sub-text. rowActions still render in the card footer. */
   card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
+  /**
+   * Detail layout: load one record by route param, show header actions + tabs
+   * of field cards, genealogy trees, nested tables, and inline forms (consume /
+   * HACCP). Used for lot detail and production floor ops.
+   */
+  detail?: {
+    loadEndpoint: string;
+    loadPath?: Dotted;
+    titleKey?: Dotted;
+    subtitleKey?: Dotted;
+    badgeKey?: Dotted;
+    badge?: { colors: Record<string, string> };
+    backHref?: string;
+    backLabel?: string;
+    /** Header buttons (release, print label, …). */
+    actions?: ActionDef[];
+    panels: DetailPanel[];
+  };
   /**
    * Builder layout: load one record, edit meta fields + an ordered item array,
    * optional secondary panel (e.g. form submissions). Route params fill
@@ -211,13 +229,27 @@ export interface ActionDef {
   variant?: string;
   /** "edit" opens the form pre-filled; "download" opens the (cookie-authed)
    * endpoint in a new tab so the browser saves it via Content-Disposition (e.g.
-   * SAF-T XML); "navigate" goes to a Studio path (`href`); otherwise call the endpoint. */
-  kind?: 'edit' | 'call' | 'download' | 'navigate';
+   * SAF-T XML); "navigate" goes to a Studio path (`href`); "preview" POSTs then
+   * shows the response before a confirm submit; otherwise call the endpoint. */
+  kind?: 'edit' | 'call' | 'download' | 'navigate' | 'preview';
   method?: 'POST' | 'PATCH' | 'DELETE';
   /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
   /** Studio path for `kind: "navigate"` (e.g. "/forms/{id}"), base-aware. */
   href?: string;
+  /**
+   * For `kind: "preview"`: after the preview POST, show these KPIs from the
+   * response, then offer a confirm that POSTs `confirmEndpoint` with the
+   * original (prompt) body.
+   */
+  preview?: {
+    /** Where the KPI object / list lives on the preview response. */
+    statsPath?: Dotted;
+    stats?: { label: string; key: Dotted }[];
+    listPath?: Dotted;
+    listColumns?: ColumnDef[];
+  };
+  confirmEndpoint?: string;
   /** Show the action only when this row condition holds. */
   visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
   /** i18n key / literal for a confirm dialog before the call. */
@@ -369,4 +401,43 @@ export interface FieldDef {
   default?: unknown;
   placeholder?: string;
   mono?: boolean;
+  /**
+   * Button next to the field that POSTs `endpoint` with `{ [name]: fieldValue }`
+   * (or `body` template) and maps the response into sibling form fields via
+   * `map` (target field → response path). GS1 scan autofill is the main case.
+   */
+  lookup?: {
+    label: string;
+    endpoint: string;
+    method?: 'POST' | 'GET';
+    /** Extra body keys; "{field}" from the form. Defaults to `{ [name]: value }`. */
+    body?: Record<string, string>;
+    map: Record<string, Dotted>;
+  };
+}
+
+/** One tab/panel inside `layout: 'detail'`. */
+export interface DetailPanel {
+  id: string;
+  label: string;
+  kind: 'fields' | 'tree' | 'table' | 'form';
+  /** fields: display these keys from the loaded record. */
+  fields?: { key: Dotted; label: string; type?: ColumnDef['type'] }[];
+  /** tree/table: fetch on first open (lazy). "{id}" from route. */
+  dataSource?: string;
+  dataPath?: Dotted;
+  /** tree: child array key on each node (default "inputs"). */
+  childrenKey?: Dotted;
+  /** tree: how to render a node line — "{item_name} — {lot_number} [{status}]". */
+  nodeTemplate?: string;
+  /** table: columns for nested rows. */
+  columns?: ColumnDef[];
+  /** form: inline POST/PATCH against the detail id. */
+  form?: FormDef & {
+    method?: 'POST' | 'PATCH';
+    visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
+    submitLabel?: string;
+    /** Wrap flat fields as `{ [bodyWrap]: fields }` (e.g. HACCP `check`). */
+    bodyWrap?: string;
+  };
 }

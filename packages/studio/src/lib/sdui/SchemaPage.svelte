@@ -42,6 +42,7 @@ import {
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 import BuilderLayout from './BuilderLayout.svelte';
+import DetailLayout from './DetailLayout.svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 
@@ -240,6 +241,32 @@ function fieldVisible(f: FieldDef, data: Record<string, any> = formData): boolea
   if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
   return true;
 }
+
+/** GS1 / barcode lookup: POST then map response paths into sibling fields. */
+// biome-ignore lint/suspicious/noExplicitAny: form draft bag
+async function runLookup(f: FieldDef, data: Record<string, any>) {
+  if (!f.lookup) return;
+  try {
+    const body: Record<string, string> = {};
+    if (f.lookup.body) {
+      for (const [k, tmpl] of Object.entries(f.lookup.body)) {
+        body[k] = tmpl.replace(/\{([^}]+)\}/g, (_, key) => String(data[key.trim()] ?? ''));
+      }
+    } else {
+      body[f.name] = String(data[f.name] ?? '');
+    }
+    const method = f.lookup.method ?? 'POST';
+    const res =
+      method === 'GET' ? await api.get(f.lookup.endpoint) : await api.post(f.lookup.endpoint, body);
+    for (const [target, path] of Object.entries(f.lookup.map)) {
+      const v = getPath(res, path);
+      if (v !== undefined && v !== null && v !== '') data[target] = v;
+    }
+    toast.success(t('ext.saved'));
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  }
+}
 function allFields(r: ResourceView): FieldDef[] {
   const fs = [...(r.form?.fields ?? [])];
   for (const sec of r.form?.sections ?? []) fs.push(...sec.fields);
@@ -417,6 +444,7 @@ const checklistSelectedIds = $derived(
 async function load() {
   const r = active;
   if (r.layout === 'builder' && r.builder) return;
+  if (r.layout === 'detail' && r.detail) return;
   if (r.layout === 'checklist' && r.checklist) return loadChecklist(r);
   if (r.master) return loadMasterDetail(r);
   loading = true;
@@ -819,6 +847,8 @@ const shellTabs = $derived(
 
 {#if active.layout === 'builder' && active.builder}
   <BuilderLayout resource={active} {routeParams} {extName} />
+{:else if active.layout === 'detail' && active.detail}
+  <DetailLayout resource={active} {routeParams} {extName} />
 {:else}
 <ExtensionPageShell
   title={t(schema.title)}
@@ -1173,7 +1203,14 @@ const shellTabs = $derived(
       <input type="file" class="file-input file-input-sm file-input-bordered" accept={f.accept}
         onchange={(e) => (data[f.name] = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
     {:else}
-      <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={data[f.name]} placeholder={t(f.placeholder)} />
+      <div class="flex gap-2 items-center">
+        <input class="input input-sm flex-1 {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={data[f.name]} placeholder={t(f.placeholder)} />
+        {#if f.lookup}
+          <button type="button" class="btn btn-sm btn-outline shrink-0" onclick={() => runLookup(f, data)}>
+            {t(f.lookup.label)}
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
   {/if}
