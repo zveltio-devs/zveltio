@@ -27,6 +27,8 @@ export interface PageSchema {
   resources: ResourceView[];
   /** "New" button in the page header; opens the active resource's form. */
   newLabel?: string;
+  /** Page-level toolbar actions (no row), e.g. open floor scanner. */
+  pageActions?: ActionDef[];
 }
 
 export interface ResourceView {
@@ -51,10 +53,28 @@ export interface ResourceView {
    * (pick an option, toggle catalog items, save the selected id list — e.g.
    * dashboard role × widget layouts), or "builder" (meta fields + ordered
    * item collection — e.g. form field editor). */
-  layout?: 'table' | 'cards' | 'checklist' | 'builder';
+  layout?: 'table' | 'cards' | 'checklist' | 'builder' | 'detail';
   /** Card-grid mapping (used when layout:'cards'): which row keys are the
    * title / badge / sub-text. rowActions still render in the card footer. */
   card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
+  /**
+   * Detail layout: load one record by route param, show header actions + tabs
+   * of field cards, genealogy trees, nested tables, and inline forms (consume /
+   * HACCP). Used for lot detail and production floor ops.
+   */
+  detail?: {
+    loadEndpoint: string;
+    loadPath?: Dotted;
+    titleKey?: Dotted;
+    subtitleKey?: Dotted;
+    badgeKey?: Dotted;
+    badge?: { colors: Record<string, string> };
+    backHref?: string;
+    backLabel?: string;
+    /** Header buttons (release, print label, …). */
+    actions?: ActionDef[];
+    panels: DetailPanel[];
+  };
   /**
    * Builder layout: load one record, edit meta fields + an ordered item array,
    * optional secondary panel (e.g. form submissions). Route params fill
@@ -163,9 +183,17 @@ export interface SearchDef {
 }
 
 export interface FilterDef {
-  /** Query param the selected value is sent as. */
-  param: string;
-  options: { value: string; label: string }[];
+  /** Query param the selected value is sent as (tabs). For dateRange, ignored
+   * in favour of `fromParam` / `toParam`. */
+  param?: string;
+  /** Default: tab buttons. `date` = single date input; `dateRange` = from+to. */
+  type?: 'tabs' | 'date' | 'dateRange';
+  options?: { value: string; label: string }[];
+  label?: string;
+  fromParam?: string;
+  toParam?: string;
+  /** When true, list load waits until date range is filled (ANSVSA reports). */
+  required?: boolean;
 }
 
 export interface ColumnDef {
@@ -211,13 +239,28 @@ export interface ActionDef {
   variant?: string;
   /** "edit" opens the form pre-filled; "download" opens the (cookie-authed)
    * endpoint in a new tab so the browser saves it via Content-Disposition (e.g.
-   * SAF-T XML); "navigate" goes to a Studio path (`href`); otherwise call the endpoint. */
-  kind?: 'edit' | 'call' | 'download' | 'navigate';
+   * SAF-T XML); "navigate" goes to a Studio path (`href`); "open" opens an
+   * engine URL (e.g. extension PWA) in a new tab; "preview" POSTs then
+   * shows the response before a confirm submit; otherwise call the endpoint. */
+  kind?: 'edit' | 'call' | 'download' | 'navigate' | 'open' | 'preview';
   method?: 'POST' | 'PATCH' | 'DELETE';
   /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
   /** Studio path for `kind: "navigate"` (e.g. "/forms/{id}"), base-aware. */
   href?: string;
+  /**
+   * For `kind: "preview"`: after the preview POST, show these KPIs from the
+   * response, then offer a confirm that POSTs `confirmEndpoint` with the
+   * original (prompt) body.
+   */
+  preview?: {
+    /** Where the KPI object / list lives on the preview response. */
+    statsPath?: Dotted;
+    stats?: { label: string; key: Dotted }[];
+    listPath?: Dotted;
+    listColumns?: ColumnDef[];
+  };
+  confirmEndpoint?: string;
   /** Show the action only when this row condition holds. */
   visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
   /** i18n key / literal for a confirm dialog before the call. */
@@ -264,6 +307,20 @@ export interface FormDef {
    * (secret minting — API tokens, SCIM bearer tokens). `key` is a dot-path
    * into the POST response; `note` is an i18n key for the warning line. */
   reveal?: { key: string; title?: string; note?: string };
+  /**
+   * Before CREATE: POST `preview.endpoint` (tokens from form fields) and show
+   * KPIs / a list; confirm then runs the real create. Recall simulate→initiate.
+   */
+  preview?: {
+    endpoint: string;
+    statsPath?: Dotted;
+    stats?: { label: string; key: Dotted }[];
+    listPath?: Dotted;
+    listColumns?: ColumnDef[];
+    /** Label on the form submit button before preview runs. */
+    submitLabel?: string;
+    confirmLabel?: string;
+  };
   sections?: { title: string; fields: FieldDef[] }[];
   fields?: FieldDef[];
   /** ESCAPE HATCH 1: a repeatable line-item group (e.g. e-Transport goods). */
@@ -369,4 +426,47 @@ export interface FieldDef {
   default?: unknown;
   placeholder?: string;
   mono?: boolean;
+  /**
+   * Button next to the field that POSTs `endpoint` with `{ [name]: fieldValue }`
+   * (or `body` template) and maps the response into sibling form fields via
+   * `map` (target field → response path). GS1 scan autofill is the main case.
+   */
+  lookup?: {
+    label: string;
+    endpoint: string;
+    method?: 'POST' | 'GET';
+    /** Extra body keys; "{field}" from the form. Defaults to `{ [name]: value }`. */
+    body?: Record<string, string>;
+    map: Record<string, Dotted>;
+  };
+}
+
+/** One tab/panel inside `layout: 'detail'`. */
+export interface DetailPanel {
+  id: string;
+  label: string;
+  kind: 'fields' | 'tree' | 'table' | 'form' | 'image';
+  /** fields: display these keys from the loaded record. */
+  fields?: { key: Dotted; label: string; type?: ColumnDef['type'] }[];
+  /** tree/table/image: fetch on first open (lazy). "{id}" from route. */
+  dataSource?: string;
+  dataPath?: Dotted;
+  /** image: optional caption under the media. */
+  caption?: string;
+  /** image: CSS max width (default 280px). */
+  maxWidth?: string;
+  /** tree: child array key on each node (default "inputs"). */
+  childrenKey?: Dotted;
+  /** tree: how to render a node line — "{item_name} — {lot_number} [{status}]". */
+  nodeTemplate?: string;
+  /** table: columns for nested rows. */
+  columns?: ColumnDef[];
+  /** form: inline POST/PATCH against the detail id. */
+  form?: FormDef & {
+    method?: 'POST' | 'PATCH';
+    visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
+    submitLabel?: string;
+    /** Wrap flat fields as `{ [bodyWrap]: fields }` (e.g. HACCP `check`). */
+    bodyWrap?: string;
+  };
 }
