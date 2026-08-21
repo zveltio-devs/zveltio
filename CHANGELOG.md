@@ -4,6 +4,93 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.62] - 2026-08-21
+
+**A payroll period could be paid without anyone approving it.** Not because the
+permission check was missing — `mayDecidePayroll(ctx, user, 'approve')` was
+there and worked. Because `'approved'` was not a state the period could be in.
+`approve` recorded who approved and when, then wrote `status = 'calculated'`
+where it already was; `pay` required `status = 'calculated'`, which is true both
+before and after approval. Two different decisions shared one state, so the
+second could not tell whether the first had happened, and calculate → pay went
+straight through. Money left the company without the approval the gate exists to
+demand.
+
+That was one of seven defects an independent second reviewer found in a tree
+that a verification pass had already reported as clean — including one this
+project had marked FIXED on a search that matched the word rather than the
+behaviour.
+
+### Security
+
+- **Row-level entity access was not applied when listing records.** The registry
+  was consulted when opening one record and when writing, and skipped on the
+  collection. A record the caller may not open was still returned in the list,
+  with only its columns filtered afterwards — so the row's existence and its
+  permitted fields leaked through a path where opening it returns 403.
+- **Payroll could be paid without approval** — described above. The fix adds the
+  missing state rather than another check, so the bypass is structurally
+  impossible instead of guarded against.
+- **RLS policies compared the tenant GUC inline.** `enableRLS` emitted
+  `tenant_id::text = current_setting('zveltio.current_tenant', true)`, which is
+  NULL when the setting is absent — and `NULL = anything` is NULL, not false, so
+  the policy neither matched nor blocked. Now uses `zveltio_tenant_scope_ok()`,
+  the helper the rest of the schema already used, on both `USING` and
+  `WITH CHECK`.
+- **GraphQL persisted queries read `allowed_roles` and never compared it to the
+  caller.** Roles now resolve through the request context; a non-public query
+  with an empty list is denied.
+- **Three transitive advisories closed** (`uuid`, `esbuild`, `cookie`), all via
+  dev tooling — pinned to the minimum fixed version rather than the newest.
+
+### Fixed
+
+- **Flow steps of type `run_script` silently did nothing.** The executor read
+  `cfg.code`; the schema, the Studio editor and every stored flow write
+  `cfg.script`. A step therefore ran `undefined` and returned the previous step's
+  output — the flow reported success and the script had never executed. Reads
+  `script` now, with `code` kept as a legacy fallback, and **throws** when
+  neither is present instead of passing the input through.
+- **Bulk actions in the mail client never reached the mail server.** All seven —
+  read, unread, star, unstar, move, delete, spam — wrote only the local row,
+  while the single-message routes beside them already pushed to IMAP. So
+  starring one message reached the server and starring two did not: the same
+  button, a different result depending on how many were selected. Delete was the
+  destructive corner — the local copy went to trash while the mail stayed in the
+  mailbox, and a sync only fetches newer messages, so nothing brought it back.
+  The response also reported how many messages were *asked for* rather than how
+  many were reached.
+- **The helpdesk Studio page posted `subject` and `body`** where the route reads
+  `title` and `content`.
+- **Inventory accepted products with no SKU**, while every lookup path treats the
+  SKU as the identifier.
+- **The schema type generator read one of three ways Postgres spells a CHECK.**
+  `IN (…)` was read; `= ANY (ARRAY[…])`, the nullable `col IS NULL OR col IN (…)`,
+  and any constraint attached later by `ALTER TABLE … ADD CONSTRAINT` were not.
+  Twenty columns were affected — the worst being those that came out as bare
+  `string`, which accepts every typo silently. Measured against every CHECK
+  domain in a live database: 177 of 189 correct before, 188 of 189 after.
+- **An unreachable extension registry was re-dialled once per extension.** A
+  failed revocation lookup was not remembered, so every extension load paid the
+  full five-second timeout again — on an air-gapped install, minutes of startup
+  spent contacting a host that is not there. Failures now cool down for a minute.
+  The verdict is unchanged: an unanswered check still reports "unknown", never
+  "nothing is revoked".
+- **`sync-extensions` counted the same directory twice** when `EXTENSIONS_DIR`
+  named the sibling checkout the script already scans, writing every route into
+  the generated snapshot twice and making that file depend on the environment it
+  was generated in.
+
+### Changed
+
+- **Eight extension Studio pages are now declarative schemas** rather than
+  Svelte code baked into the engine — validation, API docs, and six CRUD screens
+  (POS, banking, quality, checklists, procurement, approvals). An extension page
+  is JSON the host renders, so shipping one no longer requires rebuilding the
+  Studio.
+- **Documentation split into `docs/site/` and `docs/private/`.** The former is
+  the source for the public site; audit reports moved out of the tree entirely.
+
 ## [3.0.0-beta.61] - 2026-08-20
 
 **Any installed extension could read `session.token` out of the `session`
