@@ -88,7 +88,10 @@ d('sensitive resources', () => {
     await grantRole(db, user, 'tenant_member');
 
     await runWithDomain(TENANT, async () => {
-      expect(await checkPermission(user, 'contacts', 'read')).toBe(true);
+      // `projects` is a non-CRM ordinary collection that still gets default
+      // grants. Do not pin this on `contacts` — CRM tables are extension-owned
+      // and absent on bare BaaS.
+      expect(await checkPermission(user, 'projects', 'read')).toBe(true);
       expect(await checkPermission(user, 'projects', 'update')).toBe(true);
     });
   });

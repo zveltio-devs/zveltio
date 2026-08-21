@@ -1,22 +1,14 @@
 /**
- * Core collections — single source of truth.
+ * Legacy Business OS collections — adopt only, never create.
  *
- * These are the universal entities (contacts, organizations, transactions) that
- * extensions can reference via foreign keys. They are created through the same
- * DDLManager.createCollection() path that the Studio UI uses, so there is exactly
- * one way a collection comes into existence — installer or UI, same code path,
- * same system columns, same FTS triggers, same metadata row.
+ * Contacts, organizations, and transactions belong to the `crm` extension
+ * (`zveltio-extensions/crm`). Fresh bare BaaS installs must not grow those
+ * tables from the engine. When CRM (or an older core install) already created
+ * the tables, we still adopt: metadata, tenant RLS, default grants, and the
+ * contact↔organization junction — so Studio/`/api/data/*` keep working.
  *
- * Why not create them in a SQL migration?
- *   Migrations running raw CREATE TABLE bypass DDLManager, leaving zvd_collections
- *   with fields=[] and Studio hammering the API trying to discover the schema.
- *   Concurrent creates also race on shared trigger functions. Going through
- *   DDLManager removes both failure modes.
- *
- * Idempotent, and it ADOPTS rather than skips: a table that already exists —
- * crm's migrations create all three with raw SQL and run first — still needs its
- * metadata row, its tenant RLS and its default grants, none of which the old
- * skip did. See adoptExistingCoreCollection.
+ * Do not remount CREATE via DDLManager here. That was the purity leak that
+ * made every install a mini-CRM whether or not CRM was enabled.
  */
 import type { Database } from '../db/index.js';
 import { DDLManager, type CollectionDefinition } from '../lib/data/index.js';
@@ -238,90 +230,18 @@ async function adoptExistingCoreCollection(db: Database, def: CoreCollectionInpu
 }
 
 export async function ensureCoreCollections(db: Database): Promise<void> {
-  let created = 0;
   let adopted = 0;
   for (const def of CORE_COLLECTIONS) {
-    if (await DDLManager.tableExists(db, def.name)) {
-      // The table is here, but that does not mean the collection is.
-      //
-      // `crm/engine/migrations/001_initial.sql` creates `zvd_contacts`,
-      // `zvd_organizations` and `zvd_transactions` with raw SQL, and its
-      // migrations run before this. So on any install where crm is present the
-      // tables exist, this loop skipped them, and none of what makes a
-      // collection real ever happened: no `zvd_collections` row, so the Studio
-      // shows nothing and the schema cannot be discovered; no tenant RLS from
-      // the path below; and no default grants, which under deny-by-default
-      // means `/api/data/contacts` answers 403 to every ordinary user.
-      //
-      // Measured on a fresh install with the extensions on disk: `zvd_contacts`
-      // present, `zvd_collections` empty, and a member holding access to twenty
-      // extension resources and zero collections.
-      //
-      // This is not a new bug — the skip predates deny-by-default. What changed
-      // is that a missing grant used to be covered by the blanket wildcard and
-      // now decides the answer. Same shape as the enforcer reload: a gap that
-      // was harmless while something coarser was papering over it.
-      //
-      // Adopting rather than creating: the table stays exactly as the extension
-      // built it. All three steps are idempotent, so a settled install does
-      // nothing here.
-      await adoptExistingCoreCollection(db, def);
-      adopted++;
+    if (!(await DDLManager.tableExists(db, def.name))) {
+      // Bare BaaS: CRM not installed — do not invent CRM tables in the engine.
       continue;
     }
-    try {
-      // Cast: CoreCollectionInput is the pre-default shape; CollectionSchema.parse()
-      // inside createCollection() materialises the defaults (unique=false, etc).
-      await DDLManager.createCollection(db, def as CollectionDefinition);
-
-      // Isolate it NOW, not on the next boot.
-      //
-      // `reconcileTenantRLS` runs during startup, before routes are built, and
-      // this function runs while they are built — so on a fresh install it
-      // reconciles an empty `zvd_collections`, and then these three tables come
-      // into existence with no policy on them. They stay that way until the
-      // engine restarts, at which point the reconcile finds them and the
-      // problem disappears without anyone learning it existed.
-      //
-      // That window is not theoretical: `/api/data/*` carries no
-      // application-level tenant filter and relies entirely on RLS, so during
-      // it every tenant reads every other tenant's contacts, organizations and
-      // transactions. On a self-hosted instance that runs for weeks between
-      // restarts, the window covers exactly the period when tenants are being
-      // onboarded. Reproduced from an empty database: three tables with
-      // `rowsecurity = false` after the first boot, true after the second.
-      //
-      // The DDL queue already does this for collections created through the
-      // Studio (`lib/data/ddl-queue.ts`). This path bypasses the queue, which
-      // is why it was missed. Applying it here puts the guarantee next to the
-      // creation rather than in the boot order, so a future caller that also
-      // skips the queue cannot reintroduce the gap.
-      //
-      // Best-effort and non-fatal, matching the queue: a failure here leaves
-      // the next boot's reconcile as the fallback it always was.
-      try {
-        const { applyTenantRLS } = await import('../lib/tenancy/index.js');
-        await applyTenantRLS(db, `zvd_${def.name}`);
-      } catch (err) {
-        console.warn(
-          `   ⚠  applyTenantRLS on core collection '${def.name}' failed:`,
-          (err as Error).message,
-        );
-      }
-
-      created++;
-      console.log(`   ✨ Core collection '${def.name}' created via DDLManager`);
-    } catch (err) {
-      // If creation fails mid-way (e.g. lock timeout), the next boot retries.
-      // We log but don't throw — one broken core collection shouldn't block engine startup.
-      console.error(`   ⚠  Failed to create core collection '${def.name}':`, err);
-    }
-  }
-  if (created > 0) {
-    console.log(`   ✅ Core collections bootstrap: ${created} created`);
+    // Table exists (CRM migration or legacy core create). Adopt metadata/RLS/grants.
+    await adoptExistingCoreCollection(db, def);
+    adopted++;
   }
   if (adopted > 0) {
-    console.log(`   ✅ Core collections bootstrap: ${adopted} adopted (table already existed)`);
+    console.log(`   ✅ Legacy CRM collections: ${adopted} adopted (owned by crm extension)`);
   }
 
   await ensureContactOrganizationJunction(db);
