@@ -181,9 +181,17 @@ export interface SearchDef {
 }
 
 export interface FilterDef {
-  /** Query param the selected value is sent as. */
-  param: string;
-  options: { value: string; label: string }[];
+  /** Query param the selected value is sent as (tabs). For dateRange, ignored
+   * in favour of `fromParam` / `toParam`. */
+  param?: string;
+  /** Default: tab buttons. `date` = single date input; `dateRange` = from+to. */
+  type?: 'tabs' | 'date' | 'dateRange';
+  options?: { value: string; label: string }[];
+  label?: string;
+  fromParam?: string;
+  toParam?: string;
+  /** When true, list load waits until date range is filled (ANSVSA reports). */
+  required?: boolean;
 }
 
 export interface ColumnDef {
@@ -296,6 +304,20 @@ export interface FormDef {
    * (secret minting — API tokens, SCIM bearer tokens). `key` is a dot-path
    * into the POST response; `note` is an i18n key for the warning line. */
   reveal?: { key: string; title?: string; note?: string };
+  /**
+   * Before CREATE: POST `preview.endpoint` (tokens from form fields) and show
+   * KPIs / a list; confirm then runs the real create. Recall simulate→initiate.
+   */
+  preview?: {
+    endpoint: string;
+    statsPath?: Dotted;
+    stats?: { label: string; key: Dotted }[];
+    listPath?: Dotted;
+    listColumns?: ColumnDef[];
+    /** Label on the form submit button before preview runs. */
+    submitLabel?: string;
+    confirmLabel?: string;
+  };
   sections?: { title: string; fields: FieldDef[] }[];
   fields?: FieldDef[];
   /** ESCAPE HATCH 1: a repeatable line-item group (e.g. e-Transport goods). */

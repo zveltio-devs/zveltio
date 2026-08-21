@@ -216,7 +216,6 @@ function applyAutofill(f: FieldDef, id: unknown, target: Record<string, any>): v
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 // `row` is present only for an action prompt, where a default may be drawn from
 // the row the action was fired on — "{total-amount_paid}" pre-fills what is
 // still outstanding, so settling an invoice in full stays one click and paying
@@ -452,8 +451,26 @@ async function load() {
     const qs = new URLSearchParams();
     if (r.search?.param && search) qs.set(r.search.param, search);
     for (const fl of r.filters ?? []) {
-      const v = filterValues[fl.param];
-      if (v && v !== 'all') qs.set(fl.param, v);
+      if (fl.type === 'dateRange') {
+        const fromP = fl.fromParam ?? 'from';
+        const toP = fl.toParam ?? 'to';
+        const from = filterValues[fromP];
+        const to = filterValues[toP];
+        if (fl.required && (!from || !to)) {
+          rows = [];
+          total = 0;
+          return;
+        }
+        if (from) qs.set(fromP, from);
+        if (to) qs.set(toP, to);
+      } else if (fl.type === 'date') {
+        const p = fl.param ?? 'date';
+        const v = filterValues[p];
+        if (v) qs.set(p, v);
+      } else if (fl.param) {
+        const v = filterValues[fl.param];
+        if (v && v !== 'all') qs.set(fl.param, v);
+      }
     }
     if (r.pagination) {
       qs.set('page', String(page));
@@ -709,7 +726,28 @@ function runAction(row: any, a: ActionDef) {
     return;
   }
   if (a.kind === 'download') {
-    window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
+    let ep = fillEndpoint(a.endpoint ?? '', row);
+    const [path, existingQs] = ep.split('?');
+    const qs = new URLSearchParams(existingQs ?? '');
+    for (const fl of active.filters ?? []) {
+      if (fl.type === 'dateRange') {
+        const fromP = fl.fromParam ?? 'from';
+        const toP = fl.toParam ?? 'to';
+        const from = filterValues[fromP];
+        const to = filterValues[toP];
+        if (from) qs.set(fromP, from);
+        if (to) qs.set(toP, to);
+      } else if (fl.type === 'date') {
+        const p = fl.param ?? 'date';
+        const v = filterValues[p];
+        if (v) qs.set(p, v);
+      } else if (fl.param) {
+        const v = filterValues[fl.param];
+        if (v && v !== 'all') qs.set(fl.param, v);
+      }
+    }
+    const q = qs.toString();
+    window.open(`${ENGINE_URL}${path}${q ? `?${q}` : ''}`, '_blank');
     return;
   }
   if (a.prompt) {
@@ -774,6 +812,13 @@ function endpointTokens(tmpl: string): string[] {
   return [...tmpl.matchAll(/\{([^}]+)\}/g)].map((mt) => mt[1].trim());
 }
 
+let formPreview = $state<{
+  // biome-ignore lint/suspicious/noExplicitAny: preview KPI bag
+  stats: Record<string, any>;
+  // biome-ignore lint/suspicious/noExplicitAny: preview list rows
+  list: any[];
+} | null>(null);
+
 async function submitForm() {
   const F = active.form!;
   const sub = F.submit?.kind;
@@ -793,6 +838,25 @@ async function submitForm() {
     window.open(qs.toString() ? `${url}?${qs}` : url, '_blank');
     showForm = false;
     setTimeout(load, 800);
+    return;
+  }
+
+  // Preview step (e.g. recall simulate) before the real create.
+  if (!editingId && F.preview && !formPreview) {
+    saving = true;
+    try {
+      const ep = fillEndpoint(F.preview.endpoint, formData);
+      // biome-ignore lint/suspicious/noExplicitAny: preview API
+      const res = (await api.post(ep, {})) as any;
+      const root = F.preview.statsPath ? getPath(res, F.preview.statsPath) : (res?.data ?? res);
+      const list = F.preview.listPath ? (getPath(res, F.preview.listPath) ?? []) : [];
+      formPreview = { stats: root ?? {}, list: Array.isArray(list) ? list : [] };
+      showForm = false;
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+    } finally {
+      saving = false;
+    }
     return;
   }
 
@@ -823,6 +887,7 @@ async function submitForm() {
         if (typeof v === 'string' && v) revealValue = v;
       }
     }
+    formPreview = null;
     showForm = false;
     await load();
     toast.success(t('ext.saved'));
@@ -832,6 +897,11 @@ async function submitForm() {
   } finally {
     saving = false;
   }
+}
+
+function cancelPreview() {
+  formPreview = null;
+  showForm = true;
 }
 
 const shellTabs = $derived(
@@ -870,14 +940,76 @@ const shellTabs = $derived(
 
   {#if active.filters}
     {#each active.filters as fl}
-      <div class="tabs tabs-boxed bg-base-200 w-fit mb-4">
-        {#each fl.options as opt}
-          <button class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
-            onclick={() => { filterValues = { ...filterValues, [fl.param]: opt.value }; page = 1; }}>
-            {t(opt.label)}
-          </button>
-        {/each}
-      </div>
+      {#if fl.type === 'dateRange'}
+        <div class="flex flex-wrap items-end gap-3 mb-4">
+          {#if fl.label}<span class="text-xs font-medium text-base-content/60 pb-2">{t(fl.label)}</span>{/if}
+          <label class="form-control">
+            <span class="label-text text-xs">{t('common.col.from')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.fromParam ?? 'from'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.fromParam ?? 'from']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs">{t('common.col.to')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.toParam ?? 'to'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.toParam ?? 'to']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+          {#if fl.required && (!filterValues[fl.fromParam ?? 'from'] || !filterValues[fl.toParam ?? 'to'])}
+            <span class="text-xs text-warning pb-2">{t('operations.traceability.report.needDates')}</span>
+          {/if}
+        </div>
+      {:else if fl.type === 'date'}
+        <div class="flex items-end gap-3 mb-4">
+          <label class="form-control">
+            <span class="label-text text-xs">{t(fl.label) || t('common.col.date')}</span>
+            <input
+              type="date"
+              class="input input-sm input-bordered"
+              value={filterValues[fl.param ?? 'date'] ?? ''}
+              onchange={(e) => {
+                filterValues = {
+                  ...filterValues,
+                  [fl.param ?? 'date']: (e.currentTarget as HTMLInputElement).value,
+                };
+                page = 1;
+              }}
+            />
+          </label>
+        </div>
+      {:else if fl.param && fl.options}
+        <div class="tabs tabs-boxed bg-base-200 w-fit mb-4">
+          {#each fl.options as opt}
+            <button
+              class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
+              onclick={() => {
+                filterValues = { ...filterValues, [fl.param!]: opt.value };
+                page = 1;
+              }}
+            >
+              {t(opt.label)}
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/each}
   {/if}
 
@@ -1161,6 +1293,49 @@ const shellTabs = $derived(
         </div>
     </Modal>
   {/if}
+
+  {#if formPreview && active.form?.preview}
+    <Modal open={true} title={t(schema.newLabel)} size="lg" dismissible={false}>
+      {#if active.form.preview.stats?.length}
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+          {#each active.form.preview.stats as card}
+            <div class="stat bg-base-200 rounded-xl py-3">
+              <div class="stat-title text-xs">{t(card.label)}</div>
+              <div class="stat-value text-lg">{getPath(formPreview.stats, card.key) ?? '—'}</div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if active.form.preview.listColumns?.length && formPreview.list.length}
+        <div class="overflow-x-auto max-h-64">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                {#each active.form.preview.listColumns as col}
+                  <th>{t(col.label)}</th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each formPreview.list as row}
+                <tr>
+                  {#each active.form.preview.listColumns as col}
+                    <td>{getPath(row, col.key) ?? '—'}</td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+      <div class="modal-action">
+        <button class="btn btn-ghost" onclick={cancelPreview}>{t('common.cancel')}</button>
+        <button class="btn btn-error" onclick={submitForm} disabled={saving}>
+          {saving ? '…' : t(active.form.preview.confirmLabel ?? 'operations.traceability.action.confirm')}
+        </button>
+      </div>
+    </Modal>
+  {/if}
 </ExtensionPageShell>
 
 <!--
@@ -1303,6 +1478,7 @@ const shellTabs = $derived(
           {#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}
           {#if F.submit?.kind === 'download'}{t('common.download')}
           {:else if F.submit?.kind === 'upload'}{t('common.upload')}
+          {:else if !editingId && F.preview}{t(F.preview.submitLabel ?? 'operations.traceability.action.simulate')}
           {:else}{editingId ? t('common.save') : t('common.create')}{/if}
         </button>
       </div>
