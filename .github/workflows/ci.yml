@@ -337,6 +337,21 @@ jobs:
       - name: Build SDK
         run: cd packages/sdk && bun run build
       - name: Run unit tests (with coverage)
+        env:
+          # Point the extension registry at a closed port so an unreachable
+          # registry is REFUSED instantly instead of hanging.
+          #
+          # Eleven test files call loadExtensionFromDir and none stub fetch, so
+          # the load path dials registry.zveltio.com for real. The runner's
+          # egress drops that connection rather than refusing it, so the dial
+          # ran the full AbortSignal.timeout(5000) — which is also bun's default
+          # per-test timeout. Whichever test happened to pay for it failed at
+          # 5001ms with no message, in a different file each run.
+          #
+          # The tests already tolerate an unreachable registry (revocation
+          # checks fail open by design); this only makes "unreachable" fast and
+          # deterministic instead of a property of GitHub's network.
+          REGISTRY_URL: http://127.0.0.1:9
         run: cd packages/engine && bun run test:unit:coverage
       # The authoritative coverage gate now runs in the Handler Coverage job on
       # the HONEST combined number (this unit lcov UNIONed with the in-process
@@ -517,6 +532,9 @@ jobs:
           FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
+          # See the note on the unit-test step: a closed port makes the
+          # registry deterministically unreachable rather than slow.
+          REGISTRY_URL: http://127.0.0.1:9
         run: cd packages/engine && bun run test:integration
       - name: Show engine logs (always)
         if: always()

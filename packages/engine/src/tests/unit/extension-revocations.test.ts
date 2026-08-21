@@ -283,3 +283,85 @@ describe('load-path enforcement', () => {
     expect(loader.lastLoadError.get('crm/core')).toContain('unreachable');
   });
 });
+
+/**
+ * A registry that does not answer must cost one timeout, not one per extension.
+ *
+ * `fetchList` returned null on failure and nothing recorded that it had failed,
+ * so `_cache` stayed null and the next caller immediately started another
+ * request. Every extension load paid the full 5-second connect timeout in
+ * sequence — on an air-gapped install, the deployment this module explicitly
+ * says it supports, that is minutes of boot spent dialling a host that is not
+ * there.
+ *
+ * It also broke a test that had nothing to do with revocations: bun's default
+ * per-test timeout is 5000ms, the same as the fetch timeout, so any test whose
+ * extension load happened to be the one paying for the dial failed at 5002ms
+ * with no explanation. That is how this surfaced.
+ *
+ * Counting attempts rather than measuring elapsed time, so the test states the
+ * property directly instead of inferring it from a clock.
+ */
+describe('an unreachable registry is dialled once, not once per extension', () => {
+  function countingFailure() {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
+    return () => calls;
+  }
+
+  it('twenty checks against a dead registry make one request', async () => {
+    const calls = countingFailure();
+    for (let i = 0; i < 20; i++) await checkRevoked('crm/core', '1.2.0');
+    expect(calls()).toBe(1);
+  });
+
+  it('still reports unknown for every one of them — fail-open is unchanged', async () => {
+    // The cooldown must not turn "we could not ask" into "nothing is revoked",
+    // which is the distinction ZVELTIO_REQUIRE_REVOCATION_CHECK acts on.
+    countingFailure();
+    for (let i = 0; i < 5; i++) {
+      const v = await checkRevoked('crm/core', '1.2.0');
+      expect(v.unknown).toBe(true);
+      expect(v.revoked).toBe(false);
+    }
+  });
+
+  it('the control: a reachable registry is still read, and still revokes', async () => {
+    // Proves the cooldown is not simply suppressing all fetches.
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({ revocations: [REVOKED] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const v = await checkRevoked('crm/core', '1.2.0');
+    expect(v.revoked).toBe(true);
+    expect(v.unknown).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('an operator forcing a re-check gets one — the cooldown is not a lockout', async () => {
+    const calls = countingFailure();
+    await checkRevoked('crm/core', '1.2.0');
+    expect(calls()).toBe(1);
+
+    clearRevocationCache(); // what the operator action calls
+    await checkRevoked('crm/core', '1.2.0');
+    expect(calls()).toBe(2);
+  });
+
+  it('a list already fetched survives a later failure', async () => {
+    // The pre-existing guarantee: losing contact must not un-revoke anything.
+    respondWith({ revocations: [REVOKED] });
+    expect((await checkRevoked('crm/core', '1.2.0')).revoked).toBe(true);
+
+    countingFailure();
+    // Past the served TTL it would try again; within it, the cached list stands.
+    const v = await checkRevoked('crm/core', '1.2.0');
+    expect(v.revoked).toBe(true);
+    expect(v.unknown).toBe(false);
+  });
+});
