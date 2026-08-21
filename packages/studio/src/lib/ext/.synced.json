@@ -2,17 +2,12 @@
   "routes": [
     "ai",
     "analytics/dashboard",
-    "analytics/quality",
     "billing",
-    "checklists",
     "compliance/ro/efactura",
-    "compliance/ro/procurement",
     "content/documents",
     "crm",
-    "developer/api-docs",
     "developer/database",
     "developer/graphql",
-    "finance/banking",
     "forms",
     "geospatial/postgis",
     "hr/time-tracking",
@@ -20,14 +15,12 @@
     "mail",
     "media",
     "pages",
-    "pos",
     "projects/helpdesk",
     "projects/management",
     "search",
     "sms",
     "storage/cloud",
-    "traceability",
-    "workflow/approvals"
+    "traceability"
   ],
   "libs": [
     "content/pages",
