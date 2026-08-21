@@ -139,7 +139,12 @@ for (const extRoot of EXT_ROOTS) {
 
   for (const extName of extensions) {
     const pagesDir = join(extRoot, extName, 'studio', 'pages');
-    if (!existsSync(pagesDir)) continue;
+    const srcDir = join(extRoot, extName, 'studio', 'src');
+    const hasPages = existsSync(pagesDir);
+    const hasSrc = existsSync(srcDir);
+    // Schema-only pages delete studio/pages/, but field-type / shared components
+    // still live under studio/src/ and must keep syncing into $lib/ext/.
+    if (!hasPages && !hasSrc) continue;
 
     const manifestPath = join(extRoot, extName, 'manifest.json');
     let slug = extName; // fallback: use extension name as slug
@@ -163,25 +168,25 @@ for (const extRoot of EXT_ROOTS) {
       continue;
     }
 
-    const dest = join(ROUTES_EXT, slug);
-    mkdirSync(dest, { recursive: true });
-    cpSync(pagesDir, dest, { recursive: true });
+    if (hasPages) {
+      const dest = join(ROUTES_EXT, slug);
+      mkdirSync(dest, { recursive: true });
+      cpSync(pagesDir, dest, { recursive: true });
+      syncedSlugs.push(slug);
+      synced++;
+      console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
+    }
 
-    // Also copy studio/src/ (shared components, libs) → $lib/ext/<name>/ so
-    // pages can import them via $lib/ext/<extName>/components/Foo.svelte.
-    // This mirrors what the runtime studio-builder.ts does for installed
-    // extensions; keeps dev parity with prod hot-install flow.
-    const srcDir = join(extRoot, extName, 'studio', 'src');
-    if (existsSync(srcDir)) {
+    // Copy studio/src/ (shared components, libs) → $lib/ext/<name>/ so pages and
+    // field types can import via $lib/ext/<extName>/components/Foo.svelte.
+    // Mirrors runtime studio-builder.ts; keeps dev parity with prod hot-install.
+    if (hasSrc) {
       const libDest = join(LIB_EXT, extName);
       mkdirSync(libDest, { recursive: true });
       copyTreeSkippingTests(srcDir, libDest);
       syncedLibDirs.push(extName);
+      if (!hasPages) console.log(`[sync-ext] ✓  ${extName} → $lib/ext/ (src only)`);
     }
-
-    console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
-    syncedSlugs.push(slug);
-    synced++;
   }
 }
 
