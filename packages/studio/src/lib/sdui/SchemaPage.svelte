@@ -769,17 +769,45 @@ const shellTabs = $derived(
         <ExtensionDataPanel {loading} empty={!loading && rows.length === 0} emptyTitle={t('common.noResults')}>
           {#snippet table()}
             <table class="table table-sm">
-              <thead><tr>{#each active.columns as col}<th>{t(col.label)}</th>{/each}</tr></thead>
+              <thead>
+                <tr>
+                  {#each active.columns as col}<th>{t(col.label)}</th>{/each}
+                  {#if active.rowActions}<th></th>{/if}
+                </tr>
+              </thead>
               <tbody>
                 {#each rows as row (row.id ?? JSON.stringify(row))}
                   <tr class="hover">
                     {#each active.columns as col}
                       <td class={cellClass(row, col)}>
-                        {#if col.type === 'badge'}
+                        {#if col.editable}
+                          {#if col.editable.options}
+                            <select class="select select-xs select-bordered" value={String(getPath(row, col.key) ?? '')}
+                              onchange={(e) => inlineEdit(row, col, (e.currentTarget as HTMLSelectElement).value)}>
+                              {#each col.editable.options as o}<option value={o.value}>{t(o.label)}</option>{/each}
+                            </select>
+                          {:else}
+                            <input class="input input-xs input-bordered w-full max-w-[12rem]" value={String(getPath(row, col.key) ?? '')}
+                              onchange={(e) => inlineEdit(row, col, (e.currentTarget as HTMLInputElement).value)} />
+                          {/if}
+                        {:else if col.type === 'badge'}
                           <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
+                        {:else if col.type === 'boolean'}
+                          {getPath(row, col.key) ? t('common.yes') : t('common.no')}
                         {:else}{cellText(row, col)}{/if}
                       </td>
                     {/each}
+                    {#if active.rowActions}
+                      <td class="text-right whitespace-nowrap">
+                        {#each active.rowActions as a}
+                          {#if actionVisible(row, a)}
+                            <button class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
+                              {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={12} />{:else}{t(a.label)}{/if}
+                            </button>
+                          {/if}
+                        {/each}
+                      </td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
