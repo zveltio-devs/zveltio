@@ -343,7 +343,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       deserialize: async (v: string) => {
         if (!v || isPasswordHash(v)) return v; // already hashed
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           return (await (globalThis as any).Bun?.password?.hash(v)) ?? v;
         } catch {
           return v;

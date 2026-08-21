@@ -66,7 +66,7 @@ function collectPairs(node: unknown, acc: Pair[]): void {
 /** Resolve a possibly-dotted path; returns `undefined` if any segment is missing. */
 function getPath(body: unknown, path?: string): unknown {
   if (!path) return body;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   let cur: any = body;
   for (const seg of path.split('.')) {
     if (cur == null || typeof cur !== 'object') return undefined;
@@ -97,7 +97,7 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
     // else the first non-templated pair found anywhere in the schema.
     const pairs: Pair[] = [];
     collectPairs(schema, pairs);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const master = (schema as any).resources?.[0]?.master;
     const primary: Pair | undefined =
       master?.dataSource && typeof master.dataSource === 'string'
@@ -116,7 +116,7 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: '{}',
     });
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const enableBody = (await enableRes.json().catch(() => ({}))) as any;
     if (!enableBody?.success) {
       // H-13 made every non-2xx an RFC 9457 problem+json envelope, where the
@@ -166,7 +166,7 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
       if (primary.dataPath && resolved === undefined) {
         sev = 'HARD';
         note = `dataPath "${primary.dataPath}" missing from payload (keys: ${Object.keys(
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           (body as any) ?? {},
         )
           .join(',')

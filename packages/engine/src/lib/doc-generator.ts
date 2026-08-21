@@ -24,7 +24,7 @@ function escapeHtml(str: string): string {
  * generated HTML/PDF output and in the html_content column.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function renderTemplate(template: string, variables: Record<string, any>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (_match, key) => {
     const value = variables[key.trim()];
@@ -53,7 +53,7 @@ export async function generatePDF(
  * Format: {prefix}{counter}/{year}
  */
 export async function getNextDocumentNumber(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   db: any,
   templateId: string,
   prefix: string,

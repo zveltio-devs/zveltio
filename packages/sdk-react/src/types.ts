@@ -1,5 +1,5 @@
 export interface CollectionOptions {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   filter?: Record<string, any>;
   sort?: string;
   order?: 'asc' | 'desc';

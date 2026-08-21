@@ -32,7 +32,7 @@ import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { refreshExtensions } from '$lib/extensions.svelte.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 const CATEGORY_ICONS: Record<string, any> = {
   workflow: Workflow,
   ai: Brain,
@@ -86,7 +86,7 @@ interface Extension {
    * response body.
    */
   last_load_error?: string | null;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   config: Record<string, any>;
   /** Other extensions this one requires (by name). */
   dependencies?: string[];
@@ -238,7 +238,7 @@ async function saveLicense() {
     licenseExt = null;
     await loadCatalog();
     toast.success(m['mkt.licenseSaved']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     licenseError = e.message;
   } finally {
@@ -266,7 +266,7 @@ async function loadCatalog() {
     // the page telling the operator to restart, above a card that could not be
     // fixed by restarting.
     restartNeeded = extensions.some((e) => e.needs_restart && !e.last_load_error);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -314,7 +314,7 @@ async function install(ext: Extension) {
   try {
     await api(`/api/marketplace/${encodeURIComponent(ext.name)}/install`, { method: 'POST' });
     await loadCatalog();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['mkt.installFailed']({ error: e.message }));
   } finally {
@@ -384,7 +384,7 @@ async function enable(ext: Extension) {
       // after a refresh — no rebuild or restart needed.
       toast.success(m['mkt.activeRefresh']({ name: ext.displayName }));
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['mkt.enableFailed']({ error: e.message }));
   } finally {
@@ -423,7 +423,7 @@ async function disable(ext: Extension) {
           // its nav entry; the (still-compiled) page just won't be linked.
           toast.success(m['mkt.disabled']({ name: ext.displayName }));
         }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(m['mkt.disableFailed']({ error: e.message }));
       } finally {
@@ -445,7 +445,7 @@ async function uninstall(ext: Extension) {
       try {
         await api(`/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`, { method: 'POST' });
         await loadCatalog();
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(m['mkt.uninstallFailed']({ error: e.message }));
       } finally {
@@ -472,7 +472,7 @@ async function saveConfig() {
     });
     configuringExt = null;
     await loadCatalog();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     configError = e instanceof SyntaxError ? m['mkt.invalidJson']() : e.message;
   }

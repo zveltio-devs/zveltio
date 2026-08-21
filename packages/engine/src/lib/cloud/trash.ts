@@ -14,7 +14,7 @@ export async function moveToTrash(
   _deletedBy: string,
   tenantId?: string,
 ): Promise<void> {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   let q = (db as any)
     .updateTable('zv_media_files')
     .set({ deleted_at: new Date().toISOString() })

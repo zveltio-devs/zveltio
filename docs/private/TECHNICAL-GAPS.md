@@ -18,7 +18,7 @@ kept current. Verified state of every P0:
 
 | P0 | Status | Evidence |
 | --- | --- | --- |
-| 1.2 Disaster recovery | ✅ **DONE** (re-verified 2026-08-07, see note) | `docs/DISASTER-RECOVERY.md` + `scripts/dr-drill.sh` + `.github/workflows/dr-smoke.yml` (weekly, Mon 04:00) — the workflow now RUNS the script |
+| 1.2 Disaster recovery | ✅ **DONE** (re-verified 2026-08-07, see note) | `docs/site/DISASTER-RECOVERY.md` + `scripts/dr-drill.sh` + `.github/workflows/dr-smoke.yml` (weekly, Mon 04:00) — the workflow now RUNS the script |
 | 2.1 Audit completeness | ✅ **DONE** | `docs/AUDIT-COVERAGE.md` (inventory) + `third-party-isolation-enforcement.test.ts` |
 | 5.1 Live public demo | 🟡 **CODE DONE** | `middleware/demo-mode.ts` (demo-safe action gating) + seedable templates make an instance a working demo. Remaining = **hosting/deploy** (ops, not code). |
 | 5.2 Business templates | ✅ **DONE** | 5 builtin templates (`templates/builtin/*.json`) with collections **+ starter sample data**; `POST /api/templates/:id/{install,seed}`; Studio one-click install + seed. |
@@ -41,7 +41,7 @@ kept current. Verified state of every P0:
 > already ran does — so a restore onto new hardware came up with no role, could
 > not get one from re-running migrations, and fell back to a connection that on
 > a default install is a superuser and therefore not subject to RLS. The role is
-> now provisioned at every boot. See `docs/DISASTER-RECOVERY.md` § Scenario B.
+> now provisioned at every boot. See `docs/site/DISASTER-RECOVERY.md` § Scenario B.
 >
 > The general lesson is worth more than the fix: a ✅ in this table means
 > someone wrote code, not that anyone ran it.
@@ -50,7 +50,7 @@ kept current. Verified state of every P0:
 load-time extension isolation gap — `lib/extensions/load.ts` importing a
 worker-isolated extension's entry module in the engine process before its worker
 existed — is fixed: that branch no longer imports at all, taking its metadata
-from the manifest and `engine/migrations/*.sql` instead. See `docs/SECURITY.md`
+from the manifest and `engine/migrations/*.sql` instead. See `docs/private/SECURITY.md`
 § Extension isolation for what the boundary now covers and what it costs.
 
 Everything else on the engineering P0 surface is closed; the rest is
@@ -77,7 +77,7 @@ Section bodies below are kept for history; trust this table where they disagree.
 
 ### 1.1 Performance benchmarks — measured, not claimed 🟠 P1 (mostly shipped)
 **Done.** Benchmark suite at `bench/benchmarks/` (rest-crud, list-pagination,
-realtime, cold-start) + `docs/BENCHMARKS.md` with measured p50/p95/p99 numbers,
+realtime, cold-start) + `docs/site/BENCHMARKS.md` with measured p50/p95/p99 numbers,
 run in CI via the `perf-smoke` job (see 3.1).
 
 **Remaining (downgraded from P0).**
@@ -96,7 +96,7 @@ run in CI via the `perf-smoke` job (see 3.1).
 **Why it matters.** Operators won't trust the platform without DR runbooks. Compliance audits require documented recovery procedures.
 
 **Acceptance criteria.**
-- `docs/DISASTER-RECOVERY.md` covering: backup taxonomy (logical vs PITR vs filesystem snapshots), restore drill procedure (step-by-step), RPO/RTO commitments per backup tier.
+- `docs/site/DISASTER-RECOVERY.md` covering: backup taxonomy (logical vs PITR vs filesystem snapshots), restore drill procedure (step-by-step), RPO/RTO commitments per backup tier.
 - Automated DR drill script (`scripts/dr-drill.sh`) that:
   1. Spins up a fresh Postgres
   2. Restores from latest backup
@@ -460,7 +460,7 @@ normalized query text + suggest missing indexes (today it's per-occurrence).
 ---
 
 ### 4.3 Extension cookbook 🟠 P1 → ✅ DONE (beta.32)
-**Done.** [`docs/EXTENSION-COOKBOOK.md`](EXTENSION-COOKBOOK.md) — 10 task-oriented
+**Done.** [`docs/site/EXTENSION-COOKBOOK.md`](EXTENSION-COOKBOOK.md) — 10 task-oriented
 recipes, each modelled on a real shipped extension (crm, content/drafts,
 operations/traceability) rather than pseudocode: scaffold, extension anatomy, API
 routes, migrations + the tenant-RLS pattern (incl. the `NULLIF` uuid trap),
@@ -472,7 +472,7 @@ drift). Linked from the top of the developer guide.
 **Original gap (kept for history).** EXTENSION-DEVELOPER-GUIDE.md is reference-style. Lacks recipes ("How do I add a new field type?", "How do I send email on insert?", "How do I integrate Stripe?").
 
 **Acceptance criteria.**
-- `docs/EXTENSION-COOKBOOK.md` with 10-15 recipes covering common scenarios.
+- `docs/site/EXTENSION-COOKBOOK.md` with 10-15 recipes covering common scenarios.
 - Each recipe: problem statement, full working code, what to test, how to debug.
 - Recipes for: custom field type, pre-write hook validation, scheduled job, webhook handler, AI provider integration, Studio slot widget, Stripe payment flow, audit trail customization.
 

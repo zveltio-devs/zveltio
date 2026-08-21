@@ -114,7 +114,7 @@ export const WebhookManager = {
   async trigger(
     event: string,
     collection: string,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     data: { id: string; [key: string]: any },
     // Tenant of the write that fired this event (threaded from afterWrite —
     // the dispatcher runs on the GLOBAL pool, not inside the request
@@ -126,7 +126,7 @@ export const WebhookManager = {
     if (!_db) return;
     const tenant = tenantId ?? DEFAULT_TENANT_ID;
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const matchResult = await sql<any>`
         SELECT * FROM zvd_webhooks
         WHERE active = true
@@ -147,7 +147,7 @@ export const WebhookManager = {
         // HTTP delivery timing. Updated with status/error/delivered_at after delivery.
         let deliveryId: string | null = null;
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           const deliveryRow = await (_db as any)
             .insertInto('zvd_webhook_deliveries')
             .values({
@@ -167,7 +167,7 @@ export const WebhookManager = {
             })
             .returning('id')
             .executeTakeFirst();
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           deliveryId = (deliveryRow as any)?.id ?? null;
         } catch {
           /* non-fatal — delivery record missing won't block the webhook queue */
@@ -238,7 +238,7 @@ export const WebhookManager = {
     attempt?: number;
     event: string;
     collection: string;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     data: any;
     timestamp: string;
   }): Promise<boolean> {
@@ -325,7 +325,7 @@ export const WebhookManager = {
 
     // Update delivery record with outcome (non-fatal)
     if (_db && payload.deliveryId) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       (_db as any)
         .updateTable('zvd_webhook_deliveries')
         .set({

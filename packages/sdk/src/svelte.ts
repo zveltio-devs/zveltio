@@ -29,7 +29,7 @@ import type { SyncManager } from './sync-manager.js';
 export function useSyncCollection(
   sync: SyncManager,
   collection: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   setter: (records: any[]) => void,
 ): () => void {
   const col = sync.collection(collection);

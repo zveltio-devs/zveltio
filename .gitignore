@@ -140,6 +140,15 @@ packages/engine/storage/
 # closed yet. A `git add -A` during a release cut swept SECURITY-AUDIT.md into
 # a commit once; the file was removed before it was pushed, and this makes the
 # next one impossible rather than caught.
+#
+# They live in audit/ now — nineteen of them had accumulated at the repository
+# root, where the only thing keeping each one out of a commit was its filename
+# matching a pattern. A directory does not depend on what the next report is
+# called.
+audit/
+
+# The two filename rules stay as well. They cost nothing and they catch a report
+# written to the root by habit, or by a tool that does not know about audit/.
 SECURITY-AUDIT*.md
 AUDIT-*.md
 

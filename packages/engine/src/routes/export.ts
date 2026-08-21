@@ -28,7 +28,7 @@ const SAFE_TABLE = /^[a-zA-Z0-9_]{1,100}$/;
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function exportRoutes(db: Database, auth: any) {
   const app = new Hono();
 
@@ -85,18 +85,18 @@ export function exportRoutes(db: Database, auth: any) {
 
     if (!schemaRow) return c.json({ error: `Collection "${collection}" not found` }, 404);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const fields: any[] =
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       typeof (schemaRow as any).fields === 'string'
-        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           JSON.parse((schemaRow as any).fields)
-        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           ((schemaRow as any).fields ?? []);
 
     // Build column list: only fields that exist in schema + system fields
     const systemCols = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const schemaCols = fields.map((f: any) => f.name).filter((n: string) => SAFE_TABLE.test(n));
     const allCols = [...new Set([...systemCols, ...schemaCols])];
 
@@ -122,9 +122,9 @@ export function exportRoutes(db: Database, auth: any) {
     // route honours is not a boundary.
     const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
     const baseQuery = tdb
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .selectFrom(tableName as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .select(colList as any)
       .orderBy('created_at asc')
       .limit(limit);
@@ -156,7 +156,7 @@ export function exportRoutes(db: Database, auth: any) {
     }
 
     // ── CSV ───────────────────────────────────────────────────────────────
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const csv = recordsToCsv(records as any);
     return new Response(csv, {
       headers: {

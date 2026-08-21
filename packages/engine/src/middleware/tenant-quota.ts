@@ -31,7 +31,7 @@ import { getCache } from '../lib/runtime/index.js';
 export function tenantQuota(db: Database, poolDb?: Database) {
   const quotaDb = poolDb ?? db;
   return async (c: Context, next: Next) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const tenant = c.get('tenant') as any;
 
     // Single-tenant deployments have no tenant context — skip
@@ -136,7 +136,7 @@ export function tenantQuota(db: Database, poolDb?: Database) {
         quotaDb
           .insertInto('zv_tenant_usage')
           .values({ tenant_id: tenant.id, date: day, api_calls: count })
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           .onConflict((oc: any) =>
             oc.columns(['tenant_id', 'date']).doUpdateSet({ api_calls: count }),
           )

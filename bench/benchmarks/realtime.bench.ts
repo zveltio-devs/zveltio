@@ -54,7 +54,7 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
 
   try {
     const wsUrl = client.baseUrl.replace(/^http/, 'ws') + '/api/ws';
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const ws = new WebSocket(wsUrl, { headers: { Cookie: sessionCookie } } as any);
 
     const pendingByTitle = new Map<string, (msUntilDelivery: number) => void>();
@@ -64,7 +64,7 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
         reject(
           new Error(
             `ws error: ${
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
               (e as any).message ?? 'unknown'
             }`,
           ),

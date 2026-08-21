@@ -17,7 +17,7 @@
  * Why: Bun compiled-binary dynamic import cannot resolve bare
  * specifiers like `kysely` from on-disk node_modules. Bundling those
  * deps into the extension is the only path that works at runtime in
- * the binary install — see docs/EXTENSIONS-V2-PHASE1.md §2.
+ * the binary install — see docs/private/EXTENSIONS-V2-PHASE1.md §2.
  *
  * Usage:
  *   $ zveltio extension pack            # current dir

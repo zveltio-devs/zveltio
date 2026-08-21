@@ -41,7 +41,7 @@ async function userHasRole(
 // Identifier: only letters, digits, underscores — no schema prefix injection
 const FUNC_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/;
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function rpcRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -83,7 +83,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     if (!hasAccess) return c.json({ error: 'Forbidden' }, 403);
 
     // Parse args — optional JSON body
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     let args: Record<string, any> = {};
     try {
       const raw = await c.req.json();
@@ -102,7 +102,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     const safeFnName = `"${fn.function_name.replace(/"/g, '""')}"`;
     try {
       const keys = Object.keys(args);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       let result: any;
 
       // The caller's tenant transaction, not the global pool.

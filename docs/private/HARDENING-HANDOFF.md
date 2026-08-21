@@ -3,7 +3,7 @@
 > Written 2026-07-07 to hand this work off to a fresh Claude session (different
 > account, no memory of the prior chat). Everything here is on the branch and PR
 > below — `git pull` and you have all the context that matters. The authoritative
-> backlog with full per-item detail is **`docs/HARDENING-9-PLAN.md`** (its Status
+> backlog with full per-item detail is **`docs/private/HARDENING-9-PLAN.md`** (its Status
 > column is kept current). This file is the 60-second orientation + the
 > operational gotchas that aren't in the plan.
 

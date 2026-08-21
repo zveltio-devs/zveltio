@@ -69,7 +69,7 @@ Alpha releases stay on GitHub for history; we will not ship new alpha versions.
 https://get.zveltio.com/latest.json).
 
 **Docs:** [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/ALPHA-TRACK-EOL.md) ·
-[Migration guide](https://github.com/zveltio-devs/zveltio/blob/master/docs/MIGRATION-ALPHA-TO-BETA.md)
+[Migration guide](https://github.com/zveltio-devs/zveltio/blob/master/docs/site/MIGRATION-ALPHA-TO-BETA.md)
 ```
 
 ---

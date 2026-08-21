@@ -8,7 +8,7 @@
 /** Per-extension license key from zv_settings (`ext_license:<name>`). Free
  * extensions need no key; paid ones send it as `Authorization: Bearer`. */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export async function getLicenseKey(db: any, extensionName: string): Promise<string | undefined> {
   try {
     const row = await db
@@ -36,7 +36,7 @@ export interface LicenseAuditRow {
   details?: Record<string, unknown>;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export async function writeLicenseAudit(db: any, row: LicenseAuditRow): Promise<void> {
   try {
     await db
@@ -67,7 +67,7 @@ export async function fingerprintToken(token: string): Promise<string> {
 }
 
 /** Extract caller IP. Hono honors x-forwarded-for behind trusted proxies. */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function clientIp(c: any): string | null {
   const xff = c.req.header('x-forwarded-for') as string | undefined;
   if (xff) return xff.split(',')[0]!.trim();

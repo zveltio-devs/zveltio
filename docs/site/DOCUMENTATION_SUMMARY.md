@@ -107,7 +107,7 @@ Overview of all documentation created for Zveltio (Bun version).
 
 ---
 
-### 7. **docs/SECURITY.md** (Security Hardening)
+### 7. **docs/private/SECURITY.md** (Security Hardening)
 
 **Status:** ✅ Complete
 

@@ -36,7 +36,7 @@ async function saveProfile() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     toast.success('Profile updated');
     await auth.init();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to update profile');
   } finally {
@@ -64,7 +64,7 @@ async function changePassword() {
     toast.success('Password changed');
     pwOld = '';
     pwNew = '';
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to change password');
   } finally {

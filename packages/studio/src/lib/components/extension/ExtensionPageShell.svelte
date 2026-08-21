@@ -11,7 +11,7 @@ import ExtensionTabBar from './ExtensionTabBar.svelte';
 export type ExtensionTab = {
   id: string;
   label: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   icon?: Component<any>;
 };
 
