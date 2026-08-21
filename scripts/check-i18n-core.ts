@@ -41,7 +41,7 @@ const TRANSLATED = [
   'src/routes/(admin)/users/+page.svelte',
   'src/routes/(admin)/api-keys/+page.svelte',
   'src/routes/(admin)/audit/+page.svelte',
-  'src/routes/(admin)/mail/+page.svelte',
+  // mail left when communications/mail went SDUI (schema via [...extPath])
   // tranche 2
   'src/routes/(admin)/settings/+page.svelte',
   'src/routes/(admin)/permissions/+page.svelte',
@@ -68,7 +68,7 @@ const TRANSLATED = [
   'src/routes/(admin)/collections/erd/+page.svelte',
   'src/routes/(admin)/extensions/[...path]/+page.svelte',
   'src/routes/(admin)/flows/[id]/+page.svelte',
-  'src/routes/(admin)/introspect/+page.svelte',
+  // introspect left when developer/byod went SDUI (schema via [...extPath])
   'src/routes/(admin)/notifications/+page.svelte',
   'src/routes/(admin)/request-logs/+page.svelte',
   'src/routes/(admin)/settings/storage/+page.svelte',
