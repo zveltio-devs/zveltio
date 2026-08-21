@@ -5386,6 +5386,7 @@ export interface ZvdTransactionsTable {
   reference: string | null;
   metadata: Generated<unknown>;
   tenant_id: string | null;
+  payment_status: string | null;
 }
 
 export interface ZvdTranslationGlossaryTable {
