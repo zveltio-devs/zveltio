@@ -35,8 +35,8 @@ export interface ResourceView {
   label?: string;
   /** Lucide icon name for the tab. */
   icon?: string;
-  /** GET endpoint that returns the list. */
-  dataSource: string;
+  /** GET endpoint that returns the list. Optional when `layout: 'builder'`. */
+  dataSource?: string;
   /** Where the array lives in the response: "data" | "declarations" | "". */
   dataPath?: Dotted;
   /** Where the total count lives, for pagination: "meta.total". */
@@ -47,13 +47,58 @@ export interface ResourceView {
   filters?: FilterDef[];
   /** KPI tiles above the table (e.g. invoicing invoiced/collected/overdue). */
   stats?: StatsBlock;
-  /** "table" (default), "cards" (responsive card grid), or "checklist"
+  /** "table" (default), "cards" (responsive card grid), "checklist"
    * (pick an option, toggle catalog items, save the selected id list — e.g.
-   * dashboard role × widget layouts). */
-  layout?: 'table' | 'cards' | 'checklist';
+   * dashboard role × widget layouts), or "builder" (meta fields + ordered
+   * item collection — e.g. form field editor). */
+  layout?: 'table' | 'cards' | 'checklist' | 'builder';
   /** Card-grid mapping (used when layout:'cards'): which row keys are the
    * title / badge / sub-text. rowActions still render in the card footer. */
   card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
+  /**
+   * Builder layout: load one record, edit meta fields + an ordered item array,
+   * optional secondary panel (e.g. form submissions). Route params fill
+   * `{id}` tokens. `columns` / `dataSource` may be empty when this is set.
+   */
+  builder?: {
+    loadEndpoint: string;
+    loadPath?: Dotted;
+    saveEndpoint: string;
+    saveMethod?: 'PATCH' | 'PUT';
+    /** Studio path for the back link (base-aware), e.g. "/forms". */
+    backHref?: string;
+    backLabel?: string;
+    /** Meta fields on the record (name, slug, …). */
+    fields: FieldDef[];
+    /** Ordered nested array (form fields, line items, …). */
+    collection: {
+      key: string;
+      idKey?: string;
+      addLabel?: string;
+      emptyLabel?: string;
+      itemFields: FieldDef[];
+      /** Extra field shown when item[field] ∈ values (e.g. options for select). */
+      optionsField?: {
+        name: string;
+        label?: string;
+        visibleWhen: { field: string; in: string[] };
+        /** Comma-separated string in the UI ↔ string[] on the model. */
+        format?: 'csv';
+      };
+    };
+    /** Optional second tab — e.g. form responses. */
+    secondary?: {
+      id: string;
+      label: string;
+      dataSource: string;
+      dataPath?: Dotted;
+      /** Parent payload path with `{ id, label }[]` used to label answer keys. */
+      answerLabelsFrom?: Dotted;
+      timestampKey?: Dotted;
+      dataKey?: Dotted;
+      emptyLabel?: string;
+    };
+  };
   /**
    * Checklist layout: one selector (role, profile, …) + a catalog of toggleable
    * ids saved as an array on PUT/PATCH. Covers the dashboard admin matrix without
@@ -166,11 +211,13 @@ export interface ActionDef {
   variant?: string;
   /** "edit" opens the form pre-filled; "download" opens the (cookie-authed)
    * endpoint in a new tab so the browser saves it via Content-Disposition (e.g.
-   * SAF-T XML); otherwise call the endpoint. */
-  kind?: 'edit' | 'call' | 'download';
+   * SAF-T XML); "navigate" goes to a Studio path (`href`); otherwise call the endpoint. */
+  kind?: 'edit' | 'call' | 'download' | 'navigate';
   method?: 'POST' | 'PATCH' | 'DELETE';
   /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
+  /** Studio path for `kind: "navigate"` (e.g. "/forms/{id}"), base-aware. */
+  href?: string;
   /** Show the action only when this row condition holds. */
   visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
   /** i18n key / literal for a confirm dialog before the call. */

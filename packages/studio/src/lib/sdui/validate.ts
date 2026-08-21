@@ -62,6 +62,23 @@ export function validateSchema(input: unknown): Validated {
       }
       continue;
     }
+    const isBuilder = r.layout === 'builder' && isObj(r.builder);
+    if (isBuilder) {
+      const b = r.builder as Record<string, unknown>;
+      if (typeof b.loadEndpoint !== 'string' || typeof b.saveEndpoint !== 'string') {
+        return {
+          ok: false,
+          error: `resources[${i}] ("${String(r.id)}") builder needs loadEndpoint and saveEndpoint.`,
+        };
+      }
+      if (!isObj(b.collection) || typeof (b.collection as { key?: unknown }).key !== 'string') {
+        return {
+          ok: false,
+          error: `resources[${i}] ("${String(r.id)}") builder needs collection.key.`,
+        };
+      }
+      continue;
+    }
     if (typeof r.dataSource !== 'string') {
       return { ok: false, error: `resources[${i}] ("${String(r.id)}") is missing "dataSource".` };
     }

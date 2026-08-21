@@ -1,7 +1,6 @@
 {
   "routes": [
-    "crm",
-    "forms"
+    "crm"
   ],
   "libs": [
     "content/pages",
