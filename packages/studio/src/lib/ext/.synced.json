@@ -2,14 +2,12 @@
   "routes": [
     "ai",
     "analytics/dashboard",
-    "billing",
     "crm",
     "forms",
     "introspect",
     "mail",
     "media",
     "pages",
-    "projects/management",
     "storage/cloud",
     "traceability"
   ],
