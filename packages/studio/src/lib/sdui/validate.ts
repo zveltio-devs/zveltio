@@ -47,6 +47,21 @@ export function validateSchema(input: unknown): Validated {
   for (const [i, r] of resources.entries()) {
     if (!isObj(r)) return { ok: false, error: `resources[${i}] is not an object.` };
     if (typeof r.id !== 'string') return { ok: false, error: `resources[${i}] is missing "id".` };
+    const isChecklist = r.layout === 'checklist' && isObj(r.checklist);
+    if (isChecklist) {
+      const cl = r.checklist as Record<string, unknown>;
+      if (
+        typeof cl.catalogDataSource !== 'string' ||
+        typeof cl.loadEndpoint !== 'string' ||
+        typeof cl.saveEndpoint !== 'string'
+      ) {
+        return {
+          ok: false,
+          error: `resources[${i}] ("${String(r.id)}") checklist needs catalogDataSource, loadEndpoint, saveEndpoint.`,
+        };
+      }
+      continue;
+    }
     if (typeof r.dataSource !== 'string') {
       return { ok: false, error: `resources[${i}] ("${String(r.id)}") is missing "dataSource".` };
     }
