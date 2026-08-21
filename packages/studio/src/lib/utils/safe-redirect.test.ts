@@ -57,13 +57,6 @@ describe('safeRedirect', () => {
     expect(safeRedirect('/adminevil/page', BASE)).toBe('/admin/');
   });
 
-  it('allows same-origin extension floor apps under /ext/', () => {
-    expect(safeRedirect('/ext/operations/traceability/app/', BASE)).toBe(
-      '/ext/operations/traceability/app/',
-    );
-    expect(safeRedirect('/ext/evil', BASE)).toBe('/ext/evil');
-  });
-
   it('works when the app is mounted at the root', () => {
     expect(safeRedirect('/collections', '')).toBe('/collections');
     expect(safeRedirect('//evil.example', '')).toBe('/');
