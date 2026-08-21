@@ -196,6 +196,34 @@ function parseSqlFile(filePath: string): void {
       const re = /ALTER\s+COLUMN\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+DROP\s+NOT\s+NULL/gi;
       for (const x of body.matchAll(re)) dropNotNull(t, x[1] ?? x[2].toLowerCase());
     }
+    // ADD CONSTRAINT … CHECK (col IN (…)) — widening or narrowing an enum
+    // domain after the table exists.
+    //
+    // Only the CHECK inside CREATE TABLE was ever read, so a migration that
+    // widened a domain left the generated union stale: `zvd_payroll_periods`
+    // gained an 'approved' status and the type still said
+    // `'open' | 'calculated' | 'closed'`, which makes Kysely reject a value the
+    // database accepts. Silent, because the freshness gate compares the
+    // generated file against ITSELF regenerated — both halves were equally
+    // blind, so nothing disagreed.
+    //
+    // The last CHECK naming a column wins, which is what Postgres does too: an
+    // earlier constraint is dropped and replaced, and migrations are processed
+    // in order.
+    if (/ADD\s+CONSTRAINT[\s\S]*?CHECK/i.test(body)) {
+      const t = getTable(tableName.toLowerCase(), filePath);
+      // Names the column, then hands the whole match to enumFromCheck, which
+      // knows the three spellings. Matching only `IN (` here would have missed
+      // pos 004, which uses `= ANY (ARRAY[…])`.
+      const re =
+        /ADD\s+CONSTRAINT\s+(?:"[^"]+"|[a-z_][a-z0-9_]*)\s+CHECK\s*\(\s*(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s*(?:IN\s*\(|=\s*ANY\s*\(\s*ARRAY\s*\[)[^)\]]*/gi;
+      for (const x of body.matchAll(re)) {
+        const colName = (x[1] ?? x[2]).toLowerCase();
+        const col = t.columns.find((c) => c.name === colName);
+        const values = col ? enumFromCheck(colName, x[0]) : null;
+        if (col && values) col.enumValues = values;
+      }
+    }
   }
 }
 
@@ -240,6 +268,36 @@ function tryParseColumn(line: string): Column | null {
   return parseColumnSpec(m[1].toLowerCase(), m[2].trim());
 }
 
+/**
+ * The value set a CHECK pins `column` to, or null when it pins nothing.
+ *
+ * Postgres spells the same constraint three ways and the migrations use all
+ * three, so reading only one of them silently under-types a column:
+ *
+ *   CHECK (status IN ('open', 'paid'))
+ *   CHECK (status = ANY (ARRAY['open', 'paid']))            -- pos 004
+ *   CHECK (col IS NULL OR col IN ('pending', 'approved'))   -- quotes 001
+ *
+ * Only the first was read. `zvd_pos_orders.status` lost 'refunded',
+ * `zvd_subscribers.status` lost 'paused' and 'cancel_scheduled', and
+ * `zvd_quotes.approval_status` came out as bare `string` — which is worse than
+ * a wrong union, because `string` accepts every typo silently.
+ *
+ * The `IS NULL OR` arm needs no special case: it carries no value list, so the
+ * search lands on the arm that does. Nullability travels separately, via NOT
+ * NULL.
+ */
+function enumFromCheck(column: string, expr: string): string[] | null {
+  const re = new RegExp(
+    `"?${escapeReg(column)}"?\\s*(?:IN\\s*\\(|=\\s*ANY\\s*\\(\\s*ARRAY\\s*\\[)([^)\\]]+)`,
+    'i',
+  );
+  const m = expr.match(re);
+  if (!m) return null;
+  const values = [...m[1].matchAll(/'([^']+)'/g)].map((v) => v[1]);
+  return values.length > 0 ? values : null;
+}
+
 function parseColumnSpec(name: string, spec: string): Column {
   const upper = spec.toUpperCase();
   const isPrimaryKey = /\bPRIMARY\s+KEY\b/.test(upper);
@@ -256,18 +314,10 @@ function parseColumnSpec(name: string, spec: string): Column {
   const isArray = /\[\]$/.test(pgType);
   if (isArray) pgType = pgType.replace(/\s*\[\]$/, '');
 
-  // CHECK (<col> IN ('a','b','c')) → enum members. Only when the
-  // constrained column is the SAME column we're declaring (so we
-  // don't propagate a table-level CHECK to the wrong field).
-  let enumValues: string[] | null = null;
-  const checkRe = new RegExp(
-    `CHECK\\s*\\(\\s*"?${escapeReg(name)}"?\\s+IN\\s*\\(([^)]+)\\)\\s*\\)`,
-    'i',
-  );
-  const checkMatch = spec.match(checkRe);
-  if (checkMatch) {
-    enumValues = [...checkMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-  }
+  // CHECK (<col> …) → enum members. Only when the constrained column is the
+  // SAME column we're declaring (so we don't propagate a table-level CHECK to
+  // the wrong field).
+  const enumValues = enumFromCheck(name, spec);
 
   return { name, pgType, notNull, hasDefault, enumValues, isArray };
 }
