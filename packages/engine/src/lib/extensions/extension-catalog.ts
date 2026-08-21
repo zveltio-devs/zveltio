@@ -328,7 +328,7 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'crm',
     displayName: 'CRM',
-    description: 'Contacts, Organizations, and Transactions — core Business OS data layer',
+    description: 'Contacts, Organizations, and Transactions — optional CRM extension',
     category: 'business',
     version: '1.0.0',
     author: 'Zveltio',

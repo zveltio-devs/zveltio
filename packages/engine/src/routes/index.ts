@@ -46,7 +46,6 @@ import { sqlEditorRoutes } from './sql-editor.js';
 import { templatesRoutes } from './templates.js';
 import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/data/index.js';
-import { ensureCoreCollections } from '../core-collections/index.js';
 import {
   authRateLimit,
   publicFormRateLimit,
@@ -136,9 +135,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   if (!_coreServicesInitialized) {
     _coreServicesInitialized = true;
-    // CRM collections are adopted by @zveltio/ext-crm during extension load.
-    // This hook is a no-op kept for boot-order stability.
-    await ensureCoreCollections(db);
     // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
     initRateLimitDb(db);
     // Initialize DDL job queue (starts background polling — must run exactly once)
