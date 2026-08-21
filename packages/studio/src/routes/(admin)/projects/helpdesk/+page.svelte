@@ -17,7 +17,7 @@
 
   let showForm = $state(false);
   let saving = $state(false);
-  let form = $state({ subject: '', description: '', category_id: '', priority: 'medium', requester_email: '' });
+  let form = $state({ title: '', description: '', category_id: '', priority: 'medium', requester_email: '' });
 
   async function loadTickets() {
     loading = true;
@@ -42,7 +42,7 @@
     try {
       await api.post('/ext/projects/helpdesk/tickets', form);
       showForm = false;
-      form = { subject: '', description: '', category_id: '', priority: 'medium', requester_email: '' };
+      form = { title: '', description: '', category_id: '', priority: 'medium', requester_email: '' };
       await loadTickets();
       toast.success(m['ext.created']());
     } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
@@ -52,7 +52,7 @@
   async function reply() {
     if (!activeTicket || !newMessage.trim()) return;
     try {
-      await api.post(`/ext/projects/helpdesk/tickets/${activeTicket.id}/messages`, { body: newMessage });
+      await api.post(`/ext/projects/helpdesk/tickets/${activeTicket.id}/messages`, { content: newMessage });
       newMessage = '';
       await loadMessages(activeTicket.id);
     } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
@@ -86,7 +86,7 @@
           {:else}
             <div class="flex items-start justify-between mb-3 gap-4">
               <div>
-                <div class="font-medium text-sm">{activeTicket.subject}</div>
+                <div class="font-medium text-sm">{activeTicket.title}</div>
                 <div class="text-xs text-base-content/60">From: {activeTicket.requester_email ?? activeTicket.requester_id ?? '—'}</div>
 </div>
 
@@ -117,7 +117,7 @@
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.helpdesk.ui.new_ticket']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.subject']()}</span></label><input class="input input-sm" bind:value={form.subject} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.subject']()}</span></label><input class="input input-sm" bind:value={form.title} /></div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.requester_email']()}</span></label><input type="email" class="input input-sm" bind:value={form.requester_email} /></div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.col.category']()}</span></label>
@@ -136,7 +136,7 @@
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick={() => (showForm = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary btn-sm" disabled={saving || !form.subject || !form.description} onclick={createTicket}>
+        <button class="btn btn-primary btn-sm" disabled={saving || !form.title || !form.description} onclick={createTicket}>
           {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['projects.helpdesk.btn.create']()}
         </button>
       </div>
