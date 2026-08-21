@@ -12,7 +12,7 @@ let busy = $state<string | null>(null);
 async function load() {
   loading = true;
   try {
-    // The approvals extension exposes /api/approvals; if not installed we
+    // The approvals extension exposes /ext/workflow/approvals; if not installed we
     // fall back to empty so the page degrades gracefully.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ tasks?: any[]; approvals?: any[] }>(
