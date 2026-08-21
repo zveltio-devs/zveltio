@@ -18,6 +18,7 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import { getRlsFilters, matchesRlsFilters } from '../../tenancy/index.js';
+import { entityAccessRegistry } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
@@ -268,6 +269,27 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       hasTrgm: !!collectionDef.has_trgm,
       applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
     });
+  }
+
+  // Per-record entity access, the same check `GET /:id` has always run.
+  //
+  // Reading one record was gated; listing the collection was not. So a viewer
+  // denied a record by an extension's rule got 404 on the direct read and the
+  // record itself in the list — the check protected the narrow door and left the
+  // wide one open. An extension registering an ownership rule ("agents see only
+  // their own tickets") had it enforced on exactly one of the two ways to read.
+  //
+  // It happens here rather than in SQL because a check is a JS callback over the
+  // whole record, so there is no WHERE to push it into. That has a consequence
+  // worth stating rather than hiding: `total` below counts rows BEFORE this
+  // filter, so a caller can still infer how many records exist that they may not
+  // see. A count is not the rows, and counting through the callback is a query
+  // per row.
+  if (entityAccessRegistry.hasChecksFor(tableName)) {
+    const decisions = await Promise.all(
+      result.records.map((r) => entityAccessRegistry.isAllowed(tableName, r, user, 'view')),
+    );
+    result.records = result.records.filter((_, i) => decisions[i] === true);
   }
 
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
