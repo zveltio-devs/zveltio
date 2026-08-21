@@ -27,6 +27,8 @@ export interface PageSchema {
   resources: ResourceView[];
   /** "New" button in the page header; opens the active resource's form. */
   newLabel?: string;
+  /** Page-level toolbar actions (no row), e.g. open floor scanner. */
+  pageActions?: ActionDef[];
 }
 
 export interface ResourceView {
@@ -237,9 +239,10 @@ export interface ActionDef {
   variant?: string;
   /** "edit" opens the form pre-filled; "download" opens the (cookie-authed)
    * endpoint in a new tab so the browser saves it via Content-Disposition (e.g.
-   * SAF-T XML); "navigate" goes to a Studio path (`href`); "preview" POSTs then
+   * SAF-T XML); "navigate" goes to a Studio path (`href`); "open" opens an
+   * engine URL (e.g. extension PWA) in a new tab; "preview" POSTs then
    * shows the response before a confirm submit; otherwise call the endpoint. */
-  kind?: 'edit' | 'call' | 'download' | 'navigate' | 'preview';
+  kind?: 'edit' | 'call' | 'download' | 'navigate' | 'open' | 'preview';
   method?: 'POST' | 'PATCH' | 'DELETE';
   /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
