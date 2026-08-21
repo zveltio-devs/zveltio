@@ -22,14 +22,16 @@ d('gone dual doors (media + approvals)', () => {
   it('GET /api/media returns 410 with extension replacement', async () => {
     const res = await app.request('/api/media/folders');
     expect(res.status).toBe(410);
-    const body = (await res.json()) as { replacement: string };
-    expect(body.replacement).toBe('/ext/content/media');
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/content/media');
+    expect(body.detail ?? '').toMatch(/content\/media/);
   });
 
   it('GET /api/approvals returns 410 with extension replacement', async () => {
     const res = await app.request('/api/approvals');
     expect(res.status).toBe(410);
-    const body = (await res.json()) as { replacement: string };
-    expect(body.replacement).toBe('/ext/workflow/approvals');
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/workflow/approvals');
+    expect(body.detail ?? '').toMatch(/workflow\/approvals/);
   });
 });
