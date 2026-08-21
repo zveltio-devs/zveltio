@@ -32,6 +32,11 @@ import {
   Package,
   Warehouse,
   Boxes,
+  Play,
+  Factory,
+  AlertTriangle,
+  FileText,
+  Save,
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
@@ -68,6 +73,11 @@ const ICONS: Record<string, any> = {
   Package,
   Warehouse,
   Boxes,
+  Play,
+  Factory,
+  AlertTriangle,
+  FileText,
+  Save,
 };
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
@@ -284,8 +294,110 @@ async function selectMaster(id: string) {
   }
 }
 
+// ── checklist layout (role × catalog toggles) ───────────────────────────────
+type ChecklistItem = { id: string; removable?: boolean; permission?: unknown };
+let checklistOptions = $state<string[]>([]);
+let checklistCatalog = $state<ChecklistItem[]>([]);
+let checklistSelected = $state('');
+let checklistDraft = $state<Record<string, boolean>>({});
+let checklistConfigured = $state(false);
+let checklistSaving = $state(false);
+
+function checklistLabel(id: string): string {
+  const prefix = active.checklist?.catalogLabelPrefix;
+  if (prefix) {
+    const key = `${prefix}.${id}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
+  }
+  return id;
+}
+
+async function loadChecklist(r: ResourceView) {
+  const cl = r.checklist!;
+  loading = true;
+  try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    const cat = await api.get<any>(cl.catalogDataSource);
+    const rawCatalog = getPath(cat, cl.catalogPath ?? 'catalog') ?? [];
+    const idKey = cl.catalogIdKey ?? 'id';
+    checklistCatalog = (Array.isArray(rawCatalog) ? rawCatalog : []).map((w: any) =>
+      typeof w === 'string'
+        ? { id: w, removable: true }
+        : { id: String(w[idKey]), removable: w.removable !== false, permission: w.permission },
+    );
+    const rawOpts = getPath(cat, cl.optionsPath ?? 'roles') ?? [];
+    const optKey = cl.optionsIdKey ?? 'id';
+    let opts = (Array.isArray(rawOpts) ? rawOpts : []).map((o: any) =>
+      typeof o === 'string' ? o : String(o[optKey]),
+    );
+    for (const extra of cl.optionsExtra ?? []) if (!opts.includes(extra)) opts.push(extra);
+    opts = [...new Set(opts)].sort();
+    checklistOptions = opts;
+    const pick =
+      checklistSelected && opts.includes(checklistSelected)
+        ? checklistSelected
+        : opts.includes('editor')
+          ? 'editor'
+          : (opts[0] ?? '');
+    if (pick) await selectChecklistOption(pick);
+    else {
+      checklistDraft = {};
+      checklistConfigured = false;
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  } finally {
+    loading = false;
+  }
+}
+
+async function selectChecklistOption(id: string) {
+  const cl = active.checklist;
+  if (!cl) return;
+  checklistSelected = id;
+  try {
+    const url = fillEndpoint(cl.loadEndpoint, { id });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    const res = await api.get<any>(url);
+    const selected = new Set((getPath(res, cl.valueKey ?? 'widgets') ?? []) as string[]);
+    checklistDraft = Object.fromEntries(checklistCatalog.map((w) => [w.id, selected.has(w.id)]));
+    checklistConfigured = Boolean(getPath(res, cl.configuredKey ?? 'configured'));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  }
+}
+
+async function saveChecklist() {
+  const cl = active.checklist;
+  if (!cl || !checklistSelected) return;
+  const url = fillEndpoint(cl.saveEndpoint, { id: checklistSelected });
+  if (!guardMutation(url)) return;
+  checklistSaving = true;
+  try {
+    const widgets = checklistCatalog.filter((w) => checklistDraft[w.id]).map((w) => w.id);
+    const body = { [cl.saveBodyKey ?? 'widgets']: widgets };
+    if ((cl.saveMethod ?? 'PUT') === 'PATCH') await api.patch(url, body);
+    else await api.put(url, body);
+    checklistConfigured = true;
+    toast.success(t('ext.saved'));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  } finally {
+    checklistSaving = false;
+  }
+}
+
+const checklistSelectedIds = $derived(
+  checklistCatalog.filter((w) => checklistDraft[w.id]).map((w) => w.id),
+);
+
 async function load() {
   const r = active;
+  if (r.layout === 'checklist' && r.checklist) return loadChecklist(r);
   if (r.master) return loadMasterDetail(r);
   loading = true;
   try {
@@ -721,7 +833,68 @@ const shellTabs = $derived(
     </div>
   {/if}
 
-  {#if active.master}
+  {#if active.layout === 'checklist' && active.checklist}
+    {#if loading}
+      <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
+    {:else}
+      <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+        <div class="space-y-4">
+          <div class="form-control">
+            <label class="label" for="sdui-checklist-option"><span class="label-text font-medium">{t('common.col.role')}</span></label>
+            <select
+              id="sdui-checklist-option"
+              class="select select-bordered select-sm"
+              value={checklistSelected}
+              onchange={(e) => selectChecklistOption((e.currentTarget as HTMLSelectElement).value)}
+            >
+              {#each checklistOptions as opt (opt)}
+                <option value={opt}>{opt}</option>
+              {/each}
+            </select>
+            <p class="text-xs text-base-content/50 mt-1">
+              {checklistConfigured ? t('analytics.dashboard.customLayout') : t('analytics.dashboard.defaultLayout')}
+            </p>
+          </div>
+          <div class="card bg-base-200">
+            <div class="card-body p-4 space-y-2">
+              <h2 class="font-medium text-sm">{t('analytics.dashboard.widgetsForRole')}</h2>
+              {#each checklistCatalog as w (w.id)}
+                <label class="flex items-center gap-3 p-1.5 rounded hover:bg-base-300/40 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm checkbox-primary"
+                    checked={!!checklistDraft[w.id]}
+                    disabled={w.removable === false}
+                    onchange={(e) => {
+                      checklistDraft = { ...checklistDraft, [w.id]: (e.currentTarget as HTMLInputElement).checked };
+                    }}
+                  />
+                  <span class="text-sm flex-1">{checklistLabel(w.id)}</span>
+                </label>
+              {/each}
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick={saveChecklist} disabled={checklistSaving || !checklistSelected}>
+            {t('common.save')}
+          </button>
+        </div>
+        <div class="space-y-2">
+          <h2 class="font-medium text-sm text-base-content/60">{t('analytics.dashboard.includedWidgets')}</h2>
+          <div class="border border-base-300 rounded-lg p-4 bg-base-100 min-h-[8rem]">
+            {#if checklistSelectedIds.length}
+              <div class="flex flex-wrap gap-2">
+                {#each checklistSelectedIds as id (id)}
+                  <span class="badge badge-lg badge-primary badge-outline">{checklistLabel(id)}</span>
+                {/each}
+              </div>
+            {:else}
+              <p class="text-sm text-base-content/50 py-8 text-center">{t('analytics.dashboard.noWidgets')}</p>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+  {:else if active.master}
     {@const mkey = active.master.idKey ?? 'id'}
     <div class="grid grid-cols-12 gap-4">
       <aside class="col-span-3">
@@ -771,14 +944,14 @@ const shellTabs = $derived(
             <table class="table table-sm">
               <thead>
                 <tr>
-                  {#each active.columns as col}<th>{t(col.label)}</th>{/each}
+                  {#each (active.columns ?? []) as col}<th>{t(col.label)}</th>{/each}
                   {#if active.rowActions}<th></th>{/if}
                 </tr>
               </thead>
               <tbody>
                 {#each rows as row (row.id ?? JSON.stringify(row))}
                   <tr class="hover">
-                    {#each active.columns as col}
+                    {#each (active.columns ?? []) as col}
                       <td class={cellClass(row, col)}>
                         {#if col.editable}
                           {#if col.editable.options}
@@ -853,14 +1026,14 @@ const shellTabs = $derived(
       <table class="table table-sm">
         <thead>
           <tr>
-            {#each active.columns as col}<th>{t(col.label)}</th>{/each}
+            {#each (active.columns ?? []) as col}<th>{t(col.label)}</th>{/each}
             {#if active.rowActions}<th></th>{/if}
           </tr>
         </thead>
         <tbody>
           {#each clientFiltered as row (row.id)}
             <tr class="hover">
-              {#each active.columns as col}
+              {#each (active.columns ?? []) as col}
                 <td class={cellClass(row, col)}>
                   {#if col.editable}
                     {#if col.editable.options}

@@ -637,7 +637,14 @@ function collectEndpoints(node: unknown, acc: string[]): void {
   }
   if (node && typeof node === 'object') {
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-      if ((k === 'dataSource' || k === 'endpoint' || k === 'saveEndpoint') && typeof v === 'string')
+      if (
+        (k === 'dataSource' ||
+          k === 'endpoint' ||
+          k === 'saveEndpoint' ||
+          k === 'catalogDataSource' ||
+          k === 'loadEndpoint') &&
+        typeof v === 'string'
+      )
         acc.push(v);
       else collectEndpoints(v, acc);
     }
