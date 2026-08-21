@@ -37,10 +37,23 @@ import {
   AlertTriangle,
   FileText,
   Save,
+  Pencil,
+  Inbox,
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
+import BuilderLayout from './BuilderLayout.svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
 
-let { schema, extName = '' }: { schema: PageSchema; extName?: string } = $props();
+let {
+  schema,
+  extName = '',
+  routeParams = {},
+}: {
+  schema: PageSchema;
+  extName?: string;
+  routeParams?: Record<string, string>;
+} = $props();
 
 // Defense-in-depth: a declarative page may only MUTATE its own extension's
 // /ext/<name>/ routes. The publish validator is the primary gate; this stops a
@@ -78,6 +91,8 @@ const ICONS: Record<string, any> = {
   AlertTriangle,
   FileText,
   Save,
+  Pencil,
+  Inbox,
 };
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
@@ -401,6 +416,7 @@ const checklistSelectedIds = $derived(
 
 async function load() {
   const r = active;
+  if (r.layout === 'builder' && r.builder) return;
   if (r.layout === 'checklist' && r.checklist) return loadChecklist(r);
   if (r.master) return loadMasterDetail(r);
   loading = true;
@@ -658,6 +674,12 @@ function fireAction(row: any, a: ActionDef, extra: Record<string, any> = {}) {
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function runAction(row: any, a: ActionDef) {
   if (a.kind === 'edit') return openEdit(row);
+  if (a.kind === 'navigate') {
+    const path = fillEndpoint(a.href ?? '', row);
+    const href = path.startsWith('/') ? path : `/${path}`;
+    void goto(`${base}${href}`);
+    return;
+  }
   if (a.kind === 'download') {
     window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
     return;
@@ -795,6 +817,9 @@ const shellTabs = $derived(
 );
 </script>
 
+{#if active.layout === 'builder' && active.builder}
+  <BuilderLayout resource={active} {routeParams} {extName} />
+{:else}
 <ExtensionPageShell
   title={t(schema.title)}
   subtitle={t(schema.subtitle)}
@@ -1245,4 +1270,5 @@ const shellTabs = $derived(
         </button>
       </div>
   </Modal>
+{/if}
 {/if}
