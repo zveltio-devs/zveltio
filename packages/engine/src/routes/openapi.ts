@@ -36,7 +36,7 @@ function buildSpec() {
     info: {
       title: 'Zveltio Engine API',
       version: ENGINE_VERSION,
-      description: 'Self-hosted Business OS — own your hardware, own your data.',
+      description: 'Headless BaaS that becomes a self-hosted SaaS through extensions.',
       contact: { url: 'https://zveltio.com' },
     },
     servers: [{ url: '/api', description: 'Engine API' }],

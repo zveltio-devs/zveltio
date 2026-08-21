@@ -149,46 +149,7 @@ onMount(() => {
   refresh();
 });
 
-/**
- * What the business is owed, as opposed to what the platform is doing.
- *
- * Every other card on this page measures the product — rows stored, API calls
- * served, webhooks active. True, and not a reason to open the page twice. This
- * one answers a question an owner actually has, from the core `transactions`
- * collection, so it works on an install with no extensions at all.
- *
- * Silent when there is nothing owed: a dashboard that congratulates you daily
- * is one you stop reading.
- */
-type OverdueBucket = { currency: string; count: number; total: number };
-let owed = $state<{
-  overdue: OverdueBucket[];
-  oldestOverdueDays: number | null;
-  dueSoon: OverdueBucket[];
-} | null>(null);
-
-async function loadBriefing(): Promise<void> {
-  try {
-    // Requires CRM extension — bare BaaS has no receivables surface.
-    const r = await api.get('/ext/crm/briefing');
-    owed = r?.receivables ?? null;
-  } catch {
-    // The briefing is an addition to this page, not its purpose. If CRM is
-    // off or the call fails, the rest of the dashboard stays quiet.
-    owed = null;
-  }
-}
-
-const owedTotals = $derived(
-  (owed?.overdue ?? []).map(
-    (b) => `${new Intl.NumberFormat().format(Math.round(b.total))} ${b.currency}`,
-  ),
-);
-const owedCount = $derived((owed?.overdue ?? []).reduce((n, b) => n + b.count, 0));
-const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count, 0));
-
 function refresh(): void {
-  loadBriefing();
   loadStats();
   loadActivity();
   loadSystem();
@@ -401,31 +362,6 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
       Refresh
     </button>
   </header>
-
-  <!-- The first thing on the page that is about the business. Rendered only
-       when there is something to chase, so the screen stays quiet on a good
-       day. -->
-  {#if owedCount > 0}
-    <a
-      href="{base}/data/transactions"
-      class="card bg-base-100 border border-warning/40 hover:border-warning transition-colors"
-    >
-      <div class="card-body flex-row items-center gap-4 py-4">
-        <AlertCircle class="w-8 h-8 text-warning shrink-0" />
-        <div class="min-w-0">
-          <div class="text-sm opacity-70">{m['briefing.owedTitle']()}</div>
-          <div class="text-2xl font-semibold truncate">{owedTotals.join(' · ')}</div>
-          <div class="text-sm opacity-70">
-            {m['briefing.overdueCount']({ count: owedCount })}{owed?.oldestOverdueDays
-              ? `, ${m['briefing.oldestDays']({ days: owed.oldestOverdueDays })}`
-              : ''}{dueSoonCount > 0
-              ? ` · ${m['briefing.dueSoon']({ count: dueSoonCount })}`
-              : ''}
-          </div>
-        </div>
-      </div>
-    </a>
-  {/if}
 
   <!-- System-health banner — only when degraded. Healthy systems are quiet. -->
   {#if systemUnhealthy && system}

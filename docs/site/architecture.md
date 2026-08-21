@@ -448,9 +448,10 @@ If the extension is not active, routes return `404`.
 | `/api/documents` | `content/documents` | content |
 | `/api/ai/*` | `ai` | ai |
 | `/api/graphql` | `developer/graphql` | developer |
-| `/api/contacts` | `crm` | business |
-| `/api/organizations` | `crm` | business |
-| `/api/transactions` | `crm` | business |
+| `/ext/crm/contacts` | `crm` | business |
+| `/ext/crm/organizations` | `crm` | business |
+| `/ext/crm/transactions` | `crm` | business |
+| `/ext/crm/briefing` | `crm` | business |
 | `/api/mail/*` | `communications/mail` | communications |
 | `/api/auth/saml/*` | `auth/saml` | auth |
 | `/api/auth/ldap/*` | `auth/ldap` | auth |
