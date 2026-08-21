@@ -922,87 +922,14 @@ export interface ZvdAiSearchConfigTable {
   created_at: Generated<Date>;
 }
 
-// The i18n tables are NOT declared here.
+// Extension-owned tables are NOT declared here.
 //
-// They used to be, from when translations were an engine feature. The engine
-// serves none of it now — `routes/translations.ts` is gone and the fifteen
-// routes live in `i18n/translations` — so the types went with the code.
-//
-// Extension tables in general do not appear in this file: `zvd_invoices`,
-// `zv_ro_documents` and `zvd_pos_orders` are not here either. Extensions reach
-// their own tables through `ctx.db`, and the four i18n names were leftovers
-// rather than the mechanism.
-
-export interface ZvdContactsTable {
-  id: Generated<string>;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  company: string | null;
-  job_title: string | null;
-  avatar_url: string | null;
-  address: unknown; // JSONB
-  tags: unknown; // JSONB
-  notes: string | null;
-  source: string | null;
-  external_id: string | null;
-  metadata: unknown; // JSONB
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdOrganizationsTable {
-  id: Generated<string>;
-  name: string;
-  legal_name: string | null;
-  tax_id: string | null;
-  registration_no: string | null;
-  type: string | null;
-  industry: string | null;
-  website: string | null;
-  email: string | null;
-  phone: string | null;
-  address: unknown; // JSONB
-  billing_address: unknown; // JSONB
-  logo_url: string | null;
-  tags: unknown; // JSONB
-  metadata: unknown; // JSONB
-  is_active: boolean;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdContactOrganizationsTable {
-  contact_id: string;
-  organization_id: string;
-  role: string | null;
-  is_primary: boolean;
-}
-
-export interface ZvdTransactionsTable {
-  id: Generated<string>;
-  type: string;
-  status: string;
-  number: string | null;
-  organization_id: string | null;
-  contact_id: string | null;
-  currency: string;
-  amount: number;
-  tax_amount: number;
-  total_amount: number;
-  due_date: Date | null;
-  paid_date: Date | null;
-  line_items: unknown; // JSONB
-  notes: string | null;
-  reference: string | null;
-  metadata: unknown; // JSONB
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
+// i18n (`i18n/translations`) and CRM (`crm`) used to ship types in this file
+// when those domains lived in the engine. They do not anymore. Same rule as
+// `zvd_invoices`, `zv_ro_documents`, `zvd_pos_orders`: extensions reach their
+// own tables through `ctx.db`. `schema.generated.ts` may still list them when
+// codegen sees extension migrations — that is fine and separate from this
+// hand-written core schema.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Portal tables — OLD (kept for backward compat, renamed in migration 061)
@@ -1807,10 +1734,6 @@ export interface DbSchema {
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
-  zvd_contacts: ZvdContactsTable;
-  zvd_organizations: ZvdOrganizationsTable;
-  zvd_contact_organizations: ZvdContactOrganizationsTable;
-  zvd_transactions: ZvdTransactionsTable;
   // Portal old (renamed in migration 061, kept for transition)
   zvd_portal_theme: ZvdPortalThemeTable;
   zvd_portal_pages: ZvdPortalPagesTable;
