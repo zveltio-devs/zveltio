@@ -1,13 +1,8 @@
 {
   "routes": [
-    "ai",
     "analytics/dashboard",
     "crm",
     "forms",
-    "introspect",
-    "mail",
-    "media",
-    "pages",
     "traceability"
   ],
   "libs": [
