@@ -1,14 +1,9 @@
 /**
- * Both upload routes count against the same storage quota.
+ * Core storage upload enforces tenant quota.
  *
- * `POST /api/media/files` and `POST /api/storage/upload` write the same rows to
- * the same `zv_media_files` table and draw on the same allowance. Only the
- * first checked it. The second enforced a per-FILE size limit, which answers a
- * different question: a user at their limit could keep uploading indefinitely
- * through the other endpoint as long as each file stayed under 50 MB.
- *
- * The quota is set to a few bytes here rather than filled up, because the bug
- * is about which door is guarded, not about how the total is computed.
+ * Historically `/api/media/upload` was a second door into the same
+ * `zv_media_files` table; that dual door is gone (410 → content/media).
+ * Quota for the remaining core upload path must still reject over-limit.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -19,17 +14,11 @@ import { createGodSession, getTestApp, harnessAvailable } from '../../testing/ap
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('storage quota applies to every upload route', () => {
+d('storage quota on core upload', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
   let userId = '';
-
-  const upload = (path: string, name: string) => {
-    const fd = new FormData();
-    fd.set('file', new File(['x'.repeat(4096)], name, { type: 'text/plain' }));
-    return app.request(path, { method: 'POST', headers: { cookie }, body: fd });
-  };
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -37,7 +26,6 @@ d('storage quota applies to every upload route', () => {
     const me = await (await app.request('/api/me', { headers: { cookie } })).json();
     userId = (me as { user: { id: string } }).user.id;
 
-    // A quota smaller than the file being uploaded: anything at all is over.
     await sql`
       INSERT INTO zv_storage_quotas (user_id, quota_bytes, used_bytes)
       VALUES (${userId}, 16, 0)
@@ -50,18 +38,15 @@ d('storage quota applies to every upload route', () => {
     await sql`DELETE FROM zv_storage_quotas WHERE user_id = ${userId}`.execute(db).catch(() => {});
   });
 
-  it('refuses the media upload when the quota is exceeded', async () => {
-    // The route that always checked — the control.
-    const res = await upload('/api/media/upload', 'via-media.txt');
+  it('refuses /api/storage/upload when the quota is exceeded', async () => {
+    const fd = new FormData();
+    fd.set('file', new File(['x'.repeat(4096)], 'via-storage.txt', { type: 'text/plain' }));
+    const res = await app.request('/api/storage/upload', {
+      method: 'POST',
+      headers: { cookie },
+      body: fd,
+    });
     expect(res.status).toBe(413);
-  });
-
-  it('refuses the storage upload too', async () => {
-    // The bug: this returned 201 and wrote the row.
-    const res = await upload('/api/storage/upload', 'via-storage.txt');
-    expect(res.status).toBe(413);
-    // Non-2xx under /api is rewrapped into the problem envelope, so the
-    // message lands in `detail` rather than `error`.
     const body = (await res.json()) as { detail?: string; error?: string };
     expect(body.detail ?? body.error ?? '').toMatch(/quota/i);
   });
