@@ -62,7 +62,6 @@ let panelLoading = $state<Record<string, boolean>>({});
 // biome-ignore lint/suspicious/noExplicitAny: form drafts
 let formDrafts = $state<Record<string, Record<string, any>>>({});
 let formSaving = $state<Record<string, boolean>>({});
-// biome-ignore lint/suspicious/noExplicitAny: relation options
 let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
 
 onMount(() => {
