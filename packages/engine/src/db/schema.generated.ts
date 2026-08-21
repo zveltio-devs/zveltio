@@ -47,7 +47,7 @@ export interface UserTable {
   email: string;
   emailVerified: Generated<boolean>;
   image: string | null;
-  role: Generated<'admin' | 'manager' | 'member'>;
+  role: Generated<'god' | 'member'>;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
   twoFactorEnabled: Generated<boolean>;
@@ -1065,15 +1065,13 @@ export interface ZvFlowStepsTable {
   step_order: Generated<number>;
   name: string;
   type:
+    | 'query_db'
     | 'run_script'
     | 'send_email'
     | 'webhook'
-    | 'query_db'
-    | 'condition'
-    | 'transform'
-    | 'delay'
     | 'send_notification'
-    | 'export_collection';
+    | 'export_collection'
+    | 'ai_decision';
   config: Generated<unknown>;
   on_error: Generated<'stop' | 'continue' | 'retry'>;
   created_at: Generated<Date>;
@@ -1083,7 +1081,9 @@ export interface ZvFlowsTable {
   id: Generated<string>;
   name: string;
   description: string | null;
-  trigger_type: Generated<'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook'>;
+  trigger_type: Generated<
+    'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook' | 'ai_task'
+  >;
   trigger_config: Generated<unknown>;
   is_active: Generated<boolean>;
   last_run_at: Date | null;
@@ -1217,7 +1217,7 @@ export interface ZvImportLogsTable {
   collection: string;
   filename: string;
   file_format: Generated<'csv' | 'xlsx' | 'json' | 'ndjson'>;
-  status: Generated<'pending' | 'processing' | 'completed' | 'failed' | 'partial'>;
+  status: Generated<'pending' | 'running' | 'processing' | 'completed' | 'failed' | 'partial'>;
   total_rows: Generated<number>;
   processed_rows: Generated<number>;
   success_rows: Generated<number>;
@@ -1543,7 +1543,7 @@ export interface ZvMediaFilesTable {
   deleted_by: string | null;
   restore_folder_id: string | null;
   tenant_id: string | null;
-  visibility: Generated<string>;
+  visibility: Generated<'tenant' | 'personal'>;
 }
 
 export interface ZvMediaFoldersTable {
@@ -1827,7 +1827,7 @@ export interface ZvPagesTable {
   allowed_roles: Generated<string[]>;
   sort_order: Generated<number>;
   legacy_zone_page_id: string | null;
-  kind: Generated<string>;
+  kind: Generated<'page' | 'popup'>;
   popup_config: Generated<unknown>;
   record_collection: string | null;
   record_field: string | null;
@@ -3621,7 +3621,7 @@ export interface ZvdExpenseReportsTable {
   id: Generated<string>;
   title: string;
   employee_id: string;
-  status: Generated<'draft' | 'submitted' | 'approved' | 'rejected' | 'paid'>;
+  status: Generated<'draft' | 'submitted' | 'approved' | 'rejected' | 'paid' | 'reimbursed'>;
   submitted_at: Date | null;
   approved_by: string | null;
   approved_at: Date | null;
@@ -3968,7 +3968,7 @@ export interface ZvdInvoicesTable {
   tax_rate: Generated<number>;
   tax_amount: Generated<number>;
   total: Generated<number>;
-  status: Generated<'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'>;
+  status: Generated<'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'>;
   notes: string | null;
   recurring_interval: 'monthly' | 'quarterly' | 'yearly' | null;
   next_issue_date: Date | null;
@@ -3995,12 +3995,14 @@ export interface ZvdInvoicesTable {
   seller_bank: string | null;
   delivery_date: Date | null;
   vat_breakdown: Generated<unknown>;
-  vat_regime: Generated<string>;
+  vat_regime: Generated<
+    'standard' | 'reverse_charge' | 'vat_on_collection' | 'exempt' | 'non_taxable'
+  >;
   vat_exemption_reason: string | null;
   exchange_rate: number | null;
   exchange_date: Date | null;
   tax_amount_ron: number | null;
-  doc_type: Generated<string>;
+  doc_type: Generated<'invoice' | 'proforma' | 'delivery_note'>;
   delegate_name: string | null;
   delegate_id_card: string | null;
   delegate_vehicle: string | null;
@@ -4374,7 +4376,7 @@ export interface ZvdPayrollPeriodsTable {
   id: Generated<string>;
   year: number;
   month: number;
-  status: Generated<'open' | 'calculated' | 'closed'>;
+  status: Generated<'open' | 'calculated' | 'approved' | 'closed'>;
   created_by: string;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -4556,7 +4558,7 @@ export interface ZvdPosOrdersTable {
   tax_amount: Generated<number>;
   discount: Generated<number>;
   total: Generated<number>;
-  status: Generated<'open' | 'paid' | 'voided'>;
+  status: Generated<'open' | 'paid' | 'voided' | 'refunded'>;
   created_at: Generated<Date>;
   created_by: string;
   customer_id: string | null;
@@ -4867,7 +4869,7 @@ export interface ZvdQuotesTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   revision: Generated<number>;
-  approval_status: Generated<string | null>;
+  approval_status: Generated<'pending' | 'approved' | 'rejected' | null>;
   discount_percent: Generated<number>;
   discount_amount: Generated<number>;
   footer_notes: string | null;
@@ -5032,7 +5034,9 @@ export interface ZvdSubscribersTable {
   email: string;
   name: string;
   plan_id: string;
-  status: Generated<'trialing' | 'active' | 'past_due' | 'cancelled' | 'expired'>;
+  status: Generated<
+    'trialing' | 'active' | 'past_due' | 'paused' | 'cancel_scheduled' | 'cancelled' | 'expired'
+  >;
   current_period_start: Generated<Date>;
   current_period_end: Date;
   trial_end: Date | null;

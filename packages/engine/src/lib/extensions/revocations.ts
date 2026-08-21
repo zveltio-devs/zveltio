@@ -46,13 +46,30 @@ interface CachedList {
 /** How long a fetched list is served before we try the registry again. */
 const TTL_MS = 5 * 60 * 1000;
 
+/**
+ * How long a FAILED fetch is remembered before trying again.
+ *
+ * A failure was not remembered at all: `fetchList` returned null, `_cache`
+ * stayed null, and the very next caller started another request. Every
+ * extension load therefore paid the full 5-second connect timeout, one after
+ * another, on exactly the deployment this file says it supports — air-gapped,
+ * or a registry that is simply down. Fifty-seven extensions is nearly five
+ * minutes of boot spent waiting on a host that is not there.
+ *
+ * Short enough that a registry coming back up is picked up within a minute,
+ * long enough that a boot does not re-dial it once per extension.
+ */
+const FAILURE_COOLDOWN_MS = 60 * 1000;
+
 let _cache: CachedList | null = null;
 let _inflight: Promise<CachedList | null> | null = null;
+let _failedAt = 0;
 
 /** Test seam + a way for an operator action to force a re-check. */
 export function clearRevocationCache(): void {
   _cache = null;
   _inflight = null;
+  _failedAt = 0;
 }
 
 async function fetchList(): Promise<CachedList | null> {
@@ -90,6 +107,9 @@ async function fetchList(): Promise<CachedList | null> {
  */
 async function getList(): Promise<CachedList | null> {
   if (_cache && Date.now() - _cache.fetchedAt < TTL_MS) return _cache;
+  // Recently failed: serve whatever we have (possibly nothing) without
+  // re-dialling a registry that just did not answer.
+  if (Date.now() - _failedAt < FAILURE_COOLDOWN_MS) return _cache;
   if (!_inflight) {
     _inflight = fetchList().finally(() => {
       _inflight = null;
@@ -97,6 +117,7 @@ async function getList(): Promise<CachedList | null> {
   }
   const fresh = await _inflight;
   if (fresh) _cache = fresh;
+  else _failedAt = Date.now();
   return _cache;
 }
 
