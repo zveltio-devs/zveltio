@@ -106,10 +106,6 @@ for (const file of adminPages(ADMIN)) {
 
   const route = relative(ADMIN, dirname(file));
 
-  // Platform home may probe optional extension APIs (e.g. CRM briefing) without
-  // being an extension snapshot. Those pages stay owned by Studio core.
-  if (route === '.' || route === '') continue;
-
   // An extension may declare ONE page and ship a tree beneath it — traceability
   // declares `/admin/traceability` and carries seven pages under it. So fall
   // back to the longest declared path this route sits under, and remember what

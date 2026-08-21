@@ -53,9 +53,9 @@ const EXTENSION_ROUTES = [
   // Multitenancy
   { path: '/api/tenants', method: 'GET', name: 'tenants' },
   // CRM
-  { path: '/api/contacts', method: 'GET', name: 'crm-contacts' },
-  { path: '/api/organizations', method: 'GET', name: 'crm-organizations' },
-  { path: '/api/transactions', method: 'GET', name: 'crm-transactions' },
+  { path: '/ext/crm/contacts', method: 'GET', name: 'crm-contacts' },
+  { path: '/ext/crm/organizations', method: 'GET', name: 'crm-organizations' },
+  { path: '/ext/crm/transactions', method: 'GET', name: 'crm-transactions' },
   // Mail
   { path: '/api/mail/accounts', method: 'GET', name: 'mail-accounts' },
 ];
