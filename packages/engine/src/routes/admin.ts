@@ -18,7 +18,7 @@ import { registerPermissionRoutes } from './admin/permission-routes.js';
 import { registerConfigRoutes } from './admin/config-routes.js';
 import { registerStorageAdminRoutes } from './admin/storage-routes.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -26,7 +26,7 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function adminRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -50,7 +50,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
  * so that the SDK and tests can call POST /api/api-keys directly.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function apiKeysRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -260,7 +260,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           max_requests,
           description: `Per-key override for ${id}`,
         })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }),
         )

@@ -38,7 +38,7 @@ export interface VirtualConfig {
 }
 
 export interface VirtualQuery {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   filters?: Array<{ field: string; op: string; value: any }>;
   sort?: { field: string; direction: 'asc' | 'desc' };
   page: number;
@@ -47,7 +47,7 @@ export interface VirtualQuery {
 }
 
 export interface VirtualListResult {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   data: any[];
   total: number;
 }
@@ -73,13 +73,13 @@ function buildAuthHeaders(config: VirtualConfig): Record<string, string> {
 }
 
 /** Extract a nested value using a simple dot-path selector (e.g. "$.data.items"). */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function extractByPath(data: any, path: string): any[] {
   const parts = path
     .replace(/^\$\.?/, '')
     .split('.')
     .filter(Boolean);
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   let current: any = data;
   for (const part of parts) {
     if (current == null) return [];
@@ -89,10 +89,10 @@ function extractByPath(data: any, path: string): any[] {
 }
 
 /** Remap external field names to Zveltio field names using field_mapping. */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function mapToZveltio(item: any, fieldMapping: Record<string, string>): any {
   if (!fieldMapping || Object.keys(fieldMapping).length === 0) return item;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const result: Record<string, any> = {};
   Object.assign(result, item);
   for (const [zveltioField, externalField] of Object.entries(fieldMapping)) {
@@ -105,10 +105,10 @@ function mapToZveltio(item: any, fieldMapping: Record<string, string>): any {
 }
 
 /** Remap Zveltio field names back to external field names for write operations. */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function mapToExternal(item: any, fieldMapping: Record<string, string>): any {
   if (!fieldMapping || Object.keys(fieldMapping).length === 0) return item;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const result: Record<string, any> = {};
   Object.assign(result, item);
   for (const [zveltioField, externalField] of Object.entries(fieldMapping)) {
@@ -233,7 +233,7 @@ export async function virtualList(
   return { data, total };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export async function virtualGetOne(config: VirtualConfig, id: string): Promise<any | null> {
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
@@ -250,7 +250,7 @@ export async function virtualGetOne(config: VirtualConfig, id: string): Promise<
   return mapToZveltio(item, config.field_mapping);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export async function virtualCreate(config: VirtualConfig, body: any): Promise<any> {
   const headers = {
     'Content-Type': 'application/json',
@@ -271,7 +271,7 @@ export async function virtualCreate(config: VirtualConfig, body: any): Promise<a
   return mapToZveltio(item, config.field_mapping);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export async function virtualUpdate(config: VirtualConfig, id: string, body: any): Promise<any> {
   const headers = {
     'Content-Type': 'application/json',

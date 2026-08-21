@@ -94,7 +94,7 @@ function parseCsv(text: string, delimiter: string, skipHeader: boolean): Record<
 
 // ── Coerce value to column type ────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function coerce(val: string, fieldDef: any): unknown {
   if (val === '' || val === null || val === undefined) return null;
   const type: string = fieldDef?.type ?? 'text';
@@ -117,7 +117,7 @@ function coerce(val: string, fieldDef: any): unknown {
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function importRoutes(db: Database, auth: any) {
   const app = new Hono();
 
@@ -211,29 +211,29 @@ export function importRoutes(db: Database, auth: any) {
       .executeTakeFirst();
     if (!schemaRow) return c.json({ error: `Collection "${collection}" not found` }, 404);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const fieldDefs: any[] =
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       typeof (schemaRow as any).fields === 'string'
-        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           JSON.parse((schemaRow as any).fields)
-        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           ((schemaRow as any).fields ?? []);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const fieldMap: Record<string, any> = {};
     for (const f of fieldDefs) fieldMap[f.name] = f;
 
     // Valid writeable columns (schema fields only — no system cols via import)
     const validCols = new Set(
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       fieldDefs.map((f: any) => f.name).filter((n: string) => SAFE_IDENT.test(n)),
     );
 
     // Create log entry
     const logId = crypto.randomUUID();
     await tdb
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .insertInto('zv_import_logs' as any)
       .values({
         id: logId,
@@ -244,7 +244,7 @@ export function importRoutes(db: Database, auth: any) {
         options: JSON.stringify({ delimiter, skip_header: skipHeader }),
         created_by: user.id,
         tenant_id: tenantId(c),
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } as any)
       .execute();
 
@@ -262,14 +262,14 @@ export function importRoutes(db: Database, auth: any) {
           .filter((l) => l.trim())
           .map((l) => JSON.parse(l));
       } else {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         rawRecords = parseCsv(text, delimiter === '\\t' ? '\t' : delimiter, skipHeader) as any;
       }
     } catch (err) {
       await tdb
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         .updateTable('zv_import_logs' as any)
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         .set({ status: 'failed', completed_at: new Date() } as any)
         .where('id', '=', logId)
         .where('tenant_id', '=', tenantId(c))
@@ -351,9 +351,9 @@ export function importRoutes(db: Database, auth: any) {
         try {
           const tableName = DDLManager.getTableName(collection);
           await tdb
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             .insertInto(tableName as any)
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             .values(toInsert as any)
             .execute();
           successRows += toInsert.length;
@@ -403,7 +403,7 @@ export function importRoutes(db: Database, auth: any) {
     const status = errorRows === 0 ? 'completed' : successRows === 0 ? 'failed' : 'partial';
 
     await tdb
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .updateTable('zv_import_logs' as any)
       .set({
         status,
@@ -413,7 +413,7 @@ export function importRoutes(db: Database, auth: any) {
         error_rows: errorRows,
         errors: JSON.stringify(errors.slice(0, 100)), // cap stored errors at 100
         completed_at: new Date(),
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } as any)
       .where('id', '=', logId)
       .where('tenant_id', '=', tenantId(c))

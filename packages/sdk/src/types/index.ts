@@ -9,12 +9,12 @@ export interface QueryOptions {
   limit?: number;
   sort?: string;
   order?: 'asc' | 'desc';
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   filter?: Record<string, any>;
   search?: string;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface QueryResponse<T = any> {
   records: T[];
   pagination: {
@@ -25,12 +25,12 @@ export interface QueryResponse<T = any> {
   };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface SingleResponse<T = any> {
   record: T;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface CreateResponse<T = any> {
   record: T;
 }
@@ -43,7 +43,7 @@ export interface DeleteResponse {
 export interface RealtimeMessage {
   event: 'insert' | 'update' | 'delete';
   collection: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   data: any;
   timestamp: string;
 }

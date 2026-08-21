@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * `noExplicitAny` suppression ratchet — docs/HARDENING-9-PLAN.md H-01.
+ * `noExplicitAny` suppression ratchet — docs/private/HARDENING-9-PLAN.md H-01.
  *
  * `biome.json` sets `noExplicitAny` to `error`, so any NEW bare `any` fails
  * `bun run lint` outright. That alone, though, invites a lazy workaround:
@@ -82,7 +82,7 @@ function writeBaseline(counts: Record<string, number>, total: number): void {
   const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
   const baseline: Baseline = {
     generated: new Date().toISOString().slice(0, 10),
-    note: 'Per-bucket noExplicitAny suppression counts. Ratchet: counts may only decrease. See docs/HARDENING-9-PLAN.md H-01.',
+    note: 'Per-bucket noExplicitAny suppression counts. Ratchet: counts may only decrease. See docs/private/HARDENING-9-PLAN.md H-01.',
     total,
     counts: sorted,
   };

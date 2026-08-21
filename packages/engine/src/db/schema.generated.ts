@@ -1422,6 +1422,17 @@ export interface ZvMailMessagesTable {
   tenant_id: string | null;
 }
 
+export interface ZvMailOauthStatesTable {
+  state: Generated<string>;
+  tenant_id: Generated<string>;
+  user_id: string;
+  account_id: string;
+  provider: 'gmail' | 'outlook';
+  redirect_uri: string;
+  expires_at: Date;
+  created_at: Generated<Date>;
+}
+
 export interface ZvMailPgpKeysTable {
   id: Generated<string>;
   user_id: string;
@@ -5679,6 +5690,7 @@ export interface DbSchema {
   zv_mail_folders: ZvMailFoldersTable;
   zv_mail_identities: ZvMailIdentitiesTable;
   zv_mail_messages: ZvMailMessagesTable;
+  zv_mail_oauth_states: ZvMailOauthStatesTable;
   zv_mail_pgp_keys: ZvMailPgpKeysTable;
   zv_mail_signatures: ZvMailSignaturesTable;
   zv_media_ai_metadata: ZvMediaAiMetadataTable;

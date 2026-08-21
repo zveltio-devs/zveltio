@@ -48,7 +48,7 @@ interface FieldDef {
   name: string;
   type: string;
   required?: boolean;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   options?: any;
 }
 interface Collection {
@@ -171,7 +171,7 @@ function cardHeight(c: { fields?: FieldDef[] }): number {
   return n * NODE_ROW_H + NODE_PAD * 2;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function parseFields(f: any): FieldDef[] {
   if (!f) return [];
   try {
@@ -603,7 +603,7 @@ async function createCollection() {
     newCollectionName = '';
     // Poll briefly so the new collection shows up without a manual reload.
     setTimeout(load, 800);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     newCollectionError = err?.message ?? m['erd.createFailed']();
   } finally {
@@ -620,7 +620,7 @@ async function deleteCollection(name: string) {
     userPositions = { ...userPositions };
     persistPositions();
     await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? m['erd.deleteFailed']());
   }
@@ -678,7 +678,7 @@ async function submitAddField(collectionName: string) {
     toast.success(m['erd.fieldAdded']({ field: newFieldName, collection: collectionName }));
     closeAddField();
     await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     newFieldError = err?.message ?? m['erd.addFieldFailed']();
   }
@@ -691,7 +691,7 @@ async function deleteField(collectionName: string, fieldName: string) {
     await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
     toast.success(m['erd.fieldRemoved']({ field: fieldName }));
     await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? m['erd.removeFieldFailed']());
   }
@@ -729,7 +729,7 @@ async function commitRename(collectionName: string, oldName: string) {
     toast.success(m['erd.renamed']({ from: oldName, to: next }));
     cancelRename();
     await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     renameError = err?.message ?? m['erd.renameFailed']();
   }
@@ -764,7 +764,7 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
     editError = m['erd.slugRule']();
     return;
   }
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const body: Record<string, any> = {};
   if (editFieldName !== originalName) body.new_name = editFieldName;
   if (editFieldType !== editOriginalType) body.new_type = editFieldType;
@@ -787,7 +787,7 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
     );
     closeFieldEdit();
     await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     editError = err?.message ?? m['erd.updateFailed']();
   } finally {

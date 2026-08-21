@@ -67,13 +67,13 @@ export async function createCacheSecondaryStorage() {
         return null;
       }
     },
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     set: async (key: string, value: any, ttl: number = 300) => {
       // Default TTL of 300s (5min) - shorter than previous default
       // Reduces memory footprint while maintaining performance
       await cache.setex(key, ttl, JSON.stringify(value));
     },
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     setnx: async (key: string, value: any, ttl: number = 300) => {
       // Set if not exists - useful for rate limiting, locks.
       // NX flag ensures the key is only written if it does not already exist.
@@ -87,7 +87,7 @@ export async function createCacheSecondaryStorage() {
       operations: Array<{
         type: 'get' | 'set' | 'del';
         key: string;
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         value?: any;
         ttl?: number;
       }>,
@@ -106,7 +106,7 @@ export async function createCacheSecondaryStorage() {
       }
       const results = await pipe.exec();
       if (!results) return [];
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       return results.map((r: any) => (r[0] ? null : r[1]));
     },
   };

@@ -13,13 +13,13 @@ export const versionCommand = new Command('version')
 
       const versionData =
         healthRes.status === 'fulfilled' && healthRes.value.ok
-          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             ((await healthRes.value.json()) as any)
           : null;
 
       const updateData =
         updateRes.status === 'fulfilled' && updateRes.value.ok
-          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             ((await updateRes.value.json()) as any)
           : null;
 
