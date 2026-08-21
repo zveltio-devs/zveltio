@@ -43,10 +43,10 @@ const EXTENSION_ROUTES = [
   // i18n
   { path: '/api/translations', method: 'GET', name: 'translations' },
   // Workflow
-  { path: '/api/approvals', method: 'GET', name: 'approvals' },
+  { path: '/ext/workflow/approvals', method: 'GET', name: 'approvals' },
   // Content
   { path: '/api/drafts', method: 'GET', name: 'drafts' },
-  { path: '/api/media', method: 'GET', name: 'media' },
+  { path: '/ext/content/media', method: 'GET', name: 'media' },
   // AI — moved to the `ai` extension; route registration is tested in extension repo
   // Developer
   { path: '/api/graphql', method: 'GET', name: 'graphql' },

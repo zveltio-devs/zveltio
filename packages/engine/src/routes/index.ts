@@ -24,13 +24,14 @@ import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
 // AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
 // /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
-import { approvalsRoutes } from './approvals.js';
+import { goneRoutes } from './gone.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
 // graphql → extensions/developer/graphql
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
-import { mediaRoutes } from './media.js';
+// media → extensions/content/media (410 shim below; do not remount a dual door)
+// approvals → extensions/workflow/approvals (410 shim below)
 import { syncRoutes } from './sync.js';
 import { electricRoutes } from './electric.js';
 import { openApiRoutes } from './openapi.js';
@@ -424,8 +425,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Zones / Pages / Views — 3-layer portal architecture
 
-  // Approval Workflows (core)
-  app.route('/api/approvals', approvalsRoutes(db, auth));
+  // Approval Workflows — owned by extensions/workflow/approvals.
+  // 410 shim so callers don't silently hit a dead twin of the extension.
+  app.route('/api/approvals', goneRoutes('/ext/workflow/approvals', 'Approvals'));
 
   // Data Export: JSON / CSV / NDJSON
   app.route('/api/export', exportRoutes(db, auth));
@@ -441,14 +443,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Database management — moved to extensions/developer/database
 
-  // Media library
-  app.route('/api/media', mediaRoutes(db, auth));
+  // Media library — owned by extensions/content/media (Studio uses /ext/…).
+  app.route('/api/media', goneRoutes('/ext/content/media', 'Media library'));
 
   // Database backups — moved to extensions/operations/backup
 
   // GraphQL auto-generated API — moved to extensions/developer/graphql
-
-  // Approval Workflows — moved to extensions/workflow/approvals
 
   // Content Draft/Publish Workflow — moved to extensions/content/drafts
 
