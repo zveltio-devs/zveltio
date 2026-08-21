@@ -30,7 +30,10 @@ const EXT_ROOTS = [
   // generated snapshot depend on whether an env var happened to be set, so two
   // people regenerating it produced different files and every merge conflicted.
   // Compare by resolved path, since the two spellings differ textually.
-  .filter((p, i, all) => all.findIndex((q) => realpathSync(q as string) === realpathSync(p as string)) === i) as string[];
+  .filter(
+    (p, i, all) =>
+      all.findIndex((q) => realpathSync(q as string) === realpathSync(p as string)) === i,
+  ) as string[];
 
 const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)');
 const LIB_EXT = join(STUDIO_ROOT, 'src/lib/ext');
