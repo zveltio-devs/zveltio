@@ -7,7 +7,7 @@
  *
  * The harness runs as the default tenant (00000000-…-0001). We seed one file for
  * the default tenant and one for a foreign tenant, then assert the foreign file is
- * invisible/unmodifiable through both /api/storage and /api/media.
+ * invisible/unmodifiable through /api/storage (media lives in the content/media extension).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -20,7 +20,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
 
-d('storage/media tenant isolation (in-process)', () => {
+d('storage tenant isolation (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -82,25 +82,5 @@ d('storage/media tenant isolation (in-process)', () => {
       SELECT count(*)::int AS n FROM zv_media_files WHERE id = ${theirsId}
     `.execute(db);
     expect(still.rows[0]!.n).toBe(1);
-  });
-
-  it('GET /api/media/files/:id 404s a foreign-tenant file', async () => {
-    const res = await app.request(`/api/media/files/${theirsId}`, { headers: { cookie } });
-    expect(res.status).toBe(404);
-  });
-
-  it('POST /api/media/files/batch-delete cannot trash a foreign-tenant file', async () => {
-    const res = await app.request('/api/media/files/batch-delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ ids: [theirsId] }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deleted: number };
-    expect(body.deleted).toBe(0); // foreign file not trashed
-    const foreign = await sql<{ deleted_at: string | null }>`
-      SELECT deleted_at FROM zv_media_files WHERE id = ${theirsId}
-    `.execute(db);
-    expect(foreign.rows[0]?.deleted_at ?? null).toBeNull();
   });
 });

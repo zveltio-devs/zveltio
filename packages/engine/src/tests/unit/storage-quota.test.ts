@@ -1,15 +1,9 @@
 /**
  * Per-user storage quota.
  *
- * There are two ways to put a file into `zv_media_files` — `/api/media/upload`
- * and `/api/storage/upload` — and they draw on the same allowance. Only the
- * first checked it; the second enforced a per-FILE size limit, which answers a
- * different question. A user at their limit could keep uploading indefinitely
- * through the other endpoint as long as each file stayed under 50 MB, so the
- * quota had a documented way around it.
- *
- * The check lives in one place now. These cases pin what it counts and where
- * it draws the line.
+ * Core uploads go through `/api/storage/upload`. The media extension must use
+ * the same `checkStorageQuota` for writes into `zv_media_files`. These cases
+ * pin what the check counts and where it draws the line.
  */
 
 import { describe, expect, it } from 'bun:test';

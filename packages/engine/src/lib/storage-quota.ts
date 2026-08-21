@@ -1,16 +1,10 @@
 /**
  * Per-user storage quota.
  *
- * There are two ways to put a file into `zv_media_files`: `POST /api/media/files`
- * and `POST /api/storage/upload`. They write the same rows to the same table
- * and count against the same allowance — and only the first one checked it.
- * The second enforced a per-FILE size limit, which is a different question
- * entirely: a user at their limit could keep uploading indefinitely as long as
- * each file was under 50 MB, simply by using the other endpoint.
- *
- * A quota with a documented way around it is not a quota, so the check lives
- * here now and both routes call it. Anything that grows a third upload path
- * has one obvious thing to call.
+ * Core upload path: `POST /api/storage/upload`. The media library lives in the
+ * `content/media` extension (`/ext/content/media`) and must call the same check
+ * for any write into `zv_media_files`. A quota with a second unguarded door is
+ * not a quota — that dual-door bug is why `/api/media` was removed from core.
  */
 
 import type { Database } from '../db/index.js';
