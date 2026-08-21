@@ -136,7 +136,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   if (!_coreServicesInitialized) {
     _coreServicesInitialized = true;
-    // Bootstrap core collections through DDLManager before the DDL queue starts.
+    // CRM collections are adopted by @zveltio/ext-crm during extension load.
+    // This hook is a no-op kept for boot-order stability.
     await ensureCoreCollections(db);
     // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
     initRateLimitDb(db);
