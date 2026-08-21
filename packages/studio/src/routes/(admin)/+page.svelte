@@ -169,11 +169,12 @@ let owed = $state<{
 
 async function loadBriefing(): Promise<void> {
   try {
-    const r = await api.get('/api/briefing');
+    // Requires CRM extension — bare BaaS has no receivables surface.
+    const r = await api.get('/ext/crm/briefing');
     owed = r?.receivables ?? null;
   } catch {
-    // The briefing is an addition to this page, not its purpose. If it cannot
-    // load, the rest of the dashboard still works and says so by staying quiet.
+    // The briefing is an addition to this page, not its purpose. If CRM is
+    // off or the call fails, the rest of the dashboard stays quiet.
     owed = null;
   }
 }
