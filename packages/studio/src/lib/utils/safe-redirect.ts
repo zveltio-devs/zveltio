@@ -38,12 +38,7 @@ export function safeRedirect(target: string | null | undefined, base: string): s
 
   // Must live under the app's base path, so a deployment mounted at /admin
   // cannot be used to bounce someone to an unrelated app on the same host.
-  // Extension floor apps (e.g. Traceability Scan at /ext/.../app/) are same-
-  // origin product surfaces — allow those too so login can return the operator
-  // to the camera, not dump them on the admin home.
-  const underBase = !base || t === base || t.startsWith(`${base}/`);
-  const underExt = t.startsWith('/ext/');
-  if (!underBase && !underExt) return fallback;
+  if (base && !(t === base || t.startsWith(`${base}/`))) return fallback;
 
   return t;
 }
