@@ -50,7 +50,11 @@ export function validateSchema(input: unknown): Validated {
     const isChecklist = r.layout === 'checklist' && isObj(r.checklist);
     if (isChecklist) {
       const cl = r.checklist as Record<string, unknown>;
-      if (typeof cl.catalogDataSource !== 'string' || typeof cl.loadEndpoint !== 'string' || typeof cl.saveEndpoint !== 'string') {
+      if (
+        typeof cl.catalogDataSource !== 'string' ||
+        typeof cl.loadEndpoint !== 'string' ||
+        typeof cl.saveEndpoint !== 'string'
+      ) {
         return {
           ok: false,
           error: `resources[${i}] ("${String(r.id)}") checklist needs catalogDataSource, loadEndpoint, saveEndpoint.`,

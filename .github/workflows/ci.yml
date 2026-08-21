@@ -21,7 +21,15 @@ jobs:
       # EXTENSIONS_ROOT default in both scripts (../zveltio-extensions
       # relative to the engine repo root).
       - name: Clone zveltio-extensions sibling (for drift checker + codegen)
-        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+        run: |
+          REF="${{ github.head_ref || github.ref_name }}"
+          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+            echo "Cloning zveltio-extensions@$REF (paired branch)"
+            git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          else
+            echo "Cloning zveltio-extensions@master (no paired branch $REF)"
+            git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          fi
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build SDK
@@ -145,7 +153,15 @@ jobs:
         # It surfaced when `ext:ambient` landed here: that script exits 1 rather than
         # report a pass over zero extensions, so it failed loudly where the other two
         # had been quiet.
-        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+        run: |
+          REF="${{ github.head_ref || github.ref_name }}"
+          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+            echo "Cloning zveltio-extensions@$REF (paired branch)"
+            git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          else
+            echo "Cloning zveltio-extensions@master (no paired branch $REF)"
+            git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          fi
       - name: Lint
         run: bun run lint
       - name: noExplicitAny ratchet

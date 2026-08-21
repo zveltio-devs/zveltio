@@ -321,15 +321,19 @@ async function loadChecklist(r: ResourceView) {
     const cat = await api.get<any>(cl.catalogDataSource);
     const rawCatalog = getPath(cat, cl.catalogPath ?? 'catalog') ?? [];
     const idKey = cl.catalogIdKey ?? 'id';
-    checklistCatalog = (Array.isArray(rawCatalog) ? rawCatalog : []).map((w: any) =>
+    checklistCatalog = (Array.isArray(rawCatalog) ? rawCatalog : []).map((w: unknown) =>
       typeof w === 'string'
         ? { id: w, removable: true }
-        : { id: String(w[idKey]), removable: w.removable !== false, permission: w.permission },
+        : {
+            id: String((w as Record<string, unknown>)[idKey]),
+            removable: (w as Record<string, unknown>).removable !== false,
+            permission: (w as Record<string, unknown>).permission,
+          },
     );
     const rawOpts = getPath(cat, cl.optionsPath ?? 'roles') ?? [];
     const optKey = cl.optionsIdKey ?? 'id';
-    let opts = (Array.isArray(rawOpts) ? rawOpts : []).map((o: any) =>
-      typeof o === 'string' ? o : String(o[optKey]),
+    let opts = (Array.isArray(rawOpts) ? rawOpts : []).map((o: unknown) =>
+      typeof o === 'string' ? o : String((o as Record<string, unknown>)[optKey]),
     );
     for (const extra of cl.optionsExtra ?? []) if (!opts.includes(extra)) opts.push(extra);
     opts = [...new Set(opts)].sort();
