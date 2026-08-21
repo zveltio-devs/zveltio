@@ -210,9 +210,29 @@ async function executeStep(
 
     // ── run_script ──
     case 'run_script': {
-      if (!cfg.code) return { output: prevOutput };
+      // The schema calls it `script`; this read `cfg.code`.
+      //
+      // `flow-step-schemas.ts` requires `script: z.string().min(1)`, so a step
+      // that VALIDATES has no `code` — and the guard then returned the previous
+      // output unchanged. The step could not run and the flow reported success:
+      // the "failure that renders as a success" shape, sitting inside the
+      // executor whose own `default:` branch was fixed for exactly that reason.
+      //
+      // Both names are accepted because `code` is what flows authored before the
+      // schema existed carry in `zv_flow_steps.config`, and refusing those on
+      // upgrade would break running flows in order to fix a typo.
+      const source = cfg.script ?? cfg.code;
+      if (!source) {
+        // Not a silent skip. A run_script step with no script is a
+        // misconfiguration, and saying so is what stops the flow reporting a run
+        // in which nothing happened.
+        throw new Error(
+          `Step "${step.name}" is type run_script but carries no script. ` +
+            'Expected `script` (or legacy `code`) in its config.',
+        );
+      }
       const scriptResult = await runScript(
-        cfg.code,
+        source,
         cfg.input ?? prevOutput,
         cfg.timeout_ms ?? 30_000,
       );

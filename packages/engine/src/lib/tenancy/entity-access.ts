@@ -69,6 +69,17 @@ export class EntityAccessRegistryImpl {
     return 'allow';
   }
 
+  /**
+   * Does any check apply to this table?
+   *
+   * The list handler calls `isAllowed` once per returned row, and on a table
+   * nobody registered a rule for that is N awaits to reach the same answer every
+   * time. This lets the common case cost one array scan instead.
+   */
+  hasChecksFor(table: string): boolean {
+    return this.entries.some((e) => e.table === table);
+  }
+
   /** Convenience for callers that only care about the boolean. */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async isAllowed<R = any, U = any>(
