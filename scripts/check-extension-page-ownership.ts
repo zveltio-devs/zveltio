@@ -135,12 +135,17 @@ for (const file of adminPages(ADMIN)) {
   }
 
   if (d.schema) {
-    problems.push(
-      `SHADOWS  ${route}\n` +
-        `           ${d.ext} ships a declarative schema (${d.schema}) for this path, and this\n` +
-        `           code page renders instead. Delete this page and let the schema render.`,
-    );
-    continue;
+    // Schema owns the declared path itself. Nested routes under that path may
+    // still be code pages (forms list is declarative; forms/[id] is the builder).
+    if (!subPath) {
+      problems.push(
+        `SHADOWS  ${route}\n` +
+          `           ${d.ext} ships a declarative schema (${d.schema}) for this path, and this\n` +
+          `           code page renders instead. Delete this page and let the schema render.`,
+      );
+      continue;
+    }
+    // Fall through: compare nested code page to extension studio/pages/<subPath>.
   }
 
   const candidate = join(d.dir, 'studio', 'pages', subPath, '+page.svelte');

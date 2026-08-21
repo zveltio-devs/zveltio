@@ -47,12 +47,41 @@ export interface ResourceView {
   filters?: FilterDef[];
   /** KPI tiles above the table (e.g. invoicing invoiced/collected/overdue). */
   stats?: StatsBlock;
-  /** "table" (default) or "cards" (a responsive card grid, e.g. api-connector
-   * connections). Card content is driven by `card`. */
-  layout?: 'table' | 'cards';
+  /** "table" (default), "cards" (responsive card grid), or "checklist"
+   * (pick an option, toggle catalog items, save the selected id list — e.g.
+   * dashboard role × widget layouts). */
+  layout?: 'table' | 'cards' | 'checklist';
   /** Card-grid mapping (used when layout:'cards'): which row keys are the
    * title / badge / sub-text. rowActions still render in the card footer. */
   card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
+  /**
+   * Checklist layout: one selector (role, profile, …) + a catalog of toggleable
+   * ids saved as an array on PUT/PATCH. Covers the dashboard admin matrix without
+   * a bespoke page. `columns` may be empty when this is set.
+   */
+  checklist?: {
+    /** GET that returns both the catalog and the selector options (or only catalog). */
+    catalogDataSource: string;
+    catalogPath?: Dotted;
+    catalogIdKey?: Dotted;
+    /** Optional i18n-key prefix: label = `${labelPrefix}.${id}` then fall back to id. */
+    catalogLabelPrefix?: string;
+    /** Path to the selector list on the catalog response (string[] or objects). */
+    optionsPath?: Dotted;
+    optionsIdKey?: Dotted;
+    /** Extra option ids always shown (e.g. built-in roles). */
+    optionsExtra?: string[];
+    /** GET selection for the chosen option; "{id}" substituted. */
+    loadEndpoint: string;
+    /** Where the selected id[] lives on the load response. */
+    valueKey?: Dotted;
+    /** Optional boolean on the load response (e.g. customized vs default). */
+    configuredKey?: Dotted;
+    saveEndpoint: string;
+    saveMethod?: 'PUT' | 'PATCH';
+    /** Body key for the selected id array. */
+    saveBodyKey?: string;
+  };
   /** Master-detail: render a left selector list; this resource's `dataSource`
    * becomes the DETAIL table (templated with the selected id via "{masterId}",
    * e.g. "/ext/hr/payroll/periods/{masterId}/entries"). `form` (if present)
@@ -67,7 +96,7 @@ export interface ResourceView {
   };
   /** Master-detail toolbar actions on the selected master id (endpoint "{id}"). */
   detailActions?: ActionDef[];
-  columns: ColumnDef[];
+  columns?: ColumnDef[];
   rowActions?: ActionDef[];
   form?: FormDef;
 }

@@ -39,15 +39,38 @@ interface Problem {
 
 const problems: Problem[] = [];
 
-/** Route paths an extension's engine registers, by method. */
+/** Join a Hono mount prefix with a child path. */
+function joinRoutePath(prefix: string, child: string): string {
+  if (!child || child === '/') return prefix || '/';
+  const p = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  return child.startsWith('/') ? `${p}${child}` : `${p}/${child}`;
+}
+
+/** Route paths an extension's engine registers, by method.
+ * Also records `.route('/prefix')` mounts as `/prefix/*` so nested Hono
+ * sub-apps (suppliers, sites, query, …) match schema endpoints. */
 function routesOf(src: string): Record<string, Set<string>> {
   const out: Record<string, Set<string>> = {};
-  const re = /(?:app|router|r)\.(get|post|put|patch|delete)\(\s*[\r\n]?\s*['"`](\/[^'"`]*)['"`]/g;
+  // Match chained `.get('/…')` the same way the SDK validator does — handlers
+  // are often `new Hono().get(...)` without an `app.` prefix.
+  const re = /\.(get|post|put|patch|delete)\(\s*[\r\n]?\s*['"`](\/[^'"`]*)['"`]/g;
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: standard exec loop
   while ((m = re.exec(src))) {
     const method = m[1].toUpperCase();
-    (out[method] ??= new Set()).add(m[2]);
+    if (!out[method]) out[method] = new Set();
+    out[method].add(m[2]);
+  }
+  const mountRe = /\.route\(\s*['"`]([^'"`]+)['"`]/g;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard exec loop
+  while ((m = mountRe.exec(src))) {
+    const prefix = m[1];
+    if (!prefix.startsWith('/') || prefix === '/') continue;
+    for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+      if (!out[method]) out[method] = new Set();
+      out[method].add(prefix);
+      out[method].add(joinRoutePath(prefix, '/*'));
+    }
   }
   return out;
 }
@@ -204,6 +227,14 @@ function localPath(dataSource: string, extName: string): string | null {
 function matches(registered: Set<string> | undefined, wanted: string): boolean {
   if (!registered) return false;
   if (registered.has(wanted)) return true;
+  // `.route('/prefix')` mounts are recorded as `/prefix/*` — anything under
+  // that prefix is served by the nested Hono app.
+  for (const r of registered) {
+    if (!r.endsWith('/*')) continue;
+    const base = r.slice(0, -2);
+    if (!base || base === '/') continue;
+    if (wanted === base || wanted.startsWith(`${base}/`)) return true;
+  }
   const wp = wanted.split('/').filter(Boolean);
   for (const r of registered) {
     const rp = r.split('/').filter(Boolean);

@@ -1,9 +1,7 @@
 {
   "routes": [
-    "analytics/dashboard",
     "crm",
-    "forms",
-    "traceability"
+    "forms"
   ],
   "libs": [
     "content/pages",
