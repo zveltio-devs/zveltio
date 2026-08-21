@@ -3,21 +3,21 @@
  *
  * Keeping a live dual implementation next to `/ext/<name>` was the failure
  * mode documented in content/media CONTEXT: audits fixed the engine copy while
- * Studio called the extension. A 410 with the replacement path is louder than
- * silent drift, and safer than a proxy that keeps two owners.
+ * Studio called the extension. Throw `problem()` so the envelope keeps a stable
+ * `errors.replacement` under the /api problemNormalizer.
  */
 import { Hono } from 'hono';
+import { problem } from '../lib/problem.js';
 
 export function goneRoutes(replacement: string, feature: string): Hono {
   const app = new Hono();
-  app.all('*', (c) =>
-    c.json(
-      {
-        error: `${feature} moved to an extension. Use ${replacement} instead of this /api path.`,
-        replacement,
-      },
+  app.all('*', () => {
+    throw problem(
+      'gone',
       410,
-    ),
-  );
+      `${feature} moved to an extension. Use ${replacement} instead of this /api path.`,
+      { replacement },
+    );
+  });
   return app;
 }
