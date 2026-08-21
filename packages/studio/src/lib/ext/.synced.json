@@ -3,7 +3,6 @@
     "analytics/dashboard",
     "crm",
     "forms",
-    "pages",
     "traceability"
   ],
   "libs": [

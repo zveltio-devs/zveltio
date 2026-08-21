@@ -711,7 +711,7 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
     }
     if (provided) {
       const rel = normalizeRoute(bare.slice(mount.length) || '/');
-      if (!provided.has(rel)) {
+      if (!isProvidedRoute(provided, rel)) {
         out.push(
           err(
             'SDUI_ENDPOINT_UNKNOWN',
@@ -755,18 +755,54 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
   return out;
 }
 
+/** Join a Hono mount prefix with a child path (`/query` + `/history` → `/query/history`). */
+function joinRoutePath(prefix: string, child: string): string {
+  if (!child || child === '/') return prefix || '/';
+  const p = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  return child.startsWith('/') ? `${p}${child}` : `${p}/${child}`;
+}
+
+/** True when `rel` is listed, or falls under a `.route('/prefix')` mount recorded as `/prefix/*`. */
+function isProvidedRoute(provided: Set<string>, rel: string): boolean {
+  if (provided.has(rel)) return true;
+  for (const p of provided) {
+    if (!p.endsWith('/*')) continue;
+    const base = p.slice(0, -2);
+    // Never treat a root `/*` as "matches everything" — only explicit mounts.
+    if (!base || base === '/') continue;
+    if (rel === base || rel.startsWith(`${base}/`)) return true;
+  }
+  return false;
+}
+
 /** Extract route paths an extension serves from its engine source text.
- * Heuristic regex over `app.get('/…')` / `.post(` / `.put(` / `.patch(` /
- * `.delete(`. Good enough to catch typo'd / nonexistent endpoints. */
+ *
+ * Heuristic over `.get/post/put/patch/delete('…')` and `.route('/prefix', …)`
+ * mounts. Nested Hono sub-apps (e.g. `app.route('/query', aiQueryRoutes)`) used
+ * to be invisible here, so schemas pointing at the real `/query/history` path
+ * failed `SDUI_ENDPOINT_UNKNOWN` while a wrong bare `/history` falsely passed.
+ *
+ * Mounts register `/prefix` and `/prefix/*`; matching allows any path under that
+ * prefix (see `isProvidedRoute`). Parsing each factory body is intentionally
+ * avoided — route handlers often contain regexes/`${…}` that defeat brace
+ * matching. */
 export function extractEngineRoutes(engineSourceTexts: string[]): string[] {
   const routes = new Set<string>();
-  const re = /\.(?:get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
+  const methodRe = /\.(?:get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
+  const mountRe = /\.route\(\s*['"`]([^'"`]+)['"`]/g;
   for (const text of engineSourceTexts) {
     let m: RegExpExecArray | null;
     // biome-ignore lint/suspicious/noAssignInExpressions: standard regex loop
-    while ((m = re.exec(text)) !== null) {
-      const p = m[1];
-      if (p.startsWith('/')) routes.add(p);
+    while ((m = methodRe.exec(text)) !== null) {
+      if (m[1].startsWith('/')) routes.add(m[1]);
+    }
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex loop
+    while ((m = mountRe.exec(text)) !== null) {
+      const prefix = m[1];
+      if (!prefix.startsWith('/')) continue;
+      routes.add(prefix);
+      // Root mounts (`app.route('/', sub)`) do not get a blanket `/*`.
+      if (prefix !== '/') routes.add(joinRoutePath(prefix, '/*'));
     }
   }
   return [...routes];
