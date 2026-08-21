@@ -522,7 +522,7 @@ function fillEndpoint(tmpl: string, row: any): string {
 function fireAction(row: any, a: ActionDef, extra: Record<string, any> = {}) {
   return async () => {
     try {
-      const url = (a.endpoint ?? '').replace('{id}', row.id);
+      const url = fillEndpoint(a.endpoint ?? '', row);
       if (!guardMutation(url)) return;
       // Typed values last: a prompt exists precisely because the row cannot
       // supply this, so it overrides a "{field}" token of the same name.
