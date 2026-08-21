@@ -79,6 +79,21 @@ export function validateSchema(input: unknown): Validated {
       }
       continue;
     }
+    const isDetail = r.layout === 'detail' && isObj(r.detail);
+    if (isDetail) {
+      const dtl = r.detail as Record<string, unknown>;
+      if (
+        typeof dtl.loadEndpoint !== 'string' ||
+        !Array.isArray(dtl.panels) ||
+        dtl.panels.length === 0
+      ) {
+        return {
+          ok: false,
+          error: `resources[${i}] ("${String(r.id)}") detail needs loadEndpoint and panels[].`,
+        };
+      }
+      continue;
+    }
     if (typeof r.dataSource !== 'string') {
       return { ok: false, error: `resources[${i}] ("${String(r.id)}") is missing "dataSource".` };
     }
