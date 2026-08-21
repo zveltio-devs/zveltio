@@ -7,7 +7,7 @@
  * Run automatically as `prebuild`. Safe to run multiple times (overwrites).
  */
 
-import { copyFileSync, existsSync, mkdirSync, cpSync, readdirSync, rmSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, cpSync, readdirSync, realpathSync, rmSync } from 'fs';
 import { join } from 'path';
 
 const STUDIO_ROOT = join(import.meta.dir, '..');
@@ -21,7 +21,19 @@ const EXT_ROOTS = [
   process.env.EXTENSIONS_DIR ?? '',
 ]
   .filter(Boolean)
-  .filter((p) => existsSync(p as string)) as string[];
+  .filter((p) => existsSync(p as string))
+  // Both entries routinely name the SAME directory: in dev, EXTENSIONS_DIR is
+  // usually set to the sibling checkout the first entry already points at. The
+  // loop below has no per-slug guard, so an extension found under two roots was
+  // synced twice and its slug written into .synced.json twice — 42 entries for
+  // 21 pages. Harmless to the copy (it is idempotent), but it made the
+  // generated snapshot depend on whether an env var happened to be set, so two
+  // people regenerating it produced different files and every merge conflicted.
+  // Compare by resolved path, since the two spellings differ textually.
+  .filter(
+    (p, i, all) =>
+      all.findIndex((q) => realpathSync(q as string) === realpathSync(p as string)) === i,
+  ) as string[];
 
 const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)');
 const LIB_EXT = join(STUDIO_ROOT, 'src/lib/ext');
