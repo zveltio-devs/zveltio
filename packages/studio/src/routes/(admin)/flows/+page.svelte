@@ -22,7 +22,7 @@ interface Flow {
   name: string;
   description: string | null;
   trigger_type: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   trigger_config: Record<string, any>;
   is_active: boolean;
   total_runs?: number;
@@ -66,7 +66,7 @@ async function loadFlows() {
     );
     flows = data.flows || [];
     total = data.total ?? flows.length;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Something went wrong');
   } finally {
@@ -93,7 +93,7 @@ async function createFlow() {
   saving = true;
   formError = '';
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const triggerConfig: Record<string, any> = {};
     if (triggerType === 'cron') triggerConfig.expression = triggerCron;
     if (['on_create', 'on_update', 'on_delete'].includes(triggerType) && triggerCollection)
@@ -108,7 +108,7 @@ async function createFlow() {
     });
     flows = [data.flow, ...flows];
     showModal = false;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     formError = e.message;
   } finally {
@@ -122,7 +122,7 @@ async function toggleFlow(flow: Flow) {
       is_active: !flow.is_active,
     });
     flows = flows.map((f) => (f.id === flow.id ? data.flow : f));
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Something went wrong');
   }
@@ -139,7 +139,7 @@ async function deleteFlow(id: string, flowName: string) {
       try {
         await api.delete(`/api/flows/${id}`);
         flows = flows.filter((f) => f.id !== id);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message ?? 'Something went wrong');
       }
@@ -151,7 +151,7 @@ async function runFlow(id: string) {
   try {
     await api.post(`/api/flows/${id}/run`, {});
     await loadFlows();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Something went wrong');
   }

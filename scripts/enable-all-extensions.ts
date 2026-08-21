@@ -17,7 +17,7 @@ const d = await extRes.json();
 const names: string[] =
   Array.isArray(d.extensions) && typeof d.extensions[0] === 'string'
     ? d.extensions
-    : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       (d.extensions ?? d.meta ?? []).map((e: any) => e.name);
 
 const results: { name: string; ok: boolean; hot: boolean; err: string }[] = [];

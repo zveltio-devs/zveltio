@@ -93,7 +93,7 @@ export class ElectricNotConfigured extends Error {
     super(
       `Electric SQL provider is not configured: ${reason}. ` +
         `Set provider: 'crdt' for the default sync path, or stand up an Electric ` +
-        `service and pass electricUrl. See docs/OFFLINE-SYNC.md.`,
+        `service and pass electricUrl. See docs/private/OFFLINE-SYNC.md.`,
     );
     this.name = 'ElectricNotConfigured';
   }

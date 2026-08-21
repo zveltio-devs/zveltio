@@ -12,11 +12,11 @@ context up front saves a lot of round-trips.
    is a bug, post in [Discussions](https://github.com/zveltio-devs/zveltio/discussions)
    first. We close vague "doesn't work" issues without a repro.
 3. **Read the architecture docs**:
-   - [`docs/REFACTORING-V1-PLAN.md`](docs/REFACTORING-V1-PLAN.md) — what we
+   - [`docs/private/REFACTORING-V1-PLAN.md`](docs/private/REFACTORING-V1-PLAN.md) — what we
      are *intentionally* leaving for v1.
-   - [`docs/TECHNICAL-GAPS.md`](docs/TECHNICAL-GAPS.md) — known gaps,
+   - [`docs/private/TECHNICAL-GAPS.md`](docs/private/TECHNICAL-GAPS.md) — known gaps,
      P0–P3 priorities. Pick from here if you want maximum impact.
-   - [`docs/EXTENSION-DEVELOPER-GUIDE.md`](docs/EXTENSION-DEVELOPER-GUIDE.md)
+   - [`docs/site/EXTENSION-DEVELOPER-GUIDE.md`](docs/site/EXTENSION-DEVELOPER-GUIDE.md)
      — start here if you're building an extension instead of patching core.
 
 ## Development setup

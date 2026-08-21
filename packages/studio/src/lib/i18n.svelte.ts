@@ -46,11 +46,11 @@ function detectInitialLocale(): string {
       return null;
     }
   })();
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   if (stored && paraglide.locales.includes(stored as any)) return stored;
   // Browser-Detected fallback.
   const nav = (navigator?.language ?? '').split('-')[0];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   if (nav && paraglide.locales.includes(nav as any)) return nav;
   return paraglide.baseLocale;
 }
@@ -61,7 +61,7 @@ let _locale = $state<string>(detectInitialLocale());
 // resolve correctly from the very first render.
 if (typeof window !== 'undefined') {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     paraglide.setLocale(_locale as any, { reload: false });
   } catch {
     /* paraglide >=2.0 doesn't take a reload option; fall through */
@@ -79,7 +79,7 @@ export const i18n = {
   },
   /** Persist + apply a new locale. */
   setLocale(next: string): void {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     if (!paraglide.locales.includes(next as any)) {
       console.warn(`[i18n] unknown locale "${next}"; available: ${paraglide.locales.join(', ')}`);
       return;
@@ -91,11 +91,11 @@ export const i18n = {
       /* */
     }
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       paraglide.setLocale(next as any, { reload: false });
     } catch {
       /* paraglide >= 2 — newer API */ try {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         paraglide.setLocale(next as any);
       } catch {
         /* */

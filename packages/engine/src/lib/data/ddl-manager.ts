@@ -96,10 +96,10 @@ export const FieldSchema = z.object({
 // convenience. The transform below normalizes everything to camelCase before
 // the rest of the codebase sees it.
 export const CollectionSchema = z.preprocess(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   (raw: any) => {
     if (!raw || typeof raw !== 'object') return raw;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const o: any = { ...raw };
     // snake → camel aliasing
     if (o.display_name != null && o.displayName == null) o.displayName = o.display_name;
@@ -158,13 +158,13 @@ export type CollectionDefinition = z.infer<typeof CollectionSchema>;
 const METADATA_CACHE_TTL_MS = 30_000;
 
 interface CacheEntry {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   data: any;
   ts: number;
 }
 
 const collectionCache = new Map<string, CacheEntry>();
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let _collectionsListCache: { data: any[]; ts: number } | null = null;
 let _cacheGen = 0;
 
@@ -263,10 +263,10 @@ export class DDLManager {
     await db
       .insertInto('zvd_relations')
       .values(rel)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .onConflict((oc: any) => oc.doNothing())
       .execute()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .catch((err: any) => console.warn('[registerRelation]', err?.message ?? err));
   }
 
@@ -656,11 +656,11 @@ export class DDLManager {
     }
 
     // Drop m2m junction tables before dropping the main table
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const m2mRelations: any[] = await db
       .selectFrom('zvd_relations')
       .select(['source_collection', 'target_collection', 'junction_table'])
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where((eb: any) =>
         eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
       )
@@ -705,7 +705,7 @@ export class DDLManager {
     // rows persist and would re-emerge as ghost relations in the schema view.
     await db
       .deleteFrom('zvd_relations')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where((eb: any) =>
         eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
       )
@@ -722,7 +722,7 @@ export class DDLManager {
 
   // ── getCollections / getCollection ───────────────────────────────────────────
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   static async getCollections(db: Database): Promise<any[]> {
     const now = Date.now();
     if (_collectionsListCache && now - _collectionsListCache.ts < METADATA_CACHE_TTL_MS) {
@@ -735,7 +735,7 @@ export class DDLManager {
       .orderBy('sort')
       .orderBy('name')
       .execute();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const normalized = (rows as any[]).map((row) => ({
       ...row,
       fields: typeof row.fields === 'string' ? JSON.parse(row.fields) : (row.fields ?? []),
@@ -746,7 +746,7 @@ export class DDLManager {
     return normalized;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   static async getCollection(db: Database, name: string): Promise<any | null> {
     const now = Date.now();
     const cached = collectionCache.get(name);
@@ -761,11 +761,11 @@ export class DDLManager {
       ? {
           ...row,
           fields:
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
             typeof (row as any).fields === 'string'
-              ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+              ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
                 JSON.parse((row as any).fields)
-              : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+              : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
                 ((row as any).fields ?? []),
         }
       : null;
@@ -788,9 +788,9 @@ export class DDLManager {
         ...(updates.description !== undefined ? { description: updates.description } : {}),
         ...(updates.fields ? { fields: JSON.stringify(updates.fields) } : {}),
         updated_at: new Date(),
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where('name' as any, '=', name)
       .execute();
     DDLManager.invalidateCache(name);
@@ -825,10 +825,10 @@ export class DDLManager {
     }
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const fields: any[] =
         typeof existing.fields === 'string' ? JSON.parse(existing.fields) : (existing.fields ?? []);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       if (!fields.some((f: any) => f.name === validated.name)) {
         fields.push(validated);
         await this.updateCollectionMetadata(db, collectionName, { fields });
@@ -854,10 +854,10 @@ export class DDLManager {
     });
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const fields: any[] =
         typeof existing.fields === 'string' ? JSON.parse(existing.fields) : (existing.fields ?? []);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const updated = fields.filter((f: any) => f.name !== fieldName);
       await this.updateCollectionMetadata(db, collectionName, { fields: updated });
     }
@@ -1080,9 +1080,9 @@ export class DDLManager {
     if (fields.length === 0) return 0;
     await db
       .updateTable('zvd_collections')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .set({ fields: JSON.stringify(fields), updated_at: new Date() } as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where('name' as any, '=', collectionName)
       .execute();
     this.invalidateCache(collectionName);

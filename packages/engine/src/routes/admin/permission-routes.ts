@@ -108,7 +108,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         .values({ name, description: description ?? null })
         .returningAll()
         .executeTakeFirst();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -138,7 +138,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 
     await db.deleteFrom('zv_roles').where('id', '=', id).execute();
     await invalidatePermissionCache();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
@@ -209,7 +209,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       }
 
       await invalidatePermissionCache();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -277,7 +277,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       }
       await e.addRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -304,7 +304,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const e = await getEnforcer();
       await e.deleteRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.revoked',

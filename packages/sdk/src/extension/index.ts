@@ -38,9 +38,9 @@ export interface RlsFilter {
 }
 
 export interface FieldTypeRegistryAPI {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   register(definition: any): void;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   get(type: string): any;
   has(type: string): boolean;
   list(): string[];
@@ -51,13 +51,13 @@ export interface FieldTypeRegistryAPI {
    * value, etc.). Used by AI/schema-generation tooling.
    */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   getAll(): Array<{ type: string; [key: string]: any }>;
   /** Coerce a value FROM the database representation INTO its TS shape. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   deserialize(type: string, value: any): any;
   /** Coerce a value FROM its TS shape INTO the database representation. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   serialize(type: string, value: any): any;
 }
 
@@ -134,7 +134,7 @@ export interface ExtensionConfig {
  * extensions get full Kysely autocomplete + typo detection.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface ExtensionContext<DB = any> {
   // ─── Stable public API ───────────────────────────────────────────────────────
 
@@ -175,15 +175,15 @@ export interface ExtensionContext<DB = any> {
    * use it directly — `ctx.reqDb(c)`.
    */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   reqDb?: (c: any) => Kysely<DB>;
   /** Better-Auth instance — use `ctx.auth.api.getSession({ headers })` in route handlers. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   auth: any;
   /** Field type registry — register custom field types here. */
   fieldTypeRegistry: FieldTypeRegistryAPI;
   /** Typed event bus — subscribe to record lifecycle events (insert/update/delete). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   events: any;
   /** Check if a user has permission for a resource/action. */
   checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
@@ -201,7 +201,7 @@ export interface ExtensionContext<DB = any> {
    *   const ddl: DDLManager = ctx.DDLManager;
    */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   DDLManager: any;
 
   /**
@@ -302,19 +302,19 @@ export interface ExtensionContext<DB = any> {
  */
 export interface ExtensionInternals<DB = unknown> {
   /** Type-safe insert into a dynamic (user-defined) collection table. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
   /** Introspect a Postgres schema — returns tables, columns, types, indexes, FKs. */
   introspectSchema: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     db: any,
     schemaName?: string,
     excludePatterns?: string[],
     dryRun?: boolean,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   ) => Promise<any[]>;
   /** Run a data-quality scan over a collection. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   runQualityScan: (...args: any[]) => Promise<unknown>;
   /** Invalidate the cached validation rules for a collection. */
   invalidateRulesCache: (collection: string) => void;
@@ -438,26 +438,26 @@ export interface ExtensionInternals<DB = unknown> {
   requireInstanceAdmin: (userId: string) => Promise<boolean>;
 
   /** Run an Edge Function in the sandbox (used by developer/edge-functions). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   runEdgeFunction: (...args: any[]) => Promise<unknown>;
   /** Cross-extension hook registry (e.g. trash purge, scheduled cleanups). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   extensionRegistry: any;
   /** Queue an HTML→PDF render via the worker pool. */
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
   /** Synchronous template render with `{{var}}` interpolation. */
   renderTemplate: (template: string, variables: Record<string, unknown>) => string;
   /** Inline HTML→PDF render (blocking). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   generatePDF: (...args: any[]) => Promise<unknown>;
   /** Move a file to the trash bucket (soft delete with TTL). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   moveToTrash: (...args: any[]) => Promise<unknown>;
   /** Schedule async indexing for a newly uploaded file. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
   /** GraphQL DataLoader registry — N+1 query batching. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   DataLoaderRegistry: any;
   /** Validate GraphQL query depth. Returns an error message if too deep, null otherwise. */
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
@@ -473,7 +473,7 @@ export interface ExtensionInternals<DB = unknown> {
    */
   checkQueryWidth: (query: string, maxFields?: number) => string | null;
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
   /**
    * Validate that a URL targets a public, non-internal address (SSRF safety).
@@ -515,7 +515,7 @@ export interface ExtensionInternals<DB = unknown> {
   ) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
   sendNotification: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     db: any,
     input: { user_id: string; type?: string; title: string; message?: string; data?: unknown },
   ) => Promise<void>;
@@ -533,7 +533,7 @@ export interface ExtensionInternals<DB = unknown> {
    * (needed when Studio runs on a different origin than the engine).
    */
   createBetterAuthSession: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     db: any,
     userId: string,
     opts?: {
@@ -585,9 +585,9 @@ export interface EntityAccessScope {
   register(def: {
     table: string;
     check: (
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       record: any,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       user: any,
       op: 'view' | 'update' | 'delete',
     ) => ('allow' | 'deny') | Promise<'allow' | 'deny'>;
@@ -613,7 +613,7 @@ export interface QueryAlterScope {
      * need to depend on engine internals; cast as needed.
      */
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     alter: (qb: any, user: any) => any;
   }): void;
   list(): Array<{ table: string }>;
@@ -717,7 +717,7 @@ export interface BeforeDeletePayload {
  * the same schedule until distributed locking lands.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface ExtensionSchedule<DB = any> {
   /** Stable name, unique within this extension. Used as the persistence key. */
   name: string;
@@ -741,7 +741,7 @@ export interface PublicRouteSpec {
   /** Absolute path on the global app, e.g. `'/share/:token'`. */
   path: string;
   /** Hono handler — receives the Context, returns a Response (or via c.json). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   handler: (c: any) => any;
 }
 
@@ -779,7 +779,7 @@ export type MountStrategy = 'global' | 'subapp';
  *   };
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export interface ZveltioExtension<DB = any> {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
   name: string;
@@ -838,7 +838,7 @@ export interface StudioExtensionAPI {
 /** S3-03: a single slot contribution. */
 export interface SlotContribution {
   /** Svelte component to render. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   component: any;
   /**
    * Lower runs first. Default 100. Two contributions with the same
@@ -891,7 +891,7 @@ export interface FormField {
 
 export interface StudioRoute {
   path: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   component: any; // Svelte component
   /** Sidebar label. Optional — when omitted, the route exists for routing
    *  but doesn't surface in the nav (use together with `hidden` for purely
@@ -912,17 +912,17 @@ export interface StudioRoute {
 
 export interface StudioFieldType {
   type: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   editor: () => Promise<{ default: any }>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   display: () => Promise<{ default: any }>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   filter?: () => Promise<{ default: any }>;
 }
 
 export interface AssetPreviewHandler {
   match: (asset: { url: string; name?: string; mimeType?: string }) => boolean;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   component: any; // Svelte component
 }
 

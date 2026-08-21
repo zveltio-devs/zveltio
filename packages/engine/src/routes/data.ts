@@ -23,7 +23,7 @@ declare module 'hono' {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/HARDENING-9-PLAN.md H-05
+// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/private/HARDENING-9-PLAN.md H-05
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 

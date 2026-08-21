@@ -67,14 +67,14 @@ export interface RpcClientOptions {
  *               extension's own routes, pass `typeof yourApp`.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function createRpcClient<T extends Hono<any, any, any>>(
   opts: RpcClientOptions,
 ): ReturnType<typeof hc<T>> {
   const baseUrl = opts.baseUrl.replace(/\/$/, '');
   const includeCredentials = opts.includeCredentials !== false;
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const customFetch = (async (input: any, init: any) => {
     const dynHeaders = opts.getHeaders ? await opts.getHeaders() : {};
     const merged = new Headers(init?.headers ?? {});

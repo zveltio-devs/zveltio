@@ -230,7 +230,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         .where('id', '=', id)
         .where('tenant_id', '=', tenantId(c))
         .execute();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'api_key.created',
@@ -353,7 +353,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   app.get('/types', async (c) => {
     const collections = await DDLManager.getCollections(db);
     const types = collections
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .map((col: any) => {
         const fields = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
         return fieldTypeRegistry.generateTypeScript(col.name, fields);
@@ -368,7 +368,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // POST /migrate — run pending migrations (admin only)
   app.post('/migrate', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     try {
       const { runMigrations, getLastAppliedMigration } = await import(
@@ -391,7 +391,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         applied: after - before,
         schema_version: after,
       });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
@@ -479,7 +479,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
     try {
       const { sql: sqlHelper } = await import('kysely');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const result = await sqlHelper<any>`
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
         SELECT * FROM ${sqlHelper.table(tableName)}
@@ -488,7 +488,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       `.execute(db);
 
       return c.json({ plan: result.rows[0] });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }

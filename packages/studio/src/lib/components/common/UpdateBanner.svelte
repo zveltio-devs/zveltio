@@ -36,7 +36,7 @@ onMount(async () => {
     const res = await api.fetch(`/api/health/update-check`);
     if (res.ok) {
       const data = await res.json();
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       updateInfo = data as any;
       localStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
     }

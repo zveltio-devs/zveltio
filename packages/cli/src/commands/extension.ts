@@ -5,7 +5,7 @@ import { join } from 'path';
 export async function extensionCommand(
   action: 'create' | 'build' | 'dev',
   name: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   opts: Record<string, any>,
 ) {
   switch (action) {
@@ -282,7 +282,7 @@ Isolation (MARKETPLACE-POLICY §2):
   direct DB credentials.
 
   First-party / vendor builds that want inline isolation: pack with
-  --first-party. See https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md#135-isolation-tiers-be-honest-about-what-you-ship
+  --first-party. See https://github.com/zveltio-devs/zveltio/blob/master/docs/site/EXTENSION-DEVELOPER-GUIDE.md#135-isolation-tiers-be-honest-about-what-you-ship
 `);
 }
 
@@ -294,7 +294,7 @@ Isolation (MARKETPLACE-POLICY §2):
  * still typing `build` gets a loadable artifact, and point them at pack.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function buildExtension(opts: Record<string, any>) {
   console.warn(
     '\x1b[33m`zveltio extension build` is deprecated — use `zveltio extension pack`.\x1b[0m',

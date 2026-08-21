@@ -51,7 +51,7 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     }
 
     const duration = Math.round(performance.now() - start);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
     poolDb
