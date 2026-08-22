@@ -28,11 +28,7 @@ const minify = process.env.ZVELTIO_BINARY_MINIFY === '1';
 function defaultTarget(): string {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const platform =
-    process.platform === 'darwin'
-      ? 'darwin'
-      : process.platform === 'win32'
-        ? 'windows'
-        : 'linux';
+    process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'windows' : 'linux';
   return `bun-${platform}-${arch}`;
 }
 

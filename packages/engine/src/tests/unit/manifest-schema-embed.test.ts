@@ -43,7 +43,11 @@ describe('embedPageSchemas', () => {
   });
 
   it('sets render=schema for inline schema objects', async () => {
-    const inline = { title: 'Inline', sduiSchema: 1, resources: [{ id: 'r', dataSource: '/x', columns: [] }] };
+    const inline = {
+      title: 'Inline',
+      sduiSchema: 1,
+      resources: [{ id: 'r', dataSource: '/x', columns: [] }],
+    };
     const studio = { pages: [{ path: '/x', label: 'X', schema: inline }] };
     const out = await embedPageSchemas(tmpExt({}), studio);
     expect(out?.pages?.[0]?.schema).toBe(inline);
