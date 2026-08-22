@@ -1,3 +1,4 @@
+<script lang="ts">
 /**
  * Invoicing suggestions strip — Model 2.5 `dashboard.suggestions` slot.
  */
