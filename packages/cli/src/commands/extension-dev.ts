@@ -10,9 +10,11 @@
  *      cached module + scoped state and rebuilds its Hono app — the next
  *      request hits the new code without restarting the engine process.
  *
- *   2. **Studio HMR**: forwards to `bun run dev` inside `studio/` if that
- *      folder exists. The extension's Vite config is responsible for the
- *      browser-side HMR. The CLI just keeps the process running.
+ *   2. **Studio**: tier-3 pages and slot contributions are compile-time copies
+ *      into the monorepo Studio (`sync-extensions.ts`), not a per-extension
+ *      Vite bundle. If `studio/package.json` exists (legacy scaffold only),
+ *      forwards to `bun run dev` there; otherwise prints how to preview via
+ *      `packages/studio` dev + sync.
  *
  * Designed for the local-development loop: an extension author edits a
  * route handler, sees the change live within ~1s, no engine restart.
@@ -179,15 +181,21 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
   }
   // 400 / 500 for the probe is fine — the endpoint exists and we just sent a fake name.
 
-  // Studio dev (if present and not skipped).
+  // Legacy per-extension Studio vite (v1 scaffold only). v2 extensions use
+  // compile-time sync into packages/studio — no studio/package.json.
   let studioProc: ReturnType<typeof Bun.spawn> | null = null;
-  if (!opts.noStudio && existsSync(join(dir, 'studio'))) {
+  const studioPkg = join(dir, 'studio', 'package.json');
+  if (!opts.noStudio && existsSync(studioPkg)) {
     studioProc = Bun.spawn(['bun', 'run', 'dev'], {
       cwd: join(dir, 'studio'),
       stdout: 'inherit',
       stderr: 'inherit',
     });
-    console.log(`  Studio:     ${c.green('watching (vite dev)')}`);
+    console.log(`  Studio:     ${c.green('watching (legacy studio/package.json vite dev)')}`);
+  } else if (!opts.noStudio && existsSync(join(dir, 'studio'))) {
+    console.log(
+      `  Studio:     ${c.dim('tier-3 pages — run packages/studio dev after sync-extensions (see dev guide §2)')}`,
+    );
   } else {
     console.log(
       `  Studio:     ${c.dim(opts.noStudio ? 'skipped (--no-studio)' : 'no studio/ folder — skipped')}`,
