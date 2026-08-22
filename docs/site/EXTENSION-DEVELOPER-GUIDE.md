@@ -95,15 +95,16 @@ content/my-feature/
 │   └── migrations/
 │       └── 001_init.sql
 ├── studio/
-│   ├── package.json
-│   ├── vite.config.ts
+│   ├── pages/
+│   │   └── +page.svelte          # tier-3 admin page (synced at release)
 │   └── src/
-│       ├── index.ts
-│       └── pages/
-│           └── MainPage.svelte
-└── engine/tests/                    # (v1.0)
-    └── example.test.ts              # (v1.0)
+│       ├── components/           # optional shared UI
+│       └── contribute.ts.example # rename → contribute.ts for slot widgets
+└── .github/workflows/ci.yml
 ```
+
+No `studio/vite.config.ts`, `studio/package.json`, or `studio/dist/` — the v1
+per-extension Studio bundle pipeline was removed in alpha.94 / beta.15.
 
 ### Run in development
 
@@ -125,9 +126,13 @@ zveltio extension dev
   cached module + scoped state (services, queryAlter, entityAccess, cron)
   and re-imports with a cache-buster — your next request hits the new
   code without an engine restart.
-- **Studio dev**: forwards `studio/` to `bun run dev` (vite). The browser
-  gets HMR via vite-plugin-svelte. Skip with `--no-studio` if you're only
-  iterating on backend code.
+- **Studio preview**: tier-3 pages and slot widgets are **compile-time copies**
+  into the monorepo Studio (`packages/studio/scripts/sync-extensions.ts`), not
+  a per-extension Vite dev server. From a sibling checkout:
+  `cd packages/studio && bun scripts/sync-extensions.ts && bun run dev`, then
+  open `/admin/my-feature`. Slot contributions need `studio/src/contribute.ts`
+  (see [EXTENSION-AUTHORING.md](./EXTENSION-AUTHORING.md)). Legacy scaffolds
+  that still ship `studio/package.json` get vite HMR here; new scaffolds do not.
 
 Open `http://localhost:3000/admin/my-feature` to see your Studio page.
 
@@ -169,12 +174,11 @@ Limits (intentional):
 │   │   └── 002_add_indexes.sql
 │   └── tests/             # bun test, integration via withTestDb()
 ├── studio/
-│   ├── package.json
-│   ├── vite.config.ts
+│   ├── pages/             # tier-3 SvelteKit routes (+page.svelte)
+│   ├── schemas/           # SDUI JSON (manifest.studio.pages[].schema)
 │   └── src/
-│       ├── index.ts       # registers routes, fields, form alters, slots
-│       ├── pages/         # Svelte 5 pages
-│       └── components/    # reusable components
+│       ├── components/    # shared Svelte → $lib/ext/<name>/ after sync
+│       └── contribute.ts  # optional slot widgets (Model 2.5)
 └── client/                # (optional) end-user UI npm package
     └── ...
 ```
@@ -1136,37 +1140,20 @@ instead of ad-hoc headers / `confirm()`. See
 
 ### Pages
 
-```typescript
-// studio/src/index.ts
-import { registerRoute } from '@zveltio/sdk/studio';
-import MainPage from './pages/MainPage.svelte';
-import DetailPage from './pages/DetailPage.svelte';
-
-registerRoute({
-  path: 'my-feature',
-  component: MainPage,
-  label: 'My Feature',
-  icon: 'Layers',
-  category: 'content',
-});
-
-registerRoute({
-  path: 'my-feature/:id',
-  component: DetailPage,
-});
-```
-
-### Pages access engine API
+Tier-3 pages live under **`studio/pages/`** and become real SvelteKit routes
+after `sync-extensions` copies them into `packages/studio/src/routes/(admin)/…`.
+Declare the URL in `manifest.studio.pages[].path` (e.g. `/admin/my-feature`).
 
 ```svelte
-<!-- studio/src/pages/MainPage.svelte -->
+<!-- studio/pages/+page.svelte -->
 <script lang="ts">
-  import { useApi } from '@zveltio/sdk/studio';
-  const api = useApi();
+  import { api } from '$lib/api.js';
 
-  let items = $state<any[]>([]);
+  let items = $state<unknown[]>([]);
   $effect(() => {
-    api.get('/ext/my-feature/').then((r) => items = r.items);
+    api.get('/ext/content/my-feature/items').then((r) => {
+      items = r.items ?? [];
+    });
   });
 </script>
 
@@ -1174,6 +1161,13 @@ registerRoute({
   <div>{item.name}</div>
 {/each}
 ```
+
+Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
+when the UI is CRUD-shaped — zero Studio build, same delivery model as first-party
+extensions. See [EXTENSION-AUTHORING.md](./EXTENSION-AUTHORING.md).
+
+**Do not** use `registerRoute()` from a runtime bundle — that was the removed v1
+IIFE path (`studio/dist/bundle.js`, deleted beta.15).
 
 ### Custom field types
 
@@ -1243,20 +1237,33 @@ form is migrated, the hook is harmless (registers fine, just never fires).
 
 Inject components into named composition points scattered through
 Studio. Slot hosts declare a slot once with `<Slot name="...">`;
-extensions fill it.
+extensions fill it via **`studio/src/contribute.ts`** (compile-time sync —
+not a runtime bundle).
 
 ```typescript
-import { registerSlot } from '@zveltio/sdk/studio';
-import RevenueWidget from './widgets/RevenueWidget.svelte';
+// studio/src/contribute.ts — synced to $lib/ext/<name>/contribute.ts
+import { registerContributionSlot } from '$lib/extension-api.svelte.js';
+import RevenueWidget from './components/RevenueWidget.svelte';
 
-registerSlot('dashboard.widgets', {
-  component: RevenueWidget,
-  priority: 10,                              // lower runs first; default 100
-  visible: (ctx) => Array.isArray((ctx.user as any)?.roles)
-    && (ctx.user as any).roles.includes('finance'),
-  props: { initialRange: '30d' },           // passed to the component
-});
+const OWNER = 'content/my-feature'; // manifest.name
+
+export function activate(): void {
+  registerContributionSlot(OWNER, 'dashboard.widgets', {
+    component: RevenueWidget,
+    priority: 10,
+    visible: (ctx) => Array.isArray((ctx.user as { roles?: string[] })?.roles)
+      && ctx.user.roles.includes('finance'),
+    props: { initialRange: '30d' },
+  });
+}
 ```
+
+List targeted slots in `manifest.contributes.slots` (metadata). The admin
+layout loads `activate()` only when the extension is **enabled**.
+
+`@zveltio/sdk/studio` still exports **`sortSlotContributions`**, form-alter
+helpers, and **`SlotContribution`** types for unit tests — not the compile-time
+registration entry point above.
 
 The component receives `props` AND any keys the host passes as `ctx`.
 For `dashboard.widgets` the host passes `{ user }`, so the widget can
@@ -1968,9 +1975,14 @@ provided by the table owner.
 ### "Studio page is blank"
 
 - Check the browser console for errors.
-- Verify the Studio bundle built: look for `studio/dist/bundle.js`.
-- Verify the registration succeeded: `console.log` in `studio/src/index.ts`
-  and check it runs.
+- **Tier-3 page:** confirm `manifest.studio.pages[].path` matches the URL and
+  that `studio/pages/` was synced into the monorepo (`sync-extensions`) and
+  committed under `packages/studio/src/routes/(admin)/…`.
+- **SDUI page:** confirm `manifest.studio.pages[].schema` resolves and
+  `GET /api/extensions` inlines the schema in meta.
+- **Slot widget:** confirm `studio/src/contribute.ts` exists, is listed in
+  `.synced.json` `contributions`, and the extension is enabled.
+- There is **no** `studio/dist/bundle.js` path anymore (removed beta.15).
 
 ### "My event handler doesn't fire"
 
@@ -2029,18 +2041,20 @@ export default ext;
 ```
 
 ```typescript
-// studio/src/index.ts
-import {
-  registerRoute, registerFieldType, registerFormAlter, registerSlot,
-  useApi, useAuth,
-} from '@zveltio/sdk/studio';
-import MainPage from './pages/MainPage.svelte';
+// studio/src/contribute.ts (optional — dashboard/settings slot widgets)
+import { registerContributionSlot } from '$lib/extension-api.svelte.js';
+import MyWidget from './components/MyWidget.svelte';
 
-registerRoute({ path: 'x', component: MainPage, label: 'X', icon: 'Box' });
-registerFormAlter('core:user-edit', (form) => form.addField({ /* ... */ }));
-registerSlot('dashboard.widgets', { component: MyWidget, priority: 5 });
+export function activate(): void {
+  registerContributionSlot('category/name', 'dashboard.widgets', {
+    component: MyWidget,
+    priority: 5,
+  });
+}
 ```
 
----
+Field types and form alters that mutate core Studio surfaces at runtime still
+use `window.__zveltio` (installed by the admin layout) or shared components
+imported from synced `$lib/ext/<name>/` — see §Custom field types above.
 
-*End of guide. Last updated: 2026-05-15.*
+*End of guide. Last updated: 2026-08-22.*
