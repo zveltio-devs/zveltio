@@ -504,15 +504,23 @@ export interface ZvStorageQuotasTable {
 export interface ZvImportLogsTable {
   id: Generated<string>;
   collection: string;
+  /**
+   * Extension-owned vocabulary (`data/import`) — migration 048.
+   *
+   * The engine-era columns (`file_format`, `processed_rows`, `success_rows`,
+   * `error_rows`, `options`) still exist physically until the contract half of
+   * 048 lands in a later release. They are omitted here because nothing in the
+   * engine reads them and every one is `NOT NULL DEFAULT`, so an insert that
+   * never mentions them succeeds.
+   */
+  format: string;
+  /** NOT NULL since 001; the extension always supplies one ('import' when inline). */
   filename: string;
-  file_format: string;
   status: string;
   total_rows: number;
-  processed_rows: number;
-  success_rows: number;
-  error_rows: number;
+  imported_rows: number;
+  failed_rows: number;
   errors: unknown; // JSONB
-  options: unknown; // JSONB
   created_by: string | null;
   tenant_id: Generated<string>;
   created_at: Generated<Date>;
