@@ -122,6 +122,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   // ── Analytics ─────────────────────────────────────────────────
   // analytics/insights — promoted to engine core, no longer a separate extension
   {
+    name: 'analytics/dashboard',
+    displayName: 'Dashboards',
+    description:
+      'Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions',
+    category: 'analytics',
+    version: '1.0.1',
+    author: 'Zveltio',
+    tags: ['analytics', 'dashboard', 'widgets'],
+    permissions: ['database'],
+  },
+  {
     name: 'analytics/quality',
     displayName: 'Data Quality',
     description: 'Automated data quality scans, anomaly detection and issue management',
@@ -153,6 +164,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     author: 'Zveltio',
     tags: ['auth', 'saml', 'sso', 'okta', 'azure'],
     permissions: ['database'],
+  },
+  {
+    name: 'auth/scim',
+    displayName: 'SCIM Provisioning',
+    description:
+      'SCIM 2.0 user provisioning for Azure AD / Entra, Okta and other identity providers — bearer tokens, Users CRUD, active-flag offboarding',
+    category: 'auth',
+    version: '1.0.3',
+    author: 'Zveltio',
+    tags: ['auth', 'scim', 'provisioning', 'entra', 'okta'],
+    permissions: ['database', 'secrets'],
   },
 
   // ── Communications ────────────────────────────────────────────
@@ -607,6 +629,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     author: 'Zveltio',
     tags: ['integrations', 'api', 'http', 'webhooks'],
     permissions: ['database'],
+  },
+  {
+    name: 'integrations/migrators',
+    displayName: 'Data Migrators',
+    description:
+      'Import your data from HubSpot, Notion and Airtable into Zveltio collections — encrypted connections, field mapping preview, audited runs',
+    category: 'integrations',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['integrations', 'migration', 'hubspot', 'notion', 'airtable'],
+    permissions: ['database', 'network', 'secrets'],
   },
 
   // ── Operations ────────────────────────────────────────────────
