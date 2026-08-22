@@ -70,6 +70,9 @@ jobs:
         # Runnable locally: `bun run scripts/check-sdui-contract.ts <extDir>`
         run: bun run scripts/check-sdui-contract.ts ../zveltio-extensions
 
+      - name: SDUI schema headers
+        # Every manifest-referenced studio/schemas/*.json must declare sduiSchema + title.
+        run: bun run check:sdui-schemas
 
       - name: Schema drift check
         # Walks all migrations + DbSchema.ts + every route/lib file and

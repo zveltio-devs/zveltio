@@ -147,7 +147,7 @@ function formatStat(v: any, fmt?: string): string {
   if (fmt === 'currency' || fmt === 'number') return Number(v).toLocaleString();
   return String(v);
 }
-let page = $state(1);
+let pageNum = $state(1);
 let search = $state('');
 let filterValues = $state<Record<string, string>>({});
 
@@ -482,7 +482,7 @@ async function load() {
       }
     }
     if (r.pagination) {
-      qs.set('page', String(page));
+      qs.set('page', String(pageNum));
       qs.set('limit', String(r.pagination.limit));
     }
     const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
@@ -514,7 +514,7 @@ onMount(load);
 // reload when the active resource, page, or any filter changes
 $effect(() => {
   activeId;
-  page;
+  pageNum;
   JSON.stringify(filterValues);
   load();
 });
@@ -939,9 +939,9 @@ const shellTabs = $derived(
   subtitle={t(schema.subtitle)}
   tabs={shellTabs}
   activeTab={isTabbed ? activeId : undefined}
-  onTabChange={(id: string) => { activeId = id; page = 1; }}
+  onTabChange={(id: string) => { activeId = id; pageNum = 1; }}
   search={active.search ? search : undefined}
-  onSearchChange={active.search ? (v: string) => { search = v; page = 1; if (active.search?.param) load(); } : undefined}
+  onSearchChange={active.search ? (v: string) => { search = v; pageNum = 1; if (active.search?.param) load(); } : undefined}
   searchPlaceholder={t(active.search?.placeholder)}
 >
   {#snippet actions()}
@@ -974,7 +974,7 @@ const shellTabs = $derived(
                   ...filterValues,
                   [fl.fromParam ?? 'from']: (e.currentTarget as HTMLInputElement).value,
                 };
-                page = 1;
+                pageNum = 1;
               }}
             />
           </label>
@@ -989,7 +989,7 @@ const shellTabs = $derived(
                   ...filterValues,
                   [fl.toParam ?? 'to']: (e.currentTarget as HTMLInputElement).value,
                 };
-                page = 1;
+                pageNum = 1;
               }}
             />
           </label>
@@ -1010,7 +1010,7 @@ const shellTabs = $derived(
                   ...filterValues,
                   [fl.param ?? 'date']: (e.currentTarget as HTMLInputElement).value,
                 };
-                page = 1;
+                pageNum = 1;
               }}
             />
           </label>
@@ -1022,7 +1022,7 @@ const shellTabs = $derived(
               class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
               onclick={() => {
                 filterValues = { ...filterValues, [fl.param!]: opt.value };
-                page = 1;
+                pageNum = 1;
               }}
             >
               {t(opt.label)}
@@ -1289,9 +1289,9 @@ const shellTabs = $derived(
 
   {#if active.pagination && total > active.pagination.limit}
     <div class="flex justify-center gap-2 mt-4">
-      <button class="btn btn-sm" disabled={page === 1} onclick={() => page--}>{t('common.prev')}</button>
-      <span class="btn btn-sm btn-disabled">{page} / {Math.ceil(total / active.pagination.limit) || 1}</span>
-      <button class="btn btn-sm" disabled={page * active.pagination.limit >= total} onclick={() => page++}>{t('common.next')}</button>
+      <button class="btn btn-sm" disabled={pageNum === 1} onclick={() => pageNum--}>{t('common.prev')}</button>
+      <span class="btn btn-sm btn-disabled">{pageNum} / {Math.ceil(total / active.pagination.limit) || 1}</span>
+      <button class="btn btn-sm" disabled={pageNum * active.pagination.limit >= total} onclick={() => pageNum++}>{t('common.next')}</button>
     </div>
   {/if}
 

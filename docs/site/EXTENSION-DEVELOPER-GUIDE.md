@@ -1105,7 +1105,8 @@ third-party JS in the admin**.
 Schemas live in `studio/schemas/` (not `studio/pages/`), so the sync step ignores
 them automatically.
 
-**Vocabulary** (full source of truth: [`packages/studio/src/lib/sdui/types.ts`](../packages/studio/src/lib/sdui/types.ts)):
+**Vocabulary** (full reference: [SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md);
+source of truth: [`packages/studio/src/lib/sdui/types.ts`](../packages/studio/src/lib/sdui/types.ts)):
 - **Resources**: single or multi-tab; per-resource `dataSource`/`dataPath`/`search`/`filters`/`pagination`/`stats`.
 - **Columns** `type`: `text` · `mono` · `date` · `currency` (`code` or `codeKey`) · `badge` (`colors`+`labels`) · `relation` (id→label from another endpoint) · `boolean` (✓/—). Plus `secondary` (two-line cell), `join`, `template` (`{ENGINE_URL}`/`{field}` tokens), `classWhen` (conditional CSS), `editable` (inline select/text PATCH on change).
 - **Row/detail actions**: `kind` `call`|`edit`|`download` (opens cookie-authed endpoint in a new tab), `method`, `endpoint` (`{id}`/`{field}` tokens), `visibleWhen`, `confirm`, `body` (`{field}` tokens, `{a-b}` subtraction).

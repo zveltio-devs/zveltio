@@ -45,7 +45,7 @@
 
 - [x] Implement `packages/engine/scripts/build-binary.ts` (`build:binary` in package.json)
 - [x] Wire `gen-worker-source.ts` + `generate-studio-embed.ts` into compile pipeline
-- [ ] CI gate: embedded studio-dist freshness
+- [x] CI gate: embedded studio-dist freshness (`check:studio-embed` + studio workflow)
 
 ### B2. Dev / deploy footguns (P2)
 
@@ -64,7 +64,7 @@
 
 ### B4. Missing / broken endpoints (P3)
 
-- [ ] `/api/system/status` returns 404 — dashboard shows "Could not load system status"
+- [x] `/api/system/status` — N/A; dashboard uses `/api/admin/status` (works)
 
 ---
 
@@ -107,7 +107,7 @@ Current state (2026-08-22):
 - [x] CRM manifest: `"schema": "schemas/crm.json"` at `/admin/crm` (no tier-3 fallback)
 - [x] Remove synced CRM `studio/pages/` + baked `(admin)/crm/*` routes
 - [x] Legacy `/admin/crm/{contacts,organizations,transactions}` → `/admin/crm?tab=…` redirect
-- [ ] Document SDUI schema reference (public dev guide)
+- [x] Document SDUI schema reference (public dev guide) — `docs/site/SDUI-SCHEMA-REFERENCE.md`
 
 ### C4. Tier-3 escape (P3 — ~10–14 extensions)
 
@@ -156,7 +156,7 @@ Slot audit (core hosts in Studio):
 
 ### D3. UX polish (P3)
 
-- [ ] ReceivablesCard loading skeleton (avoid empty dashboard for 2–3s)
+- [x] ReceivablesCard loading skeleton (avoid empty dashboard for 2–3s)
 - [ ] Integration test: enable extension → contribution appears without manual refresh
 
 ---
@@ -198,8 +198,8 @@ Slot audit (core hosts in Studio):
 
 1. ~~**This session:** A1 (pg_notify) + A6 + A4 TTL + A2/A3 error handlers~~
 2. ~~**Next:** B1 `build:binary`, C1 schema CI check~~
-3. **Now:** D2 Model 2.5 rollout, C3 SDUI schema reference doc
-4. **Backlog:** B3 tenant fail-closed, C4 tier-3, marketplace iframe, B1 CI gate
+3. ~~**Now:** D2 Model 2.5 rollout, C3 SDUI schema reference doc~~
+4. **Backlog:** B3 tenant fail-closed, C4 tier-3, marketplace iframe, D3 integration test
 
 ---
 
@@ -212,4 +212,4 @@ Slot audit (core hosts in Studio):
 | 2026-08-22 | **B1 + C1:** `build:binary` compiles `dist/zveltio`; fixed studio-embed dir check; `check:sdui-schemas` passes (3 ext JSON fixed). |
 | 2026-08-22 | **B2:** Dev footguns documented in CONTRIBUTING, EXTENSION-DEVELOPER-GUIDE §12, installation, CONFIGURATION, `.env.example`. |
 | 2026-08-22 | **C3 CRM:** Removed `studio/pages/`; SDUI host at `/admin/crm`; legacy tab redirects + `?tab=` in SchemaPage. |
-| 2026-08-22 | **D2:** Model 2.5 — ai `topbar.center`, finance/invoicing `dashboard.widgets`; slot audit in checklist. |
+| 2026-08-22 | **C3 doc + B1 CI + D3:** `SDUI-SCHEMA-REFERENCE.md`; `check:studio-embed`; ReceivablesCard skeleton; B4 clarified. |
