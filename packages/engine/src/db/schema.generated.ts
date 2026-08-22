@@ -1229,8 +1229,8 @@ export interface ZvImportLogsTable {
   completed_at: Date | null;
   tenant_id: string | null;
   format: Generated<'csv' | 'json' | 'ndjson'>;
-  imported_rows: Generated<number>;
   failed_rows: Generated<number>;
+  imported_rows: Generated<number>;
   profile_id: string | null;
   on_duplicate: Generated<string>;
   dry_run: Generated<boolean>;
