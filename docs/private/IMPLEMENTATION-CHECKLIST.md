@@ -60,7 +60,7 @@
 - [ ] Run engine DB role as non-superuser in production (boot warns today)
 - [ ] **Fail-closed GUC:** consider `zveltio_tenant_scope_ok` → false when GUC unset (breaking; needs `zveltio_system` role for migrations)
 - [ ] **Per-tenant app RLS:** add `tenant_id` to `zvd_rls_policies` + scope cache keys when Studio exposes per-tenant RLS editor
-- [ ] CRM `briefing.ts`: use tenant-scoped `ctx.db` instead of global pool
+- [x] CRM `briefing.ts`: uses tenant-scoped `ctx.db` (`receivables(db)` via `crmRoutes`)
 
 ### B4. Missing / broken endpoints (P3)
 
@@ -77,14 +77,14 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 - [x] `embedPageSchemas()` inlines JSON at manifest load; `render: 'schema'` for inline objects
 - [x] Generic host route `(admin)/[...extPath]/+page.svelte` renders SDUI pages
 - [x] `check:sdui-schemas` CI — all 61 extension schemas require `sduiSchema: 1`
-- [ ] Wire `getStudioFile` / studio-embed into runtime (Docker still serves external `studio-dist/`)
+- [x] Wire `getStudioFile` / studio-embed into runtime (disk `studio-dist/` first, embed fallback for binary)
 - [ ] JSON Schema validator + versioned `sduiSchemaVersion` field on pages
 
 ### C2. Vocabulary gaps (P2)
 
 - [ ] i18n keys instead of literals in shipped schemas
 - [ ] Field validation + required-submit gating
-- [ ] `ColumnDef.classWhen` (conditional cell styling)
+- [x] `ColumnDef.classWhen` (conditional cell styling) — host + types live
 - [ ] `ActionDef.body` row-computed + tiny expression evaluator
 - [ ] `computed[].validWhen` (e.g. accounting debit==credit)
 - [ ] File/image fields; boolean, tags, link column types
@@ -113,7 +113,7 @@ Current state (2026-08-22):
 
 Keep compile-time Svelte at release for: mail, page-builder, flows, ai chat, geospatial map, media gallery, graphql playground, edge-functions editor, views calendar/kanban.
 
-- [ ] Formalize Tier-3 criteria in EXTENSION-AUTHORING.md
+- [x] Formalize Tier-3 criteria in EXTENSION-AUTHORING.md
 - [ ] **Future marketplace untrusted UI:** iframe sandbox + postMessage — **not** runtime Web Components in admin (Shadow DOM ≠ security)
 
 ---
@@ -199,7 +199,7 @@ Slot audit (core hosts in Studio):
 1. ~~**This session:** A1 (pg_notify) + A6 + A4 TTL + A2/A3 error handlers~~
 2. ~~**Next:** B1 `build:binary`, C1 schema CI check~~
 3. ~~**Now:** D2 Model 2.5 rollout, C3 SDUI schema reference doc~~
-4. **Backlog:** B3 tenant fail-closed, C4 tier-3, marketplace iframe, D3 integration test
+4. **Backlog:** B3 tenant fail-closed / non-superuser, marketplace iframe, D3 contribution integration test, C1 JSON Schema validator
 
 ---
 
@@ -213,3 +213,4 @@ Slot audit (core hosts in Studio):
 | 2026-08-22 | **B2:** Dev footguns documented in CONTRIBUTING, EXTENSION-DEVELOPER-GUIDE §12, installation, CONFIGURATION, `.env.example`. |
 | 2026-08-22 | **C3 CRM:** Removed `studio/pages/`; SDUI host at `/admin/crm`; legacy tab redirects + `?tab=` in SchemaPage. |
 | 2026-08-22 | **C3 doc + B1 CI + D3:** `SDUI-SCHEMA-REFERENCE.md`; `check:studio-embed`; ReceivablesCard skeleton; B4 clarified. |
+| 2026-08-22 | **C1 embed + C4:** `getStudioFile` wired (disk then embed); Tier-3 criteria in EXTENSION-AUTHORING; briefing ctx.db confirmed. |

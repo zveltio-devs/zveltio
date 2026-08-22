@@ -54,6 +54,37 @@ Use the same imports the Studio core uses — `$lib/api.js`,
 `$lib/stores/toast.svelte.js`, Svelte 5 runes, DaisyUI classes.
 Anything else has to be vendored under `studio/src/`.
 
+### When to use Tier-3 (code pages) vs SDUI
+
+Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
+for anything that is CRUD, settings, tabs of tables, or KPI+list. See
+[SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md).
+
+Use **Tier-3** (`studio/pages/+page.svelte`, synced into Studio at release) only
+when the UI cannot be expressed with the current SDUI vocabulary. Formal criteria
+— ship code if **any** of these hold:
+
+| Criterion | Examples that stay Tier-3 |
+| --- | --- |
+| Real-time or long-lived client session | AI chat, live collaboration cursors |
+| Free-form canvas / graph editor | Page builder, flows node graph |
+| Spatial / media-heavy interaction | Geospatial map, media gallery lightbox |
+| Code or query IDE | GraphQL playground, edge-functions editor |
+| Domain calendar / kanban with drag | `developer/views` calendar & board |
+| Complex email client (not just account settings) | `communications/mail` inbox |
+
+Even Tier-3 extensions should push **settings, filters, and simple CRUD
+sub-pages** to SDUI (or Model 2.5 slot widgets) so only the irreducible surface
+stays as Svelte.
+
+**Do not** use Tier-3 to dodge learning SDUI for a normal list+form page — that
+reintroduces per-extension Studio churn and blocks the “data, not code” admin
+security model.
+
+**Untrusted marketplace UI** (future): iframe sandbox + `postMessage` — not
+runtime Web Components and not Tier-3 Svelte executed in the admin origin.
+Shadow DOM is style isolation, not a security boundary.
+
 ## `manifest.json`
 
 ```json
