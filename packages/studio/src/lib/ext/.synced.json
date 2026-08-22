@@ -1,15 +1,17 @@
 {
-  "routes": [
-    "crm"
-  ],
+  "routes": [],
   "libs": [
+    "ai",
     "content/pages",
     "content/pdf-viewer",
     "crm",
+    "finance/invoicing",
     "geospatial/postgis",
     "storage/cloud"
   ],
   "contributions": [
-    "crm"
+    "ai",
+    "crm",
+    "finance/invoicing"
   ]
 }

@@ -279,10 +279,13 @@ at all.
 
 ## Development Setup
 
-> For contributors or those building extensions.
+> For contributors or those building extensions. See
+> [`CONTRIBUTING.md`](../CONTRIBUTING.md) for footguns (`EXTENSIONS_DIR`, CORS,
+> `studio-dist/`).
 
 ```bash
 git clone https://github.com/zveltio-devs/zveltio.git
+git clone https://github.com/zveltio-devs/zveltio-extensions.git   # sibling repo
 cd zveltio
 bun install
 
@@ -291,21 +294,29 @@ docker compose -f docker-compose.infra.yml up -d
 
 # Copy and edit env
 cp .env.example .env
+# Required: DATABASE_URL, BETTER_AUTH_SECRET
+# Recommended: EXTENSIONS_DIR=../zveltio-extensions
+# Split Studio dev: CORS_ORIGINS includes http://localhost:5173
 
 # Run migrations
 bun run -T packages/engine/src/db/migrate.ts
 
-# Start engine (hot reload)
-bun --watch packages/engine/src/index.ts
+# Embed Studio (or skip and use split dev with VITE_ENGINE_URL)
+bun run studio:build && bun run studio:embed
 
-# Start Studio (separate terminal)
-cd packages/studio && bun run dev
+# Start engine (hot reload)
+cd packages/engine && bun run dev
+
+# Optional — Studio with HMR (second terminal)
+cd packages/studio
+VITE_ENGINE_URL=http://localhost:3000 bun run dev
 ```
 
 **Access:**
 
-- Engine API: http://localhost:3000
-- Studio: http://localhost:5173/admin (dev) or http://localhost:3000/admin (production)
+- Engine API: http://localhost:3000 (or `PORT` in `.env`)
+- Studio embedded: http://localhost:3000/admin
+- Studio dev: http://localhost:5173/admin (requires `VITE_ENGINE_URL` + CORS)
 
 ---
 

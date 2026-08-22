@@ -7,6 +7,8 @@ import {
   PgNotifyRealtimeBus,
   NoopRealtimeBus,
   dispatchToWs,
+  trimForPgNotify,
+  PG_NOTIFY_PAYLOAD_MAX,
   type RealtimeBusMessage,
 } from '../../lib/runtime/realtime-bus.js';
 import * as wsModule from '../../routes/ws.js';
@@ -211,38 +213,77 @@ describe('dispatchToWs — observed via broadcastEvent', () => {
   });
 });
 
+describe('trimForPgNotify', () => {
+  it('omits data when the full payload exceeds pg_notify limit', () => {
+    const trimmed = trimForPgNotify({
+      event: 'record.updated',
+      collection: 'docs',
+      record_id: 'doc-1',
+      data: { body: 'x'.repeat(9000) },
+      timestamp: '2026-08-22T00:00:00Z',
+      tenantId: 'tenant-1',
+    });
+    expect(trimmed.data).toBeUndefined();
+    expect(JSON.stringify(trimmed).length).toBeLessThanOrEqual(PG_NOTIFY_PAYLOAD_MAX);
+    expect(trimmed.record_id).toBe('doc-1');
+  });
+});
+
 describe('PgNotifyRealtimeBus.publish', () => {
   it('is a no-op until a publisher is plugged in', async () => {
     const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
-    await expect(bus.publish(baseMsg())).resolves.toBeUndefined();
+    await expect(
+      bus.publish({
+        event: 'record.created',
+        collection: 'contacts',
+        record_id: 'r1',
+        timestamp: '2026-08-22T00:00:00Z',
+      }),
+    ).resolves.toBeUndefined();
   });
 
-  it('emits pg_notify with the origin id stamped and single quotes escaped', async () => {
+  it('calls notify with JSON payload and stamps origin id', async () => {
     const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
-    const calls: string[] = [];
+    const payloads: string[] = [];
     bus.setPublisher({
-      execute: async (sql: string) => {
-        calls.push(sql);
+      notify: async (_channel, payload) => {
+        payloads.push(payload);
         return null;
       },
     });
-    await bus.publish(baseMsg({ data: { note: "O'Brien" } }));
+    await bus.publish({
+      event: 'record.created',
+      collection: 'contacts',
+      record_id: 'r1',
+      data: { note: "O'Brien" },
+      timestamp: '2026-08-22T00:00:00Z',
+      tenantId: 'tenant-1',
+    });
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain(`SELECT pg_notify('zveltio_changes'`);
-    expect(calls[0]).toContain(_ORIGIN_ID);
-    expect(calls[0]).toContain("O''Brien"); // '' == escaped single quote
+    expect(payloads).toHaveLength(1);
+    const parsed = JSON.parse(payloads[0]!) as RealtimeBusMessage;
+    expect(parsed.originId).toBe(_ORIGIN_ID);
+    expect((parsed.data as { note: string }).note).toBe("O'Brien");
   });
 
-  it('swallows a publisher execute failure without throwing', async () => {
+  it('swallows a publisher notify failure without throwing', async () => {
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
-      bus.setPublisher({ execute: async () => Promise.reject(new Error('conn lost')) });
-      await expect(bus.publish(baseMsg())).resolves.toBeUndefined();
+      bus.setPublisher({ notify: async () => Promise.reject(new Error('conn lost')) });
+      await expect(
+        bus.publish({
+          event: 'record.created',
+          collection: 'contacts',
+          record_id: 'r1',
+          timestamp: '2026-08-22T00:00:00Z',
+        }),
+      ).resolves.toBeUndefined();
       expect(errSpy.mock.calls.some((c) => String(c[0]).includes('pg_notify failed'))).toBe(true);
     } finally {
       errSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 });

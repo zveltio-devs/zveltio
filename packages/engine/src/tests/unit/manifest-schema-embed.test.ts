@@ -42,12 +42,12 @@ describe('embedPageSchemas', () => {
     });
   });
 
-  it('leaves pages with inline schema objects untouched', async () => {
-    const inline = { type: 'object' };
+  it('sets render=schema for inline schema objects', async () => {
+    const inline = { title: 'Inline', sduiSchema: 1, resources: [{ id: 'r', dataSource: '/x', columns: [] }] };
     const studio = { pages: [{ path: '/x', label: 'X', schema: inline }] };
     const out = await embedPageSchemas(tmpExt({}), studio);
     expect(out?.pages?.[0]?.schema).toBe(inline);
-    expect(out?.pages?.[0]?.render).toBeUndefined();
+    expect(out?.pages?.[0]?.render).toBe('schema');
   });
 
   it('warns and keeps the page when the schema file is missing or invalid', async () => {

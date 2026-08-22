@@ -607,6 +607,13 @@ async function buildHonoApp(): Promise<Hono> {
   // operator whose extension needs more.
   const EXT_MAX = parseInt(process.env.MAX_EXT_BODY_BYTES ?? '') || IMPORT_MAX;
   app.use('/ext/*', bodyLimit({ maxSize: EXT_MAX }));
+  const corsOptions = {
+    // No cross-origin by default — see comment block on `/api/*` below.
+    origin: process.env.CORS_ORIGINS?.split(',') ?? [],
+    credentials: true,
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
+  };
+  app.use('/ext/*', cors(corsOptions));
   app.use(
     '/api/*',
     cors({
@@ -622,9 +629,7 @@ async function buildHonoApp(): Promise<Hono> {
       // by this same engine, so same-origin requests are unaffected and nothing
       // in a normal install needs this. An operator hosting a front end
       // elsewhere sets CORS_ORIGINS, which is the moment to decide who may ask.
-      origin: process.env.CORS_ORIGINS?.split(',') ?? [],
-      credentials: true,
-      allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
+      ...corsOptions,
     }),
   );
   app.use('/api/*', tenantMiddleware);
@@ -1124,9 +1129,9 @@ async function bootstrap() {
         if (!realtimeUrl) return;
         // Plug the Kysely instance so publish() can pg_notify on our pool.
         (bus as PgNotifyRealtimeBus).setPublisher({
-          execute: async (sqlText: string) => {
+          notify: async (_channel, payload) => {
             const { sql } = await import('kysely');
-            return sql.raw(sqlText).execute(db);
+            return sql`SELECT pg_notify('zveltio_changes', ${payload})`.execute(db);
           },
         });
         await bus.start();

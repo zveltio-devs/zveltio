@@ -10,8 +10,9 @@ import {
 import type { Database } from '../db/index.js';
 
 // Per-connection permission cache (lives only for the WS session duration).
-// Maps collectionName → allowed (true/false) for the userId of that connection.
-const wsPermCache = new WeakMap<object, Map<string, boolean>>();
+// Maps collectionName → { allowed, checkedAt } — re-checked after TTL.
+const WS_PERM_CACHE_TTL_MS = 60_000;
+const wsPermCache = new WeakMap<object, Map<string, { allowed: boolean; checkedAt: number }>>();
 
 interface WSConnection {
   userId: string;
@@ -159,6 +160,24 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
   ).catch(() => false);
 }
 
+async function socketMayReadCached(
+  ws: object,
+  conn: WSConnection,
+  collectionName: string,
+): Promise<boolean> {
+  const permCache =
+    wsPermCache.get(ws) ?? new Map<string, { allowed: boolean; checkedAt: number }>();
+  if (!wsPermCache.has(ws)) wsPermCache.set(ws, permCache);
+
+  const hit = permCache.get(collectionName);
+  const now = Date.now();
+  if (hit && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) return hit.allowed;
+
+  const allowed = await socketMayRead(conn, collectionName);
+  permCache.set(collectionName, { allowed, checkedAt: now });
+  return allowed;
+}
+
 export const websocketHandler = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   open(ws: any) {
@@ -200,30 +219,21 @@ export const websocketHandler = {
         case 'subscribe': {
           // Support both { type:'subscribe', collections:['posts','orders'] }
           // and { type:'subscribe', channel:'posts:insert' }
-          const permCache = wsPermCache.get(ws) ?? new Map<string, boolean>();
-
           if (Array.isArray(msg.collections)) {
             const allowed: string[] = [];
             const denied: string[] = [];
             for (const col of msg.collections) {
-              // Block wildcard subscriptions — they bypass per-collection permission checks
               if (col === '*') {
                 denied.push(col);
                 continue;
               }
-              // Extract base collection name from channel format (e.g. "orders:insert" → "orders")
               const collectionName = typeof col === 'string' ? col.split(':')[0] : null;
               if (!collectionName) {
                 denied.push(col);
                 continue;
               }
 
-              // Check permission with per-session cache
-              let canRead = permCache.get(collectionName);
-              if (canRead === undefined) {
-                canRead = await socketMayRead(conn, collectionName);
-                permCache.set(collectionName, canRead);
-              }
+              const canRead = await socketMayReadCached(ws, conn, collectionName);
 
               if (canRead) {
                 conn.subscriptions.add(col);
@@ -245,11 +255,7 @@ export const websocketHandler = {
               break;
             }
             const collectionName = msg.channel.split(':')[0];
-            let canRead = permCache.get(collectionName);
-            if (canRead === undefined) {
-              canRead = await socketMayRead(conn, collectionName);
-              permCache.set(collectionName, canRead);
-            }
+            const canRead = await socketMayReadCached(ws, conn, collectionName);
             if (canRead) {
               conn.subscriptions.add(msg.channel);
               indexSubscription(msg.channel, ws.data.id);
@@ -371,34 +377,4 @@ export function broadcastEvent(
     }
   }
   for (const { channel, connId } of stale) unindexSubscription(channel, connId);
-}
-
-/**
- * Send an event to all connections belonging to a specific user.
- */
-export function broadcastToUser(userId: string, event: object): void {
-  const payload = JSON.stringify(event);
-  for (const [, conn] of connections) {
-    if (conn.userId === userId) {
-      try {
-        conn.ws.send(payload);
-      } catch {
-        /* ignore closed socket */
-      }
-    }
-  }
-}
-
-/**
- * Send an event to every connected WebSocket client.
- */
-export function broadcastToAll(event: object): void {
-  const payload = JSON.stringify(event);
-  for (const [, conn] of connections) {
-    try {
-      conn.ws.send(payload);
-    } catch {
-      /* ignore closed socket */
-    }
-  }
 }

@@ -230,13 +230,34 @@ GITHUB_CLIENT_SECRET=abc123...
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ZVELTIO_EXTENSIONS` | — | Comma-separated list of extensions to load |
-| `ZVELTIO_EXTENSIONS_PATH` | `./extensions` | Directory containing extension packages |
+| `EXTENSIONS_DIR` | *(see resolution order)* | Directory containing extension packages on disk |
+| `ZVELTIO_EXTENSIONS_PATH` | — | Optional **additional** directory scanned for extra extensions (CI) |
+
+### `EXTENSIONS_DIR` resolution
+
+When unset, the engine picks the first path that exists:
+
+1. `./extensions/` relative to the process CWD
+2. `../zveltio-extensions` sibling of the monorepo (local dev)
+3. `./extensions/` as the install target
+
+Set explicitly in production and recommended for monorepo contributors:
+
+```env
+EXTENSIONS_DIR=/opt/zveltio/extensions
+# or, locally:
+EXTENSIONS_DIR=/home/you/zveltio-extensions
+```
+
+> **Dev footgun:** `packages/engine/extensions/` is gitignored and holds
+> marketplace install artifacts, not the source repo. Stale installs can lag
+> behind `zveltio-extensions`. Prefer `EXTENSIONS_DIR` pointing at the clone.
 
 ### Format
 
 ```env
 ZVELTIO_EXTENSIONS=ai,compliance/ro/efactura,workflow/approvals
-ZVELTIO_EXTENSIONS_PATH=/app/extensions
+EXTENSIONS_DIR=/app/extensions
 ```
 
 ### Available extensions
@@ -364,6 +385,7 @@ AI_KEY_ENCRYPTION_KEY=<openssl rand -hex 32>
 
 # Extensions
 ZVELTIO_EXTENSIONS=ai,workflow/approvals
+EXTENSIONS_DIR=../zveltio-extensions
 ```
 
 ### Production

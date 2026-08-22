@@ -34,6 +34,10 @@ import Redis from 'ioredis';
 import { broadcastEvent } from '../../routes/ws.js';
 
 const CHANNEL_NAME = 'zveltio:realtime';
+const PG_NOTIFY_CHANNEL = 'zveltio_changes';
+
+/** Postgres pg_notify payload limit is 8000 bytes — stay under it. */
+export const PG_NOTIFY_PAYLOAD_MAX = 7900;
 
 // Per-process origin id so we can filter our own echoed messages.
 const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
@@ -71,7 +75,37 @@ export interface RealtimeBus {
    */
   publish(payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void>;
   readonly isRunning: boolean;
+  /** True when the backend is ready to fan out cross-instance events. */
+  isHealthy(): boolean;
   readonly backend: 'valkey' | 'pg-notify' | 'none';
+}
+
+/** Parametrized pg_notify — no SQL string concatenation. */
+export type PgNotifyPublisher = {
+  notify: (channel: string, payload: string) => Promise<unknown>;
+};
+
+/**
+ * Shrink a bus message to fit pg_notify's 8KB cap. Receivers fall back to
+ * `{ id: record_id }` when `data` is absent (`dispatchToWs`).
+ */
+export function trimForPgNotify(payload: Omit<RealtimeBusMessage, 'originId'>): RealtimeBusMessage {
+  const encodeLen = (msg: RealtimeBusMessage) => JSON.stringify(msg).length;
+
+  const full: RealtimeBusMessage = { ...payload, originId: ORIGIN_ID };
+  if (encodeLen(full) <= PG_NOTIFY_PAYLOAD_MAX) return full;
+
+  const slim: RealtimeBusMessage = { ...full, data: undefined };
+  if (encodeLen(slim) <= PG_NOTIFY_PAYLOAD_MAX) return slim;
+
+  return {
+    originId: ORIGIN_ID,
+    event: full.event,
+    collection: full.collection,
+    record_id: full.record_id,
+    timestamp: full.timestamp,
+    tenantId: full.tenantId,
+  };
 }
 
 // ── Event mapping (shared by both backends) ─────────────────────────────────
@@ -87,11 +121,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void {
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
-  // tenantId forwarded so cross-instance dispatch honours the same
-  // per-tenant scoping as in-process dispatch — without it the
-  // receiving engine would push the message to every same-collection
-  // WS subscriber regardless of tenant.
   broadcastEvent(msg.collection, wsEvent, msg.data ?? { id: msg.record_id }, msg.tenantId ?? null);
+}
+
+function attachIoredisErrorHandler(client: Redis, label: string): void {
+  client.on('error', (err: Error) => {
+    console.error(`[realtime-bus] Valkey ${label} error:`, err.message);
+  });
 }
 
 // ── Valkey backend ──────────────────────────────────────────────────────────
@@ -106,10 +142,18 @@ class ValkeyRealtimeBus implements RealtimeBus {
 
   async start(): Promise<void> {
     if (this._running) return;
-    // ioredis requires separate connections for subscribe vs. publish — the
-    // subscriber connection is blocked from other commands while subscribed.
-    this.subscriber = new Redis(this.url, { lazyConnect: true });
-    this.publisher = new Redis(this.url, { lazyConnect: true });
+    this.subscriber = new Redis(this.url, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => Math.min(100 * 2 ** times, 1000) + Math.random() * 100,
+    });
+    this.publisher = new Redis(this.url, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => Math.min(100 * 2 ** times, 1000) + Math.random() * 100,
+    });
+    attachIoredisErrorHandler(this.subscriber, 'subscriber');
+    attachIoredisErrorHandler(this.publisher, 'publisher');
     await this.subscriber.connect();
     await this.publisher.connect();
 
@@ -162,20 +206,14 @@ class ValkeyRealtimeBus implements RealtimeBus {
   get isRunning(): boolean {
     return this._running;
   }
+
+  isHealthy(): boolean {
+    return this._running;
+  }
 }
 
 // ── pg_notify backend ───────────────────────────────────────────────────────
 
-/**
- * Postgres LISTEN/NOTIFY backend. Uses Bun.SQL.subscribe (Bun 1.2+) for
- * the LISTEN half; publish goes through whatever Kysely instance the
- * caller has (we accept a Database in `setPgPublisher`).
- *
- * The previous `RealtimeManager` lived in `realtime.ts`. Its behavior is
- * preserved here so the only externally visible change is the `publish()`
- * method now passes through this class instead of inlining
- * `sql\`SELECT pg_notify(...)\`` in `data.ts`.
- */
 class PgNotifyRealtimeBus implements RealtimeBus {
   readonly backend = 'pg-notify' as const;
   // @ts-ignore — BunSubscription typed by bun-types
@@ -184,17 +222,50 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   private _running = false;
   private retryAttempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private publisher: { execute: (sql: string) => Promise<unknown> } | null = null;
+  private stopping = false;
+  private publisher: PgNotifyPublisher | null = null;
 
   constructor(private readonly databaseUrl: string) {}
 
-  /**
-   * Plug a Kysely instance to use as the publisher. Called once at
-   * bootstrap. Until set, `publish()` is a no-op so initialization order
-   * isn't load-bearing.
-   */
-  setPublisher(executor: { execute: (sql: string) => Promise<unknown> }): void {
+  setPublisher(executor: PgNotifyPublisher): void {
     this.publisher = executor;
+  }
+
+  private attachSubscriptionHandlers(): void {
+    const sub = this.subscription;
+    if (!sub || typeof sub !== 'object') return;
+    if (typeof sub.on === 'function') {
+      sub.on('error', (err: Error) => this.scheduleListenReconnect(err?.message ?? 'error'));
+      sub.on('close', () => this.scheduleListenReconnect('close'));
+      sub.on('end', () => this.scheduleListenReconnect('end'));
+    }
+  }
+
+  private scheduleListenReconnect(reason: string): void {
+    if (this.stopping || this.retryTimer) return;
+    this._running = false;
+    const delay = Math.min(1_000 * 2 ** this.retryAttempt, 300_000);
+    this.retryAttempt++;
+    console.warn(
+      `[realtime-bus] LISTEN lost (${reason}), reconnecting in ${delay}ms (attempt ${this.retryAttempt})`,
+    );
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.reconnectListen();
+    }, delay);
+  }
+
+  private async reconnectListen(): Promise<void> {
+    if (this.stopping) return;
+    if (this.subscription) {
+      try {
+        await this.subscription.unsubscribe();
+      } catch {
+        /* */
+      }
+      this.subscription = null;
+    }
+    await this.start();
   }
 
   async start(): Promise<void> {
@@ -203,7 +274,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       // @ts-ignore — Bun.SQL global typed by bun-types
       const sql = new Bun.SQL(this.databaseUrl);
       // @ts-ignore — Bun.SQL.subscribe runtime-only
-      this.subscription = await sql.subscribe('zveltio_changes', (raw: string) => {
+      this.subscription = await sql.subscribe(PG_NOTIFY_CHANNEL, (raw: string) => {
         let msg: RealtimeBusMessage;
         try {
           msg = JSON.parse(raw);
@@ -212,28 +283,24 @@ class PgNotifyRealtimeBus implements RealtimeBus {
         }
         dispatchToWs(msg);
       });
+      this.attachSubscriptionHandlers();
       this._running = true;
       this.retryAttempt = 0;
-      console.log(`✅ Realtime bus: pg_notify LISTEN on zveltio_changes (origin=${ORIGIN_ID})`);
+      console.log(
+        `✅ Realtime bus: pg_notify LISTEN on ${PG_NOTIFY_CHANNEL} (origin=${ORIGIN_ID})`,
+      );
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       if (err.message?.includes('is not a function')) {
         console.warn('[realtime-bus] LISTEN/NOTIFY not available — single-instance only.');
         return;
       }
-      const delay = Math.min(1_000 * Math.pow(2, this.retryAttempt), 300_000);
-      this.retryAttempt++;
-      console.warn(
-        `[realtime-bus] LISTEN start failed (attempt ${this.retryAttempt}), retrying in ${delay}ms: ${err.message}`,
-      );
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = null;
-        this.start();
-      }, delay);
+      this.scheduleListenReconnect(err.message ?? 'start failed');
     }
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
@@ -248,21 +315,31 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     }
     this._running = false;
     this.retryAttempt = 0;
+    this.stopping = false;
   }
 
   async publish(payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
     if (!this.publisher) return;
-    const msg: RealtimeBusMessage = { ...payload, originId: ORIGIN_ID };
-    // Encode as a single SQL literal; pg_notify's payload max is 8000
-    // chars, the caller is responsible for keeping `data` small.
-    const escaped = JSON.stringify(msg).replace(/'/g, "''");
-    await this.publisher
-      .execute(`SELECT pg_notify('zveltio_changes', '${escaped}')`)
-      .catch((err: Error) => console.error('[realtime-bus] pg_notify failed:', err.message));
+    const msg = trimForPgNotify(payload);
+    const encoded = JSON.stringify(msg);
+    if (encoded.length > PG_NOTIFY_PAYLOAD_MAX) {
+      console.error(
+        `[realtime-bus] pg_notify payload still ${encoded.length} bytes after trim — dropping cross-instance fan-out`,
+      );
+      return;
+    }
+    await this.publisher.notify(PG_NOTIFY_CHANNEL, encoded).catch((err: Error) => {
+      console.error('[realtime-bus] pg_notify failed:', err.message);
+      this.scheduleListenReconnect('publish failed');
+    });
   }
 
   get isRunning(): boolean {
     return this._running;
+  }
+
+  isHealthy(): boolean {
+    return this._running && this.publisher !== null;
   }
 }
 
@@ -280,6 +357,9 @@ class NoopRealtimeBus implements RealtimeBus {
   async publish(_payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
     /* discard */
   }
+  isHealthy(): boolean {
+    return true;
+  }
 }
 
 // ── Public singleton ───────────────────────────────────────────────────────
@@ -291,24 +371,16 @@ function pickBus(): RealtimeBus {
   return new NoopRealtimeBus();
 }
 
-/**
- * Singleton realtime bus. Resolved lazily on first access so env vars
- * loaded later in bootstrap (e.g. by dotenv) still influence the choice.
- */
 let _instance: RealtimeBus | null = null;
 export function realtimeBus(): RealtimeBus {
   if (!_instance) _instance = pickBus();
   return _instance;
 }
 
-/** Test-only: reset the singleton (for env-var-driven backend switching). */
 export function _resetForTests(): void {
   _instance = null;
 }
 
-// Re-export the per-process origin id so write-path tests can assert
-// self-echo suppression.
 export const _ORIGIN_ID = ORIGIN_ID;
 
-// Re-export classes so callers (and tests) can construct directly.
 export { ValkeyRealtimeBus, PgNotifyRealtimeBus, NoopRealtimeBus, dispatchToWs };
