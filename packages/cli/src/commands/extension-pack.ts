@@ -33,6 +33,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
+import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
 
 // Historically this was a list of peer deps allowed to stay external —
@@ -60,6 +61,12 @@ export interface ExtensionPackOptions {
   noManifestUpdate?: boolean;
   /** First-party (vendor / monorepo) — keep inline, skip the auto-inject. */
   firstParty?: boolean;
+  /**
+   * Keep `engine.isolation: "worker"` even when packing as first-party.
+   * Without this, first-party pack clears a sticky community inject so
+   * monorepo extensions do not silently stay on worker forever.
+   */
+  keepIsolation?: boolean;
   /** Registry token for the publisher-tier lookup. */
   token?: string;
   /** Registry base URL for the tier lookup. */
@@ -262,18 +269,19 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   // inline community extensions at enable, so packing one without worker
   // produces an artifact nobody can turn on. We fix it here rather than
   // letting the author discover it after a rejected review.
-  //   - explicit isolation in the manifest is always preserved
+  //   - explicit isolation in the manifest is always preserved (unless
+  //     first-party clears a sticky worker — see resolvePackIsolation)
   //   - first-party / verified keep the inline default
   //   - community (or unresolvable tier) → inject worker, loudly
-  let resolvedIsolation = manifest.engine?.isolation;
-  if (!resolvedIsolation) {
+  let communityInject = false;
+  if (!manifest.engine?.isolation) {
     const resolved = await resolvePublisherTier({
       firstParty: opts.firstParty,
       token: opts.token,
       registryUrl: opts.registryUrl,
     });
     if (!resolved.allowsInline) {
-      resolvedIsolation = 'worker';
+      communityInject = true;
       console.log(
         `  ${c.yellow('⚠')} ${resolved.tier} publisher — auto-set ${c.bold('engine.isolation: "worker"')} ` +
           `(community extensions can't run inline).`,
@@ -287,7 +295,19 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
         );
       }
     }
+  } else if (opts.firstParty && manifest.engine.isolation === 'worker' && !opts.keepIsolation) {
+    console.log(
+      `  ${c.yellow('⚠')} first-party pack — clearing sticky ${c.bold('engine.isolation: "worker"')} ` +
+        `(inline is the first-party default). Pass ${c.bold('--keep-isolation')} to retain worker.`,
+    );
   }
+
+  const resolvedIsolation = resolvePackIsolation({
+    current: manifest.engine?.isolation,
+    firstParty: opts.firstParty,
+    keepIsolation: opts.keepIsolation,
+    communityInject,
+  });
 
   // Patch manifest with engine + integrity blocks. archive-hash is
   // computed and written by `extension publish` later.

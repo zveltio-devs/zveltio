@@ -9,10 +9,15 @@
 import { CONTRIBUTION_MODULES } from '$lib/ext/.contributions.generated.js';
 import { registerContributionSlot, unregisterContributions } from '$lib/extension-api.svelte.js';
 
+type ContributionModules = Record<string, () => Promise<{ activate?: () => void }>>;
+
 /** Extensions whose `activate()` already ran this session (guards HMR double-call). */
 const activated = new Set<string>();
 
-export async function loadExtensionContributions(active: string[]): Promise<void> {
+export async function loadExtensionContributions(
+  active: string[],
+  modules: ContributionModules = CONTRIBUTION_MODULES,
+): Promise<void> {
   const activeSet = new Set(active);
 
   for (const name of [...activated]) {
@@ -23,7 +28,7 @@ export async function loadExtensionContributions(active: string[]): Promise<void
   }
 
   for (const name of active) {
-    const load = CONTRIBUTION_MODULES[name];
+    const load = modules[name];
     if (!load) continue;
     if (activated.has(name)) continue;
 
@@ -41,6 +46,11 @@ export async function loadExtensionContributions(active: string[]): Promise<void
 /** Test-only: reset activation guard between unit tests. */
 export function _resetContributionLoaderForTests(): void {
   activated.clear();
+}
+
+/** Test-only: which extensions have activate() running this session. */
+export function _activatedContributionsForTests(): ReadonlySet<string> {
+  return activated;
 }
 
 // Re-export for contribute modules that prefer a stable import path.

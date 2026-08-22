@@ -651,22 +651,32 @@ export async function getUserRoles(userId: string): Promise<string[]> {
  */
 export async function invalidateUserPermCache(userId: string): Promise<void> {
   const cache = getCache();
-  if (!cache) return;
-  try {
-    // O(M) — SMEMBERS returns all members of the per-user tracking Set.
-    //        M is the number of distinct permission checks cached for this user.
-    const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
+  if (cache) {
+    try {
+      // O(M) — SMEMBERS returns all members of the per-user tracking Set.
+      //        M is the number of distinct permission checks cached for this user.
+      const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
 
-    // Role keys (roles:${domain}:${userId}) are registered in permKeys via getUserRoles().
-    // god / urole must be cleared on any permission change (TTLs differ from perm cache).
-    const allKeys = [...permKeys, `god:${userId}`, `urole:${userId}`, `user:perm-keys:${userId}`];
-    if (allKeys.length > 0) await cache.del(...allKeys);
-  } catch {
-    /* cache unavailable */
+      // Role keys (roles:${domain}:${userId}) are registered in permKeys via getUserRoles().
+      // god / urole must be cleared on any permission change (TTLs differ from perm cache).
+      const allKeys = [...permKeys, `god:${userId}`, `urole:${userId}`, `user:perm-keys:${userId}`];
+      if (allKeys.length > 0) await cache.del(...allKeys);
+    } catch {
+      /* cache unavailable */
+    }
   }
   // The query cache holds rows already RLS-filtered + column-masked for this
   // user's role — a role grant/revoke must drop them too, or the change is
   // served stale for up to the TTL.
   const { invalidateUserQueryCache } = await import('../data/index.js');
   await invalidateUserQueryCache(userId);
+  // Open WebSocket sessions cache subscribe decisions for WS_PERM_CACHE_TTL_MS —
+  // clear those too so a revoke is visible on the next subscribe without waiting
+  // for the TTL (or a reconnect). Dynamic import avoids tenancy → routes cycle.
+  try {
+    const { invalidateWsUserPermCache } = await import('../../routes/ws.js');
+    invalidateWsUserPermCache(userId);
+  } catch {
+    /* ws module unavailable in some unit-test graphs */
+  }
 }
