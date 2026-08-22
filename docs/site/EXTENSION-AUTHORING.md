@@ -85,6 +85,21 @@ security model.
 runtime Web Components and not Tier-3 Svelte executed in the admin origin.
 Shadow DOM is style isolation, not a security boundary.
 
+Studio ships a **scaffold** (`MarketplaceSandbox.svelte` +
+`lib/components/marketplace/protocol.ts`) behind an explicit `enabled` prop.
+It is **not** wired into marketplace install/enable yet. Protocol v1:
+
+| Direction | `type` | Payload |
+|-----------|--------|---------|
+| host → iframe | `zveltio:marketplace:init` | `extensionId`, `locale` |
+| iframe → host | `zveltio:marketplace:ready` | — |
+| iframe → host | `zveltio:marketplace:navigate` | `path` (must start with `/`) |
+| iframe → host | `zveltio:marketplace:toast` | `level`, `message` |
+
+The iframe uses `sandbox="allow-scripts allow-forms allow-popups"` (no
+`allow-same-origin`). The host ignores messages from unexpected origins or
+unknown types.
+
 ## `manifest.json`
 
 ```json

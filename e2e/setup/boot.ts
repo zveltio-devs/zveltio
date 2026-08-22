@@ -40,6 +40,7 @@ async function psql(sql: string, url = PG_ADMIN): Promise<void> {
 }
 
 function engineEnv(): Record<string, string> {
+  const extensionsDir = join(ROOT, '..', 'zveltio-extensions');
   return {
     ...process.env,
     DATABASE_URL: DB_URL,
@@ -54,6 +55,13 @@ function engineEnv(): Record<string, string> {
     ZVELTIO_REGISTRATION_ENABLED: '1',
     STUDIO_DIST_PATH: join(ROOT, 'packages', 'studio', 'dist'),
     NODE_ENV: 'test',
+    // CRM smoke needs engine routes + Studio slot activation for `crm`.
+    ...(existsSync(extensionsDir)
+      ? {
+          EXTENSIONS_DIR: extensionsDir,
+          ZVELTIO_EXTENSIONS: 'crm',
+        }
+      : {}),
   } as Record<string, string>;
 }
 

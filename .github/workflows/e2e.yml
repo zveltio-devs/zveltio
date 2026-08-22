@@ -44,6 +44,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clone zveltio-extensions
+        # Studio prebuild syncs slot widgets (ReceivablesCard) from the sibling
+        # repo. Without it, vite build alone ships no CRM dashboard contribution.
+        env:
+          GH_TOKEN: ${{ secrets.EXTENSIONS_REPO_TOKEN }}
+        run: |
+          EXT_DIR="${{ github.workspace }}/../zveltio-extensions"
+          TOKEN="${GH_TOKEN:-${{ github.token }}}"
+          git clone --depth 1 \
+            "https://x-access-token:${TOKEN}@github.com/zveltio-devs/zveltio-extensions.git" \
+            "$EXT_DIR"
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
@@ -68,14 +80,15 @@ jobs:
       - name: SvelteKit sync
         run: cd packages/studio && bun x svelte-kit sync
 
-      - name: Build the Studio
+      - name: Build the Studio (with extension sync)
         working-directory: packages/studio
-        # `vite build` rather than `bun run build`: the package's `prebuild`
-        # also syncs from a `zveltio-extensions` sibling that no runner has, and
-        # which has previously overwritten committed pages with older copies
-        # when it did exist.
+        env:
+          EXTENSIONS_DIR: ${{ github.workspace }}/../zveltio-extensions
+        # Full `bun run build` so prebuild runs sync-extensions + message merge.
+        # Previously this used bare `vite build` to avoid a missing sibling; CI
+        # now clones zveltio-extensions above.
         run: |
-          bun x vite build
+          bun run build
           bun scripts/stamp-version.ts
 
       - name: Install Chromium
@@ -88,6 +101,8 @@ jobs:
         env:
           CI: 'true'
           E2E_PG_ADMIN: postgres://postgres:postgres@localhost:5432/postgres
+          EXTENSIONS_DIR: ${{ github.workspace }}/../zveltio-extensions
+          ZVELTIO_EXTENSIONS: crm
         run: bun x playwright test
 
       - name: Upload traces
