@@ -175,7 +175,8 @@ Services are unregistered automatically when your extension unloads.
 ## 7. Add an admin page without writing Svelte (SDUI)
 
 Declarative pages are **data**, rendered by the Studio host — no per-extension
-Studio build. Drop a schema in `studio/schemas/widgets.json`
+Studio build. See the full field catalog in [SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md).
+Drop a schema in `studio/schemas/widgets.json`
 (modelled on [`content/drafts`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/content/drafts/studio/schemas/drafts.json)):
 
 ```json

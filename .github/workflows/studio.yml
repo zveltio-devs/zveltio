@@ -78,3 +78,8 @@ jobs:
         # found — skipping" and proceeds with the routes that are
         # already committed under packages/studio/src/routes/(admin)/.
         run: cd packages/studio && bun run build
+
+      - name: Studio dist version marker
+        env:
+          REQUIRE_STUDIO_DIST: '1'
+        run: bun run check:studio-embed

@@ -12,6 +12,10 @@ class FakeRedis {
     capturedOpts = opts;
   }
 
+  on(_event: string, _handler: (err: Error) => void) {
+    return this;
+  }
+
   async connect() {
     connectCalls++;
   }
