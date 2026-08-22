@@ -12,6 +12,11 @@ import type { FormSchema, FormAlterHook, SlotContribution } from '@zveltio/sdk/e
  */
 
 import { makeFormProxy, applyFormAlterHooks, sortSlotContributions } from '@zveltio/sdk/studio';
+import {
+  removeOwnerFromSlots,
+  registerOwnedOnSlot,
+  type OwnedSlotContribution,
+} from '@zveltio/sdk/studio';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -235,5 +240,41 @@ describe('S3-03 sortSlotContributions', () => {
     const before = items.map((x: any) => x.__tag);
     sortSlotContributions(items);
     expect(items.map((x: any) => x.__tag)).toEqual(before);
+  });
+});
+
+// ── Owned slot contributions (compile-time Model 2.5) ─────────────────────
+
+describe('owned slot contributions', () => {
+  function c(tag: string, owner = 'ext-a'): OwnedSlotContribution {
+    return { component: {}, owner, __tag: tag } as OwnedSlotContribution & { __tag: string };
+  }
+
+  it('registerOwnedOnSlot replaces the same owner on one slot', () => {
+    let slots: Record<string, OwnedSlotContribution[]> = {
+      'dashboard.widgets': [{ component: {}, owner: 'crm', priority: 99 }],
+    };
+    slots = registerOwnedOnSlot(slots, 'crm', 'dashboard.widgets', { component: {}, priority: 1 });
+    expect(slots['dashboard.widgets']).toHaveLength(1);
+    expect(slots['dashboard.widgets'][0].priority).toBe(1);
+    expect(slots['dashboard.widgets'][0].owner).toBe('crm');
+  });
+
+  it('registerOwnedOnSlot keeps other owners on the same slot', () => {
+    let slots: Record<string, OwnedSlotContribution[]> = {
+      'dashboard.widgets': [c('a', 'mail'), c('b', 'crm')],
+    };
+    slots = registerOwnedOnSlot(slots, 'crm', 'dashboard.widgets', { component: {} });
+    expect(slots['dashboard.widgets'].map((x) => x.owner)).toEqual(['mail', 'crm']);
+  });
+
+  it('removeOwnerFromSlots drops every entry for that owner', () => {
+    const slots: Record<string, OwnedSlotContribution[]> = {
+      'dashboard.widgets': [c('w', 'crm')],
+      'dashboard.hero': [c('h', 'crm'), c('x', 'ai')],
+    };
+    const out = removeOwnerFromSlots(slots, 'crm');
+    expect(out['dashboard.widgets']).toBeUndefined();
+    expect(out['dashboard.hero'].map((x) => x.owner)).toEqual(['ai']);
   });
 });

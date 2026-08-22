@@ -10,7 +10,7 @@
     "i18n:compile": "bun run i18n:merge && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "i18n:merge": "bun scripts/merge-extension-messages.ts",
     "postbuild": "bun scripts/stamp-version.ts",
-    "prebuild": "bun scripts/sync-extensions.ts && bun scripts/merge-extension-messages.ts && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
+    "prebuild": "bun scripts/sync-extensions.ts && bun scripts/check-contributions-registry.ts && bun scripts/merge-extension-messages.ts && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "predev": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "preview": "vite preview",
     "sync-ext": "bun scripts/sync-extensions.ts",
