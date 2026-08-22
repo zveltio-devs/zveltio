@@ -4,6 +4,7 @@
 // code imports from `lib/tenancy`, never the deep files. Grouped by H-08.
 export * from './tenant-context.js';
 export * from './tenant-manager.js';
+export * from './fail-closed-tenant.js';
 export * from './rls.js';
 export * from './entity-access.js';
 export * from './column-permissions.js';

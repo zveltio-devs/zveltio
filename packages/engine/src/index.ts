@@ -50,6 +50,7 @@ import {
   reconcileExtensionTenantRLS,
   warnIfDbRoleBypassesRls,
 } from './lib/tenancy/index.js';
+import { applyFailClosedTenantSetting } from './lib/tenancy/fail-closed-tenant.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
@@ -1254,6 +1255,7 @@ async function bootstrap() {
   // ENFORCED through the zveltio_rls role. Two contradictory sentences at boot
   // do not make an operator careful; they make both easy to ignore.
   await warnIfDbRoleBypassesRls(db, rlsMode);
+  await applyFailClosedTenantSetting(db);
   try {
     const n = await reconcileTenantRLS(db);
     console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);

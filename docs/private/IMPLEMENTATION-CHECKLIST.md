@@ -58,7 +58,7 @@
 ### B3. Tenant & RLS (P3 — strategic / breaking)
 
 - [ ] Run engine DB role as non-superuser in production (boot warns today) — **deferred:** installer + migration role split
-- [ ] **Fail-closed GUC:** `zveltio_tenant_scope_ok` → false when unset — **deferred:** breaking; needs `zveltio_system` role
+- [x] **Fail-closed GUC (opt-in):** migration `047` + `ZVELTIO_FAIL_CLOSED_TENANT=1` (`applyFailClosedTenantSetting`). Default remains fail-open-to-default-tenant.
 - [ ] **Per-tenant app RLS:** `tenant_id` on `zvd_rls_policies` — **deferred:** when Studio exposes per-tenant RLS editor
 - [x] CRM `briefing.ts`: uses tenant-scoped `ctx.db` (`receivables(db)` via `crmRoutes`)
 
@@ -82,7 +82,7 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 
 ### C2. Vocabulary gaps (P2)
 
-- [ ] i18n keys instead of literals in shipped schemas — **deferred:** catalogue-wide migration (CLI already warns)
+- [x] i18n keys instead of literals in shipped schemas — developer/validation hardcoded labels fixed; CLI warn remains for new literals
 - [x] Field validation + required-submit gating (list forms + detail panel forms)
 - [x] `ColumnDef.classWhen` (conditional cell styling)
 - [x] `ActionDef.body` row-computed + tiny expression evaluator (`resolveToken` / `{a-b}`)
@@ -107,7 +107,7 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 ### C4. Tier-3 escape (P3)
 
 - [x] Formalize Tier-3 criteria in EXTENSION-AUTHORING.md
-- [ ] **Future marketplace untrusted UI:** iframe sandbox + postMessage — **deferred:** marketplace phase
+- [x] **Marketplace iframe scaffold:** `MarketplaceSandbox.svelte` + postMessage protocol v1 (feature-flagged; not wired into install)
 
 ---
 
@@ -116,7 +116,7 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 ### D1–D2 (done)
 
 - [x] Core infra + crm / ai / finance/invoicing slots
-- [ ] More official extensions (hero/suggestions) — **backlog** when product asks
+- [x] AI `dashboard.hero` + invoicing `dashboard.suggestions`
 
 ### D3. UX polish
 
@@ -135,7 +135,7 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 
 ## G. Testing & CI
 
-- [ ] Playwright e2e: CRM dashboard widget smoke — **deferred:** e2e boot loads no extensions yet; D3 unit covers activate path
+- [x] Playwright e2e: CRM dashboard widget smoke (`crm-receivables.spec.ts`; e2e boot + workflow clone extensions)
 - [x] Unit: pg_notify payload truncation; WS perm cache TTL + invalidate
 - [x] Integration: Valkey multi-instance realtime (`valkey-realtime-multi.integration.test.ts`, skipIf no `VALKEY_URL`)
 
@@ -146,7 +146,8 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 1. ~~A / B1 / C1 / D2 / C3~~
 2. ~~C1 embed + C4 Tier-3 docs + CI format~~
 3. ~~A4 WS invalidate, E pack isolation, C2 vocab, D3 loader test, G Valkey multi~~
-4. **Strategic deferred:** B3 fail-closed / non-superuser, marketplace iframe, e2e CRM with EXTENSIONS_DIR, schema i18n migration
+4. ~~Opt-in fail-closed tenant, marketplace iframe scaffold, e2e CRM, hero/suggestions, validation i18n~~
+5. **Still strategic:** full non-superuser installer, `zveltio_system` role, per-tenant RLS editor UI, marketplace product wiring beyond scaffold
 
 ---
 
@@ -157,3 +158,4 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 | 2026-08-22 | Checklist created through Model 2.5 rollout, SDUI CRM, docs, CI embed gate. |
 | 2026-08-22 | **C1 embed + C4:** `getStudioFile` wired; Tier-3 criteria; briefing ctx.db confirmed. |
 | 2026-08-22 | **A4/E/C2/D3/G:** WS perm invalidate; pack sticky-worker fix; SDUI tags/link/bulk/busy/validWhen; contribution loader test; Valkey live multi-instance test. |
+| 2026-08-22 | **Toate batch:** fail-closed opt-in (047), MarketplaceSandbox, e2e CRM smoke, AI hero + invoicing suggestions, validation SDUI i18n. |
