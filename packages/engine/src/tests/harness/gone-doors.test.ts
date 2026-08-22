@@ -12,7 +12,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('gone dual doors (media + approvals + briefing)', () => {
+d('gone dual doors (media + approvals + briefing + export/import)', () => {
   let app: Hono;
 
   beforeAll(async () => {
@@ -41,5 +41,21 @@ d('gone dual doors (media + approvals + briefing)', () => {
     const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
     expect(body.errors?.replacement ?? '').toBe('/ext/crm/briefing');
     expect(body.detail ?? '').toMatch(/crm\/briefing/);
+  });
+
+  it('GET /api/export returns 410 with data/export replacement', async () => {
+    const res = await app.request('/api/export/posts');
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/data/export');
+    expect(body.detail ?? '').toMatch(/data\/export/);
+  });
+
+  it('GET /api/import/jobs returns 410 with data/import replacement', async () => {
+    const res = await app.request('/api/import/jobs');
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/data/import');
+    expect(body.detail ?? '').toMatch(/data\/import/);
   });
 });

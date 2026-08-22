@@ -25,8 +25,6 @@ import { tenantsRoutes } from './tenants.js';
 // AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
 // /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
 import { goneRoutes } from './gone.js';
-import { exportRoutes } from './export.js';
-import { importRoutes } from './import.js';
 // graphql → extensions/developer/graphql
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
@@ -88,7 +86,7 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 // /api/saved-queries    → extensions/developer/saved-queries
 // /api/validation       → extensions/developer/validation
 // /api/export           → extensions/data/export
-// /api/import           — data import CSV/JSON/NDJSON (routes/import.ts)
+// /api/import           → extensions/data/import
 //
 // `/api/translations` is NOT in this list, and its absence is the point. The
 // engine served fifteen translation routes here while `i18n/translations`
@@ -425,11 +423,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // 410 shim so callers don't silently hit a dead twin of the extension.
   app.route('/api/approvals', goneRoutes('/ext/workflow/approvals', 'Approvals'));
 
-  // Data Export: JSON / CSV / NDJSON
-  app.route('/api/export', exportRoutes(db, auth));
-
-  // Data Import: CSV / JSON / NDJSON (core — universal feature)
-  app.route('/api/import', importRoutes(db, auth));
+  // Data export/import — owned by extensions/data/* (Studio uses /ext/…).
+  // 410 shims so callers don't silently hit a dead twin of the extension.
+  app.route('/api/export', goneRoutes('/ext/data/export', 'Data export'));
+  app.route('/api/import', goneRoutes('/ext/data/import', 'Data import'));
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 

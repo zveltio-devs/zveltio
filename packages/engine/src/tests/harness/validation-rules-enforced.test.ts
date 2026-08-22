@@ -99,23 +99,6 @@ d('validation rules are enforced on writes', () => {
     expect(rows.rows.length).toBe(0);
   });
 
-  it('applies to import too, not only the API route', async () => {
-    // Import inserts in batches down its own path. Putting the rules in
-    // `processInput` is what makes one answer cover both.
-    const fd = new FormData();
-    fd.set('format', 'csv');
-    fd.set('file', new File([`title,score\nviacsv,900\n`], 'r.csv', { type: 'text/csv' }));
-    const res = await app.request(`/api/import/${COLLECTION}`, {
-      method: 'POST',
-      headers: { cookie },
-      body: fd,
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { error_rows?: number; success_rows?: number };
-    expect(body.error_rows).toBe(1);
-    expect(body.success_rows).toBe(0);
-  });
-
   it('ignores a rule that is not active', async () => {
     // What migration 027 relies on: it disables every rule that predates
     // enforcement so an upgrade does not start rejecting writes that have been

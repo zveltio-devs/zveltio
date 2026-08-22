@@ -195,8 +195,8 @@ The two extensions in this space build on top of core flows:
 
 | Extension  | Routes        | Description                                                                |
 | ---------- | ------------- | -------------------------------------------------------------------------- |
-| **export** | `/api/export` | CSV/JSON export with validated column allowlist (prevents field injection) |
-| **import** | `/api/import` | CSV/JSON import with 100MB size check before reading to memory             |
+| **export** | `/ext/data/export` | CSV/JSON export with validated column allowlist (prevents field injection) |
+| **import** | `/ext/data/import` | CSV/JSON import with 100MB size check before reading to memory             |
 
 ### Developer Tools (`extensions/developer/`)
 
