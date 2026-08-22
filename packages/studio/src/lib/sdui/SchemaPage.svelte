@@ -553,7 +553,12 @@ function cellText(row: any, col: ColumnDef): string {
   if (col.type === 'relation') return relColMaps[col.key]?.[String(v)] ?? String(v);
   if (col.type === 'boolean') return v ? '✓' : '—';
   if (col.type === 'tags') {
-    const arr = Array.isArray(v) ? v : String(v).split(',').map((s) => s.trim()).filter(Boolean);
+    const arr = Array.isArray(v)
+      ? v
+      : String(v)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
     return arr.join(', ') || '—';
   }
   if (col.type === 'link') {
