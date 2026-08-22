@@ -212,14 +212,11 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         critical: false,
         run: () => {
           const bus = realtimeBus();
-          // pg-notify + none are always-available fallbacks (a single-instance
-          // deployment is fine without cross-instance fanout). Only a configured
-          // Valkey bus that isn't running is a real problem.
-          const ok = bus.backend === 'valkey' ? bus.isRunning : true;
+          const ok = bus.isHealthy();
           return {
             ok,
             detail: { backend: bus.backend, running: bus.isRunning },
-            error: ok ? undefined : 'valkey realtime bus not running',
+            error: ok ? undefined : `${bus.backend} realtime bus not healthy`,
           };
         },
       },

@@ -46,6 +46,7 @@ import BuilderLayout from './BuilderLayout.svelte';
 import DetailLayout from './DetailLayout.svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
+import { page } from '$app/state';
 
 let {
   schema,
@@ -126,6 +127,12 @@ const active = $derived<ResourceView>(
   schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!,
 );
 const isTabbed = $derived(schema.resources.length > 1);
+
+$effect(() => {
+  const tab = page.url.searchParams.get('tab');
+  if (!tab) return;
+  if (schema.resources.some((r) => r.id === tab)) activeId = tab;
+});
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 let rows = $state<any[]>([]);

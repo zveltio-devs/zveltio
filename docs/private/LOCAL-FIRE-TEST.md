@@ -44,8 +44,17 @@ Override any of them: `DATABASE_URL=… PORT=8080 bash scripts/fire-test.sh`.
 Then, in a second terminal, open the Studio:
 
 ```bash
-cd packages/studio && bun run dev     # → http://localhost:5173
+# Embedded (same origin as engine — simplest after studio:embed):
+#   http://localhost:3000/admin
+
+# Or Vite HMR:
+cd packages/studio
+VITE_ENGINE_URL=http://localhost:3000 bun run dev     # → http://localhost:5173
 ```
+
+Ensure the engine's `CORS_ORIGINS` includes `http://localhost:5173` when using
+split dev. See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for `EXTENSIONS_DIR`,
+`studio-dist/`, and remote port-forwarding notes.
 
 ## What to click
 

@@ -1609,8 +1609,50 @@ Migration changes (new SQL under `engine/migrations/`) still require a
 reinstall: the watcher only re-imports `engine/index.ts`. Toggle the
 extension off and on in `/admin/extensions` to apply a new migration.
 
-Symlink your extension into the engine's extensions directory if needed
-(or set `ZVELTIO_EXTENSIONS_PATH` to your extension repo).
+### Where extension files live (`EXTENSIONS_DIR`)
+
+The engine resolves the extension base directory in priority order:
+
+1. **`EXTENSIONS_DIR`** — explicit env var (recommended for monorepo dev)
+2. **`./extensions/`** under the process CWD
+3. **Sibling `../zveltio-extensions`** when that folder exists
+4. **`./extensions/`** as the default install target
+
+Clone the official extensions repo next to the monorepo, or set:
+
+```bash
+export EXTENSIONS_DIR=/path/to/zveltio-extensions
+```
+
+**Do not treat `packages/engine/extensions/` as source code.** That path is
+gitignored and holds marketplace install artifacts. Stale copies (e.g. an old
+`crm` without `GET /ext/crm/briefing`) override nothing — but if you symlink or
+set CWD oddly, you can accidentally load the cache instead of the sibling repo.
+When in doubt, set `EXTENSIONS_DIR` explicitly and clear the cache.
+
+`ZVELTIO_EXTENSIONS_PATH` loads an **additional** tree of extensions (CI uses
+this). Day-to-day dev should use `EXTENSIONS_DIR`.
+
+### Studio dev vs embedded Studio
+
+**Embedded (simplest):** build Studio and copy into the engine:
+
+```bash
+# from zveltio repo root
+bun run studio:build && bun run studio:embed
+# open http://localhost:<PORT>/admin  (same origin — no CORS)
+```
+
+**Split dev (Vite HMR):** run `bun run dev` in `packages/studio` and point API
+calls at the engine:
+
+```bash
+VITE_ENGINE_URL=http://localhost:3400 bun run dev   # match engine PORT
+```
+
+Add Studio origins to the engine's `CORS_ORIGINS` (e.g.
+`http://localhost:5173`). Without `VITE_ENGINE_URL`, Studio defaults to
+`window.location.origin` (`:5173`) and API requests go to the wrong host.
 
 ### Debugging
 
