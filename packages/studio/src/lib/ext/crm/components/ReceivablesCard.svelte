@@ -6,7 +6,7 @@
  * `crm:read` so admins see amounts before granting themselves the CRM resource.
  */
 import { base } from '$app/paths';
-import { AlertCircle } from 'lucide-svelte';
+import { AlertCircle } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 import { m } from '$lib/paraglide/messages.js';
 
