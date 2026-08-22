@@ -86,26 +86,34 @@ export type PgNotifyPublisher = {
 };
 
 /**
+ * Encoded size of a bus message in BYTES.
+ *
+ * `String.length` counts UTF-16 code units and pg_notify's cap is in UTF-8
+ * bytes, so the two disagree on every non-ASCII character — `JSON.stringify`
+ * emits `\u0103` as the literal `\u{103}`, not an escape. A record of Romanian
+ * text runs ~12% larger in bytes than in code units, which clears the 1.27%
+ * of headroom PG_NOTIFY_PAYLOAD_MAX leaves under the 8000-byte cap. Measured
+ * the wrong way, a ~7.5KB record passes this guard and is then rejected by
+ * Postgres.
+ */
+function encodedBytes(msg: RealtimeBusMessage): number {
+  return Buffer.byteLength(JSON.stringify(msg), 'utf8');
+}
+
+/**
  * Shrink a bus message to fit pg_notify's 8KB cap. Receivers fall back to
  * `{ id: record_id }` when `data` is absent (`dispatchToWs`).
+ *
+ * One step, not two: dropping `data` leaves only ids, a collection name and a
+ * timestamp, which is bounded at a few hundred bytes and always fits. The
+ * previous third tier rebuilt exactly the object `{ ...full, data: undefined }`
+ * already encodes to — `JSON.stringify` omits undefined values — so it could
+ * never be reached.
  */
 export function trimForPgNotify(payload: Omit<RealtimeBusMessage, 'originId'>): RealtimeBusMessage {
-  const encodeLen = (msg: RealtimeBusMessage) => JSON.stringify(msg).length;
-
   const full: RealtimeBusMessage = { ...payload, originId: ORIGIN_ID };
-  if (encodeLen(full) <= PG_NOTIFY_PAYLOAD_MAX) return full;
-
-  const slim: RealtimeBusMessage = { ...full, data: undefined };
-  if (encodeLen(slim) <= PG_NOTIFY_PAYLOAD_MAX) return slim;
-
-  return {
-    originId: ORIGIN_ID,
-    event: full.event,
-    collection: full.collection,
-    record_id: full.record_id,
-    timestamp: full.timestamp,
-    tenantId: full.tenantId,
-  };
+  if (encodedBytes(full) <= PG_NOTIFY_PAYLOAD_MAX) return full;
+  return { ...full, data: undefined };
 }
 
 // ── Event mapping (shared by both backends) ─────────────────────────────────
@@ -322,15 +330,22 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     if (!this.publisher) return;
     const msg = trimForPgNotify(payload);
     const encoded = JSON.stringify(msg);
-    if (encoded.length > PG_NOTIFY_PAYLOAD_MAX) {
+    const bytes = Buffer.byteLength(encoded, 'utf8');
+    if (bytes > PG_NOTIFY_PAYLOAD_MAX) {
       console.error(
-        `[realtime-bus] pg_notify payload still ${encoded.length} bytes after trim — dropping cross-instance fan-out`,
+        `[realtime-bus] pg_notify payload still ${bytes} bytes after trim — dropping cross-instance fan-out`,
       );
       return;
     }
+    // Log only. This does NOT reconnect the subscriber: publishing goes through
+    // the injected executor's pool while LISTEN holds its own `Bun.SQL`
+    // connection, so a failure here says nothing about the subscription's
+    // health. Tearing it down on a publish error let one oversized payload —
+    // a data condition, and a repeating one — knock out a working LISTEN and
+    // blank realtime for the length of the backoff. Connection loss on the
+    // subscriber is what `attachSubscriptionHandlers` is for.
     await this.publisher.notify(PG_NOTIFY_CHANNEL, encoded).catch((err: Error) => {
       console.error('[realtime-bus] pg_notify failed:', err.message);
-      this.scheduleListenReconnect('publish failed');
     });
   }
 
