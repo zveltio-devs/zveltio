@@ -200,6 +200,34 @@ export function _wsPermCacheForTests() {
 }
 
 export const websocketHandler = {
+  /**
+   * Bun defaults this to 16MB, and every byte of it reaches `JSON.parse` in
+   * `message` below. The protocol here is subscribe/unsubscribe/ping frames —
+   * a few hundred bytes with a long collection list. 64KB is generous for that
+   * and takes a cheap memory-amplification lever away from an authenticated
+   * client.
+   */
+  maxPayloadLength: 64 * 1024,
+
+  /**
+   * Per-connection send buffer. Bun also defaults this to 16MB but does NOT
+   * close on reaching it, so a client that stops reading while subscribed to a
+   * busy collection parks 16MB of engine memory for as long as it stays
+   * connected. Dropping the socket is the right answer: realtime is a
+   * best-effort stream and the client reconnects and resubscribes.
+   */
+  backpressureLimit: 1024 * 1024,
+  closeOnBackpressureLimit: true,
+
+  /**
+   * Explicit rather than inherited: this is the only thing reaping half-open
+   * sockets from `connections` + `subscriptionIndex`, since a peer that
+   * vanishes without a FIN fires neither `close` nor `error`. Bun's own
+   * `sendPings` (default true) keeps healthy idle connections under the limit
+   * at the protocol layer, so no application-level heartbeat is needed.
+   */
+  idleTimeout: 120,
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   open(ws: any) {
     const { id, userId, tenantId } = ws.data ?? {};
