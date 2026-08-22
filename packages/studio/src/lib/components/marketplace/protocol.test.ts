@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MARKETPLACE_FRAME_MESSAGE_TYPES,
-  MARKETPLACE_SANDBOX_PROTOCOL,
-} from './protocol.js';
+import { MARKETPLACE_FRAME_MESSAGE_TYPES, MARKETPLACE_SANDBOX_PROTOCOL } from './protocol.js';
 
 describe('marketplace sandbox protocol', () => {
   it('pins v1 message types', () => {
