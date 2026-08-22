@@ -18,6 +18,7 @@
     "check:schema": "bun run scripts/schema-codegen.ts && bun run format && bun run scripts/schema-drift-check.ts",
     "check:shared-keys": "bun run scripts/sync-shared-message-keys.ts --check",
     "check:sdui-schemas": "bun run scripts/check-extension-sdui-schemas.ts",
+    "check:studio-embed": "bun run scripts/check-studio-embed-freshness.ts",
     "coverage:gate": "bun run scripts/coverage-gate.ts",
     "coverage:unit": "cd packages/engine && bun run test:unit:coverage",
     "dev": "turbo run dev",

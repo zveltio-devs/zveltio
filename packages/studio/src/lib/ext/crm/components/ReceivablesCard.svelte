@@ -12,6 +12,7 @@ import { m } from '$lib/paraglide/messages.js';
 
 type OverdueBucket = { currency: string; count: number; total: number };
 
+let loading = $state(true);
 let owed = $state<{
   overdue: OverdueBucket[];
   oldestOverdueDays: number | null;
@@ -19,11 +20,14 @@ let owed = $state<{
 } | null>(null);
 
 async function loadBriefing(): Promise<void> {
+  loading = true;
   try {
     const r = await api.get<{ receivables?: typeof owed }>('/ext/crm/briefing');
     owed = r?.receivables ?? null;
   } catch {
     owed = null;
+  } finally {
+    loading = false;
   }
 }
 
@@ -40,7 +44,22 @@ const owedCount = $derived((owed?.overdue ?? []).reduce((n, b) => n + b.count, 0
 const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count, 0));
 </script>
 
-{#if owedCount > 0}
+{#if loading}
+  <div
+    class="card bg-base-100 border border-base-300"
+    aria-busy="true"
+    aria-label={m['briefing.owedTitle']()}
+  >
+    <div class="card-body flex-row items-center gap-4 py-4">
+      <div class="animate-shimmer w-8 h-8 rounded-full shrink-0"></div>
+      <div class="min-w-0 flex-1 space-y-2">
+        <div class="animate-shimmer h-3 w-32 rounded-md"></div>
+        <div class="animate-shimmer h-7 w-48 rounded-md"></div>
+        <div class="animate-shimmer h-3 w-56 rounded-md"></div>
+      </div>
+    </div>
+  </div>
+{:else if owedCount > 0}
   <a
     href="{base}/crm"
     class="card bg-base-100 border border-warning/40 hover:border-warning transition-colors"
