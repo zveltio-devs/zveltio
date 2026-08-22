@@ -17,7 +17,8 @@ build/
 
 # Generated at build time — do not commit
 packages/engine/src/studio-dist/
-packages/engine/src/studio-embed/
+# studio-embed/index.ts stub IS committed (empty). Full embeds from
+# generate-studio-embed.ts must not be committed (check:studio-embed size gate).
 
 # Turbo cache
 .turbo/

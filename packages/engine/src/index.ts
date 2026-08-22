@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
+import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
 import { initDatabase } from './db/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
@@ -255,6 +256,51 @@ async function serveStaticFile(
   }
 
   return null;
+}
+
+/**
+ * Serve Studio assets from the compile-time embed (`src/studio-embed/`).
+ *
+ * Disk `studio-dist/` always wins when present (Docker / native installs).
+ * The embed covers single-binary runs that did not mount a separate Studio
+ * tree — generate-studio-embed inlines the build before `bun --compile`.
+ */
+function serveEmbeddedStudio(urlPath: string, cspNonce?: string): Response | null {
+  if (!studioEmbedActive()) return null;
+
+  const decoded = decodeURIComponent(urlPath).replace(/\\/g, '/');
+  if (decoded.includes('..')) return null;
+
+  let key = decoded.startsWith('/') ? decoded : `/${decoded}`;
+  if (key === '/') key = '/index.html';
+
+  let hit = getStudioFile(key);
+  if (!hit && !key.includes('.')) {
+    hit = getStudioFile(`${key.replace(/\/$/, '')}/index.html`);
+  }
+  if (!hit) {
+    // SPA client route — same fallback as disk serveStaticFile
+    hit = getStudioFile('/index.html');
+  }
+  if (!hit) return null;
+
+  const ct = getContentType(key.includes('.') ? key : '/index.html');
+  const immutable = key.includes('/_app/immutable/');
+  let body: BodyInit = hit.content as BodyInit;
+  if (ct.startsWith('text/html') && cspNonce && typeof hit.content === 'string') {
+    body = injectCspNonce(hit.content, cspNonce);
+  }
+
+  return new Response(body, {
+    headers: {
+      'Content-Type': ct,
+      'Cache-Control': immutable
+        ? 'public, max-age=31536000, immutable'
+        : ct.startsWith('text/html')
+          ? 'no-store'
+          : 'public, max-age=3600',
+    },
+  });
 }
 
 // ─── CLI subcommands ─────────────────────────────────────────
@@ -720,8 +766,10 @@ async function buildHonoApp(): Promise<Hono> {
     const nonce = c.get('cspNonce' as never) as string | undefined;
     const res = await serveStaticFile(STUDIO_DIST, path, nonce);
     if (res) return res;
+    const embedded = serveEmbeddedStudio(path, nonce);
+    if (embedded) return embedded;
     const studioIndex = Bun.file(join(STUDIO_DIST, 'index.html'));
-    if (!(await studioIndex.exists())) {
+    if (!(await studioIndex.exists()) && !studioEmbedActive()) {
       return c.html(`<!doctype html>
 <html lang="en">
 <head>

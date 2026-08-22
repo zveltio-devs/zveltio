@@ -83,6 +83,25 @@ for (const label of ['packages/engine/studio-dist', 'packages/engine/src/studio-
   }
 }
 
+// Guard: a full Studio embed must never land in git (megabytes of base64).
+const EMBED_STUB = join(ROOT, 'packages/engine/src/studio-embed/index.ts');
+const EMBED_MAX_STUB_BYTES = 50_000;
+if (existsSync(EMBED_STUB)) {
+  const size = readFileSync(EMBED_STUB).byteLength;
+  if (size > EMBED_MAX_STUB_BYTES) {
+    console.error(
+      `❌ studio-embed/index.ts is ${size} bytes (max stub ${EMBED_MAX_STUB_BYTES}).\n` +
+        `   A full embed was committed by mistake. Restore the empty stub:\n` +
+        `   bun packages/engine/scripts/generate-studio-embed.ts  # with no src/studio-dist\n` +
+        `   or: git checkout -- packages/engine/src/studio-embed/index.ts`,
+    );
+    failed++;
+  }
+} else {
+  console.error('❌ packages/engine/src/studio-embed/index.ts missing — commit the empty stub');
+  failed++;
+}
+
 if (failed > 0) {
   console.error(`\n❌ check-studio-embed: ${failed} problem(s)`);
   process.exit(1);
