@@ -47,6 +47,7 @@ const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count
 {#if loading}
   <div
     class="card bg-base-100 border border-base-300"
+    data-testid="crm-receivables-widget"
     aria-busy="true"
     aria-label={m['briefing.owedTitle']()}
   >
@@ -63,6 +64,8 @@ const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count
   <a
     href="{base}/crm"
     class="card bg-base-100 border border-warning/40 hover:border-warning transition-colors"
+    data-testid="crm-receivables-widget"
+    aria-label={m['briefing.owedTitle']()}
   >
     <div class="card-body flex-row items-center gap-4 py-4">
       <AlertCircle class="w-8 h-8 text-warning shrink-0" />
@@ -79,4 +82,13 @@ const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count
       </div>
     </div>
   </a>
+{:else}
+  <!-- Always mount so e2e / a11y can find the contribution even with zero overdue. -->
+  <div
+    class="sr-only"
+    data-testid="crm-receivables-widget"
+    aria-label={m['briefing.owedTitle']()}
+  >
+    {m['briefing.owedTitle']()}
+  </div>
 {/if}
