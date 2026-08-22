@@ -23,14 +23,16 @@ export async function initCache(): Promise<Redis | null> {
   if (!process.env.VALKEY_URL) return null;
 
   _cache = new Redis(process.env.VALKEY_URL, {
-    lazyConnect: true, // Connect only when first command is issued
-    maxRetriesPerRequest: 3, // Retry up to 3 times on transient failures
-    // Memory optimizations for Valkey client
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
     retryStrategy: (times: number) => {
-      // Exponential backoff with jitter
-      const delay = Math.min(100 * Math.pow(2, times), 1000) + Math.random() * 100;
+      const delay = Math.min(100 * 2 ** times, 1000) + Math.random() * 100;
       return delay;
     },
+  });
+
+  _cache.on('error', (err: Error) => {
+    console.error('[cache] Valkey error:', err.message);
   });
 
   await _cache.connect();

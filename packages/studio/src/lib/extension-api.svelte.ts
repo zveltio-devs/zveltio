@@ -90,6 +90,18 @@ export const studioApi = {
  * (synced into `$lib/ext/<name>/`). Replaces any prior entry from the same
  * owner on the same slot — extensions do not stack duplicate widgets on reload.
  */
+/** Replace slot registry contents without breaking Svelte 5 `$state` proxies. */
+function replaceSlots(next: Record<string, OwnedSlotContribution[]>): void {
+  for (const name of Object.keys(_slots)) {
+    const kept = next[name];
+    if (!kept || kept.length === 0) _slots[name] = [];
+    else _slots[name] = kept;
+  }
+  for (const [name, list] of Object.entries(next)) {
+    if (!(name in _slots)) _slots[name] = list;
+  }
+}
+
 export function registerContributionSlot(
   owner: string,
   name: string,
@@ -99,13 +111,13 @@ export function registerContributionSlot(
     console.warn('[studio-api] registerContributionSlot: owner, name, and component are required');
     return;
   }
-  Object.assign(_slots, registerOwnedOnSlot(_slots, owner, name, contribution));
+  replaceSlots(registerOwnedOnSlot(_slots, owner, name, contribution));
 }
 
 /** Drop every slot contribution registered by `owner` (e.g. when an extension is disabled). */
 export function unregisterContributions(owner: string): void {
   if (!owner) return;
-  Object.assign(_slots, removeOwnerFromSlots(_slots, owner));
+  replaceSlots(removeOwnerFromSlots(_slots, owner));
 }
 
 /**

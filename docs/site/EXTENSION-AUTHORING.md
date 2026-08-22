@@ -307,6 +307,13 @@ Declare targeted slots in `manifest.contributes.slots` (metadata for the
 extensions admin UI). Slot names are stable strings declared by core Studio;
 see the developer guide for the full list.
 
+**Community / third-party extensions:** slot widgets ship as compile-time Svelte
+(`studio/src/contribute.ts`) synced into the Studio bundle at build time — same
+as tier-3 pages. Enabling an extension at runtime loads its engine routes and
+SDUI schemas immediately, but **slot contributions require a Studio rebuild**
+(`sync-extensions` → `vite build`). Marketplace untrusted UI will use iframe
+sandbox later; do not expect runtime slot injection from unsigned bundles today.
+
 ## Migration from earlier extension styles
 
 If you have an extension authored against an earlier API:

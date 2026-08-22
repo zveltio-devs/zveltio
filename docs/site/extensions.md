@@ -241,11 +241,15 @@ ZVELTIO_EXTENSIONS=graphql,edge-functions,storage/cloud
 
 Extensions are loaded from the `zveltio-extensions/` directory:
 
-**Option 1: Using EXTENSIONS_DIR**
+**Option 1: Using EXTENSIONS_DIR** (recommended)
 
 ```bash
 export EXTENSIONS_DIR=/path/to/zveltio-extensions
 ```
+
+> `packages/engine/extensions/` is gitignored and holds marketplace install
+> artifacts — not the source repo. Stale copies can miss newer routes. Prefer
+> `EXTENSIONS_DIR` pointing at a fresh `zveltio-extensions` clone.
 
 **Option 2: Symlink**
 

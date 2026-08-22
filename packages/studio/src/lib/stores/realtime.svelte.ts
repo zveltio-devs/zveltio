@@ -127,8 +127,7 @@ async function connect(): Promise<void> {
     }
 
     // System messages: identified by the type field, no `collection`.
-    // The server uses broadcastToAll for these, so every connected
-    // client receives them without a subscription handshake.
+    // Deliver via tenant-scoped broadcast helpers when implemented.
     if (!msg.collection && msg.type) {
       const sysSet = systemListeners.get(msg.type);
       if (sysSet && sysSet.size > 0) {

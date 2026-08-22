@@ -18,7 +18,7 @@
  * Keeping the shell thin makes it easy to swap the sidebar layout without
  * also touching auth/init/onboarding logic.
  */
-import { onMount } from 'svelte';
+import { onMount, untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { page } from '$app/state';
@@ -79,7 +79,10 @@ $effect(() => {
 
 $effect(() => {
   if (!extensions.initialized || !contributionApiReady) return;
-  void loadExtensionContributions(extensions.active);
+  const active = extensions.active;
+  untrack(() => {
+    void loadExtensionContributions(active);
+  });
 });
 
 onMount(async () => {

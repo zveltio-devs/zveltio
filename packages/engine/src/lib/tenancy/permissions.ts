@@ -657,20 +657,9 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
     //        M is the number of distinct permission checks cached for this user.
     const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
 
-    // Also delete god:{userId} — without this, a role change from 'god' → other
-    // would leave god cache live for up to GOD_CACHE_TTL (300s) even though
-    // permissions were invalidated. The god cache TTL mismatches PERMISSION_CACHE_TTL
-    // (60s), so both must be cleared together on any permission change.
-    // urole:{userId} too — it caches the DB role that column permissions and
-    // expand are evaluated against, so a demotion that left it live would keep
-    // the old role's column visibility for the full TTL.
-    const allKeys = [
-      ...permKeys,
-      `roles:${userId}`,
-      `god:${userId}`,
-      `urole:${userId}`,
-      `user:perm-keys:${userId}`,
-    ];
+    // Role keys (roles:${domain}:${userId}) are registered in permKeys via getUserRoles().
+    // god / urole must be cleared on any permission change (TTLs differ from perm cache).
+    const allKeys = [...permKeys, `god:${userId}`, `urole:${userId}`, `user:perm-keys:${userId}`];
     if (allKeys.length > 0) await cache.del(...allKeys);
   } catch {
     /* cache unavailable */

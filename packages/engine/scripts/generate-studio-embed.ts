@@ -23,10 +23,11 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 async function generateEmbed() {
-  // Check if studio-dist exists using Bun.file()
-  const studioDir = Bun.file(STUDIO_DIST);
-  if (!(await studioDir.exists())) {
-    console.error('❌ studio-dist/ not found. Run: cd ../studio && bun run build first.');
+  const index = Bun.file(join(STUDIO_DIST, 'index.html'));
+  if (!(await index.exists())) {
+    console.error(
+      `❌ studio-dist/ not found at ${STUDIO_DIST}. Run: cd ../studio && bun run build && bun run studio:embed`,
+    );
     process.exit(1);
   }
 

@@ -279,14 +279,19 @@ export async function embedPageSchemas(
   if (!studio?.pages?.length) return studio;
   const pages = await Promise.all(
     studio.pages.map(async (p) => {
-      if (typeof p.schema !== 'string') return p;
-      try {
-        const raw = await Bun.file(join(extDir, 'studio', p.schema)).text();
-        return { ...p, schema: JSON.parse(raw) as unknown, render: 'schema' as const };
-      } catch (e) {
-        console.warn(`⚠️  Extension schema "${p.schema}" failed to load: ${(e as Error).message}`);
-        return p;
+      if (typeof p.schema === 'string') {
+        try {
+          const raw = await Bun.file(join(extDir, 'studio', p.schema)).text();
+          return { ...p, schema: JSON.parse(raw) as unknown, render: 'schema' as const };
+        } catch (e) {
+          console.warn(`⚠️  Extension schema "${p.schema}" failed to load: ${(e as Error).message}`);
+          return p;
+        }
       }
+      if (p.schema !== undefined && p.schema !== null && typeof p.schema === 'object') {
+        return { ...p, render: 'schema' as const };
+      }
+      return p;
     }),
   );
   return { ...studio, pages };

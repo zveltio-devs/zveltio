@@ -5,5 +5,7 @@ export const CONTRIBUTION_MODULES: Record<
   string,
   () => Promise<{ activate?: () => void }>
 > = {
+  "ai": () => import("./ai/contribute.js"),
   "crm": () => import("./crm/contribute.js"),
+  "finance/invoicing": () => import("./finance/invoicing/contribute.js"),
 };

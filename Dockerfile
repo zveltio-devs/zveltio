@@ -46,13 +46,18 @@ COPY packages/studio/package.json ./packages/studio/
 
 RUN bun install --frozen-lockfile
 
-COPY packages/engine ./packages/engine
-COPY packages/sdk ./packages/sdk
+WORKDIR /app/packages/engine
+
+COPY packages/engine ./
 
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      bun build packages/engine/src/index.ts --compile --outfile /zveltio --target bun-linux-arm64; \
+      bun scripts/gen-embedded-migrations.ts && \
+      bun scripts/gen-worker-source.ts && \
+      bun build src/index.ts --compile --outfile /zveltio --target bun-linux-arm64; \
     else \
-      bun build packages/engine/src/index.ts --compile --outfile /zveltio --target bun-linux-x64; \
+      bun scripts/gen-embedded-migrations.ts && \
+      bun scripts/gen-worker-source.ts && \
+      bun build src/index.ts --compile --outfile /zveltio --target bun-linux-x64; \
     fi
 
 # ── Stage 3: Production image ─────────────────────────────────
