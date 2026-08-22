@@ -163,6 +163,10 @@ export interface ResourceView {
   detailActions?: ActionDef[];
   columns?: ColumnDef[];
   rowActions?: ActionDef[];
+  /** When true, render a checkbox column and keep a selection set for bulkActions. */
+  selectable?: boolean;
+  /** Actions applied to every selected row id (endpoint may use "{ids}" CSV). */
+  bulkActions?: ActionDef[];
   form?: FormDef;
 }
 
@@ -199,7 +203,7 @@ export interface FilterDef {
 export interface ColumnDef {
   key: Dotted;
   label: string;
-  type?: 'text' | 'mono' | 'date' | 'currency' | 'badge' | 'relation' | 'boolean';
+  type?: 'text' | 'mono' | 'date' | 'currency' | 'badge' | 'relation' | 'boolean' | 'tags' | 'link';
   /** Two-line cell: render this row key as muted sub-text (e.g. client email). */
   secondary?: Dotted;
   /** badge: map an enum value → DaisyUI badge class, and optional label map. */
@@ -326,7 +330,13 @@ export interface FormDef {
   /** ESCAPE HATCH 1: a repeatable line-item group (e.g. e-Transport goods). */
   repeatable?: RepeatableDef;
   /** ESCAPE HATCH 2: computed fields (e.g. total weight = sum of line weights). */
-  computed?: { name: string; label: string; sumOf?: { group: string; field: string } }[];
+  computed?: {
+    name: string;
+    label: string;
+    sumOf?: { group: string; field: string };
+    /** Block submit when this expression is false (e.g. debit==credit). */
+    validWhen?: { equals?: [string, string] };
+  }[];
 }
 
 export interface RepeatableDef {

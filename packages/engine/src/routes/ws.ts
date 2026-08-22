@@ -178,6 +178,27 @@ async function socketMayReadCached(
   return allowed;
 }
 
+/**
+ * Drop cached subscribe decisions for every open socket owned by `userId`.
+ *
+ * Called from `invalidateUserPermCache` so role grants/revokes take effect on
+ * the next WS subscribe within the TTL window, not only after reconnect.
+ * Existing subscriptions keep receiving until the client unsubscribes or the
+ * socket closes — clearing the map only affects the next permission check.
+ */
+export function invalidateWsUserPermCache(userId: string): void {
+  for (const conn of connections.values()) {
+    if (conn.userId === userId) {
+      wsPermCache.set(conn.ws, new Map());
+    }
+  }
+}
+
+/** Test-only: seed / inspect the in-process WS perm cache. */
+export function _wsPermCacheForTests() {
+  return { wsPermCache, connections, WS_PERM_CACHE_TTL_MS };
+}
+
 export const websocketHandler = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   open(ws: any) {

@@ -31,7 +31,7 @@
 ### A4. WebSocket permissions (P2)
 
 - [x] WS subscribe cache TTL 60s (`WS_PERM_CACHE_TTL_MS`)
-- [ ] Wire `invalidateUserPermCache()` to clear active WS permission caches (deferred — TTL sufficient for now)
+- [x] Wire `invalidateUserPermCache()` → `invalidateWsUserPermCache()` (+ unit tests)
 
 ### A6. Dead cross-tenant helpers (P2)
 
@@ -55,11 +55,11 @@
 - [x] Document `VITE_ENGINE_URL` for split Studio dev
 - [x] Document `studio:embed` copies to both `packages/engine/studio-dist` and `src/studio-dist` (done in root `package.json`)
 
-### B3. Tenant & RLS (P3 — strategic)
+### B3. Tenant & RLS (P3 — strategic / breaking)
 
-- [ ] Run engine DB role as non-superuser in production (boot warns today)
-- [ ] **Fail-closed GUC:** consider `zveltio_tenant_scope_ok` → false when GUC unset (breaking; needs `zveltio_system` role for migrations)
-- [ ] **Per-tenant app RLS:** add `tenant_id` to `zvd_rls_policies` + scope cache keys when Studio exposes per-tenant RLS editor
+- [ ] Run engine DB role as non-superuser in production (boot warns today) — **deferred:** installer + migration role split
+- [ ] **Fail-closed GUC:** `zveltio_tenant_scope_ok` → false when unset — **deferred:** breaking; needs `zveltio_system` role
+- [ ] **Per-tenant app RLS:** `tenant_id` on `zvd_rls_policies` — **deferred:** when Studio exposes per-tenant RLS editor
 - [x] CRM `briefing.ts`: uses tenant-scoped `ctx.db` (`receivables(db)` via `crmRoutes`)
 
 ### B4. Missing / broken endpoints (P3)
@@ -78,23 +78,21 @@ Spike verdict: **GO** — ~75–80% of extension pages fit declarative model.
 - [x] Generic host route `(admin)/[...extPath]/+page.svelte` renders SDUI pages
 - [x] `check:sdui-schemas` CI — all 61 extension schemas require `sduiSchema: 1`
 - [x] Wire `getStudioFile` / studio-embed into runtime (disk `studio-dist/` first, embed fallback for binary)
-- [ ] JSON Schema validator + versioned `sduiSchemaVersion` field on pages
+- [x] Host `validateSchema` + version field (`sduiSchema`; alias `sduiSchemaVersion`); column-type + bulkActions shape checks
 
 ### C2. Vocabulary gaps (P2)
 
-- [ ] i18n keys instead of literals in shipped schemas
-- [ ] Field validation + required-submit gating
-- [x] `ColumnDef.classWhen` (conditional cell styling) — host + types live
-- [ ] `ActionDef.body` row-computed + tiny expression evaluator
-- [ ] `computed[].validWhen` (e.g. accounting debit==credit)
-- [ ] File/image fields; boolean, tags, link column types
-- [ ] Per-row busy state; optimistic updates
-- [ ] Server-driven pagination meta variations
-- [ ] Bulk `selectable` + `bulkActions` on list archetype
+- [ ] i18n keys instead of literals in shipped schemas — **deferred:** catalogue-wide migration (CLI already warns)
+- [x] Field validation + required-submit gating (list forms + detail panel forms)
+- [x] `ColumnDef.classWhen` (conditional cell styling)
+- [x] `ActionDef.body` row-computed + tiny expression evaluator (`resolveToken` / `{a-b}`)
+- [x] `computed[].validWhen` (e.g. accounting debit==credit)
+- [x] Column types: `boolean`, `tags`, `link` (+ file field type already in FieldDef)
+- [x] Per-row busy state on row actions
+- [ ] Server-driven pagination meta variations — **deferred:** no conflicting producers yet
+- [x] Bulk `selectable` + `bulkActions` on list archetype
 
 ### C3. Extension catalog migration (P2)
-
-Current state (2026-08-22):
 
 | Metric | Count |
 |--------|------:|
@@ -103,103 +101,52 @@ Current state (2026-08-22):
 | Tier-3 routes synced to Studio (`+page.svelte` in ext repo) | 0 |
 | Tier-3 routes baked in Studio (`routes/(admin)/crm/*`) | 0 (CRM migrated) |
 
-- [x] Migrate CRM tier-3 pages → unified `studio/schemas/crm.json` (contacts / orgs / deals tabs)
-- [x] CRM manifest: `"schema": "schemas/crm.json"` at `/admin/crm` (no tier-3 fallback)
-- [x] Remove synced CRM `studio/pages/` + baked `(admin)/crm/*` routes
-- [x] Legacy `/admin/crm/{contacts,organizations,transactions}` → `/admin/crm?tab=…` redirect
-- [x] Document SDUI schema reference (public dev guide) — `docs/site/SDUI-SCHEMA-REFERENCE.md`
+- [x] Migrate CRM tier-3 pages → unified `studio/schemas/crm.json`
+- [x] CRM manifest + legacy redirects + SDUI reference doc
 
-### C4. Tier-3 escape (P3 — ~10–14 extensions)
-
-Keep compile-time Svelte at release for: mail, page-builder, flows, ai chat, geospatial map, media gallery, graphql playground, edge-functions editor, views calendar/kanban.
+### C4. Tier-3 escape (P3)
 
 - [x] Formalize Tier-3 criteria in EXTENSION-AUTHORING.md
-- [ ] **Future marketplace untrusted UI:** iframe sandbox + postMessage — **not** runtime Web Components in admin (Shadow DOM ≠ security)
+- [ ] **Future marketplace untrusted UI:** iframe sandbox + postMessage — **deferred:** marketplace phase
 
 ---
 
 ## D. Model 2.5 — compile-time slot contributions
 
-Infrastructure merged (PR #322); CRM pilot merged (PR #58).
+### D1–D2 (done)
 
-### D1. Core infra (done)
+- [x] Core infra + crm / ai / finance/invoicing slots
+- [ ] More official extensions (hero/suggestions) — **backlog** when product asks
 
-- [x] `studio/src/contribute.ts` sync path
-- [x] `$lib/ext/.contributions.generated.ts` registry
-- [x] `loadExtensionContributions()` + owner-aware register/unregister
-- [x] `contributes.slots[]` in manifest
-- [x] CI `check-contributions-registry.ts`
-- [x] Docs Model 2.5 section
+### D3. UX polish
 
-### D2. Rollout to official extensions (P2)
-
-Slot audit (core hosts in Studio):
-
-| Slot | Host | Status |
-|------|------|--------|
-| `dashboard.widgets` | `(admin)/+page.svelte` | **crm**, **finance/invoicing** |
-| `dashboard.hero` | dashboard | — |
-| `dashboard.suggestions` | dashboard | — |
-| `topbar.center` / `topbar.right` | `(admin)/+layout.svelte` | **ai** (center) |
-| `topbar.left` | layout | — |
-| `sidebar.bottom` | Sidebar | — |
-| `settings.tabs` | settings | — |
-| `page.assist` | layout `<main>` | — |
-
-- [x] Audit slots (table above)
-- [x] **crm** — `ReceivablesCard` → `dashboard.widgets`
-- [x] **ai** — `AiPromptBar` → `topbar.center`
-- [x] **finance/invoicing** — `OverdueInvoicesCard` → `dashboard.widgets`
-- [x] Declare `contributes.slots` in each manifest (crm, ai, finance/invoicing)
-- [ ] More official extensions (hero/suggestions slots — backlog)
-- [x] Community note: slot widgets require Studio rebuild (`sync-extensions` + release)
-
-### D3. UX polish (P3)
-
-- [x] ReceivablesCard loading skeleton (avoid empty dashboard for 2–3s)
-- [ ] Integration test: enable extension → contribution appears without manual refresh
+- [x] ReceivablesCard loading skeleton
+- [x] Unit test: `loadExtensionContributions` activate once / unregister on disable (no full page reload)
 
 ---
 
-## E. Engine purity / BaaS (mostly done)
+## E. Engine purity / BaaS
 
-- [x] CRM stripped from engine schema
-- [x] Briefing moved to `/ext/crm/briefing`
-- [x] `/api/briefing` removed from core
-- [ ] Audit remaining Business OS leaks (ongoing vigilance)
-- [ ] Extension pack should not silently flip `isolation: worker` on first-party extensions without opt-in
-
----
-
-## F. UI architecture decisions (reference — not immediate work)
-
-| Tier | Mechanism | Audience |
-|------|-----------|----------|
-| 1 | SDUI JSON | ~80% pages, zero JS |
-| 2 | Model 2.5 `contribute.ts` | Official slot widgets |
-| 3 | Tier-3 Svelte at release | Official complex apps |
-| 4 | iframe sandbox | Future untrusted marketplace |
-
-- **No SQLite fallback** — Postgres-first; simplify via installer/Docker
-- **No runtime third-party JS** in admin — doctrine in `types.ts`
+- [x] CRM stripped from engine; briefing on `/ext/crm/briefing`
+- [ ] Audit remaining Business OS leaks — **ongoing vigilance**
+- [x] Extension pack: first-party clears sticky `isolation: worker` unless `--keep-isolation`
 
 ---
 
 ## G. Testing & CI
 
-- [ ] Playwright e2e: CRM dashboard widget smoke (blocked locally: missing `libatk` for Chromium)
-- [x] Unit: pg_notify payload truncation
-- [x] Unit: WS permission cache TTL
-- [ ] Integration: multi-instance realtime with Valkey
+- [ ] Playwright e2e: CRM dashboard widget smoke — **deferred:** e2e boot loads no extensions yet; D3 unit covers activate path
+- [x] Unit: pg_notify payload truncation; WS perm cache TTL + invalidate
+- [x] Integration: Valkey multi-instance realtime (`valkey-realtime-multi.integration.test.ts`, skipIf no `VALKEY_URL`)
 
 ---
 
 ## H. Suggested implementation order
 
-1. ~~**This session:** A1 (pg_notify) + A6 + A4 TTL + A2/A3 error handlers~~
-2. ~~**Next:** B1 `build:binary`, C1 schema CI check~~
-3. ~~**Now:** D2 Model 2.5 rollout, C3 SDUI schema reference doc~~
-4. **Backlog:** B3 tenant fail-closed / non-superuser, marketplace iframe, D3 contribution integration test, C1 JSON Schema validator
+1. ~~A / B1 / C1 / D2 / C3~~
+2. ~~C1 embed + C4 Tier-3 docs + CI format~~
+3. ~~A4 WS invalidate, E pack isolation, C2 vocab, D3 loader test, G Valkey multi~~
+4. **Strategic deferred:** B3 fail-closed / non-superuser, marketplace iframe, e2e CRM with EXTENSIONS_DIR, schema i18n migration
 
 ---
 
@@ -207,10 +154,6 @@ Slot audit (core hosts in Studio):
 
 | Date | Work |
 |------|------|
-| 2026-08-22 | Checklist created. Local smoke: Model 2.5 CRM widget OK. Fixes: `studio:embed`, CORS, `studio-dist/`. |
-| 2026-08-22 | **A1–A4, A6 implemented:** pg_notify trim/reconnect/param notify, health `isHealthy()`, ioredis error handlers, WS perm TTL, removed `broadcastToAll`. |
-| 2026-08-22 | **B1 + C1:** `build:binary` compiles `dist/zveltio`; fixed studio-embed dir check; `check:sdui-schemas` passes (3 ext JSON fixed). |
-| 2026-08-22 | **B2:** Dev footguns documented in CONTRIBUTING, EXTENSION-DEVELOPER-GUIDE §12, installation, CONFIGURATION, `.env.example`. |
-| 2026-08-22 | **C3 CRM:** Removed `studio/pages/`; SDUI host at `/admin/crm`; legacy tab redirects + `?tab=` in SchemaPage. |
-| 2026-08-22 | **C3 doc + B1 CI + D3:** `SDUI-SCHEMA-REFERENCE.md`; `check:studio-embed`; ReceivablesCard skeleton; B4 clarified. |
-| 2026-08-22 | **C1 embed + C4:** `getStudioFile` wired (disk then embed); Tier-3 criteria in EXTENSION-AUTHORING; briefing ctx.db confirmed. |
+| 2026-08-22 | Checklist created through Model 2.5 rollout, SDUI CRM, docs, CI embed gate. |
+| 2026-08-22 | **C1 embed + C4:** `getStudioFile` wired; Tier-3 criteria; briefing ctx.db confirmed. |
+| 2026-08-22 | **A4/E/C2/D3/G:** WS perm invalidate; pack sticky-worker fix; SDUI tags/link/bulk/busy/validWhen; contribution loader test; Valkey live multi-instance test. |

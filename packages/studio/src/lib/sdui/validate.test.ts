@@ -21,7 +21,13 @@ import { SDUI_SCHEMA_VERSION } from './types';
 /** Smallest schema the list archetype accepts. */
 const listSchema = () => ({
   title: 'Contacts',
-  resources: [{ id: 'contacts', dataSource: '/api/data/contacts', columns: ['name'] }],
+  resources: [
+    {
+      id: 'contacts',
+      dataSource: '/api/data/contacts',
+      columns: [{ key: 'name', label: 'Name' }],
+    },
+  ],
 });
 
 const settingsSchema = () => ({
@@ -127,6 +133,44 @@ describe('validateSchema — refuses, with something an operator can act on', ()
     const r = validateSchema({ title: 'x', resources: ['nope'] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('resources[0]');
+  });
+
+  it('refuses unknown column types', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [
+        {
+          id: 'a',
+          dataSource: '/api/a',
+          columns: [{ key: 'x', label: 'X', type: 'chart' }],
+        },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('unknown type');
+  });
+
+  it('requires selectable when bulkActions is set', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [
+        {
+          id: 'a',
+          dataSource: '/api/a',
+          columns: [{ key: 'n', label: 'N' }],
+          bulkActions: [{ id: 'del' }],
+        },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('selectable');
+  });
+});
+
+describe('validateSchema — version alias', () => {
+  it('accepts deprecated sduiSchemaVersion alias', () => {
+    const r = validateSchema({ ...listSchema(), sduiSchemaVersion: SDUI_SCHEMA_VERSION });
+    expect(r.ok).toBe(true);
   });
 });
 

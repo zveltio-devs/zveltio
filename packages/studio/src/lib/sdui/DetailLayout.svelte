@@ -178,8 +178,22 @@ function runHeaderAction(a: ActionDef) {
   else void go();
 }
 
+function panelFormValid(p: DetailPanel): boolean {
+  const draft = formDrafts[p.id] ?? {};
+  return (p.form?.fields ?? [])
+    .filter((f) => f.required)
+    .every((f) => {
+      const v = draft[f.name];
+      return v !== '' && v != null;
+    });
+}
+
 async function submitPanelForm(p: DetailPanel) {
   if (!p.form || !record) return;
+  if (!panelFormValid(p)) {
+    toast.error(t('ext.saveFailed'));
+    return;
+  }
   const id = p.id;
   formSaving[id] = true;
   try {
@@ -387,7 +401,7 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
           <button
             type="button"
             class="btn btn-primary btn-sm w-fit"
-            disabled={formSaving[activePanel.id]}
+            disabled={formSaving[activePanel.id] || !panelFormValid(activePanel)}
             onclick={() => submitPanelForm(activePanel)}
           >
             {#if formSaving[activePanel.id]}<LoaderCircle size={14} class="animate-spin" />{/if}

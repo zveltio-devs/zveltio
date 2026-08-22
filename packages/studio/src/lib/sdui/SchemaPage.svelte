@@ -552,6 +552,13 @@ function cellText(row: any, col: ColumnDef): string {
   }
   if (col.type === 'relation') return relColMaps[col.key]?.[String(v)] ?? String(v);
   if (col.type === 'boolean') return v ? '✓' : '—';
+  if (col.type === 'tags') {
+    const arr = Array.isArray(v) ? v : String(v).split(',').map((s) => s.trim()).filter(Boolean);
+    return arr.join(', ') || '—';
+  }
+  if (col.type === 'link') {
+    return String(v);
+  }
   return String(v);
 }
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -650,14 +657,44 @@ function buildBody(a: ActionDef, row: any): Record<string, any> {
 }
 
 // required-field gating for the create/edit form submit
-const formValid = $derived.by(() =>
-  allFields(active)
+const formValid = $derived.by(() => {
+  const requiredOk = allFields(active)
     .filter((f) => f.required && fieldVisible(f))
     .every((f) => {
       const v = formData[f.name];
       return v !== '' && v != null;
-    }),
-);
+    });
+  if (!requiredOk) return false;
+  for (const c of active.form?.computed ?? []) {
+    if (c.validWhen?.equals) {
+      const [a, b] = c.validWhen.equals;
+      if (formData[a] !== formData[b] && Number(formData[a]) !== Number(formData[b])) return false;
+    }
+  }
+  return true;
+});
+
+let busyRowKey = $state<string | null>(null);
+let selectedIds = $state<Set<string>>(new Set());
+
+function rowKey(row: Record<string, unknown>): string {
+  return String(row.id ?? JSON.stringify(row));
+}
+
+function toggleSelect(id: string, on: boolean) {
+  const next = new Set(selectedIds);
+  if (on) next.add(id);
+  else next.delete(id);
+  selectedIds = next;
+}
+
+function toggleSelectAll(rowsList: Record<string, unknown>[], on: boolean) {
+  if (!on) {
+    selectedIds = new Set();
+    return;
+  }
+  selectedIds = new Set(rowsList.map((r) => rowKey(r)));
+}
 
 // Build the JSON create/edit payload: parse type:'json' fields string→object,
 // drop fields hidden by visibleWhen.
@@ -707,6 +744,8 @@ function fillEndpoint(tmpl: string, row: any): string {
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 function fireAction(row: any, a: ActionDef, extra: Record<string, any> = {}) {
   return async () => {
+    const key = rowKey(row);
+    busyRowKey = key;
     try {
       const url = fillEndpoint(a.endpoint ?? '', row);
       if (!guardMutation(url)) return;
@@ -721,8 +760,32 @@ function fireAction(row: any, a: ActionDef, extra: Record<string, any> = {}) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (e: any) {
       toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+    } finally {
+      busyRowKey = null;
     }
   };
+}
+
+async function runBulkAction(a: ActionDef) {
+  if (selectedIds.size === 0) return;
+  const ids = [...selectedIds];
+  const fakeRow = { id: ids[0], ids: ids.join(',') };
+  const url = fillEndpoint(a.endpoint ?? '', fakeRow).replace('{ids}', ids.join(','));
+  if (!guardMutation(url)) return;
+  busyRowKey = '__bulk__';
+  try {
+    const body = { ...buildBody(a, fakeRow), ids };
+    if (a.method === 'DELETE') await api.delete(url);
+    else if (a.method === 'PATCH') await api.patch(url, body);
+    else await api.post(url, body);
+    selectedIds = new Set();
+    await load();
+    toast.success(t('ext.saved'));
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  } finally {
+    busyRowKey = null;
+  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -1152,16 +1215,51 @@ const shellTabs = $derived(
         {/if}
         <ExtensionDataPanel {loading} empty={!loading && rows.length === 0} emptyTitle={t('common.noResults')}>
           {#snippet table()}
+            {#if active.selectable && active.bulkActions && selectedIds.size > 0}
+              <div class="flex flex-wrap items-center gap-2 mb-2 px-1">
+                <span class="text-sm opacity-70">{selectedIds.size} selected</span>
+                {#each active.bulkActions as a}
+                  <button
+                    class="btn btn-sm {a.variant ?? 'btn-outline'}"
+                    disabled={busyRowKey === '__bulk__'}
+                    onclick={() => void runBulkAction(a)}
+                  >
+                    {#if busyRowKey === '__bulk__'}<LoaderCircle size={13} class="animate-spin" />{/if}
+                    {t(a.label)}
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <table class="table table-sm">
               <thead>
                 <tr>
+                  {#if active.selectable}
+                    <th class="w-8">
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs"
+                        checked={clientFiltered.length > 0 && clientFiltered.every((r) => selectedIds.has(rowKey(r)))}
+                        onchange={(e) => toggleSelectAll(clientFiltered, (e.currentTarget as HTMLInputElement).checked)}
+                      />
+                    </th>
+                  {/if}
                   {#each (active.columns ?? []) as col}<th>{t(col.label)}</th>{/each}
                   {#if active.rowActions}<th></th>{/if}
                 </tr>
               </thead>
               <tbody>
-                {#each rows as row (row.id ?? JSON.stringify(row))}
+                {#each clientFiltered as row (row.id ?? JSON.stringify(row))}
                   <tr class="hover">
+                    {#if active.selectable}
+                      <td>
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-xs"
+                          checked={selectedIds.has(rowKey(row))}
+                          onchange={(e) => toggleSelect(rowKey(row), (e.currentTarget as HTMLInputElement).checked)}
+                        />
+                      </td>
+                    {/if}
                     {#each (active.columns ?? []) as col}
                       <td class={cellClass(row, col)}>
                         {#if col.editable}
@@ -1178,6 +1276,17 @@ const shellTabs = $derived(
                           <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
                         {:else if col.type === 'boolean'}
                           {getPath(row, col.key) ? t('common.yes') : t('common.no')}
+                        {:else if col.type === 'tags'}
+                          <div class="flex flex-wrap gap-1">
+                            {#each (Array.isArray(getPath(row, col.key)) ? getPath(row, col.key) : String(getPath(row, col.key) ?? '').split(',').map((s: string) => s.trim()).filter(Boolean)) as tag}
+                              <span class="badge badge-ghost badge-sm">{tag}</span>
+                            {/each}
+                          </div>
+                        {:else if col.type === 'link'}
+                          {@const href = String(getPath(row, col.key) ?? '')}
+                          {#if href}
+                            <a class="link link-primary" href={href} target="_blank" rel="noopener noreferrer">{href}</a>
+                          {:else}—{/if}
                         {:else}{cellText(row, col)}{/if}
                       </td>
                     {/each}
@@ -1185,8 +1294,17 @@ const shellTabs = $derived(
                       <td class="text-right whitespace-nowrap">
                         {#each active.rowActions as a}
                           {#if actionVisible(row, a)}
-                            <button class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
-                              {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={12} />{:else}{t(a.label)}{/if}
+                            <button
+                              class="btn btn-ghost btn-xs {a.variant ?? ''}"
+                              title={t(a.label)}
+                              disabled={busyRowKey === rowKey(row)}
+                              onclick={() => runAction(row, a)}
+                            >
+                              {#if busyRowKey === rowKey(row)}
+                                <LoaderCircle size={12} class="animate-spin" />
+                              {:else if a.icon && ICONS[a.icon]}
+                                {@const Icon = ICONS[a.icon]}<Icon size={12} />
+                              {:else}{t(a.label)}{/if}
                             </button>
                           {/if}
                         {/each}
@@ -1234,9 +1352,34 @@ const shellTabs = $derived(
   {:else}
   <ExtensionDataPanel {loading} empty={!loading && clientFiltered.length === 0} emptyTitle={t('common.noResults')}>
     {#snippet table()}
+      {#if active.selectable && active.bulkActions && selectedIds.size > 0}
+        <div class="flex flex-wrap items-center gap-2 mb-2 px-1">
+          <span class="text-sm opacity-70">{selectedIds.size} selected</span>
+          {#each active.bulkActions as a}
+            <button
+              class="btn btn-sm {a.variant ?? 'btn-outline'}"
+              disabled={busyRowKey === '__bulk__'}
+              onclick={() => void runBulkAction(a)}
+            >
+              {#if busyRowKey === '__bulk__'}<LoaderCircle size={13} class="animate-spin" />{/if}
+              {t(a.label)}
+            </button>
+          {/each}
+        </div>
+      {/if}
       <table class="table table-sm">
         <thead>
           <tr>
+            {#if active.selectable}
+              <th class="w-8">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  checked={clientFiltered.length > 0 && clientFiltered.every((r) => selectedIds.has(rowKey(r)))}
+                  onchange={(e) => toggleSelectAll(clientFiltered, (e.currentTarget as HTMLInputElement).checked)}
+                />
+              </th>
+            {/if}
             {#each (active.columns ?? []) as col}<th>{t(col.label)}</th>{/each}
             {#if active.rowActions}<th></th>{/if}
           </tr>
@@ -1244,6 +1387,16 @@ const shellTabs = $derived(
         <tbody>
           {#each clientFiltered as row (row.id)}
             <tr class="hover">
+              {#if active.selectable}
+                <td>
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs"
+                    checked={selectedIds.has(rowKey(row))}
+                    onchange={(e) => toggleSelect(rowKey(row), (e.currentTarget as HTMLInputElement).checked)}
+                  />
+                </td>
+              {/if}
               {#each (active.columns ?? []) as col}
                 <td class={cellClass(row, col)}>
                   {#if col.editable}
@@ -1258,6 +1411,19 @@ const shellTabs = $derived(
                     {/if}
                   {:else if col.type === 'badge'}
                     <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
+                  {:else if col.type === 'boolean'}
+                    {getPath(row, col.key) ? t('common.yes') : t('common.no')}
+                  {:else if col.type === 'tags'}
+                    <div class="flex flex-wrap gap-1">
+                      {#each (Array.isArray(getPath(row, col.key)) ? getPath(row, col.key) : String(getPath(row, col.key) ?? '').split(',').map((s: string) => s.trim()).filter(Boolean)) as tag}
+                        <span class="badge badge-ghost badge-sm">{tag}</span>
+                      {/each}
+                    </div>
+                  {:else if col.type === 'link'}
+                    {@const href = String(getPath(row, col.key) ?? '')}
+                    {#if href}
+                      <a class="link link-primary" href={href} target="_blank" rel="noopener noreferrer">{href}</a>
+                    {:else}—{/if}
                   {:else if col.secondary}
                     <div class="font-medium">{cellText(row, col)}</div>
                     {#if row[col.secondary]}<div class="text-xs text-base-content/50">{row[col.secondary]}</div>{/if}
@@ -1271,8 +1437,17 @@ const shellTabs = $derived(
                   <div class="flex gap-1 justify-end">
                     {#each active.rowActions as a}
                       {#if actionVisible(row, a)}
-                        <button class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
-                          {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={12} />{:else}{t(a.label)}{/if}
+                        <button
+                          class="btn btn-ghost btn-xs {a.variant ?? ''}"
+                          title={t(a.label)}
+                          disabled={busyRowKey === rowKey(row)}
+                          onclick={() => runAction(row, a)}
+                        >
+                          {#if busyRowKey === rowKey(row)}
+                            <LoaderCircle size={12} class="animate-spin" />
+                          {:else if a.icon && ICONS[a.icon]}
+                            {@const Icon = ICONS[a.icon]}<Icon size={12} />
+                          {:else}{t(a.label)}{/if}
                         </button>
                       {/if}
                     {/each}
