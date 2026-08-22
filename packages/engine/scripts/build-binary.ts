@@ -52,14 +52,15 @@ async function main(): Promise<void> {
   await runStep('Embedded migrations', 'gen-embedded-migrations.ts');
   await runStep('Worker runtime source', 'gen-worker-source.ts');
 
+  // Always regenerate studio-embed (full when src/studio-dist/ exists, stub otherwise)
+  // so `import './studio-embed/index.js'` resolves inside the compiled binary.
+  await runStep('Studio embed', 'generate-studio-embed.ts');
   const studioIndex = Bun.file(join(engineRoot, 'src/studio-dist/index.html'));
-  if (await studioIndex.exists()) {
-    await runStep('Studio embed', 'generate-studio-embed.ts');
-  } else {
+  if (!(await studioIndex.exists())) {
     console.warn(
-      '⚠️  src/studio-dist/ missing — skipping studio embed.\n' +
-        '   Run from repo root: bun run studio:build && bun run studio:embed\n' +
-        '   The binary still works; mount studio-dist/ beside it at runtime.',
+      '⚠️  src/studio-dist/ missing — binary has empty Studio embed.\n' +
+        '   Run from repo root: bun run studio:build && bun run studio:embed && bun run build:binary\n' +
+        '   Or mount studio-dist/ beside the binary at runtime (disk takes precedence).',
     );
   }
 
