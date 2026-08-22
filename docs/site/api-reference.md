@@ -669,7 +669,12 @@ Retry a failed delivery.
 
 ## Export
 
-### POST /api/export/:collection
+> Served by the `data/export` extension under `/ext/data/export`, not by the
+> engine. The engine used to serve a duplicate at `/api/export`; that copy was
+> removed and the path now answers 410 with the replacement. As with every
+> other extension, the paths answer 404 when the extension is not enabled.
+
+### POST /ext/data/export/:collection
 
 Export collection data to PDF, Excel, or CSV.
 
