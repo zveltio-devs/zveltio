@@ -1,3 +1,4 @@
+<script lang="ts">
 /**
  * Dashboard hero contribution — AI greeting strip (Model 2.5 `dashboard.hero`).
  *
