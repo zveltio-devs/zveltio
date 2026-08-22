@@ -23,8 +23,8 @@ if (!existsSync(REGISTRY)) {
 }
 
 const manifest = existsSync(MANIFEST)
-  ? ((JSON.parse(await Bun.file(MANIFEST).text()) as { contributions?: string[] })
-      .contributions ?? [])
+  ? ((JSON.parse(await Bun.file(MANIFEST).text()) as { contributions?: string[] }).contributions ??
+    [])
   : [];
 
 const expected = [...manifest].sort();
@@ -47,9 +47,7 @@ if (existsSync(MANIFEST)) {
   const keys = [...registryText.matchAll(/^\s*"([^"]+)":\s*\(\)\s*=>/gm)].map((m) => m[1]);
   for (const key of keys.sort()) {
     if (!expected.includes(key)) {
-      fail(
-        `registry lists "${key}" but .synced.json contributions does not — run sync-extensions`,
-      );
+      fail(`registry lists "${key}" but .synced.json contributions does not — run sync-extensions`);
     }
   }
 }

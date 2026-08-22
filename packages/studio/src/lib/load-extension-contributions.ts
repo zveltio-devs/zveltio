@@ -7,10 +7,7 @@
  */
 
 import { CONTRIBUTION_MODULES } from '$lib/ext/.contributions.generated.js';
-import {
-  registerContributionSlot,
-  unregisterContributions,
-} from '$lib/extension-api.svelte.js';
+import { registerContributionSlot, unregisterContributions } from '$lib/extension-api.svelte.js';
 
 /** Extensions whose `activate()` already ran this session (guards HMR double-call). */
 const activated = new Set<string>();
