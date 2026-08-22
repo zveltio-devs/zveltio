@@ -43,6 +43,7 @@ import { cancelPendingCleanups } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
 import {
+  applyFailClosedTenantSetting,
   initRlsEnforcementRole,
   rlsBootFailure,
   initTenantManager,
@@ -50,7 +51,6 @@ import {
   reconcileExtensionTenantRLS,
   warnIfDbRoleBypassesRls,
 } from './lib/tenancy/index.js';
-import { applyFailClosedTenantSetting } from './lib/tenancy/fail-closed-tenant.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
