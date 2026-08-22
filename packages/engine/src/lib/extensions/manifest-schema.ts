@@ -166,6 +166,8 @@ export const ManifestSchema = z
         fieldTypes: z.array(z.string()).default([]),
         stepTypes: z.array(z.string()).default([]),
         collections: z.array(z.string()).default([]),
+        /** Named Studio composition slots this extension registers via contribute.ts. */
+        slots: z.array(z.string()).default([]),
       })
       .optional(),
     /**

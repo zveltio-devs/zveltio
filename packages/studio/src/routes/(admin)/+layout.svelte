@@ -29,10 +29,11 @@ import { initExtensions, extensions } from '$lib/extensions.svelte.js';
 import { initFormat } from '$lib/stores/format.svelte.js';
 // Extension Studio pages: declarative SDUI pages render via the generic
 // host (data, not code) and Tier-3 code pages are baked into this Studio's
-// route tree at release. There is no runtime bundle loader or rebuild.
-// `extension-api.svelte.ts` still provides the window.__zveltio contribution
-// API for extensions that contribute slot items or topbar widgets at runtime.
+// route tree at release. Compile-time slot contributions load from
+// `$lib/ext/<name>/contribute.ts` when an extension is enabled — no runtime
+// bundle loader and no rebuild-on-enable.
 import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
+import { loadExtensionContributions } from '$lib/load-extension-contributions.js';
 import {
   buildNavModel,
   buildExtensionNavGroups,
@@ -57,6 +58,8 @@ let mobileOpen = $state(false);
 let dark = $state(false);
 let cmdOpen = $state(false);
 let density = $state<'comfortable' | 'compact'>('comfortable');
+/** Set after `installExtensionApi` — contributions must not run before the global exists. */
+let contributionApiReady = $state(false);
 
 $effect(() => {
   if (typeof localStorage !== 'undefined')
@@ -72,6 +75,11 @@ $effect(() => {
 $effect(() => {
   document.documentElement.setAttribute('data-density', density);
   if (typeof localStorage !== 'undefined') localStorage.setItem('zveltio-density', density);
+});
+
+$effect(() => {
+  if (!extensions.initialized || !contributionApiReady) return;
+  void loadExtensionContributions(extensions.active);
 });
 
 onMount(async () => {
@@ -100,6 +108,7 @@ onMount(async () => {
   // into this from their <script> blocks.
   const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
   installExtensionApi(engineUrl);
+  contributionApiReady = true;
 
   // Listen for "studio:reloaded" events — emitted by the engine after
   // it rebuilds the Studio dist following an extension install/enable.

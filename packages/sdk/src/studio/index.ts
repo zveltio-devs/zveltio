@@ -134,6 +134,12 @@ export function sortSlotContributions<T extends { priority?: number }>(items: T[
   return items.slice().sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
 }
 
+export {
+  removeOwnerFromSlots,
+  registerOwnedOnSlot,
+  type OwnedSlotContribution,
+} from './slot-owner-registry.js';
+
 // ── Typed re-exports of the runtime register* APIs ──────────────────────────
 //
 // These are the "ergonomic" surface for extension Studio bundles:
