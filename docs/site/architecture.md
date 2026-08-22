@@ -439,8 +439,8 @@ If the extension is not active, routes return `404`.
 | `/api/docs` | `developer/api-docs` | developer |
 | `/api/quality` | `analytics/quality` | analytics |
 | `/api/validation` | `developer/validation` | developer |
-| `/api/export` | `data/export` | data |
-| `/api/import` | `data/import` | data |
+| `/ext/data/export` | `data/export` | data |
+| `/ext/data/import` | `data/import` | data |
 | `/ext/i18n/translations` | `i18n/translations` | i18n |
 | `/ext/workflow/approvals` | `workflow/approvals` | workflow |
 | `/api/drafts` | `content/drafts` | content |

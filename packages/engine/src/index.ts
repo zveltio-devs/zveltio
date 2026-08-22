@@ -637,7 +637,6 @@ async function buildHonoApp(): Promise<Hono> {
   app.use('/api/*', async (c, next) => {
     const path = c.req.path;
     if (path === '/api/storage/upload') return bodyLimit({ maxSize: UPLOAD_MAX })(c, next);
-    if (path.startsWith('/api/import')) return bodyLimit({ maxSize: IMPORT_MAX })(c, next);
     return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next);
   });
   // `/ext/*` had no limit at all — the reasoning above applies to it more, not

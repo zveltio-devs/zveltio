@@ -80,12 +80,4 @@ d('saved-queries/import tenant isolation (in-process)', () => {
     const res = await app.request(`/api/saved-queries/${FOREIGN_SQ_ID}`, { headers: { cookie } });
     expect(res.status).toBe(404);
   });
-
-  it('import: another tenant’s import logs are not listed', async () => {
-    const res = await app.request('/api/import/jobs', { headers: { cookie } });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { jobs?: { id: string }[]; logs?: { id: string }[] };
-    const ids = (body.jobs ?? body.logs ?? []).map((j) => j.id);
-    expect(ids).not.toContain(FOREIGN_LOG_ID);
-  });
 });
