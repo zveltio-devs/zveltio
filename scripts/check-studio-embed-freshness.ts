@@ -65,9 +65,7 @@ if (!existsSync(distIndex)) {
     );
     failed++;
   } else if (stamped !== studioVersion) {
-    console.error(
-      `❌ studio dist stale: marker=${stamped}, package.json=${studioVersion}`,
-    );
+    console.error(`❌ studio dist stale: marker=${stamped}, package.json=${studioVersion}`);
     failed++;
   }
 }
