@@ -29,7 +29,14 @@ import type {
   FormAlterHook,
   FormSchema,
 } from '@zveltio/sdk/extension';
-import { applyFormAlterHooks, sortSlotContributions, makeFormProxy } from '@zveltio/sdk/studio';
+import {
+  applyFormAlterHooks,
+  sortSlotContributions,
+  makeFormProxy,
+  removeOwnerFromSlots,
+  registerOwnedOnSlot,
+  type OwnedSlotContribution,
+} from '@zveltio/sdk/studio';
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 // Existing API, formalized here so all three registries share shape.
@@ -40,7 +47,7 @@ const _routes = $state<StudioRoute[]>([]);
 // Keyed by slot name. Contributions sort by priority asc on read so adding
 // to the array is O(1); render-side cost is once-per-render.
 
-const _slots = $state<Record<string, SlotContribution[]>>({});
+const _slots = $state<Record<string, OwnedSlotContribution[]>>({});
 
 // ── Form alters ─────────────────────────────────────────────────────────────
 // Keyed by form id. The id is a stable string declared by the form's
@@ -77,6 +84,29 @@ export const studioApi = {
     return applyFormAlterHooks(hooks, schema, ctx ?? {});
   },
 };
+
+/**
+ * Compile-time extension contributions call this from `studio/src/contribute.ts`
+ * (synced into `$lib/ext/<name>/`). Replaces any prior entry from the same
+ * owner on the same slot — extensions do not stack duplicate widgets on reload.
+ */
+export function registerContributionSlot(
+  owner: string,
+  name: string,
+  contribution: SlotContribution,
+): void {
+  if (!owner || !name || !contribution?.component) {
+    console.warn('[studio-api] registerContributionSlot: owner, name, and component are required');
+    return;
+  }
+  Object.assign(_slots, registerOwnedOnSlot(_slots, owner, name, contribution));
+}
+
+/** Drop every slot contribution registered by `owner` (e.g. when an extension is disabled). */
+export function unregisterContributions(owner: string): void {
+  if (!owner) return;
+  Object.assign(_slots, removeOwnerFromSlots(_slots, owner));
+}
 
 /**
  * Install `window.__zveltio` for IIFE bundles. Idempotent — safe to call
