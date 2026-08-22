@@ -45,10 +45,10 @@ Minimal list page:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `sduiSchema` | **Yes** | Major schema version. Host supports **1** today. Higher majors render a friendly error instead of mis-rendering. |
+| `sduiSchema` | **Yes** (CI) | Major schema version. Host supports **1** today. Higher majors render a friendly error instead of mis-rendering. |
+| `sduiSchemaVersion` | Alias | Deprecated synonym for `sduiSchema`; host normalizes it at validate time. |
 
-CI (`bun run check:sdui-schemas`) fails if any manifest-referenced schema omits
-`sduiSchema` or declares a version above the host maximum.
+Host validation: `packages/studio/src/lib/sdui/validate.ts` (`validateSchema`). CI (`bun run check:sdui-schemas`) fails if any manifest-referenced schema omits `sduiSchema` or declares a version above the host maximum.
 
 ---
 

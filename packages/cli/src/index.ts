@@ -221,6 +221,10 @@ ext
     'Vendor / monorepo build — keep inline isolation, skip worker auto-inject',
   )
   .option(
+    '--keep-isolation',
+    'With --first-party, retain engine.isolation: "worker" if already set (default: clear sticky worker)',
+  )
+  .option(
     '--token <token>',
     'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)',
   )
