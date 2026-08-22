@@ -272,10 +272,40 @@ export function myRoutes(ctx: ExtensionContext): Hono<{ Variables: { user: any }
   `studio/package.json`. The v1 per-extension build pipeline was
   removed in `1.0.0-alpha.94`. Anything you ship there is dead
   weight — the Studio serves pre-built/declarative pages and ignores it.
-- **Never** import from `@zveltio/sdk/studio` — that was the v1
-  runtime route registration API. It no longer exists. Just put
-  pages under `studio/pages/<slug>/+page.svelte` and they become
-  real SvelteKit routes after install.
+- **Do not** use `@zveltio/sdk/studio` `registerRoute()` from a runtime
+  bundle — that was the v1 IIFE path (removed in beta.15). For **pages**,
+  ship `studio/pages/` or an SDUI schema. For **slot widgets**, ship
+  `studio/src/contribute.ts` (see below) and import Studio helpers from
+  `$lib/…` after sync — same compile-time model as tier-3 pages.
+- **`@zveltio/sdk/studio` still exists** for pure helpers (`sortSlotContributions`,
+  `makeFormProxy`, types). Synced `contribute.ts` modules import
+  `$lib/extension-api.svelte.js` instead of the SDK register proxies.
+
+### Studio slot contributions (compile-time, Model 2.5)
+
+To inject a widget into a core slot (e.g. `dashboard.widgets` on the admin
+home page), add **`studio/src/contribute.ts`** (alongside `studio/src/components/`):
+
+```typescript
+import { registerContributionSlot } from '$lib/extension-api.svelte.js';
+import MyWidget from './components/MyWidget.svelte';
+
+export function activate(): void {
+  registerContributionSlot('my-extension', 'dashboard.widgets', {
+    component: MyWidget,
+    priority: 10,
+  });
+}
+```
+
+`scripts/sync-extensions.ts` copies this to `$lib/ext/<name>/contribute.ts` and
+regenerates `$lib/ext/.contributions.generated.ts`. The admin layout loads
+`activate()` for each **enabled** extension — no per-extension build, no runtime
+bundle, same Svelte instance as core Studio.
+
+Declare targeted slots in `manifest.contributes.slots` (metadata for the
+extensions admin UI). Slot names are stable strings declared by core Studio;
+see the developer guide for the full list.
 
 ## Migration from earlier extension styles
 

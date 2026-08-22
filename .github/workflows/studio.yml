@@ -63,9 +63,15 @@ jobs:
         # component. jsdom-based, no DB or engine needed.
         run: cd packages/studio && bun run test
 
+      - name: Verify contributions registry
+        # PR runners often lack the extensions sibling checkout; the committed
+        # `.contributions.generated.ts` must match `.synced.json` or vite
+        # build fails on stale import paths.
+        run: cd packages/studio && bun scripts/check-contributions-registry.ts
+
       - name: Build
         # `bun run build` for the studio runs:
-        #   - prebuild: sync-extensions + i18n:merge + paraglide compile
+        #   - prebuild: sync-extensions + check-contributions-registry + i18n:merge + paraglide compile
         #   - vite build (SvelteKit + adapter-static → dist/)
         # On a PR runner without zveltio-extensions checked out
         # alongside, sync-extensions logs "No extension directory

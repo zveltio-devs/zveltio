@@ -5,7 +5,11 @@
   "libs": [
     "content/pages",
     "content/pdf-viewer",
+    "crm",
     "geospatial/postgis",
     "storage/cloud"
+  ],
+  "contributions": [
+    "crm"
   ]
 }
