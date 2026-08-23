@@ -74,6 +74,17 @@ jobs:
         # Every manifest-referenced studio/schemas/*.json must declare sduiSchema + title.
         run: bun run check:sdui-schemas
 
+      - name: One table, one creator
+        # Two migrations that both `CREATE TABLE IF NOT EXISTS t`: whichever runs
+        # first wins and the second is a silent no-op, including every constraint
+        # it declares. `zvd_locales` was created by the engine AND by
+        # i18n/translations, so that extension's foreign key never existed on any
+        # database — and a multi-tenancy repair to `zvd_translation_keys` was lost
+        # the same way, putting a per-instance unique key back on every fresh
+        # install. Neither showed up in typecheck, the contract suite, or here.
+        # Runnable locally: `bun run check:table-owners` (`--report` to just list).
+        run: bun run check:table-owners
+
       - name: Schema drift check
         # Walks all migrations + DbSchema.ts + every route/lib file and
         # reports three classes of drift:
