@@ -16,13 +16,21 @@ every extension follows — read it before building one.
 ### Where UI goes
 
 Three destinations, and they are not three equal choices. Of the 56 extensions
-shipped today, 61 pages are schemas and one is a component.
+shipped today, 61 pages are schemas and seven are code — and each of those seven
+sits BESIDE a schema, for the one part a schema could not express (a chat, an
+inbox, a block builder, a playground, an IDE, a kanban, a map).
 
-| You want | You write | How often |
+| You want | You write | Shipped today |
 |---|---|---|
-| a page | `studio/schemas/*.json` | almost always |
-| a widget on a core surface (dashboard, topbar) | `studio/src/contribute.ts` | occasionally |
-| UI a schema cannot express — canvas, chat, map, inbox | `studio/pages/+page.svelte` | rarely |
+| a page | `studio/schemas/*.json` | 61 schemas |
+| a widget on a core surface (dashboard, topbar) | `studio/src/contribute.ts` | 3 extensions |
+| UI a schema cannot express — canvas, chat, map, inbox | `studio/pages/+page.svelte` | 7 pages, in 7 extensions |
+
+Counts rather than adjectives, because they are checkable and they age
+honestly. The one that matters is the last row's shape: seven code pages across
+seven extensions, and **every one of them sits beside a schema** — the schema
+still serves the list, the settings, the CRUD, and the code page serves only the
+part that could not be a schema. None of the seven replaced a schema.
 
 `bunx @zveltio/cli extension create <name>` scaffolds the first. Pass
 `--code-page` for the third, and read what it prints before you keep it.
