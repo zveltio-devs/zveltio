@@ -285,16 +285,20 @@ async function main(): Promise<void> {
 
   // `--dry-run` runs the full gate against a prerelease WITHOUT cutting anything.
   //
-  // Without it this script had never once executed its own checks: every version
-  // this repo has ever carried is a prerelease, so `main` returned at the line
-  // below every time. "Six of seven green" was a memory of a manual tally, not a
-  // measurement — and a gate that cannot be run before the day it must pass is a
-  // gate nobody has tested.
+  // The gate was already reachable before this: passing a stable version
+  // positionally (`release-gate.ts 3.0.0`) makes `isPrerelease` false and runs
+  // everything. That form has two costs, though. It evaluates a version this
+  // repo is not at, so `version consistency` fails by construction and every
+  // reading arrives with a known-bogus ✗ that has to be explained away each
+  // time. And it exits non-zero, so it cannot be a routine check — only a thing
+  // someone runs by hand and reads carefully.
+  //
+  // `--dry-run` reports on the version actually in `package.json` and always
+  // exits 0. It separates asking from enforcing, which is what makes it safe to
+  // run any day rather than first on the day it must pass.
   //
   // The bypass itself stays: a prerelease must not be BLOCKED by, say, a stable
-  // coverage target it is not expected to meet yet. `--dry-run` separates asking
-  // from enforcing — it reports and always exits 0, so it is safe to run any day
-  // and useful long before a cut.
+  // coverage target it is not expected to meet yet.
   const dryRun = process.argv.includes('--dry-run');
 
   if (isPrerelease(version) && !dryRun) {
