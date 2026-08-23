@@ -502,65 +502,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/edge-functions', goneRoutes('/ext/developer/edge-functions', 'Edge functions'));
   app.route('/api/fn', edgeFunctionInvokeRoutes(db, auth));
 
-  // P2: XML-escape helper to prevent injection via SITE_URL or page slugs
-  function xmlEscape(s: string): string {
-    return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
-  }
-
-  // Sitemap (public)
-  app.get('/api/sitemap.xml', async (c) => {
-    const siteUrl = xmlEscape(process.env.SITE_URL || 'https://example.com');
-    try {
-      const pages = await sql<{ slug: string; updated_at: Date }>`
-        SELECT slug, updated_at FROM zv_pages WHERE is_active = true ORDER BY slug
-      `.execute(db);
-
-      const urls = pages.rows
-        .map(
-          (p) => `  <url>
-    <loc>${siteUrl}/${xmlEscape(p.slug)}</loc>
-    <lastmod>${new Date(p.updated_at).toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-  </url>`,
-        )
-        .join('\n');
-
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${siteUrl}/</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-${urls}
-</urlset>`;
-
-      return c.text(xml, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
-    } catch (err) {
-      // A 500, not an empty sitemap with 200.
-      //
-      // Both this handler and a `.catch(() => ({ rows: [] }))` on the query above
-      // answered a failed read with `<urlset></urlset>` and a 200. To a crawler that
-      // is not an error — it is the site stating, successfully, that it has no
-      // pages, and acting on it is what a crawler is for. Pages drop out of the
-      // index and come back only when someone notices.
-      //
-      // 5xx is the documented way to say "ask again later": the previous sitemap is
-      // kept and the fetch is retried.
-      console.error(
-        '[sitemap] could not list pages; serving 500 rather than an empty sitemap:',
-        err,
-      );
-      return c.text('sitemap temporarily unavailable', 500, {
-        'Content-Type': 'text/plain; charset=utf-8',
-      });
-    }
-  });
+  // Sitemap moved to extensions/content/pages.
+  //
+  // It listed `zv_pages`, a table this engine no longer creates: a sitemap of
+  // CMS pages is a CMS concern, and an engine with no CMS installed has no
+  // pages to list. The extension registers it as a public route at
+  // `/sitemap.xml` — the path a crawler looks for, rather than under `/api`.
 
   // WebSocket info (actual upgrade in Bun.serve)
   app.route('', wsRoutes(db, auth));
