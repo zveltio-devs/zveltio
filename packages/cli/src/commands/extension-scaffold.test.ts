@@ -3,7 +3,8 @@
  *
  * The scaffold used to open with `studio/pages/+page.svelte` and mention
  * schemas in a parenthesis, which taught every new author the rare path first:
- * across the 56 shipped extensions there are 61 schemas and one component.
+ * across the 56 shipped extensions there are 61 schemas and seven code pages,
+ * and each of those seven sits beside a schema rather than instead of it.
  * These assertions pin the default, and pin the pieces that have to agree with
  * each other for `extension validate` to pass — the schema's dataSource against
  * a route the engine stub actually serves, and its labels against either the
