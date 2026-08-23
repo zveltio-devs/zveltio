@@ -1,10 +1,29 @@
 -- BASELINE SQUASH
 --
--- 70 engine migrations collapsed into one file (see 00d0bf85). It runs against
--- exactly one kind of database: an empty one, on first boot. The migration
--- safety gate skips it for that reason and for no other — see
+-- Every engine migration collapsed into one file. The second such squash:
+-- 001_initial.sql was itself 70 files (00d0bf85), and this folds the
+-- 44 that followed into it.
+--
+-- Why now rather than at the 3.0.0 cut. The previous squash was safe because
+-- "no deployment has shipped", which still holds at beta. What made it worth
+-- doing is that the engine stopped creating seventeen tables belonging to
+-- extensions, which took three migrations with it — so the chain carried a gap
+-- at 011/020/036 and a modified 001 that every existing database would report
+-- as a checksum mismatch on every boot. A fresh chain removes both.
+--
+-- Equivalence is not assumed: `pg_dump --schema-only` of a database built by
+-- the old sequence and one built by this file were diffed and are identical.
+--
+-- It runs against exactly one kind of database: an empty one, on first boot.
+-- The migration safety gate skips it for that reason and no other — see
 -- scripts/check-migration-safety.ts. Statements added here still have to be
 -- correct; they just cannot be judged by rules about populated databases.
+--
+-- zv_schema_versions is created first, so the bootstrap in applyMigration()
+-- still works: its initial SELECT fails silently (no table yet), the UP creates
+-- it, and the post-migration INSERT records the run.
+
+-- ── from 001_initial.sql ───────────────────────────────────────────
 
 -- 001_initial.sql
 --
@@ -2145,7 +2164,1926 @@ ON CONFLICT (ptype, COALESCE(v0, ''), COALESCE(v1, ''), COALESCE(v2, '')) DO NOT
 -- Four later migrations (011, 020, 036, 037) altered some of these tables.
 -- They now no-op when the table is absent rather than failing a fresh install.
 
+-- ── from 002_insights_panels_title.sql ─────────────────────────────
+
+-- Migration: 002_insights_panels_title
+--
+-- Fixes the `zv_panels.title` gap left by 069_insights_reconcile in
+-- 001_initial.sql. The original reconcile added missing dashboard columns
+-- after 026/067 schema divergence, but forgot panels: 026 created the
+-- table with `name TEXT NOT NULL` and 067 wanted `title TEXT NOT NULL`,
+-- but only 067's CREATE TABLE was a no-op (table existed) and 069 only
+-- reconciled dashboards.
+--
+-- Every fresh install before this migration ended up with `zv_panels.name`
+-- (NOT NULL) and no `title` column, so /api/insights/panels INSERT/UPDATE
+-- handlers (which use `title`) 500ed at runtime with
+-- "column title does not exist".
+--
+-- The reconcile in 001_initial.sql is updated to do this on fresh installs;
+-- this migration is the same operation for installs that already applied
+-- 001_initial.sql (alpha.99 through alpha.101 inclusive).
+
+ALTER TABLE zv_panels ADD COLUMN IF NOT EXISTS title TEXT;
+UPDATE zv_panels SET title = name WHERE title IS NULL AND name IS NOT NULL;
+ALTER TABLE zv_panels ALTER COLUMN name DROP NOT NULL;
+
+-- ── from 003_translation_glossary.sql ──────────────────────────────
+
+-- Migration: 003_translation_glossary
+--
+-- Adds the missing `zvd_translation_glossary` table.
+--
+-- The /api/translations/glossary GET/POST routes referenced this table
+-- but no migration ever created it. Calls would fail at runtime with
+-- "relation zvd_translation_glossary does not exist". Surfaced during
+-- the (db as any) cleanup pass when the route had to keep its cast
+-- specifically because the table wasn't in DbSchema.
+
+CREATE TABLE IF NOT EXISTS zvd_translation_glossary (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  term        TEXT NOT NULL,
+  locale      TEXT NOT NULL,
+  translation TEXT NOT NULL,
+  definition  TEXT,
+  forbidden   BOOLEAN NOT NULL DEFAULT false,
+  created_by  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (term, locale)
+);
+
+CREATE INDEX IF NOT EXISTS idx_translation_glossary_term ON zvd_translation_glossary (term);
+CREATE INDEX IF NOT EXISTS idx_translation_glossary_locale ON zvd_translation_glossary (locale);
+
+-- ── from 004_invitations.sql ───────────────────────────────────────
+
+-- Migration: 004_invitations
+--
+-- Adds the missing zv_invitations table. The POST /api/users/invite
+-- route was already INSERTing into it and the response URL pointed at
+-- /accept-invite?token=…, but no migration ever created the table and
+-- no route handled the accept side. Every invite would hit the catch
+-- block ("Table may not exist yet — fall back to returning the
+-- token directly") which made the flow look graceful from the API
+-- response but actually meant nothing was ever persisted and the
+-- token was useless against the (also missing) accept endpoint.
+--
+-- This migration creates the storage. A companion route
+-- POST /api/auth/accept-invite consumes the rows.
+
+CREATE TABLE IF NOT EXISTS zv_invitations (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       TEXT NOT NULL,
+  name        TEXT,
+  role        TEXT NOT NULL DEFAULT 'member',
+  token       TEXT NOT NULL UNIQUE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  accepted_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+  invited_by  TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_zv_invitations_token   ON zv_invitations(token);
+CREATE INDEX IF NOT EXISTS idx_zv_invitations_email   ON zv_invitations(email);
+CREATE INDEX IF NOT EXISTS idx_zv_invitations_expires ON zv_invitations(expires_at)
+  WHERE accepted_at IS NULL;
+
+-- ── from 005_flow_dlq.sql ──────────────────────────────────────────
+
+-- Migration: 005_flow_dlq
+--
+-- Adds the missing zv_flow_dlq (Dead Letter Queue) table that
+-- routes/flows.ts has been reading + writing all along.
+--
+-- The DbSchema interface declared ZvFlowDlqTable so Kysely typecheck
+-- passed, but no migration ever created the physical table. The DLQ
+-- handlers (`GET /api/flows/dlq`, `POST /api/flows/dlq/:id/retry`) and
+-- the executor's failure-path INSERTs would 500 at runtime against a
+-- real Postgres. As with most extension routes, these failures were
+-- wrapped in implicit `.catch()` chains or just bubbled up as 500s
+-- the operator never read.
+
+CREATE TABLE IF NOT EXISTS zv_flow_dlq (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  flow_id      UUID        NOT NULL REFERENCES zv_flows(id) ON DELETE CASCADE,
+  payload      JSONB       NOT NULL DEFAULT '{}',
+  error        TEXT,
+  attempt_count INTEGER     NOT NULL DEFAULT 1,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_zv_flow_dlq_flow ON zv_flow_dlq(flow_id, created_at DESC);
+
+-- ── from 006_extension_load_errors.sql ─────────────────────────────
+
+-- Migration: 006_extension_load_errors
+--
+-- Persist per-extension load failures so they survive a restart and surface
+-- in /api/extensions (marketplace red badge + reason) instead of being a
+-- silent skip. Previously the loader kept `lastLoadError` only in memory, and
+-- the enable handler reacted to a transient hot-load failure by flipping
+-- is_enabled=false — permanently disabling extensions that would have loaded
+-- fine on the next boot (npm-install timing, dependency order, missing PG ext).
+-- With the error persisted, the enable path can keep is_enabled=true and let
+-- boot-load self-heal, while the operator still sees what went wrong.
+
+ALTER TABLE zv_extension_registry
+  ADD COLUMN IF NOT EXISTS last_load_error TEXT,
+  ADD COLUMN IF NOT EXISTS last_load_at    TIMESTAMPTZ;
+
+-- ── from 007_default_tenant.sql ────────────────────────────────────
+
+-- Multi-tenant foundation (beta.18): the implicit default tenant.
+--
+-- "Always one tenant" model: every install has a default tenant. Single-tenant
+-- deployments resolve to it on every request, so the `zveltio.current_tenant`
+-- GUC is always set and RLS is uniform. The fixed UUID matches DEFAULT_TENANT_ID
+-- in tenant-manager.ts and the collection-table column default applied by the
+-- boot RLS reconciler.
+
+INSERT INTO zv_tenants (id, slug, name, plan, status)
+VALUES ('00000000-0000-0000-0000-000000000001', 'default', 'Default', 'enterprise', 'active')
+ON CONFLICT (id) DO NOTHING;
+
+-- Backfill the built-in tenant-scoped content tables so existing rows belong to
+-- the default tenant (otherwise FORCE RLS would hide them once enabled).
+UPDATE zvd_pages SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
+UPDATE zvd_views SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
+UPDATE zvd_zones SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
+
+-- ── from 008_casbin_domains.sql ────────────────────────────────────
+
+-- Casbin RBAC-with-domains (beta.19). Reshape existing policies into the
+-- 4-token form, placing every pre-existing policy/grant in domain '*' (applies
+-- in EVERY tenant) so authorization is byte-for-byte unchanged. Per-tenant
+-- policies use a concrete tenant id and are purely additive.
+--
+-- zvd_permissions is a GLOBAL infra table (Casbin policy store), not per-tenant
+-- data — it is intentionally NOT row-level-security'd.
+--
+-- Layout change:
+--   p (policy):  v0=sub, v1=obj, v2=act          →  v0=sub, v1=dom, v2=obj, v3=act
+--   g (grant):   v0=user, v1=role                →  v0=user, v1=role, v2=dom
+--
+-- Postgres evaluates the SET right-hand sides against the pre-UPDATE row, so the
+-- shift below is correct. The `v3 IS NULL` / `v2 IS NULL` guards make it
+-- idempotent (a row already in 4-token form is skipped).
+
+-- The policy-uniqueness index covered (ptype, v0, v1, v2) — but `act` moves to
+-- v3 in the 4-token layout, so two policies sharing (sub, obj) and differing
+-- only in `act` would collide on (sub, '*', obj) after the reshape. Drop it
+-- first, reshape, then recreate it INCLUDING v3 (full 4-token uniqueness).
+DROP INDEX IF EXISTS idx_zvd_permissions_policy_unique;
+
+UPDATE zvd_permissions
+   SET v3 = v2, v2 = v1, v1 = '*'
+ WHERE ptype = 'p' AND v3 IS NULL;
+
+UPDATE zvd_permissions
+   SET v2 = '*'
+ WHERE ptype = 'g' AND v2 IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_zvd_permissions_policy_unique
+  ON zvd_permissions (ptype, COALESCE(v0, ''), COALESCE(v1, ''), COALESCE(v2, ''), COALESCE(v3, ''));
+
+-- ── from 009_tenant_role_policies.sql ──────────────────────────────
+
+-- Standard tenant-role policies (beta.22). These define what each tenant role
+-- CAN do; they live at domain '*' so they apply wherever a user holds the role.
+-- Per-tenant membership (/api/tenants/:id/members) grants a user a tenant role IN
+-- a specific tenant's domain (g, user, tenant_<role>, <tenantId>), scoping the
+-- permission to that tenant.
+--
+-- The Casbin role names are NAMESPACED (`tenant_*`) so they never collide with —
+-- or escalate — the pre-existing global roles (`admin`, `member`) seeded in 001.
+--
+-- 4-token layout (post-008): p = sub(role), dom, obj, act.
+
+INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3) VALUES
+  ('p', 'tenant_owner',  '*', '*', '*'),
+  ('p', 'tenant_admin',  '*', '*', '*'),
+  ('p', 'tenant_member', '*', '*', 'read'),
+  ('p', 'tenant_member', '*', '*', 'create'),
+  ('p', 'tenant_member', '*', '*', 'update'),
+  ('p', 'tenant_viewer', '*', '*', 'read')
+ON CONFLICT DO NOTHING;
+
+-- ── from 010_media_tenant_isolation.sql ────────────────────────────
+
+-- Migration 010: tenant isolation for media files + folders.
+--
+-- zv_media_files / zv_media_folders shipped as flat GLOBAL tables (no tenant_id,
+-- no RLS). routes/storage.ts and routes/media.ts query them by id/folder_id only,
+-- so in a multi-tenant deployment any authenticated user could list/view/download
+-- (signed URL)/transform/DELETE another tenant's media by id — a cross-tenant IDOR.
+--
+-- Add a tenant_id scoped exactly like the RLS tables' default: NULLIF-guarded so a
+-- blank `zveltio.current_tenant` GUC (single-tenant / no context) falls back to the
+-- default tenant instead of crashing on ''::uuid. Existing rows backfill to the
+-- default tenant. The route handlers additionally filter every read/delete by the
+-- request's tenant id (explicit scoping — no FORCE RLS, so background media jobs
+-- that run without a tenant GUC are unaffected).
+
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_media_files
+  SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+  WHERE tenant_id IS NULL;
+ALTER TABLE zv_media_files
+  ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+           '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_media_files_tenant ON zv_media_files(tenant_id);
+
+ALTER TABLE zv_media_folders ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_media_folders
+  SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+  WHERE tenant_id IS NULL;
+ALTER TABLE zv_media_folders
+  ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+           '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_media_folders_tenant ON zv_media_folders(tenant_id);
+
+-- ── from 012_media_tags_tenant_isolation.sql ───────────────────────
+
+-- Migration 012: tenant isolation for media tags (completes the media cluster
+-- started in 010, which covered zv_media_files + zv_media_folders).
+--
+-- zv_media_tags / zv_media_file_tags had no tenant_id, so routes/media.ts listed
+-- ALL tenants' tags, and PUT/DELETE /tags/:id could rename/delete another tenant's
+-- tags by id (cross-tenant). Add tenant_id (NULLIF-guarded default) + backfill; the
+-- handlers scope every tag read/write by the request tenant.
+
+ALTER TABLE zv_media_tags ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_media_tags SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_media_tags ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_media_tags_tenant ON zv_media_tags(tenant_id);
+-- Tag names were GLOBALLY unique — under multi-tenancy each tenant needs its own
+-- name namespace (otherwise one tenant's tag name blocks another's + leaks existence).
+ALTER TABLE zv_media_tags DROP CONSTRAINT IF EXISTS zv_media_tags_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS zv_media_tags_tenant_name_key ON zv_media_tags(tenant_id, name);
+
+ALTER TABLE zv_media_file_tags ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_media_file_tags SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_media_file_tags ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_tenant ON zv_media_file_tags(tenant_id);
+
+-- ── from 013_dashboards_tenant_isolation.sql ───────────────────────
+
+-- Migration 013: tenant isolation for insights dashboards.
+--
+-- zv_dashboards had no tenant_id, and routes/insights.ts lists `WHERE
+-- d.is_public = true OR created_by = me OR shared`, so a PUBLIC dashboard was
+-- visible to authenticated users of EVERY tenant (cross-tenant leak), and the
+-- by-id read/update/delete/share handlers found dashboards across tenants.
+-- Panels and shares are always reached through a dashboard lookup, so scoping the
+-- dashboard (below + in the handler) transitively protects them.
+
+ALTER TABLE zv_dashboards ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_dashboards SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_dashboards ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_dashboards_tenant ON zv_dashboards(tenant_id);
+
+-- ── from 014_flows_tenant_isolation.sql ────────────────────────────
+
+-- Migration 014: tenant isolation for flows (workflow automation) — route level.
+--
+-- zv_flows shipped as a flat GLOBAL table (no tenant_id, no RLS). routes/flows.ts
+-- lists all flows and reaches them by id on the raw pool db, so in a multi-tenant
+-- deployment any admin could read/patch/delete/run another tenant's flows by id
+-- and enumerate the whole flow list (cross-tenant IDOR).
+--
+-- zv_flow_steps / zv_flow_runs / zv_flow_dlq are ALWAYS reached through a flow
+-- (by flow_id), so scoping the flow (below + in the handlers, and by joining the
+-- child reads to zv_flows) transitively protects them. They are intentionally NOT
+-- given their own tenant_id here: the flow executor / scheduler write runs and DLQ
+-- entries from a background context with no request tenant, so a DEFAULT-based
+-- column would mis-tag those rows with the default tenant. Threading the flow's own
+-- tenant_id through executeFlow (and adding columns there) is the separate executor
+-- pass; this migration only closes the directly-exposed route surface.
+
+ALTER TABLE zv_flows ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_flows SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_flows ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_flows_tenant ON zv_flows(tenant_id);
+
+-- ── from 015_edge_functions_tenant_isolation.sql ───────────────────
+
+-- Migration 015: tenant isolation for edge functions.
+--
+-- zv_edge_functions / zv_edge_function_logs shipped as flat GLOBAL tables (no
+-- tenant_id, no RLS). routes/edge-functions.ts lists them and reaches them by id on
+-- the request db, and the public /api/fn/:name invoke path resolves the function by
+-- name — all unscoped. So any tenant's admin could list/read/patch/delete/invoke
+-- another tenant's functions (which store secrets in env_vars and run arbitrary
+-- code) and read their invocation logs: cross-tenant IDOR. The handlers additionally
+-- scope every read/write by the request's tenant and set tenant_id on every insert
+-- (they run on the request db without relying on RLS).
+--
+-- The name UNIQUE constraint was GLOBAL, so two tenants couldn't share a function
+-- name; swap it for UNIQUE(tenant_id, name).
+
+-- ── zv_edge_functions ──────────────────────────────────────────────────────────
+ALTER TABLE zv_edge_functions ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_edge_functions SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_edge_functions ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_edge_functions_tenant ON zv_edge_functions(tenant_id);
+
+-- Global UNIQUE(name) → per-tenant UNIQUE(tenant_id, name).
+ALTER TABLE zv_edge_functions DROP CONSTRAINT IF EXISTS zv_edge_functions_name_key;
+ALTER TABLE zv_edge_functions ADD CONSTRAINT zv_edge_functions_tenant_name_key UNIQUE (tenant_id, name);
+
+-- ── zv_edge_function_logs ──────────────────────────────────────────────────────
+ALTER TABLE zv_edge_function_logs ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_edge_function_logs l SET tenant_id = f.tenant_id
+  FROM zv_edge_functions f WHERE l.function_id = f.id AND l.tenant_id IS NULL;
+UPDATE zv_edge_function_logs SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_edge_function_logs ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_edge_function_logs_tenant ON zv_edge_function_logs(tenant_id);
+
+-- ── from 016_webhooks_tenant_isolation.sql ─────────────────────────
+
+-- Migration 016: tenant isolation for webhooks.
+--
+-- zvd_webhooks / zvd_webhook_deliveries had no tenant_id, so:
+--   1. routes/webhooks.ts (raw pool, admin-gated but admin is PER-TENANT) listed
+--      EVERY tenant's webhooks and let GET/PATCH/DELETE/test/rotate-secret reach
+--      another tenant's webhook by id → cross-tenant IDOR (config + rotate-secret
+--      returns the plaintext signing key).
+--   2. WORSE — lib/webhooks.ts WebhookManager.trigger() selected matching
+--      webhooks across ALL tenants, so a data write in tenant A fired tenant B's
+--      webhook → B's endpoint received A's record data (cross-tenant data
+--      exfiltration).
+-- Add tenant_id (NULLIF-guarded default) + backfill; the route scopes every
+-- read/write by the request tenant and the dispatcher filters by the writing
+-- tenant (threaded from afterWrite, same as the WS/SSE broadcasts).
+
+ALTER TABLE zvd_webhooks ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zvd_webhooks SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zvd_webhooks ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zvd_webhooks_tenant ON zvd_webhooks(tenant_id);
+
+ALTER TABLE zvd_webhook_deliveries ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zvd_webhook_deliveries SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zvd_webhook_deliveries ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zvd_webhook_deliveries_tenant ON zvd_webhook_deliveries(tenant_id);
+
+-- ── from 017_zones_views_tenant_isolation.sql ──────────────────────
+
+-- Migration 017: complete tenant isolation for the zones/pages/views cluster.
+--
+-- zvd_zones / zvd_pages / zvd_views already carry tenant_id (added + backfilled
+-- in 007_default_tenant.sql) but routes/zones.ts queried them by slug/id/zone_id
+-- with NO tenant filter, so:
+--   - list showed every tenant's zones/views,
+--   - GET/PUT/DELETE zone-by-slug, page-by-(zone,slug), view-by-id and the
+--     reorder endpoints reached across tenants, and
+--   - the public render path resolved each view's records from zvd_<collection>
+--     with no tenant scope → served another tenant's business data.
+-- The route now scopes every access by tenantId(c). This migration:
+--   1. gives zvd_page_views its own tenant_id (it had none — the reorder handler
+--      updates it by raw id), and
+--   2. adds the NULLIF-guarded session default to all four tables so any insert
+--      that omits tenant_id still lands in the request tenant.
+
+ALTER TABLE zvd_page_views ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zvd_page_views SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_zvd_page_views_tenant ON zvd_page_views(tenant_id);
+
+ALTER TABLE zvd_zones ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+ALTER TABLE zvd_pages ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+ALTER TABLE zvd_views ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+ALTER TABLE zvd_page_views ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+
+-- ── from 018_revisions_tenant_isolation.sql ────────────────────────
+
+-- Migration 018: tenant isolation for the audit trail (revisions + record comments).
+--
+-- zv_revisions stores a full JSONB snapshot of every record write, and
+-- zv_record_comments holds per-record discussion — neither had tenant_id, and
+-- every reader ran on the raw pool (or on a tenant transaction that does NOT
+-- isolate a table with no tenant_id / no RLS). So:
+--   - GET /api/revisions + GET /api/admin/revisions (admin, per-tenant) listed
+--     every tenant's history, and time-travel `?as_of=` on the data list/single
+--     handlers reconstructed records from another tenant's snapshots for ANY
+--     user with collection read access (the "P0: use effectiveDb" comments there
+--     were ineffective — effectiveDb can't isolate a table with no tenant_id);
+--   - record comments were reachable by collection+record_id across tenants.
+-- Add tenant_id (NULLIF-guarded default) + backfill; every reader now filters by
+-- the request tenant and afterWrite/revert tag the row with the writing tenant.
+
+ALTER TABLE zv_revisions ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_revisions SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_revisions ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_revisions_tenant ON zv_revisions(tenant_id);
+-- The hot lookup is (collection, record_id) history for one tenant.
+CREATE INDEX IF NOT EXISTS idx_zv_revisions_tenant_collection_record
+  ON zv_revisions(tenant_id, collection, record_id, created_at DESC);
+
+ALTER TABLE zv_record_comments ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_record_comments SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_record_comments ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_record_comments_tenant ON zv_record_comments(tenant_id);
+
+-- ── from 019_saved_queries_import_tenant_isolation.sql ─────────────
+
+-- Migration 019: tenant isolation for saved queries + import logs
+-- (closes the engine-route tenant-isolation campaign).
+--
+-- zv_saved_queries: routes scoped reads by `created_by = user OR is_shared`, but
+--   `is_shared` was GLOBAL — a query shared in tenant B was visible to tenant A.
+--   Sharing must be per-ORGANIZATION, so scope every access by tenant_id and let
+--   is_shared mean "shared within this tenant".
+-- zv_import_logs: the list handler only narrowed to `created_by` for non-admins,
+--   so a tenant admin saw EVERY tenant's import logs (filenames, collections,
+--   error rows), and the status-update handlers reached a log by raw id.
+-- Add tenant_id (NULLIF-guarded default) + backfill; handlers scope by tenant.
+
+ALTER TABLE zv_saved_queries ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_saved_queries SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_saved_queries ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_saved_queries_tenant ON zv_saved_queries(tenant_id);
+
+ALTER TABLE zv_import_logs ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_import_logs SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_import_logs ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_import_logs_tenant ON zv_import_logs(tenant_id);
+
+-- ── from 021_api_keys_invitations_tenant_isolation.sql ─────────────
+
+-- Migration 021: tenant isolation for API keys + invitations.
+--
+-- zv_api_keys: the management routes (admin.ts + admin/system-routes.ts) list,
+--   revoke (DELETE /:id) and patch keys by raw id against the un-scoped pool, so
+--   a tenant admin saw EVERY tenant's keys and could revoke/patch another
+--   tenant's key by id (cross-tenant IDOR). We add tenant_id and scope every
+--   management handler by the request tenant.
+-- zv_invitations: created per-tenant (users.ts) but the accept/lookup path
+--   reaches an invite purely by token; add tenant_id so an accepted invite lands
+--   the new member in the inviting tenant rather than the default one.
+--
+-- NOTE: no DB-level RLS here on purpose. zv_api_keys is read by the API-key auth
+--   guard BEFORE tenant resolution runs (the GUC is still unset at that point);
+--   a strict RLS policy would return zero rows and break API-key auth entirely.
+--   Isolation is enforced at the route layer, mirroring migration 019.
+
+ALTER TABLE zv_api_keys ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_api_keys SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_api_keys ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_api_keys_tenant ON zv_api_keys(tenant_id);
+
+ALTER TABLE zv_invitations ADD COLUMN IF NOT EXISTS tenant_id UUID;
+UPDATE zv_invitations SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
+ALTER TABLE zv_invitations ALTER COLUMN tenant_id SET DEFAULT
+  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+CREATE INDEX IF NOT EXISTS idx_zv_invitations_tenant ON zv_invitations(tenant_id);
+
+-- ── from 022_extension_granted_capabilities.sql ────────────────────
+
+-- Record which capabilities an administrator actually consented to.
+--
+-- The manifest DECLARES capabilities; this column records what was GRANTED.
+-- Without the distinction, an extension can ship v1 declaring nothing and v2
+-- declaring `db:admin`, and an update hands it cross-tenant database access
+-- with nobody deciding anything. Consent has to be stored to be meaningful.
+--
+-- NULL means "no consent recorded" and is grandfathered at load: every install
+-- that predates this column keeps running with what its manifest declares.
+-- Refusing those would turn an engine upgrade into an outage for a decision
+-- nobody was ever asked to make. Consent is recorded from the next install,
+-- enable or approval onwards.
+ALTER TABLE zv_extension_registry
+  ADD COLUMN IF NOT EXISTS granted_capabilities JSONB;
+
+COMMENT ON COLUMN zv_extension_registry.granted_capabilities IS
+  'Capabilities an admin consented to, as a JSON array of strings. NULL = pre-consent install (grandfathered). The effective set at load is granted ∩ declared.';
+
+-- ── from 023_extension_digest_pin.sql ──────────────────────────────
+
+-- Pin the artifact digest an extension was actually installed from.
+--
+-- The download path already verifies the registry's declared SHA-256 and the
+-- registry's signature. Both compare against what the registry is serving
+-- TODAY: a registry that re-publishes different content under an existing
+-- version passes them, because it declares and signs the new bytes honestly.
+-- Only a record of what was installed catches a version whose contents changed.
+--
+-- The rule is "the same version is always the same bytes". A genuinely new
+-- version carries a new digest and re-pins, which is visible to the
+-- administrator as a version change.
+ALTER TABLE zv_extension_registry
+  ADD COLUMN IF NOT EXISTS installed_sha256 TEXT,
+  ADD COLUMN IF NOT EXISTS installed_version TEXT;
+
+COMMENT ON COLUMN zv_extension_registry.installed_sha256 IS
+  'SHA-256 of the archive this extension was installed from. Re-downloading the same installed_version must produce the same digest.';
+
+-- ── from 024_flow_reader_role.sql ──────────────────────────────────
+
+-- A database role for flow `query_db` steps, with no access to auth tables.
+--
+-- `query_db` runs operator-authored SQL. It is already read-only (SET
+-- TRANSACTION READ ONLY) and scoped to the caller's tenant for collection data
+-- — but the tenant GUC only governs `zvd_*` rows. Better-Auth's `session`,
+-- `user` and `account` tables have no RLS, so "read-only and tenant-scoped" was
+-- true of collection data and of nothing else: `SELECT token FROM "session"`
+-- returned every live session on the instance, god sessions included.
+--
+-- Authorship is now gated (instance admins only), which contains it. This is
+-- the actual boundary: Postgres refuses the read regardless of who wrote the
+-- query or how it is shaped. Same lesson as the data-modifying CTE that walked
+-- through a regex guard — the database enforces, the string check advises.
+--
+-- The grant is an ALLOWLIST (`zvd_*` collection tables only), not a denylist of
+-- sensitive tables. A denylist means every future system table is readable
+-- until someone remembers to add it; an allowlist means a new *collection* that
+-- is missed becomes unreadable to flows, which surfaces immediately as a broken
+-- report rather than silently as a leak.
+--
+-- Best-effort by design. A managed Postgres where the application user cannot
+-- CREATE ROLE would otherwise fail this migration and block the upgrade
+-- entirely. When the role is absent the executor logs and falls back to the
+-- authorship gate — defence in depth, where the outer layer always holds.
+DO $$
+DECLARE
+  t record;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_flow_reader') THEN
+    CREATE ROLE zveltio_flow_reader NOLOGIN;
+  END IF;
+
+  -- The connecting user must be a member to `SET ROLE` to it.
+  EXECUTE format('GRANT zveltio_flow_reader TO %I', current_user);
+
+  GRANT USAGE ON SCHEMA public TO zveltio_flow_reader;
+
+  -- Existing collection tables. New ones are granted by DDLManager at create
+  -- time; see grantFlowReaderSelect().
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename LIKE 'zvd\_%'
+  LOOP
+    EXECUTE format('GRANT SELECT ON public.%I TO zveltio_flow_reader', t.tablename);
+  END LOOP;
+
+  -- Belt and braces: an explicit REVOKE on the tables this exists to protect,
+  -- in case a future default-privilege change hands out blanket SELECT.
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename IN ('session', 'user', 'account', 'verification')
+  LOOP
+    EXECUTE format('REVOKE ALL ON public.%I FROM zveltio_flow_reader', t.tablename);
+  END LOOP;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'zveltio_flow_reader not created (insufficient privilege). Flow query_db steps stay gated by authorship only — see 024_flow_reader_role.sql.';
+END
+$$;
+
+-- ── from 026_api_key_rls_bypass.sql ────────────────────────────────
+
+-- Make the API-key RLS bypass an explicit, per-key decision.
+--
+-- `getRlsFilters` returned no filters at all for `authType === 'api_key'`, so
+-- every key ignored every row-level policy. Unlike the god half of that same
+-- condition — which was dead because `session.user.role` is undefined — this
+-- half was live: an operator who wrote "users see only their own records" got
+-- exactly that for people and no constraint at all for integrations, with
+-- nothing in the UI saying so.
+--
+-- Defaults to TRUE, which is precisely today's behaviour. That is deliberate,
+-- not timidity: RLS policies resolve their values from `user_id` / `user_email`
+-- (see resolveValue), and a key's identity is the synthetic `apikey:<uuid>`,
+-- which matches no real user. Enforcing such a policy against a key does not
+-- make it safer — it makes it return ZERO rows, silently, and every integration
+-- built on that key stops working without an error to point at. Empty results
+-- are a worse failure than broad ones because nothing surfaces them.
+--
+-- What changes is that the bypass is now data: visible per key, revocable, and
+-- meaningful to turn off for keys whose collections use `static:` or
+-- `user_role` policies, which a machine credential CAN satisfy.
+ALTER TABLE zv_api_keys
+  ADD COLUMN IF NOT EXISTS rls_bypass BOOLEAN NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN zv_api_keys.rls_bypass IS
+  'When true (default) this key is not constrained by row-level security policies. Turn off for keys whose collections use identity-independent policies.';
+
+-- ── from 027_validation_rules_safe_activation.sql ──────────────────
+
+-- Validation rules start enforcing. Existing ones do not.
+--
+-- `zv_validation_rules` shipped with a management UI, an extension, a rule
+-- engine and this table — and nothing ever called `validateRecord`. An
+-- administrator could write a rule, see it listed as active, and it did
+-- nothing. The constraint they believed they had put in place was not there.
+--
+-- `processInput` now applies them, which is the single point every write goes
+-- through (the API handlers, import, and sync). That is the fix, and on its own
+-- it would be a nasty upgrade: every rule anyone ever saved, on any install,
+-- would begin rejecting writes that have been succeeding for months. Nobody
+-- authored those rules against enforcement — they never saw one refuse
+-- anything — so there is no reason to believe the data conforms to them.
+--
+-- So the feature is switched on for rules written from here, and off for rules
+-- written before. An operator re-enables the ones they still want, having seen
+-- the release note, one at a time, on a system where turning one on has a
+-- visible effect. New rules are active by default (the column default is
+-- unchanged), so the UI behaves as it always claimed to.
+--
+-- Idempotent: re-running only touches rows that were created before this
+-- migration first ran, and after the first run there are none left with
+-- `is_active = TRUE` from that era.
+
+DO $$
+DECLARE
+  affected INTEGER;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'zv_validation_rules'
+  ) THEN
+    RETURN;
+  END IF;
+
+  UPDATE zv_validation_rules
+     SET is_active = FALSE,
+         updated_at = NOW()
+   WHERE is_active = TRUE
+     AND created_at < NOW();
+
+  GET DIAGNOSTICS affected = ROW_COUNT;
+
+  IF affected > 0 THEN
+    RAISE WARNING
+      'Validation rules are now enforced on writes. % pre-existing rule(s) were '
+      'DISABLED so this upgrade does not start rejecting writes against rules that '
+      'never ran. Review them in Studio (Developer -> Validation) and re-enable the '
+      'ones you want: UPDATE zv_validation_rules SET is_active = TRUE WHERE id = ''<id>'';',
+      affected;
+  END IF;
+END $$;
+
+-- ── from 028_media_file_visibility.sql ─────────────────────────────
+
+-- Files stop being visible to the whole tenant by default.
+--
+-- `GET /api/media/files` required a session and nothing else: no permission
+-- check, no owner filter. So every authenticated user could list and download
+-- every file any colleague had ever uploaded. On a Business OS for companies
+-- and public institutions that is not a rough edge — it is HR's scanned ID,
+-- finance's payroll export, and legal's draft contract, readable by anyone with
+-- a login.
+--
+-- The reason it was not obviously wrong is that `zv_media_files` serves two
+-- purposes through one table. A CMS asset library WANTS tenant-wide reach: an
+-- editor uploads the logo and everyone uses it. Personal storage does not.
+-- Nothing in the schema said which a given row was, so the code could only pick
+-- one answer for both, and it picked the permissive one.
+--
+--   tenant   — the shared library. Anyone in the tenant may read it.
+--   personal — the uploader's own. Only they and a tenant admin may read it.
+--
+-- DEFAULT is `personal`: a file whose purpose nobody declared is the
+-- uploader's. The media-library route sets `tenant` explicitly, as does the
+-- storage route for a PUBLIC upload — those are served without authentication
+-- anyway, so hiding them from a listing would be theatre.
+--
+-- Existing rows are backfilled to `tenant`. They were readable tenant-wide
+-- yesterday, and an upgrade that silently hides files people were working with
+-- is its own kind of broken. Operators narrow them deliberately.
+--
+-- Not addressed here, deliberately: sharing a personal file with a NAMED
+-- colleague. `zv_media_shares` is link-based — token, password, expiry,
+-- download cap — which covers "send this to someone" and not "give my teammate
+-- access". That needs a per-file ACL and is a separate piece of work.
+
+ALTER TABLE zv_media_files
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'personal';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'zv_media_files_visibility_check'
+  ) THEN
+    ALTER TABLE zv_media_files
+      ADD CONSTRAINT zv_media_files_visibility_check
+      CHECK (visibility IN ('tenant', 'personal'));
+  END IF;
+END $$;
+
+-- Backfill only what predates the column. Rows created after it exist already
+-- carry the value their upload route chose, so this must not touch them —
+-- hence the one-shot guard rather than a blanket UPDATE.
+DO $$
+DECLARE
+  affected INTEGER;
+BEGIN
+  UPDATE zv_media_files
+     SET visibility = 'tenant'
+   WHERE visibility = 'personal'
+     AND created_at < (
+       SELECT COALESCE(MIN(applied_at), NOW())
+       FROM zv_schema_versions
+       WHERE version = 28
+     );
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected > 0 THEN
+    RAISE WARNING
+      'Media files are now personal by default. % pre-existing file(s) were kept '
+      'tenant-visible so nothing that worked yesterday disappears. Narrow them in '
+      'Studio, or: UPDATE zv_media_files SET visibility = ''personal'' WHERE id = ''<id>'';',
+      affected;
+  END IF;
+END $$;
+
+-- Listings filter on (tenant_id, visibility) and on (tenant_id, created_by).
+CREATE INDEX IF NOT EXISTS idx_zv_media_files_visibility
+  ON zv_media_files (tenant_id, visibility);
+CREATE INDEX IF NOT EXISTS idx_zv_media_files_owner
+  ON zv_media_files (tenant_id, created_by);
+
+-- ── from 029_tenant_scope_predicate.sql ────────────────────────────
+
+-- 029_tenant_scope_predicate.sql
+--
+-- One definition of "may this row be seen in this tenant context".
+--
+-- There were two, and they disagreed on the case that matters. The engine's own
+-- collection tables use
+--
+--     USING (tenant_id::text = current_setting('zveltio.current_tenant', true))
+--
+-- which is fail-CLOSED: no tenant context, no rows. Every extension shipped its
+-- own `002_tenant_rls.sql` from a copied template that reads
+--
+--     USING (NULLIF(current_setting(...), '') IS NULL   -- ← every row
+--            OR tenant_id IS NULL                       -- ← every row
+--            OR tenant_id::text = current_setting(...))
+--
+-- which is fail-OPEN, in all 54 of them. So a query that reached an extension's
+-- table without opening the tenant transaction — and 31 of 53 extensions hold a
+-- bare `db` where they meant `reqDb(c)` — read every tenant's rows instead of
+-- none. The identical mistake against an engine table returned an empty set and
+-- got noticed. Same rule, two spellings, opposite behaviour on the only case
+-- anybody cares about.
+--
+-- The fail-open clause was not an oversight; the template documents it as the
+-- "single-tenant fallback", and that intent is real. On an install with no
+-- tenant routing there is no middleware transaction and no GUC, so a
+-- fail-closed policy returns nothing at all — and self-hosted single-tenant is
+-- the primary deployment. Measured on Postgres 18: a straight flip does break
+-- it.
+--
+-- What both spellings missed is that the engine already answers this question
+-- elsewhere, in the tenant_id column DEFAULT that migration 007 and
+-- tenant-manager.ts install:
+--
+--     COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+--              '00000000-0000-0000-0000-000000000001'::uuid)
+--
+-- "the current tenant, and absent context, the default tenant". Rows are
+-- WRITTEN under that rule, so reading them under the same rule is the only
+-- spelling that cannot disagree with itself. That is all this predicate is.
+--
+--   GUC set   → the row must belong to that tenant.
+--   GUC unset → the row must belong to the DEFAULT tenant. On a single-tenant
+--               install that is every row, so nothing changes. On an install
+--               with real tenants, a contextless query now reads the default
+--               tenant's data instead of everyone's — still a bug in the
+--               caller, but no longer a cross-tenant disclosure.
+--
+-- Rows with a NULL tenant_id become invisible rather than universally visible.
+-- The reconciler backfills them to the default tenant first, exactly as
+-- migration 007 did for the engine's own tables, so this closes a hole instead
+-- of hiding data.
+--
+-- Written as a function on purpose: the next change to this rule happens in one
+-- place instead of in 54 files that will disagree again. Postgres inlines it —
+-- the plan shows the bare expression and the buffer count is identical to no
+-- policy at all (measured: 200k rows, 1471 buffers either way).
+
+CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT row_tenant = COALESCE(
+    NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+    '00000000-0000-0000-0000-000000000001'::uuid
+  )
+$$;
+
+COMMENT ON FUNCTION zveltio_tenant_scope_ok(uuid) IS
+  'Single source of truth for tenant row visibility, mirroring the tenant_id '
+  'column DEFAULT so reads and writes cannot disagree. Used by tenant_isolation '
+  'policies on engine and extension tables alike. See migration 029.';
+
+-- ── from 030_rls_enforcement_role.sql ──────────────────────────────
+
+-- A database role that Postgres will actually apply RLS to.
+--
+-- Everything about tenant isolation in this codebase assumes FORCE ROW LEVEL
+-- SECURITY binds the engine's connection. It does not, on a default install.
+--
+-- `docker-compose.yml` sets `POSTGRES_USER: ${POSTGRES_USER:-zveltio}`, and the
+-- official Postgres image creates that user as a SUPERUSER — that is what the
+-- variable means to the image's entrypoint. FORCE RLS does not bind superusers,
+-- and neither does anything else. So on every stock deployment the isolation
+-- policies are commentary: the reconcilers install them, `warnIfDbRoleBypassesRls`
+-- prints a warning at boot that scrolls past in the startup log, and every query
+-- reads every tenant's rows anyway.
+--
+-- This is underneath the whole tenant-isolation category of the 2026-08-03
+-- audit. Fixing the policies — which the audit asked for and migration 029 did —
+-- changes nothing at all while the connection is exempt from them.
+--
+-- The fix is not to tell operators to reconfigure their database. It is to stop
+-- depending on how they configured it: the engine drops to a plain role for the
+-- duration of each tenant transaction, so RLS applies whatever the connection
+-- happens to be. `withTenantIsolation` issues `SET LOCAL ROLE zveltio_rls`
+-- immediately after BEGIN, and the role reverts when the transaction ends.
+--
+-- The precedent is `zveltio_flow_reader` (migration 024), which does the same
+-- thing for `query_db` steps. This applies it to the path every request takes.
+--
+-- Scope note: schema-management routes (`/api/collections`, `/api/relations`,
+-- `/api/schema`, `/api/templates`) deliberately do NOT open a tenant
+-- transaction — see TXN_SKIP_PREFIXES — so DDL never runs under this role and
+-- keeps the owner's rights. Only tenant DATA access is downgraded, which is
+-- exactly the access RLS is meant to govern.
+--
+-- Best-effort, like 024: a managed Postgres where the application user cannot
+-- CREATE ROLE must not fail the migration and block the upgrade. When the role
+-- is absent the engine logs at boot and behaves as it does today.
+DO $$
+DECLARE
+  t record;
+  s record;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_rls') THEN
+    -- NOSUPERUSER and NOBYPASSRLS are the entire point; spelled out rather than
+    -- left to defaults so a future edit cannot quietly undo it.
+    CREATE ROLE zveltio_rls NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
+
+  -- The connecting user must be a member to `SET ROLE` to it.
+  EXECUTE format('GRANT zveltio_rls TO %I', current_user);
+
+  GRANT USAGE ON SCHEMA public TO zveltio_rls;
+
+  -- DML on everything the engine reads or writes inside a request. Not DDL:
+  -- this role is for data access, and schema changes run outside the tenant
+  -- transaction.
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
+  END LOOP;
+
+  -- Serial primary keys need the sequence, or every INSERT fails with
+  -- "permission denied for sequence".
+  FOR s IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_rls', s.sequencename);
+  END LOOP;
+
+  -- Tables created later — by a collection, or by an extension's migrations —
+  -- must be reachable too, or the first write to a new collection fails. Default
+  -- privileges apply to objects this role creates from now on.
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO zveltio_rls', current_user);
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+    'GRANT USAGE, SELECT ON SEQUENCES TO zveltio_rls', current_user);
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'zveltio_rls not created (insufficient privilege). If the engine connects as a SUPERUSER, row-level security is NOT enforced — see 030_rls_enforcement_role.sql.';
+END
+$$;
+
+-- ── from 031_insight_saved_queries_tenant.sql ──────────────────────
+
+-- 031_insight_saved_queries_tenant.sql
+--
+-- Insights saved queries belong to a tenant.
+--
+-- Migration 019 tenant-scoped `zv_saved_queries` and explained why: "sharing
+-- must be per-ORGANIZATION, so scope every access by tenant_id". It did not
+-- touch `zvd_insight_saved_queries`, a different table with a nearly identical
+-- name holding the same kind of thing — user-authored SQL, marked public or
+-- private, executable by id.
+--
+-- So `POST /insights/saved-queries/:id/execute` looked the row up by id alone,
+-- allowed it if `is_public`, and ran the text. Any authenticated user could
+-- execute any other tenant's public saved query, and the SQL itself ran on the
+-- global pool with no tenant context, so it returned every tenant's rows.
+--
+-- Two layers of the same hole: the row was reachable across tenants, and the
+-- query it contained was unscoped when it ran. This closes the first; the route
+-- change closes the second by executing under the caller's tenant.
+--
+-- `zvd_insight_dashboards` already has the column, which is why panels were
+-- looked up correctly and only their SQL leaked. One table in a pair got the
+-- fix and its twin did not.
+
+ALTER TABLE zvd_insight_saved_queries
+  ADD COLUMN IF NOT EXISTS tenant_id UUID;
+
+UPDATE zvd_insight_saved_queries
+   SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+ WHERE tenant_id IS NULL;
+
+ALTER TABLE zvd_insight_saved_queries
+  ALTER COLUMN tenant_id SET DEFAULT COALESCE(
+    NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+    '00000000-0000-0000-0000-000000000001'::uuid
+  );
+
+ALTER TABLE zvd_insight_saved_queries
+  ALTER COLUMN tenant_id SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_zvd_insight_saved_queries_tenant
+  ON zvd_insight_saved_queries (tenant_id);
+
+-- Route handlers scope by tenant explicitly; this is the second lock, on the
+-- host's shared predicate (migration 029) and bound by the enforcement role
+-- (migration 030).
+ALTER TABLE zvd_insight_saved_queries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE zvd_insight_saved_queries FORCE  ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_zvd_insight_saved_queries
+  ON zvd_insight_saved_queries;
+CREATE POLICY tenant_isolation_zvd_insight_saved_queries
+  ON zvd_insight_saved_queries
+  USING (zveltio_tenant_scope_ok(tenant_id))
+  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
+
+-- ── from 032_api_key_rls_bypass_default_off.sql ────────────────────
+
+-- 032_api_key_rls_bypass_default_off.sql
+--
+-- A new API key is subject to row-level security unless someone says otherwise.
+--
+-- Migration 026 added `rls_bypass` with `DEFAULT true`, preserving what keys
+-- did before the column existed. That was the right call for keys that already
+-- existed and the wrong one for every key created since: creating a key the
+-- ordinary way — a name and some scopes — produced a credential that row
+-- policies did not apply to, and nothing in the request or the UI said so.
+--
+-- The default flips. Keys already in the table keep whatever value they were
+-- created with, since a column DEFAULT does not touch existing rows: this
+-- changes what happens NEXT, not what an operator already deployed.
+--
+-- The cost, stated plainly: a key against a collection with identity-based
+-- policies (`user_id`, `owner`) now matches no rows, because a machine
+-- credential has no identity for the policy to compare against. That key needs
+-- `rls_bypass: true` explicitly — which is the case the flag was added for.
+
+ALTER TABLE zv_api_keys
+  ALTER COLUMN rls_bypass SET DEFAULT false;
+
+COMMENT ON COLUMN zv_api_keys.rls_bypass IS
+  'Exempt this key from row-level security. Defaults to FALSE (migration 032): '
+  'set it explicitly for keys whose collections use identity-based policies, '
+  'which a machine credential can never satisfy.';
+
+-- ── from 033_tenant_scope_predicate_text.sql ───────────────────────
+
+-- 033_tenant_scope_predicate_text.sql
+--
+-- A TEXT overload of the tenant visibility rule.
+--
+-- Migration 029 typed `zveltio_tenant_scope_ok` on uuid, which is what a
+-- tenant_id ought to be and what 289 of the 292 declarations in the ecosystem
+-- say. The other three do not: `billing` declares `tenant_id TEXT` on two
+-- tables and UUID on a third, and the engine's own `zv_extension_registry`
+-- uses TEXT. Nobody had noticed, because the predicate everyone used compared
+-- `tenant_id::text` and accepted either. Typing 029 properly turned that
+-- inconsistency into a migration failure — `function
+-- zveltio_tenant_scope_ok(text) does not exist` — which is the right way for
+-- it to surface and the wrong thing to leave as the extension author's
+-- problem.
+--
+-- Extensions are installed from a registry onto engines their author never
+-- sees, so the host absorbs this: the rule stays one rule, offered at two entry
+-- points, and a third-party table works whichever type it happens to use.
+--
+-- A separate migration rather than an edit to 029 because 029 has shipped.
+-- Migrations run once, by number, so appending to an applied file reaches only
+-- installs that had not run it yet — the ones that had would be missing the
+-- overload with nothing to tell them.
+
+-- The same rule for a `tenant_id` that is TEXT rather than UUID.
+--
+-- Not hypothetical: `billing` declares `tenant_id TEXT` on two of its tables
+-- and UUID on a third, and the engine's own `zv_extension_registry` uses TEXT.
+-- Nobody noticed because the predicate everyone had been using compared
+-- `tenant_id::text`, which accepts either. Typing this one properly surfaced
+-- the inconsistency as a migration failure — the right outcome, and it must not
+-- be the extension author's problem to fix.
+--
+-- Extensions come from a registry and run on engines their author never sees,
+-- so an overload is the honest answer: the rule stays one rule, expressed at
+-- both entry points, and a third-party table works whichever type it chose.
+CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT row_tenant = COALESCE(
+    NULLIF(current_setting('zveltio.current_tenant', true), ''),
+    '00000000-0000-0000-0000-000000000001'
+  )
+$$;
+
+COMMENT ON FUNCTION zveltio_tenant_scope_ok(text) IS
+  'TEXT overload of the tenant visibility rule, for tables whose tenant_id is '
+  'text rather than uuid. Same semantics as the uuid form. See migration 029.';
+
+-- ── from 034_deny_by_default_grants.sql ────────────────────────────
+
+-- Deny by default: replace the partial wildcards with the rows they stood for.
+--
+-- Migration 009 seeded the tenant roles as `('tenant_member', '*', '*', 'read')`
+-- and the same for create and update. The enforcer now honours `*` on the object
+-- only when the grant is total (`act = '*'`), so those four rows grant nothing —
+-- and the twenty-three extensions that guard routes with
+-- `permissionGate(ctx, '<resource>')` finally get an answer that depends on the
+-- resource name. Before this, they did not: an ordinary member could read and
+-- edit a colleague's national ID, IBAN, salary and home address.
+--
+-- The point of this migration is that the change is not supposed to be felt
+-- anywhere else. Every resource that existed before gets written out
+-- explicitly, so an operator upgrading keeps exactly the access they had, minus
+-- the four resources listed as sensitive, which is the whole intent.
+--
+-- `tenant_owner` and `tenant_admin` are untouched. Their grant is `('*','*','*')`
+-- — total, still matches everything, and has to: locking administrators out of
+-- HR would not be confidentiality, it would be an outage.
+--
+-- Two namespaces have to be covered and only one is queryable. Collections live
+-- in `zvd_collections`. Extension resources exist only as string literals in
+-- extension source, so they are listed below; from here on an extension declares
+-- them in its manifest and `scripts/check-extension-resources.ts` fails the build
+-- on an undeclared one. A fresh install runs this with `zvd_collections` still
+-- empty, which is correct — `materializeDefaultGrants` runs on every collection
+-- creation and again at boot, so nothing depends on this migration having seen
+-- the full picture.
+
+-- Resources that stay closed until a role is granted them by name. Kept in step
+-- with SENSITIVE_RESOURCES in lib/tenancy/permissions.ts.
+CREATE TEMP TABLE _sensitive (name TEXT PRIMARY KEY) ON COMMIT DROP;
+INSERT INTO _sensitive (name) VALUES
+  ('employees'), ('payroll'), ('leave'), ('banking');
+
+CREATE TEMP TABLE _resources (name TEXT PRIMARY KEY) ON COMMIT DROP;
+
+-- Collections, as they stand at upgrade time.
+INSERT INTO _resources (name)
+  SELECT name FROM zvd_collections
+  ON CONFLICT DO NOTHING;
+
+-- Extension resources: every distinct name passed to permissionGate() across the
+-- 57 extensions when this landed. None of these is a collection — the two
+-- namespaces are disjoint, so walking only zvd_collections would have closed all
+-- twenty-eight of them.
+INSERT INTO _resources (name) VALUES
+  ('accounting'), ('api-connector'), ('assets'), ('banking'), ('checklists'),
+  ('crm'), ('efactura'), ('employees'), ('etransport'), ('expenses'),
+  ('export'), ('helpdesk'), ('import'), ('inventory'), ('invoices'),
+  ('leave'), ('media'), ('payroll'), ('pos'), ('postgis'),
+  ('procurement'), ('projects'), ('quotes'), ('ro-documents'), ('saft'),
+  ('store'), ('subscriptions'), ('time-tracking')
+  ON CONFLICT DO NOTHING;
+
+-- Write out what the wildcards granted, resource by resource.
+INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+  SELECT 'p', roles.role, '*', r.name, roles.action
+  FROM _resources r
+  CROSS JOIN (VALUES
+    ('tenant_member', 'read'),
+    ('tenant_member', 'create'),
+    ('tenant_member', 'update'),
+    ('tenant_viewer', 'read')
+  ) AS roles(role, action)
+  WHERE r.name NOT IN (SELECT name FROM _sensitive)
+ON CONFLICT DO NOTHING;
+
+-- And drop the wildcards themselves. They are inert under the new matcher; the
+-- reason to remove them is that a policy table an operator reads should say what
+-- it means. Scoped to these two roles and to a named action, so an
+-- administrator's total grant is never touched.
+DELETE FROM zvd_permissions
+ WHERE ptype = 'p'
+   AND v0 IN ('tenant_member', 'tenant_viewer')
+   AND v1 = '*'
+   AND v2 = '*'
+   AND v3 <> '*';
+
+-- ── from 035_widen_sensitive_resources.sql ─────────────────────────
+
+-- Close four more resources that migration 034 had already opened.
+--
+-- Owner decision, 2026-08-07, after an audit measured what an ordinary
+-- `tenant_member` could reach on a running instance. Expense reports carry
+-- amounts, merchants and receipts per person — where somebody was and who with.
+-- Time tracking is attendance. Accounting is the company's books, and invoicing
+-- is its revenue. All four had default grants because nobody had decided
+-- otherwise, which is the thing deny-by-default exists to stop.
+--
+-- Adding names to `SENSITIVE_RESOURCES` alone would have changed nothing here.
+-- That set is consulted when a grant is CREATED, so it governs new resources and
+-- new installs; the rows for these four were written by migration 034 minutes
+-- after the rule landed and would simply have stayed. Withholding a future grant
+-- and revoking an existing one are different operations, and only the second one
+-- closes an instance that is already running.
+--
+-- Scoped to the two roles that received the automatic grant. A role an operator
+-- created and granted by name — an `accountant` who should reach the books — is
+-- untouched, which is the whole point of having made these rows explicit: they
+-- can be told apart and removed individually.
+--
+-- `tenant_owner` and `tenant_admin` are unaffected. Their grant is total.
+--
+-- This is expected to take access away from people who had it, particularly for
+-- invoicing, which in many companies is daily work. The remedy is one grant per
+-- role, from the permissions UI, and it is a decision somebody makes once rather
+-- than an accident everyone inherits.
+
+DELETE FROM zvd_permissions
+ WHERE ptype = 'p'
+   AND v0 IN ('tenant_member', 'tenant_viewer')
+   AND v1 = '*'
+   AND v2 IN ('expenses', 'time-tracking', 'accounting', 'invoices');
+
+-- ── from 037_user_ref_text.sql ─────────────────────────────────────
+
+-- A user id does not fit in a uuid column.
+--
+-- `"user".id` is a 32-character nanoid and always was; these columns were
+-- declared UUID because a name like `created_by` reads as a foreign key to a
+-- table whose primary key happens to be one. Postgres rejects the write with
+-- 22P02 `invalid input syntax for type uuid`, so the routes that write them
+-- returned 500 to every caller — not intermittent, not a permission problem, the
+-- feature simply never worked.
+--
+-- This is the host's share of a sweep that also touched seven extensions, and it
+-- is deliberately one table.
+--
+-- `zv_pages.updated_by` looked like it belonged here too: the engine creates
+-- `zv_pages` in 001_initial.sql and reads it for the sitemap. It does not. The
+-- COLUMN is added by content/page-builder's own 001_initial.sql
+-- (`ALTER TABLE zv_pages ADD COLUMN IF NOT EXISTS updated_by UUID`), so on a
+-- database with no extensions it does not exist and this migration died on it —
+-- `column "updated_by" of relation "zv_pages" does not exist`, engine refusing
+-- to boot.
+--
+-- Ownership is per column, not per table: the host owns `zv_pages`, the
+-- extension owns what it adds to it, and each repairs its own.
+--
+-- Found by pressing the button on a virgin database, which is the only place
+-- this is visible: on an instance that has been in use, some of these columns
+-- were altered by hand at some point. That is also why the earlier repair in
+-- compliance/ro/documents (`003_user_ref_text.sql`) fixed exactly one column and
+-- left its own siblings — somebody mended the instance in front of them rather
+-- than the class.
+--
+-- Only columns that actually RECEIVE `user.id` are converted, established by
+-- reading each INSERT/UPDATE against its bound values. `zv_rate_limit_configs.updated_by`
+-- is deliberately left alone: it is a uuid with a matching name that NOTHING
+-- writes, which is a different defect and not this one.
+--
+-- uuid → text needs no USING clause and preserves existing values.
+
+ALTER TABLE IF EXISTS zv_edge_functions ALTER COLUMN created_by TYPE TEXT;
+
+-- ── from 038_rate_limit_updated_by_text.sql ────────────────────────
+
+-- The last uuid column named `*_by`, so the class can be checked rather than remembered.
+--
+-- `zv_rate_limit_configs.updated_by` is a uuid and `"user".id` is a 32-character
+-- nanoid. Nothing writes it today, which is exactly why it survived two passes: a
+-- column read and never written looks harmless. It is not. The first route that
+-- records who changed a rate limit fails with 22P02, and whoever adds it spends
+-- the afternoon on a cast error instead of on the feature.
+--
+-- Converted alongside five in the extensions repo, and the reason for doing the
+-- whole class at once is the detector. The earlier sweep worked from a
+-- hand-written list of column names — `created_by`, `approved_by`, `changed_by`
+-- and so on — and missed `checked_by`, which is the column every tick on a
+-- checklist writes. Ticking an item off had never worked on any installation,
+-- and the list did not know to ask about it.
+--
+-- Ask the catalogue instead: which uuid columns are named `*_by`? With this
+-- migration the answer is none, which is a property a test can assert without
+-- anybody having to think of the name first.
+
+ALTER TABLE IF EXISTS zv_rate_limit_configs ALTER COLUMN updated_by TYPE TEXT;
+
+-- ── from 039_media_folders_updated_at.sql ──────────────────────────
+
+-- `zv_media_folders` has no `updated_at`, and two extensions select one.
+--
+-- The table is declared in `001_initial.sql` with `created_at` only. Both
+-- `storage/cloud` and `content/media` read `updated_at` from it — the folder
+-- listing orders by it — so on a fresh install `GET /ext/storage/cloud/files`
+-- answers 500 with `column "updated_at" does not exist`, and Postgres helpfully
+-- suggests `created_at` in the hint.
+--
+-- Found by pressing the route on a virgin database. It cannot be seen on a
+-- long-lived instance: somebody added the column by hand at some point, which is
+-- also why nobody noticed the migration never had it.
+--
+-- Added here rather than in an extension migration because the table is the
+-- engine's own declaration. Backfilled from `created_at` so existing rows have a
+-- sensible value rather than NULL — a folder that has never been renamed was
+-- last changed when it was made.
+
+ALTER TABLE zv_media_folders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+UPDATE zv_media_folders SET updated_at = created_at WHERE updated_at IS NULL;
+ALTER TABLE zv_media_folders ALTER COLUMN updated_at SET DEFAULT NOW();
+ALTER TABLE zv_media_folders ALTER COLUMN updated_at SET NOT NULL;
+
+-- ── from 040_api_key_rls_bypass_backfill.sql ───────────────────────
+
+-- API keys created before migration 032 still bypass row-level security.
+--
+-- Migration 026 added the column as `NOT NULL DEFAULT true`, which wrote an
+-- explicit `true` into every key that existed at the time and into every key
+-- created afterwards. Migration 032 then changed the default to `false` — and
+-- only the default. It contains no UPDATE, so every key created before it kept
+-- its explicit `true`, and `NOT NULL` means there is no "unset" state to fall
+-- back to. The result is that the security posture depends on the date a key
+-- was issued, which is not a property anyone can see from the admin UI.
+--
+-- What such a key does: `rls.ts` returns an empty policy list for it, so the
+-- key reads every tenant's rows regardless of the policies on the tables.
+--
+-- Only keys issued BEFORE 032 ran are reset. Keys issued after it had to pass
+-- `rls_bypass: true` explicitly through `POST /api/api-keys`, and that is a
+-- deliberate choice this migration has no business overturning. The cut-off is
+-- read from the schema ledger rather than hardcoded, because the date differs
+-- per install.
+--
+-- If the ledger has no record of 032 — a database migrated by some other route
+-- — every bypassing key is reset. That direction is chosen on purpose: the
+-- failure mode of resetting too many keys is an integration that returns fewer
+-- rows and reports it, while the failure mode of resetting too few is silent
+-- cross-tenant reads.
+--
+-- Restoring bypass on a key is deliberately not a one-click operation: there is
+-- no PATCH for the field. Issue a replacement key with `rls_bypass: true`.
+
+DO $backfill$
+DECLARE
+  cutoff  TIMESTAMPTZ;
+  changed INTEGER;
+BEGIN
+  SELECT applied_at INTO cutoff
+  FROM zv_schema_versions
+  WHERE version = 32 AND rolled_back_at IS NULL
+  ORDER BY applied_at DESC
+  LIMIT 1;
+
+  UPDATE zv_api_keys
+  SET rls_bypass = false
+  WHERE rls_bypass
+    AND (cutoff IS NULL OR created_at < cutoff);
+
+  GET DIAGNOSTICS changed = ROW_COUNT;
+
+  IF changed > 0 THEN
+    RAISE NOTICE
+      '[040] % API key(s) no longer bypass row-level security. They were issued before the '
+      'default changed and had been reading across every tenant. Re-issue with rls_bypass:true '
+      'if an integration genuinely needs instance-wide reads.', changed;
+  END IF;
+END
+$backfill$;
+
+-- ── from 041_audit_metadata_object.sql ─────────────────────────────
+
+-- Every audit log entry ever written stored its metadata as a JSON string, not
+-- a JSON object.
+--
+-- `auditLog` interpolated `JSON.stringify(metadata)` and cast it `::jsonb`. The
+-- driver already sends that parameter as jsonb, so the cast is a no-op and
+-- Postgres stored the serialized text AS a jsonb string scalar: the whole
+-- object wrapped in quotes, its own quotes escaped.
+--
+-- The consequence is not cosmetic. `metadata->>'outcome'` answers NULL on every
+-- such row, and so does every other key. Nobody could filter the audit trail by
+-- what happened, count failed attempts, or alert on a pattern — the log was
+-- readable by a person scrolling it and queryable by no one. That is most of
+-- what an audit trail is for, and it failed silently: the rows are there, they
+-- look right, and the query returns nothing.
+--
+-- The write is fixed in lib/audit.ts (`::text::jsonb`). This repairs what is
+-- already stored.
+--
+-- `#>> '{}'` extracts a jsonb scalar as text — the inverse of the mistake —
+-- and the result is re-parsed. Guarded on `jsonb_typeof = 'string'` so it
+-- touches only the damaged rows and can be re-run safely: rows already objects
+-- are skipped, and rows repaired by an earlier run are objects.
+
+UPDATE zv_audit_log
+SET metadata = (metadata #>> '{}')::jsonb
+WHERE jsonb_typeof(metadata) = 'string'
+  -- A metadata value that is *legitimately* a string would be destroyed by
+  -- re-parsing, so only touch what parses as an object. Nothing writes a bare
+  -- string today, but this migration will outlive that assumption.
+  AND (metadata #>> '{}') LIKE '{%';
+
+-- ── from 042_flow_step_types_match_executor.sql ────────────────────
+
+-- Four lists of flow step types, all different, none compared to another.
+--
+--   this CHECK constraint  : run_script, send_email, webhook, query_db,
+--                            condition, transform, delay, send_notification,
+--                            export_collection                        (9)
+--   flow-executor's switch : query_db, run_script, send_email, webhook,
+--                            send_notification, export_collection,
+--                            ai_decision                              (7)
+--   flow-step-schemas.ts   : twelve, of which eight never execute
+--   the Studio's builder   : six, three of which never execute
+--
+-- Two consequences, in opposite directions:
+--
+--   `condition`, `transform` and `delay` are STORABLE and never execute. Until
+--   now the executor's `default` arm returned the previous step's output and
+--   reported success, so a flow built around a condition ran green and did
+--   nothing — and its run history said it worked. That is fixed in the executor;
+--   this stops new ones being created.
+--
+--   `ai_decision` is the reverse: the executor implements it and this CHECK
+--   refuses to store it, so the feature could not be used at all.
+--
+-- The constraint now names exactly what `EXECUTABLE_STEP_TYPES` lists, which is
+-- derived from the switch that runs. A unit test asserts those two stay equal.
+--
+-- NOT VALID on purpose. Existing rows carrying `condition`, `transform` or
+-- `delay` are left alone: an install that has been running such a flow for
+-- months should not have its migration fail, and those steps now fail loudly at
+-- execution instead of silently succeeding — which is the outcome that matters.
+-- New rows are checked from here on.
+
+ALTER TABLE zv_flow_steps DROP CONSTRAINT IF EXISTS zv_flow_steps_type_check;
+
+ALTER TABLE zv_flow_steps
+  ADD CONSTRAINT zv_flow_steps_type_check
+  CHECK (type IN (
+    'query_db',
+    'run_script',
+    'send_email',
+    'webhook',
+    'send_notification',
+    'export_collection',
+    'ai_decision'
+  ))
+  NOT VALID;
+
+-- ── from 043_worker_sql_role.sql ───────────────────────────────────
+
+-- A database role for the worker SQL bridge — the sandbox for extension code
+-- the platform has decided NOT to trust.
+--
+-- The bridge ran under `zveltio_rls`, and `ensureRlsEnforcementRole` grants that
+-- role SELECT, INSERT, UPDATE and DELETE on EVERY table in `public`. Better-Auth
+-- keeps `user`, `session`, `account`, `verification` and `twoFactor` there, none
+-- of them with RLS. So a community extension could read live session tokens and
+-- write itself an admin role, and the only thing between it and them was a
+-- string check that had no rule for unprefixed tables at all.
+--
+-- The string check is now an allowlist (worker-sql-policy.ts). This is the
+-- boundary underneath it: Postgres refuses regardless of what the query looked
+-- like, or of a future gap in the parser. Same lesson migration 024 records for
+-- flow `query_db` steps — the database enforces, the string check advises.
+--
+-- The grant is an ALLOWLIST, deliberately, in 024's words: "A denylist means
+-- every future system table is readable until someone remembers to add it."
+-- Collections (`zvd_*`) are what extensions exist to work with; everything else
+-- is refused because it was never granted.
+--
+-- DML rather than SELECT: unlike a flow query step, a worker extension writes.
+-- RLS still applies — the role is NOSUPERUSER and NOBYPASSRLS, so tenant
+-- isolation on `zvd_*` holds exactly as it does for a request.
+--
+-- Best-effort, like 024: a managed Postgres where the application user cannot
+-- CREATE ROLE must not fail the upgrade. When the role is absent the bridge
+-- keeps its previous behaviour and the allowlist in worker-sql-policy.ts is the
+-- only layer — which is why that layer was fixed first rather than instead.
+DO $$
+DECLARE
+  t record;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_worker') THEN
+    CREATE ROLE zveltio_worker NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
+
+  -- The connecting user must be a member to `SET ROLE` to it.
+  EXECUTE format('GRANT zveltio_worker TO %I', current_user);
+
+  GRANT USAGE ON SCHEMA public TO zveltio_worker;
+
+  -- Collection tables only. New ones are granted at create time; see
+  -- grantWorkerSqlAccess() beside grantFlowReaderSelect().
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename LIKE 'zvd\_%'
+  LOOP
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_worker', t.tablename);
+  END LOOP;
+
+  -- Sequences backing those tables, or every INSERT fails on the identity column.
+  FOR t IN
+    SELECT sequencename FROM pg_sequences
+    WHERE schemaname = 'public' AND sequencename LIKE 'zvd\_%'
+  LOOP
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_worker', t.sequencename);
+  END LOOP;
+
+  -- Belt and braces, as 024 does: an explicit REVOKE on the tables this exists
+  -- to protect, in case a future default-privilege change hands out blanket
+  -- access. `twoFactor` is included — it was not in 024's list, and it holds the
+  -- second-factor secrets.
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename IN ('session', 'user', 'account', 'verification', 'twoFactor')
+  LOOP
+    EXECUTE format('REVOKE ALL ON public.%I FROM zveltio_worker', t.tablename);
+  END LOOP;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'zveltio_worker not created (insufficient privilege). The worker SQL bridge falls back to its previous role — see 043_worker_sql_role.sql.';
+END
+$$;
+
+-- ── from 044_auth_tables_rls.sql ───────────────────────────────────
+
+-- Row-level security on the four tables Better-Auth owns.
+--
+-- `user`, `session`, `account` and `verification` have had no RLS in any
+-- migration. That is why C-14 and C-10 — two separate string guards that had no
+-- rule for unprefixed table names — reached live session tokens and password
+-- hashes across every tenant rather than one. Both guards are fixed; this is the
+-- layer that makes the next miss survivable instead of total.
+--
+-- These tables have no `tenant_id`, so this is NOT tenant scoping. It is a
+-- default of "no rows for anybody the policy does not name", which is the
+-- correct posture for tables that hold credentials.
+--
+-- `user` is deliberately NOT in the list, and the reason is what it holds:
+-- id, name, email, role, timestamps — no credentials. The password lives in
+-- `account`, the bearer token in `session`. Meanwhile the engine's own features
+-- read `user` constantly through the tenant-scoped handle: `/api/me`, the user
+-- list, notification fan-out, the health probe. Enabling RLS there took
+-- `/api/me` to a 500 — measured, not predicted — and the containment gained
+-- would have been over the least sensitive of the five.
+--
+-- So the line is drawn at the credentials: `zveltio_rls` keeps SELECT on `user`
+-- and nothing at all on the other four. Extensions get nothing on any of them
+-- (migration 043 revokes all five from `zveltio_worker`), because an extension
+-- has no business reading the user table either.
+--
+-- ENABLE, not FORCE, and that distinction is the whole design:
+--
+--   * RLS does not bind a table's OWNER unless FORCE is set. The engine connects
+--     as the role that owns these tables, so Better-Auth's own reads and writes
+--     during sign-in, sign-up and session refresh are untouched. Adding FORCE
+--     here would lock the product out of its own authentication.
+--   * Every other role — `zveltio_rls`, `zveltio_worker`, `zveltio_flow_reader`,
+--     anything added later — IS bound, and with no permissive policy present it
+--     sees zero rows.
+--
+-- No policy is created deliberately. A table with RLS enabled and no policy
+-- returns nothing to a non-owner, which is exactly the intent; writing
+-- `USING (false)` would say the same thing with more to go wrong.
+--
+-- The grants are the other half. `ensureRlsEnforcementRole` runs at every boot
+-- and granted `zveltio_rls` full DML on every table in `public`, so a REVOKE
+-- here would be undone by the next start — that loop now skips these five names.
+-- The REVOKE below cleans up installs that already ran it.
+
+DO $$
+DECLARE
+  t record;
+  r record;
+BEGIN
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename IN ('session', 'account', 'verification', 'twoFactor')
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.tablename);
+
+    -- Take back what the blanket grant handed out on earlier boots. Only roles
+    -- this product creates: a REVOKE aimed at whatever else an operator has
+    -- granted would be this migration guessing at their deployment.
+    FOR r IN
+      SELECT rolname FROM pg_roles
+      WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader')
+    LOOP
+      EXECUTE format('REVOKE ALL ON public.%I FROM %I', t.tablename, r.rolname);
+    END LOOP;
+  END LOOP;
+END
+$$;
+
+-- ── from 045_api_key_empty_scopes_deny.sql ─────────────────────────
+
+-- Make "full access" something an operator chose, not something they defaulted into.
+--
+-- `checkAccess` for an api_key principal reads:
+--
+--     if (scopes.length > 0) { ...enforce... }
+--     return true;
+--
+-- so an EMPTY scope array skips enforcement entirely. The create route defaults
+-- `scopes` to `[]`, and so does this column. `POST /api/api-keys {"name":"x"}`
+-- therefore mints a key that can read, create, update and delete every `zvd_*`
+-- collection in its tenant, forever — `expires_at` is optional too.
+--
+-- The comment in the code says so plainly ("Empty array = full access") and that
+-- is the problem: to every human being who fills in a form, "no permissions
+-- selected" means "cannot do anything". Here it meant the opposite, and the
+-- operator most likely to leave the field blank is the one aiming for least
+-- privilege.
+--
+-- The code now treats `[]` as deny-all. That flip would silently break every key
+-- already issued this way, so this migration writes down what those keys can do
+-- TODAY, explicitly, before the meaning of the empty array changes. Nothing
+-- gains a permission it did not already have; the grant simply stops being
+-- implicit.
+--
+-- After this, `[]` means what it looks like, and a full-access key has to say
+-- `[{"collection":"*","actions":["*"]}]` out loud.
+
+DO $$
+DECLARE
+  n integer;
+BEGIN
+  UPDATE zv_api_keys
+    SET scopes = '[{"collection":"*","actions":["*"]}]'::jsonb
+    WHERE scopes IS NULL
+       OR jsonb_typeof(scopes) <> 'array'
+       OR jsonb_array_length(scopes) = 0;
+  GET DIAGNOSTICS n = ROW_COUNT;
+
+  IF n > 0 THEN
+    RAISE WARNING '[api-keys] % key(s) had no scopes and therefore full access to every collection. Their access is now written down explicitly — review them at /admin/api-keys and narrow any that should not be tenant-wide.', n;
+  END IF;
+END
+$$;
+
+-- New keys default to no access rather than all access. A key with an empty
+-- scope list is refused by `checkAccess`, which is what the empty list looks
+-- like it means.
+ALTER TABLE zv_api_keys ALTER COLUMN scopes SET DEFAULT '[]'::jsonb;
+
+-- ── from 046_two_factor_verified.sql ───────────────────────────────
+
+-- The column that made two-factor authentication impossible to switch on.
+--
+-- Found while fixing the backup-code storage, by trying to enable 2FA:
+--
+--   POST /api/auth/two-factor/enable → 500
+--   PostgresError: column "verified" of relation "twoFactor" does not exist
+--
+-- Better-Auth writes `verified` when a user enables 2FA
+-- (`plugins/two-factor/index.mjs:126`) and reads it when listing a user's
+-- available methods (`:264`). `001_initial.sql` created the table with
+-- `id, secret, backupCodes, userId` and nothing else, so the INSERT has always
+-- failed. Two-factor authentication is on the feature list, is wired into the
+-- auth plugin set, and could not be turned on by anybody.
+--
+-- Nothing caught it because the write comes from inside the auth library rather
+-- than from a statement in this repository, so the seam gate — which reads the
+-- SQL this codebase writes — had nothing to look at. The only way to find it was
+-- to enable 2FA and watch.
+--
+-- Default TRUE, not FALSE. An existing row can only have been written by an
+-- older Better-Auth that had no such column, which means it was created under a
+-- version that treated the factor as usable once stored; reading those rows as
+-- unverified would silently disable 2FA for anyone who has it today. New rows
+-- get their value from the library on the way in.
+
+ALTER TABLE "twoFactor" ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- And the two that implement lockout, which the same schema declares:
+-- `failedVerificationCount` is incremented on every wrong code and `lockedUntil`
+-- is set once it passes the limit (`verify-two-factor.mjs:138,160`). Without
+-- them there is no rate limit on guessing a six-digit TOTP code at all, so
+-- adding `verified` alone would have made 2FA switchable on and left it
+-- brute-forceable. Found by enabling it again after the first column landed and
+-- reading the next error.
+ALTER TABLE "twoFactor" ADD COLUMN IF NOT EXISTS "failedVerificationCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "twoFactor" ADD COLUMN IF NOT EXISTS "lockedUntil" TIMESTAMPTZ;
+
+-- ── from 047_fail_closed_tenant_opt_in.sql ─────────────────────────
+
+-- 047_fail_closed_tenant_opt_in.sql
+--
+-- Opt-in fail-closed tenant visibility when the current_tenant GUC is unset.
+--
+-- Default (flag off): GUC unset → match the default tenant (029 semantics).
+-- With zveltio.fail_closed_tenant = 'on': GUC unset → no rows (true fail-closed).
+--
+-- Operators enable via env ZVELTIO_FAIL_CLOSED_TENANT=1 at boot (engine sets the
+-- database GUC). Do not flip this on by default — single-tenant installs and
+-- contextless jobs (migrations, GC) rely on the 029 fallback until they all set
+-- an explicit tenant or use a privileged system role.
+
+CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN NULLIF(current_setting('zveltio.current_tenant', true), '') IS NOT NULL THEN
+      row_tenant = NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid
+    WHEN lower(coalesce(nullif(current_setting('zveltio.fail_closed_tenant', true), ''), 'off'))
+         IN ('on', 'true', '1') THEN
+      false
+    ELSE
+      row_tenant = '00000000-0000-0000-0000-000000000001'::uuid
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN NULLIF(current_setting('zveltio.current_tenant', true), '') IS NOT NULL THEN
+      row_tenant = NULLIF(current_setting('zveltio.current_tenant', true), '')
+    WHEN lower(coalesce(nullif(current_setting('zveltio.fail_closed_tenant', true), ''), 'off'))
+         IN ('on', 'true', '1') THEN
+      false
+    ELSE
+      row_tenant = '00000000-0000-0000-0000-000000000001'
+  END
+$$;
+
+COMMENT ON FUNCTION zveltio_tenant_scope_ok(uuid) IS
+  'Tenant row visibility. When zveltio.fail_closed_tenant=on and current_tenant '
+  'is unset, returns false (no rows). Otherwise matches 029 default-tenant fallback. '
+  'See migration 047 + ZVELTIO_FAIL_CLOSED_TENANT.';
+
+COMMENT ON FUNCTION zveltio_tenant_scope_ok(text) IS
+  'TEXT overload of zveltio_tenant_scope_ok(uuid). Same fail-closed opt-in. See 047.';
+
+-- ── from 048_import_logs_extension_owned.sql ───────────────────────
+
+-- 048_import_logs_extension_owned.sql
+--
+-- `zv_import_logs` was created twice with two vocabularies: by the engine in
+-- 001 (`file_format`, `success_rows`, `error_rows`, status `processing`) and by
+-- the `data/import` extension (`format`, `imported_rows`, `failed_rows`, status
+-- `running`). The engine's `/api/import` route is gone, so the extension is now
+-- the table's only writer and its vocabulary is the one that should survive.
+--
+-- This is the EXPAND half only: add the extension's columns where they are
+-- missing and carry the engine-era data across. The CONTRACT half — dropping
+-- `file_format`, `processed_rows`, `success_rows`, `error_rows` and `options` —
+-- is NOT a later migration. It is `contractImportLogs`
+-- (lib/data/import-logs-contract.ts), a boot reconciler an operator arms with
+-- ZVELTIO_IMPORT_LOGS_CONTRACT=1.
+--
+-- Not a migration because a migration runs once and is then recorded as
+-- applied, and the moment this may safely run is not the moment it would
+-- execute: it is whenever a given deployment's rollout has finished, which no
+-- SQL can detect and which differs per operator.
+--
+-- Why the wait: during a rolling upgrade an instance still running the previous
+-- engine serves `/api/import` and both reads those columns and writes status
+-- `processing`. Dropping them in the same release that deletes the route breaks
+-- that instance for the length of the rollout. Every dead column is
+-- `NOT NULL DEFAULT`, so leaving them costs the extension nothing — its inserts
+-- never mention them and the defaults fill them in.
+
+-- No-op on the extension's own shape; fills in the engine-shaped table.
+ALTER TABLE zv_import_logs
+  ADD COLUMN IF NOT EXISTS format TEXT NOT NULL DEFAULT 'csv',
+  ADD COLUMN IF NOT EXISTS failed_rows INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS imported_rows INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS total_rows INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS errors JSONB NOT NULL DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS filename TEXT;
+
+-- Backfill from the engine vocabulary, guarded so this also runs on a database
+-- that only ever had the extension's shape.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'zv_import_logs' AND column_name = 'file_format'
+  ) THEN
+    EXECUTE $q$
+      UPDATE zv_import_logs
+      SET format = file_format
+      WHERE (format IS NULL OR format = 'csv')
+        AND file_format IS NOT NULL
+        AND file_format <> ''
+    $q$;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'zv_import_logs' AND column_name = 'error_rows'
+  ) THEN
+    EXECUTE $q$
+      UPDATE zv_import_logs
+      SET failed_rows = error_rows
+      WHERE failed_rows = 0 AND error_rows IS NOT NULL AND error_rows <> 0
+    $q$;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'zv_import_logs' AND column_name = 'success_rows'
+  ) THEN
+    EXECUTE $q$
+      UPDATE zv_import_logs
+      SET imported_rows = success_rows
+      WHERE imported_rows = 0 AND success_rows IS NOT NULL AND success_rows <> 0
+    $q$;
+  END IF;
+END $$;
+
+-- `format` lost its CHECK along the way: the extension declared the union in
+-- its 001, then re-added the column without it in 003_engine_shaped_table, and
+-- ADD COLUMN IF NOT EXISTS above inherits that weaker shape. Restoring it means
+-- the column carries the same meaning on a virgin install and an upgrade, and
+-- schema-codegen emits the union rather than a bare string.
+--
+-- NOT VALID on purpose, and not only to keep the lock short: the backfill above
+-- copies `file_format`, whose vocabulary included `xlsx`. Validating would force
+-- a choice between failing the migration and rewriting those rows to 'csv',
+-- and 'csv' would be a lie about what was imported. NOT VALID constrains every
+-- future write — the only writer left is the extension, which never emits
+-- `xlsx` — while leaving historical rows to say what actually happened.
+ALTER TABLE zv_import_logs DROP CONSTRAINT IF EXISTS zv_import_logs_format_check;
+ALTER TABLE zv_import_logs
+  ADD CONSTRAINT zv_import_logs_format_check
+  CHECK (format IN ('csv', 'json', 'ndjson')) NOT VALID;
+
+-- ── from 049_edge_functions_rls.sql ────────────────────────────────
+
+-- 049_edge_functions_rls.sql
+--
+-- Row-level security for zv_edge_functions and zv_edge_function_logs.
+--
+-- Migration 015 gave both tables a `tenant_id`, a GUC-backed DEFAULT and a
+-- per-tenant UNIQUE, and closed the cross-tenant IDOR it describes — but it
+-- closed it in the HANDLERS, and said so: "they run on the request db without
+-- relying on RLS". No policy was ever created; verified on a freshly migrated
+-- database, where both tables report relrowsecurity = false and zero policies.
+--
+-- That worked while the handlers were the engine's. Edge-function CRUD now
+-- belongs to extensions/developer/edge-functions, and the extension's routes
+-- scope by `id`, `path` and `is_active` — never by tenant. Its own comment
+-- explains why: "`db` is `ctx.db` … already RLS-scoped — there is one spelling,
+-- so there is none to forget." That is true of every other table it could have
+-- been written against, and false of exactly these two.
+--
+-- So the isolation was carried by the copy that moved out, and the assumption
+-- that replaced it does not hold here: an admin of one tenant could list, read,
+-- patch, delete and INVOKE another tenant's functions — which store secrets in
+-- `env_vars` and run arbitrary code — and read their invocation logs.
+--
+-- Fixed at the database rather than by restoring predicates route by route.
+-- Predicates protect the routes someone remembers to write them in, and the bug
+-- being fixed is a route that did not. A policy protects the next one too, and
+-- it makes the extension's assumption true instead of nearly true.
+
+-- FORCE matters: without it Postgres lets the table owner bypass the policy,
+-- and the engine connects as owner on a stock install, so RLS would be
+-- advisory. Requests run as the non-bypassing `zveltio_rls` role.
+ALTER TABLE zv_edge_functions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_functions FORCE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_function_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_function_logs FORCE ROW LEVEL SECURITY;
+
+-- The host's own predicate, matching the column DEFAULT migration 015 already
+-- set, so reads and writes cannot disagree. Named `tenant_isolation_*` so the
+-- boot reconciler adopts them like every other extension-owned table.
+DROP POLICY IF EXISTS tenant_isolation_zv_edge_functions ON zv_edge_functions;
+CREATE POLICY tenant_isolation_zv_edge_functions ON zv_edge_functions
+  USING (zveltio_tenant_scope_ok(tenant_id))
+  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
+
+DROP POLICY IF EXISTS tenant_isolation_zv_edge_function_logs ON zv_edge_function_logs;
+CREATE POLICY tenant_isolation_zv_edge_function_logs ON zv_edge_function_logs
+  USING (zveltio_tenant_scope_ok(tenant_id))
+  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
+
+-- Rows written before 015 backfilled, and any written since by a path with no
+-- tenant context, would become invisible to everyone rather than visible to
+-- everyone. 015 already backfilled; this is the guard for anything after it.
+UPDATE zv_edge_functions SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+ WHERE tenant_id IS NULL;
+UPDATE zv_edge_function_logs SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+ WHERE tenant_id IS NULL;
+
+-- Deliberately NOT `SET NOT NULL`. It would block reads for the length of a
+-- table scan — `zv_edge_function_logs` is the one table here that grows without
+-- bound — and it buys nothing: `zveltio_tenant_scope_ok(NULL)` is NULL, so the
+-- policy already hides a NULL-tenant row from everyone rather than showing it
+-- to everyone, and the DEFAULT above stops new ones appearing.
+
 -- DOWN
+
+-- ── from 049_edge_functions_rls.sql ────────────────────────────────
+
+DROP POLICY IF EXISTS tenant_isolation_zv_edge_functions ON zv_edge_functions;
+DROP POLICY IF EXISTS tenant_isolation_zv_edge_function_logs ON zv_edge_function_logs;
+ALTER TABLE zv_edge_functions NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_functions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_function_logs NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE zv_edge_function_logs DISABLE ROW LEVEL SECURITY;
+
+-- ── from 048_import_logs_extension_owned.sql ───────────────────────
+
+ALTER TABLE zv_import_logs DROP CONSTRAINT IF EXISTS zv_import_logs_format_check;
+
+-- ── from 046_two_factor_verified.sql ───────────────────────────────
+
+ALTER TABLE "twoFactor" DROP COLUMN IF EXISTS verified;
+ALTER TABLE "twoFactor" DROP COLUMN IF EXISTS "failedVerificationCount";
+ALTER TABLE "twoFactor" DROP COLUMN IF EXISTS "lockedUntil";
+
+-- ── from 045_api_key_empty_scopes_deny.sql ─────────────────────────
+
+-- Deliberately not reversed. Undoing it would mean deleting the explicit
+-- wildcard scopes, which under the OLD code meant full access and under the new
+-- code means none — so a rollback that "restored" `[]` would lock out every key
+-- this migration touched. The explicit form is correct under both.
+
+-- ── from 044_auth_tables_rls.sql ───────────────────────────────────
+
+DO $$
+DECLARE t record;
+BEGIN
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename IN ('session', 'account', 'verification', 'twoFactor')
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY', t.tablename);
+  END LOOP;
+END
+$$;
+
+-- ── from 043_worker_sql_role.sql ───────────────────────────────────
+
+DROP ROLE IF EXISTS zveltio_worker;
+
+-- ── from 042_flow_step_types_match_executor.sql ────────────────────
+
+ALTER TABLE zv_flow_steps DROP CONSTRAINT IF EXISTS zv_flow_steps_type_check;
+ALTER TABLE zv_flow_steps
+  ADD CONSTRAINT zv_flow_steps_type_check
+  CHECK (type IN (
+    'run_script', 'send_email', 'webhook', 'query_db', 'condition',
+    'transform', 'delay', 'send_notification', 'export_collection'
+  ))
+  NOT VALID;
+
+-- ── from 041_audit_metadata_object.sql ─────────────────────────────
+
+-- Not reversible, and should not be. Reverting would mean re-breaking the
+-- column, and any row written after this migration is a genuine object that
+-- would be indistinguishable from a repaired one.
+
+-- ── from 040_api_key_rls_bypass_backfill.sql ───────────────────────
+
+-- Not reversible. The column cannot distinguish a key this migration reset from
+-- one that was always false, and restoring cross-tenant reads to a set of keys
+-- guessed by date is worse than leaving them scoped.
+
+-- ── from 001_initial.sql ───────────────────────────────────────────
 
 -- ── DOWN from 075_electric_replication.sql ──
 DROP FUNCTION IF EXISTS zv_electric_disable_table(TEXT);
