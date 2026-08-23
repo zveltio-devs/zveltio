@@ -40,7 +40,10 @@ async function run(cmd: string[]): Promise<{ code: number; out: string; err: str
 }
 
 function resolveVersion(): string {
-  const argv = process.argv[2];
+  // Flags skipped, not taken as the version. `process.argv[2]` used to be read
+  // positionally, so `release-gate.ts --dry-run` evaluated a release called
+  // "--dry-run" and failed its own version-consistency check against it.
+  const argv = process.argv.slice(2).find((a) => !a.startsWith('-'));
   if (argv) return argv.replace(/^v/, '');
   if (process.env.GITHUB_REF_NAME) return process.env.GITHUB_REF_NAME.replace(/^v/, '');
   return readJson<{ version: string }>('package.json').version;
@@ -112,6 +115,55 @@ function checkMigrationSuperset(): CheckResult {
     const relText = new TextDecoder().decode(relBlob.stdout);
     if (Bun.hash(relText) !== Bun.hash(headContent)) broken.push(`edited: ${f}`);
   }
+
+  // A baseline squash breaks this rule ONCE, legitimately.
+  //
+  // Collapsing the chain into `001_initial.sql` removes every other file and
+  // rewrites that one, which is exactly the shape of the renumbering this check
+  // exists to refuse. The difference is that a squash is a deliberate, announced
+  // event and a renumber is an accident, so the exemption is written to expire:
+  // it applies only when HEAD's baseline carries the marker AND the last release
+  // did NOT. On the release after that, both carry it, the exemption stops
+  // applying, and any further removal is a real finding again.
+  //
+  // Deliberately not a blanket "ignore removals when the marker is present":
+  // that would disarm the check permanently for the sake of one commit.
+  const BASELINE = 'packages/engine/src/db/migrations/sql/001_initial.sql';
+  const MARKER = /^--\s*BASELINE\s+SQUASH\s*$/im;
+  const headHasMarker = (() => {
+    try {
+      return MARKER.test(readFileSync(join(ROOT, BASELINE), 'utf8'));
+    } catch {
+      return false;
+    }
+  })();
+  const tagBlob = Bun.spawnSync(['git', 'show', `${lastTag}:${BASELINE}`], { cwd: ROOT });
+  const tagHadMarker =
+    tagBlob.exitCode === 0 && MARKER.test(new TextDecoder().decode(tagBlob.stdout));
+
+  if (broken.length > 0 && headHasMarker && !tagHadMarker) {
+    const removed = broken.filter((b) => b.startsWith('removed/renamed:')).length;
+    const edited = broken.filter((b) => b.startsWith('edited:'));
+    // The squash may rewrite the baseline and remove the files it absorbed. It
+    // must not quietly edit some OTHER migration on the way through.
+    const strayEdits = edited.filter((e) => !e.endsWith(BASELINE));
+    if (strayEdits.length === 0) {
+      return {
+        name: `migration superset vs ${lastTag}`,
+        ok: true,
+        detail:
+          `baseline squash: ${removed} file(s) absorbed into 001_initial.sql, which carries ` +
+          `the BASELINE SQUASH marker that ${lastTag} did not. Allowed once; the next release ` +
+          `is held to the superset rule again`,
+      };
+    }
+    return {
+      name: `migration superset vs ${lastTag}`,
+      ok: false,
+      detail: `baseline squash also edited migrations it did not absorb: ${strayEdits.join('; ')}`,
+    };
+  }
+
   return {
     name: `migration superset vs ${lastTag}`,
     ok: broken.length === 0,
@@ -231,14 +283,33 @@ async function main(): Promise<void> {
   const version = resolveVersion();
   console.log(`[release-gate] evaluating ${version}`);
 
-  if (isPrerelease(version)) {
+  // `--dry-run` runs the full gate against a prerelease WITHOUT cutting anything.
+  //
+  // Without it this script had never once executed its own checks: every version
+  // this repo has ever carried is a prerelease, so `main` returned at the line
+  // below every time. "Six of seven green" was a memory of a manual tally, not a
+  // measurement — and a gate that cannot be run before the day it must pass is a
+  // gate nobody has tested.
+  //
+  // The bypass itself stays: a prerelease must not be BLOCKED by, say, a stable
+  // coverage target it is not expected to meet yet. `--dry-run` separates asking
+  // from enforcing — it reports and always exits 0, so it is safe to run any day
+  // and useful long before a cut.
+  const dryRun = process.argv.includes('--dry-run');
+
+  if (isPrerelease(version) && !dryRun) {
     console.warn(
-      `[release-gate] ⚠ prerelease (${version}) — gate BYPASSED. Stable cuts run the full gate.`,
+      `[release-gate] ⚠ prerelease (${version}) — gate BYPASSED. Stable cuts run the full gate.` +
+        `\n[release-gate]   Run it anyway with --dry-run to see where a stable cut would stand.`,
     );
     return;
   }
 
-  console.log('[release-gate] STABLE tag — running the full gate…\n');
+  console.log(
+    dryRun && isPrerelease(version)
+      ? `[release-gate] DRY RUN on a prerelease — reporting where a stable cut would stand…\n`
+      : '[release-gate] STABLE tag — running the full gate…\n',
+  );
   const checks: CheckResult[] = [
     await checkAnyRatchet(),
     checkCoverage(),
@@ -256,6 +327,12 @@ async function main(): Promise<void> {
   }
   console.log('');
   if (failed > 0) {
+    if (dryRun) {
+      console.warn(
+        `[release-gate] DRY RUN: ${failed}/${checks.length} check(s) would block a stable cut of ${version}.`,
+      );
+      return;
+    }
     console.error(
       `[release-gate] BLOCKED: ${failed}/${checks.length} check(s) failed. Not cutting ${version}.`,
     );
