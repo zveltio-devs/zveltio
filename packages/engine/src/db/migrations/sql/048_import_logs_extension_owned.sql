@@ -8,9 +8,15 @@
 --
 -- This is the EXPAND half only: add the extension's columns where they are
 -- missing and carry the engine-era data across. The CONTRACT half — dropping
--- `file_format`, `processed_rows`, `success_rows`, `error_rows` and `options`,
--- and narrowing the status CHECK to the extension's five values — deliberately
--- waits for a later release.
+-- `file_format`, `processed_rows`, `success_rows`, `error_rows` and `options` —
+-- is NOT a later migration. It is `contractImportLogs`
+-- (lib/data/import-logs-contract.ts), a boot reconciler an operator arms with
+-- ZVELTIO_IMPORT_LOGS_CONTRACT=1.
+--
+-- Not a migration because a migration runs once and is then recorded as
+-- applied, and the moment this may safely run is not the moment it would
+-- execute: it is whenever a given deployment's rollout has finished, which no
+-- SQL can detect and which differs per operator.
 --
 -- Why the wait: during a rolling upgrade an instance still running the previous
 -- engine serves `/api/import` and both reads those columns and writes status

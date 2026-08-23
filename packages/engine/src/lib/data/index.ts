@@ -7,6 +7,7 @@ export * from './query-cache.js';
 export * from './query-utils.js';
 export * from './query-alter.js';
 export * from './ddl-manager.js';
+export * from './import-logs-contract.js';
 export * from './ddl-queue.js';
 export * from './ghost-ddl.js';
 export * from './field-crypto.js';

@@ -508,10 +508,12 @@ export interface ZvImportLogsTable {
    * Extension-owned vocabulary (`data/import`) — migration 048.
    *
    * The engine-era columns (`file_format`, `processed_rows`, `success_rows`,
-   * `error_rows`, `options`) still exist physically until the contract half of
-   * 048 lands in a later release. They are omitted here because nothing in the
-   * engine reads them and every one is `NOT NULL DEFAULT`, so an insert that
-   * never mentions them succeeds.
+   * `error_rows`, `options`) may or may not still exist physically: dropping
+   * them is `contractImportLogs` in lib/data/import-logs-contract.ts, which an
+   * operator triggers with ZVELTIO_IMPORT_LOGS_CONTRACT=1 once their fleet is
+   * past the engine that still served `/api/import`. Omitted here either way —
+   * nothing in the engine reads them, and every one is `NOT NULL DEFAULT`, so
+   * an insert that never mentions them succeeds while they remain.
    */
   format: string;
   /** NOT NULL since 001; the extension always supplies one ('import' when inline). */
