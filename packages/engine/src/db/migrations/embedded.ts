@@ -18,7 +18,6 @@ import m006 from './sql/007_default_tenant.sql' with { type: 'text' };
 import m007 from './sql/008_casbin_domains.sql' with { type: 'text' };
 import m008 from './sql/009_tenant_role_policies.sql' with { type: 'text' };
 import m009 from './sql/010_media_tenant_isolation.sql' with { type: 'text' };
-import m010 from './sql/011_approvals_tenant_isolation.sql' with { type: 'text' };
 import m011 from './sql/012_media_tags_tenant_isolation.sql' with { type: 'text' };
 import m012 from './sql/013_dashboards_tenant_isolation.sql' with { type: 'text' };
 import m013 from './sql/014_flows_tenant_isolation.sql' with { type: 'text' };
@@ -27,7 +26,6 @@ import m015 from './sql/016_webhooks_tenant_isolation.sql' with { type: 'text' }
 import m016 from './sql/017_zones_views_tenant_isolation.sql' with { type: 'text' };
 import m017 from './sql/018_revisions_tenant_isolation.sql' with { type: 'text' };
 import m018 from './sql/019_saved_queries_import_tenant_isolation.sql' with { type: 'text' };
-import m019 from './sql/020_translation_keys_missing_cols.sql' with { type: 'text' };
 import m020 from './sql/021_api_keys_invitations_tenant_isolation.sql' with { type: 'text' };
 import m021 from './sql/022_extension_granted_capabilities.sql' with { type: 'text' };
 import m022 from './sql/023_extension_digest_pin.sql' with { type: 'text' };
@@ -42,7 +40,6 @@ import m030 from './sql/032_api_key_rls_bypass_default_off.sql' with { type: 'te
 import m031 from './sql/033_tenant_scope_predicate_text.sql' with { type: 'text' };
 import m032 from './sql/034_deny_by_default_grants.sql' with { type: 'text' };
 import m033 from './sql/035_widen_sensitive_resources.sql' with { type: 'text' };
-import m034 from './sql/036_translation_keys_tenant_scoped.sql' with { type: 'text' };
 import m035 from './sql/037_user_ref_text.sql' with { type: 'text' };
 import m036 from './sql/038_rate_limit_updated_by_text.sql' with { type: 'text' };
 import m037 from './sql/039_media_folders_updated_at.sql' with { type: 'text' };
@@ -69,7 +66,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '008_casbin_domains.sql': m007,
   '009_tenant_role_policies.sql': m008,
   '010_media_tenant_isolation.sql': m009,
-  '011_approvals_tenant_isolation.sql': m010,
   '012_media_tags_tenant_isolation.sql': m011,
   '013_dashboards_tenant_isolation.sql': m012,
   '014_flows_tenant_isolation.sql': m013,
@@ -78,7 +74,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '017_zones_views_tenant_isolation.sql': m016,
   '018_revisions_tenant_isolation.sql': m017,
   '019_saved_queries_import_tenant_isolation.sql': m018,
-  '020_translation_keys_missing_cols.sql': m019,
   '021_api_keys_invitations_tenant_isolation.sql': m020,
   '022_extension_granted_capabilities.sql': m021,
   '023_extension_digest_pin.sql': m022,
@@ -93,7 +88,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '033_tenant_scope_predicate_text.sql': m031,
   '034_deny_by_default_grants.sql': m032,
   '035_widen_sensitive_resources.sql': m033,
-  '036_translation_keys_tenant_scoped.sql': m034,
   '037_user_ref_text.sql': m035,
   '038_rate_limit_updated_by_text.sql': m036,
   '039_media_folders_updated_at.sql': m037,

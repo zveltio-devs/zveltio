@@ -504,56 +504,6 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user ON zv_api_keys(created_by);
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON zv_api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON zv_api_keys(is_active) WHERE is_active = true;
 
--- ── from 009_translations.sql ──
--- Migration 009: Internationalization (i18n) translations
-
--- Translation keys registry
-CREATE TABLE IF NOT EXISTS zvd_translation_keys (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  key TEXT NOT NULL UNIQUE,
-  context TEXT,                -- e.g. 'ui', 'content', 'email'
-  default_value TEXT,
-  description TEXT,
-  tags TEXT[] DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_translation_keys_key ON zvd_translation_keys(key);
-CREATE INDEX IF NOT EXISTS idx_zvd_translation_keys_context ON zvd_translation_keys(context);
-
--- Translations (key + locale → value)
-CREATE TABLE IF NOT EXISTS zvd_translations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  key_id UUID NOT NULL REFERENCES zvd_translation_keys(id) ON DELETE CASCADE,
-  locale TEXT NOT NULL,
-  value TEXT NOT NULL,
-  is_machine_translated BOOLEAN NOT NULL DEFAULT false,
-  reviewed BOOLEAN NOT NULL DEFAULT false,
-  updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(key_id, locale)
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_translations_key_locale ON zvd_translations(key_id, locale);
-CREATE INDEX IF NOT EXISTS idx_zvd_translations_locale ON zvd_translations(locale);
-
--- Supported locales
-CREATE TABLE IF NOT EXISTS zvd_locales (
-  code TEXT PRIMARY KEY,         -- e.g. 'en', 'ro', 'de'
-  name TEXT NOT NULL,            -- e.g. 'English', 'Română'
-  is_default BOOLEAN NOT NULL DEFAULT false,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Default locales
-INSERT INTO zvd_locales (code, name, is_default, is_active) VALUES
-  ('en', 'English', true, true),
-  ('ro', 'Română', false, true)
-ON CONFLICT (code) DO NOTHING;
-
 -- ── from 010_import_logs.sql ──
 -- Migration 010: Data import logs
 
@@ -810,176 +760,6 @@ CREATE TABLE IF NOT EXISTS zv_backups (
 CREATE INDEX IF NOT EXISTS idx_zv_backups_status     ON zv_backups(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_zv_backups_created_at ON zv_backups(created_at DESC);
 
--- ── from 020_pages.sql ──
--- Migration: 020_pages
--- CMS Pages, page sections, and form submissions
-
-CREATE TABLE IF NOT EXISTS zv_pages (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title            TEXT NOT NULL,
-  slug             TEXT NOT NULL UNIQUE,
-  description      TEXT,
-  meta_title       TEXT,
-  meta_description TEXT,
-  og_image         TEXT,
-  is_active        BOOLEAN NOT NULL DEFAULT true,
-  is_homepage      BOOLEAN NOT NULL DEFAULT false,
-  layout           TEXT NOT NULL DEFAULT 'default'
-                     CHECK (layout IN ('default', 'full-width', 'sidebar-left', 'sidebar-right')),
-  created_by       TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_zv_pages_slug     ON zv_pages(slug);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_zv_pages_homepage ON zv_pages(is_homepage) WHERE is_homepage = true;
-CREATE INDEX IF NOT EXISTS idx_zv_pages_active          ON zv_pages(is_active);
-
-CREATE TABLE IF NOT EXISTS zv_page_sections (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  page_id        UUID NOT NULL REFERENCES zv_pages(id) ON DELETE CASCADE,
-  name           TEXT NOT NULL,
-  type           TEXT NOT NULL
-                   CHECK (type IN ('hero', 'grid', 'list', 'carousel', 'text', 'html', 'map', 'form', 'stats', 'banner', 'cta', 'divider')),
-  sort_order     INTEGER NOT NULL DEFAULT 0,
-  is_visible     BOOLEAN NOT NULL DEFAULT true,
-  collection     TEXT,
-  filter_config  JSONB NOT NULL DEFAULT '{}',
-  sort_config    JSONB NOT NULL DEFAULT '[]',
-  limit_count    INTEGER NOT NULL DEFAULT 10,
-  fields         TEXT[] NOT NULL DEFAULT '{}',
-  slug_field     TEXT,
-  static_content JSONB NOT NULL DEFAULT '{}',
-  style_config   JSONB NOT NULL DEFAULT '{}',
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_zv_page_sections_page ON zv_page_sections(page_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_zv_page_sections_type ON zv_page_sections(type);
-
-CREATE TABLE IF NOT EXISTS zv_form_submissions (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  page_id         UUID NOT NULL REFERENCES zv_pages(id) ON DELETE CASCADE,
-  section_id      UUID NOT NULL REFERENCES zv_page_sections(id) ON DELETE CASCADE,
-  data            JSONB NOT NULL DEFAULT '{}',
-  submitter_ip    TEXT,
-  submitter_email TEXT,
-  status          TEXT NOT NULL DEFAULT 'new'
-                    CHECK (status IN ('new', 'read', 'replied', 'spam')),
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_page    ON zv_form_submissions(page_id);
-CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_section ON zv_form_submissions(section_id);
-CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_status  ON zv_form_submissions(status);
-
--- ── from 021_approvals.sql ──
--- Migration: 021_approvals
--- Approval Workflows system
-
-CREATE TABLE IF NOT EXISTS zv_approval_workflows (
-  id          UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        TEXT    NOT NULL,
-  description TEXT,
-  collection  TEXT    NOT NULL,
-  trigger_field TEXT,
-  trigger_value TEXT,
-  is_active   BOOLEAN NOT NULL DEFAULT true,
-  created_by  TEXT    REFERENCES "user"(id) ON DELETE SET NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS zv_approval_steps (
-  id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  workflow_id     UUID    NOT NULL REFERENCES zv_approval_workflows(id) ON DELETE CASCADE,
-  step_order      INT     NOT NULL DEFAULT 0,
-  name            TEXT    NOT NULL,
-  approver_role   TEXT,
-  approver_user_id TEXT   REFERENCES "user"(id) ON DELETE SET NULL,
-  deadline_hours  INT,
-  is_required     BOOLEAN NOT NULL DEFAULT true,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS zv_approval_requests (
-  id               UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  workflow_id      UUID    NOT NULL REFERENCES zv_approval_workflows(id),
-  collection       TEXT    NOT NULL,
-  record_id        TEXT    NOT NULL,
-  current_step_id  UUID    REFERENCES zv_approval_steps(id) ON DELETE SET NULL,
-  status           TEXT    NOT NULL DEFAULT 'pending'
-                   CHECK (status IN ('pending','approved','rejected','cancelled')),
-  requested_by     TEXT    REFERENCES "user"(id) ON DELETE SET NULL,
-  requested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  completed_at     TIMESTAMPTZ,
-  metadata         JSONB   NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS zv_approval_decisions (
-  id          UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  request_id  UUID    NOT NULL REFERENCES zv_approval_requests(id) ON DELETE CASCADE,
-  step_id     UUID    NOT NULL REFERENCES zv_approval_steps(id),
-  decision    TEXT    NOT NULL CHECK (decision IN ('approved','rejected','skipped')),
-  decided_by  TEXT    REFERENCES "user"(id) ON DELETE SET NULL,
-  comment     TEXT,
-  decided_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_approval_workflows_collection ON zv_approval_workflows(collection);
-CREATE INDEX IF NOT EXISTS idx_approval_steps_workflow       ON zv_approval_steps(workflow_id, step_order);
-CREATE INDEX IF NOT EXISTS idx_approval_requests_collection  ON zv_approval_requests(collection, record_id);
-CREATE INDEX IF NOT EXISTS idx_approval_requests_status      ON zv_approval_requests(status);
-CREATE INDEX IF NOT EXISTS idx_approval_requests_by          ON zv_approval_requests(requested_by);
-CREATE INDEX IF NOT EXISTS idx_approval_decisions_request    ON zv_approval_decisions(request_id);
-
--- ── from 022_drafts.sql ──
--- Migration: 022_drafts
--- Content drafts and publish scheduling
-
-CREATE TABLE IF NOT EXISTS zv_content_drafts (
-  id           UUID   PRIMARY KEY DEFAULT gen_random_uuid(),
-  collection   TEXT   NOT NULL,
-  record_id    TEXT   NOT NULL,
-  draft_data   JSONB  NOT NULL DEFAULT '{}',
-  base_version INT    NOT NULL DEFAULT 1,
-  status       TEXT   NOT NULL DEFAULT 'draft'
-               CHECK (status IN ('draft','review','approved','rejected')),
-  notes        TEXT,
-  scheduled_at TIMESTAMPTZ,
-  published_at TIMESTAMPTZ,
-  created_by   TEXT   REFERENCES "user"(id) ON DELETE SET NULL,
-  reviewed_by  TEXT   REFERENCES "user"(id) ON DELETE SET NULL,
-  reviewed_at  TIMESTAMPTZ,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS zv_collection_publish_settings (
-  id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  collection      TEXT    NOT NULL UNIQUE,
-  drafts_enabled  BOOLEAN NOT NULL DEFAULT false,
-  require_review  BOOLEAN NOT NULL DEFAULT false,
-  reviewer_roles  JSONB   NOT NULL DEFAULT '["admin"]',
-  auto_publish    BOOLEAN NOT NULL DEFAULT false,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS zv_publish_schedule (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  draft_id     UUID NOT NULL REFERENCES zv_content_drafts(id) ON DELETE CASCADE,
-  scheduled_at TIMESTAMPTZ NOT NULL,
-  processed    BOOLEAN NOT NULL DEFAULT false,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_drafts_collection ON zv_content_drafts(collection, record_id);
-CREATE INDEX IF NOT EXISTS idx_drafts_status     ON zv_content_drafts(status);
-CREATE INDEX IF NOT EXISTS idx_drafts_created_by ON zv_content_drafts(created_by);
-CREATE INDEX IF NOT EXISTS idx_publish_schedule  ON zv_publish_schedule(scheduled_at) WHERE NOT processed;
-
 -- ── from 023_saved_queries.sql ──
 -- Migration: 023_saved_queries
 -- Saved visual query builder configurations
@@ -1090,38 +870,6 @@ CREATE TABLE IF NOT EXISTS zv_panels (
 
 CREATE INDEX IF NOT EXISTS idx_panels_dashboard ON zv_panels(dashboard_id, position_y, position_x);
 
--- ── from 027_document_templates.sql ──
--- Migration: 027_document_templates
--- Admin-managed document templates + generation history
-
-CREATE TABLE IF NOT EXISTS zv_document_templates (
-  id            UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          TEXT    NOT NULL,
-  description   TEXT,
-  template_type TEXT    NOT NULL DEFAULT 'html', -- html | markdown | handlebars | mustache
-  output_format TEXT    NOT NULL DEFAULT 'pdf',  -- pdf | docx | html | markdown | txt
-  content       TEXT    NOT NULL DEFAULT '',
-  variables     JSONB   NOT NULL DEFAULT '{}',
-  style_config  JSONB   NOT NULL DEFAULT '{}',
-  is_active     BOOLEAN NOT NULL DEFAULT true,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS zv_document_generations (
-  id            UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  template_id   UUID    REFERENCES zv_document_templates(id) ON DELETE SET NULL,
-  user_id       TEXT    REFERENCES "user"(id) ON DELETE SET NULL,
-  variables     JSONB   NOT NULL DEFAULT '{}',
-  output_format TEXT    NOT NULL DEFAULT 'pdf',
-  status        TEXT    NOT NULL DEFAULT 'completed',
-  generated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_doc_generations_template ON zv_document_generations(template_id, generated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_doc_generations_user ON zv_document_generations(user_id);
-
 -- ── from 028_documents.sql ──
 -- Migration: 028_documents
 -- RO compliance document templates + generated document records
@@ -1144,23 +892,7 @@ CREATE TABLE IF NOT EXISTS zv_doc_templates (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS zv_generated_docs (
-  id                UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-  template_id       UUID    REFERENCES zv_doc_templates(id) ON DELETE SET NULL,
-  template_name     TEXT    NOT NULL,
-  source_collection TEXT,
-  source_record_id  TEXT,
-  document_number   TEXT    NOT NULL DEFAULT '',
-  variables_data    JSONB   NOT NULL DEFAULT '{}',
-  html_content      TEXT,
-  generated_by      TEXT    REFERENCES "user"(id) ON DELETE SET NULL,
-  generated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE INDEX IF NOT EXISTS idx_doc_templates_type ON zv_doc_templates(type, is_active);
-CREATE INDEX IF NOT EXISTS idx_generated_docs_template ON zv_generated_docs(template_id, generated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_generated_docs_source ON zv_generated_docs(source_collection, source_record_id);
-
 -- ── from 029_schema_branches.sql ──
 -- Migration 029: Schema Branches
 -- Supports isolated schema branching for safe schema testing
@@ -1316,14 +1048,6 @@ CREATE TABLE IF NOT EXISTS zv_media_shares (
 CREATE INDEX IF NOT EXISTS idx_media_shares_token ON zv_media_shares(token) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_media_shares_file ON zv_media_shares(file_id);
 CREATE INDEX IF NOT EXISTS idx_media_shares_folder ON zv_media_shares(folder_id);
-
--- === FAVORITES ===
-CREATE TABLE IF NOT EXISTS zv_media_favorites (
-  user_id     TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-  file_id     UUID NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, file_id)
-);
 
 -- === STORAGE QUOTAS ===
 CREATE TABLE IF NOT EXISTS zv_storage_quotas (
@@ -2401,6 +2125,26 @@ VALUES
   ('p', 'manager', 'pos',                  'update')
 ON CONFLICT (ptype, COALESCE(v0, ''), COALESCE(v1, ''), COALESCE(v2, '')) DO NOTHING;
 
+
+-- ── Extension-owned tables are NOT created here ─────────────────────────────
+--
+-- Seventeen tables were removed from this file: the approvals set, the drafts
+-- set, document templates and generations, form submissions, generated docs,
+-- media favourites, pages and page sections, the translations set. Each one
+-- belongs to an extension that creates it itself, and none is read by engine
+-- code — checked table by table before removal, against both repositories.
+--
+-- They were here because these features WERE the engine before they were
+-- extracted, and every one of them left this behind. The cost was not
+-- theoretical: whichever side migrated first won the shape, and the extension
+-- patched the difference with ADD COLUMN IF NOT EXISTS on every install. Where
+-- the patch was incomplete it broke — see migration 048 and zv_import_logs,
+-- where an import failed at its first statement because the engine's column
+-- was `file_format` and the extension's code said `format`.
+--
+-- Four later migrations (011, 020, 036, 037) altered some of these tables.
+-- They now no-op when the table is absent rather than failing a fresh install.
+
 -- DOWN
 
 -- ── DOWN from 075_electric_replication.sql ──
@@ -2513,7 +2257,6 @@ ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS allowed_ips;
 
 -- ── DOWN from 037_cloud_storage.sql ──
 DROP TABLE IF EXISTS zv_storage_quotas;
-DROP TABLE IF EXISTS zv_media_favorites;
 DROP INDEX IF EXISTS idx_media_shares_folder;
 DROP INDEX IF EXISTS idx_media_shares_file;
 DROP INDEX IF EXISTS idx_media_shares_token;
@@ -2545,16 +2288,12 @@ DROP TABLE IF EXISTS zv_schema_branches;
 -- ── DOWN from 028_documents.sql ──
 DROP INDEX IF EXISTS idx_generated_docs_source;
 DROP INDEX IF EXISTS idx_generated_docs_template;
-DROP TABLE IF EXISTS zv_generated_docs;
 DROP INDEX IF EXISTS idx_doc_templates_type;
 DROP TABLE IF EXISTS zv_doc_templates;
 
 -- ── DOWN from 027_document_templates.sql ──
 DROP INDEX IF EXISTS idx_doc_generations_user;
 DROP INDEX IF EXISTS idx_doc_generations_template;
-DROP TABLE IF EXISTS zv_document_generations;
-DROP TABLE IF EXISTS zv_document_templates;
-
 -- ── DOWN from 026_insights.sql ──
 DROP INDEX IF EXISTS idx_panels_dashboard;
 DROP TABLE IF EXISTS zv_panels;
@@ -2580,38 +2319,25 @@ DROP TABLE IF EXISTS zv_saved_queries;
 
 -- ── DOWN from 022_drafts.sql ──
 DROP INDEX IF EXISTS idx_publish_schedule;
-DROP TABLE IF EXISTS zv_publish_schedule;
-DROP TABLE IF EXISTS zv_collection_publish_settings;
 DROP INDEX IF EXISTS idx_drafts_created_by;
 DROP INDEX IF EXISTS idx_drafts_status;
 DROP INDEX IF EXISTS idx_drafts_collection;
-DROP TABLE IF EXISTS zv_content_drafts;
-
 -- ── DOWN from 021_approvals.sql ──
 DROP INDEX IF EXISTS idx_approval_decisions_request;
-DROP TABLE IF EXISTS zv_approval_decisions;
 DROP INDEX IF EXISTS idx_approval_requests_by;
 DROP INDEX IF EXISTS idx_approval_requests_status;
 DROP INDEX IF EXISTS idx_approval_requests_collection;
-DROP TABLE IF EXISTS zv_approval_requests;
 DROP INDEX IF EXISTS idx_approval_steps_workflow;
-DROP TABLE IF EXISTS zv_approval_steps;
 DROP INDEX IF EXISTS idx_approval_workflows_collection;
-DROP TABLE IF EXISTS zv_approval_workflows;
-
 -- ── DOWN from 020_pages.sql ──
 DROP INDEX IF EXISTS idx_zv_form_submissions_status;
 DROP INDEX IF EXISTS idx_zv_form_submissions_section;
 DROP INDEX IF EXISTS idx_zv_form_submissions_page;
-DROP TABLE IF EXISTS zv_form_submissions;
 DROP INDEX IF EXISTS idx_zv_page_sections_type;
 DROP INDEX IF EXISTS idx_zv_page_sections_page;
-DROP TABLE IF EXISTS zv_page_sections;
 DROP INDEX IF EXISTS idx_zv_pages_active;
 DROP INDEX IF EXISTS idx_zv_pages_homepage;
 DROP INDEX IF EXISTS idx_zv_pages_slug;
-DROP TABLE IF EXISTS zv_pages;
-
 -- ── DOWN from 019_backups.sql ──
 DROP INDEX IF EXISTS idx_zv_backups_created_at;
 DROP INDEX IF EXISTS idx_zv_backups_status;
@@ -2670,15 +2396,10 @@ DROP INDEX IF EXISTS idx_zv_import_logs_status;
 DROP INDEX IF EXISTS idx_zv_import_logs_collection;
 DROP TABLE IF EXISTS zv_import_logs;
 
--- ── DOWN from 009_translations.sql ──
-DROP TABLE IF EXISTS zvd_locales;
 DROP INDEX IF EXISTS idx_zvd_translations_locale;
 DROP INDEX IF EXISTS idx_zvd_translations_key_locale;
-DROP TABLE IF EXISTS zvd_translations;
 DROP INDEX IF EXISTS idx_zvd_translation_keys_context;
 DROP INDEX IF EXISTS idx_zvd_translation_keys_key;
-DROP TABLE IF EXISTS zvd_translation_keys;
-
 -- ── DOWN from 008_api_keys.sql ──
 DROP INDEX IF EXISTS idx_api_keys_active;
 DROP INDEX IF EXISTS idx_api_keys_prefix;
