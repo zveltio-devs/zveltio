@@ -28,6 +28,7 @@
       "!packages/engine/src/tests/fixtures/**/engine/index.js.map",
       "!packages/engine/src/lib/worker-extension-runtime-source.generated.ts",
       "!packages/studio/src/lib/ext/**",
+      "!packages/client/src/lib/ext/**",
       "!packages/studio/src/routes/(admin)/ai/**",
       "!packages/studio/src/routes/(admin)/analytics/dashboard/**",
       "!packages/studio/src/routes/(admin)/analytics/quality/**",
