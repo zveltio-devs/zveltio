@@ -3,6 +3,7 @@ import { m } from '$lib/i18n.svelte.js';
 import { useAuth } from '$stores/auth.svelte';
 import { LogIn, UserPlus } from '@lucide/svelte';
 import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
+import Popup from '$lib/ext/content/pages/Popup.svelte';
 
 let { data } = $props();
 
@@ -27,7 +28,12 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
 </svelte:head>
 
 {#if homepage?.page}
-  <BlockRenderer blocks={homepage.blocks} />
+  <BlockRenderer blocks={homepage.blocks} record={homepage.record ?? null}
+    blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />
+  <!-- Popups that belong on this page, already resolved by the server. -->
+  {#each (homepage.popups ?? []) as popup (popup.id)}
+    <Popup {popup} blocksBaseUrl={homepage.blocksBaseUrl ?? ''} />
+  {/each}
 {:else}
 <!-- Default `/`: the login landing (app/intranet-first). A published page-builder
      homepage would override this; none here, so login is the intended entry. -->

@@ -2,6 +2,7 @@
 import { error } from '@sveltejs/kit';
 import { untrack } from 'svelte';
 import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
+import Popup from '$lib/ext/content/pages/Popup.svelte';
 
 let { data } = $props();
 
@@ -31,4 +32,13 @@ if (untrack(() => data.status === 404 || !data.page)) {
   {/if}
 </svelte:head>
 
-<BlockRenderer blocks={data.blocks} />
+<BlockRenderer
+  blocks={data.blocks}
+  record={data.record ?? null}
+  blocksBaseUrl={data.blocksBaseUrl ?? ''}
+/>
+
+<!-- Popups the server decided belong on this page. -->
+{#each data.popups ?? [] as popup (popup.id)}
+  <Popup {popup} blocksBaseUrl={data.blocksBaseUrl ?? ''} />
+{/each}
