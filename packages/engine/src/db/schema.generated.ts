@@ -207,7 +207,7 @@ export interface ZvApprovalDecisionsTable {
   decision: 'approved' | 'rejected' | 'skipped';
   decided_by: string | null;
   comment: string | null;
-  decided_at: Generated<Date>;
+  decided_at: Generated<Date | null>;
   tenant_id: string | null;
 }
 
@@ -232,15 +232,15 @@ export interface ZvApprovalRequestsTable {
   current_step_id: string | null;
   status: Generated<'pending' | 'approved' | 'rejected' | 'cancelled'>;
   requested_by: string | null;
-  requested_at: Generated<Date>;
+  requested_at: Generated<Date | null>;
   completed_at: Date | null;
-  metadata: Generated<unknown>;
-  tenant_id: string | null;
+  metadata: Generated<unknown | null>;
   priority: Generated<'low' | 'normal' | 'high' | 'urgent'>;
   sla_due_at: Date | null;
   sla_breached: Generated<boolean>;
   reminder_sent_at: Date | null;
   rejection_reason: string | null;
+  tenant_id: string | null;
 }
 
 export interface ZvApprovalSlaAlertsTable {
@@ -261,14 +261,14 @@ export interface ZvApprovalStepsTable {
   approver_role: string | null;
   approver_user_id: string | null;
   deadline_hours: number | null;
-  is_required: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: string | null;
+  is_required: Generated<boolean | null>;
+  created_at: Generated<Date | null>;
   condition_field: string | null;
   condition_value: string | null;
   allow_parallel: Generated<boolean>;
   escalation_user_id: string | null;
   escalation_hours: number | null;
+  tenant_id: string | null;
 }
 
 export interface ZvApprovalTemplatesTable {
@@ -289,10 +289,10 @@ export interface ZvApprovalWorkflowsTable {
   collection: string;
   trigger_field: string | null;
   trigger_value: string | null;
-  is_active: Generated<boolean>;
+  is_active: Generated<boolean | null>;
   created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
+  created_at: Generated<Date | null>;
+  updated_at: Generated<Date | null>;
   tenant_id: string | null;
 }
 
@@ -570,14 +570,10 @@ export interface ZvCloudTrashTable {
 export interface ZvCollectionPublishSettingsTable {
   id: Generated<string>;
   collection: string;
-  drafts_enabled: Generated<boolean>;
   require_review: Generated<boolean>;
-  reviewer_roles: Generated<unknown>;
-  auto_publish: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   allow_self_publish: Generated<boolean>;
   notify_roles: Generated<string[]>;
+  updated_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -587,13 +583,13 @@ export interface ZvContentDraftsTable {
   record_id: string;
   draft_data: Generated<unknown>;
   base_version: Generated<number>;
-  status: Generated<'draft' | 'review' | 'approved' | 'rejected'>;
+  status: Generated<'draft' | 'review' | 'approved' | 'rejected' | 'published'>;
   notes: string | null;
   scheduled_at: Date | null;
-  published_at: Date | null;
-  created_by: string | null;
+  created_by: string;
   reviewed_by: string | null;
   reviewed_at: Date | null;
+  published_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   word_count: number | null;
@@ -682,17 +678,6 @@ export interface ZvDocumentAccessLogTable {
   tenant_id: string | null;
 }
 
-export interface ZvDocumentGenerationsTable {
-  id: Generated<string>;
-  template_id: string | null;
-  user_id: string | null;
-  variables: Generated<unknown>;
-  output_format: Generated<string>;
-  status: Generated<string>;
-  generated_at: Generated<Date>;
-  created_at: Generated<Date>;
-}
-
 export interface ZvDocumentNumberSequencesTable {
   id: Generated<string>;
   template_id: string;
@@ -778,26 +763,24 @@ export interface ZvDocumentTemplateVersionsTable {
 export interface ZvDocumentTemplatesTable {
   id: Generated<string>;
   name: string;
-  description: string | null;
-  template_type: Generated<string>;
-  output_format: Generated<string>;
-  content: Generated<string>;
-  variables: Generated<unknown>;
-  style_config: Generated<unknown>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   slug: string | null;
+  description: string | null;
   category: string | null;
   html_body: Generated<string>;
   css_styles: string | null;
+  variables: Generated<unknown>;
   pdf_options: Generated<unknown | null>;
+  is_active: Generated<boolean>;
   created_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
   version_number: Generated<number>;
   tags: Generated<string[]>;
   usage_count: Generated<number>;
   last_used_at: Date | null;
   tenant_id: string | null;
+  template_type: Generated<string>;
+  output_format: Generated<string>;
 }
 
 export interface ZvDraftPublishJobsTable {
@@ -1096,16 +1079,11 @@ export interface ZvFlowsTable {
 
 export interface ZvFormSubmissionsTable {
   id: Generated<string>;
-  page_id: string | null;
-  section_id: string | null;
-  data: Generated<unknown>;
-  submitter_ip: string | null;
-  submitter_email: string | null;
-  status: Generated<'new' | 'read' | 'replied' | 'spam'>;
-  created_at: Generated<Date>;
   form_id: string | null;
+  data: Generated<unknown>;
   ip_address: string | null;
   user_agent: string | null;
+  created_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -1128,15 +1106,13 @@ export interface ZvGeneratedDocsTable {
   template_name: string;
   source_collection: string | null;
   source_record_id: string | null;
-  document_number: Generated<string>;
-  variables_data: Generated<unknown>;
-  html_content: string | null;
-  generated_by: string | null;
-  generated_at: Generated<Date>;
   variables_used: Generated<unknown>;
   output_format: Generated<'pdf' | 'html'>;
   file_key: string | null;
   file_size: number | null;
+  document_number: string | null;
+  generated_by: string;
+  generated_at: Generated<Date>;
   is_signed: Generated<boolean>;
   expires_at: Date | null;
   share_token: Generated<string | null>;
@@ -1707,37 +1683,6 @@ export interface ZvPageRevisionsTable {
   tenant_id: string | null;
 }
 
-export interface ZvPageSectionsTable {
-  id: Generated<string>;
-  page_id: string;
-  name: string;
-  type:
-    | 'hero'
-    | 'grid'
-    | 'list'
-    | 'carousel'
-    | 'text'
-    | 'html'
-    | 'map'
-    | 'form'
-    | 'stats'
-    | 'banner'
-    | 'cta'
-    | 'divider';
-  sort_order: Generated<number>;
-  is_visible: Generated<boolean>;
-  collection: string | null;
-  filter_config: Generated<unknown>;
-  sort_config: Generated<unknown>;
-  limit_count: Generated<number>;
-  fields: Generated<string[]>;
-  slug_field: string | null;
-  static_content: Generated<unknown>;
-  style_config: Generated<unknown>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvPageSeoScoresTable {
   id: Generated<string>;
   page_id: string;
@@ -1800,33 +1745,33 @@ export interface ZvPagesTable {
   title: string;
   slug: string;
   description: string | null;
-  meta_title: string | null;
-  meta_description: string | null;
-  og_image: string | null;
-  is_active: Generated<boolean>;
-  is_homepage: Generated<boolean>;
-  layout: Generated<'default' | 'full-width' | 'sidebar-left' | 'sidebar-right'>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   status: Generated<string>;
   template: Generated<string>;
   blocks: Generated<unknown>;
   meta: Generated<unknown>;
   published_at: Date | null;
+  created_by: string | null;
   updated_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
   tenant_id: string | null;
   locale: Generated<string>;
+  og_image: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
   is_noindex: Generated<boolean>;
   reading_time_minutes: number | null;
   canonical_page_id: string | null;
   site_id: string | null;
   parent_id: string | null;
   icon: string | null;
+  is_active: Generated<boolean>;
+  is_homepage: Generated<boolean>;
   auth_required: Generated<boolean>;
   allowed_roles: Generated<string[]>;
   sort_order: Generated<number>;
   legacy_zone_page_id: string | null;
+  layout: Generated<string>;
   kind: Generated<'page' | 'popup'>;
   popup_config: Generated<unknown>;
   record_collection: string | null;
@@ -1897,10 +1842,9 @@ export interface ZvPublishScheduleTable {
   id: Generated<string>;
   draft_id: string;
   scheduled_at: Date;
-  processed: Generated<boolean>;
-  created_at: Generated<Date>;
   published_at: Date | null;
   status: Generated<'pending' | 'published' | 'failed' | 'cancelled'>;
+  created_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -5423,13 +5367,13 @@ export interface ZvdTranslationKeysTable {
   context: string | null;
   default_value: string | null;
   description: string | null;
-  tags: Generated<string[] | null>;
+  tags: Generated<string[]>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   max_length: number | null;
   is_pluralized: Generated<boolean>;
   screenshot_url: string | null;
-  tenant_id: Generated<string | null>;
+  tenant_id: string | null;
 }
 
 export interface ZvdTranslationMemoryTable {
@@ -5457,7 +5401,7 @@ export interface ZvdTranslationsTable {
   char_count: number | null;
   approved_by: string | null;
   approved_at: Date | null;
-  tenant_id: Generated<string | null>;
+  tenant_id: string | null;
 }
 
 export interface ZvdValidationImportLogTable {
@@ -5649,7 +5593,6 @@ export interface DbSchema {
   zv_developer_database_snippets: ZvDeveloperDatabaseSnippetsTable;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_document_access_log: ZvDocumentAccessLogTable;
-  zv_document_generations: ZvDocumentGenerationsTable;
   zv_document_number_sequences: ZvDocumentNumberSequencesTable;
   zv_document_render_jobs: ZvDocumentRenderJobsTable;
   zv_document_renders: ZvDocumentRendersTable;
@@ -5719,7 +5662,6 @@ export interface DbSchema {
   zv_page_metrics: ZvPageMetricsTable;
   zv_page_redirects: ZvPageRedirectsTable;
   zv_page_revisions: ZvPageRevisionsTable;
-  zv_page_sections: ZvPageSectionsTable;
   zv_page_seo_scores: ZvPageSeoScoresTable;
   zv_page_sitemap_config: ZvPageSitemapConfigTable;
   zv_page_sites: ZvPageSitesTable;

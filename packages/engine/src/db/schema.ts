@@ -488,12 +488,6 @@ export interface ZvMediaSharesTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvMediaFavoritesTable {
-  user_id: string;
-  file_id: string;
-  created_at: Generated<Date>;
-}
-
 export interface ZvStorageQuotasTable {
   user_id: string;
   quota_bytes: PgNumeric; // BIGINT — read as string
@@ -1093,140 +1087,6 @@ export interface ZvdPageViewsTable {
 // Content/workflow tables
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ZvPagesTable {
-  id: Generated<string>;
-  title: string;
-  slug: string;
-  description: string | null;
-  meta_title: string | null;
-  meta_description: string | null;
-  og_image: string | null;
-  is_active: boolean;
-  is_homepage: boolean;
-  layout: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvPageSectionsTable {
-  id: Generated<string>;
-  page_id: string;
-  name: string | null;
-  type: string;
-  sort_order: number;
-  is_visible: boolean;
-  collection: string | null;
-  filter_config: unknown; // JSONB
-  sort_config: unknown; // JSONB
-  limit_count: number | null;
-  fields: unknown; // JSONB
-  slug_field: string | null;
-  static_content: unknown; // JSONB
-  style_config: unknown; // JSONB
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvFormSubmissionsTable {
-  id: Generated<string>;
-  page_id: string;
-  section_id: string | null;
-  data: unknown; // JSONB
-  submitter_ip: string | null;
-  submitter_email: string | null;
-  status: string;
-  created_at: Generated<Date>;
-}
-
-export interface ZvApprovalWorkflowsTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  collection: string;
-  trigger_field: string | null; // nullable in migration
-  trigger_value: string | null; // nullable in migration
-  is_active: Generated<boolean>; // DEFAULT true
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
-}
-
-export interface ZvApprovalStepsTable {
-  id: Generated<string>;
-  workflow_id: string;
-  step_order: number;
-  name: string;
-  approver_role: string | null;
-  approver_user_id: string | null;
-  deadline_hours: number | null;
-  is_required: Generated<boolean>; // DEFAULT in migration
-  created_at: Generated<Date>;
-  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
-}
-
-export interface ZvApprovalRequestsTable {
-  id: Generated<string>;
-  workflow_id: string;
-  collection: string;
-  record_id: string;
-  current_step_id: string | null;
-  status: Generated<string>; // DEFAULT 'pending'
-  requested_by: string;
-  requested_at: Generated<Date>;
-  completed_at: Date | null;
-  metadata: Generated<unknown>; // JSONB DEFAULT '{}'
-  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
-}
-
-export interface ZvApprovalDecisionsTable {
-  id: Generated<string>;
-  request_id: string;
-  step_id: string;
-  decision: string;
-  decided_by: string;
-  comment: string | null;
-  decided_at: Generated<Date>;
-  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
-}
-
-export interface ZvContentDraftsTable {
-  id: Generated<string>;
-  collection: string;
-  record_id: string | null;
-  draft_data: unknown; // JSONB
-  base_version: number | null;
-  status: string;
-  notes: string | null;
-  scheduled_at: Date | null;
-  published_at: Date | null;
-  created_by: string | null;
-  reviewed_by: string | null;
-  reviewed_at: Date | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvCollectionPublishSettingsTable {
-  id: Generated<string>;
-  collection: string;
-  drafts_enabled: Generated<boolean>;
-  require_review: Generated<boolean>;
-  reviewer_roles: Generated<unknown>; // JSONB DEFAULT '[]'
-  auto_publish: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvPublishScheduleTable {
-  id: Generated<string>;
-  draft_id: string;
-  scheduled_at: Date;
-  processed: Generated<boolean>; // DEFAULT false
-  created_at: Generated<Date>;
-}
-
 export interface ZvSavedQueriesTable {
   id: Generated<string>;
   name: string;
@@ -1375,31 +1235,6 @@ export interface ZvdDashboardSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvDocumentTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  template_type: string;
-  output_format: string;
-  content: string;
-  variables: unknown; // JSONB
-  style_config: unknown; // JSONB
-  is_active: boolean;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvDocumentGenerationsTable {
-  id: Generated<string>;
-  template_id: string;
-  user_id: string | null;
-  variables: unknown; // JSONB
-  output_format: string;
-  status: string;
-  generated_at: Date | null;
-  created_at: Generated<Date>;
-}
-
 export interface ZvDocTemplatesTable {
   id: Generated<string>;
   name: string;
@@ -1416,19 +1251,6 @@ export interface ZvDocTemplatesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-}
-
-export interface ZvGeneratedDocsTable {
-  id: Generated<string>;
-  template_id: string;
-  template_name: string;
-  source_collection: string | null;
-  source_record_id: string | null;
-  document_number: string;
-  variables_data: unknown; // JSONB
-  html_content: string | null;
-  generated_by: string | null;
-  generated_at: Generated<Date>;
 }
 
 export interface ZvSchemaBranchesTable {
@@ -1676,7 +1498,6 @@ export interface DbSchema {
   zv_media_file_tags: ZvMediaFileTagsTable;
   zv_media_versions: ZvMediaVersionsTable;
   zv_media_shares: ZvMediaSharesTable;
-  zv_media_favorites: ZvMediaFavoritesTable;
   zv_storage_quotas: ZvStorageQuotasTable;
   zv_import_logs: ZvImportLogsTable;
   zv_backups: ZvBackupsTable;
@@ -1698,26 +1519,13 @@ export interface DbSchema {
   zv_rate_limit_configs: ZvRateLimitConfigsTable;
   zv_pitr_config: ZvPitrConfigTable;
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
-  zv_pages: ZvPagesTable;
-  zv_page_sections: ZvPageSectionsTable;
-  zv_form_submissions: ZvFormSubmissionsTable;
-  zv_approval_workflows: ZvApprovalWorkflowsTable;
-  zv_approval_steps: ZvApprovalStepsTable;
-  zv_approval_requests: ZvApprovalRequestsTable;
-  zv_approval_decisions: ZvApprovalDecisionsTable;
-  zv_content_drafts: ZvContentDraftsTable;
-  zv_collection_publish_settings: ZvCollectionPublishSettingsTable;
-  zv_publish_schedule: ZvPublishScheduleTable;
   zv_saved_queries: ZvSavedQueriesTable;
   zv_validation_rules: ZvValidationRulesTable;
   zv_quality_scans: ZvQualityScansTable;
   zv_quality_issues: ZvQualityIssuesTable;
   zv_dashboards: ZvDashboardsTable;
   zv_panels: ZvPanelsTable;
-  zv_document_templates: ZvDocumentTemplatesTable;
-  zv_document_generations: ZvDocumentGenerationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
-  zv_generated_docs: ZvGeneratedDocsTable;
   zv_schema_branches: ZvSchemaBranchesTable;
   zv_record_comments: ZvRecordCommentsTable;
   zv_mail_accounts: ZvMailAccountsTable;
