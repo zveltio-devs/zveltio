@@ -71,32 +71,63 @@ const alt = names.map((n) => n.replace(/[^a-z0-9_]/gi, '')).join('|');
 // and excludes a `+` that is itself unary (preceded by `(`, `=`, `,`, an
 // operator — anything that is not a value).
 const VALUE_BEFORE = '(?<=[\\w)\\]\'"`]\\s{0,4})';
-const PATTERNS: [RegExp, string][] = [
-  [
-    new RegExp(`(?<![+\\w.])[\\w\\[\\]?]+(?:\\.[\\w\\[\\]?]+)*\\.(${alt})\\s*\\+(?!\\+|=)`, 'i'),
-    'numeric column on the left of a `+`',
-  ],
-  [
-    new RegExp(`${VALUE_BEFORE}\\+\\s*(?!\\+)[\\w.\\[\\]?]*\\.(${alt})\\b`, 'i'),
-    'numeric column on the right of a `+`',
-  ],
-  [
-    new RegExp(`\\+=\\s*(?!\\+)[\\w.\\[\\]?]*\\.(${alt})\\b`, 'i'),
-    'numeric column accumulated with `+=`',
-  ],
+
+/**
+ * The column list comes from the schema, so it flags any property that SHARES a
+ * name with a numeric column — including ones that never went near the driver.
+ * `+invoice.amount_paid + input.amount` was reported for its second operand:
+ * `amount` is a NUMERIC column somewhere, and `input` is a caller's argument
+ * typed `number`. The line was correct, and carried a comment saying why.
+ *
+ * The strings only arrive by way of a query, so an operand rooted at the
+ * request or the argument bag is not one of them. These names are the ones this
+ * codebase uses for that, and never for a row. Keep the list short: every entry
+ * is a place the gate stops looking, and the doc above is honest that a clean
+ * run was never proof.
+ */
+const NON_ROW_ROOT = /^(?:input|body|params|query|payload|args|opts|options|dto)$/i;
+const rootOf = (path: string): string => path.split(/[.[\]?]/)[0] ?? '';
+
+/**
+ * `receivers` holds the group indices of the operands a pattern ACCUSES. The
+ * finding is dropped when any one of them is rooted outside a row, which is the
+ * right rule for all four: for `+` there is a single accused operand, and for a
+ * comparison a non-row on either side means a number on that side, which
+ * coerces — the reason this was framed as a `+`-only problem to begin with.
+ */
+const PATTERNS: { re: RegExp; why: string; receivers: number[] }[] = [
+  {
+    re: new RegExp(
+      `(?<![+\\w.])([\\w\\[\\]?]+(?:\\.[\\w\\[\\]?]+)*)\\.(${alt})\\s*\\+(?!\\+|=)`,
+      'i',
+    ),
+    why: 'numeric column on the left of a `+`',
+    receivers: [1],
+  },
+  {
+    re: new RegExp(`${VALUE_BEFORE}\\+\\s*(?!\\+)([\\w.\\[\\]?]*)\\.(${alt})\\b`, 'i'),
+    why: 'numeric column on the right of a `+`',
+    receivers: [1],
+  },
+  {
+    re: new RegExp(`\\+=\\s*(?!\\+)([\\w.\\[\\]?]*)\\.(${alt})\\b`, 'i'),
+    why: 'numeric column accumulated with `+=`',
+    receivers: [1],
+  },
   // A comparison with a NUMBER on one side coerces and is fine — that is why the
   // audit framed this as a `+`-only problem. With a STRING on BOTH sides it never
   // does: `"9.0000" >= "10.0000"` is true, lexicographically. `operations/inventory`
   // compared quantity_received against quantity_ordered that way and stamped a
   // partially-received purchase order as fully received, closing it so the
   // shortfall could never be recorded.
-  [
-    new RegExp(
-      `[\\w.\\[\\]?]*\\.(${alt})\\s*(?:>=|<=|>|<)\\s*(?!\\+)[\\w.\\[\\]?]*\\.(${alt})\\b`,
+  {
+    re: new RegExp(
+      `([\\w.\\[\\]?]*)\\.(${alt})\\s*(?:>=|<=|>|<)\\s*(?!\\+)([\\w.\\[\\]?]*)\\.(${alt})\\b`,
       'i',
     ),
-    'two numeric columns compared directly — that is a string comparison',
-  ],
+    why: 'two numeric columns compared directly — that is a string comparison',
+    receivers: [1, 3],
+  },
 ];
 /**
  * Is this line inside an SQL template literal?
@@ -160,14 +191,15 @@ for (const dir of DIRS) {
       if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) continue;
       // A conversion on the line is the fix; do not report what is already fixed.
       if (/\btoNumber|\bNumber\(|parseFloat|parseInt|toNumberSafe|sumNumeric/.test(line)) continue;
-      for (const [re, why] of PATTERNS) {
-        if (re.test(line)) {
-          findings.push({
-            key: `${rel}`,
-            detail: `${rel}:${i + 1}  ${why}\n      ${line.trim().slice(0, 100)}`,
-          });
-          break;
-        }
+      for (const { re, why, receivers } of PATTERNS) {
+        const m = re.exec(line);
+        if (!m) continue;
+        if (receivers.some((g) => NON_ROW_ROOT.test(rootOf(m[g] ?? '')))) continue;
+        findings.push({
+          key: `${rel}`,
+          detail: `${rel}:${i + 1}  ${why}\n      ${line.trim().slice(0, 100)}`,
+        });
+        break;
       }
     }
   }
