@@ -1,3 +1,11 @@
+-- BASELINE SQUASH
+--
+-- 70 engine migrations collapsed into one file (see 00d0bf85). It runs against
+-- exactly one kind of database: an empty one, on first boot. The migration
+-- safety gate skips it for that reason and for no other — see
+-- scripts/check-migration-safety.ts. Statements added here still have to be
+-- correct; they just cannot be judged by rules about populated databases.
+
 -- 001_initial.sql
 --
 -- Consolidated initial schema for the Zveltio engine.

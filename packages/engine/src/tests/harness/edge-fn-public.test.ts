@@ -44,8 +44,7 @@ d('public edge function invoke (in-process)', () => {
         // NOT NULL, and derived from the name by the CRUD route this no longer
         // goes through — so it has to be spelled out here.
         path: `/api/fn/${FN}`,
-        // biome-ignore lint/suspicious/noExplicitAny: harness fixture row
-      } as any)
+      } as never)
       .returning('id')
       .executeTakeFirstOrThrow();
     fnId = (row as { id: string }).id;
