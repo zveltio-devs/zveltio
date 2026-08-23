@@ -40,6 +40,7 @@ import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/data/index.js';
+import { contractImportLogs } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
 import {
@@ -1255,6 +1256,14 @@ async function bootstrap() {
   // do not make an operator careful; they make both easy to ignore.
   await warnIfDbRoleBypassesRls(db, rlsMode);
   await applyFailClosedTenantSetting(db);
+  // The contract half of migration 048, which only an operator can time. See
+  // lib/data/import-logs-contract.ts — no-op unless ZVELTIO_IMPORT_LOGS_CONTRACT=1.
+  try {
+    const n = await contractImportLogs(db);
+    if (n > 0) console.log(`🧹 zv_import_logs: ${n} engine-era column(s) dropped`);
+  } catch (err) {
+    console.warn('⚠️ import-logs contract failed (non-fatal):', (err as Error).message);
+  }
   try {
     const n = await reconcileTenantRLS(db);
     console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);
