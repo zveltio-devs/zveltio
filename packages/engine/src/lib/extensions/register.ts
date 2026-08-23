@@ -78,8 +78,19 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   'developer/validation': ['zv_validation_rules'],
   // ── Tables an extension owns that the engine also declares ──────────────
   //
-  // These 21 names were measured, not guessed: they are every case where an
-  // extension's migrations and the engine's migrations create the same table.
+  // Measured, not guessed: every case where an extension's migrations and the
+  // engine's migrations create the same table.
+  //
+  // The count that used to stand here (21) is gone on purpose — it was already
+  // wrong twice over. As the engine stops declaring tables it does not own,
+  // entries here go inert one by one and a number in a comment cannot track it.
+  // 22 names below still refer to tables the engine no longer declares. They are
+  // harmless — the grant is consulted only when the table IS an engine table —
+  // but they are NOT all safe to delete in bulk: some give an extension access to
+  // ANOTHER extension's table, which `buildAllowedTables` would never grant on
+  // its own (`content/documents` reads `zv_document_templates`, which it does not
+  // create). Removing an entry is safe only when the extension creates that table
+  // in its own migrations. `i18n/translations` met that test and is gone.
   // All of them are features that shipped in the engine first and moved out to
   // an extension, leaving the CREATE behind in 001_initial — the extension is
   // the real owner. `buildAllowedTables` refuses engine tables by default, so
@@ -134,12 +145,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   'developer/edge-functions': ['zv_edge_functions', 'zv_edge_function_logs'],
   'data/import': ['zv_import_logs'],
   forms: ['zv_form_submissions'],
-  'i18n/translations': [
-    'zvd_locales',
-    'zvd_translation_glossary',
-    'zvd_translation_keys',
-    'zvd_translations',
-  ],
   // The media library's tables, because `storage/cloud` is the other half of
   // that feature: it serves the bytes and validates the share tokens for files
   // `content/media` owns. All three are engine-declared (`001_initial.sql`,

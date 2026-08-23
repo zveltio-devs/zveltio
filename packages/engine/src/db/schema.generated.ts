@@ -2657,19 +2657,6 @@ export interface ZvdAssetsTable {
   disposal_reason: string | null;
 }
 
-export interface ZvdAuditLogTable {
-  id: Generated<string>;
-  table_name: string;
-  record_id: string;
-  action: 'create' | 'read' | 'update' | 'delete';
-  old_data: unknown | null;
-  new_data: unknown | null;
-  user_id: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: Generated<Date>;
-}
-
 export interface ZvdBankAccountsTable {
   id: Generated<string>;
   name: string;
@@ -2765,17 +2752,6 @@ export interface ZvdBankTransactionsTable {
   tenant_id: string | null;
   import_id: string | null;
   counterparty_name: string | null;
-}
-
-export interface ZvdBranchCommentsTable {
-  id: Generated<string>;
-  branch_id: string;
-  author_id: string;
-  body: string;
-  change_ref: string | null;
-  resolved: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
 }
 
 export interface ZvdBranchReviewRequestsTable {
@@ -4186,35 +4162,6 @@ export interface ZvdOrganizationsTable {
   tenant_id: string | null;
 }
 
-export interface ZvdPageViewsTable {
-  id: Generated<string>;
-  page_id: string;
-  view_id: string;
-  title_override: string | null;
-  col_span: Generated<number>;
-  sort_order: Generated<number>;
-  config_override: Generated<unknown>;
-  tenant_id: string | null;
-}
-
-export interface ZvdPagesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  zone_id: string;
-  parent_id: string | null;
-  title: string;
-  slug: string;
-  icon: string | null;
-  description: string | null;
-  is_active: Generated<boolean>;
-  is_homepage: Generated<boolean>;
-  auth_required: Generated<boolean>;
-  allowed_roles: Generated<string[]>;
-  sort_order: Generated<number>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvdPanelCacheTable {
   id: Generated<string>;
   panel_id: string;
@@ -5341,9 +5288,8 @@ export interface ZvdTranslationGlossaryTable {
   translation: string;
   definition: string | null;
   forbidden: Generated<boolean>;
-  created_by: string | null;
+  created_by: string;
   created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -5443,27 +5389,6 @@ export interface ZvdValidationTestCasesTable {
   tenant_id: string | null;
 }
 
-export interface ZvdViewsTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  description: string | null;
-  collection: string;
-  view_type: Generated<
-    'table' | 'kanban' | 'calendar' | 'gallery' | 'stats' | 'chart' | 'list' | 'timeline'
-  >;
-  fields: Generated<unknown>;
-  filters: Generated<unknown>;
-  sort_field: string | null;
-  sort_dir: Generated<'asc' | 'desc' | null>;
-  page_size: Generated<number | null>;
-  config: Generated<unknown>;
-  is_public: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvdWarehousesTable {
   id: Generated<string>;
   name: string;
@@ -5521,26 +5446,6 @@ export interface ZvdWebhooksTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
-}
-
-export interface ZvdZonesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-  access_roles: Generated<string[]>;
-  base_path: string;
-  site_name: string | null;
-  site_logo_url: string | null;
-  primary_color: Generated<string | null>;
-  secondary_color: string | null;
-  custom_css: string | null;
-  nav_position: Generated<'sidebar' | 'topbar' | 'both' | null>;
-  show_breadcrumbs: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
 }
 
 export interface DbSchema {
@@ -5730,14 +5635,12 @@ export interface DbSchema {
   zvd_asset_revaluations: ZvdAssetRevaluationsTable;
   zvd_asset_transfers: ZvdAssetTransfersTable;
   zvd_assets: ZvdAssetsTable;
-  zvd_audit_log: ZvdAuditLogTable;
   zvd_bank_accounts: ZvdBankAccountsTable;
   zvd_bank_balance_history: ZvdBankBalanceHistoryTable;
   zvd_bank_imports: ZvdBankImportsTable;
   zvd_bank_reconciliations: ZvdBankReconciliationsTable;
   zvd_bank_rules: ZvdBankRulesTable;
   zvd_bank_transactions: ZvdBankTransactionsTable;
-  zvd_branch_comments: ZvdBranchCommentsTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
   zvd_budgets: ZvdBudgetsTable;
   zvd_byod_scan_history: ZvdByodScanHistoryTable;
@@ -5826,8 +5729,6 @@ export interface DbSchema {
   zvd_milestones: ZvdMilestonesTable;
   zvd_onboarding_tasks: ZvdOnboardingTasksTable;
   zvd_organizations: ZvdOrganizationsTable;
-  zvd_page_views: ZvdPageViewsTable;
-  zvd_pages: ZvdPagesTable;
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_payment_reminders: ZvdPaymentRemindersTable;
   zvd_payroll_adjustments: ZvdPayrollAdjustmentsTable;
@@ -5914,10 +5815,8 @@ export interface DbSchema {
   zvd_validation_import_log: ZvdValidationImportLogTable;
   zvd_validation_rule_groups: ZvdValidationRuleGroupsTable;
   zvd_validation_test_cases: ZvdValidationTestCasesTable;
-  zvd_views: ZvdViewsTable;
   zvd_warehouses: ZvdWarehousesTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_webhook_events: ZvdWebhookEventsTable;
   zvd_webhooks: ZvdWebhooksTable;
-  zvd_zones: ZvdZonesTable;
 }
