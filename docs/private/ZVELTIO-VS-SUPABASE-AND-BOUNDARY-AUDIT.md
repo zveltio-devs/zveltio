@@ -26,6 +26,29 @@ masterul se mutase între timp:
 | Studio broken redirects | **re-adaugă paginile baked** (625 linii) | **șterge cele două stub-uri de redirect** (40 linii). Direcția branch-ului contrazicea SDUI; `[...extPath]` servește acum ambele pagini din schemele extensiilor |
 | Migrare SDUI completă | epic separat | vezi §4.6 — încă deschis |
 
+### Datorie deschisă din cleanup: teste comportamentale pe calea vie
+
+Închiderea ușilor duble `/api/export` și `/api/import` a costat patru suite
+harness, pentru că toate exersau ruta engine care a devenit shim 410:
+
+- `import-encrypts-fields` — criptarea câmpurilor la import, hash pe coloana de parolă
+- `import-lifecycle` — ciclul complet al unui job de import
+- `export-rls-columns` — exportul respectă politicile RLS și permisiunile de coloană
+- cazul „applies to import too" din `validation-rules-enforced`
+
+Testau cod mort, deci nu s-a pierdut acoperire pe nimic accesibil. Problema e
+ce a rămas descoperit: calea **vie** — `/ext/data/export` și `/ext/data/import`
+— are doar harness-ul generic de contract din repo-ul de extensii
+(`extensionContract`), care verifică boot, schemă și o sondă de scriere. Nicio
+aserțiune că exportul respectă RLS, nicio aserțiune că importul criptează.
+
+Nu pot fi repuntate în engine: `packages/engine/src/testing/app-harness.ts` nu
+încarcă extensii, iar testele care ating `/ext/*` acolo (`ext-body-limit`)
+lovesc deliberat o cale inexistentă ca să verifice middleware-ul.
+
+Portarea lor în `zveltio-extensions/data/{export,import}` e munca rămasă. Până
+atunci, două proprietăți de securitate sunt implementate și netestate.
+
 Restul documentului (§1–§7) e analiza care a motivat cleanup-ul și rămâne
 valabilă ca atare.
 

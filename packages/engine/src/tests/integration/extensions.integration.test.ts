@@ -37,9 +37,10 @@ const EXTENSION_ROUTES = [
   // Developer tools
   { path: '/api/saved-queries', method: 'GET', name: 'saved-queries' },
   { path: '/api/validation', method: 'GET', name: 'validation' },
-  // Data
-  { path: '/api/export', method: 'GET', name: 'export' },
-  { path: '/api/import', method: 'POST', name: 'import' },
+  // Data — the extension's own paths. `/api/export` and `/api/import` are not
+  // here: they are 410 shims now, asserted separately below.
+  { path: '/ext/data/export/posts', method: 'GET', name: 'export' },
+  { path: '/ext/data/import/jobs', method: 'GET', name: 'import' },
   // i18n
   { path: '/api/translations', method: 'GET', name: 'translations' },
   // Workflow
@@ -79,6 +80,34 @@ describe.skipIf(skipAll)('Extensions — Route Registration', () => {
         // Extension routes may return 404 if the extension isn't loaded in this environment
         expect([200, 400, 401, 403, 404, 405, 503]).toContain(res.status);
       }
+    });
+  }
+});
+
+/**
+ * Doors the engine closed when the feature moved to an extension.
+ *
+ * They are NOT in EXTENSION_ROUTES: that list allows 404 for a route whose
+ * extension is not loaded, which would pass whether the shim answered or the
+ * path had simply been deleted. A gone door has a stricter contract — 410 and
+ * the replacement path — and it holds with no extension loaded at all, because
+ * the shim is the engine's.
+ */
+const GONE_DOORS = [
+  { path: '/api/export/posts', method: 'GET', replacement: '/ext/data/export' },
+  { path: '/api/import/jobs', method: 'GET', replacement: '/ext/data/import' },
+  { path: '/api/media/folders', method: 'GET', replacement: '/ext/content/media' },
+  { path: '/api/approvals', method: 'GET', replacement: '/ext/workflow/approvals' },
+  { path: '/api/briefing', method: 'GET', replacement: '/ext/crm/briefing' },
+];
+
+describe.skipIf(skipAll)('Extensions — closed doors', () => {
+  for (const door of GONE_DOORS) {
+    it(`${door.method} ${door.path} → 410 pointing at ${door.replacement}`, async () => {
+      const res = await fetch(`${BASE_URL}${door.path}`, { method: door.method });
+      expect(res.status).toBe(410);
+      const body = (await res.json()) as { errors?: { replacement?: string } };
+      expect(body.errors?.replacement).toBe(door.replacement);
     });
   }
 });
