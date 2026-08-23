@@ -21,7 +21,7 @@ masterul se mutase între timp:
 | `/api/export`, `/api/import` | ștergere | **shim-uri 410** via `goneRoutes`, ca la celelalte trei — un apelant vechi primește calea de înlocuire, nu un 404 mut |
 | Edge: păstrat `/api/fn`, scos CRUD | — | deja pe master |
 | Teste harness pe ușa moartă | șterse | șterse; `gone-doors` primește în schimb aserțiuni pentru export/import |
-| `zv_import_logs` ownership | expand + **drop** coloane moarte, într-o migrație | **doar expand** (048). Drop-ul așteaptă un release ulterior: în rolling upgrade o instanță pe engine-ul precedent încă servește `/api/import`, citește coloanele și scrie status `processing`. Poarta `check-migration-safety` respinge pe drept `ban-drop-column` pe UP |
+| `zv_import_logs` ownership | expand + **drop** coloane moarte, într-o migrație | **expand** în 048 + **contract ca reconciler la boot** (`contractImportLogs`, armat cu `ZVELTIO_IMPORT_LOGS_CONTRACT=1`). Nu o migrație: una rulează o dată și se marchează aplicată, iar momentul sigur nu e momentul execuției — e când rollout-ul unui operator s-a terminat, ce niciun SQL nu detectează. Fereastra e reală, verificată: `migration-job.yaml` e hook Helm `pre-upgrade`, deci migrațiile rulează *înainte* ca Deployment-ul să se rostogolească, iar chart-ul anticipează `replicaCount > 2` |
 | Catalog orphans | adăugare în catalog | adăugat; metadatele verificate față de manifeste, zero orfani rămași |
 | Studio broken redirects | **re-adaugă paginile baked** (625 linii) | **șterge cele două stub-uri de redirect** (40 linii). Direcția branch-ului contrazicea SDUI; `[...extPath]` servește acum ambele pagini din schemele extensiilor |
 | Migrare SDUI completă | epic separat | vezi §4.6 — încă deschis |
