@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
-    "@types/nodemailer": "^6.4.24",
+    "@types/nodemailer": "^8.0.1",
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
     "fast-check": "^4.9.0",
