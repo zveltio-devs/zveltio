@@ -573,6 +573,7 @@ export interface ZvCollectionPublishSettingsTable {
   require_review: Generated<boolean>;
   allow_self_publish: Generated<boolean>;
   notify_roles: Generated<string[]>;
+  reviewer_roles: Generated<string[]>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
 }
