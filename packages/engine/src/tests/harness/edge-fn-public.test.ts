@@ -1,5 +1,11 @@
 /**
- * Phase C — public edge function invoke at /api/fn/:name.
+ * Phase C — public edge function invoke at `/api/fn/:name`.
+ *
+ * `/api/fn` is the engine's and stays the engine's: the extension defers to it
+ * on purpose (it authenticates a session OR a tenant-bound API key, resolves
+ * the function per request so a new one answers immediately, and applies the
+ * anonymous rate limit). CRUD is the extension's. These assertions are about
+ * the invoke half only.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -23,19 +29,26 @@ d('public edge function invoke (in-process)', () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
 
-    const create = await app.request('/api/edge-functions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({
+    // Seeded straight into the table rather than through `/api/edge-functions`,
+    // which this engine no longer serves: CRUD belongs to
+    // extensions/developer/edge-functions and the engine's copy is a 410 shim.
+    // The subject here is `/api/fn`, which IS the engine's, so the fixture is
+    // set up by the shortest honest route rather than by a second product.
+    const row = await db
+      .insertInto('zv_edge_functions')
+      .values({
         name: FN,
         display_name: 'Public Harness Fn',
         code: CODE,
         http_method: 'POST',
-      }),
-    });
-    expect(create.status).toBe(201);
-    const body = (await create.json()) as { function: { id: string } };
-    fnId = body.function.id;
+        // NOT NULL, and derived from the name by the CRUD route this no longer
+        // goes through — so it has to be spelled out here.
+        path: `/api/fn/${FN}`,
+        // biome-ignore lint/suspicious/noExplicitAny: harness fixture row
+      } as any)
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    fnId = (row as { id: string }).id;
   });
 
   afterAll(async () => {

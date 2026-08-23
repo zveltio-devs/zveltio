@@ -55,6 +55,7 @@ import m043 from './sql/045_api_key_empty_scopes_deny.sql' with { type: 'text' }
 import m044 from './sql/046_two_factor_verified.sql' with { type: 'text' };
 import m045 from './sql/047_fail_closed_tenant_opt_in.sql' with { type: 'text' };
 import m046 from './sql/048_import_logs_extension_owned.sql' with { type: 'text' };
+import m047 from './sql/049_edge_functions_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -105,4 +106,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '046_two_factor_verified.sql': m044,
   '047_fail_closed_tenant_opt_in.sql': m045,
   '048_import_logs_extension_owned.sql': m046,
+  '049_edge_functions_rls.sql': m047,
 };
