@@ -34,7 +34,7 @@ $effect(() => {
 
 function openAi(prefill?: string): void {
   const q = prefill?.trim();
-  goto(q ? `${base}/ai?q=${encodeURIComponent(q)}` : `${base}/ai`);
+  goto(q ? `${base}/ai/chat?q=${encodeURIComponent(q)}` : `${base}/ai/chat`);
 }
 
 function onKeydown(e: KeyboardEvent): void {
