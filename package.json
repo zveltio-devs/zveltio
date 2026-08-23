@@ -19,6 +19,7 @@
     "check:shared-keys": "bun run scripts/sync-shared-message-keys.ts --check",
     "check:sdui-schemas": "bun run scripts/check-extension-sdui-schemas.ts",
     "check:table-owners": "bun run scripts/check-duplicate-table-creators.ts",
+    "release:gate:dry": "bun run scripts/release-gate.ts --dry-run",
     "check:studio-embed": "bun run scripts/check-studio-embed-freshness.ts",
     "coverage:gate": "bun run scripts/coverage-gate.ts",
     "coverage:unit": "cd packages/engine && bun run test:unit:coverage",

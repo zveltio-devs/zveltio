@@ -71,45 +71,41 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_revisions',
     // Owned by this extension, but still present in the engine's 001_initial
     // from before the feature moved out. See the note below.
-    'zv_content_drafts',
-    'zv_collection_publish_settings',
-    'zv_publish_schedule',
   ],
   'developer/validation': ['zv_validation_rules'],
   // ── Tables an extension owns that the engine also declares ──────────────
   //
-  // Measured, not guessed: every case where an extension's migrations and the
-  // engine's migrations create the same table.
+  // Every case where an extension's migrations and the engine's create the same
+  // table. `buildAllowedTables` refuses engine tables by default, so without an
+  // entry here those extensions would lose access to their own data. Anything NOT
+  // here — `zv_api_keys`, `zv_tenants`, `casbin_rule`, `session`, `user` — stays
+  // refused, which is the point.
   //
-  // The count that used to stand here (21) is gone on purpose — it was already
-  // wrong twice over. As the engine stops declaring tables it does not own,
-  // entries here go inert one by one and a number in a comment cannot track it.
-  // 22 names below still refer to tables the engine no longer declares. They are
-  // harmless — the grant is consulted only when the table IS an engine table —
-  // but they are NOT all safe to delete in bulk: some give an extension access to
-  // ANOTHER extension's table, which `buildAllowedTables` would never grant on
-  // its own (`content/documents` reads `zv_document_templates`, which it does not
-  // create). Removing an entry is safe only when the extension creates that table
-  // in its own migrations. `i18n/translations` met that test and is gone.
-  // All of them are features that shipped in the engine first and moved out to
-  // an extension, leaving the CREATE behind in 001_initial — the extension is
-  // the real owner. `buildAllowedTables` refuses engine tables by default, so
-  // without this list those eleven extensions would lose access to their own
-  // data. Anything NOT here — `zv_api_keys`, `zv_tenants`, `casbin_rule`,
-  // `session`, `user` — stays refused, which is the point.
+  // No count is written down, deliberately: two have stood here and both went
+  // stale. An entry goes inert the moment the engine stops declaring its table,
+  // and a number in a comment cannot follow that.
+  //
+  // 22 inert names were removed once the engine's baseline stopped declaring
+  // them. The rule that made each removal safe, and the one that has to hold for
+  // the next: an entry may go only when THAT extension creates THAT table in its
+  // own migrations, because then `buildAllowedTables` grants it unaided. Where it
+  // does not, the entry is the only thing standing — `content/documents` reads
+  // `zv_document_templates`, which `content/document-templates` creates, so its
+  // grant stays and is the single cross-extension one left.
+  //
+  // `check:table-owners` reports which tables the engine still declares; that is
+  // the list to check an entry against before deleting it.
   // `ai` relaxes a CHECK constraint on `zv_flows` so a flow can carry AI
   // trigger types. Measured, not assumed — it is the only extension that
   // reshapes an engine table it does not otherwise own.
   ai: ['zv_flows'],
   'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
-  'content/document-templates': ['zv_document_templates'],
   // `zv_document_templates` is engine-declared and also redeclared by
   // `content/document-templates`; this extension reads the templates it
   // generates documents from. Two of its seven GET routes answered 500 without
   // this, `/templates` among them.
-  'content/documents': ['zv_generated_docs', 'zv_document_templates'],
+  'content/documents': ['zv_document_templates'],
   'content/media': [
-    'zv_media_favorites',
     'zv_storage_quotas',
     // The media library's own tables. The engine declares them too because the
     // feature started there; the extension is what maintains them now, which
@@ -122,19 +118,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // `content/page-builder` and `content/portals` merged into `content/pages`.
   // The four `zvd_*` tables from portals are migrated into this set by the
   // extension's own migrations; what it owns now is the `zv_page*` family.
-  'content/pages': [
-    'zv_pages',
-    'zv_page_sites',
-    'zv_page_block_types',
-    'zv_page_menus',
-    'zv_page_redirects',
-    'zv_page_revisions',
-    'zv_page_seo_scores',
-    'zv_page_sitemap_config',
-    'zv_page_ab_variants',
-    'zv_page_metrics',
-    'zv_page_templates',
-  ],
   // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
   // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
   // DEV-EF-1). This extension is the administration surface the Studio actually
@@ -144,7 +127,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // that lists edge functions could not list them.
   'developer/edge-functions': ['zv_edge_functions', 'zv_edge_function_logs'],
   'data/import': ['zv_import_logs'],
-  forms: ['zv_form_submissions'],
   // The media library's tables, because `storage/cloud` is the other half of
   // that feature: it serves the bytes and validates the share tokens for files
   // `content/media` owns. All three are engine-declared (`001_initial.sql`,
@@ -156,12 +138,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // routes answered 500, including `/files`, which is the extension's main
   // purpose. Shipped, and broken on every install since.
   'storage/cloud': ['zv_storage_quotas', 'zv_media_files', 'zv_media_folders', 'zv_media_shares'],
-  'workflow/approvals': [
-    'zv_approval_decisions',
-    'zv_approval_requests',
-    'zv_approval_steps',
-    'zv_approval_workflows',
-  ],
 };
 
 /**
