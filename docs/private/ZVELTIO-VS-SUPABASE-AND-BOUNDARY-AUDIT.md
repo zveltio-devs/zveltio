@@ -26,7 +26,7 @@ masterul se mutase între timp:
 | Studio broken redirects | **re-adaugă paginile baked** (625 linii) | **șterge cele două stub-uri de redirect** (40 linii). Direcția branch-ului contrazicea SDUI; `[...extPath]` servește acum ambele pagini din schemele extensiilor |
 | Migrare SDUI completă | epic separat | vezi §4.6 — încă deschis |
 
-### Datorie deschisă din cleanup: teste comportamentale pe calea vie
+### Datorie din cleanup: teste comportamentale pe calea vie — ÎNCHISĂ 2026-08-23
 
 Închiderea ușilor duble `/api/export` și `/api/import` a costat patru suite
 harness, pentru că toate exersau ruta engine care a devenit shim 410:
@@ -46,8 +46,26 @@ Nu pot fi repuntate în engine: `packages/engine/src/testing/app-harness.ts` nu
 încarcă extensii, iar testele care ating `/ext/*` acolo (`ext-body-limit`)
 lovesc deliberat o cale inexistentă ca să verifice middleware-ul.
 
-Portarea lor în `zveltio-extensions/data/{export,import}` e munca rămasă. Până
-atunci, două proprietăți de securitate sunt implementate și netestate.
+**Plătită** în `zveltio-extensions@4a0a93b`, dar nu prin portare literală.
+Testele engine cereau Postgres, sesiuni și politici reale; cele noi instrumentează
+`ctx` și verifică ce **cere** ruta, fiindcă o bază care răspunde corect ascunde
+un `getRlsFilters` lipsă în spatele unui rezultat întâmplător gol — exact cum a
+supraviețuit bug-ul original unei suite verzi.
+
+Dublura de export imită Postgres în cele două privințe care decid răspunsul:
+rândurile vin nefiltrate dacă `applyRlsFilters` n-a rulat, și se întorc doar
+coloanele proiectate, fiindcă `select(projectable)` e apărarea reală — o mască
+aplicată după tot scoate octeții din bază.
+
+Verificate prin **mutație pe bundle-urile împachetate**, nu prin faptul că trec:
+dezactivarea `applyRlsFilters` pică două teste de export, lărgirea proiecției
+alte două, scoaterea `maybeEncrypt` pică două de import, iar scoaterea lui
+`await` de pe `deserialize` — bug-ul istoric exact — încă două. Bundle-urile
+restaurate după, ambele hash-uri de integritate se potrivesc.
+
+Rămâne descoperit: celelalte două suite șterse (`import-lifecycle`,
+`validation-rules-enforced` pe calea de import) n-au replicare. Erau cicluri de
+job și reguli de validare, nu proprietăți de securitate.
 
 Restul documentului (§1–§7) e analiza care a motivat cleanup-ul și rămâne
 valabilă ca atare.
