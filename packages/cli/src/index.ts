@@ -189,8 +189,12 @@ const ext = program
 
 ext
   .command('create <name>')
-  .description('Scaffold a new extension')
+  .description('Scaffold a new extension (admin page as an SDUI schema)')
   .option('--category <category>', 'Extension category', 'custom')
+  .option(
+    '--code-page',
+    'Scaffold a Svelte page instead of a schema — for UI a schema cannot express (canvas, chat, map, inbox)',
+  )
   .action((name, opts) => extensionCommand('create', name, opts));
 
 ext
