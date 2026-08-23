@@ -75,6 +75,29 @@ const TRANSACTIONAL_ONLY_EXCLUDED = [
 
 const NO_TRANSACTION_MARKER = /^--\s*NO\s+TRANSACTION\s*$/im;
 
+/**
+ * The baseline squash opts out, and only it.
+ *
+ * `001_initial.sql` is 70 migrations collapsed into one file. It runs against
+ * exactly one kind of database: an empty one. Every rule this gate enforces is
+ * about a statement that "behaves differently on a customer's populated
+ * database than on CI's empty one" — which is, for this file, a condition that
+ * cannot arise. It reports four hazards, all of them statements that were safe
+ * when they ran years apart against a database that did not yet exist.
+ *
+ * The practical cost of not having this: any edit to 001 — including a
+ * comment — fails the gate on those four. `5c066616` ("leave 001_initial.sql
+ * untouched") is that having already happened, and the file has been
+ * effectively frozen since, which is the wrong reason to leave engine-owned
+ * schema where it is.
+ *
+ * Deliberately NOT a general escape hatch: the marker is honoured for
+ * `001_initial.sql` and nowhere else, so it cannot be pasted into a real
+ * migration to make an inconvenient finding go away.
+ */
+const BASELINE_MARKER = /^--\s*BASELINE\s+SQUASH\s*$/im;
+const BASELINE_FILE = '001_initial.sql';
+
 interface Finding {
   file: string;
   line: number;
@@ -105,6 +128,13 @@ async function changedMigrations(): Promise<string[]> {
 async function lint(file: string): Promise<Finding[]> {
   const raw = await Bun.file(file).text();
   const up = raw.split(DOWN_MARKER)[0];
+
+  if (file.endsWith(BASELINE_FILE) && BASELINE_MARKER.test(up)) {
+    console.log(
+      `   ${file.split('/').pop()}: baseline squash — runs only on an empty database, skipped.`,
+    );
+    return [];
+  }
 
   // Squawk reads paths, not stdin, and the reported filename comes from the
   // path — so the temp file keeps the original basename to keep output honest.
