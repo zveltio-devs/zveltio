@@ -68,8 +68,11 @@ onMount(async () => {
 
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-    const res = await api.get<{ zone: any; nav: NavPage[] }>(`/api/zones/${ZONE_SLUG}/render`);
-    zone = res.zone;
+    const res = await api.get<{ site: any; nav: NavPage[] }>(
+      `/ext/content/pages/sites/${ZONE_SLUG}/render`,
+    );
+    // The render endpoint answers `site` since zones became sites.
+    zone = res.site;
     // Filter out the homepage entry — the user clicks the title/logo to get
     // there, so showing "Home" twice (once built-in, once from zone) is noise.
     navPages = (res.nav ?? []).filter((p) => !p.is_homepage);
