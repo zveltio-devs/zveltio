@@ -96,11 +96,10 @@ const CREATE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w
  */
 function tablesIn(sql: string): string[] {
   const code = sql.replace(/--[^\n]*/g, '');
-  const found: string[] = [];
-  CREATE_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CREATE_RE.exec(code)) !== null) found.push(m[1].toLowerCase());
-  return found;
+  // `matchAll` rather than a `while ((m = re.exec()))` loop: the assignment form
+  // is what the lint ratchet counts, and a shared `/g/` regex carries
+  // `lastIndex` between calls, so the exec form also has to be reset by hand.
+  return [...code.matchAll(CREATE_RE)].map((m) => m[1].toLowerCase());
 }
 
 function sqlFilesUnder(dir: string): string[] {
