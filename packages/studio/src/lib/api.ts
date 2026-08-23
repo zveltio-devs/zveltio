@@ -207,45 +207,16 @@ export const importApi = {
   jobs: () => api.get<{ jobs: any[] }>('/ext/data/import/jobs'),
 };
 
-export const zonesApi = {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  list: () => api.get<{ zones: any[] }>('/api/zones'),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  create: (data: any) => api.post<{ zone: any }>('/api/zones', data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  get: (slug: string) => api.get<{ zone: any }>(`/api/zones/${slug}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  update: (slug: string, data: any) => api.put<{ zone: any }>(`/api/zones/${slug}`, data),
-  delete: (slug: string) => api.delete(`/api/zones/${slug}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  listPages: (slug: string) => api.get<{ pages: any[] }>(`/api/zones/${slug}/pages`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  createPage: (slug: string, data: any) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-    api.post<{ page: any }>(`/api/zones/${slug}/pages`, data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  updatePage: (slug: string, pageSlug: string, data: any) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-    api.put<{ page: any }>(`/api/zones/${slug}/pages/${pageSlug}`, data),
-  deletePage: (slug: string, pageSlug: string) =>
-    api.delete(`/api/zones/${slug}/pages/${pageSlug}`),
-  reorderPages: (slug: string, ids: string[]) =>
-    api.post(`/api/zones/${slug}/pages/reorder`, { ids }),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  render: (slug: string) => api.get<{ zone: any; pages: any[] }>(`/api/zones/${slug}/render`),
-  renderPage: (slug: string, pageSlug: string) =>
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-    api.get<{ page: any; zone: any; views: any[] }>(`/api/zones/${slug}/render/${pageSlug}`),
-};
-
-export const viewsApi = {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  list: () => api.get<{ views: any[] }>('/api/views'),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  create: (data: any) => api.post<{ view: any }>('/api/views', data),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  get: (id: string) => api.get<{ view: any }>(`/api/views/${id}`),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  update: (id: string, data: any) => api.put<{ view: any }>(`/api/views/${id}`, data),
-  delete: (id: string) => api.delete(`/api/views/${id}`),
-};
+/**
+ * `zonesApi` and `viewsApi` were here.
+ *
+ * Zones became SITES and views became `collection_list` BLOCKS when
+ * content/portals and content/page-builder merged into content/pages, and the
+ * engine stopped mounting `/api/zones` and `/api/views` with them. Both helpers
+ * outlived their routes: every method pointed at a 404, and nothing in the
+ * Studio called either — the intranet and the client portal reach
+ * `/ext/content/pages/sites/...` directly.
+ *
+ * Deleted rather than repointed. A repointed helper with no callers is the same
+ * dead code with a working URL.
+ */
