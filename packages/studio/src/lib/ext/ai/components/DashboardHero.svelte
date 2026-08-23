@@ -17,7 +17,7 @@ const firstName = $derived((user?.name ?? '').split(' ')[0] || '');
 </script>
 
 <a
-  href="{base}/ai"
+  href="{base}/ai/chat"
   class="flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 hover:border-primary/50 transition-colors"
   data-testid="ai-dashboard-hero"
 >

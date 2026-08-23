@@ -108,25 +108,29 @@ function copyTreeSkippingTests(from: string, to: string): void {
 /**
  * Extension pages the Studio deliberately does not carry.
  *
- * Each of these ships a page for a feature the core already provides, at a
- * different URL. Syncing them adds a second admin route for the same thing —
- * which is the mess a previous pass spent a day collapsing, after five
- * features had drifted into two divergent implementations apiece.
+ * An entry belongs here when an extension ships a page for a feature the core
+ * already provides at a different URL: syncing it adds a second admin route for
+ * the same thing, which is the mess a previous pass spent a day collapsing
+ * after five features had drifted into two divergent implementations apiece.
  *
- * They appear as untracked files after every sync, so the next person either
- * deletes them each time or, eventually, commits them. Named here instead,
- * with the core page each one duplicates, so the decision is visible rather
- * than rediscovered.
+ * EMPTY, and that is the correct state today. It held four entries naming the
+ * core pages they protected — `(admin)/edge-functions`, `(admin)/translations`,
+ * `(admin)/introspect`, `(admin)/views` — and the SDUI migration deleted all
+ * four. The list outlived every page it was defending.
  *
- * Removing an entry is how you promote an extension's page over the core one —
- * delete the core route in the same change, or you are back to two.
+ * That was not merely untidy. A skipped extension keeps its SDUI page, which is
+ * served from the manifest by `[...extPath]` and never came through here — so
+ * three of the entries cost nothing and looked harmless. The fourth was
+ * dropping a code page: `developer/edge-functions` ships `studio/pages/ide/`,
+ * and the sync reported `Done — 6 extension page(s) synced` while silently
+ * leaving `/admin/developer/edge-functions/ide` out of the build. A skip list
+ * has no way to say "I skipped something you wanted", which is why the entries
+ * have to be true rather than merely old.
+ *
+ * Adding one back means naming the core page it duplicates, and checking that
+ * page still exists.
  */
-const SKIP_SLUGS = new Map<string, string>([
-  ['byod', 'core (admin)/introspect — the nav links there, not here'],
-  ['developer/edge-functions', 'core (admin)/edge-functions'],
-  ['developer/views', 'core (admin)/views'],
-  ['i18n', 'core (admin)/translations'],
-]);
+const SKIP_SLUGS = new Map<string, string>([]);
 
 let synced = 0;
 /** Destination slugs written this run — verified against biome ignores below. */
