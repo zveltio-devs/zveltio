@@ -64,10 +64,15 @@ describe.skipIf(skipAll)('Health — Integration', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/sitemap.xml — returns XML', async () => {
+  it('GET /api/sitemap.xml — gone from the engine', async () => {
+    // The engine served a sitemap of `zv_pages`, a table it no longer creates.
+    // content/pages already served a better one at `/sitemap.xml` — the path a
+    // crawler looks for — with per-page sitemap config, role-gated pages
+    // excluded, and record pages listed. The engine's was a worse duplicate.
+    //
+    // Asserted as absent rather than deleted outright: an engine still serving
+    // this would mean the duplicate came back.
     const res = await fetch(`${BASE_URL}/api/sitemap.xml`);
-    expect(res.status).toBe(200);
-    const ct = res.headers.get('content-type') ?? '';
-    expect(ct).toContain('xml');
+    expect(res.status).toBe(404);
   });
 });
