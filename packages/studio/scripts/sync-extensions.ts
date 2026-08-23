@@ -142,11 +142,33 @@ for (const extRoot of EXT_ROOTS) {
   for (const extName of extensions) {
     const pagesDir = join(extRoot, extName, 'studio', 'pages');
     const srcDir = join(extRoot, extName, 'studio', 'src');
+    const clientDir = join(extRoot, extName, 'client');
     const hasPages = existsSync(pagesDir);
     const hasSrc = existsSync(srcDir);
+    const hasClient = existsSync(clientDir);
     // Schema-only pages delete studio/pages/, but field-type / shared components
     // still live under studio/src/ and must keep syncing into $lib/ext/.
-    if (!hasPages && !hasSrc) continue;
+    // `client/` counts too: an extension may ship only a block renderer.
+    if (!hasPages && !hasSrc && !hasClient) continue;
+
+    // The extension's `client/` → `$lib/ext/<name>/client/`.
+    //
+    // The Studio hosts authenticated surfaces — the intranet and the client
+    // portal — and those draw PAGES, which since the pages merge means drawing
+    // blocks. The renderer that knows how belongs to the extension, so the
+    // Studio takes the same copy the public host does rather than growing a
+    // second one. That is how the public renderer and the block library drifted
+    // to sharing two block types out of twelve.
+    //
+    // Before the skip check on purpose: SKIP_SLUGS is about an admin PAGE
+    // duplicating a core one, and says nothing about whether the extension's
+    // block renderer is wanted. Putting this after it would drop the renderer
+    // for any extension that ever lands on that list.
+    if (hasClient) {
+      const clientDest = join(LIB_EXT, extName, 'client');
+      mkdirSync(clientDest, { recursive: true });
+      copyTreeSkippingTests(clientDir, clientDest);
+    }
 
     const manifestPath = join(extRoot, extName, 'manifest.json');
     let slug = extName; // fallback: use extension name as slug
