@@ -481,7 +481,7 @@ if (_cmd === 'create-god') {
  * Stateful singletons (db, auth, webhookWorker, flowScheduler, …) are NOT
  * re-created — they live in _bootstrapCtx and are reused across rebuilds.
  */
-// Auto-activate content/page-builder on first start if:
+// Auto-activate content/pages on first start if:
 //   1. It is not yet in the registry (first boot)
 //   2. Its files are present on disk (EXTENSIONS_DIR or monorepo default)
 // If the files are missing and the registry is unreachable we skip silently —
