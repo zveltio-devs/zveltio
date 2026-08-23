@@ -22,8 +22,9 @@ export async function extensionCommand(
  * Scaffold a new extension.
  *
  * The default page is an SDUI schema, not a Svelte file. That is not a style
- * preference — across the 56 shipped extensions there are 61 schemas and one
- * manifest still naming a component. A scaffold that opened with
+ * preference — across the 56 shipped extensions there are 61 schemas and seven
+ * code pages, and every one of those seven sits BESIDE a schema rather than
+ * instead of it. A scaffold that opened with
  * `studio/pages/+page.svelte` and mentioned schemas in a parenthesis taught
  * every new author the 2% path first.
  *
@@ -361,8 +362,9 @@ Do NOT add studio/vite.config.ts, studio/package.json, or studio/dist/ — remov
 
   if (codePage) {
     console.warn(
-      `\x1b[33mScaffolded a CODE page. Across the 56 shipped extensions there are 61
-schemas and one component, so this is the 2% road: you now own fetching,
+      `\x1b[33mScaffolded a CODE page. Across the 56 shipped extensions, 61 pages are
+schemas and seven are code — and each of those seven sits beside a schema, for
+the part a schema could not express. On this road you own fetching,
 loading and error states, i18n by hand, and a Studio release to ship a change.
 Worth it for a canvas, a chat, a map or an inbox — for a list, a form or
 settings, delete studio/pages/ and add \`schema\` back to manifest.studio.pages[0].\x1b[0m`,
