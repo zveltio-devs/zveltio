@@ -1,104 +1,18 @@
 /**
- * Embedded SQL migrations — bundled at compile time by Bun.
- * When the engine runs as a standalone binary, `import.meta.dir/sql` does not
- * exist on the host filesystem. These imports are resolved at build time and
- * embedded verbatim into the binary via Bun's `with { type: 'text' }` syntax.
+ * Migrations embedded at compile time.
  *
- * AUTO-GENERATED — do not edit by hand.
- * Regenerate with: bun scripts/gen-embedded-migrations.ts
+ * The standalone Bun binary has no filesystem to read `sql/*.sql` from, so the
+ * runner falls back to this map. Bun's `with { type: 'text' }` import inlines
+ * each file's contents into the bundle.
+ *
+ * One entry, because the chain is one file — see the BASELINE SQUASH note at
+ * the top of 001_initial.sql. Adding a migration means adding an import and an
+ * entry here; the runner sorts by filename, so the number is what orders them.
  */
 
-import m000 from './sql/001_initial.sql' with { type: 'text' };
-import m001 from './sql/002_insights_panels_title.sql' with { type: 'text' };
-import m002 from './sql/003_translation_glossary.sql' with { type: 'text' };
-import m003 from './sql/004_invitations.sql' with { type: 'text' };
-import m004 from './sql/005_flow_dlq.sql' with { type: 'text' };
-import m005 from './sql/006_extension_load_errors.sql' with { type: 'text' };
-import m006 from './sql/007_default_tenant.sql' with { type: 'text' };
-import m007 from './sql/008_casbin_domains.sql' with { type: 'text' };
-import m008 from './sql/009_tenant_role_policies.sql' with { type: 'text' };
-import m009 from './sql/010_media_tenant_isolation.sql' with { type: 'text' };
-import m011 from './sql/012_media_tags_tenant_isolation.sql' with { type: 'text' };
-import m012 from './sql/013_dashboards_tenant_isolation.sql' with { type: 'text' };
-import m013 from './sql/014_flows_tenant_isolation.sql' with { type: 'text' };
-import m014 from './sql/015_edge_functions_tenant_isolation.sql' with { type: 'text' };
-import m015 from './sql/016_webhooks_tenant_isolation.sql' with { type: 'text' };
-import m016 from './sql/017_zones_views_tenant_isolation.sql' with { type: 'text' };
-import m017 from './sql/018_revisions_tenant_isolation.sql' with { type: 'text' };
-import m018 from './sql/019_saved_queries_import_tenant_isolation.sql' with { type: 'text' };
-import m020 from './sql/021_api_keys_invitations_tenant_isolation.sql' with { type: 'text' };
-import m021 from './sql/022_extension_granted_capabilities.sql' with { type: 'text' };
-import m022 from './sql/023_extension_digest_pin.sql' with { type: 'text' };
-import m023 from './sql/024_flow_reader_role.sql' with { type: 'text' };
-import m024 from './sql/026_api_key_rls_bypass.sql' with { type: 'text' };
-import m025 from './sql/027_validation_rules_safe_activation.sql' with { type: 'text' };
-import m026 from './sql/028_media_file_visibility.sql' with { type: 'text' };
-import m027 from './sql/029_tenant_scope_predicate.sql' with { type: 'text' };
-import m028 from './sql/030_rls_enforcement_role.sql' with { type: 'text' };
-import m029 from './sql/031_insight_saved_queries_tenant.sql' with { type: 'text' };
-import m030 from './sql/032_api_key_rls_bypass_default_off.sql' with { type: 'text' };
-import m031 from './sql/033_tenant_scope_predicate_text.sql' with { type: 'text' };
-import m032 from './sql/034_deny_by_default_grants.sql' with { type: 'text' };
-import m033 from './sql/035_widen_sensitive_resources.sql' with { type: 'text' };
-import m035 from './sql/037_user_ref_text.sql' with { type: 'text' };
-import m036 from './sql/038_rate_limit_updated_by_text.sql' with { type: 'text' };
-import m037 from './sql/039_media_folders_updated_at.sql' with { type: 'text' };
-import m038 from './sql/040_api_key_rls_bypass_backfill.sql' with { type: 'text' };
-import m039 from './sql/041_audit_metadata_object.sql' with { type: 'text' };
-import m040 from './sql/042_flow_step_types_match_executor.sql' with { type: 'text' };
-import m041 from './sql/043_worker_sql_role.sql' with { type: 'text' };
-import m042 from './sql/044_auth_tables_rls.sql' with { type: 'text' };
-import m043 from './sql/045_api_key_empty_scopes_deny.sql' with { type: 'text' };
-import m044 from './sql/046_two_factor_verified.sql' with { type: 'text' };
-import m045 from './sql/047_fail_closed_tenant_opt_in.sql' with { type: 'text' };
-import m046 from './sql/048_import_logs_extension_owned.sql' with { type: 'text' };
-import m047 from './sql/049_edge_functions_rls.sql' with { type: 'text' };
+import m001 from './sql/001_initial.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
-  '001_initial.sql': m000,
-  '002_insights_panels_title.sql': m001,
-  '003_translation_glossary.sql': m002,
-  '004_invitations.sql': m003,
-  '005_flow_dlq.sql': m004,
-  '006_extension_load_errors.sql': m005,
-  '007_default_tenant.sql': m006,
-  '008_casbin_domains.sql': m007,
-  '009_tenant_role_policies.sql': m008,
-  '010_media_tenant_isolation.sql': m009,
-  '012_media_tags_tenant_isolation.sql': m011,
-  '013_dashboards_tenant_isolation.sql': m012,
-  '014_flows_tenant_isolation.sql': m013,
-  '015_edge_functions_tenant_isolation.sql': m014,
-  '016_webhooks_tenant_isolation.sql': m015,
-  '017_zones_views_tenant_isolation.sql': m016,
-  '018_revisions_tenant_isolation.sql': m017,
-  '019_saved_queries_import_tenant_isolation.sql': m018,
-  '021_api_keys_invitations_tenant_isolation.sql': m020,
-  '022_extension_granted_capabilities.sql': m021,
-  '023_extension_digest_pin.sql': m022,
-  '024_flow_reader_role.sql': m023,
-  '026_api_key_rls_bypass.sql': m024,
-  '027_validation_rules_safe_activation.sql': m025,
-  '028_media_file_visibility.sql': m026,
-  '029_tenant_scope_predicate.sql': m027,
-  '030_rls_enforcement_role.sql': m028,
-  '031_insight_saved_queries_tenant.sql': m029,
-  '032_api_key_rls_bypass_default_off.sql': m030,
-  '033_tenant_scope_predicate_text.sql': m031,
-  '034_deny_by_default_grants.sql': m032,
-  '035_widen_sensitive_resources.sql': m033,
-  '037_user_ref_text.sql': m035,
-  '038_rate_limit_updated_by_text.sql': m036,
-  '039_media_folders_updated_at.sql': m037,
-  '040_api_key_rls_bypass_backfill.sql': m038,
-  '041_audit_metadata_object.sql': m039,
-  '042_flow_step_types_match_executor.sql': m040,
-  '043_worker_sql_role.sql': m041,
-  '044_auth_tables_rls.sql': m042,
-  '045_api_key_empty_scopes_deny.sql': m043,
-  '046_two_factor_verified.sql': m044,
-  '047_fail_closed_tenant_opt_in.sql': m045,
-  '048_import_logs_extension_owned.sql': m046,
-  '049_edge_functions_rls.sql': m047,
+  '001_initial.sql': m001,
 };
