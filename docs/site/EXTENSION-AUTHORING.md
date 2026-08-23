@@ -7,11 +7,25 @@ every extension follows — read it before building one.
 ## TL;DR
 
 - One npm-style folder per extension at `zveltio-extensions/<category>/<name>/`.
-- Three subfolders: `engine/` (server), `studio/` (admin UI), `client/` (end-user UI). Any subset is fine.
 - `manifest.json` declares metadata and dependencies.
-- `engine/index.ts` exports a default `ZveltioExtension` with a `register(app, ctx)` function.
+- `engine/index.ts` exports a default `ZveltioExtension` with a `register(app, ctx)` function. This is where the truth lives.
+- **Your admin page is a JSON schema** — `studio/schemas/<name>.json`, named by `manifest.studio.pages[].schema`. The host renders it; nothing builds.
 - The engine injects a `ctx` object — extensions never `import` engine internals directly.
 - Real npm packages (`hono`, `zod`, `kysely`, etc.) are auto-installed into `<EXTENSIONS_DIR>/node_modules/` by the engine on first start.
+
+### Where UI goes
+
+Three destinations, and they are not three equal choices. Of the 56 extensions
+shipped today, 61 pages are schemas and one is a component.
+
+| You want | You write | How often |
+|---|---|---|
+| a page | `studio/schemas/*.json` | almost always |
+| a widget on a core surface (dashboard, topbar) | `studio/src/contribute.ts` | occasionally |
+| UI a schema cannot express — canvas, chat, map, inbox | `studio/pages/+page.svelte` | rarely |
+
+`bunx @zveltio/cli extension create <name>` scaffolds the first. Pass
+`--code-page` for the third, and read what it prints before you keep it.
 
 ## Folder layout
 
@@ -24,14 +38,18 @@ my-extension/
 │   ├── lib/                       # local helpers
 │   └── migrations/
 │       └── 001_init.sql
-├── studio/                        # Admin UI — compiled INTO Studio at install
-│   ├── pages/
-│   │   ├── +page.svelte           # /admin/<slug>/
-│   │   └── settings/
-│   │       └── +page.svelte       # /admin/<slug>/settings/
+├── studio/                        # Admin UI
+│   ├── schemas/
+│   │   └── my-extension.json      # THE page — rendered by the host, no build
+│   ├── messages/
+│   │   └── en.json                # keys this extension owns; locales filled from en
+│   ├── pages/                     # ONLY for UI a schema cannot express
+│   │   └── +page.svelte           # /admin/<slug>/ — baked in at release
 │   └── src/
+│       ├── contribute.ts          # optional: widgets on core surfaces
 │       └── components/            # shared components → $lib/ext/<name>/components/
-└── client/                        # End-user components (npm-published separately)
+└── client/                        # UI for the public site / portals — copied into
+                                   # the hosts by their sync scripts, same as studio/src
 ```
 
 ### Studio pages — no per-extension build
