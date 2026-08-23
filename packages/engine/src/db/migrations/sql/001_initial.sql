@@ -371,24 +371,6 @@ CREATE INDEX IF NOT EXISTS idx_zv_revisions_user
 CREATE INDEX IF NOT EXISTS idx_zv_revisions_created
   ON zv_revisions(created_at DESC);
 
--- Immutable audit log (security)
-CREATE TABLE IF NOT EXISTS zvd_audit_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  table_name TEXT NOT NULL,
-  record_id TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('create', 'read', 'update', 'delete')),
-  old_data JSONB,
-  new_data JSONB,
-  user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-  ip_address INET,
-  user_agent TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_table ON zvd_audit_log(table_name);
-CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_record ON zvd_audit_log(record_id);
-CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_created ON zvd_audit_log(created_at DESC);
-
 -- ── from 005_storage.sql ──
 -- Migration 005: File storage (media library)
 
@@ -1265,119 +1247,24 @@ VALUES
   ('p', 'client', 'portal', 'write')
 ON CONFLICT DO NOTHING;
 
--- ── from 050_zones_pages_views.sql ──
--- Migration 060: Zones / Pages / Views — unified portal architecture
--- Replaces: zvd_portal_pages, zvd_portal_sections, zvd_portal_theme,
---           zvd_collection_views, zvd_portal_client_config
--- ═══════════════════════════════════════════════════════════════════
-
--- LAYER 1: Views — atomic reusable blocks
-CREATE TABLE IF NOT EXISTS zvd_views (
-  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id    UUID        REFERENCES zv_tenants(id) ON DELETE CASCADE,
-  name         TEXT        NOT NULL,
-  description  TEXT,
-  collection   TEXT        NOT NULL,
-  view_type    TEXT        NOT NULL DEFAULT 'table'
-                 CHECK (view_type IN ('table','kanban','calendar','gallery','stats','chart','list','timeline')),
-  fields       JSONB       NOT NULL DEFAULT '[]',
-  filters      JSONB       NOT NULL DEFAULT '[]',
-  sort_field   TEXT,
-  sort_dir     TEXT        DEFAULT 'desc' CHECK (sort_dir IN ('asc','desc')),
-  page_size    INT         DEFAULT 20,
-  config       JSONB       NOT NULL DEFAULT '{}',
-  is_public    BOOLEAN     NOT NULL DEFAULT false,
-  created_by   TEXT        REFERENCES "user"(id) ON DELETE SET NULL,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_views_collection ON zvd_views(collection);
-CREATE INDEX IF NOT EXISTS idx_zvd_views_tenant     ON zvd_views(tenant_id);
-
--- LAYER 2: Zones — complete portals with own navigation, access rules, branding
-CREATE TABLE IF NOT EXISTS zvd_zones (
-  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id      UUID        REFERENCES zv_tenants(id) ON DELETE CASCADE,
-  name           TEXT        NOT NULL,
-  slug           TEXT        NOT NULL,
-  description    TEXT,
-  is_active      BOOLEAN     NOT NULL DEFAULT false,
-  access_roles   TEXT[]      NOT NULL DEFAULT '{}',
-  base_path      TEXT        NOT NULL,
-  -- Per-zone branding
-  site_name      TEXT,
-  site_logo_url  TEXT,
-  primary_color  TEXT        DEFAULT '#069494',
-  secondary_color TEXT,
-  custom_css     TEXT,
-  nav_position   TEXT        DEFAULT 'sidebar' CHECK (nav_position IN ('sidebar','topbar','both')),
-  show_breadcrumbs BOOLEAN   NOT NULL DEFAULT true,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (tenant_id, slug)
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_zones_slug   ON zvd_zones(slug);
-CREATE INDEX IF NOT EXISTS idx_zvd_zones_tenant ON zvd_zones(tenant_id);
-
--- LAYER 3: Pages — view containers, belong to a Zone
-CREATE TABLE IF NOT EXISTS zvd_pages (
-  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id     UUID        REFERENCES zv_tenants(id) ON DELETE CASCADE,
-  zone_id       UUID        NOT NULL REFERENCES zvd_zones(id) ON DELETE CASCADE,
-  parent_id     UUID        REFERENCES zvd_pages(id) ON DELETE SET NULL,
-  title         TEXT        NOT NULL,
-  slug          TEXT        NOT NULL,
-  icon          TEXT,
-  description   TEXT,
-  is_active     BOOLEAN     NOT NULL DEFAULT true,
-  is_homepage   BOOLEAN     NOT NULL DEFAULT false,
-  auth_required BOOLEAN     NOT NULL DEFAULT true,
-  allowed_roles TEXT[]      NOT NULL DEFAULT '{}',
-  sort_order    INT         NOT NULL DEFAULT 0,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (zone_id, slug)
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_pages_zone   ON zvd_pages(zone_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_zvd_pages_tenant ON zvd_pages(tenant_id);
-
--- Junction Page ↔ View (M:N — a view can appear on multiple pages)
-CREATE TABLE IF NOT EXISTS zvd_page_views (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  page_id         UUID NOT NULL REFERENCES zvd_pages(id) ON DELETE CASCADE,
-  view_id         UUID NOT NULL REFERENCES zvd_views(id) ON DELETE CASCADE,
-  title_override  TEXT,
-  col_span        INT  NOT NULL DEFAULT 12 CHECK (col_span BETWEEN 1 AND 12),
-  sort_order      INT  NOT NULL DEFAULT 0,
-  config_override JSONB NOT NULL DEFAULT '{}',
-  UNIQUE (page_id, view_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_zvd_page_views_page ON zvd_page_views(page_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_zvd_page_views_view ON zvd_page_views(view_id);
-
--- ═══ SEED DATA ════════════════════════════════════════════════════════════
-
--- Seed default client zone
-INSERT INTO zvd_zones (name, slug, description, is_active, base_path, site_name, primary_color, nav_position)
-VALUES ('Client Portal', 'client', 'Portal for external clients', false, '/portal-client', 'Client Portal', '#069494', 'sidebar')
-ON CONFLICT DO NOTHING;
-
--- Create default "intranet" zone
-INSERT INTO zvd_zones (name, slug, description, is_active, base_path, access_roles, site_name, nav_position)
-VALUES ('Intranet', 'intranet', 'Internal portal for staff', false, '/intranet', ARRAY['employee','manager'], 'Intranet', 'sidebar')
-ON CONFLICT DO NOTHING;
-
--- ── from 051_fix_client_zone_base_path.sql ──
--- Align Client Portal zone base_path with the actual Studio route (/portal-client).
--- The original seed in 052 used "/portal/client" which never matched any Svelte route.
-UPDATE zvd_zones
-SET base_path = '/portal-client'
-WHERE slug = 'client' AND base_path = '/portal/client';
-
+-- ── zones / pages / views: RETIRED, not moved ──────────────────────
+--
+-- `zvd_zones`, `zvd_pages`, `zvd_page_views` and `zvd_views` were the portal
+-- architecture. `content/pages` replaced it and migrates OUT of these four
+-- tables into the `zv_page*` family; nothing writes them any more.
+--
+-- So they are not handed to an extension, they are simply no longer created.
+-- Recreating them in `content/pages` would resurrect a schema that extension
+-- exists to retire. A database upgraded from an older engine keeps its rows and
+-- its migration path — both remaining readers already treat absence as normal:
+-- `content/pages/001_initial.sql` guards with `to_regclass(...) IS NULL`, and
+-- `routes/admin/permission-routes.ts` treats SQLSTATE 42P01 as "no portals to
+-- grant", which is the correct answer on every install made from here on.
+--
+-- Measured before removing: no code in either repo reads them. The three hits a
+-- grep finds in `zveltio-extensions` are all comments. They also carried
+-- `tenant_id` with no row-level security of any kind — so retiring them closes
+-- that rather than carrying it forward.
 -- ── from 052_role_cleanup.sql ──
 -- Simplify user.role to only 'god' | 'member'.
 -- All other roles (admin, manager, employee, client, etc.) are Casbin-only concepts.
@@ -1627,24 +1514,11 @@ CREATE TABLE IF NOT EXISTS zvd_branch_review_requests (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Branch review comments
-CREATE TABLE IF NOT EXISTS zvd_branch_comments (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  branch_id   UUID NOT NULL,
-  author_id   TEXT NOT NULL,
-  body        TEXT NOT NULL,
-  change_ref  TEXT,  -- optional reference to a specific change in branch.changes
-  resolved    BOOLEAN NOT NULL DEFAULT false,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 ALTER TABLE zv_schema_branches ADD COLUMN IF NOT EXISTS review_status TEXT DEFAULT NULL CHECK (review_status IN ('pending','approved','changes_requested','rejected'));
 ALTER TABLE zv_schema_branches ADD COLUMN IF NOT EXISTS review_requested_by TEXT;
 ALTER TABLE zv_schema_branches ADD COLUMN IF NOT EXISTS labels TEXT[] NOT NULL DEFAULT '{}';
 
 CREATE INDEX IF NOT EXISTS idx_branch_reviews ON zvd_branch_review_requests(branch_id, status);
-CREATE INDEX IF NOT EXISTS idx_branch_comments ON zvd_branch_comments(branch_id, created_at DESC);
 
 -- ── from 064_schema_branches_preview_envs.sql ──
 -- Preview environments: a branch can be "activated" as a live preview
@@ -2188,34 +2062,6 @@ ALTER TABLE zv_panels ADD COLUMN IF NOT EXISTS title TEXT;
 UPDATE zv_panels SET title = name WHERE title IS NULL AND name IS NOT NULL;
 ALTER TABLE zv_panels ALTER COLUMN name DROP NOT NULL;
 
--- ── from 003_translation_glossary.sql ──────────────────────────────
-
--- Migration: 003_translation_glossary
---
--- Adds the missing `zvd_translation_glossary` table.
---
--- The /api/translations/glossary GET/POST routes referenced this table
--- but no migration ever created it. Calls would fail at runtime with
--- "relation zvd_translation_glossary does not exist". Surfaced during
--- the (db as any) cleanup pass when the route had to keep its cast
--- specifically because the table wasn't in DbSchema.
-
-CREATE TABLE IF NOT EXISTS zvd_translation_glossary (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  term        TEXT NOT NULL,
-  locale      TEXT NOT NULL,
-  translation TEXT NOT NULL,
-  definition  TEXT,
-  forbidden   BOOLEAN NOT NULL DEFAULT false,
-  created_by  TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (term, locale)
-);
-
-CREATE INDEX IF NOT EXISTS idx_translation_glossary_term ON zvd_translation_glossary (term);
-CREATE INDEX IF NOT EXISTS idx_translation_glossary_locale ON zvd_translation_glossary (locale);
-
 -- ── from 004_invitations.sql ───────────────────────────────────────
 
 -- Migration: 004_invitations
@@ -2306,12 +2152,6 @@ ALTER TABLE zv_extension_registry
 INSERT INTO zv_tenants (id, slug, name, plan, status)
 VALUES ('00000000-0000-0000-0000-000000000001', 'default', 'Default', 'enterprise', 'active')
 ON CONFLICT (id) DO NOTHING;
-
--- Backfill the built-in tenant-scoped content tables so existing rows belong to
--- the default tenant (otherwise FORCE RLS would hide them once enabled).
-UPDATE zvd_pages SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
-UPDATE zvd_views SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
-UPDATE zvd_zones SET tenant_id = '00000000-0000-0000-0000-000000000001' WHERE tenant_id IS NULL;
 
 -- ── from 008_casbin_domains.sql ────────────────────────────────────
 
@@ -2537,37 +2377,6 @@ UPDATE zvd_webhook_deliveries SET tenant_id = '00000000-0000-0000-0000-000000000
 ALTER TABLE zvd_webhook_deliveries ALTER COLUMN tenant_id SET DEFAULT
   COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
 CREATE INDEX IF NOT EXISTS idx_zvd_webhook_deliveries_tenant ON zvd_webhook_deliveries(tenant_id);
-
--- ── from 017_zones_views_tenant_isolation.sql ──────────────────────
-
--- Migration 017: complete tenant isolation for the zones/pages/views cluster.
---
--- zvd_zones / zvd_pages / zvd_views already carry tenant_id (added + backfilled
--- in 007_default_tenant.sql) but routes/zones.ts queried them by slug/id/zone_id
--- with NO tenant filter, so:
---   - list showed every tenant's zones/views,
---   - GET/PUT/DELETE zone-by-slug, page-by-(zone,slug), view-by-id and the
---     reorder endpoints reached across tenants, and
---   - the public render path resolved each view's records from zvd_<collection>
---     with no tenant scope → served another tenant's business data.
--- The route now scopes every access by tenantId(c). This migration:
---   1. gives zvd_page_views its own tenant_id (it had none — the reorder handler
---      updates it by raw id), and
---   2. adds the NULLIF-guarded session default to all four tables so any insert
---      that omits tenant_id still lands in the request tenant.
-
-ALTER TABLE zvd_page_views ADD COLUMN IF NOT EXISTS tenant_id UUID;
-UPDATE zvd_page_views SET tenant_id = '00000000-0000-0000-0000-000000000001'::uuid WHERE tenant_id IS NULL;
-CREATE INDEX IF NOT EXISTS idx_zvd_page_views_tenant ON zvd_page_views(tenant_id);
-
-ALTER TABLE zvd_zones ALTER COLUMN tenant_id SET DEFAULT
-  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
-ALTER TABLE zvd_pages ALTER COLUMN tenant_id SET DEFAULT
-  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
-ALTER TABLE zvd_views ALTER COLUMN tenant_id SET DEFAULT
-  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
-ALTER TABLE zvd_page_views ALTER COLUMN tenant_id SET DEFAULT
-  COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
 
 -- ── from 018_revisions_tenant_isolation.sql ────────────────────────
 
@@ -4367,10 +4176,6 @@ DROP INDEX IF EXISTS idx_zv_media_folders_parent;
 DROP TABLE IF EXISTS zv_media_folders;
 
 -- ── DOWN from 004_audit.sql ──
-DROP INDEX IF EXISTS idx_zvd_audit_log_created;
-DROP INDEX IF EXISTS idx_zvd_audit_log_record;
-DROP INDEX IF EXISTS idx_zvd_audit_log_table;
-DROP TABLE IF EXISTS zvd_audit_log;
 DROP INDEX IF EXISTS idx_zv_revisions_created;
 DROP INDEX IF EXISTS idx_zv_revisions_user;
 DROP INDEX IF EXISTS idx_zv_revisions_record;

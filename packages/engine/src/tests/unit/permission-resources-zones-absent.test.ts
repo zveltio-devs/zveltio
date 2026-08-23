@@ -1,6 +1,6 @@
 /**
  * `GET /resources` enumerates what a permission can be granted ON — collections,
- * plus the zones of `content/zones` when that extension is installed.
+ * plus any rows left in the retired `zvd_zones` on an upgraded database.
  *
  * It carried `.catch(() => [])` on the zones read. Two different facts came back
  * as the same empty list: "this install has no portals extension", which is the

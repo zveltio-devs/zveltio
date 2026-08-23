@@ -34,10 +34,14 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
   app.get('/resources', async (c) => {
     const collections = await DDLManager.getCollections(db);
 
-    // Zones are an extension now (`content/zones`), so this reads the table only
-    // if that extension is installed. The engine no longer owns the concept and
-    // must not fail when it is absent — which is most installs, since portals
-    // are not enabled by default.
+    // Zones are RETIRED, so this reads the table only where one still exists.
+    // `content/zones` was never a real extension name; the portal architecture
+    // became `content/pages`, which migrates out of `zvd_zones` rather than
+    // keeping it. The engine no longer creates the table either, so on every
+    // install made from here on this query answers 42P01 and the list is empty —
+    // which is correct, and is why the catch below is the normal path now rather
+    // than the unusual one. Only a database upgraded from an older engine still
+    // has rows to offer.
     //
     // Read defensively rather than through a service, because this endpoint
     // exists to ENUMERATE what can be granted: an extension that is present but

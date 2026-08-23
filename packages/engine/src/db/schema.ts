@@ -857,19 +857,6 @@ export interface ZvdPermissionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdAuditLogTable {
-  id: Generated<string>;
-  table_name: string;
-  record_id: string;
-  action: string;
-  old_data: unknown; // JSONB
-  new_data: unknown; // JSONB
-  user_id: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: Generated<Date>;
-}
-
 export interface ZvdWebhooksTable {
   id: Generated<string>;
   name: string;
@@ -1009,78 +996,6 @@ export interface ZvdCollectionViewsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NEW Portal tables — Zones / Pages / Views (migration 060)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface ZvdViewsTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  description: string | null;
-  collection: string;
-  view_type: 'table' | 'kanban' | 'calendar' | 'gallery' | 'stats' | 'chart' | 'list' | 'timeline';
-  fields: unknown; // JSONB
-  filters: unknown; // JSONB
-  sort_field: string | null;
-  sort_dir: 'asc' | 'desc' | null;
-  page_size: number;
-  config: unknown; // JSONB
-  is_public: boolean;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdZonesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  is_active: boolean;
-  access_roles: string[];
-  base_path: string;
-  site_name: string | null;
-  site_logo_url: string | null;
-  primary_color: string | null;
-  secondary_color: string | null;
-  custom_css: string | null;
-  nav_position: 'sidebar' | 'topbar' | 'both';
-  show_breadcrumbs: boolean;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdPagesTable {
-  id: Generated<string>;
-  tenant_id: string | null;
-  zone_id: string;
-  parent_id: string | null;
-  title: string;
-  slug: string;
-  icon: string | null;
-  description: string | null;
-  is_active: boolean;
-  is_homepage: boolean;
-  auth_required: boolean;
-  allowed_roles: string[];
-  sort_order: number;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdPageViewsTable {
-  id: Generated<string>;
-  page_id: string;
-  view_id: string;
-  title_override: string | null;
-  col_span: number;
-  sort_order: number;
-  config_override: unknown; // JSONB
-  tenant_id: Generated<string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1547,7 +1462,6 @@ export interface DbSchema {
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_audit_log: ZvdAuditLogTable;
   zvd_webhooks: ZvdWebhooksTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
@@ -1558,10 +1472,6 @@ export interface DbSchema {
   zvd_portal_sections: ZvdPortalSectionsTable;
   zvd_collection_views: ZvdCollectionViewsTable;
   // Portal new — Zones / Pages / Views
-  zvd_views: ZvdViewsTable;
-  zvd_zones: ZvdZonesTable;
-  zvd_pages: ZvdPagesTable;
-  zvd_page_views: ZvdPageViewsTable;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1574,18 +1484,3 @@ export type ZvdCollectionUpdate = Updateable<ZvdCollectionsTable>;
 
 export type ZvApiKeyRow = Selectable<ZvApiKeysTable>;
 export type NewZvApiKey = Insertable<ZvApiKeysTable>;
-
-export type ZvdViewRow = Selectable<ZvdViewsTable>;
-export type NewZvdView = Insertable<ZvdViewsTable>;
-export type ZvdViewUpdate = Updateable<ZvdViewsTable>;
-
-export type ZvdZoneRow = Selectable<ZvdZonesTable>;
-export type NewZvdZone = Insertable<ZvdZonesTable>;
-export type ZvdZoneUpdate = Updateable<ZvdZonesTable>;
-
-export type ZvdPageRow = Selectable<ZvdPagesTable>;
-export type NewZvdPage = Insertable<ZvdPagesTable>;
-export type ZvdPageUpdate = Updateable<ZvdPagesTable>;
-
-export type ZvdPageViewRow = Selectable<ZvdPageViewsTable>;
-export type NewZvdPageView = Insertable<ZvdPageViewsTable>;
