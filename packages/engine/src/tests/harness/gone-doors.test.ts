@@ -12,7 +12,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('gone dual doors (media + approvals + briefing + export/import)', () => {
+d('gone dual doors (media + approvals + briefing + export/import + edge CRUD)', () => {
   let app: Hono;
 
   beforeAll(async () => {
@@ -49,6 +49,15 @@ d('gone dual doors (media + approvals + briefing + export/import)', () => {
     const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
     expect(body.errors?.replacement ?? '').toBe('/ext/data/export');
     expect(body.detail ?? '').toMatch(/data\/export/);
+  });
+
+  it('GET /api/edge-functions returns 410 with the extension replacement', async () => {
+    // `/api/fn` stays the engine's — only CRUD moved. The two are easy to
+    // confuse, and pinning the shim here is what keeps them apart.
+    const res = await app.request('/api/edge-functions');
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
+    expect(body.errors?.replacement ?? '').toBe('/ext/developer/edge-functions');
   });
 
   it('GET /api/import/jobs returns 410 with data/import replacement', async () => {

@@ -33,7 +33,7 @@ import { goneRoutes } from './gone.js';
 import { syncRoutes } from './sync.js';
 import { electricRoutes } from './electric.js';
 import { openApiRoutes } from './openapi.js';
-import { edgeFunctionsRoutes, edgeFunctionInvokeRoutes } from './edge-functions.js';
+import { edgeFunctionInvokeRoutes } from './edge-functions.js';
 // Promoted-to-core (was extensions/) — these power admin UI pages that should
 // work out of the box on a fresh install instead of requiring marketplace install.
 import { backupRoutes } from './backup.js';
@@ -430,7 +430,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
-  // Schema branches — moved to extensions/developer/schema-branches
+  // Schema branches — promoted to core; see the mount below.
 
   // API documentation portal — moved to extensions/developer/api-docs
 
@@ -497,7 +497,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // BYOD Introspection — moved to extensions/developer/byod
 
   // Edge Functions — CRUD + sandboxed Bun Worker execution
-  app.route('/api/edge-functions', edgeFunctionsRoutes(db, auth));
+  // Edge function CRUD is owned by extensions/developer/edge-functions (Studio
+  // reaches it at /ext/…). 410 shim so an old caller gets the replacement.
+  app.route('/api/edge-functions', goneRoutes('/ext/developer/edge-functions', 'Edge functions'));
   app.route('/api/fn', edgeFunctionInvokeRoutes(db, auth));
 
   // P2: XML-escape helper to prevent injection via SITE_URL or page slugs
