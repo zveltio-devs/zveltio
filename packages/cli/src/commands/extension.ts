@@ -10,7 +10,7 @@ export async function extensionCommand(
 ) {
   switch (action) {
     case 'create':
-      await createExtension(name, opts.category || 'custom');
+      await createExtension(name, opts.category || 'custom', opts.codePage === true);
       break;
     case 'build':
       await buildExtension(opts);
@@ -18,9 +18,23 @@ export async function extensionCommand(
   }
 }
 
-async function createExtension(name: string, category: string) {
+/**
+ * Scaffold a new extension.
+ *
+ * The default page is an SDUI schema, not a Svelte file. That is not a style
+ * preference — across the 56 shipped extensions there are 61 schemas and one
+ * manifest still naming a component. A scaffold that opened with
+ * `studio/pages/+page.svelte` and mentioned schemas in a parenthesis taught
+ * every new author the 2% path first.
+ *
+ * `--code-page` still produces the Svelte page, for the UI a schema genuinely
+ * cannot express (canvas, chat, map, inbox). It prints why it is the rare road.
+ */
+async function createExtension(name: string, category: string, codePage: boolean) {
   const safeName = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   const extName = `${category}/${safeName}`;
+  // Extension-owned table namespace; `-` is not legal unquoted in an identifier.
+  const table = `zv_${safeName.replace(/-/g, '_')}_items`;
   const targetDir = join(process.cwd(), 'extensions', category, safeName);
 
   if (existsSync(targetDir)) {
@@ -32,8 +46,13 @@ async function createExtension(name: string, category: string) {
 
   // Create directory structure (v2 — no per-extension Studio build)
   await mkdir(join(targetDir, 'engine', 'migrations'), { recursive: true });
-  await mkdir(join(targetDir, 'studio', 'pages'), { recursive: true });
   await mkdir(join(targetDir, 'studio', 'src', 'components'), { recursive: true });
+  if (codePage) {
+    await mkdir(join(targetDir, 'studio', 'pages'), { recursive: true });
+  } else {
+    await mkdir(join(targetDir, 'studio', 'schemas'), { recursive: true });
+    await mkdir(join(targetDir, 'studio', 'messages'), { recursive: true });
+  }
 
   // manifest.json
   await writeFile(
@@ -55,6 +74,8 @@ async function createExtension(name: string, category: string) {
               path: `/admin/${safeName}`,
               label: name,
               icon: 'Puzzle',
+              // The page IS this file. Drop the key only for a code page.
+              ...(codePage ? {} : { schema: `schemas/${safeName}.json` }),
             },
           ],
           navGroup: 'developer',
@@ -88,7 +109,17 @@ const extension: ZveltioExtension = {
   },
 
   async register(app, ctx) {
-    app.get('/ping', (c) => c.json({ pong: true, extension: '${extName}' }));
+    // The route the generated page reads. ctx.db resolves the caller's tenant
+    // transaction, so this returns only that tenant's rows.
+    app.get('/items', async (c) => {
+      const data = await ctx.db
+        .selectFrom('${table}')
+        .selectAll()
+        .orderBy('created_at', 'desc')
+        .limit(100)
+        .execute();
+      return c.json({ data });
+    });
   },
 };
 
@@ -99,34 +130,114 @@ export default extension;
   // engine/migrations/001_init.sql
   await writeFile(
     join(targetDir, 'engine', 'migrations', '001_init.sql'),
-    `-- ${name} extension initial schema
--- Add your tables here
+    `-- ${name} — initial schema.
+--
+-- Tenant isolation is not optional and not something to add later: a table
+-- without it is readable by every tenant on the instance. The three parts below
+-- are the whole pattern.
 
--- Example:
--- CREATE TABLE IF NOT EXISTS zv_${safeName.replace(/-/g, '_')} (
---   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
---   name TEXT NOT NULL,
---   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
--- );
+CREATE TABLE IF NOT EXISTS ${table} (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  -- 1. The column, defaulting to the tenant of the transaction doing the write,
+  --    so application code never has to name it (and cannot forge it).
+  tenant_id UUID NOT NULL DEFAULT COALESCE(
+    NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
+    '00000000-0000-0000-0000-000000000001'::uuid
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_${table}_tenant ON ${table}(tenant_id);
+
+-- 2. FORCE matters. Without it Postgres lets the table owner bypass the policy,
+--    and the engine connects as owner on a stock install — RLS becomes advisory.
+ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;
+
+-- 3. The host's own predicate, not a hand-rolled copy: reads and writes agree
+--    with the column DEFAULT above, and the engine reconciles every policy
+--    named \`tenant_isolation_*\` onto it at boot.
+DROP POLICY IF EXISTS tenant_isolation_${table} ON ${table};
+CREATE POLICY tenant_isolation_${table} ON ${table}
+  USING (zveltio_tenant_scope_ok(tenant_id))
+  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
 `,
   );
 
-  // studio/pages/+page.svelte — tier-3 page synced into Studio at release
-  await writeFile(
-    join(targetDir, 'studio', 'pages', '+page.svelte'),
-    `<script lang="ts">
+  if (codePage) {
+    // studio/pages/+page.svelte — a code page, synced into Studio at release.
+    await writeFile(
+      join(targetDir, 'studio', 'pages', '+page.svelte'),
+      `<script lang="ts">
   import { api } from '$lib/api.js';
+
+  // A code page owns its fetching, loading and error states, and its strings
+  // have to reach i18n by hand. A schema gets all three from the host — worth
+  // re-checking that this page really needs to be code.
+  let items = $state<Array<{ id: string; name: string }>>([]);
+
+  $effect(() => {
+    api
+      .get<{ data: Array<{ id: string; name: string }> }>('/ext/${extName}/items')
+      .then((r) => {
+        items = r.data;
+      });
+  });
 </script>
 
 <div class="space-y-6">
   <h1 class="text-2xl font-bold">${name}</h1>
-  <p class="text-base-content/60">Welcome to the ${name} extension.</p>
-  <p class="text-sm opacity-60">
-    Engine route: <code>GET /ext/${extName}/ping</code>
-  </p>
+  {#each items as item (item.id)}
+    <div>{item.name}</div>
+  {/each}
 </div>
 `,
-  );
+    );
+  } else {
+    // studio/schemas/<name>.json — this IS the page. Rendered by the host.
+    await writeFile(
+      join(targetDir, 'studio', 'schemas', `${safeName}.json`),
+      `${JSON.stringify(
+        {
+          sduiSchema: 1,
+          title: `${safeName}.title`,
+          subtitle: `${safeName}.subtitle`,
+          resources: [
+            {
+              id: 'items',
+              // Must name a route this extension serves, inside its own
+              // /ext/<name>/ namespace — `extension validate` checks both.
+              dataSource: `/ext/${extName}/items`,
+              dataPath: 'data',
+              search: { fields: ['name'], placeholder: 'common.search' },
+              columns: [
+                { key: 'name', label: 'common.col.name' },
+                { key: 'created_at', label: 'common.col.created', type: 'date' },
+              ],
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    // studio/messages/en.json — the keys this schema owns. `common.*` comes
+    // from the host's shared vocabulary and must NOT be repeated here. Other
+    // locales are filled from `en` by the merge step.
+    await writeFile(
+      join(targetDir, 'studio', 'messages', 'en.json'),
+      `${JSON.stringify(
+        {
+          [`${safeName}.title`]: name,
+          [`${safeName}.subtitle`]: `Manage ${name.toLowerCase()} records`,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
 
   // Optional slot contributions — see EXTENSION-AUTHORING.md § Studio slot contributions
   await writeFile(
@@ -200,31 +311,63 @@ jobs:
 `,
   );
 
+  const pageLines = codePage
+    ? `    pages/
+      +page.svelte    <- code page (synced into Studio at release)`
+    : `    schemas/
+      ${safeName}.json  <- THE PAGE (rendered by the host; no build step)
+    messages/
+      en.json         <- keys this schema owns; other locales filled from en`;
+
   console.log(`Extension scaffolded at extensions/${category}/${safeName}/
 
-Structure (v2 — no studio/dist/ or per-extension vite):
   engine/
     index.ts          <- API routes (mounted at /ext/${extName}/*)
-    migrations/       <- SQL migrations
+    migrations/       <- SQL, with tenant isolation already wired
   studio/
-    pages/
-      +page.svelte    <- tier-3 admin page (synced into Studio at release)
+${pageLines}
     src/
       components/     <- shared Svelte (optional)
-      contribute.ts.example  <- rename to contribute.ts for slot widgets
+      contribute.ts.example  <- rename to contribute.ts for a dashboard widget
   manifest.json
   .gitattributes
   .github/workflows/ci.yml
 
 Next steps:
-  1. Add business logic in engine/index.ts
-  2. Build the admin UI in studio/pages/ (or add manifest.studio.pages[].schema for SDUI)
-  3. Run \`bunx @zveltio/cli extension pack\` to produce engine/index.js + integrity hash
-  4. For local Studio preview: sync into the monorepo (\`cd packages/studio && bun scripts/sync-extensions.ts\`)
-     then \`bun run dev\` in packages/studio — see EXTENSION-DEVELOPER-GUIDE.md §2
+  1. Put your logic in engine/index.ts — that is where the truth lives
+  2. ${
+    codePage
+      ? 'Write the page in studio/pages/+page.svelte'
+      : `Shape the page in studio/schemas/${safeName}.json`
+  }
+  3. \`bunx @zveltio/cli extension pack\` — produces engine/index.js + integrity
+     (validate needs this: it rejects a manifest with no engine block)
+  4. \`bunx @zveltio/cli extension validate\`${
+    codePage
+      ? ' — manifest, migrations and bundle'
+      : ` — checks the schema against the
+     routes you actually serve, and the message keys against what you ship`
+  }
+  5. Local preview: \`cd packages/studio && bun scripts/sync-extensions.ts\`,
+     then \`bun run dev\` — see EXTENSION-DEVELOPER-GUIDE.md §2
+
+Where UI goes:
+  a page                    -> studio/schemas/*.json          (almost always)
+  a widget on the dashboard -> studio/src/contribute.ts        (occasionally)
+  canvas / chat / map / IDE -> studio/pages/+page.svelte       (rarely)
 
 Do NOT add studio/vite.config.ts, studio/package.json, or studio/dist/ — removed in alpha.94/beta.15.
 `);
+
+  if (codePage) {
+    console.warn(
+      `\x1b[33mScaffolded a CODE page. Across the 56 shipped extensions there are 61
+schemas and one component, so this is the 2% road: you now own fetching,
+loading and error states, i18n by hand, and a Studio release to ship a change.
+Worth it for a canvas, a chat, a map or an inbox — for a list, a form or
+settings, delete studio/pages/ and add \`schema\` back to manifest.studio.pages[0].\x1b[0m`,
+    );
+  }
 }
 
 /**
