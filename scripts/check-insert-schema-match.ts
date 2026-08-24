@@ -35,21 +35,25 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { SQL } from 'bun';
+// One definition of "the database a real install produces", shared with
+// `schema-snapshot.ts`. A second copy of "apply the migrations in order" is
+// exactly the drift this repo keeps paying for.
+import {
+  ADMIN_URL,
+  EXT_ROOT,
+  ROOT,
+  buildInstallTemplate,
+  dbUrl,
+  extensionDirs,
+  upHalf,
+} from './lib/install-template.js';
 
-const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
 const BASELINE = join(ROOT, 'quality-gates', 'insert-schema-match.json');
 const VERBOSE = process.argv.includes('--verbose');
 const ONLY = (() => {
   const i = process.argv.indexOf('--ext');
   return i === -1 ? null : (process.argv[i + 1] ?? null);
 })();
-
-const ADMIN_URL =
-  process.env.SEAM_DATABASE_URL ??
-  `postgres://${process.env.PGUSER ?? 'postgres'}:${process.env.PGPASSWORD ?? 'postgres'}@${
-    process.env.PGHOST ?? 'localhost'
-  }:${process.env.PGPORT ?? '5432'}/postgres`;
 
 // ─── The engine schema, built once ───────────────────────────────────────────
 // An extension's migrations are written to run after the engine's, and they
@@ -65,67 +69,11 @@ const ADMIN_URL =
 // So: apply the engine's real migrations once into a template database, and
 // clone it per extension. `CREATE DATABASE … TEMPLATE` is a file copy, so 54
 // clones cost about what one migration run costs, and nothing is guessed.
-const ENGINE_MIGRATIONS = join(ROOT, 'packages', 'engine', 'src', 'db', 'migrations', 'sql');
 const TEMPLATE_DB = `zveltio_seam_base_${process.pid}`;
 
+/** The full-install template, built by the shared helper. */
 async function buildTemplate(admin: SQL): Promise<string[]> {
-  const problems: string[] = [];
-  await admin.unsafe(`DROP DATABASE IF EXISTS ${TEMPLATE_DB}`);
-  await admin.unsafe(`CREATE DATABASE ${TEMPLATE_DB}`);
-  const db = new SQL(dbUrl(TEMPLATE_DB));
-  try {
-    await db.unsafe(
-      'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS pgcrypto;',
-    );
-    const files = readdirSync(ENGINE_MIGRATIONS)
-      .filter((f) => f.endsWith('.sql'))
-      .sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
-    for (const f of files) {
-      try {
-        await db.unsafe(upHalf(readFileSync(join(ENGINE_MIGRATIONS, f), 'utf8')));
-      } catch (err) {
-        problems.push(`engine/${f}: ${(err as Error).message.split('\n')[0]}`);
-      }
-    }
-    // The default tenant every extension migration backfills against.
-    await db.unsafe(
-      `INSERT INTO zv_tenants (id, slug, name)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'root', 'Root')
-       ON CONFLICT DO NOTHING`,
-    );
-    // Then every extension's migrations, so the template is what a real install
-    // looks like rather than an engine with one extension bolted on.
-    //
-    // This closes a blind spot that hid a live defect. `ecommerce/store` writes
-    // `zvd_products`, which `operations/inventory` owns; with only the store's
-    // own schema built, that table did not exist and the check was skipped.
-    // `zvd_products.created_by` is NOT NULL with no default and the INSERT never
-    // supplied it, so the canonical product was never created and the storefront
-    // product was never linked to inventory — on any install, ever. Checking an
-    // extension against only its own tables answers the smaller question.
-    for (const dir of extensionDirs(EXT_ROOT)) {
-      const migDir = join(dir, 'engine', 'migrations');
-      if (!existsSync(migDir)) continue;
-      for (const f of readdirSync(migDir)
-        .filter((x) => x.endsWith('.sql'))
-        .sort()) {
-        try {
-          await db.unsafe(upHalf(readFileSync(join(migDir, f), 'utf8')));
-        } catch (err) {
-          problems.push(
-            `${dir.slice(EXT_ROOT.length + 1)}/${f}: ${(err as Error).message.split('\n')[0]}`,
-          );
-        }
-      }
-    }
-  } finally {
-    await db.end();
-  }
-  return problems;
-}
-
-function dbUrl(name: string): string {
-  return ADMIN_URL.replace(/\/postgres(\?|$)/, `/${name}$1`);
+  return buildInstallTemplate(admin, TEMPLATE_DB);
 }
 
 interface ColumnInfo {
@@ -534,38 +482,6 @@ function tsFiles(dir: string): string[] {
   };
   walk(dir);
   return out;
-}
-
-function extensionDirs(root: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string, depth: number) => {
-    if (depth > 4 || !existsSync(d)) return;
-    for (const e of readdirSync(d)) {
-      if (e === 'node_modules' || e.startsWith('.')) continue;
-      const p = join(d, e);
-      if (!statSync(p).isDirectory()) continue;
-      if (existsSync(join(p, 'manifest.json')) && existsSync(join(p, 'engine'))) out.push(p);
-      else walk(p, depth + 1);
-    }
-  };
-  walk(root, 0);
-  return out.sort();
-}
-
-/**
- * Strip everything from the `-- DOWN` marker on: that half is rollback SQL, and
- * applying it drops the tables the UP half just created.
- *
- * `\s*$`, not `\b` — the marker is a line that is exactly `-- DOWN`. The loose
- * form also matches `-- DOWN: manual rollback required`, which is prose, and
- * the engine's `001_initial.sql` contains that exact line at 1207. Cutting
- * there discarded 1189 lines of schema and built a 61-table database instead of
- * a 113-table one, which made five later migrations and twenty extensions look
- * broken. Same rule as `db/migrations/index.ts:213`.
- */
-function upHalf(sql: string): string {
-  const m = /^[ \t]*--[ \t]*DOWN[ \t]*$/im.exec(sql);
-  return m ? sql.slice(0, m.index) : sql;
 }
 
 async function main(): Promise<void> {
