@@ -78,11 +78,28 @@ describe('CORS_ORIGINS as the explicit allowlist', () => {
     expect(checkWsOrigin('https://studio.example', 'api.example').allowed).toBe(true);
   });
 
-  it('refuses an unlisted origin even when it matches the host', () => {
-    // An explicit allowlist replaces the same-origin fallback rather than
-    // widening it: an operator who wrote a list meant that list.
+  it('still allows same-origin when the list names only other origins', () => {
+    // This used to assert the opposite — "an explicit allowlist replaces the
+    // same-origin fallback rather than widening it: an operator who wrote a list
+    // meant that list". Coherent, and wrong about the one origin that is not a
+    // third party: the Studio is served BY this engine, so its origin is
+    // whatever the operator reached the engine on.
+    //
+    // Measured on a clean install: `CORS_ORIGINS` was set for a separate
+    // frontend, and every Studio WebSocket upgrade was refused with
+    // `origin http://127.0.0.1:3300 is not in CORS_ORIGINS` — realtime dead on
+    // the admin UI, with the reason only in the server log. The operator wrote
+    // that list to admit their frontend, not to evict their own admin panel.
     process.env.CORS_ORIGINS = 'https://studio.example';
-    expect(checkWsOrigin('https://api.example', 'api.example').allowed).toBe(false);
+    expect(checkWsOrigin('https://api.example', 'api.example').allowed).toBe(true);
+  });
+
+  it('still refuses a cross-origin caller that is not on the list', () => {
+    // The guard the allowlist exists for is untouched: a page on another origin
+    // opening a socket with the victim's cookie is refused whether or not a list
+    // is configured. That is the whole attack.
+    process.env.CORS_ORIGINS = 'https://studio.example';
+    expect(checkWsOrigin('https://evil.example', 'api.example').allowed).toBe(false);
   });
 
   it('honours a wildcard when an operator sets one', () => {
