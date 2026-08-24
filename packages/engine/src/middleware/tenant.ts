@@ -102,6 +102,24 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
       await next();
     }
   } catch (err) {
+    // Saturation is not a server fault, and answering 500 tells the caller to
+    // give up when it should retry. Before this branch existed the request did
+    // not even get that far: `pool.reserve()` had no deadline, so a saturated
+    // engine stopped answering altogether instead of refusing.
+    if ((err as { code?: string })?.code === 'pool_busy') {
+      console.warn('[Tenant Middleware] pool saturated — refusing rather than queueing:', err);
+      c.header('Retry-After', '1');
+      return c.json(
+        {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          code: 'pool_busy',
+          detail: 'The database connection pool is saturated. Retry shortly.',
+        },
+        503,
+      );
+    }
     console.error('[Tenant Middleware] Critical: failed to establish tenant context:', err);
     return c.json(
       { error: 'Could not establish tenant context. Request rejected for security.' },
