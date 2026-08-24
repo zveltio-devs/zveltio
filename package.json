@@ -68,7 +68,7 @@
     "fast-check": "^4.9.0",
     "kysely": "^0.29.0",
     "svelte-check": "^4.7.6",
-    "vite": "^8.2.1",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
   "overrides": {
