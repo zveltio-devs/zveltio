@@ -435,6 +435,17 @@ jobs:
             echo "Cloning zveltio-extensions@master (no paired branch $REF)"
             git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           fi
+      - name: Install PostGIS into the Postgres service
+        # The pgvector image (needed for the engine's vector columns) does not
+        # ship postgis, which `geospatial/postgis` needs. Without it that
+        # extension's two migrations fail and the install is incomplete — which
+        # this job then refuses to snapshot, correctly: a schema recorded with
+        # five tables missing would be a baseline built around a broken install.
+        # Same step the extensions repo already runs for the same reason.
+        run: |
+          docker exec ${{ job.services.postgres.id }} bash -c \
+            "apt-get update -qq && apt-get install -y -qq postgresql-18-postgis-3 postgresql-18-postgis-3-scripts"
+
       - name: Schema snapshot
         # Records what a real install produces and fails when it changes. Every
         # other schema gate asks whether the code agrees with the migrations;
