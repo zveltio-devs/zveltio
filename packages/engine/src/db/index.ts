@@ -80,24 +80,23 @@ export async function initDatabase(): Promise<Database> {
   // default; if both are set, BUN_SQL_IDLE_TIMEOUT_MS wins because
   // it's the one documented in EXTENSION-DEVELOPER-GUIDE.
   const idleEnv = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS;
-  // 10 was a ceiling on CONCURRENT REQUESTS, not a connection budget — see the
-  // note on `max` below. It was chosen when overflow meant queueing; overflow
-  // actually meant the engine stopped answering, permanently, and ten concurrent
-  // users reached it. Measured: 10 concurrent requests to one collection took
-  // the instance down and only a restart brought it back.
+  // Stays 10. It was raised to 25 here and reverted the same day, because the
+  // reasoning for raising it was wrong in a way worth writing down.
   //
-  // 25 with a 5s acquire deadline (see `reserveWithTimeout`) instead. The
-  // deadline is what makes a larger number safe: past it, requests are refused
-  // with 503 and Retry-After rather than piling up. 25 apiece was measured to
-  // exhaust one Postgres when CI ran several engines against it — that is a real
-  // constraint, which is why this stays an env var and why the default is not
-  // larger. Raise it against a `max_connections` you have checked.
+  // The argument was: overflow used to kill the engine, `reserveWithTimeout` now
+  // makes it refuse instead, so a larger pool is safe. The deadline does make
+  // overflow GRACEFUL — it does nothing about how many connections an instance
+  // opens. Those are different quantities and the comment above already said so:
+  // 25 apiece had been measured to exhaust one Postgres when CI runs several
+  // engines against it. It did exactly that again — 498 "sorry, too many clients
+  // already" and three failure-injection tests down, on the first CI run.
   //
-  // This is a stopgap, not the answer. One pinned connection per in-flight
-  // request cannot reach thousands of concurrent users at any pool size; that
-  // needs the connection held only for the queries rather than for the whole
-  // request.
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+  // So the ceiling on concurrent requests is still 10 by default, and that is
+  // still too low for the product's target. Raising it is an operator decision
+  // taken against a `max_connections` they have checked — which is what the env
+  // var is for — and not a default anyone else inherits. The product answer is
+  // to stop pinning a connection for the whole request; no default fixes that.
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
