@@ -204,6 +204,25 @@ async function main(): Promise<void> {
       `[schema-snapshot] ${problems.length} migration(s) failed — snapshot not trusted:`,
     );
     for (const p of problems.slice(0, 20)) console.error(`  ${p}`);
+    // Separated because the two have completely different fixes and look
+    // identical in the list above. A missing server-side extension is the
+    // machine's problem, not the migration's: `geospatial/postgis` needs postgis,
+    // which the pgvector image does not ship, and the first CI run of this job
+    // failed that way and read as five broken tables.
+    const missing = [
+      ...new Set(
+        problems.flatMap((p) =>
+          [...p.matchAll(/extension "(\w+)" is not available/g)].map((m) => m[1]),
+        ),
+      ),
+    ];
+    if (missing.length > 0) {
+      console.error(
+        `\n  ${missing.map((m) => `"${m}"`).join(', ')} is not installed on this PostgreSQL.\n` +
+          `  That is an environment gap, not a broken migration — install it and re-run.\n` +
+          `  A snapshot taken without it would be missing whatever those extensions create.`,
+      );
+    }
     process.exit(1);
   }
 
