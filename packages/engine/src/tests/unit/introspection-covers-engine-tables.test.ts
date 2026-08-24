@@ -45,8 +45,8 @@ describe('introspection refuses every table the engine owns', () => {
     expect({ missed }).toEqual({ missed: [] });
   });
 
-  it('names the five unprefixed ones explicitly, since no prefix can catch them', () => {
-    for (const t of ['user', 'session', 'account', 'verification', 'twoFactor']) {
+  it('names the unprefixed ones explicitly, since no prefix can catch them', () => {
+    for (const t of ['user', 'session', 'account', 'verification', 'twoFactor', 'passkey']) {
       expect(isPlatformTable(t)).toBe(true);
     }
   });
