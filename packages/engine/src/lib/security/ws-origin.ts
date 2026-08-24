@@ -19,11 +19,15 @@
  * that already holds the cookie gains nothing from omitting a header. Rejecting
  * would break every legitimate non-browser consumer to stop nobody.
  *
- * **Without CORS_ORIGINS we require same-origin** rather than replicating the
- * auth module's interface-scanning allowlist. The browser sets `Origin` to the
- * page's origin and `Host` to what it connected to, so demanding they match
- * covers localhost, a LAN IP and a real domain without configuration — and
- * cannot drift from a second copy of the list.
+ * **Same-origin is always allowed**, before any allowlist is consulted. The
+ * browser sets `Origin` to the page's origin and `Host` to what it connected to,
+ * so demanding they match covers localhost, a LAN IP and a real domain without
+ * configuration — and cannot drift from a second copy of the list. It is checked
+ * first because the Studio is served by this engine: its origin is not something
+ * an operator should have to declare, and requiring it in `CORS_ORIGINS` broke
+ * realtime on every instance where that list was set for a separate frontend.
+ *
+ * `CORS_ORIGINS` then widens the set for genuinely cross-origin clients.
  */
 
 export interface OriginVerdict {
@@ -61,6 +65,27 @@ export function checkWsOrigin(
     return { allowed: true, reason: 'no Origin header (non-browser client)' };
   }
 
+  // Same-origin is allowed BEFORE the allowlist is consulted, not after.
+  //
+  // The Studio is served BY this engine, so its origin is whatever the operator
+  // reached the engine on. Requiring that to also appear in `CORS_ORIGINS` makes
+  // the app's own socket depend on a list that exists to describe OTHER origins —
+  // and `.env.example` tells operators to set that list, for their frontend. The
+  // moment they do, realtime in the admin UI stops, silently, with the reason
+  // only in the server log.
+  //
+  // Measured: an engine on 127.0.0.1:3300 serving its own Studio refused every
+  // upgrade with `origin http://127.0.0.1:3300 is not in CORS_ORIGINS`, because
+  // the list named three other ports.
+  //
+  // This cannot weaken the guard. The attack is a page on ANOTHER origin opening
+  // a socket with the victim's cookie attached; such a page has a different
+  // `Origin` by definition, and browsers set `Host` to what was connected to.
+  // An Origin that equals the Host is the application itself.
+  if (origin && host && isSameOrigin(origin, host)) {
+    return { allowed: true, reason: 'same-origin' };
+  }
+
   const allowlist = configuredOrigins();
   if (allowlist) {
     // `*` is accepted because an operator who writes it has said what they
@@ -78,21 +103,20 @@ export function checkWsOrigin(
     return { allowed: false, reason: 'Origin present but no Host header to compare against' };
   }
 
-  // Same-origin: the Origin's host[:port] must equal the Host header.
-  let originHost: string;
-  try {
-    originHost = new URL(origin).host;
-  } catch {
-    return { allowed: false, reason: `malformed Origin header: ${origin}` };
-  }
+  // Reaching here means not same-origin (checked above) and no allowlist.
+  return {
+    allowed: false,
+    reason:
+      `cross-origin WebSocket from ${origin} to host ${host}. ` +
+      `Set CORS_ORIGINS if this origin is legitimate.`,
+  };
+}
 
-  const ok = normalise(originHost) === normalise(host);
-  return ok
-    ? { allowed: true, reason: 'same-origin' }
-    : {
-        allowed: false,
-        reason:
-          `cross-origin WebSocket from ${origin} to host ${host}. ` +
-          `Set CORS_ORIGINS if this origin is legitimate.`,
-      };
+/** Whether `origin`'s host[:port] equals the Host header. Malformed → false. */
+function isSameOrigin(origin: string, host: string): boolean {
+  try {
+    return normalise(new URL(origin).host) === normalise(host);
+  } catch {
+    return false;
+  }
 }
