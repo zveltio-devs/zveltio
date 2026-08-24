@@ -53,7 +53,8 @@ const PLATFORM_PREFIXES = ['zv_', 'zvd_', '_zv_', 'pg_'];
  *
  * A prefix test alone is a denylist over an open namespace, and the engine's
  * most sensitive tables are exactly the ones outside it: Better-Auth creates
- * `user`, `session`, `account`, `verification` and `twoFactor` unprefixed in
+ * `user`, `session`, `account`, `verification`, `twoFactor` and `passkey`
+ * unprefixed in
  * `public` (`db/migrations/sql/001_initial.sql`). None matches a prefix, so
  * importing the default schema registered them as ordinary collections with
  * `is_managed = false`.
@@ -72,7 +73,18 @@ const PLATFORM_PREFIXES = ['zv_', 'zvd_', '_zv_', 'pg_'];
  * names are enumerated instead, and `introspection-covers-engine-tables.test.ts`
  * fails if a migration ever adds an unprefixed table that is not in this list.
  */
-const PLATFORM_TABLES = new Set(['user', 'session', 'account', 'verification', 'twoFactor']);
+const PLATFORM_TABLES = new Set([
+  'user',
+  'session',
+  'account',
+  'verification',
+  'twoFactor',
+  // `passkey` arrived with migration 002 and is unprefixed like the rest of
+  // Better Auth's tables. Without it here, introspection would offer it as an
+  // ordinary collection and the generic record API would hand out
+  // `publicKey`, `credentialID` and `counter` to anyone granted it.
+  'passkey',
+]);
 
 export function isPlatformTable(tableName: string): boolean {
   if (PLATFORM_TABLES.has(tableName)) return true;
