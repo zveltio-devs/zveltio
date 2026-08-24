@@ -217,10 +217,18 @@ async function loadSystem() {
 async function loadCollections() {
   collectionsLoading = true;
   try {
-    const colRes = await api.get<{ collections: Array<{ name: string; label?: string }> }>(
-      '/api/collections',
-    );
-    const cols = colRes.collections ?? [];
+    const colRes = await api.get<{
+      collections: Array<{ name: string; label?: string; is_system?: boolean }>;
+    }>('/api/collections');
+    // System collections are excluded, not counted-and-shown-as-zero.
+    //
+    // `/api/collections` returns the Better Auth tables `user` and `session`
+    // with `is_system: true`, and the data API deliberately does not serve them
+    // — so asking for a count answered 404, `allSettled` swallowed it, and the
+    // dashboard displayed "0 records" for two tables that are not empty. Two
+    // failed requests on every dashboard load also bury real errors in the
+    // console, which is how this went unnoticed.
+    const cols = (colRes.collections ?? []).filter((c) => !c.is_system);
     const countResults = await Promise.allSettled(
       cols.map((col) =>
         api.get<{ total?: number; pagination?: { total: number } }>(

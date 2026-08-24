@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 383
+# tables: 384
 
 table account
   col accessToken                    text
@@ -41,6 +41,21 @@ table geometry_columns
   col f_table_schema                 name
   col srid                           integer
   col type                           character varying
+
+table passkey
+  col aaguid                         text
+  col backedUp                       boolean NOT NULL DEFAULT false
+  col counter                        integer NOT NULL DEFAULT 0
+  col createdAt                      timestamp with time zone NOT NULL DEFAULT now()
+  col credentialID                   text NOT NULL
+  col deviceType                     text NOT NULL
+  col id                             text NOT NULL
+  col name                           text
+  col publicKey                      text NOT NULL
+  col transports                     text
+  col userId                         text NOT NULL
+  pk  passkey_pkey PRIMARY KEY (id)
+  fk  passkey_userId_fkey FOREIGN KEY ("userId") REFERENCES "user"(id) ON DELETE CASCADE
 
 table session
   col createdAt                      timestamp with time zone NOT NULL DEFAULT now()
