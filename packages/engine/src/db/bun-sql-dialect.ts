@@ -38,6 +38,75 @@ interface BunReservedConnection {
   release(): void;
 }
 
+/**
+ * How long a request may wait for a pooled connection before being refused.
+ *
+ * `pool.reserve()` has no timeout of its own, and that is what turned a busy
+ * engine into a dead one. Measured: with `DB_POOL_MAX=10`, ten concurrent
+ * requests to `/api/data/<c>` did not queue and recover — the engine stopped
+ * answering entirely and stayed that way. The process was alive and listening,
+ * requests appeared in the log as `<-- GET` and no `-->` ever followed, and
+ * Postgres showed no held connections. Only a restart brought it back.
+ *
+ * Waiting forever is never the right answer for an HTTP request. The caller has
+ * its own timeout, so an unbounded wait converts backpressure — which a client
+ * can retry — into a hang, which it cannot.
+ *
+ * Five seconds is well above a healthy request: the same endpoint at fifty
+ * concurrent with a wider pool settles at p99 185ms. A wait that long means the
+ * pool is saturated, and saying so beats pretending.
+ */
+const ACQUIRE_TIMEOUT_MS = Number(process.env.DB_ACQUIRE_TIMEOUT_MS ?? 5_000);
+
+/** Thrown when the pool is saturated. Mapped to 503 by the tenant middleware. */
+export class PoolBusyError extends Error {
+  readonly code = 'pool_busy';
+  constructor(waitedMs: number) {
+    super(
+      `No database connection available after ${waitedMs}ms. The pool is saturated — ` +
+        `raise DB_POOL_MAX (against your Postgres max_connections) or reduce concurrency.`,
+    );
+    this.name = 'PoolBusyError';
+  }
+}
+
+/**
+ * `pool.reserve()` with a deadline.
+ *
+ * The late-arrival release is the part that matters. Abandoning the promise
+ * would leak the connection it eventually resolves to — every timeout would
+ * shrink the pool by one, which is the failure this exists to prevent, arriving
+ * more slowly. So the losing promise still gets its connection released.
+ */
+async function reserveWithTimeout(pool: BunSQLPool): Promise<BunReservedConnection> {
+  const pending = pool.reserve();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new PoolBusyError(ACQUIRE_TIMEOUT_MS)), ACQUIRE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([pending, deadline]);
+  } catch (err) {
+    if (err instanceof PoolBusyError) {
+      void pending.then(
+        (conn) => {
+          try {
+            conn.release();
+          } catch {
+            /* already closed — nothing to give back */
+          }
+        },
+        () => {
+          /* the reserve itself failed; nothing was handed out */
+        },
+      );
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Main Bun.SQL pool */
 interface BunSQLPool {
   /** Execute raw parameterized SQL */
@@ -315,9 +384,8 @@ class BunSqlSmartConnection implements DatabaseConnection {
 
   /** Called by beginTransaction() to pin a backend connection. */
   async reserveForTransaction(): Promise<void> {
-    if (!this.#reserved) {
-      this.#reserved = await this.#pool.reserve();
-    }
+    if (this.#reserved) return;
+    this.#reserved = await reserveWithTimeout(this.#pool);
   }
 
   /**

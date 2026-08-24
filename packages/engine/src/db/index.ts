@@ -80,7 +80,24 @@ export async function initDatabase(): Promise<Database> {
   // default; if both are set, BUN_SQL_IDLE_TIMEOUT_MS wins because
   // it's the one documented in EXTENSION-DEVELOPER-GUIDE.
   const idleEnv = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS;
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
+  // 10 was a ceiling on CONCURRENT REQUESTS, not a connection budget — see the
+  // note on `max` below. It was chosen when overflow meant queueing; overflow
+  // actually meant the engine stopped answering, permanently, and ten concurrent
+  // users reached it. Measured: 10 concurrent requests to one collection took
+  // the instance down and only a restart brought it back.
+  //
+  // 25 with a 5s acquire deadline (see `reserveWithTimeout`) instead. The
+  // deadline is what makes a larger number safe: past it, requests are refused
+  // with 503 and Retry-After rather than piling up. 25 apiece was measured to
+  // exhaust one Postgres when CI ran several engines against it — that is a real
+  // constraint, which is why this stays an env var and why the default is not
+  // larger. Raise it against a `max_connections` you have checked.
+  //
+  // This is a stopgap, not the answer. One pinned connection per in-flight
+  // request cannot reach thousands of concurrent users at any pool size; that
+  // needs the connection held only for the queries rather than for the whole
+  // request.
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
