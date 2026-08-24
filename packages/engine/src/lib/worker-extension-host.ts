@@ -786,10 +786,30 @@ async function runRawWithParams(
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
 
   const reserved = await pool.reserve();
-  let roleSet = false;
-  let tenantSet = false;
+  let inTransaction = false;
   try {
-    await reserved.unsafe(`SET statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
+    // Everything below runs in a transaction so the role and the tenant GUC are
+    // `SET LOCAL` and unwind themselves — on COMMIT, on ROLLBACK, and on any
+    // error in between.
+    //
+    // They used to be session settings reset in `finally`, with every reset
+    // written `.catch(() => undefined)`. That is best-effort cleanup on a
+    // connection going straight back into the pool, and the comment there
+    // already named the price: "leaking either would silently cap or
+    // de-privilege unrelated engine queries that reuse this connection."
+    //
+    // It did. Under concurrency, Better Auth borrowed a connection this bridge
+    // had left as `zveltio_rls` and answered `permission denied for table
+    // session` — 401s and 500s on requests that had nothing to do with any
+    // extension. The tenant GUC leaks by the same path and is the worse half: a
+    // pooled connection carrying another tenant's id scopes whatever runs on it
+    // next, outside a tenant transaction, to that tenant.
+    //
+    // `SET LOCAL` cannot leak, because Postgres unwinds it. Statements that
+    // would end this transaction early are refused by `assertWorkerSqlAllowed`.
+    await reserved.unsafe('BEGIN');
+    inTransaction = true;
+    await reserved.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
     // Best-effort: a managed Postgres may not have let migration 030 create the
     // role. Failing the query outright would take every worker extension down
     // on such a deployment, which is a worse outcome than the status quo there.
@@ -804,8 +824,7 @@ async function runRawWithParams(
       // `zveltio_worker` is granted collection tables only (migration 043), and
       // is NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
       // as it does for a request.
-      await reserved.unsafe('SET ROLE zveltio_worker');
-      roleSet = true;
+      await reserved.unsafe('SET LOCAL ROLE zveltio_worker');
     } catch {
       // The narrow role is absent — a managed Postgres that would not let
       // migration 043 create it. Fall back rather than taking every worker
@@ -813,8 +832,7 @@ async function runRawWithParams(
       // the layer that holds. That is why the policy was inverted first: this
       // fallback has to be survivable on its own.
       try {
-        await reserved.unsafe('SET ROLE zveltio_rls');
-        roleSet = true;
+        await reserved.unsafe('SET LOCAL ROLE zveltio_rls');
       } catch {
         /* neither role present — see migrations 030 and 043 */
       }
@@ -823,26 +841,37 @@ async function runRawWithParams(
       // Parameterised: this value comes from the host's own record, but it is
       // interpolated into a session setting, and `set_config` takes a bind
       // parameter where `SET` does not.
-      await reserved.unsafe('SELECT set_config($1, $2, false)', [
+      await reserved.unsafe('SELECT set_config($1, $2, true)', [
         'zveltio.current_tenant',
         tenantId,
       ]);
-      tenantSet = true;
     }
-    return (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
+    const rows = (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
+    await reserved.unsafe('COMMIT');
+    inTransaction = false;
+    return rows;
   } finally {
     // Reset before returning the connection to the pool — these are per-SESSION
     // settings, not per-transaction, so leaking either would silently cap or
     // de-privilege unrelated engine queries that reuse this connection.
     // Order matters: RESET ROLE last, because resetting the tenant GUC needs
     // the privileges the role may not have.
-    if (tenantSet) {
-      await reserved
-        .unsafe('SELECT set_config($1, $2, false)', ['zveltio.current_tenant', ''])
-        .catch(() => undefined);
+    // ROLLBACK is what returns the connection clean when the statement threw. If
+    // even that fails the connection is in an unknown state, and the one thing it
+    // must not be is reused: a borrower inheriting a role or a tenant id is the
+    // failure this block exists to prevent. Losing a connection is cheaper than
+    // handing out a contaminated one.
+    if (inTransaction) {
+      try {
+        await reserved.unsafe('ROLLBACK');
+      } catch {
+        try {
+          (reserved as unknown as { close?: () => void }).close?.();
+        } catch {
+          /* nothing left to try — the release below still drops our hold */
+        }
+      }
     }
-    if (roleSet) await reserved.unsafe('RESET ROLE').catch(() => undefined);
-    await reserved.unsafe('SET statement_timeout = DEFAULT').catch(() => undefined);
     reserved.release();
   }
 }

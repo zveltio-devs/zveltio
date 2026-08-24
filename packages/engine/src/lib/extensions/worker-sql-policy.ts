@@ -54,6 +54,20 @@ const CODE_BEARING_FORMS: { re: RegExp; what: string }[] = [
   },
   // `COPY … FROM PROGRAM` is command execution on the database host, not SQL.
   { re: /\bCOPY\b[\s\S]*?\bPROGRAM\b/i, what: 'COPY … PROGRAM' },
+  // Transaction control ends the host's transaction, not the extension's.
+  //
+  // The bridge wraps each statement in a transaction so `SET LOCAL ROLE` and the
+  // tenant GUC unwind themselves when it ends. A statement that COMMITs escapes
+  // that wrapper: the role and the GUC become session settings on a pooled
+  // connection, and the next borrower inherits them. Nothing else in this
+  // allowlist would stop it — `COMMIT` names no table.
+  //
+  // An extension has no business managing the host's transaction in any case;
+  // `ctx.db.transaction()` is the supported way to group writes.
+  {
+    re: /^\s*(BEGIN|COMMIT|ROLLBACK|END|SAVEPOINT|START\s+TRANSACTION|SET\s+(LOCAL\s+)?(ROLE|SESSION\s+AUTHORIZATION)|RESET\s+ROLE|DISCARD)\b/i,
+    what: 'transaction or session control',
+  },
 ];
 
 export class WorkerSqlPolicyError extends Error {
