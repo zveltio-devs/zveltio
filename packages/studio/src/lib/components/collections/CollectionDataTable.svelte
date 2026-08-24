@@ -6,7 +6,7 @@ import { fmtDate } from '$lib/stores/format.svelte.js';
 // its own record data; the parent passes the collection's derived field lists
 // and wires create/edit to the RecordDrawer via the onCreate/onEdit callbacks.
 // `reload()` is exported so the parent can refresh after a drawer save.
-import { onDestroy } from 'svelte';
+import { onDestroy, untrack } from 'svelte';
 import { base } from '$app/paths';
 import { Plus, Trash2, RefreshCw, Database, ArrowRight, Settings } from '@lucide/svelte';
 import { dataApi } from '$lib/api.js';
@@ -82,11 +82,28 @@ export async function reload() {
 }
 
 // Initial + on-collection-change load (shows the skeleton).
+//
+// `untrack` is load-bearing, not tidiness. `reloadData` calls `buildDataParams`
+// SYNCHRONOUSLY, which reads `pagination.page` and `pagination.limit`, so those
+// reads are tracked as dependencies of this effect. It then assigns
+// `pagination = res.pagination` — a new object — which invalidates the very
+// dependency it just registered, and the effect runs again.
+//
+// Measured on a fresh install: opening one collection fired 189 requests to
+// `/api/data/<name>` in a single page view. It stopped only because the API
+// rate limit (200/min) started answering 429 — at which point `reloadData`
+// threw, `pagination` was left unassigned, and the loop finally broke. By then
+// the whole minute's budget was gone, so `/api/me` answered 429 too and the
+// Studio decided the user was signed out and showed the login screen. That is
+// what "I create a collection and cannot open it" looks like from outside.
+//
+// Only `collectionName` should re-trigger a reload here. Paging, sorting and
+// searching call `reloadData` directly from their handlers.
 $effect(() => {
   const name = collectionName;
   if (!name) return;
   loading = true;
-  reloadData().finally(() => {
+  untrack(() => reloadData()).finally(() => {
     loading = false;
   });
 });
