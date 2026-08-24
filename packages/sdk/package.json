@@ -69,12 +69,12 @@
     "fake-indexeddb": "^6.2.5",
     "hono": "^4.13.3",
     "kysely": "^0.29.0",
-    "pg": "^8.13.0",
+    "pg": "^8.23.0",
     "typescript": "^5.4.0"
   },
   "peerDependencies": {
     "@testcontainers/postgresql": "^11.0.0",
-    "pg": "^8.13.0"
+    "pg": "^8.23.0"
   },
   "peerDependenciesMeta": {
     "@testcontainers/postgresql": {
