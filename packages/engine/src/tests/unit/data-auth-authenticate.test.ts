@@ -20,6 +20,11 @@ function mockContext(headers: Record<string, string>): Context {
       header: (name: string) => lower[name.toLowerCase()],
       raw: { headers: new Headers(headers) },
     },
+    // `authenticate` reads the session the prefetch middleware resolved before
+    // the tenant transaction opened. A bare object has no `get`, and calling it
+    // threw here before this existed — the mock was simply less of a Context
+    // than the code needs.
+    get: () => undefined,
   } as unknown as Context;
 }
 
