@@ -36,7 +36,6 @@
   "ext:developer/database/engine/routes.ts": 1,
   "ext:developer/graphql/engine/routes.ts": 1,
   "ext:developer/validation/engine/routes.ts": 1,
-  "ext:ecommerce/store/engine/routes.ts": 3,
   "ext:finance/expenses/engine/routes.ts": 1,
   "ext:finance/invoicing/engine/routes.ts": 1,
   "ext:finance/subscriptions/engine/routes.ts": 3,
