@@ -50,6 +50,11 @@ const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
 const BASELINE = join(ROOT, 'quality-gates', 'atomic-writes.json');
 const UPDATE = process.argv.includes('--update');
+/** Print each flagged handler instead of per-file totals. Optionally filtered by
+ *  a path substring: `--list hr/employees`. The baseline records counts, which is
+ *  all a gate needs, but fixing one means knowing WHICH handler is flagged. */
+const LIST = process.argv.includes('--list');
+const LIST_FILTER = LIST ? (process.argv[process.argv.indexOf('--list') + 1] ?? '') : '';
 
 /**
  * `DO UPDATE` is excluded, and that is not a nicety.
@@ -124,6 +129,22 @@ if (existsSync(EXT_ROOT)) {
   }
 } else {
   console.log('[atomic-writes] sibling zveltio-extensions absent — engine only.');
+}
+
+if (LIST) {
+  const shown = findings.filter(
+    (f) => !LIST_FILTER || LIST_FILTER.startsWith('--') || f.file.includes(LIST_FILTER),
+  );
+  let current = '';
+  for (const f of shown.sort((a, b) => a.file.localeCompare(b.file))) {
+    if (f.file !== current) {
+      current = f.file;
+      console.log(`\n${current}`);
+    }
+    console.log(`  ${String(f.writes).padStart(2)} writes  ${f.handler}`);
+  }
+  console.log(`\n[atomic-writes] ${shown.length} handler(s) listed.`);
+  process.exit(0);
 }
 
 const counts: Record<string, number> = {};
