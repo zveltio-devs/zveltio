@@ -93,9 +93,70 @@ const HANDLER_SPLIT =
 const HANDLER_NAME = /^(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]*)/i;
 const FUNCTION_NAME = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+(\w+)/;
 
-/** Line comments and block comments removed, so prose about SQL is not SQL. */
+/**
+ * Line and block comments removed, so prose about SQL is not read as SQL.
+ *
+ * This walks the source instead of running two regexes over it, and the reason
+ * is a 45% blind spot it was hiding. `src.replace(/\/\*[\s\S]*?\*\//g, '')` does
+ * not know what a string is, so the wildcard route path `app.use('/*', …)` read
+ * as the START of a block comment and everything up to the next `*​/` — the next
+ * JSDoc anywhere below — was deleted before scanning. In
+ * communications/mail/engine/routes.ts that silently removed 746 of 1641 lines,
+ * every handler in them included. The same two characters appear in any glob,
+ * any `/*` inside a SQL string, any catch-all path.
+ *
+ * A gate that quietly stops reading half a file is worse than no gate: the
+ * number it prints looks like progress.
+ *
+ * Regex literals are not tracked. `/*` cannot begin one in valid JavaScript
+ * (`a / *b` does not parse), so the only miss would be a `/*` written inside a
+ * regex, which the character classes there would escape anyway.
+ */
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  let out = '';
+  let i = 0;
+  // Which quote we are inside, or null in code. Template literals count as a
+  // quote; `${}` inside them is treated as more template, which is enough here
+  // because comments are not legal in a place a `${` would hide them.
+  let quote: string | null = null;
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1];
+    if (quote) {
+      if (ch === '\\') {
+        out += ch + (next ?? '');
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        // Newlines are kept so line-based reasoning downstream stays honest.
+        if (src[i] === '\n') out += '\n';
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 function tsFiles(dir: string, out: string[] = []): string[] {
