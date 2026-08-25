@@ -26,8 +26,6 @@
   "ext:finance/subscriptions/engine/routes.ts": 3,
   "ext:forms/engine/routes.ts": 1,
   "ext:geospatial/postgis/engine/routes.ts": 1,
-  "ext:hr/employees/engine/contracts.ts": 4,
-  "ext:hr/employees/engine/routes.ts": 3,
   "ext:hr/payroll/engine/routes.ts": 3,
   "ext:hr/time-tracking/engine/routes.ts": 1,
   "ext:i18n/translations/engine/routes.ts": 1,
