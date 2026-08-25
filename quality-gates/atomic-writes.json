@@ -23,7 +23,7 @@
   "ext:finance/accounting/engine/routes.ts": 4,
   "ext:finance/banking/engine/routes.ts": 4,
   "ext:finance/expenses/engine/routes.ts": 1,
-  "ext:finance/invoicing/engine/routes.ts": 7,
+  "ext:finance/invoicing/engine/routes.ts": 1,
   "ext:finance/quotes/engine/routes.ts": 4,
   "ext:finance/subscriptions/engine/routes.ts": 3,
   "ext:forms/engine/routes.ts": 1,
