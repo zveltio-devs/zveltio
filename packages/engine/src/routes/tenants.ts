@@ -104,20 +104,47 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const data = c.req.valid('json');
 
-    const insertTenant = () =>
-      db
-        .insertInto('zv_tenants')
-        .values({
-          slug: data.slug,
-          name: data.name,
-          plan: data.plan,
-          billing_email: data.billing_email || null,
-        })
-        .returningAll()
-        .executeTakeFirst();
-    let tenant: Awaited<ReturnType<typeof insertTenant>>;
+    // The tenant and its owner's membership go in together.
+    //
+    // A tenant row with no membership is a tenant NOBODY can reach: every route
+    // is scoped by membership, so the person it was created for cannot open it
+    // to fix it, and only an instance admin querying the table directly would
+    // ever find out it exists. Ordering matters as much as atomicity here, which
+    // is why the membership is written before provisioning rather than after —
+    // a tenant that is reachable but missing an environment can be repaired by
+    // the owner; the other way round cannot.
+    const createTenantWithOwner = () =>
+      db.transaction().execute(async (trx) => {
+        const tenant = await trx
+          .insertInto('zv_tenants')
+          .values({
+            slug: data.slug,
+            name: data.name,
+            plan: data.plan,
+            billing_email: data.billing_email || null,
+          })
+          .returningAll()
+          .executeTakeFirst();
+        if (!tenant) return null;
+
+        const adminUser = await trx
+          .selectFrom('user')
+          .select('id')
+          .where('email', '=', data.admin_user_email)
+          .executeTakeFirst();
+
+        if (adminUser) {
+          await trx
+            .insertInto('zv_tenant_users')
+            .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
+            .execute();
+        }
+        return { tenant, adminUserId: adminUser?.id ?? null };
+      });
+
+    let created: Awaited<ReturnType<typeof createTenantWithOwner>>;
     try {
-      tenant = await insertTenant();
+      created = await createTenantWithOwner();
     } catch (e) {
       // Duplicate slug is a client error — Bun's SQL driver reports the
       // Postgres SQLSTATE in `errno` (23505 = unique_violation), not `code`.
@@ -127,31 +154,27 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       throw e;
     }
 
-    if (!tenant) return c.json({ error: 'Failed to create tenant' }, 500);
+    if (!created) return c.json({ error: 'Failed to create tenant' }, 500);
+    const { tenant, adminUserId } = created;
 
     const defaultSchema = `tenant_${data.slug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}`;
     await provisionTenantSchema(defaultSchema);
     await provisionEnvironment(tenant.id, data.slug, 'prod', 'Production', true);
     await provisionEnvironment(tenant.id, data.slug, 'dev', 'Development', false);
 
-    const adminUser = await db
-      .selectFrom('user')
-      .select('id')
-      .where('email', '=', data.admin_user_email)
-      .executeTakeFirst();
-
-    if (adminUser) {
-      await db
-        .insertInto('zv_tenant_users')
-        .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
-        .execute();
+    if (adminUserId) {
       // Bridge to authorization: grant the Casbin `owner` role IN this tenant's
       // domain so the owner actually has per-tenant permissions (not just a
       // membership row). The owner role's permissions are global policies.
+      //
+      // Outside the transaction on purpose: Casbin writes through its own
+      // adapter and would not roll back with us, so pretending it is part of
+      // the same commit would be a lie. Membership is the durable fact; the
+      // role grant is derived from it and re-grantable.
       const e = await getEnforcer();
-      await e.addRoleForUser(adminUser.id, casbinRole('owner'), tenant.id);
-      await invalidateUserPermCache(adminUser.id);
-      await invalidateTenantCache(data.slug, tenant.id, adminUser.id);
+      await e.addRoleForUser(adminUserId, casbinRole('owner'), tenant.id);
+      await invalidateUserPermCache(adminUserId);
+      await invalidateTenantCache(data.slug, tenant.id, adminUserId);
     }
 
     return c.json({ tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] }, 201);
