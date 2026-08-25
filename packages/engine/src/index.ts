@@ -52,6 +52,7 @@ import {
   reconcileExtensionTenantRLS,
   warnIfDbRoleBypassesRls,
 } from './lib/tenancy/index.js';
+import { sessionPrefetch } from './middleware/session-prefetch.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
@@ -679,6 +680,13 @@ async function buildHonoApp(): Promise<Hono> {
       ...corsOptions,
     }),
   );
+  // BEFORE tenantMiddleware, deliberately: it resolves the session while the
+  // request is still on a pool connection as the engine's own role. Inside the
+  // tenant transaction the role is `zveltio_rls`, which is forbidden to read
+  // `session` — and that refusal aborts the transaction, taking the rest of the
+  // request with it. See the header of session-prefetch.ts.
+  app.use('/api/*', sessionPrefetch(auth));
+  app.use('/ext/*', sessionPrefetch(auth));
   app.use('/api/*', tenantMiddleware);
   // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
   // isolation as /api/*, or extension handlers using ctx.reqDb(c) fall back to
