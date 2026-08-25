@@ -17,13 +17,26 @@
  * So the ones that rely on it are recorded here, and new ones are refused. Then
  * the boundary can move against a list rather than a hope.
  *
- * WHAT COUNTS as a write: `insertInto` / `updateTable` / `deleteFrom`, and raw
- * `INSERT INTO` / `UPDATE x` / `DELETE FROM` in a sql`` tag. Two or more of them
- * in one handler, with no `.transaction(` anywhere in that handler, is a finding.
+ * WHAT COUNTS: a handler whose text CONTAINS two or more write forms —
+ * `insertInto` / `updateTable` / `deleteFrom`, or raw `INSERT INTO` / `UPDATE x` /
+ * `DELETE FROM` in a sql`` tag — and no `.transaction(`. Containing is not the
+ * same as executing; see below.
  *
- * WHAT THIS CANNOT SEE: a handler that calls a helper which writes. The count is
- * therefore a floor, not a census — which is the honest way to read it, and the
- * reason the baseline is per-file rather than a single total.
+ * WHAT THIS CANNOT SEE, in BOTH directions — read the number as an approximation,
+ * not a census:
+ *
+ *   - It misses a handler that calls a helper which writes. Those are undercounted.
+ *   - It counts branches that cannot both run. `finance/invoicing` PUT /company is
+ *     `existing ? UPDATE… : INSERT…` — one statement executes, ever, and there is
+ *     nothing to make atomic. The detector sees two write keywords and flags it.
+ *
+ * Both were found by reading the flagged code rather than trusting the count, and
+ * that is how a finding here is meant to be used: it says "look", not "fix". A
+ * reviewer decides which kind it is, and records the exclusive ones with --update.
+ *
+ * Separating branches properly needs a parser, not a regex. That is a reasonable
+ * next step and deliberately not attempted here — a gate that is honest about
+ * being approximate is more useful than one that is quietly wrong.
  *
  * Usage:
  *   bun run scripts/check-atomic-writes.ts            # gate
