@@ -67,9 +67,15 @@ const LIST_FILTER = LIST ? (process.argv[process.argv.indexOf('--list') + 1] ?? 
  *
  * `\bDO\s+UPDATE` is checked first so the alternation cannot fall through to the
  * bare `UPDATE` branch.
+ *
+ * The `UPDATE` branch requires a following `SET`, and that is not cosmetic
+ * either. `\bUPDATE\s+["\w]` matched ordinary English inside string literals —
+ * an OpenAPI `summary: 'Update a collection record'` counted as a write, and
+ * `buildSpec()` in routes/openapi.ts was reported as a six-write handler that
+ * touches no database at all. A real UPDATE always has a SET.
  */
 const WRITE =
-  /\bDO\s+UPDATE\b|\b(insertInto|updateTable|deleteFrom)\s*\(|\bINSERT\s+INTO\b|\bUPDATE\s+["\w]|\bDELETE\s+FROM\b/gi;
+  /\bDO\s+UPDATE\b|\b(insertInto|updateTable|deleteFrom)\s*\(|\bINSERT\s+INTO\b|\bUPDATE\s+["\w.]+\s+SET\b|\bDELETE\s+FROM\b/gi;
 
 /** Matches of `WRITE` that are real writes — `DO UPDATE` is part of an upsert. */
 function countWrites(text: string): number {
@@ -88,9 +94,22 @@ function countWrites(text: string): number {
  * flagging it: the reader goes to the named handler, finds nothing, and learns
  * to distrust the list.
  */
+/**
+ * The receiver is not pinned to `app` or `router`.
+ *
+ * schema-branches.ts registers its routes as one chain — `.get('/branches', …)`
+ * hanging off the previous call — and a split that insisted on `app.` never
+ * broke it up, so eleven writes across nine handlers were reported as one
+ * finding against the module's factory function. Any `.method('path'` is a
+ * registration; a lone `['"`]` after the paren is what tells it apart from an
+ * ordinary method call — and the path must start with `/`, because otherwise
+ * `c.get('user')`, which every handler in this codebase calls, reads as a route
+ * registration and shreds the file into fragments named "GET user".
+ */
 const HANDLER_SPLIT =
-  /(?=(?:app|router)\.(?:get|post|put|patch|delete|on)\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;
-const HANDLER_NAME = /^(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]*)/i;
+  /(?=\.(?:get|post|put|patch|delete)\s*\(\s*['"`]\/|(?:app|router)\.on\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;
+const HANDLER_NAME =
+  /^\.?(?:(?:app|router)\.)?(get|post|put|patch|delete)\s*\(\s*['"`](\/[^'"`]*)/i;
 /**
  * `app.on(['PUT', 'PATCH'], '/:id', …)` — Hono's multi-method registration.
  *
