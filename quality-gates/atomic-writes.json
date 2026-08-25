@@ -20,8 +20,6 @@
   "ext:developer/edge-functions/engine/routes.ts": 1,
   "ext:developer/validation/engine/routes.ts": 1,
   "ext:ecommerce/store/engine/routes.ts": 3,
-  "ext:finance/accounting/engine/routes.ts": 4,
-  "ext:finance/banking/engine/routes.ts": 4,
   "ext:finance/expenses/engine/routes.ts": 1,
   "ext:finance/invoicing/engine/routes.ts": 1,
   "ext:finance/quotes/engine/routes.ts": 4,
