@@ -55,7 +55,6 @@
   "ext:sms/engine/lib/sms-manager.ts": 1,
   "ext:storage/cloud/engine/lib/file-versions.ts": 1,
   "ext:storage/cloud/engine/routes.ts": 2,
-  "ext:workflow/checklists/engine/routes.ts": 3,
   "packages/engine/src/routes/backup.ts": 2,
   "packages/engine/src/routes/collections.ts": 1,
   "packages/engine/src/routes/insights.ts": 2,
