@@ -107,6 +107,43 @@ async function reserveWithTimeout(pool: BunSQLPool): Promise<BunReservedConnecti
   }
 }
 
+/**
+ * A pool query that cannot wait forever.
+ *
+ * `pool.unsafe()` queues when every connection is reserved, with no deadline of
+ * its own — measured directly: reserve every connection inside a transaction,
+ * then call `unsafe()`, and it is still waiting when the test gives up. Same
+ * defect `reserveWithTimeout` fixed for transactions, on the path that
+ * non-transactional queries take.
+ *
+ * The threshold sits ABOVE `statement_timeout` (30s on these connections), and
+ * that is the design rather than a rounded number. Bun does not separate
+ * "waiting for a connection" from "statement running", so a shorter deadline
+ * would abandon statements that are legitimately executing — and an abandoned
+ * INSERT still commits, leaving its caller told it failed. Above the statement
+ * cap, a timeout can only mean a connection never arrived, so nothing is ever
+ * abandoned mid-flight.
+ *
+ * It is a stop against hanging forever, not a latency control. 35s is a bad
+ * wait; an unbounded one is worse — the request never ends, the client gives up,
+ * and the promise stays pinned in the process.
+ */
+const QUERY_ACQUIRE_TIMEOUT_MS = Number(process.env.DB_QUERY_ACQUIRE_TIMEOUT_MS ?? 35_000);
+
+/** Reject with `PoolBusyError` if `p` has not settled by the deadline. */
+function withQueryDeadline<T>(p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new PoolBusyError(QUERY_ACQUIRE_TIMEOUT_MS)),
+      QUERY_ACQUIRE_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([p, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 /** Main Bun.SQL pool */
 interface BunSQLPool {
   /** Execute raw parameterized SQL */
@@ -434,10 +471,11 @@ class BunSqlSmartConnection implements DatabaseConnection {
             : await this.#reserved.unsafe<R>(compiledQuery.sql);
         return BunSqlSmartConnection.#wrap(rows);
       }
-      const rows =
+      const rows = await withQueryDeadline(
         params.length > 0
-          ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
-          : await this.#pool.unsafe<R>(compiledQuery.sql);
+          ? this.#pool.unsafe<R>(compiledQuery.sql, params)
+          : this.#pool.unsafe<R>(compiledQuery.sql),
+      );
       return BunSqlSmartConnection.#wrap(rows);
     };
 
@@ -449,7 +487,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
       const inlined = inlineParams(compiledQuery.sql, params);
       const rows = this.#reserved
         ? await this.#reserved.unsafe<R>(inlined)
-        : await this.#pool.unsafe<R>(inlined);
+        : await withQueryDeadline(this.#pool.unsafe<R>(inlined));
       return BunSqlSmartConnection.#wrap(rows);
     };
 
