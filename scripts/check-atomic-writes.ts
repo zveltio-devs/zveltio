@@ -76,8 +76,22 @@ function countWrites(text: string): number {
   WRITE.lastIndex = 0;
   return (text.match(WRITE) ?? []).filter((m) => !/^DO\s+UPDATE$/i.test(m.trim())).length;
 }
-const HANDLER_SPLIT = /(?=(?:app|router)\.(?:get|post|put|patch|delete)\s*\()/;
+/**
+ * Split points: a route registration, OR a named function declaration.
+ *
+ * The function half matters. A helper declared BETWEEN two registrations — the
+ * common `async function saveSettings(c)` shared by `app.post` and `app.put` —
+ * used to be swallowed into the preceding handler's slice, so its writes were
+ * reported against whichever route happened to be above it. That named a route
+ * that does not write at all (`GET /settings` in the e-Factura module) and hid
+ * the one that does, which for a gate meant to point at work is worse than not
+ * flagging it: the reader goes to the named handler, finds nothing, and learns
+ * to distrust the list.
+ */
+const HANDLER_SPLIT =
+  /(?=(?:app|router)\.(?:get|post|put|patch|delete)\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;
 const HANDLER_NAME = /^(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]*)/i;
+const FUNCTION_NAME = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+(\w+)/;
 
 /** Line comments and block comments removed, so prose about SQL is not SQL. */
 function stripComments(src: string): string {
@@ -109,9 +123,10 @@ function scan(file: string, label: string): Finding[] {
     if (writes < 2) continue;
     if (/\.transaction\s*\(/.test(part)) continue;
     const m = HANDLER_NAME.exec(part);
+    const fn = m ? null : FUNCTION_NAME.exec(part);
     out.push({
       file: label,
-      handler: m ? `${m[1].toUpperCase()} ${m[2] || '/'}` : '(unnamed)',
+      handler: m ? `${m[1].toUpperCase()} ${m[2] || '/'}` : fn ? `${fn[1]}()` : '(unnamed)',
       writes,
     });
   }
