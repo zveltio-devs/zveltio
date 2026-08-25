@@ -446,6 +446,16 @@ jobs:
           docker exec ${{ job.services.postgres.id }} bash -c \
             "apt-get update -qq && apt-get install -y -qq postgresql-18-postgis-3 postgresql-18-postgis-3-scripts"
 
+      - name: Two writes, one transaction
+        # A handler writing twice is atomic today only because tenantMiddleware
+        # wraps the whole request in one transaction — a property it never asked
+        # for, and one that disappears when that boundary moves for concurrency.
+        # `finance/invoicing` POST /series clears the old default and inserts the
+        # new one as two statements: if the insert fails, the instance is left
+        # with no default series at all. 159 such handlers are on the baseline;
+        # this refuses new ones.
+        run: bun run check:atomic-writes
+
       - name: Schema snapshot
         # Records what a real install produces and fails when it changes. Every
         # other schema gate asks whether the code agrees with the migrations;
