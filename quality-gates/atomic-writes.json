@@ -10,12 +10,13 @@
     "ext:communications/mail/engine/lib/compose.ts": "saveDraft() is `existing ? UPDATE (and return) : INSERT` — exactly one write executes.",
     "ext:communications/mail/engine/lib/sieve.ts": "executeLocalActions() applies one write per action inside a per-action try/catch, deliberately so one failing filter action does not stop the rest. NOTE, separately from atomicity: that catch cannot contain a FAILED SQL statement while this runs inside a surrounding transaction — Postgres refuses everything after it — so the containment is only real once the tenant transaction stops spanning the request. Tracked as its own problem, not fixed by wrapping.",
     "ext:communications/mail/engine/lib/imap-client.ts": "syncImapAccount() now wraps message+attachments per message. The remaining flagged writes are the folder upsert and the per-folder last_uid advance, which must commit independently: a sync that fails on message 900 of 1000 must keep the 899 it already stored.",
-    "ext:compliance/ro/efactura/engine/routes.ts": "Two remaining, both single-write-per-invocation. saveSettings() is `prev ? UPDATE : INSERT`. POST /oauth/exchange writes `last_error` in two error branches that each return immediately, or the tokens on success — exactly one runs. POST /:id/submit deliberately keeps the daily-stats aggregate OUTSIDE its transaction: it is recomputable, and rolling the submission record back over it would make the invoice look unfiled while ANAF already has it, causing a double filing."
+    "ext:compliance/ro/efactura/engine/routes.ts": "Two remaining, both single-write-per-invocation. saveSettings() is `prev ? UPDATE : INSERT`. POST /oauth/exchange writes `last_error` in two error branches that each return immediately, or the tokens on success — exactly one runs. POST /:id/submit deliberately keeps the daily-stats aggregate OUTSIDE its transaction: it is recomputable, and rolling the submission record back over it would make the invoice look unfiled while ANAF already has it, causing a double filing.",
+    "ext:auth/scim/engine/routes.ts": "setActive() takes the transaction handle as its first parameter — the caller (PUT, PATCH, POST) owns the boundary. Covered by deactivation-atomicity.test.ts, which fails on a version without it."
   },
   "ext:ai/engine/routes/ai.ts": 1,
   "ext:analytics/dashboard/engine/routes.ts": 1,
   "ext:auth/ldap/engine/routes.ts": 2,
-  "ext:auth/scim/engine/routes.ts": 4,
+  "ext:auth/scim/engine/routes.ts": 1,
   "ext:billing/engine/lib/stripe-client.ts": 1,
   "ext:communications/mail/engine/lib/compose.ts": 1,
   "ext:communications/mail/engine/lib/sieve.ts": 1,
