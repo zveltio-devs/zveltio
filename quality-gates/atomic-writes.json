@@ -14,7 +14,8 @@
     "ext:auth/scim/engine/routes.ts": "setActive() takes the transaction handle as its first parameter — the caller (PUT, PATCH, POST) owns the boundary. Covered by deactivation-atomicity.test.ts, which fails on a version without it.",
     "ext:operations/pos/engine/routes.ts": "claimOrderNumber(dbh) takes the handle as its parameter — every caller wraps it. Its two statements are an upsert of the counter row plus the UPDATE … RETURNING that allocates, and allocating outside the sale's transaction is exactly what the callers now avoid.",
     "ext:data/import/engine/routes.ts": "runImport() runs entirely inside ctx.internals.withTenantIsolation(), which gives the whole job one transaction — a background task has no request transaction to inherit, so it opens its own. POST /:collection writes the job row; its second flagged write is the after-response failure recovery, which deliberately opens a SEPARATE tenant transaction because the request's is already committed by the time it runs.",
-    "ext:content/documents/engine/routes.ts": "getNextDocNumber(dbh, …) takes the handle — the caller owns the boundary — and its writes are the two arms of `seq ? UPDATE : INSERT`, so exactly one runs."
+    "ext:content/documents/engine/routes.ts": "getNextDocNumber(dbh, …) takes the handle — the caller owns the boundary — and its writes are the two arms of `seq ? UPDATE : INSERT`, so exactly one runs.",
+    "ext:content/pages/engine/editor.ts": "PUT /menus/:key is a hand-written upsert: `UPDATE … RETURNING id`, and the INSERT runs only when it matched nothing, so exactly one write executes. (It does race two concurrent first-writes into a unique violation — a concurrency question the comment there explains, not an atomicity one, and a transaction would not fix it.)"
   },
   "ext:ai/engine/routes/ai.ts": 1,
   "ext:analytics/dashboard/engine/routes.ts": 1,
@@ -29,8 +30,7 @@
   "ext:content/document-templates/engine/routes.ts": 2,
   "ext:content/documents/engine/routes.ts": 1,
   "ext:content/drafts/engine/routes.ts": 1,
-  "ext:content/pages/engine/editor.ts": 3,
-  "ext:content/pages/engine/sites.ts": 2,
+  "ext:content/pages/engine/editor.ts": 1,
   "ext:crm/engine/routes.ts": 1,
   "ext:data/export/engine/routes.ts": 1,
   "ext:data/import/engine/routes.ts": 2,
