@@ -5,7 +5,11 @@
   "_regenerate": "bun run scripts/check-atomic-writes.ts --update",
   "_reasons_are_preserved": "Entries under _reasons survive --update. A file listed there is one a reviewer has looked at and decided does NOT need wrapping — helpers that run inside a caller's transaction, or branches that are mutually exclusive so only one write ever executes. The count still has to match, so a NEW write in such a file still fails the gate.",
   "_reasons": {
-    "ext:billing/engine/lib/stripe-client.ts": "applyStripeEvent() runs inside handleWebhook's transaction — the caller owns the boundary. Its three writes are also mutually exclusive switch branches, so only one ever executes. Covered by stripe-webhook-atomicity.test.ts."
+    "ext:billing/engine/lib/stripe-client.ts": "applyStripeEvent() runs inside handleWebhook's transaction — the caller owns the boundary. Its three writes are also mutually exclusive switch branches, so only one ever executes. Covered by stripe-webhook-atomicity.test.ts.",
+    "ext:communications/mail/engine/routes.ts": "Four handlers, none of which should be wrapped. POST /oauth/callback consumes the single-use state row BEFORE the token exchange ON PURPOSE — a code that fails to exchange must not leave a state usable for a second attempt; a transaction spanning the exchange would roll the consumption back and reopen exactly the replay window that comment closed, while also holding the transaction across a network call. POST /bulk, GET /messages/:id and DELETE /messages/:id write once per invocation (mutually exclusive switch branches, or independent idempotent cache writes) and their other statements are IMAP round trips.",
+    "ext:communications/mail/engine/lib/compose.ts": "saveDraft() is `existing ? UPDATE (and return) : INSERT` — exactly one write executes.",
+    "ext:communications/mail/engine/lib/sieve.ts": "executeLocalActions() applies one write per action inside a per-action try/catch, deliberately so one failing filter action does not stop the rest. NOTE, separately from atomicity: that catch cannot contain a FAILED SQL statement while this runs inside a surrounding transaction — Postgres refuses everything after it — so the containment is only real once the tenant transaction stops spanning the request. Tracked as its own problem, not fixed by wrapping.",
+    "ext:communications/mail/engine/lib/imap-client.ts": "syncImapAccount() now wraps message+attachments per message. The remaining flagged writes are the folder upsert and the per-folder last_uid advance, which must commit independently: a sync that fails on message 900 of 1000 must keep the 899 it already stored."
   },
   "ext:ai/engine/routes/ai.ts": 1,
   "ext:analytics/dashboard/engine/routes.ts": 1,
@@ -13,9 +17,8 @@
   "ext:auth/scim/engine/routes.ts": 4,
   "ext:billing/engine/lib/stripe-client.ts": 1,
   "ext:communications/mail/engine/lib/compose.ts": 1,
-  "ext:communications/mail/engine/lib/imap-client.ts": 1,
   "ext:communications/mail/engine/lib/sieve.ts": 1,
-  "ext:communications/mail/engine/routes.ts": 7,
+  "ext:communications/mail/engine/routes.ts": 4,
   "ext:compliance/ro/documents/engine/routes.ts": 3,
   "ext:compliance/ro/efactura/engine/routes.ts": 4,
   "ext:content/document-templates/engine/routes.ts": 2,
