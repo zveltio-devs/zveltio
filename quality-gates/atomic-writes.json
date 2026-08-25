@@ -33,7 +33,6 @@
   "ext:i18n/translations/engine/routes.ts": 1,
   "ext:integrations/api-connector/engine/routes.ts": 1,
   "ext:integrations/migrators/engine/routes.ts": 1,
-  "ext:operations/inventory/engine/routes.ts": 4,
   "ext:operations/pos/engine/routes.ts": 3,
   "ext:operations/traceability/engine/routes/dispatches.ts": 2,
   "ext:operations/traceability/engine/routes/lots.ts": 1,
