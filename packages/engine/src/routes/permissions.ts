@@ -144,23 +144,37 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     if (!email || typeof email !== 'string') {
       return c.json({ error: 'email is required' }, 400);
     }
-    const result = await db
-      .updateTable('user')
-      .set({ role: 'god' })
-      .where('email', '=', email)
-      .returning(['id', 'email', 'role'])
-      .executeTakeFirst();
-    if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
+    // The grant, the spending of the token, and the record of both.
+    //
+    // The note below says a failed token-spend must not be swallowed, because a
+    // token that silently stays live is the finding this endpoint exists to
+    // close. Without a transaction that is still exactly what happens: the
+    // promotion to `god` is already committed, the spend fails, and the
+    // recovery token remains usable by whoever holds it — on the single most
+    // privileged action the instance can perform.
+    //
+    // `refuse(...)` for an unknown email is safe to return from inside: it runs
+    // before any write in this transaction.
+    let result: Awaited<ReturnType<typeof grantAndSpend>>;
+    const grantAndSpend = () =>
+      db.transaction().execute(async (trx) => {
+        const granted = await trx
+          .updateTable('user')
+          .set({ role: 'god' })
+          .where('email', '=', email)
+          .returning(['id', 'email', 'role'])
+          .executeTakeFirst();
+        if (!granted) return null;
 
-    // Spend the token before reporting success. If this write fails the grant
-    // has already happened, so it must not be swallowed: a token that silently
-    // stays live is the finding this is here to close.
-    // `::text::jsonb`, for the reason spelled out in lib/audit.ts: a bare
-    // `::jsonb` on an already-jsonb parameter stores the array as a jsonb
-    // STRING, and `Array.isArray()` on the way back is then false — which would
-    // silently make the token reusable, i.e. exactly the finding this closes.
-    const spentJson = JSON.stringify([...spentFingerprints, fingerprint]);
-    await sql`
+        // Spend the token before reporting success. If this write fails the grant
+        // has already happened, so it must not be swallowed: a token that silently
+        // stays live is the finding this is here to close.
+        // `::text::jsonb`, for the reason spelled out in lib/audit.ts: a bare
+        // `::jsonb` on an already-jsonb parameter stores the array as a jsonb
+        // STRING, and `Array.isArray()` on the way back is then false — which would
+        // silently make the token reusable, i.e. exactly the finding this closes.
+        const spentJson = JSON.stringify([...spentFingerprints, fingerprint]);
+        await sql`
       INSERT INTO zv_settings (key, value, description)
       VALUES (
         ${RECOVERY_USED_KEY},
@@ -168,20 +182,26 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         'SHA-256 of every RECOVERY_TOKEN that has been used. Rotate to re-enable.'
       )
       ON CONFLICT (key) DO UPDATE SET value = ${spentJson}::text::jsonb, updated_at = NOW()
-    `.execute(db);
+    `.execute(trx);
 
-    // The grant itself. This endpoint promoted a user to god and wrote nothing
-    // anywhere — the single most privileged action the instance can perform was
-    // the one action with no record of who did it or when.
-    await auditLog(db, {
-      type: 'permission.granted',
-      userId: result.id,
-      resourceId: result.id,
-      resourceType: 'recovery_bootstrap',
-      metadata: { outcome: 'granted', role: 'god', email: result.email, ip },
-    }).catch((err: Error) => {
-      console.error('[permissions] audit write failed after recovery grant:', err.message);
-    });
+        // The grant itself. This endpoint promoted a user to god and wrote nothing
+        // anywhere — the single most privileged action the instance can perform was
+        // the one action with no record of who did it or when.
+        // No `.catch` here any more. Inside a transaction a swallowed statement
+        // error contains nothing — Postgres refuses everything after it — and a
+        // `god` grant with no audit row is precisely the gap the comment above
+        // describes as the finding this endpoint closes.
+        await auditLog(trx, {
+          type: 'permission.granted',
+          userId: granted.id,
+          resourceId: granted.id,
+          resourceType: 'recovery_bootstrap',
+          metadata: { outcome: 'granted', role: 'god', email: granted.email, ip },
+        });
+        return granted;
+      });
+    result = await grantAndSpend();
+    if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
 
     const { invalidateGodCache } = await import('../lib/tenancy/index.js');
     await invalidateGodCache(result.id).catch((err: Error) => {
