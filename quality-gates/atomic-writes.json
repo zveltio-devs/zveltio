@@ -34,7 +34,6 @@
   "ext:data/export/engine/routes.ts": 1,
   "ext:data/import/engine/routes.ts": 2,
   "ext:developer/byod/engine/routes.ts": 2,
-  "ext:developer/database/engine/routes.ts": 1,
   "ext:developer/graphql/engine/routes.ts": 1,
   "ext:developer/validation/engine/routes.ts": 1,
   "ext:finance/expenses/engine/routes.ts": 1,
@@ -56,11 +55,9 @@
   "ext:storage/cloud/engine/routes.ts": 2,
   "packages/engine/src/routes/backup.ts": 2,
   "packages/engine/src/routes/collections.ts": 1,
-  "packages/engine/src/routes/insights.ts": 2,
-  "packages/engine/src/routes/openapi.ts": 1,
+  "packages/engine/src/routes/insights.ts": 1,
   "packages/engine/src/routes/permissions.ts": 1,
   "packages/engine/src/routes/revisions.ts": 1,
-  "packages/engine/src/routes/saved-queries.ts": 1,
-  "packages/engine/src/routes/schema-branches.ts": 1,
+  "packages/engine/src/routes/schema-branches.ts": 2,
   "packages/engine/src/routes/sync.ts": 1
 }
