@@ -35,7 +35,6 @@
   "ext:operations/traceability/engine/routes/dispatches.ts": 2,
   "ext:operations/traceability/engine/routes/lots.ts": 1,
   "ext:operations/traceability/engine/routes/production.ts": 2,
-  "ext:projects/helpdesk/engine/routes.ts": 4,
   "ext:projects/management/engine/routes.ts": 1,
   "ext:search/engine/routes.ts": 1,
   "ext:storage/cloud/engine/routes.ts": 2,
