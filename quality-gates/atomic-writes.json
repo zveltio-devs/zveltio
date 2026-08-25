@@ -61,6 +61,5 @@
   "packages/engine/src/routes/revisions.ts": 1,
   "packages/engine/src/routes/saved-queries.ts": 1,
   "packages/engine/src/routes/schema-branches.ts": 1,
-  "packages/engine/src/routes/sync.ts": 1,
-  "packages/engine/src/routes/tenants.ts": 1
+  "packages/engine/src/routes/sync.ts": 1
 }
