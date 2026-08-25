@@ -25,7 +25,6 @@
   "ext:communications/mail/engine/lib/compose.ts": 1,
   "ext:communications/mail/engine/lib/sieve.ts": 1,
   "ext:communications/mail/engine/routes.ts": 4,
-  "ext:compliance/ro/documents/engine/routes.ts": 3,
   "ext:compliance/ro/efactura/engine/routes.ts": 2,
   "ext:content/document-templates/engine/routes.ts": 2,
   "ext:content/documents/engine/routes.ts": 1,
