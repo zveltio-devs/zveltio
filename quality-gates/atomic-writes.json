@@ -1,5 +1,5 @@
 {
-  "_what": "Handlers whose text contains two or more write statements with no explicit transaction. They are atomic today only because tenantMiddleware wraps the whole request in one — a property they never asked for.",
+  "_what": "Handlers performing two or more writes with no explicit transaction. They are atomic only because tenantMiddleware wraps the whole request in one — a property they never asked for.",
   "_why_this_matters": "That transaction exists for ISOLATION (SET LOCAL ROLE + the tenant GUC). Atomicity is a side effect of where its boundary sits. Moving the boundary — which the concurrency ceiling requires — turns each of these into a silent partial write.",
   "_how_to_fix": "Wrap the handler body in db.transaction().execute(async (trx) => …) and use trx for every write. Then remove the file from this list.",
   "_regenerate": "bun run scripts/check-atomic-writes.ts --update",
@@ -25,14 +25,14 @@
   "ext:finance/accounting/engine/routes.ts": 6,
   "ext:finance/banking/engine/routes.ts": 5,
   "ext:finance/expenses/engine/routes.ts": 1,
-  "ext:finance/invoicing/engine/routes.ts": 8,
+  "ext:finance/invoicing/engine/routes.ts": 7,
   "ext:finance/quotes/engine/routes.ts": 5,
   "ext:finance/subscriptions/engine/routes.ts": 3,
   "ext:forms/engine/routes.ts": 1,
   "ext:geospatial/postgis/engine/routes.ts": 1,
   "ext:hr/employees/engine/contracts.ts": 4,
   "ext:hr/employees/engine/routes.ts": 3,
-  "ext:hr/leave/engine/routes.ts": 7,
+  "ext:hr/leave/engine/routes.ts": 1,
   "ext:hr/payroll/engine/routes.ts": 5,
   "ext:hr/time-tracking/engine/routes.ts": 4,
   "ext:i18n/translations/engine/routes.ts": 3,
@@ -59,6 +59,5 @@
   "packages/engine/src/routes/revisions.ts": 1,
   "packages/engine/src/routes/saved-queries.ts": 1,
   "packages/engine/src/routes/sync.ts": 1,
-  "packages/engine/src/routes/tenants.ts": 2,
-  "_read_this_as": "An approximation in BOTH directions. It misses writes inside helpers, and it counts branches that cannot both run (finance/invoicing PUT /company is a ternary: one statement executes, ever). A finding says \"look\", not \"fix\"."
+  "packages/engine/src/routes/tenants.ts": 2
 }
