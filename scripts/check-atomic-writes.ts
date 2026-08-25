@@ -51,8 +51,26 @@ const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
 const BASELINE = join(ROOT, 'quality-gates', 'atomic-writes.json');
 const UPDATE = process.argv.includes('--update');
 
+/**
+ * `DO UPDATE` is excluded, and that is not a nicety.
+ *
+ * `INSERT … ON CONFLICT … DO UPDATE SET …` is ONE statement — an upsert, atomic
+ * by construction. Counting its `UPDATE` as a second write made every upsert in
+ * the codebase look like a handler that needed a transaction, which was the
+ * largest single source of noise in the first run of this gate: 40 handlers
+ * landed in a "possible upsert" pile that mostly could not fail halfway.
+ *
+ * `\bDO\s+UPDATE` is checked first so the alternation cannot fall through to the
+ * bare `UPDATE` branch.
+ */
 const WRITE =
-  /\b(insertInto|updateTable|deleteFrom)\s*\(|\bINSERT\s+INTO\b|\bUPDATE\s+["\w]|\bDELETE\s+FROM\b/gi;
+  /\bDO\s+UPDATE\b|\b(insertInto|updateTable|deleteFrom)\s*\(|\bINSERT\s+INTO\b|\bUPDATE\s+["\w]|\bDELETE\s+FROM\b/gi;
+
+/** Matches of `WRITE` that are real writes — `DO UPDATE` is part of an upsert. */
+function countWrites(text: string): number {
+  WRITE.lastIndex = 0;
+  return (text.match(WRITE) ?? []).filter((m) => !/^DO\s+UPDATE$/i.test(m.trim())).length;
+}
 const HANDLER_SPLIT = /(?=(?:app|router)\.(?:get|post|put|patch|delete)\s*\()/;
 const HANDLER_NAME = /^(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]*)/i;
 
@@ -82,8 +100,7 @@ function scan(file: string, label: string): Finding[] {
   const src = stripComments(readFileSync(file, 'utf8'));
   const out: Finding[] = [];
   for (const part of src.split(HANDLER_SPLIT).slice(1)) {
-    WRITE.lastIndex = 0;
-    const writes = (part.match(WRITE) ?? []).length;
+    const writes = countWrites(part);
     if (writes < 2) continue;
     if (/\.transaction\s*\(/.test(part)) continue;
     const m = HANDLER_NAME.exec(part);
