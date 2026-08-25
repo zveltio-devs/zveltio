@@ -23,8 +23,18 @@ export async function authenticate(
   auth: any,
   db: Database,
 ): Promise<{ user: RequestUser; authType: string } | null> {
-  // Try session
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  // Try session — the prefetch resolved it before the tenant transaction opened.
+  //
+  // Asking here directly is what produced `permission denied for table session`:
+  // by this point the connection runs as `zveltio_rls`, which cannot read Better
+  // Auth's tables, and the refusal aborts the transaction rather than merely
+  // failing this lookup. `undefined` means the prefetch did not run (a route
+  // mounted outside it), so the direct call stays as the fallback.
+  const prefetched = c.get('prefetchedSession');
+  const session =
+    prefetched !== undefined
+      ? prefetched
+      : await auth.api.getSession({ headers: c.req.raw.headers });
   if (session) return { user: session.user, authType: 'session' };
 
   // Try API key

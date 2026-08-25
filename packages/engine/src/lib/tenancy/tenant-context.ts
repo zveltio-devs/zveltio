@@ -105,6 +105,35 @@ export function setCurrentTenantTrx(trx: Database): void {
  * An extension's `ctx.db` resolves this so its queries are RLS-scoped to the
  * current tenant; callers fall back to the global pool when it's undefined.
  */
+/**
+ * Run `fn` as if no tenant transaction were open.
+ *
+ * For work that must NOT run under `zveltio_rls`: reading Better Auth's tables.
+ * `session`, `account`, `user`, `verification` and `twoFactor` carry no RLS by
+ * design (migration 044) and `zveltio_rls` is deliberately not granted SELECT on
+ * them — an extension holding that role must never read `session.token`.
+ *
+ * So a session lookup inside the tenant transaction asks a role that is
+ * forbidden to answer, and `permission denied` does not merely fail the lookup:
+ * it ABORTS the transaction, so every later statement on that connection answers
+ * "current transaction is aborted". One forbidden read poisons the rest of the
+ * request — measured under load as 35 permission errors and 84 aborted-transaction
+ * errors in a single run, surfacing as 401s and 500s on requests that had nothing
+ * to do with any of it.
+ *
+ * Applied once, around `getSession` in `initAuth`, rather than at the 55 engine
+ * and 99 extension call sites that ask for a session.
+ *
+ * `store.run` with a fresh object, never mutation — for the reason written above
+ * `runWithTenantTrx`: a synchronous `finally` restoring a mutated field fires at
+ * `fn`'s first await, long before it is done.
+ */
+export function runWithoutTenantTrx<T>(fn: () => T): T {
+  const s = store.getStore();
+  if (!s?.trx) return fn();
+  return store.run({ ...s, trx: undefined }, fn);
+}
+
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
 }

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { runWithoutTenantTrx } from './tenancy/index.js';
 import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
@@ -687,8 +688,21 @@ export async function initAuth(db: Database) {
   // proper 500 instead of swallowing it into a silent 401. Without this
   // narrowing, every infrastructure failure looked like "logged out".
   const origGetSession = authInstance.api.getSession.bind(authInstance.api);
+  // Outside the tenant transaction, always.
+  //
+  // Better Auth's tables are unreachable under `zveltio_rls`, which is what a
+  // request runs as once `withTenantIsolation` opens. The refusal aborts the
+  // transaction rather than merely failing the lookup, so one session read in the
+  // wrong place takes the rest of the request with it. Wrapping here covers all
+  // 55 engine and 99 extension call sites at once; wrapping at each of them would
+  // be 154 chances to forget one.
+  //
+  // See `runWithoutTenantTrx` for the measurements, and for why granting the role
+  // SELECT on `session` is not the fix even though it also makes them stop.
+  const wrappedGetSession = wrapGetSession(origGetSession);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  (authInstance.api as any).getSession = wrapGetSession(origGetSession);
+  (authInstance.api as any).getSession = (...args: Parameters<typeof wrappedGetSession>) =>
+    runWithoutTenantTrx(() => wrappedGetSession(...args));
 
   // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>
   _auth = authInstance;
