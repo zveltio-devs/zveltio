@@ -49,7 +49,7 @@
   "ext:search/engine/routes.ts": 1,
   "ext:storage/cloud/engine/routes.ts": 2,
   "ext:workflow/approvals/engine/routes.ts": 4,
-  "ext:workflow/checklists/engine/routes.ts": 7,
+  "ext:workflow/checklists/engine/routes.ts": 3,
   "packages/engine/src/routes/backup.ts": 2,
   "packages/engine/src/routes/collections.ts": 1,
   "packages/engine/src/routes/insights.ts": 2,
