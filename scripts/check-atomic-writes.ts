@@ -165,6 +165,14 @@ if (LIST) {
 const counts: Record<string, number> = {};
 for (const f of findings) counts[f.file] = (counts[f.file] ?? 0) + 1;
 
+/** Reviewer notes from the current baseline, carried across a --update. */
+const existingReasons: Record<string, string> = existsSync(BASELINE)
+  ? (((JSON.parse(readFileSync(BASELINE, 'utf8')) as Record<string, unknown>)._reasons as Record<
+      string,
+      string
+    >) ?? {})
+  : {};
+
 if (UPDATE) {
   const doc = {
     _what:
@@ -174,6 +182,9 @@ if (UPDATE) {
     _how_to_fix:
       'Wrap the handler body in db.transaction().execute(async (trx) => …) and use trx for every write. Then remove the file from this list.',
     _regenerate: 'bun run scripts/check-atomic-writes.ts --update',
+    _reasons_are_preserved:
+      "Entries under _reasons survive --update. A file listed there is one a reviewer has looked at and decided does NOT need wrapping — helpers that run inside a caller's transaction, or branches that are mutually exclusive so only one write ever executes. The count still has to match, so a NEW write in such a file still fails the gate.",
+    _reasons: existingReasons,
     ...Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b))),
   };
   writeFileSync(BASELINE, `${JSON.stringify(doc, null, 2)}\n`);
