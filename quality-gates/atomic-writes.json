@@ -38,7 +38,6 @@
   "ext:developer/validation/engine/routes.ts": 1,
   "ext:finance/expenses/engine/routes.ts": 1,
   "ext:finance/invoicing/engine/routes.ts": 1,
-  "ext:finance/subscriptions/engine/routes.ts": 3,
   "ext:forms/engine/routes.ts": 1,
   "ext:geospatial/postgis/engine/routes.ts": 1,
   "ext:hr/time-tracking/engine/routes.ts": 1,
