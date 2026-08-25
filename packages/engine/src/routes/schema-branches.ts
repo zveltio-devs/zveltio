@@ -275,21 +275,29 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         .then((r) => r.rows[0]);
       if (!branch) return c.json({ error: 'Branch not found or already merged' }, 404);
 
-      // Upsert review request
-      await sql`
-        INSERT INTO zvd_branch_review_requests (branch_id, requested_by, reviewer_id, status, reviewer_note, reviewed_at)
-        VALUES (${id}, ${user.id}, ${user.id}, ${status}, ${body?.note ?? null}, NOW())
-        ON CONFLICT DO NOTHING
-      `
-        .execute(db)
-        .catch(() => {});
+      // The review record and the branch's review_status are the same decision.
+      //
+      // The `.catch(() => {})` that used to sit on the insert contained nothing:
+      // a failed statement aborts the transaction, so the status update below
+      // died with it and was reported as a database error rather than as the
+      // review write it actually was. And the record is what says WHO approved
+      // a schema change — a branch marked approved with no reviewer row is an
+      // approval nobody signed.
+      await db.transaction().execute(async (trx) => {
+        // Upsert review request
+        await sql`
+          INSERT INTO zvd_branch_review_requests (branch_id, requested_by, reviewer_id, status, reviewer_note, reviewed_at)
+          VALUES (${id}, ${user.id}, ${user.id}, ${status}, ${body?.note ?? null}, NOW())
+          ON CONFLICT DO NOTHING
+        `.execute(trx);
 
-      // Update branch review_status
-      await sql`
-        UPDATE zv_schema_branches
-        SET review_status = ${status}
-        WHERE id = ${id}
-      `.execute(db);
+        // Update branch review_status
+        await sql`
+          UPDATE zv_schema_branches
+          SET review_status = ${status}
+          WHERE id = ${id}
+        `.execute(trx);
+      });
 
       return c.json({ success: true, review_status: status });
     })

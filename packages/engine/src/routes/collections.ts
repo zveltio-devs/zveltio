@@ -653,76 +653,90 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       let updatedFieldShape: any = { ...fieldDef };
 
       try {
-        // ── 1) Type change ────────────────────────────────────────────
-        if (newType && newType !== fieldDef.type) {
-          if (!fieldTypeRegistry.has(newType)) {
-            return c.json({ error: `Unknown field type: "${newType}"` }, 400);
-          }
-          const targetDef = fieldTypeRegistry.get(newType)!;
-          const targetSqlType = targetDef.db.columnType;
-          const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
-          if (!conv.ok) {
-            return c.json({ error: conv.reason }, 400);
-          }
-          await dynamicChangeColumnType(db, tableName, fieldName, conv.sqlType, conv.using);
-          updatedFieldShape = { ...updatedFieldShape, type: newType };
-          actions.push(`type ${fieldDef.type}→${newType}`);
-        }
-
-        // ── 2) Required toggle ────────────────────────────────────────
-        if (required !== undefined && required !== !!fieldDef.required) {
-          await dynamicSetColumnRequired(db, tableName, fieldName, required);
-          updatedFieldShape = { ...updatedFieldShape, required };
-          actions.push(`required→${required}`);
-        }
-
-        // ── 3) Rename ─────────────────────────────────────────────────
-        if (newName && newName !== fieldName) {
-          if (isRelation) {
-            // Physical column rename only for m2o/reference (FK on source).
-            // o2m/m2m fields are metadata on the source side; we only
-            // update zvd_relations + zvd_collections.fields.
-            if (fieldDef.type === 'm2o' || fieldDef.type === 'reference') {
-              await dynamicRenameColumn(db, tableName, fieldName, newName);
+        // Altering a field is DDL plus the metadata that describes it, and the
+        // two must not come apart.
+        //
+        // A rename that changes the physical column but not `zvd_relations` and
+        // `zvd_collections.fields` leaves the collection definition pointing at
+        // a column that no longer exists — every query built from that
+        // definition fails, and the only repair is editing metadata by hand.
+        // The reverse leaves metadata describing a column the table does not
+        // have. Postgres runs DDL inside transactions, so this is one of the
+        // few places where the schema change and its bookkeeping genuinely can
+        // roll back together.
+        await db.transaction().execute(async (trx) => {
+          // ── 1) Type change ────────────────────────────────────────────
+          if (newType && newType !== fieldDef.type) {
+            if (!fieldTypeRegistry.has(newType)) {
+              return c.json({ error: `Unknown field type: "${newType}"` }, 400);
             }
-            await db
-              .updateTable('zvd_relations')
-              .set({ source_field: newName })
-              .where('source_collection', '=', name)
-              .where('source_field', '=', fieldName)
-              .execute();
-          } else {
-            await dynamicRenameColumn(db, tableName, fieldName, newName);
-            // Also sync any zvd_relations rows where this is the target_field
-            // (i.e. another collection has an o2m pointing at this column).
-            await db
-              .updateTable('zvd_relations')
-              .set({ target_field: newName })
-              .where('target_collection', '=', name)
-              .where('target_field', '=', fieldName)
-              .execute();
+            const targetDef = fieldTypeRegistry.get(newType)!;
+            const targetSqlType = targetDef.db.columnType;
+            const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
+            if (!conv.ok) {
+              return c.json({ error: conv.reason }, 400);
+            }
+            await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
+            updatedFieldShape = { ...updatedFieldShape, type: newType };
+            actions.push(`type ${fieldDef.type}→${newType}`);
           }
-          updatedFieldShape = { ...updatedFieldShape, name: newName };
-          actions.push(`renamed ${fieldName}→${newName}`);
-        }
 
-        // ── Persist metadata ──────────────────────────────────────────
-        const finalName = updatedFieldShape.name;
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-        const updatedFields = existingFields.map((f: any) =>
-          f.name === fieldName ? updatedFieldShape : f,
-        );
-        await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+          // ── 2) Required toggle ────────────────────────────────────────
+          if (required !== undefined && required !== !!fieldDef.required) {
+            await dynamicSetColumnRequired(trx, tableName, fieldName, required);
+            updatedFieldShape = { ...updatedFieldShape, required };
+            actions.push(`required→${required}`);
+          }
 
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-        const user = c.get('user' as never) as any;
-        await auditLog(db, {
-          type: 'settings.changed',
-          userId: user?.id,
-          resourceId: name,
-          resourceType: 'collection_field',
-          metadata: { actions, from: fieldName, to: finalName },
+          // ── 3) Rename ─────────────────────────────────────────────────
+          if (newName && newName !== fieldName) {
+            if (isRelation) {
+              // Physical column rename only for m2o/reference (FK on source).
+              // o2m/m2m fields are metadata on the source side; we only
+              // update zvd_relations + zvd_collections.fields.
+              if (fieldDef.type === 'm2o' || fieldDef.type === 'reference') {
+                await dynamicRenameColumn(trx, tableName, fieldName, newName);
+              }
+              await trx
+                .updateTable('zvd_relations')
+                .set({ source_field: newName })
+                .where('source_collection', '=', name)
+                .where('source_field', '=', fieldName)
+                .execute();
+            } else {
+              await dynamicRenameColumn(trx, tableName, fieldName, newName);
+              // Also sync any zvd_relations rows where this is the target_field
+              // (i.e. another collection has an o2m pointing at this column).
+              await trx
+                .updateTable('zvd_relations')
+                .set({ target_field: newName })
+                .where('target_collection', '=', name)
+                .where('target_field', '=', fieldName)
+                .execute();
+            }
+            updatedFieldShape = { ...updatedFieldShape, name: newName };
+            actions.push(`renamed ${fieldName}→${newName}`);
+          }
+
+          // ── Persist metadata ──────────────────────────────────────────
+          const finalName = updatedFieldShape.name;
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          const updatedFields = existingFields.map((f: any) =>
+            f.name === fieldName ? updatedFieldShape : f,
+          );
+          await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields });
+
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          const user = c.get('user' as never) as any;
+          await auditLog(trx, {
+            type: 'settings.changed',
+            userId: user?.id,
+            resourceId: name,
+            resourceType: 'collection_field',
+            metadata: { actions, from: fieldName, to: finalName },
+          });
         });
+
         return c.json({ success: true, field: updatedFieldShape, actions });
       } catch (error) {
         return c.json(
