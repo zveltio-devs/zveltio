@@ -5,7 +5,11 @@ import { APIError } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
+import { Kysely } from 'kysely';
+import { BunSqlDialect } from '../db/bun-sql-dialect.js';
 import type { Database } from '../db/index.js';
+import { withIdleInTransactionTimeout } from '../db/index.js';
+import type { DbSchema } from '../db/schema.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
@@ -426,8 +430,40 @@ export async function initAuth(db: Database) {
   // This form is explicit: we reuse the already-working engine Kysely instance and
   // tell better-auth it's postgres, so all feature flags (booleans, UUIDs, JSON)
   // are enabled correctly.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  const database: any = { db, type: 'postgres' };
+  // Better Auth gets its OWN pool, never the one tenant transactions run on.
+  //
+  // A request abandoned mid-transaction — Bun.serve giving up on a slow handler,
+  // a client disconnecting — returns its connection to the pool without COMMIT or
+  // ROLLBACK, so `SET LOCAL ROLE zveltio_rls` is still in force on it. Postgres
+  // reclaims such a transaction after `idle_in_transaction_session_timeout`
+  // (60s here), and for that minute the connection is in the pool carrying a role
+  // that cannot read `session`. Whoever borrows it next gets
+  // `permission denied for table session` — and because that aborts THEIR
+  // transaction, one contaminated connection fails a series of unrelated
+  // requests. Demonstrated in isolation: release a reserved connection without
+  // rolling back and the very next `pool.unsafe()` runs as `zveltio_rls`.
+  //
+  // Chasing every path that can abandon a transaction was tried and is not
+  // winnable from here — the cleanup hook this file's sibling added fires once
+  // per nineteen failures, so the rest happens inside the driver. Making the
+  // reader immune is bounded and does not depend on catching them.
+  //
+  // Semantically right as well: `user`, `session`, `account`, `verification`,
+  // `twoFactor` and `passkey` are global tables with no RLS by design
+  // (migration 044). Nothing about them is tenant-scoped, so they have no
+  // business sharing a pool with tenant transactions.
+  //
+  // Small on purpose. Auth queries are short (single-digit ms) and CI runs
+  // several engines against one Postgres, where every extra connection per
+  // instance is multiplied — see the note on `DB_POOL_MAX`.
+  const authPoolMax = Number(process.env.DB_AUTH_POOL_MAX ?? 3);
+  const authDb = new Kysely<DbSchema>({
+    dialect: new BunSqlDialect({
+      connectionString: withIdleInTransactionTimeout(process.env.DATABASE_URL ?? ''),
+      max: authPoolMax,
+    }),
+  });
+  const database = { db: authDb, type: 'postgres' as const };
 
   // Optional cache secondary storage for sessions
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01

@@ -263,6 +263,7 @@ class BunSqlDriver implements Driver {
     // Upgrade to reserved connection before sending BEGIN
     await (connection as BunSqlSmartConnection).reserveForTransaction();
     await connection.executeQuery(CompiledQuery.raw('BEGIN'));
+    (connection as BunSqlSmartConnection).markInTransaction(true);
     if (settings.isolationLevel) {
       await connection.executeQuery(
         CompiledQuery.raw(
@@ -274,10 +275,12 @@ class BunSqlDriver implements Driver {
 
   async commitTransaction(connection: DatabaseConnection): Promise<void> {
     await connection.executeQuery(CompiledQuery.raw('COMMIT'));
+    (connection as BunSqlSmartConnection).markInTransaction(false);
   }
 
   async rollbackTransaction(connection: DatabaseConnection): Promise<void> {
     await connection.executeQuery(CompiledQuery.raw('ROLLBACK'));
+    (connection as BunSqlSmartConnection).markInTransaction(false);
   }
 
   async releaseConnection(connection: DatabaseConnection): Promise<void> {
@@ -377,6 +380,8 @@ function inlineParams(sql: string, params: unknown[]): string {
 class BunSqlSmartConnection implements DatabaseConnection {
   readonly #pool: BunSQLPool;
   #reserved: BunReservedConnection | null = null;
+  /** True between BEGIN and COMMIT/ROLLBACK. Read by `release()`. */
+  #inTransaction = false;
 
   constructor(pool: BunSQLPool) {
     this.#pool = pool;
@@ -484,8 +489,46 @@ class BunSqlSmartConnection implements DatabaseConnection {
     throw new Error('[BunSqlConnection] streamQuery is not supported in BunSqlDialect');
   }
 
+  /** Set by the driver around BEGIN and COMMIT/ROLLBACK. */
+  markInTransaction(v: boolean): void {
+    this.#inTransaction = v;
+  }
+
   release(): void {
     if (this.#reserved) {
+      // A transaction still open here means the request was abandoned before
+      // Kysely could COMMIT or ROLLBACK — Bun.serve giving up on a slow handler,
+      // a client disconnecting, an acquire deadline firing upstream.
+      //
+      // Releasing it as-is is what poisoned the pool. `SET LOCAL ROLE
+      // zveltio_rls` only unwinds when the transaction ENDS, so a connection
+      // returned mid-transaction carries the downgraded role into whoever
+      // borrows it next — and that borrower is often Better Auth, which then
+      // answers `permission denied for table session` and aborts ITS caller's
+      // transaction in turn. Measured: 129 session reads all correctly on
+      // `pool.unsafe`, and still failing, because the pool itself was dirty.
+      //
+      // Fire-and-forget because `release()` is synchronous and Kysely gives no
+      // async hook here; the connection is not handed back until the ROLLBACK
+      // resolves, and if it rejects the connection is closed rather than reused.
+      if (this.#inTransaction) {
+        this.#inTransaction = false;
+        const conn = this.#reserved;
+        this.#reserved = null;
+        void (async () => {
+          try {
+            await conn.unsafe('ROLLBACK');
+            conn.release();
+          } catch {
+            try {
+              (conn as unknown as { close?: () => void }).close?.();
+            } catch {
+              /* nothing left to try */
+            }
+          }
+        })();
+        return;
+      }
       try {
         this.#reserved.release();
       } catch (err) {
