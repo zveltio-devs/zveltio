@@ -689,27 +689,42 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
         const size = Bun.file(filepath).size;
 
-        await sql`
-          UPDATE zv_backups SET status = 'completed', size_bytes = ${size}, completed_at = NOW()
-          WHERE id = ${backupId}
-        `.execute(db);
+        // The backup's own status and the schedule's `last_run_status` are the
+        // same outcome recorded in two places, and they are what an operator
+        // reads to decide whether last night's backup ran.
+        //
+        // Split, they disagree — the schedule says `completed` while the backup
+        // row says nothing was written, or the reverse. Both readings are worse
+        // than an error, because both are believed. This runs on the pool after
+        // the response, so it needs a transaction of its own; there is no
+        // request boundary out here to borrow.
+        await db.transaction().execute(async (trx) => {
+          await sql`
+            UPDATE zv_backups SET status = 'completed', size_bytes = ${size}, completed_at = NOW()
+            WHERE id = ${backupId}
+          `.execute(trx);
 
-        await sql`
-          UPDATE zv_backup_schedules
-          SET last_run_at = NOW(), last_run_status = 'completed'
-          WHERE id = ${scheduleId}
-        `.execute(db);
+          await sql`
+            UPDATE zv_backup_schedules
+            SET last_run_at = NOW(), last_run_status = 'completed'
+            WHERE id = ${scheduleId}
+          `.execute(trx);
+        });
 
         await cleanupOldBackups(db);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error('Scheduled backup failed:', msg);
-        await sql`
-          UPDATE zv_backups SET status = 'failed', error = ${msg} WHERE id = ${backupId}
-        `.execute(db);
-        await sql`
-          UPDATE zv_backup_schedules SET last_run_at = NOW(), last_run_status = 'failed' WHERE id = ${scheduleId}
-        `.execute(db);
+        // Same pair, same reason. A failure the schedule does not record is a
+        // backup an operator believes ran.
+        await db.transaction().execute(async (trx) => {
+          await sql`
+            UPDATE zv_backups SET status = 'failed', error = ${msg} WHERE id = ${backupId}
+          `.execute(trx);
+          await sql`
+            UPDATE zv_backup_schedules SET last_run_at = NOW(), last_run_status = 'failed' WHERE id = ${scheduleId}
+          `.execute(trx);
+        });
       }
     };
 

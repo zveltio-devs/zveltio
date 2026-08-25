@@ -15,7 +15,9 @@
     "ext:operations/pos/engine/routes.ts": "claimOrderNumber(dbh) takes the handle as its parameter — every caller wraps it. Its two statements are an upsert of the counter row plus the UPDATE … RETURNING that allocates, and allocating outside the sale's transaction is exactly what the callers now avoid.",
     "ext:data/import/engine/routes.ts": "runImport() runs entirely inside ctx.internals.withTenantIsolation(), which gives the whole job one transaction — a background task has no request transaction to inherit, so it opens its own. POST /:collection writes the job row; its second flagged write is the after-response failure recovery, which deliberately opens a SEPARATE tenant transaction because the request's is already committed by the time it runs.",
     "ext:content/documents/engine/routes.ts": "getNextDocNumber(dbh, …) takes the handle — the caller owns the boundary — and its writes are the two arms of `seq ? UPDATE : INSERT`, so exactly one runs.",
-    "ext:content/pages/engine/editor.ts": "PUT /menus/:key is a hand-written upsert: `UPDATE … RETURNING id`, and the INSERT runs only when it matched nothing, so exactly one write executes. (It does race two concurrent first-writes into a unique violation — a concurrency question the comment there explains, not an atomicity one, and a transaction would not fix it.)"
+    "ext:content/pages/engine/editor.ts": "PUT /menus/:key is a hand-written upsert: `UPDATE … RETURNING id`, and the INSERT runs only when it matched nothing, so exactly one write executes. (It does race two concurrent first-writes into a unique violation — a concurrency question the comment there explains, not an atomicity one, and a transaction would not fix it.)",
+    "packages/engine/src/routes/backup.ts": "POST / writes the backup row in the request, then the background task updates it to completed OR failed — two mutually exclusive branches, one of which runs. That task uses poolDb (backupRoutes is mounted with poolDb, not the request proxy), so it is correctly outside any request boundary. POST /schedules/:id/trigger now wraps each outcome branch, because there the backup status and the schedule's last_run_status are the same fact recorded twice.",
+    "packages/engine/src/routes/sync.ts": "POST /push performs ONE write per operation: a bulk INSERT for the creates of a collection, then update OR delete per non-create op. Deliberately NOT wrapped: `effectiveDb` is `c.get('tenantTrx')`, a raw Kysely Transaction, and Kysely throws \"calling the transaction method for a Transaction is not supported\" — unlike ctx.db in extensions, which is the proxy that joins. SEPARATE KNOWN DEFECT, resolved by the boundary move rather than by wrapping: the per-op try/catch cannot contain a failed SQL statement while the whole push runs inside the request transaction, so one bad record makes every later op fail and the response reports them as independent errors. Once the boundary moves off the request each op autocommits and the per-op handling becomes correct."
   },
   "ext:ai/engine/routes/ai.ts": 1,
   "ext:analytics/dashboard/engine/routes.ts": 1,
@@ -53,7 +55,7 @@
   "ext:sms/engine/lib/sms-manager.ts": 1,
   "ext:storage/cloud/engine/lib/file-versions.ts": 1,
   "ext:storage/cloud/engine/routes.ts": 2,
-  "packages/engine/src/routes/backup.ts": 2,
+  "packages/engine/src/routes/backup.ts": 1,
   "packages/engine/src/routes/collections.ts": 1,
   "packages/engine/src/routes/insights.ts": 1,
   "packages/engine/src/routes/permissions.ts": 1,
