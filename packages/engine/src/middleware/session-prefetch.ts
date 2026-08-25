@@ -51,8 +51,18 @@ declare module 'hono' {
  * the one this exists to avoid, not a path that must not exist — a transient
  * lookup failure should not turn into a 500 before the route is even reached.
  */
-// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, matches every other call site
-export function sessionPrefetch(auth: any) {
+/**
+ * The one method needed here. Typed narrowly rather than `any` for the same
+ * reason `extension-auth-gate.ts` does it: better-auth exports no instance type,
+ * and a structural type says exactly what is used.
+ */
+interface SessionReader {
+  api: {
+    getSession(args: { headers: Headers }): Promise<{ user: unknown } | null>;
+  };
+}
+
+export function sessionPrefetch(auth: SessionReader) {
   return createMiddleware(async (c, next) => {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
