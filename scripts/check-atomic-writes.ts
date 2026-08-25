@@ -89,8 +89,17 @@ function countWrites(text: string): number {
  * to distrust the list.
  */
 const HANDLER_SPLIT =
-  /(?=(?:app|router)\.(?:get|post|put|patch|delete)\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;
+  /(?=(?:app|router)\.(?:get|post|put|patch|delete|on)\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;
 const HANDLER_NAME = /^(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]*)/i;
+/**
+ * `app.on(['PUT', 'PATCH'], '/:id', …)` — Hono's multi-method registration.
+ *
+ * It was not a split point, so its writes were counted against whichever route
+ * happened to sit above it. In content/pages that put a PUT/PATCH handler's
+ * three writes on a `POST /` doing exactly one insert, which sends the reader
+ * to a handler with nothing wrong with it.
+ */
+const HANDLER_ON = /^(?:app|router)\.on\s*\(\s*\[([^\]]*)\]\s*,\s*['"`]([^'"`]*)/i;
 const FUNCTION_NAME = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+(\w+)/;
 
 /**
@@ -184,10 +193,17 @@ function scan(file: string, label: string): Finding[] {
     if (writes < 2) continue;
     if (/\.transaction\s*\(/.test(part)) continue;
     const m = HANDLER_NAME.exec(part);
-    const fn = m ? null : FUNCTION_NAME.exec(part);
+    const on = m ? null : HANDLER_ON.exec(part);
+    const fn = m || on ? null : FUNCTION_NAME.exec(part);
     out.push({
       file: label,
-      handler: m ? `${m[1].toUpperCase()} ${m[2] || '/'}` : fn ? `${fn[1]}()` : '(unnamed)',
+      handler: m
+        ? `${m[1].toUpperCase()} ${m[2] || '/'}`
+        : on
+          ? `${on[1].replace(/['"`\s]/g, '')} ${on[2] || '/'}`
+          : fn
+            ? `${fn[1]}()`
+            : '(unnamed)',
       writes,
     });
   }
