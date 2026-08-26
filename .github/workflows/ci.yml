@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main, master]
 
+# CI is the one environment whose engine COUNT is unusual: jobs boot many
+# engines — the harness alone runs 255 files, and the integration job starts a
+# separate out-of-process engine on top — all against one Postgres container.
+# `DB_POOL_MAX × engines ≤ max_connections` is the arithmetic, and here the left
+# side is what is large.
+#
+# The shipped default serves one engine with one database and is 25. Declaring
+# the small number here, once, is what lets that default be honest instead of
+# being held down by a constraint only CI has. Set at workflow level so a new job
+# inherits it rather than rediscovering "sorry, too many clients already".
+env:
+  DB_POOL_MAX: '5'
+
 jobs:
   typecheck:
     name: Type Check
