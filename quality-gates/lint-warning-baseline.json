@@ -1,12 +1,12 @@
 {
-  "generated": "2026-08-21",
+  "generated": "2026-08-26",
   "note": "Per-rule biome warning counts. A rule may not exceed its baseline. Lower the numbers when you fix warnings; never raise them to make CI pass.",
   "rules": {
     "lint/suspicious/noUselessEscapeInString": 1,
     "lint/suspicious/noTemplateCurlyInString": 9,
     "lint/suspicious/noAssignInExpressions": 14,
     "lint/complexity/useArrowFunction": 2,
-    "lint/suspicious/noGlobalIsNan": 8,
+    "lint/suspicious/noGlobalIsNan": 6,
     "suppressions/unused": 43,
     "lint/style/useConst": 6
   }

@@ -155,7 +155,6 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     //
     // `refuse(...)` for an unknown email is safe to return from inside: it runs
     // before any write in this transaction.
-    let result: Awaited<ReturnType<typeof grantAndSpend>>;
     const grantAndSpend = () =>
       db.transaction().execute(async (trx) => {
         const granted = await trx
@@ -200,7 +199,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         });
         return granted;
       });
-    result = await grantAndSpend();
+    const result = await grantAndSpend();
     if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
 
     const { invalidateGodCache } = await import('../lib/tenancy/index.js');
