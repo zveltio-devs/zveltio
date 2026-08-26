@@ -189,6 +189,49 @@ E mecanic, dar **trebuie să fie complet**. Precedentul e în notele proiectului
 378, iar nimic n-a semnalat. Migrația trebuie să numere ce a atins și să refuze
 dacă numărul nu se potrivește cu ce declară `pg_policies`.
 
+### Cât de mecanic — măsurat 2026-08-26
+
+Pe o bază cu extensiile instalate:
+
+- **315 politici pe 315 tabele** — exact una per tabelă;
+- **toate 315 identice**, în fiecare privință: `FOR ALL`, rol `public`,
+  `PERMISSIVE`, `USING zveltio_tenant_scope_ok(tenant_id)`, iar `WITH CHECK`
+  **același predicat**;
+- zero politici de tenant cu altă formă.
+
+Deci rescrierea e **un singur șablon aplicat de 315 ori**, iar verificarea e o
+interogare: după migrație, toate 315 trebuie să aibă `zveltio_tenant_write_ok`
+în `WITH CHECK` și niciuna să nu mai aibă vechea funcție acolo. Dacă numărul nu e
+315, migrația se oprește.
+
+Din cele 315, doar **4 vin din baseline-ul engine-ului**; restul de 311 sunt
+create de migrațiile extensiilor. Șablonul lor trebuie schimbat odată cu
+migrația, altfel fiecare extensie instalată după aceea reintroduce forma veche.
+
+### Un gol găsit pe drum, care privește direct lucrarea asta
+
+**20 de tabele au `tenant_id` și NICIO politică — și RLS nici măcar activat**
+(`relrowsecurity = false`). Pe o bază fără extensii sunt 25.
+
+Reconcilierea de la boot (`reconcileTenantRLS`) rulează **doar pe tabelele de
+colecție** (`zvd_*` din `zvd_collections`, plus `pages`/`views`/`zones`); nu
+atinge tabelele `zv_*` ale engine-ului.
+
+Unele sunt legitim inter-firme și **nu trebuie** să primească politică:
+`zv_tenants`-adiacentele (`zv_tenant_users`, `zv_tenant_usage`,
+`zv_environments`), `zv_api_keys`, `zv_extension_registry`.
+
+Altele arată a date de firmă care se bazează doar pe filtrarea din aplicație:
+`zv_dashboards`, `zv_flows`, `zv_invitations`, `zv_record_comments`,
+`zv_revisions`, `zv_saved_queries`, plus tabelele de scoring din checklists și
+`zvd_page_views` / `zvd_webhooks` / `zvd_webhook_deliveries`.
+
+**Nu am verificat dacă vreuna e exploatabilă** — unele pot fi accesate doar prin
+căi care filtrează oricum. Dar contează direct aici: **predicatul ierarhic nu le
+va proteja nici pe ele.** Prima lucrare a implementării ar trebui să fie
+împărțirea acestei liste în „legitim inter-firme" și „lipsă de acoperire", cu
+motivul scris lângă fiecare.
+
 ## 7. Ordinea de lucru
 
 1. Migrație de schemă (§4). Aditivă, nu mută date.

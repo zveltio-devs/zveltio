@@ -87,9 +87,29 @@ bate punctul 4.1.
 
 ## 7. Ordinea sugerată
 
-1. **Măsoară raportul citiri/scrieri pe rutele reale.** Dacă 90% sunt citiri,
-   A aduce aproape tot. Dacă e 55/45, aduce puțin. **Nu știu cifra** — e prima
-   lucrare și decide dacă restul merită.
+1. **Raportul citiri/scrieri — măsurat parțial, 2026-08-26.**
+
+   Pe *suprafața de rute*: 535 `GET` față de 750 mutante — **42% citiri**, și
+   aproape identic în ambele repo-uri (engine 42%, extensii 41%).
+
+   **Dar suprafața nu e traficul.** Un API CRUD are prin construcție cam o
+   citire la o scriere (listă, element, creare, modificare, ștergere), în timp
+   ce folosirea reală a unei aplicații de business e dominată de citiri: oamenii
+   răsfoiesc liste mult mai des decât salvează înregistrări. Cifra de 42% e deci
+   o **limită inferioară** a câștigului, nu o estimare a lui.
+
+   Raportul adevărat se poate scoate doar dintr-o instalare reală, din
+   `requestLogMiddleware`, care scrie deja metoda și durata:
+
+   ```sql
+   SELECT method, count(*), round(avg(duration_ms)) FROM zv_request_logs
+   WHERE created_at > now() - interval '7 days' GROUP BY method ORDER BY 2 DESC;
+   ```
+
+   Nu există azi nicio instalare în producție de pe care să se citească, deci
+   **asta rămâne prima lucrare când apare una.** Ce se poate spune fără ea: cel
+   puțin 42% din suprafață încetează să pinuiască o conexiune, iar traficul real
+   înclină în sus, nu în jos.
 2. **Testul de conexiune curată** (punctul 4.1), înainte de orice schimbare.
    Trebuie să pice pe codul de azi dacă îl rulezi pe o cale care nu curăță.
 3. Mută citirile. Scrierile rămân cum sunt.
