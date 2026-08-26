@@ -97,3 +97,61 @@ export function assertProductionConfig(
       `${violations.length === 1 ? 'disables a security control' : 'disable security controls'}.`,
   );
 }
+
+/**
+ * Report the concurrency ceiling this instance is running under.
+ *
+ * `DB_POOL_MAX` is not a throughput knob — it is a hard ceiling on how many
+ * requests can be in flight at once, because the tenant transaction pins one
+ * pooled connection for the whole request. Measured on 2026-08-26 with
+ * `scripts/bench-concurrency.ts` against `/api/me`: at the default of 10 the
+ * curve breaks at about 20 concurrent requests and throughput falls from
+ * ~690 req/s to 22 req/s; at 40 it stays flat past 80 with no errors.
+ *
+ * The default is deliberately NOT raised — see the note in `db/index.ts`. A
+ * default is inherited by every install, including ones running several engines
+ * against one Postgres, where 25 apiece already exhausted it. Raising it is an
+ * operator decision taken against a `max_connections` they have checked.
+ *
+ * So this prints the arithmetic instead of hiding it: what the ceiling is, what
+ * the server allows, and how much room is left. Advisory only — it never
+ * refuses to start, because being wrong about the instance count must not take
+ * a deployment down.
+ */
+export async function reportConcurrencyCeiling(db: {
+  // biome-ignore lint/suspicious/noExplicitAny: minimal structural shape, avoids importing Kysely here
+  executeQuery?: any;
+}): Promise<void> {
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
+  try {
+    const { sql } = await import('kysely');
+    const res = await sql<{ max_connections: string }>`SHOW max_connections`.execute(db as never);
+    const serverMax = Number(res.rows[0]?.max_connections ?? 0);
+    if (!Number.isFinite(serverMax) || serverMax <= 0) return;
+
+    // Postgres reserves superuser slots, and migrations/pg-boss/realtime each
+    // want one outside the request pool. Ten is a deliberately rough allowance.
+    const usable = Math.max(1, serverMax - 10);
+    const instances = Math.floor(usable / poolMax);
+
+    console.log(
+      `   Concurrency ceiling: DB_POOL_MAX=${poolMax} in-flight requests per instance ` +
+        `(server max_connections=${serverMax}, so ~${instances} instance(s) fit).`,
+    );
+    if (instances >= 4 && poolMax < 40) {
+      console.log(
+        `   → Room to raise it: DB_POOL_MAX=${Math.floor(usable / Math.max(1, Math.min(instances, 4)))} ` +
+          `would still fit 4 instances. Verify with scripts/bench-concurrency.ts.`,
+      );
+    }
+    if (instances < 2) {
+      console.warn(
+        `   ⚠ DB_POOL_MAX=${poolMax} leaves room for fewer than 2 engine instances ` +
+          `against max_connections=${serverMax}. A second instance will fail with ` +
+          `"sorry, too many clients already".`,
+      );
+    }
+  } catch {
+    // Diagnostics must never be the reason a boot fails.
+  }
+}
