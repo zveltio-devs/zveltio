@@ -61,6 +61,23 @@ Regula de mai sus lasă două situații reale fără soluție, deci modelul are 
 **Vizibilitatea în jos e opt-in pe colecție, nu automată.** Salarizarea centrului
 nu devine vizibilă județelor doar pentru că e mai sus.
 
+**Vizibilitatea în sus NU e opt-in pe colecție** — și asta e o decizie, nu o
+omisiune. Susul e deja controlat pe două axe: `read_scope` pe persoană (cine are
+`subtree` vede sub el, cine are `self` nu) și Casbin pe resursă. Un al treilea
+steag ar duplica în mare parte a doua axă, iar riscul a trei dimensiuni nu e
+performanța, e **credința greșită**: cineva configurează una din trei și crede că
+datele sunt ascunse când nu sunt.
+
+Cazul „holdingul nu trebuie să vadă filiala X" se exprimă prin
+`read_scope = 'list'` — set explicit în loc de subarbore. E granularitatea
+corectă: pe persoană, nu pe colecție.
+
+Iar ușa rămâne deschisă **gratis**: steagul e un literal în politică, nu o
+coloană citită pe rând. Dacă apare un caz real care cere „colecția asta nu urcă
+niciodată, indiferent de rază", se adaugă un al doilea literal doar în politicile
+colecțiilor care au nevoie — fără migrație și fără cost pentru restul. Tabelul de
+mai jos e dovada: un literal fals dispare din plan.
+
 ### Departamentele nu intră în RLS
 
 RLS răspunde la *care unități*. Casbin, care are deja domeniu pe unitate,
@@ -126,6 +143,34 @@ GUC-uri puse o dată pe cerere, deci **zero căutări pe rând**:
 | `zveltio.current_tenant` | nodul unde lucrez (neschimbat — și `DEFAULT`-ul coloanelor `tenant_id` îl folosește) |
 | `zveltio.visible_tenants` | mulțimea pe care o pot citi |
 | `zveltio.ancestor_tenants` | lanțul de deasupra nodului meu |
+
+### Costul, măsurat
+
+Pe o tabelă de 500 000 de rânduri cu 200 de unități, index pe `tenant_id`
+(2026-08-26, `EXPLAIN ANALYZE`):
+
+| predicat | rânduri citite | timp | plan |
+|---|---|---|---|
+| egalitate (modelul de azi) | 2 500 | 0,29ms | Index Only Scan |
+| `= ANY`, 3 unități | 7 500 | 0,82ms | Index Only Scan |
+| `= ANY`, 42 unități | 105 000 | 10,5ms | Index Only Scan |
+
+**Costul pe rând e constant** — 0,116 / 0,109 / 0,100 µs. Mărimea mulțimii nu
+contează; contează câte rânduri se returnează. Un nod-părinte care consolidează
+citește legitim de 42 de ori mai multe rânduri, și aia e consolidarea, nu
+mecanismul. Dacă devine o problemă, remediul e agregatul materializat (§9), nu
+reglarea predicatului.
+
+Steagul de moștenire în jos:
+
+| `inherit_down` | timp | plan |
+|---|---|---|
+| `false` | 0,77ms | **ramura dispare din plan** — identic cu cazul fără steag |
+| `true` | 9,5ms | `BitmapOr` peste două scanări de index |
+
+**Un opt-in dezactivat costă exact zero**, fiindcă planificatorul pliază
+literalul la compilare. Activat, e de ~7 ori mai scump pe rând, dar tot pe index
+și tot în milisecunde.
 
 **Limita de scară:** pentru zeci sau sute de unități, mulțimea e o listă mică
 rezolvată o dată pe cerere. Peste câteva mii, trecerea corectă e la cale
