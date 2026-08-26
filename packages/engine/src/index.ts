@@ -1075,6 +1075,11 @@ async function bootstrap() {
   const db = await initDatabase();
   console.log('✅ Database connected');
 
+  // What ceiling is this instance actually running under? Advisory, printed
+  // once — the number was invisible until somebody measured it.
+  const { reportConcurrencyCeiling } = await import('./lib/startup-guards.js');
+  await reportConcurrencyCeiling(db);
+
   // 1a. Auto-migrate (S4-10) — applies pending migrations under a pg
   // advisory lock so concurrent replicas don't race. Opt out with
   // MIGRATIONS_AUTO=false (CI / explicit-control deploys).
