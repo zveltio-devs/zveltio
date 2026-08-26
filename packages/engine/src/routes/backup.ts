@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
+import { unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -288,14 +289,27 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     if (backup.rows[0]) {
       const { filename } = backup.rows[0];
+
+      // Row first, file second.
+      //
+      // The other order — which this used to be — leaves, on a failure between
+      // them, a row saying a backup exists over a file that is gone. An operator
+      // reading the list then believes they hold a restore point they do not,
+      // which is the one belief a backup system must never create. The reverse
+      // leaves an orphaned file: wasted disk, and nothing else.
+      await sql`DELETE FROM zv_backups WHERE id = ${id}`.execute(db);
+
       if (!filename.includes('..') && !filename.includes('/')) {
         const filepath = `${BACKUP_DIR}/${filename}`;
-        if (await Bun.file(filepath).exists()) {
-          const rmProc = Bun.spawn(['rm', '-f', filepath]);
-          await rmProc.exited;
-        }
+        // `unlink`, not `Bun.spawn(['rm', …])`. Forking a process to delete one
+        // file costs a fork and holds the request open while it waits — and this
+        // request is holding a pooled connection meanwhile. See
+        // scripts/report-slow-in-transaction.ts.
+        await unlink(filepath).catch(() => {
+          // Already gone, or never written. The row is what mattered and it is
+          // committed; a missing file here is the harmless direction.
+        });
       }
-      await sql`DELETE FROM zv_backups WHERE id = ${id}`.execute(db);
       await auditLog(db, {
         type: 'backup.deleted',
         userId: user?.id,
