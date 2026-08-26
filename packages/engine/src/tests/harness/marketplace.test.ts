@@ -14,7 +14,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
@@ -44,7 +45,21 @@ function stubLicenseVerifyOk(): void {
   }) as typeof fetch;
 }
 
+/**
+ * Put the fixture somewhere that is not the repository.
+ *
+ * `resolveExtensionsBase()` falls back to `./extensions` under the working
+ * directory, so this used to copy hello-ext into the repo root and leave it
+ * there — every harness run dirtied the tree, and `lint:ratchet` then scanned
+ * the generated bundle and failed on warnings nobody wrote. Setting
+ * EXTENSIONS_DIR is what the resolver is for.
+ */
+let TEMP_EXT_BASE: string | null = null;
 function ensureHelloExtOnDisk(): void {
+  if (!TEMP_EXT_BASE) {
+    TEMP_EXT_BASE = mkdtempSync(join(tmpdir(), 'zv-marketplace-ext-'));
+    process.env.EXTENSIONS_DIR = TEMP_EXT_BASE;
+  }
   const extBase = resolveExtensionsBase();
   const target = join(extBase, HELLO_EXT);
   if (!existsSync(join(target, 'manifest.json'))) {
@@ -73,6 +88,10 @@ d('extension marketplace routes (in-process)', () => {
 
   afterAll(() => {
     globalThis.fetch = originalFetch;
+    if (TEMP_EXT_BASE) {
+      rmSync(TEMP_EXT_BASE, { recursive: true, force: true });
+      TEMP_EXT_BASE = null;
+    }
   });
 
   it('requires auth for the marketplace catalog', async () => {

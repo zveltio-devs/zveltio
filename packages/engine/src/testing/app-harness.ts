@@ -50,6 +50,15 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   process.env.FIELD_ENCRYPTION_KEY ??= '0'.repeat(64);
   // Don't let a stray VALKEY_URL make the realtime bus try to connect.
   delete process.env.VALKEY_URL;
+  // The harness is what multiplies pools: 255 test files, each booting an engine
+  // with its own pool, against ONE Postgres. That — not any real deployment —
+  // is what exhausted connections when the shipped default was raised once
+  // before, so the small number belongs here, where the multiplicity is.
+  //
+  // 10, which is exactly what the harness inherited before the product default
+  // moved — so raising that default changes nothing here. 5 was tried and made
+  // the suite several times slower.
+  process.env.DB_POOL_MAX ??= '10';
 
   const { initDatabase } = await import('../db/index.js');
   const db = await initDatabase();
