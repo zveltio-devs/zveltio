@@ -56,6 +56,48 @@ const TXN_SKIP_PREFIXES = [
   // Creating tenant B while scoped to tenant A is cross-tenant by definition,
   // so scoping it was the error, not the pool write it collided with.
   '/api/tenants',
+
+  // ── Routers built on `poolDb` ──────────────────────────────────────────
+  //
+  // These four are handed the raw pool in `routes/index.ts` and never read
+  // `tenantTrx`. Opening a transaction for them was not merely wasted: it was
+  // the one remaining way to make the engine deadlock.
+  //
+  // A request inside the tenant transaction has RESERVED one pooled connection.
+  // A handler running on `poolDb` then needs a SECOND one. At a concurrency
+  // equal to the pool size, every request holds one and waits for one, and
+  // nothing can release. Measured on this branch, DB_POOL_MAX=10, against
+  // `/api/insights/dashboards`:
+  //
+  //   c=5   →  10ms p50, 0 failures, 530 req/s
+  //   c=10  →  12 000ms p50, 20 520ms p95, 55 of 60 requests failed, 1 req/s
+  //
+  // `pg_stat_activity` during the second row: ten connections `idle in
+  // transaction`, zero `active`. Not load — a standstill.
+  //
+  // The same benchmark on `/api/me`, which pins one connection and asks for no
+  // second, is flat to c=120 (177ms p50, no failures) and indistinguishable
+  // from the same route with no transaction at all. That contrast is the whole
+  // point: the cost is not the request transaction, it is holding it while
+  // reaching for another connection.
+  //
+  // Skipping is safe here because none of the four relies on the GUC. `insights`
+  // and `flows` filter by `tenant_id` explicitly through `tenantOf(c)` — they
+  // have to, being on the pool — and `backup` and `sql-editor` are
+  // instance-level tools with no tenant scope at all.
+  //
+  // `/api/users` is deliberately NOT here. It takes `poolDb` as a THIRD
+  // argument, used only to revoke sessions on delete, and runs everything else
+  // on the request transaction. Skipping it would drop RLS for the whole
+  // router to spare one cold path.
+  //
+  // `check-pooldb-txn-skip.ts` keeps this list and `routes/index.ts` in
+  // agreement, so a router moved onto `poolDb` tomorrow cannot reintroduce the
+  // standstill silently.
+  '/api/insights',
+  '/api/flows',
+  '/api/backup',
+  '/api/admin/sql',
 ];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {
