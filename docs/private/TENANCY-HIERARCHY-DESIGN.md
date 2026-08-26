@@ -225,14 +225,91 @@ Punctul 2 trebuie să pice pe codul de azi. E proba că modelul chiar s-a schimb
   reală ar cere o tabelă de legătură; se rezolvă prin direcție (proprietar unic
   la nodul potrivit, vizibil în jos).
 
-## 10. Notat separat
+## 10. Abordări respinse, și de ce
+
+Sfaturile de mai jos sunt ce întoarce o căutare pe „multi-tenancy BaaS". Sunt
+plauzibile, larg repetate, și **fiecare desface una dintre proprietățile de la
+§3–§5**. Scrise aici fiindcă peste un an cineva le va primi din nou și vor părea
+rezonabile.
+
+### „Sediul central are un rol care ocolește RLS"
+
+Forma obișnuită: `if (role === 'hq_admin') allowedUnits = []` — listă goală
+însemnând „fără restricții".
+
+**De ce nu.** Un rol care *oprește* impunerea e un rol unde o singură eroare
+scurge tot. Aici sediul central e `read_scope = 'org'`: tot impus de bază, tot
+auditabil, tot vizibil în politici. Un array gol în cod e o gaură; o rază 'org'
+e o politică. Vezi și §12: `rls_bypass` nu devine niciodată mecanismul a nimic.
+
+### „Filtrează în query builder / ORM"
+
+Forma obișnuită: un middleware injectează `WHERE org_unit_id IN (…)` în fiecare
+interogare, cu argumentul că „chiar dacă un programator terț uită să filtreze,
+sistemul filtrează oricum".
+
+**De ce nu.** Adevărat doar dacă interogarea trece prin acel query builder. Zveltio
+are 57 de extensii scrise de terți care își scriu propriul SQL și nu sunt
+obligate să treacă pe acolo. RLS există tocmai ca impunerea să nu depindă de
+disciplina apelantului. Impunerea stă în politicile Postgres; query builder-ul e
+ergonomie, nu graniță.
+
+### „Pune unitatea activă în JWT"
+
+Forma obișnuită: `active_org_unit_id` în token, vândut ca optimizare — „nu mai
+interoghezi tabela de utilizatori la fiecare cerere".
+
+**De ce nu.** Raza devine irevocabilă până la expirarea token-ului. Retragi o
+atribuire, iar purtătorul continuă cu raza veche până expiră. Un milisecund pe
+cerere schimbat pe o fereastră de revocare de ore. Atribuirile se rezolvă per
+cerere; §4 le dă `valid_from` / `valid_to` tocmai ca revocarea să fie o dată, nu
+o repovestire.
+
+### „Scrie auditul asincron, după răspuns"
+
+Forma obișnuită: `setImmediate(() => db.insert(auditLog))`, ca să nu se dubleze
+latența.
+
+**De ce nu — și asta e măsurat, nu presupus.** O scriere trimisă după răspuns
+rulează pe tranzacția cererii, care e deja comisă și cu conexiunea întoarsă în
+pool. Din `data/import/engine/routes.ts`, despre exact acest tipar:
+
+> *„The recovery write went to a closed transaction, its `.catch` discarded the
+> error, and a job that died left `status: 'pending'`, `errors: []` and not one
+> line anywhere. Measured on a virgin database: an import stayed pending forever
+> with no trace, which is how a broken import reads as a slow one."*
+
+Dacă auditul chiar trebuie scos de pe calea critică, îi trebuie **tranzacția lui
+proprie** (`withTenantIsolation`), nu contextul cererii.
+
+### „Marchează rândurile globale cu `org_unit_id = NULL`"
+
+**De ce nu, ca atare.** Verificat: sub un predicat de egalitate, `NULL = X` dă
+NULL, deci un asemenea rând e invizibil pentru toată lumea, nu vizibil tuturor.
+Azi 17 tabele permit NULL și niciuna nu obține nimic din asta. Vizibilitatea în
+jos se face prin proprietar la un nod ascendent plus steagul de la §3, nu prin
+absența proprietarului.
+
+### „Partiționează pe `org_unit_id`"
+
+**De ce nu aici.** Bun sfat pentru tenanți independenți cu interogări care ating
+o singură unitate. Într-un arbore, consolidarea atinge *toate* partițiile —
+adaugi cost de planificare exact pe interogarea pentru care există modelul.
+
+### „Transferă între unități printr-o funcție cu drepturi de sistem"
+
+**De ce nu.** Încă un ocol, și contrazice §4: transferul se jurnalizează. O
+funcție cu drepturi de sistem e o a doua cale de acces care nu apare în nicio
+politică.
+
+## 11. Notat separat
 
 Toate instalările rulează **medii de producție**. Schemele `_dev` per unitate,
 `resolveEnvironment` și `provisionEnvironment` devin astfel greutate moartă care
 se înmulțește cu fiecare unitate nouă. Simplificare reală, cu rază de acțiune
 proprie — de decis separat, nu odată cu asta.
 
-## 11. Federație — proiectat acum, construit mai târziu
+## 12. Federație — proiectat acum, construit mai târziu
 
 Ca să nu se rescrie lanțul de acces peste un an, **principalul e polimorf de la
 început**: persoană | serviciu | instanță străină. Un acord către o instanță
