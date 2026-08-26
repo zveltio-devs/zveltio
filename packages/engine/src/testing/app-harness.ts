@@ -58,6 +58,12 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   // 10, which is exactly what the harness inherited before the product default
   // moved — so raising that default changes nothing here. 5 was tried and made
   // the suite several times slower.
+  //
+  // `??=`, so CI's workflow-level `DB_POOL_MAX` wins: there the harness is not
+  // the only engine running against that Postgres, and the integration job adds
+  // one more outside this file entirely. That is how 25 first reached CI as
+  // "sorry, too many clients already" — this default covered the harness and
+  // nothing else.
   process.env.DB_POOL_MAX ??= '10';
 
   const { initDatabase } = await import('../db/index.js');
