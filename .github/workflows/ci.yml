@@ -16,8 +16,14 @@ on:
 # the small number here, once, is what lets that default be honest instead of
 # being held down by a constraint only CI has. Set at workflow level so a new job
 # inherits it rather than rediscovering "sorry, too many clients already".
+#
+# 10 and not less: it is exactly what every job inherited before the default
+# moved, and CI was green on it. A smaller number was considered and rejected —
+# it cannot be validated locally, because the runner's Postgres container and a
+# developer's have different `max_connections`, so the limit that bites in CI is
+# not reachable here. Changing a number nobody can test is how this broke.
 env:
-  DB_POOL_MAX: '5'
+  DB_POOL_MAX: '10'
 
 jobs:
   typecheck:
