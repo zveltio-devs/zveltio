@@ -97,9 +97,33 @@ function scan(file: string, label: string): void {
       re.lastIndex = 0;
       if (re.test(part)) kinds.add(what);
     }
-    if (kinds.size > 0) {
-      findings.push({ file: label, handler: `${m[1].toUpperCase()} ${m[2]}`, kinds: [...kinds] });
+    if (kinds.size === 0) continue;
+
+    // Fire-and-forget does NOT hold the connection: the handler returns and the
+    // work continues on the pool, outside the request. routes/backup.ts does
+    // exactly this — `backupBg().catch(…)`, never awaited — and counting it was
+    // wrong. The shape looked for is a nested async function invoked without
+    // `await`, which is how every after-response writer in this codebase reads.
+    const deferred = [...part.matchAll(/\b(\w+)\(\)\s*\.catch\s*\(/g)]
+      .map((d) => d[1])
+      .filter((name) =>
+        new RegExp(`(?:const|let)\\s+${name}\\s*=\\s*async|async\\s+function\\s+${name}\\b`).test(
+          part,
+        ),
+      );
+    if (deferred.length > 0) {
+      // Only skip when EVERY slow marker sits inside one of those functions.
+      const outside = part.split(
+        new RegExp(`(?:const|let)\\s+(?:${deferred.join('|')})\\s*=\\s*async`),
+      )[0];
+      const stillSlow = SLOW.some(({ re }) => {
+        re.lastIndex = 0;
+        return re.test(outside);
+      });
+      if (!stillSlow) continue;
     }
+
+    findings.push({ file: label, handler: `${m[1].toUpperCase()} ${m[2]}`, kinds: [...kinds] });
   }
 }
 
