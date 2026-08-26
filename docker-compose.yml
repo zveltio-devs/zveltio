@@ -71,7 +71,7 @@ services:
       - /bin/sh
       - -c
       - |
-        printf '[general]\nhost = "0.0.0.0"\nport = 6432\ndefault_pool_size = 20\nmin_pool_size = 5\npooler_mode = "session"\nauth_type = "scram"\n\n[[databases]]\nname = "%s"\nhost = "%s"\nport = %s\n' \
+        printf '[general]\nhost = "0.0.0.0"\nport = 6432\ndefault_pool_size = 60\nmin_pool_size = 5\npooler_mode = "session"\nauth_type = "scram"\n\n[[databases]]\nname = "%s"\nhost = "%s"\nport = %s\n' \
           "$$DB_NAME" "$$DB_HOST" "$$DB_PORT" > /pgdog/pgdog.toml
         printf '[[users]]\nname = "%s"\ndatabase = "%s"\npassword = "%s"\n' \
           "$$DB_USER" "$$DB_NAME" "$$DB_PASSWORD" > /pgdog/users.toml
@@ -258,6 +258,21 @@ services:
       DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@pooler:6432/${POSTGRES_DB:-zveltio}'
       # Direct Postgres connection — used by migrate/create-god to bypass PgDog
       NATIVE_DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-zveltio}'
+
+      # How many requests can be IN FLIGHT at once. Not a throughput knob: the
+      # tenant transaction pins one pooled connection for a request's whole life,
+      # so this is a hard ceiling. Measured with scripts/bench-concurrency.ts on
+      # 2026-08-26: at 10 the curve breaks at ~20 concurrent and throughput falls
+      # from ~690 req/s to 22; at 40 it stays flat past 80 with no errors.
+      #
+      # The CODE default stays 10 because it is inherited by deployments whose
+      # instance count is unknown. This file knows: it starts one engine. The
+      # chain has to add up end to end —
+      #     engine 60  ≤  pooler default_pool_size 60  ≤  max_connections 200
+      # — and it did not: 10 → 20 → 200 left 95% of the database unused behind
+      # the innermost limit. 60 leaves 140 connections spare for a second engine,
+      # migrations, pg_dump and a psql session.
+      DB_POOL_MAX: '${DB_POOL_MAX:-60}'
 
       # Auth (change BETTER_AUTH_SECRET in production!)
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'

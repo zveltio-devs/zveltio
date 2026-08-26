@@ -44,7 +44,7 @@ These must be set for the engine to start:
 | `DATABASE_PASSWORD` | — | DB password |
 | `DATABASE_HOST_DIRECT` | — | Direct host (bypasses PgDog for DDL migrations) |
 | `DATABASE_PORT_DIRECT` | `5432` | Direct port |
-| `DB_POOL_MAX` | `10` | Maximum connection pool size |
+| `DB_POOL_MAX` | `10` | **Ceiling on concurrent in-flight requests**, not a throughput knob — the tenant transaction pins one pooled connection per request. Must satisfy `DB_POOL_MAX × engine instances ≤ pooler pool size ≤ max_connections − 10`. The engine prints the arithmetic at boot. Verify a change with `scripts/bench-concurrency.ts`. |
 | `DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection timeout (ms) |
 | `TEST_DATABASE_URL` | — | Separate DB for integration tests |
 
@@ -402,7 +402,10 @@ SITE_URL=https://yourapp.com
 # Database
 DATABASE_URL=postgresql://zveltio:strongpassword@postgres:5432/zveltio?sslmode=require
 DATABASE_HOST_DIRECT=postgres-primary
-DB_POOL_MAX=20
+# Concurrent in-flight requests per engine instance. Check the arithmetic:
+# DB_POOL_MAX × instances must fit inside the server's max_connections, with
+# ~10 left over for migrations, backups and a psql session.
+DB_POOL_MAX=60
 
 # Auth
 BETTER_AUTH_SECRET=<openssl rand -base64 32>
