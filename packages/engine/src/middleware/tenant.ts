@@ -86,14 +86,31 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
           await next();
         } else {
-          await withTenantIsolation(tenant.id, async (trx) => {
-            c.set('tenantTrx', trx);
-            // H-12: also expose the tenant transaction via the ALS store so an
-            // extension's `ctx.db` (which has no Hono context inside a hook or
-            // background job) is RLS-scoped to this tenant, not the global pool.
-            setCurrentTenantTrx(trx);
-            await next();
-          });
+          // The acting user, so the transaction can resolve their reach into
+          // the visible-set GUCs. `sessionPrefetch` runs before this middleware
+          // precisely so the lookup is already done on a pool connection as the
+          // engine's own role — asking again here would be a second query, and
+          // asking INSIDE the transaction would ask as `zveltio_rls`, which is
+          // refused `session` and would abort the whole request.
+          //
+          // Absent for public traffic and API keys, which is correct: with no
+          // user there is no assignment to resolve, and the predicate answers
+          // with the single-unit equality it always used.
+          const actingUserId =
+            (c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined)?.user
+              ?.id ?? null;
+          await withTenantIsolation(
+            tenant.id,
+            async (trx) => {
+              c.set('tenantTrx', trx);
+              // H-12: also expose the tenant transaction via the ALS store so an
+              // extension's `ctx.db` (which has no Hono context inside a hook or
+              // background job) is RLS-scoped to this tenant, not the global pool.
+              setCurrentTenantTrx(trx);
+              await next();
+            },
+            { userId: actingUserId },
+          );
         }
       });
     } else {

@@ -6,6 +6,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { runWithTenantTrx } from './tenant-context.js';
+import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
 
 export interface Tenant {
   id: string;
@@ -67,8 +68,24 @@ export async function getDefaultTenant(): Promise<Tenant> {
 }
 
 const SAFE_COLLECTION_TABLE = /^zvd_[a-z0-9_]+$/i;
-/** Engine (`zv_`) and collection (`zvd_`) tables alike — used by the extension reconciler. */
-const SAFE_TENANT_TABLE = /^zvd?_[a-z0-9_]+$/i;
+/**
+ * Any plain identifier — used by the extension reconciler.
+ *
+ * This required a `zv_`/`zvd_` prefix, which read as a namespace rule and was
+ * really a silent skip list. Eleven `trace_*` tables in `compliance/traceability`
+ * declare a `tenant_isolation_*` policy and carry `tenant_id`, and the
+ * reconciler passed over every one of them because of their name — so the
+ * host's guarantee that it puts every extension table on the host's predicate
+ * was not true, and nothing said so. Found when migration 003 split the read
+ * and write predicates and those eleven kept the old combined one, which is the
+ * form that lets a parent unit write into a child's rows.
+ *
+ * The prefix was never what made this safe. The reconciler only ever visits
+ * tables named by `pg_policies` — they exist by construction — and the name is
+ * still checked for a plain identifier before it is interpolated into DDL,
+ * which is the part that matters.
+ */
+const SAFE_TENANT_TABLE = /^[a-z_][a-z0-9_]*$/i;
 /** Policy names come from pg_policies, but they are interpolated into DDL. */
 const SAFE_POLICY_NAME = /^[a-z0-9_]+$/i;
 
@@ -84,6 +101,36 @@ const SAFE_POLICY_NAME = /^[a-z0-9_]+$/i;
  * DB role MUST be a plain non-superuser or isolation is silently ineffective —
  * `warnIfDbRoleBypassesRls` checks this at boot.
  */
+/**
+ * Which overload of the visible-set function this table's policy must name.
+ *
+ * `tenant_id` is uuid on all but three tables, where it is TEXT — and there is
+ * no `text = uuid` operator, so a policy handed the wrong array does not
+ * silently widen or narrow, it fails to be created at all. Read from the
+ * catalogue rather than assumed, because the two tables that have it are owned
+ * by an extension and could be joined by another tomorrow.
+ *
+ * Falls back to the uuid form when the column cannot be read: every caller here
+ * has already established the table has a `tenant_id`, and uuid is what the
+ * engine creates.
+ */
+async function visibleTenantsFn(db: Database, table: string): Promise<string> {
+  try {
+    const r = await sql<{ is_uuid: boolean }>`
+      SELECT a.atttypid = 'uuid'::regtype AS is_uuid
+        FROM pg_attribute a
+       WHERE a.attrelid = ${`public.${table}`}::regclass
+         AND a.attname = 'tenant_id'
+         AND NOT a.attisdropped
+    `.execute(db);
+    return r.rows[0]?.is_uuid === false
+      ? 'zveltio_visible_tenants_text()'
+      : 'zveltio_visible_tenants()';
+  } catch {
+    return 'zveltio_visible_tenants()';
+  }
+}
+
 export async function applyTenantRLS(db: Database, table: string): Promise<void> {
   if (!SAFE_COLLECTION_TABLE.test(table)) {
     throw new Error(`refusing to apply RLS to unsafe table name: ${table}`);
@@ -112,16 +159,24 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
   await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
   await sql.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${t}`).execute(db);
-  // The predicate lives in `zveltio_tenant_scope_ok` (migration 029) rather than
-  // being spelled out here. It used to be written inline, and the extension
-  // migration template wrote its own fail-OPEN version of the same rule — two
-  // spellings that behaved oppositely when a query arrived with no tenant
-  // context. Naming it once is what makes that impossible to repeat.
+  // The predicate lives in the two named functions rather than being spelled
+  // out here. It used to be written inline, and the extension migration
+  // template wrote its own fail-OPEN version of the same rule — two spellings
+  // that behaved oppositely when a query arrived with no tenant context. Naming
+  // it once is what makes that impossible to repeat.
+  //
+  // Two now, not one, and they are not interchangeable (migration 003).
+  // `zveltio_tenant_scope_ok` answers WHICH UNITS may be read — the own node
+  // today, a whole subtree for a consolidating parent. `zveltio_tenant_write_ok`
+  // answers where a row may LAND, and the answer is always the own node: the
+  // data belong to the subordinate, and a level above reads and approves rather
+  // than correcting in someone else's place. Putting the read predicate back
+  // into WITH CHECK would let a parent write into a child's rows.
   await sql
     .raw(
       `CREATE POLICY tenant_isolation ON ${t} ` +
-        `USING (zveltio_tenant_scope_ok(tenant_id)) ` +
-        `WITH CHECK (zveltio_tenant_scope_ok(tenant_id))`,
+        `USING (tenant_id = ANY (${await visibleTenantsFn(db, table)})) ` +
+        `WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
     )
     .execute(db);
 }
@@ -204,8 +259,8 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       await sql
         .raw(
           `CREATE POLICY ${`"${policyname}"`} ON ${t} ` +
-            `USING (zveltio_tenant_scope_ok(tenant_id)) ` +
-            `WITH CHECK (zveltio_tenant_scope_ok(tenant_id))`,
+            `USING (tenant_id = ANY (${await visibleTenantsFn(db, tablename)})) ` +
+            `WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
         )
         .execute(db);
       applied++;
@@ -684,6 +739,7 @@ export function getTenantDb(): Database {
 export async function withTenantIsolation<T>(
   tenantId: string,
   fn: (trx: Database) => Promise<T>,
+  opts?: { userId?: string | null },
 ): Promise<T> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   return (_db as any).transaction().execute(async (trx: Database) => {
@@ -702,6 +758,26 @@ export async function withTenantIsolation<T>(
     //
     // Skipped when the role is absent — a managed Postgres may not have let
     // migration 030 create it, and the engine has to keep working there.
+    // Resolve the reach BEFORE dropping the role, while still the engine's own.
+    // `zveltio_tenant_subtree` reads `zv_tenants`, and making the visible set
+    // depend on grants held by the restricted role is how a reach silently
+    // narrows on an install where migration 030 never ran.
+    //
+    // Only when a user is named. Everything else — background workers, boot
+    // reconcilers, API-key traffic, single-tenant installs — publishes no set
+    // and is answered by the equality fallback inside the predicate, which is
+    // exactly what it did before the hierarchy existed.
+    let scope: TenantScope | null = null;
+    if (opts?.userId) {
+      scope = await resolveTenantScope(trx, opts.userId, tenantId).catch((err: Error) => {
+        // Deliberately NOT swallowed into "see everything". A reach that cannot
+        // be resolved is not a reach of zero restrictions; the request falls
+        // back to the single-unit predicate, which is the narrow answer.
+        console.warn(`[tenant-scope] falling back to single-unit reach: ${err.message}`);
+        return null;
+      });
+    }
+
     if (_rlsRoleAvailable) {
       await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
     }
@@ -709,7 +785,16 @@ export async function withTenantIsolation<T>(
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
-    await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
+    //
+    // All three in one round trip, and all three ALWAYS written, including the
+    // empty spellings. A pooled connection is shared; leaving a GUC unset means
+    // inheriting whatever the previous occupant left, and the two new ones
+    // decide what a request can see.
+    await sql`
+      SELECT set_config('zveltio.current_tenant', ${tenantId}, true),
+             set_config('zveltio.visible_tenants', ${encodeTenantSet(scope?.visible ?? null)}, true),
+             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true)
+    `.execute(trx);
     // Bind the transaction to the async context as well as handing it to `fn`.
     //
     // `ctx.db` given to extensions is a proxy that resolves
@@ -932,7 +1017,7 @@ export async function enableRLS(tableName: string): Promise<void> {
   await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(_db);
   await sql`ALTER TABLE ${sql.id(tableName)} FORCE ROW LEVEL SECURITY`.execute(_db);
 
-  // 4. Isolation policy — the SAME predicate `applyTenantRLS` uses.
+  // 4. Isolation policy — the SAME predicate pair `applyTenantRLS` uses.
   //
   //    This spelled the rule out inline as
   //      tenant_id::text = current_setting('zveltio.current_tenant', true)
@@ -950,12 +1035,24 @@ export async function enableRLS(tableName: string): Promise<void> {
   //    (migration 029) decides that case deliberately instead of inheriting
   //    three-valued logic.
   //
+  //    Since migration 003 the two halves are different functions:
+  //    `zveltio_tenant_scope_ok` for reading (which may span a subtree),
+  //    `zveltio_tenant_write_ok` for writing (the own node, always). Keep them
+  //    apart — the reason the read half widened is the reason the write half
+  //    must not.
+  //
   //    DROP + CREATE so this function stays idempotent.
   await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(_db);
+  // `sql.id` for the table, `sql.raw` for the function name only — and the
+  // function name is one of two literals chosen here, never a caller's string.
+  // Every other statement in this function quotes the identifier; dropping to
+  // raw interpolation for the one that happens to need a second insert would
+  // make this the one injectable statement of the set.
+  const setFn = await visibleTenantsFn(_db, tableName);
   await sql`
     CREATE POLICY tenant_isolation ON ${sql.id(tableName)}
-    USING (zveltio_tenant_scope_ok(tenant_id))
-    WITH CHECK (zveltio_tenant_scope_ok(tenant_id))
+    USING (tenant_id = ANY (${sql.raw(setFn)}))
+    WITH CHECK (zveltio_tenant_write_ok(tenant_id))
   `.execute(_db);
 
   // 5. NULL tenant_id row warning.

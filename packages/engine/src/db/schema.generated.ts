@@ -2331,6 +2331,17 @@ export interface ZvStorageQuotasTable {
   tenant_id: string | null;
 }
 
+export interface ZvTenantTransfersTable {
+  id: Generated<string>;
+  table_name: string;
+  record_id: string;
+  from_tenant: string;
+  to_tenant: string;
+  moved_at: Generated<Date>;
+  moved_by: string | null;
+  reason: string | null;
+}
+
 export interface ZvTenantUsageTable {
   id: Generated<string>;
   tenant_id: string;
@@ -2347,6 +2358,10 @@ export interface ZvTenantUsersTable {
   role: Generated<'owner' | 'admin' | 'member' | 'viewer'>;
   invited_by: string | null;
   joined_at: Generated<Date>;
+  read_scope: Generated<'self' | 'subtree' | 'list' | 'org'>;
+  scope_list: string[] | null;
+  valid_from: Generated<Date>;
+  valid_to: Date | null;
 }
 
 export interface ZvTenantsTable {
@@ -2364,6 +2379,9 @@ export interface ZvTenantsTable {
   settings: Generated<unknown | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  parent_id: string | null;
+  closed_at: Date | null;
+  merged_into: string | null;
 }
 
 export interface ZvUsageEventsTable {
@@ -2874,6 +2892,7 @@ export interface ZvdCollectionsTable {
   is_system: Generated<boolean>;
   schema_locked: Generated<boolean>;
   has_trgm: Generated<boolean>;
+  inherit_down: Generated<boolean>;
   ai_search_enabled: Generated<boolean>;
   ai_search_field: Generated<string | null>;
   ai_embed_excluded_fields: Generated<string[]>;
@@ -5612,6 +5631,7 @@ export interface DbSchema {
   zv_sms_messages: ZvSmsMessagesTable;
   zv_sms_templates: ZvSmsTemplatesTable;
   zv_storage_quotas: ZvStorageQuotasTable;
+  zv_tenant_transfers: ZvTenantTransfersTable;
   zv_tenant_usage: ZvTenantUsageTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenants: ZvTenantsTable;
