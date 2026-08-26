@@ -91,12 +91,21 @@ export async function initDatabase(): Promise<Database> {
   // engines against it. It did exactly that again — 498 "sorry, too many clients
   // already" and three failure-injection tests down, on the first CI run.
   //
-  // So the ceiling on concurrent requests is still 10 by default, and that is
-  // still too low for the product's target. Raising it is an operator decision
-  // taken against a `max_connections` they have checked — which is what the env
-  // var is for — and not a default anyone else inherits. The product answer is
-  // to stop pinning a connection for the whole request; no default fixes that.
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
+  // The reasoning above was half wrong, and it is worth correcting rather than
+  // deleting. What exhausted that Postgres was not "several engines" in any
+  // deployment — it was the TEST HARNESS: 255 files, each booting an engine with
+  // its own pool, against one container. That multiplicity now declares itself
+  // in testing/app-harness.ts, which is where it is true.
+  //
+  // So the default can serve the case it is actually for: one engine, one
+  // database. 25 measured comfortably on a 200-connection server
+  // (scripts/bench-concurrency.ts) and leaves room for several instances; the
+  // reference deployment in docker-compose.yml, which knows it starts exactly
+  // one, sets 60.
+  //
+  // Still not a throughput knob, and no default fixes the real problem: a
+  // connection is pinned for the whole request. See report-slow-in-transaction.
+  const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,

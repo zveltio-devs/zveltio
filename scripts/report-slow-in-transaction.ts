@@ -87,6 +87,28 @@ function tsFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * Engine route modules mounted under a prefix that tenantMiddleware already
+ * skips (TXN_SKIP_PREFIXES). Those requests never open a tenant transaction, so
+ * their slow work holds nothing — `GET /api/health/update-check` calls a release
+ * server and was counted here until this list existed.
+ *
+ * Kept in sync by hand with middleware/tenant.ts; the mount that pairs prefix to
+ * module lives in routes/index.ts.
+ */
+const NO_TXN_MODULES = new Set([
+  'health.ts',
+  'metrics.ts',
+  'auth.ts',
+  'openapi.ts',
+  'collections.ts',
+  'relations.ts',
+  'schema.ts',
+  'schema-branches.ts',
+  'templates.ts',
+  'tenants.ts',
+]);
+
 const findings: Array<{ file: string; handler: string; kinds: string[] }> = [];
 function scan(file: string, label: string): void {
   for (const part of stripComments(readFileSync(file, 'utf8')).split(SPLIT).slice(1)) {
@@ -127,8 +149,10 @@ function scan(file: string, label: string): void {
   }
 }
 
-for (const f of tsFiles(join(ROOT, 'packages', 'engine', 'src', 'routes')))
+for (const f of tsFiles(join(ROOT, 'packages', 'engine', 'src', 'routes'))) {
+  if (NO_TXN_MODULES.has(f.split('/').pop() ?? '')) continue;
   scan(f, relative(ROOT, f));
+}
 if (existsSync(EXT_ROOT)) {
   for (const f of tsFiles(EXT_ROOT)) {
     if (f.includes('/engine/')) scan(f, `ext:${relative(EXT_ROOT, f)}`);
