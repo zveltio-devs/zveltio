@@ -1278,7 +1278,7 @@ table zv_edge_function_logs
   fk  zv_edge_function_logs_function_id_fkey FOREIGN KEY (function_id) REFERENCES zv_edge_functions(id) ON DELETE CASCADE
   pk  zv_edge_function_logs_pkey PRIMARY KEY (id)
   rls enabled forced
-  pol tenant_isolation_zv_edge_function_logs FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_isolation_zv_edge_function_logs FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_edge_functions
   col code                           text NOT NULL DEFAULT ''::text
@@ -1299,7 +1299,7 @@ table zv_edge_functions
   pk  zv_edge_functions_pkey PRIMARY KEY (id)
   uq  zv_edge_functions_tenant_name_key UNIQUE (tenant_id, name)
   rls enabled forced
-  pol tenant_isolation_zv_edge_functions FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_isolation_zv_edge_functions FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_efactura_daily_stats
   col accepted_count                 integer NOT NULL DEFAULT 0
@@ -2604,7 +2604,7 @@ table zv_record_comments
   pk  zv_record_comments_pkey PRIMARY KEY (id)
   fk  zv_record_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zv_record_comments FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_isolation_zv_record_comments FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_request_logs
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -2926,7 +2926,7 @@ table zv_saved_queries
   fk  zv_saved_queries_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE CASCADE
   pk  zv_saved_queries_pkey PRIMARY KEY (id)
   rls enabled forced
-  pol tenant_isolation_zv_saved_queries FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_isolation_zv_saved_queries FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_schema_branches
   col base_schema                    text NOT NULL DEFAULT 'public'::text
@@ -4939,7 +4939,7 @@ table zvd_insight_saved_queries
   col use_count                      integer NOT NULL DEFAULT 0
   pk  zvd_insight_saved_queries_pkey PRIMARY KEY (id)
   rls enabled forced
-  pol tenant_isolation_zvd_insight_saved_queries FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_isolation_zvd_insight_saved_queries FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zvd_invoice_lines
   col description                    text NOT NULL
