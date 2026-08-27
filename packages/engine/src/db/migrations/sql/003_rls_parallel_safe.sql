@@ -1,0 +1,44 @@
+-- Tenant isolation was silently disabling parallel query on every table it
+-- protects.
+--
+-- `zveltio_tenant_scope_ok` reads one GUC and compares a uuid. It is `STABLE`,
+-- it is not `SECURITY DEFINER`, and `current_setting` itself is PARALLEL SAFE.
+-- But a function created without a parallel marker defaults to PARALLEL UNSAFE,
+-- and the planner tests parallel safety on the parse tree BEFORE it inlines SQL
+-- functions — so the marker killed parallelism even though the function is
+-- inlined away and never actually called at run time.
+--
+-- Every table with a `tenant_isolation` policy carries this function in its
+-- USING clause, which is to say: every tenant-scoped read in the product was
+-- barred from a parallel plan.
+--
+-- Measured on 500 000 rows, `SELECT count(*), sum(length(md5(payload)))`,
+-- median of 5, as the product runs it (transaction, SET LOCAL ROLE zveltio_rls,
+-- transaction-local GUC):
+--
+--   no RLS at all                                        123 ms
+--   policy, function PARALLEL UNSAFE  ← before           415 ms
+--   policy, function PARALLEL SAFE    ← after            204 ms
+--
+-- The single-tenant self-hosted install is where this bites hardest: the tenant
+-- owns every row, so the index cannot narrow anything and a full scan is the
+-- correct plan — exactly the plan that was being denied workers.
+--
+-- Selective reads are unaffected (2 500 of 500 000: 9.7 ms before, 9.0 ms
+-- after). The marker changes what plans are ALLOWED, not what the predicate
+-- means.
+--
+-- Isolation was verified under a forced parallel plan rather than assumed:
+-- parallel workers inherit the leader's transaction-local GUC, so with
+-- `max_parallel_workers_per_gather = 4` and index scans disabled, the owning
+-- tenant saw its 2 500 rows across 5 workers and another tenant saw 0.
+--
+-- Not the whole story. The predicate SHAPE costs more than the marker does —
+-- `tenant_id = (SELECT zveltio_current_tenant())` lands at 129 ms, within 5% of
+-- no RLS, because an InitPlan evaluates the GUC chain once instead of per row.
+-- That change rewrites every policy in the schema and collides with the tenancy
+-- hierarchy work, so it is deliberately not in here. This migration is the part
+-- that is free.
+
+ALTER FUNCTION zveltio_tenant_scope_ok(uuid) PARALLEL SAFE;
+ALTER FUNCTION zveltio_tenant_scope_ok(text) PARALLEL SAFE;
