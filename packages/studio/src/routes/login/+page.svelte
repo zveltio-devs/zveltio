@@ -166,22 +166,30 @@ async function signInWithPasskey() {
 
   <!-- Card -->
   <div class="card bg-base-100 shadow-lg">
-   <div class="card-body gap-4">
+   <!-- A real <form>, not a div with buttons.
+        Without one, Enter submitted only from the password field — the handler
+        was bound there and nowhere else — and password managers, which find
+        credentials by looking for a form containing an email and a password
+        input, had nothing to find. The autocomplete tokens are the other half
+        of that contract: `username` and `current-password` are what browsers
+        and managers actually look for. -->
+  <form class="card-body gap-4" onsubmit={(e) => { e.preventDefault(); login(); }}>
     <div class="form-control">
      <label class="label py-1" for="login-email"><span class="label-text text-sm">{m['auth.email']()}</span></label>
-     <input id="login-email" type="email" class="input" placeholder="admin@example.com" bind:value={email} />
+     <input id="login-email" name="email" type="email" autocomplete="username" required
+            class="input" placeholder="admin@example.com" bind:value={email} />
     </div>
     <div class="form-control">
      <label class="label py-1" for="login-password">
       <span class="label-text text-sm">{m['auth.password']()}</span>
      </label>
-     <input id="login-password" type="password" class="input" bind:value={password}
-            onkeydown={(e) => e.key === 'Enter' && login()} />
+     <input id="login-password" name="password" type="password" autocomplete="current-password"
+            required class="input" bind:value={password} />
     </div>
     {#if error}
      <div class="alert alert-error py-2 text-sm">{error}</div>
     {/if}
-    <button type="button" class="btn btn-primary w-full" onclick={login} disabled={loading}>
+    <button type="submit" class="btn btn-primary w-full" disabled={loading}>
      {#if loading}<span class="loading loading-spinner loading-sm"></span>{/if}
      {m['auth.signIn']()}
     </button>
@@ -202,7 +210,7 @@ async function signInWithPasskey() {
       {m['auth.signInWithPasskey']()}
      </button>
     {/if}
-   </div>
+   </form>
   </div>
  </div>
 </div>

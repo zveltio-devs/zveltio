@@ -381,10 +381,13 @@ function clearTemplate() {
   {#snippet list()}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {#each filtered as col (col.name)}
-        <div class="group card bg-base-200 hover:bg-base-300 transition-colors border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
+        <!-- `relative` + acțiuni absolute: în flux, cele trei butoane invizibile
+             (`opacity-0`) rezervau 93px dintr-un rând de 201px, deci titlul primea
+             96px și „Contacts" se rupea „Cont / acts". -->
+        <div class="group card relative bg-base-200 hover:bg-base-300 transition-colors border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
-              <div class="flex items-center gap-2 min-w-0">
+              <div class="flex min-w-0 flex-1 items-center gap-2">
                 {#if !col.is_system}
                   <input
                     type="checkbox"
@@ -398,11 +401,11 @@ function clearTemplate() {
                   <Table size={14} class="text-primary" />
                 </div>
                 <div class="min-w-0">
-                  <h3 class="font-semibold text-sm wrap-break-word" title={col.display_name || col.name}>{col.display_name || col.name}</h3>
-                  <p class="text-xs text-base-content/40 font-mono wrap-break-word" title={col.name}>{col.name}</p>
+                  <h3 class="truncate text-sm font-semibold" title={col.display_name || col.name}>{col.display_name || col.name}</h3>
+                  <p class="truncate font-mono text-xs text-base-content/40" title={col.name}>{col.name}</p>
                 </div>
               </div>
-              <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <div class="absolute right-2 top-2 flex gap-0.5 rounded-lg bg-base-200/90 opacity-0 backdrop-blur-sm transition-opacity group-hover:bg-base-300/90 group-hover:opacity-100 focus-within:opacity-100">
                 <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title={m['collections.openCollection']()} aria-label={m['collections.openItem']({ name: col.display_name || col.name })}>
                   <Settings size={13} />
                 </a>
