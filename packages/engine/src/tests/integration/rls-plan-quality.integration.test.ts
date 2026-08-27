@@ -40,31 +40,43 @@ describe.skipIf(skipAll)('RLS predicate does not restrict the planner', () => {
     await db.destroy();
   });
 
-  it('marks both tenant predicate overloads PARALLEL SAFE', async () => {
-    const rows = await sql<{ proname: string; proparallel: string }>`
-      SELECT proname, proparallel FROM pg_proc
-       WHERE proname = 'zveltio_tenant_scope_ok'
+  it('leaves no RLS policy depending on a PARALLEL UNSAFE function', async () => {
+    // Generic on purpose. Naming `zveltio_tenant_scope_ok` would have passed
+    // while the tenancy migration beside it added twelve more functions to
+    // policy quals, any one of which reintroduces the block for the whole
+    // schema. `pg_depend` gives exactly the functions each policy references.
+    //
+    // The specific trap: `CREATE OR REPLACE FUNCTION` RESETS attributes that
+    // are not restated, so a later migration redefining a marked function
+    // silently unmarks it.
+    const rows = await sql<{ fn: string; marker: string }>`
+      SELECT DISTINCT p.proname || '(' || pg_get_function_arguments(p.oid) || ')' AS fn,
+             p.proparallel AS marker
+        FROM pg_depend d
+        JOIN pg_proc p ON p.oid = d.refobjid AND d.refclassid = 'pg_proc'::regclass
+       WHERE d.classid = 'pg_policy'::regclass
+         AND p.proparallel <> 's'
     `.execute(db);
-    // Two overloads: uuid and text. Both are in RLS quals somewhere.
-    expect(rows.rows.length).toBeGreaterThanOrEqual(2);
-    for (const r of rows.rows) {
-      // 's' = safe. 'u' (unsafe) is the default a bare CREATE FUNCTION gets,
-      // and is what this test exists to stop coming back.
-      expect(r.proparallel).toBe('s');
-    }
+    expect(rows.rows.map((r) => r.fn)).toEqual([]);
   });
 
-  it('leaves the predicate STABLE and not SECURITY DEFINER', async () => {
-    // Parallel safety is only sound because the function reads a GUC and
-    // nothing else. If it ever becomes SECURITY DEFINER or VOLATILE, the
-    // marker above stops being defensible and inlining stops happening.
-    const rows = await sql<{ provolatile: string; prosecdef: boolean }>`
-      SELECT provolatile, prosecdef FROM pg_proc
-       WHERE proname = 'zveltio_tenant_scope_ok'
+  it('leaves those functions STABLE and not SECURITY DEFINER', async () => {
+    // Parallel safety is only sound because these read a GUC and nothing else.
+    // If one becomes SECURITY DEFINER or VOLATILE, the marker stops being
+    // defensible and inlining stops happening — so the two travel together.
+    const rows = await sql<{ fn: string; provolatile: string; prosecdef: boolean }>`
+      SELECT DISTINCT p.proname AS fn, p.provolatile, p.prosecdef
+        FROM pg_depend d
+        JOIN pg_proc p ON p.oid = d.refobjid AND d.refclassid = 'pg_proc'::regclass
+       WHERE d.classid = 'pg_policy'::regclass
     `.execute(db);
+    expect(rows.rows.length).toBeGreaterThan(0);
     for (const r of rows.rows) {
-      expect(r.provolatile).toBe('s');
-      expect(r.prosecdef).toBe(false);
+      expect({ fn: r.fn, volatile: r.provolatile, secdef: r.prosecdef }).toEqual({
+        fn: r.fn,
+        volatile: 's',
+        secdef: false,
+      });
     }
   });
 

@@ -80,10 +80,15 @@ describe('extension create — the default is a schema', () => {
     expect(own.every((k) => !k.startsWith('common.'))).toBe(true);
   });
 
-  it('isolates its table by tenant, with the host predicate and FORCE', () => {
+  it('isolates its table by tenant, with the host predicates and FORCE', () => {
     const sql = readFileSync(join(root(), 'engine', 'migrations', '001_init.sql'), 'utf8');
     expect(sql).toContain('FORCE ROW LEVEL SECURITY');
-    expect(sql).toContain('zveltio_tenant_scope_ok(tenant_id)');
+    // Reading and writing are different questions since migration 003: a
+    // consolidating parent may READ a subtree, and may never WRITE outside its
+    // own node. A scaffold that put the read predicate in WITH CHECK would hand
+    // every new extension table the bug the migration exists to remove.
+    expect(sql).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
+    expect(sql).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
     // The policy name is what the engine's boot reconciler looks for.
     expect(sql).toMatch(/CREATE POLICY tenant_isolation_\w+/);
   });

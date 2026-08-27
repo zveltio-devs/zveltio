@@ -208,17 +208,38 @@ describe('applyTenantRLS', () => {
     const db = setup();
     await applyTenantRLS(asDb(db), 'zvd_contacts');
 
+    // Asserted as an ordered subsequence rather than by absolute index: the
+    // policy statement is now preceded by a catalogue lookup that decides which
+    // overload of the visible-set function to name, and pinning positions makes
+    // the test fail on any statement inserted anywhere, which says nothing
+    // about whether the sequence is still correct.
     const sqls = db.log.map((q) => q.sql);
-    expect(sqls[0]).toContain('ADD COLUMN IF NOT EXISTS tenant_id');
-    expect(sqls[1]).toContain('SET tenant_id');
-    expect(sqls[2]).toContain('SET DEFAULT COALESCE');
-    expect(sqls[3]).toContain('SET NOT NULL');
-    expect(sqls[4]).toContain('CREATE INDEX IF NOT EXISTS');
-    expect(sqls[5]).toContain('ENABLE ROW LEVEL SECURITY');
-    expect(sqls[6]).toContain('FORCE ROW LEVEL SECURITY');
-    expect(sqls[7]).toContain('DROP POLICY IF EXISTS tenant_isolation');
-    expect(sqls[8]).toContain('CREATE POLICY tenant_isolation');
-    expect(sqls[8]).toContain('WITH CHECK');
+    const order = [
+      'ADD COLUMN IF NOT EXISTS tenant_id',
+      'SET tenant_id',
+      'SET DEFAULT COALESCE',
+      'SET NOT NULL',
+      'CREATE INDEX IF NOT EXISTS',
+      'ENABLE ROW LEVEL SECURITY',
+      'FORCE ROW LEVEL SECURITY',
+      'DROP POLICY IF EXISTS tenant_isolation',
+      'CREATE POLICY tenant_isolation',
+    ];
+    let at = 0;
+    for (const fragment of order) {
+      const found = sqls.findIndex((q, i) => i >= at && q.includes(fragment));
+      expect({ fragment, found: found >= 0 }).toEqual({ fragment, found: true });
+      at = found + 1;
+    }
+
+    // Reading and writing are different predicates since migration 003, and the
+    // read half is shaped as `= ANY(set)` rather than as a boolean function of
+    // the row so Postgres can answer it from the index on tenant_id. Both are
+    // asserted: a policy that put the read predicate back into WITH CHECK would
+    // let a parent unit write into a child's rows.
+    const policy = sqls.find((q) => q.includes('CREATE POLICY tenant_isolation')) ?? '';
+    expect(policy).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
+    expect(policy).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
   });
 });
 
@@ -393,7 +414,8 @@ describe('reconcileExtensionTenantRLS', () => {
     expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(1);
     const created = db.executed(/CREATE POLICY/i);
     expect(created).toHaveLength(1);
-    expect(created[0]?.sql).toContain('zveltio_tenant_scope_ok(tenant_id)');
+    expect(created[0]?.sql).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
+    expect(created[0]?.sql).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
     // Both directions — a policy with USING but no WITH CHECK stops reads and
     // still allows a write into another tenant.
     expect(created[0]?.sql).toContain('WITH CHECK');
