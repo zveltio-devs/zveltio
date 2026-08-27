@@ -204,7 +204,7 @@ function formatRelative(dateStr: string): string {
                 </td>
                 <td>
                   {#if key.is_active}
-                    <button class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(key.id)} title={m['apiKeys.revoke']()}>
+                    <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(key.id)} title={m['apiKeys.revoke']()}>
                       <Trash2 size={14} />
                     </button>
                   {/if}
@@ -224,7 +224,7 @@ function formatRelative(dateStr: string): string {
 
 <!-- Create modal -->
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title={m['apiKeys.create']()} size="md">
+  <Modal bind:open={showCreateModal} title={m['apiKeys.create']()} size="md" onSubmit={createKey}>
       <div class="space-y-4">
         <div class="form-control">
           <label class="label" for="api-key-name"><span class="label-text">{m['apiKeys.nameLabel']()}</span></label>
@@ -249,7 +249,7 @@ function formatRelative(dateStr: string): string {
         <div>
           <div class="flex items-center justify-between mb-2">
             <span class="label-text font-medium">{m['apiKeys.scopes']()}</span>
-            <button class="btn btn-xs btn-ghost gap-1" onclick={addScope}><Plus size={12} /> {m['apiKeys.addScope']()}</button>
+            <button type="button" class="btn btn-xs btn-ghost gap-1" onclick={addScope}><Plus size={12} /> {m['apiKeys.addScope']()}</button>
           </div>
           <div class="space-y-2">
             {#each form.scopes as scope, i}
@@ -274,7 +274,7 @@ function formatRelative(dateStr: string): string {
                   {/each}
                 </div>
                 {#if form.scopes.length > 1}
-                  <button class="btn btn-ghost btn-xs text-error" onclick={() => removeScope(i)}>✕</button>
+                  <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeScope(i)}>✕</button>
                 {/if}
               </div>
             {/each}
@@ -287,8 +287,8 @@ function formatRelative(dateStr: string): string {
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary" onclick={createKey} disabled={creating || !form.name.trim()}>
+        <button type="button" class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
+        <button type="submit" class="btn btn-primary" disabled={creating || !form.name.trim()}>
           {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
           Create
         </button>
@@ -305,12 +305,12 @@ function formatRelative(dateStr: string): string {
       <p class="text-sm text-base-content/70 mb-4">{m['apiKeys.copyNow']()}</p>
       <div class="flex items-center gap-2">
         <code class="flex-1 bg-base-300 px-3 py-2 rounded text-sm font-mono break-all">{newlyCreatedKey}</code>
-        <button class="btn btn-square btn-sm" onclick={copyKey} title={m['common.copy']()}>
+        <button type="button" class="btn btn-square btn-sm" onclick={copyKey} title={m['common.copy']()}>
           {#if copied}<Check size={16} class="text-success" />{:else}<Copy size={16} />{/if}
         </button>
       </div>
       <div class="modal-action">
-        <button class="btn btn-primary" onclick={() => { newlyCreatedKey = null; }}>{m['common.done']()}</button>
+        <button type="button" class="btn btn-primary" onclick={() => { newlyCreatedKey = null; }}>{m['common.done']()}</button>
       </div>
   </Modal>
 {/if}

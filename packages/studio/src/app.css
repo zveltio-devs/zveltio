@@ -227,6 +227,44 @@ body {
   animation: shimmer 1.6s ease-in-out infinite;
 }
 
+/* ── Motion tokens ───────────────────────────────────────────── */
+/* Named curves rather than a different hand-written cubic-bezier at each call
+   site — the built stylesheet already carried five of those. Three, used by
+   role, is what makes motion read as one system. These are the strong variants;
+   the CSS built-ins are too weak to feel intentional. */
+:root {
+  /* NOT `--ease-out` / `--ease-in-out`: Tailwind v4 already defines those as
+     theme tokens, and its definitions land later in `:root`, so ours would be
+     silently replaced by the weaker built-ins. Own names, own values. */
+  --z-ease-snap:   cubic-bezier(0.23, 1, 0.32, 1);    /* entering, responding */
+  --z-ease-move:   cubic-bezier(0.77, 0, 0.175, 1);   /* moving on screen     */
+  --z-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);    /* panels, sheets       */
+}
+
+/* ── Press feedback ──────────────────────────────────────────── */
+/* DaisyUI answers a press with `translate: 0 .5px`. That IS feedback, but half
+   a pixel sits below the threshold where it reads as the interface hearing you.
+   A small scale reads, and it takes the label and icon down with it, which is
+   what makes a press feel physical rather than decorative.
+   Under reduced motion the transform is dropped further down — the colour
+   change stays, so the press is still answered, it just does not move. */
+@layer components {
+  .btn {
+    /* `!important` because DaisyUI's own `.btn` transition lands after this
+       layer and drops `transform` from the list — without it the press snaps
+       instead of easing. Verified in the browser, not assumed. */
+    transition:
+      transform 160ms var(--z-ease-snap),
+      background-color 160ms var(--z-ease-snap),
+      border-color 160ms var(--z-ease-snap),
+      box-shadow 160ms var(--z-ease-snap) !important;
+  }
+  .btn:active:not(:disabled):not(.btn-disabled) {
+    transform: scale(0.97);
+    translate: none;  /* replaces the half-pixel nudge rather than adding to it */
+  }
+}
+
 /* Page-enter — applied to <main> child via :where(...) to avoid breaking
    existing layouts. Subtle fade-up, fast enough to not feel sluggish. */
 @keyframes page-enter {
@@ -244,6 +282,9 @@ main > :where(*) { animation: page-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) bot
     scroll-behavior: auto !important;
   }
   main > :where(*) { animation: none; }
+  /* Movement off, the rest of the feedback intact: the button still changes
+     colour on press, it simply does not move. */
+  .btn:active:not(:disabled):not(.btn-disabled) { transform: none; }
 }
 
 /* ── Accessibility (WCAG 2.1) ────────────────────────────────── */

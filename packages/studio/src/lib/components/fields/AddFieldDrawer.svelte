@@ -237,7 +237,7 @@ async function submit() {
   <!-- Full-screen panel -->
   <div
     class="absolute inset-4 md:inset-6 lg:inset-8 flex flex-col bg-base-100 rounded-2xl shadow-2xl overflow-hidden
-           transition-all duration-200 {open ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}"
+           transition-[opacity,transform] duration-200 {open ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}"
   >
     <!-- ── Header ─────────────────────────────────────────────── -->
     <div class="flex items-center justify-between px-6 py-4 border-b border-base-200 shrink-0">
@@ -268,7 +268,7 @@ async function submit() {
           {#if count > 0}
             <button
               type="button"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left
+              class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-[background-color,color] text-left
                 {selectedCategory === cat.id
                   ? 'bg-primary text-primary-content font-semibold shadow-sm'
                   : 'text-base-content/60 hover:bg-base-200 hover:text-base-content'}"
@@ -309,7 +309,7 @@ async function submit() {
               {@const TypeIcon = TYPE_ICONS[ft.type] ?? Database}
               <button
                 type="button"
-                class="group text-left p-4 rounded-xl border-2 transition-all duration-150
+                class="group text-left p-4 rounded-xl border-2 transition-[border-color,background-color] duration-150
                   {form.type === ft.type
                     ? 'border-primary bg-primary/6 shadow-sm ring-1 ring-primary/20'
                     : 'border-base-200 bg-base-100 hover:border-primary/50 hover:shadow-sm'}"

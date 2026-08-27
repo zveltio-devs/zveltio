@@ -519,19 +519,28 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
+    // The email is joined here rather than left to the caller. Every consumer was
+    // rendering `user_id.slice(0, 8) + '…'`, which tells a reader nothing about
+    // who did the thing, and a request per row is worse than a left join on an
+    // admin-only route.
+    // LEFT, not INNER: a deleted user must not delete their audit trail.
     let query = db
       .selectFrom('zv_audit_log')
-      .selectAll()
-      .orderBy('created_at', 'desc')
+      .leftJoin('user', 'user.id', 'zv_audit_log.user_id')
+      .selectAll('zv_audit_log')
+      .select('user.email as user_email')
+      .orderBy('zv_audit_log.created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset);
 
-    if (user_id) query = query.where('user_id', '=', user_id);
-    if (event_type) query = query.where('event_type', '=', event_type);
+    // Qualified, now that the query has two tables — `created_at` alone is
+    // ambiguous once `user` is joined.
+    if (user_id) query = query.where('zv_audit_log.user_id', '=', user_id);
+    if (event_type) query = query.where('zv_audit_log.event_type', '=', event_type);
     const fromD = parseFrom(from);
-    if (fromD) query = query.where('created_at', '>=', fromD);
+    if (fromD) query = query.where('zv_audit_log.created_at', '>=', fromD);
     const toD = parseTo(to);
-    if (toD) query = query.where('created_at', '<=', toD);
+    if (toD) query = query.where('zv_audit_log.created_at', '<=', toD);
 
     const entries = await query.execute();
     return c.json({ audit: entries });
