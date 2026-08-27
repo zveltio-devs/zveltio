@@ -159,37 +159,54 @@ COMMENT ON TABLE zv_tenant_transfers IS
 -- they are evaluated once per query rather than once per row, and the shape
 -- reads as what it is: membership in the visible set.
 --
--- What this shape does NOT do is make the plan indexable. An earlier version of
--- this comment claimed it did, on measurements of
+-- A NOTE ON PERFORMANCE, CORRECTED TWICE. Read the whole thing before quoting
+-- any of it, because the first two versions of this comment were both wrong.
 --
---     SELECT ... WHERE tenant_id = ANY (fn())
+-- v1 claimed this shape makes the plan indexable, on measurements taken with a
+-- plain `WHERE`, which is not what a policy is.
+-- v2 "corrected" that to say NO policy shape can use an index — that the
+-- planner has no selectivity estimate for a security qual and therefore always
+-- scans — with a table of five shapes all reading 500 000 rows.
 --
--- which is not what a policy is. Re-measured 2026-08-27 with the policy actually
--- enforced (`FORCE ROW LEVEL SECURITY`), 500 000 rows of which 2 500 belong to
--- the unit:
+-- v2 does not reproduce. Re-measured 2026-08-27 under `FORCE ROW LEVEL
+-- SECURITY`, as the product runs it (transaction, `SET LOCAL ROLE zveltio_rls`,
+-- transaction-local GUC), 500 000 rows of which 2 500 belong to the unit:
 --
---   as a POLICY, boolean function of the row      Index Only Scan, no cond   500 000 rows
---   as a POLICY, = ANY (set function)  ← this     Parallel Seq Scan          500 000 rows
---   as a POLICY, predicate written inline         no index cond              500 000 rows
---   as a POLICY, wrapped in (SELECT …)            no index cond              500 000 rows
---   as a POLICY, LEAKPROOF wrapper                no index cond              500 000 rows
---   the same expressions as a plain WHERE         Index Cond                   2 500 rows
+--   as a POLICY, boolean function of the row     Bitmap Index Scan, Index Cond   2 500 rows
+--   as a POLICY, = ANY (set function)  ← this    Index Scan, Index Cond          2 500 rows
 --
--- So the cost is not in the shape of the predicate, it is in being a policy at
--- all: the planner has no selectivity estimate for a security qual and assumes
--- it matches everything (208 333 rows per worker against a correct estimate of
--- 2 492 for the same expression outside a policy), so it never chooses the
--- index. Measured times for the two policy shapes are the same order — 24.9 ms
--- and 22.3 ms — because both read every row.
+-- Both index. The deciding variable is not the predicate shape at all — it is
+-- whether `tenant_id` is indexed. Drop the index and every shape seq-scans;
+-- that is what v2 must have been measuring, comparing setups rather than
+-- shapes. The same methodological error it accused v1 of.
 --
--- Nothing regressed. Nothing improved either. This is a PRE-EXISTING cost that
--- applies to every RLS-protected read in the product, and it is worth its own
--- piece of work rather than a claim in a migration comment.
+-- What IS real, measured the same day, median of 5 on the same rows:
 --
--- What restores the index, verified: leave the policy as the guarantee and
--- repeat the filter in the query — `WHERE tenant_id = current_setting(…)` on top
--- of the policy gives `Index Cond`, 2 500 rows, cost 53 against 6 600. That
--- belongs in the request-scoped proxy, once, for engine and extensions alike.
+--                                                selective        full
+--                                              2 500/500 000   500 000/500 000
+--   no RLS at all                                     —            123 ms
+--   boolean function of the row                     9.7 ms         204 ms
+--   tenant_id = (SELECT scalar())                   9.0 ms         129 ms
+--   = ANY (set function)   ← this shape             8.8 ms         410 ms
+--   IN (SELECT unnest(set function))               25.7 ms         158 ms
+--
+-- So this shape is the FASTEST on a selective read and the SLOWEST on a full
+-- one — 3.3x the no-RLS baseline. The full-scan column is the single-tenant
+-- self-hosted install, where the unit owns every row and a full scan is the
+-- correct plan. `= ANY (array)` gives the planner no way to estimate how much
+-- of the table matches, so it takes the index and then reads all of it.
+--
+-- The scalar form avoids that because `eqsel` can use column statistics for a
+-- Param, so it seq-scans when the tenant owns everything and index-scans when
+-- it owns a slice. The hierarchy needs a set, so it cannot simply adopt it.
+-- `IN (SELECT unnest(...))` gets the full-scan case back to 158 ms but loses
+-- the index on the selective one — the two regimes want opposite plans.
+--
+-- Not resolved here, deliberately, because it is a trade-off and not a bug.
+-- What IS fixed already is the part that was free: the predicate functions were
+-- PARALLEL UNSAFE, which barred parallel plans everywhere. See
+-- `003_rls_parallel_safe.sql` on master — 415 ms to 204 ms, no semantic change.
+-- The numbers in the table above are all with that marker already applied.
 
 CREATE OR REPLACE FUNCTION zveltio_visible_tenants()
 RETURNS uuid[]
