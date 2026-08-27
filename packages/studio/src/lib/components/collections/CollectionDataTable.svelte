@@ -489,9 +489,9 @@ let confirmState = $state<{
       </span>
       <div class="join">
         <button class="join-item btn btn-sm" disabled={(pagination.page ?? 1) <= 1}
-          onclick={() => goToPage((pagination.page ?? 1) - 1)}>← Prev</button>
+          onclick={() => goToPage((pagination.page ?? 1) - 1)}>{m['common.prev']()}</button>
         <button class="join-item btn btn-sm" disabled={(pagination.page ?? 1) >= (pagination.pages ?? 1)}
-          onclick={() => goToPage((pagination.page ?? 1) + 1)}>Next →</button>
+          onclick={() => goToPage((pagination.page ?? 1) + 1)}>{m['common.next']()}</button>
       </div>
     </div>
   {/if}

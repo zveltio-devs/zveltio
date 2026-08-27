@@ -246,7 +246,7 @@ async function saveRecord() {
                 <textarea
                   id="ins-{field.name}"
                   class="textarea textarea-bordered w-full min-h-28 text-sm resize-y"
-                  placeholder="Enter {field.label || field.name}…"
+                  placeholder={m['record.enterField']({ field: field.label || field.name })}
                   bind:value={insertForm[field.name]}
                 ></textarea>
 
@@ -289,7 +289,7 @@ async function saveRecord() {
                   class="select select-bordered w-full"
                   bind:value={insertForm[field.name]}
                 >
-                  <option value="">— select —</option>
+                  <option value="">{m['common.selectPlaceholder']()}</option>
                   {#each selectChoices(field) as opt}
                     <option value={opt.value ?? opt}>{opt.label ?? opt}</option>
                   {/each}
@@ -337,7 +337,7 @@ async function saveRecord() {
                   id="ins-{field.name}"
                   type="text"
                   class="input input-bordered w-full {formErrors[field.name] ? 'input-error' : ''}"
-                  placeholder="Enter {fieldLabel(field)}…"
+                  placeholder={m['record.enterField']({ field: fieldLabel(field) })}
                   bind:value={insertForm[field.name]}
                 />
               {/if}

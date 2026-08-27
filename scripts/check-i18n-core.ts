@@ -88,6 +88,14 @@ const TRANSLATED = [
  * ignore the gate.
  */
 const ALLOWED = new Set([
+  // The product's own name, and a command somebody types verbatim. Neither is
+  // translated in any locale — a Hungarian operator still types `zveltio update`.
+  'Zveltio',
+  'zveltio update',
+  // A key cap. `Esc` reads `Esc` on a Hungarian keyboard too.
+  'Esc',
+  // A product name and a file extension. Nobody localises either.
+  'Excel (.xlsx)',
   'API',
   'JSON',
   'CSV',
@@ -245,7 +253,10 @@ function sharedComponents(): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, e.name);
       if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith('.svelte')) out.push(relative(STUDIO, full));
+      // `.test.svelte` is a fixture a test mounts, not a screen anybody reads.
+      else if (e.name.endsWith('.svelte') && !e.name.endsWith('.test.svelte')) {
+        out.push(relative(STUDIO, full));
+      }
     }
   };
   try {
@@ -280,6 +291,12 @@ for (const rel of SCANNED) {
       }
     }
     for (const m of line.matchAll(/(placeholder|title|aria-label|alt)="([^"]+)"/g)) {
+      // An attribute whose value is nothing but expressions and punctuation —
+      // `aria-label="{label}: {value}"` — has no words of its own. They live in
+      // whatever those expressions resolve to, and flagging the attribute points
+      // at the wrong file.
+      const literal = m[2]!.replace(/\{[^}]*\}/g, '').trim();
+      if (!literal || !/[a-zA-Z]{2}/.test(literal)) continue;
       if (looksTranslatable(m[2]!)) {
         findings.push({ file: rel, line: i + 1, text: `${m[1]}="${m[2]}"` });
       }
@@ -293,6 +310,12 @@ for (const rel of SCANNED) {
   const scriptBlock = /<script[\s\S]*?<\/script>/.exec(src)?.[0] ?? '';
   const startLine = scriptBlock ? src.slice(0, src.indexOf(scriptBlock)).split('\n').length : 0;
   scriptBlock.split('\n').forEach((line, i) => {
+    // A line of comment is documentation, not a screen. The example in
+    // `ToastContainer`'s own header — `toast.success('Saved!')` — is there to
+    // show a caller how to use it, and asking for it to be translated is asking
+    // the wrong thing of the wrong file.
+    const trimmed = line.trim();
+    if (trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*')) return;
     for (const m of line.matchAll(
       /\b(title|message|confirmLabel|cancelLabel|heading|description)\s*:\s*'([^']{3,})'/g,
     )) {

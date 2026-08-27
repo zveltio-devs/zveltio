@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * PermissionGuard - Standalone permission gatekeeper
  *
@@ -45,7 +46,7 @@ let {
 				</svg>
 			</div>
 			<div class="max-w-xs">
-				<h3 class="text-lg font-bold">Access Restricted</h3>
+				<h3 class="text-lg font-bold">{m['common.accessRestricted']()}</h3>
 				<p class="text-xs opacity-60 mt-1">{errorMessage}</p>
 			</div>
 		</div>

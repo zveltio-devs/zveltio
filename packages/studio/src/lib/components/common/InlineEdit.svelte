@@ -100,7 +100,7 @@ async function commit() {
     await onsave(next);
     editing = false;
   } catch (err) {
-    error = err instanceof Error ? err.message : 'Save failed';
+    error = err instanceof Error ? err.message : m['common.saveFailed']();
   } finally {
     saving = false;
   }
