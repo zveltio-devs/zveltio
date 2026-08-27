@@ -57,7 +57,7 @@ function handleKeydown(e: KeyboardEvent) {
     </div>
   </div>
 
-  <div class="card bg-base-200 border border-base-300 mb-4">
+  <div class="card bg-base-100 border border-base-300 mb-4">
     <div class="card-body p-4">
       <textarea
         class="textarea textarea-bordered font-mono text-sm w-full min-h-40 bg-base-100 resize-y"

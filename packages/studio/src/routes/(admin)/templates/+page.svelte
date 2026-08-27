@@ -236,7 +236,7 @@ onMount(() => {
       {#each templates as t}
         {@const Icon = (t.icon && ICONS[t.icon]) || Sparkles}
         <button
-          class="card bg-base-200 hover:bg-base-300 transition-colors border border-base-300 hover:border-primary text-left"
+          class="card bg-base-100 hover:bg-base-300 transition-colors border border-base-300 hover:border-primary text-left"
           onclick={() => openPreview(t.id)}
         >
           <div class="card-body p-5 gap-3">
@@ -300,7 +300,7 @@ onMount(() => {
             </h3>
             <div class="space-y-3">
               {#each preview.collections as col}
-                <div class="card bg-base-200 border border-base-300">
+                <div class="card bg-base-100 border border-base-300">
                   <div class="card-body p-4 gap-2">
                     <div class="flex items-baseline justify-between gap-2">
                       <h4 class="font-semibold text-sm">{col.display_name || col.name}</h4>

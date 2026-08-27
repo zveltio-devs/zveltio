@@ -149,7 +149,7 @@ function fmt(s: string) {
  <div class="space-y-2">
  {#each filtered as notif}
  <div
- class="card bg-base-200 cursor-pointer hover:bg-base-300 transition-colors {!notif.is_read ? 'border-l-4 border-primary' : ''}"
+ class="card bg-base-100 cursor-pointer hover:bg-base-300 transition-colors {!notif.is_read ? 'border-l-4 border-primary' : ''}"
  onclick={() => !notif.is_read && markRead(notif.id)}
  role="button"
  tabindex="0"

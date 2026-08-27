@@ -50,6 +50,8 @@ import Slot from '$lib/components/common/Slot.svelte';
 import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
 import CommandPalette from '$lib/components/common/CommandPalette.svelte';
+import TenantSwitcher from '$lib/components/layout/TenantSwitcher.svelte';
+import PreferencesMenu from '$lib/components/layout/PreferencesMenu.svelte';
 import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
 let { children } = $props();
@@ -240,7 +242,7 @@ async function signOut() {
         <button type="button" onclick={() => (mobileOpen = true)} aria-label={m['shell.openMenu']()} class="btn btn-ghost btn-sm">
           <Menu size={18} />
         </button>
-        <div class="w-7 h-7 rounded-lg bg-linear-to-br from-primary to-secondary flex items-center justify-center shadow-z1">
+        <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shadow-z1">
           <span class="text-primary-content font-bold text-xs">Z</span>
         </div>
         <span class="font-bold text-sm">Zveltio</span>
@@ -259,22 +261,43 @@ async function signOut() {
         </div>
       </header>
 
-      <!-- Desktop top-bar — conditional. Only renders when an extension
-           targets topbar.center or topbar.right (e.g. AI extension's
-           global prompt bar). Keeps chrome minimal otherwise. -->
-      {#if hasTopbarContent}
-        <header class="hidden lg:flex items-center gap-3 px-6 h-12 bg-base-100/70 backdrop-blur-xl shadow-z1 shrink-0">
-          <Slot name="topbar.left" ctx={{ user: auth.user, viewport: 'desktop' }} />
-          <div class="flex-1 min-w-0">
-            <Slot name="topbar.center" ctx={{ user: auth.user, viewport: 'desktop' }} />
-          </div>
-          <div class="flex items-center gap-1 ml-auto">
-            <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'desktop' }} />
-          </div>
-        </header>
-      {/if}
+      <!-- Desktop top-bar. It used to render only when an extension asked for one,
+           which meant the shell owed a person four things and showed none of them:
+           which unit they are standing in, that search exists at all, where their
+           account lives, and room for an extension.
+           Search is a control shaped like a field rather than an icon — ⌘K is not
+           discoverable, and a shortcut nobody can find is a shortcut nobody uses. -->
+      <header
+        class="hidden h-12 shrink-0 items-center gap-3 border-b border-base-300 bg-base-100 px-6 lg:flex"
+      >
+        <Slot name="topbar.left" ctx={{ user: auth.user, viewport: 'desktop' }} />
+        <TenantSwitcher />
+        <button
+          type="button"
+          onclick={() => (cmdOpen = true)}
+          class="btn btn-ghost btn-sm w-64 justify-between gap-2 border border-base-300 font-normal text-base-content/65"
+        >
+          <span class="flex items-center gap-2"><Search size={14} /> {m['shell.searchHint']()}</span>
+          <kbd class="kbd kbd-xs">⌘K</kbd>
+        </button>
+        <div class="min-w-0 flex-1">
+          <Slot name="topbar.center" ctx={{ user: auth.user, viewport: 'desktop' }} />
+        </div>
+        <div class="ml-auto flex items-center gap-1">
+          <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'desktop' }} />
+          <PreferencesMenu
+            {dark}
+            {density}
+            onToggleDark={() => (dark = !dark)}
+            onToggleDensity={() => (density = density === 'compact' ? 'comfortable' : 'compact')}
+          />
+        </div>
+      </header>
 
-      <main id="admin-main" class="flex-1 overflow-y-auto p-4 lg:p-6 relative" tabindex="-1">
+      <!-- The content area carries the tint and cards are white, not the other way
+           round. A card on a white page has to draw a border to be seen at all; a
+           white card on a tinted ground is simply an object sitting on a surface. -->
+      <main id="admin-main" class="relative flex-1 overflow-y-auto bg-base-200 p-4 lg:p-6" tabindex="-1">
         {@render children()}
 
         <!-- Floating-assist slot — extensions can inject a fixed-position

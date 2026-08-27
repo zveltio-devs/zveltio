@@ -163,7 +163,7 @@ onMount(load);
  {#if loading}
  <PageSpinner py={20} />
  {:else if collections.length === 0}
- <div class="card bg-base-200 text-center py-16">
+ <div class="card bg-base-100 text-center py-16">
  <Plug size={40} class="mx-auto mb-4 text-base-content/55" />
  <p class="text-base-content/65 text-lg">{m['virtualCollections.noVC']()}</p>
  <p class="text-base-content/65 text-sm mt-1">
@@ -173,7 +173,7 @@ onMount(load);
  {:else}
  <div class="grid gap-4">
  {#each collections as col}
- <div class="card bg-base-200 p-4">
+ <div class="card bg-base-100 p-4">
  <div class="flex items-center justify-between">
  <div>
  <div class="font-semibold text-lg">{col.display_name || col.name}</div>

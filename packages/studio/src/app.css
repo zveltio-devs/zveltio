@@ -16,86 +16,90 @@
 
 /* ── Light Theme ─────────────────────────────────────────────── */
 [data-theme='light'] {
-  /* Brand primary — slightly more saturated indigo */
-  --color-primary:           oklch(0.56 0.24 264);
+  /* Brand — one blue, chosen by measurement rather than by eye.
+   *
+   * The old value was oklch(0.56 0.24 264): a saturated indigo that is the
+   * default of every developer-tool and AI product since about 2021, and that
+   * gave 4.93:1 for white on a filled button — passing, barely.
+   *
+   * A designer's suggestion of #0038FF reaches 6.98:1, which is genuinely
+   * better. It gets there through saturation, near the edge of the sRGB gamut.
+   * Measured across a ladder at hue 250, saturation turns out to move contrast
+   * almost not at all — at L 0.47, chroma 0.15 gives 6.75:1 and chroma 0.21
+   * gives 6.62:1 — while LIGHTNESS moves it a great deal. So the contrast is
+   * taken from lightness and the loudness is left behind: 6.75:1 white on the
+   * fill at chroma 0.15, against 0.24 before.
+   */
+  --color-primary:           oklch(0.47 0.15 250);   /* #005CAA */
   --color-primary-content:   oklch(0.99 0 0);
-  --color-secondary:         oklch(0.58 0.22 305);
+
+  /* No violet second brand hue. `secondary` survives because DaisyUI components
+   * and twelve call sites use it, but it is now the same blue lifted, not a
+   * different colour — so a two-hue gradient stops being possible by accident. */
+  --color-secondary:         oklch(0.58 0.11 248);
   --color-secondary-content: oklch(0.99 0 0);
 
-  /* Accent — teal for "neutral active" actions */
-  --color-accent:            oklch(0.68 0.14 200);
-  --color-accent-content:    oklch(0.99 0 0);
+  /* The one warm note in the system, and the only other temperature. Reserved
+   * for the rare thing that must be noticed and is not an error. */
+  --color-accent:            oklch(0.68 0.13 55);    /* #D58042 */
+  --color-accent-content:    oklch(0.20 0.02 55);
 
-  /* Surfaces — slightly warmer base than pure neutral grey */
-  --color-base-100:          oklch(1 0 0);
-  --color-base-200:          oklch(0.975 0.005 270);
-  --color-base-300:          oklch(0.935 0.008 270);
-  --color-base-content:      oklch(0.22 0.014 270);
+  /* Surfaces inverted from what they were. The page used to be pure white with
+   * grey cards, so a card read as a dent; now the page carries the tint and
+   * cards are white, so a card lifts and needs no border to be seen. */
+  --color-base-100:          oklch(1 0 0);           /* cards, inputs   */
+  --color-base-200:          oklch(0.963 0.006 250); /* the page ground */
+  --color-base-300:          oklch(0.912 0.010 250); /* rules, wells    */
+  --color-base-content:      oklch(0.24 0.02 255);   /* #192029         */
 
-  /* Semantic — refined for 2026 ergonomics */
-  --color-success:           oklch(0.66 0.17 152);
+  --color-success:           oklch(0.56 0.13 155);
   --color-success-content:   oklch(0.99 0 0);
-  --color-warning:           oklch(0.78 0.16 76);
-  --color-warning-content:   oklch(0.22 0.014 270);
-  --color-error:             oklch(0.62 0.22 28);
+  --color-warning:           oklch(0.70 0.14 72);
+  --color-warning-content:   oklch(0.22 0.02 72);
+  --color-error:             oklch(0.54 0.19 27);
   --color-error-content:     oklch(0.99 0 0);
-  --color-info:              oklch(0.68 0.14 220);
+
+  /* `info` used to sit 20° from the brand hue, so "this is us" and "this is a
+   * notice" were the same blue. Moved to teal, which no other role uses. */
+  --color-info:              oklch(0.58 0.10 205);
   --color-info-content:      oklch(0.99 0 0);
 
-  /* Extra accents — not DaisyUI tokens, use via var() in stat cards */
-  --color-accent-peach:      oklch(0.78 0.13 50);
-  --color-accent-sage:       oklch(0.72 0.10 140);
-  --color-accent-coral:      oklch(0.72 0.16 20);
-
-  /* Geometry */
-  --radius-selector:         0.5rem;
-  --radius-field:            0.625rem;
-  --radius-box:              1rem;       /* up from 0.75 — softer, 2026 cards */
-
-  /* Shadow scale — used in lieu of borders on cards */
-  --shadow-z1: 0 1px 2px oklch(0.22 0.014 270 / 0.04), 0 1px 1px oklch(0.22 0.014 270 / 0.03);
-  --shadow-z2: 0 4px 8px oklch(0.22 0.014 270 / 0.05), 0 2px 4px oklch(0.22 0.014 270 / 0.04);
-  --shadow-z3: 0 12px 24px oklch(0.22 0.014 270 / 0.08), 0 4px 8px oklch(0.22 0.014 270 / 0.05);
-  --shadow-glow: 0 0 24px oklch(0.56 0.24 264 / 0.20);
+  /* The pale brand tint — the idea worth taking from that designer's pair.
+   * A selected row, an active nav item and an info banner had nowhere to live
+   * except a transparency of the brand, which changes with whatever is behind
+   * it. This is a real colour, and dark text on it reads at 13.3:1. */
+  --color-brand-tint:        oklch(0.93 0.03 250);   /* #DCE8FB */
 }
 
 /* ── Dark Theme ──────────────────────────────────────────────── */
 [data-theme='dark'] {
-  --color-primary:           oklch(0.70 0.18 264);
-  --color-primary-content:   oklch(0.14 0.02 264);
-  --color-secondary:         oklch(0.68 0.16 305);
-  --color-secondary-content: oklch(0.14 0.02 264);
-  --color-accent:            oklch(0.76 0.13 200);
-  --color-accent-content:    oklch(0.14 0.02 264);
+  /* Lifted for a dark ground, same hue. Not the light value inverted: a colour
+   * that carries a filled button on white is too dark to read on #12161C. */
+  --color-primary:           oklch(0.72 0.13 250);
+  --color-primary-content:   oklch(0.16 0.02 250);
+  --color-secondary:         oklch(0.66 0.09 248);
+  --color-secondary-content: oklch(0.16 0.02 250);
+  --color-accent:            oklch(0.76 0.12 55);
+  --color-accent-content:    oklch(0.18 0.02 55);
 
-  /* Dark surfaces — distinct elevation, not just luminance-flipped */
-  --color-base-100:          oklch(0.18 0.014 270);
-  --color-base-200:          oklch(0.15 0.012 270);
-  --color-base-300:          oklch(0.22 0.014 270);
-  --color-base-content:      oklch(0.93 0.008 270);
+  /* Not #050505. A near-black ground under light text produces halation — the
+   * shimmer that makes long sessions tiring — which is why almost every dark
+   * interface people work in all day sits a few points off pure black. */
+  --color-base-100:          oklch(0.20 0.012 255);  /* cards   */
+  --color-base-200:          oklch(0.165 0.012 255); /* ground  */
+  --color-base-300:          oklch(0.26 0.014 255);  /* rules   */
+  --color-base-content:      oklch(0.92 0.008 255);
 
-  --color-success:           oklch(0.70 0.16 152);
-  --color-success-content:   oklch(0.14 0.02 264);
-  --color-warning:           oklch(0.80 0.15 76);
-  --color-warning-content:   oklch(0.14 0.02 264);
-  --color-error:             oklch(0.70 0.20 28);
-  --color-error-content:     oklch(0.99 0 0);
-  --color-info:              oklch(0.74 0.13 220);
-  --color-info-content:      oklch(0.14 0.02 264);
+  --color-success:           oklch(0.70 0.14 155);
+  --color-success-content:   oklch(0.16 0.02 155);
+  --color-warning:           oklch(0.78 0.13 72);
+  --color-warning-content:   oklch(0.18 0.02 72);
+  --color-error:             oklch(0.66 0.17 27);
+  --color-error-content:     oklch(0.16 0.02 27);
+  --color-info:              oklch(0.70 0.09 205);
+  --color-info-content:      oklch(0.16 0.02 205);
 
-  --color-accent-peach:      oklch(0.78 0.12 50);
-  --color-accent-sage:       oklch(0.74 0.10 140);
-  --color-accent-coral:      oklch(0.74 0.15 20);
-
-  --radius-selector:         0.5rem;
-  --radius-field:            0.625rem;
-  --radius-box:              1rem;
-
-  /* Dark shadows — deeper, with a hint of the primary glow on hover */
-  --shadow-z1: 0 1px 2px oklch(0 0 0 / 0.30), 0 1px 1px oklch(0 0 0 / 0.20);
-  --shadow-z2: 0 4px 8px oklch(0 0 0 / 0.35), 0 2px 4px oklch(0 0 0 / 0.25);
-  --shadow-z3: 0 12px 24px oklch(0 0 0 / 0.40), 0 4px 8px oklch(0 0 0 / 0.30);
-  --shadow-glow: 0 0 32px oklch(0.70 0.18 264 / 0.25);
+  --color-brand-tint:        oklch(0.27 0.04 250);
 }
 
 /* ── Density mode ────────────────────────────────────────────── */

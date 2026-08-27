@@ -80,7 +80,7 @@ let expandedId = $state<string | null>(null);
  <PageHeader title={m['nav.auditLog']()} subtitle={m['audit.subtitle']()} />
 
  <!-- Filters -->
- <div class="card bg-base-200">
+ <div class="card bg-base-100">
  <div class="card-body p-4">
  <div class="flex flex-wrap gap-3">
  <div class="form-control">
@@ -137,12 +137,12 @@ let expandedId = $state<string | null>(null);
  {#if loading}
  <PageSpinner />
  {:else if revisions.length === 0}
- <div class="card bg-base-200 text-center py-16">
+ <div class="card bg-base-100 text-center py-16">
  <ClipboardList size={40} class="mx-auto text-base-content/55 mb-3" />
  <p class="text-base-content/65">{m['audit.noEntries']()}</p>
  </div>
  {:else}
- <div class="card bg-base-200">
+ <div class="card bg-base-100">
  <div class="overflow-x-auto">
  <table class="table table-sm">
  <thead>
