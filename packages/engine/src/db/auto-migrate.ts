@@ -19,7 +19,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from './index.js';
-import { runPending, getLastAppliedMigration } from './migrations/index.js';
+import { runPending, getLastAppliedMigration, assertChainCompatible } from './migrations/index.js';
 import { MAX_SCHEMA_VERSION } from '../version.js';
 
 /**
@@ -64,6 +64,13 @@ export async function autoMigrate(db: Database): Promise<AutoMigrateResult> {
 
   const t0 = Date.now();
   const before = await getLastAppliedMigration(db);
+
+  // Before anything concludes there is nothing to do. The shortcut below
+  // compares high-water marks, which is only meaningful while the chain grows
+  // monotonically; a database whose chain was squashed away records a HIGHER
+  // number than this build ships and would sail straight through it, applying
+  // nothing and saying nothing. This compares identities instead.
+  await assertChainCompatible(db);
 
   if (before >= MAX_SCHEMA_VERSION) {
     // Common case: replicas restarting against an up-to-date schema.
