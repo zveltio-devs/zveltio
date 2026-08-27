@@ -244,9 +244,9 @@ function confirmDelete(user: any) {
           <span class="text-sm">
             <strong>{selectedCount}</strong> selected
           </span>
-          <button class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label={m['users.deleteSelected']()}>
+          <button type="button" class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label={m['users.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
@@ -320,7 +320,7 @@ function confirmDelete(user: any) {
                    >
                      <Shield size={13} />
                    </a>
-                   <button
+                   <button type="button"
                      class="btn btn-ghost btn-xs text-error"
                      onclick={() => confirmDelete(user)}
                      title={m['users.remove']()}
@@ -346,7 +346,7 @@ function confirmDelete(user: any) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showInviteModal = false; }} />
 
 {#if showInviteModal}
- <Modal bind:open={showInviteModal} title={m['dashboard.inviteUser']()} size="md">
+ <Modal bind:open={showInviteModal} title={m['dashboard.inviteUser']()} size="md" onSubmit={inviteUser}>
 
  <SchemaForm
    bind:this={inviteFormRef}
@@ -357,8 +357,8 @@ function confirmDelete(user: any) {
  />
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showInviteModal = false)}>{m['common.cancel']()}</button>
- <button class="btn btn-primary" onclick={inviteUser} disabled={inviting}>
+ <button type="button" class="btn btn-ghost" onclick={() => (showInviteModal = false)}>{m['common.cancel']()}</button>
+ <button type="submit" class="btn btn-primary" disabled={inviting}>
  {#if inviting}<span class="loading loading-spinner loading-sm"></span>{/if}
  Send Invite
  </button>

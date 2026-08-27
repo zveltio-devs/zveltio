@@ -46,7 +46,7 @@
   role="region"
   aria-label={m['content.pages.b.canvas']()}
 >
-  <div class="mx-auto transition-all duration-300 grid grid-cols-12 gap-x-4 items-start {widthClass}">
+  <div class="mx-auto transition-[max-width] duration-300 grid grid-cols-12 gap-x-4 items-start {widthClass}">
     <BlockList
       {blocks}
       parentId={null}

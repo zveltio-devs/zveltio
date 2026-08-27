@@ -280,8 +280,38 @@ function statusIcon(status: string) {
   return XCircle;
 }
 
+// Audit rows are written with internal identifiers — `god_action`,
+// `settings.changed`. Printed raw they read as "god action", which is a name
+// from the codebase rather than anything an operator recognises. The map covers
+// what the engine actually writes; anything else falls back to a humanising
+// pass, so a new event type degrades to readable rather than to a blank.
+const EVENT_LABELS: Record<string, string> = {
+  god_action: 'Owner override',
+  'god_mode.used': 'Owner override',
+  'settings.changed': 'Settings changed',
+  'user.created': 'User created',
+  'user.deleted': 'User deleted',
+  'user.updated': 'User updated',
+  'auth.login': 'Signed in',
+  'auth.logout': 'Signed out',
+  'auth.failed': 'Sign-in failed',
+  'record.created': 'Record created',
+  'record.updated': 'Record updated',
+  'record.deleted': 'Record deleted',
+  'collection.created': 'Collection created',
+  'collection.deleted': 'Collection deleted',
+  'permission.changed': 'Permissions changed',
+  'api_key.created': 'API key created',
+  'api_key.revoked': 'API key revoked',
+  'extension.installed': 'Extension installed',
+  'extension.removed': 'Extension removed',
+};
+
 function eventLabel(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\./g, ' › ');
+  const known = EVENT_LABELS[type];
+  if (known) return known;
+  const words = type.replace(/[._]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 // System health flag — surfaces a banner when something's wrong.
@@ -324,19 +354,21 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
        what's actually going on. -->
   <header class="flex items-end justify-between gap-4 flex-wrap">
     <div>
-      <h1 class="display-2xl bg-linear-to-r from-primary to-secondary bg-clip-text text-transparent">
-        {greeting}
-      </h1>
-      <p class="text-sm text-base-content/55 mt-1">
+      <!-- The greeting was `display-2xl` in a brand gradient: 40px, the largest
+           thing on screen, carrying no information — while the sentence that DOES
+           say something sat at 14px grey beneath it. Swapped. The greeting stays
+           as a lead-in; the state of the workspace gets the size. -->
+      <p class="text-sm font-medium text-base-content/50">{greeting}</p>
+      <h1 class="display-lg mt-0.5 text-base-content">
         {#if stats.collections > 0}
-          You have <strong class="text-base-content/80">{stats.collections}</strong>
+          You have <strong>{stats.collections}</strong>
           collection{stats.collections === 1 ? '' : 's'} holding
-          <strong class="text-base-content/80">{stats.total_records.toLocaleString()}</strong>
+          <strong>{stats.total_records.toLocaleString()}</strong>
           record{stats.total_records === 1 ? '' : 's'}.
         {:else}
           Let's get your first collection set up — it takes about 30 seconds.
         {/if}
-      </p>
+      </h1>
     </div>
     <button
       class="btn btn-ghost btn-sm gap-2"
@@ -380,7 +412,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <a
         href="{base}/collections"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary group"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary group"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -395,7 +427,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
 
       <a
         href={largestCollection ? `${base}/collections/${largestCollection.name}` : `${base}/collections`}
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
         title={largestCollection ? `Open ${largestCollection.label ?? largestCollection.name}` : 'Total records across all collections'}
       >
         <div class="card-body p-4 gap-2">
@@ -411,7 +443,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
 
       <a
         href="{base}/request-logs"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -426,7 +458,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
 
       <a
         href="{base}/webhooks"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -472,12 +504,14 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                 {#each activity as entry}
                   <tr class="hover">
                     <td>
-                      <span class="badge badge-ghost badge-sm font-mono text-xs">{eventLabel(entry.event_type)}</span>
+                      <span class="whitespace-nowrap text-xs font-medium">{eventLabel(entry.event_type)}</span>
                     </td>
-                    <td class="text-base-content/60 text-xs font-mono truncate max-w-32">
-                      {entry.user_id ? entry.user_id.slice(0, 8) + '…' : '—'}
+                    <td class="max-w-44 truncate text-xs text-base-content/70" title={entry.user_email ?? entry.user_id ?? ''}>
+                      {#if entry.user_email}{entry.user_email}
+                      {:else if entry.user_id}<span class="font-mono text-base-content/45">{entry.user_id.slice(0, 8)}…</span>
+                      {:else}<span class="text-base-content/45">System</span>{/if}
                     </td>
-                    <td class="text-base-content/60 text-xs truncate max-w-32">
+                    <td class="max-w-48 truncate text-xs text-base-content/60">
                       {entry.resource_type ?? '—'}
                       {#if entry.resource_id}
                         <span class="font-mono">{entry.resource_id.slice(0, 6)}…</span>

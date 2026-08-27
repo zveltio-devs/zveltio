@@ -123,7 +123,7 @@
 {#snippet dropZone(index: number)}
   {#if dragState.active}
     <div
-      class="col-span-12 rounded-full transition-all duration-150
+      class="col-span-12 rounded-full transition-[background-color,height] duration-150
         {isZone(index) ? 'h-8 bg-primary/15 border-2 border-dashed border-primary my-1' : 'h-1.5'}"
       ondragover={(e) => onZoneDragOver(e, index)}
       ondrop={(e) => onDrop(e, index)}
@@ -137,7 +137,7 @@
   {@render dropZone(i)}
 
   <div
-    class="group/blk relative rounded-xl transition-all duration-100 cursor-pointer
+    class="group/blk relative rounded-xl transition-[background-color,box-shadow] duration-100 cursor-pointer
       {spanClass(block)}
       {selectedId === block.id
         ? 'ring-2 ring-primary shadow-lg shadow-primary/10'

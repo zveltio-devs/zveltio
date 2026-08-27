@@ -83,7 +83,7 @@ const quickLinks = [
       <a
         href={link.href}
         class="group card bg-base-200 hover:bg-base-300 border border-base-300 hover:border-primary/30
-          transition-all duration-150 hover:shadow-sm"
+          transition-shadow duration-150 hover:shadow-sm"
       >
         <div class="card-body p-4">
           <div class="flex items-center justify-between mb-3">

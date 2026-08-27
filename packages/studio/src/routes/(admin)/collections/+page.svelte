@@ -351,9 +351,9 @@ function clearTemplate() {
       <div role="region" aria-label={m['common.bulkActions']()} class="card bg-primary/5 border border-primary/30">
         <div class="card-body p-3 flex flex-row items-center gap-3">
           <span class="text-sm"><strong>{selectedCount}</strong> {m['common.selected']()}</span>
-          <button class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
+          <button type="button" class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
@@ -413,7 +413,7 @@ function clearTemplate() {
                   <Shield size={13} />
                 </a>
                 {#if !col.is_system}
-                  <button
+                  <button type="button"
                     onclick={() => deleteCollection(col.name)}
                     class="btn btn-ghost btn-xs text-error"
                     title={m['collections.deleteCollection']()}
@@ -446,7 +446,7 @@ function clearTemplate() {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg">
+  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg" onSubmit={createCollection}>
 
       <!-- Template picker -->
       <div class="mb-5">
@@ -455,7 +455,7 @@ function clearTemplate() {
           {#each TEMPLATES as tmpl}
             <button
               type="button"
-              class="border rounded-lg p-2.5 text-left transition-all
+              class="border rounded-lg p-2.5 text-left transition-[border-color,background-color]
                      {selectedTemplate === tmpl.id
                        ? 'border-primary bg-primary/5'
                        : 'border-base-300 hover:border-primary/40'}"
@@ -467,7 +467,7 @@ function clearTemplate() {
           {/each}
           <button
             type="button"
-            class="border rounded-lg p-2.5 text-left transition-all
+            class="border rounded-lg p-2.5 text-left transition-[border-color,background-color]
                    {selectedTemplate === null
                      ? 'border-primary bg-primary/5'
                      : 'border-base-300 hover:border-primary/40'}"
@@ -502,7 +502,7 @@ function clearTemplate() {
       <div class="space-y-2 mb-5">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{m['common.fields']()}</span>
-          <button class="btn btn-ghost btn-xs" onclick={addField}>
+          <button type="button" class="btn btn-ghost btn-xs" onclick={addField}>
             <Plus size={13} /> Add field
           </button>
         </div>
@@ -539,7 +539,7 @@ function clearTemplate() {
               Required
             </label>
             {#if newFields.length > 1}
-              <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
+              <button type="button" onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
                 <Trash2 size={13} />
               </button>
             {/if}
@@ -568,8 +568,8 @@ function clearTemplate() {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary" onclick={createCollection} disabled={creating || !!nameError}>
+        <button type="button" class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
+        <button type="submit" class="btn btn-primary" disabled={creating || !!nameError}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
           Create Collection
         </button>

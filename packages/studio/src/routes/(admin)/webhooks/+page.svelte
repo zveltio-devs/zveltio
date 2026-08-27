@@ -227,7 +227,7 @@ async function testWebhook(id: string) {
               </td>
               <td class="text-right">
                 <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                  <button
+                  <button type="button"
                     class="btn btn-ghost btn-xs"
                     onclick={() => testWebhook(wh.id)}
                     disabled={testing === wh.id}
@@ -235,8 +235,8 @@ async function testWebhook(id: string) {
                   >
                     {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}{m['wh.test']()}{/if}
                   </button>
-                  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label={m['wh.editNamed']({ name: wh.name })}>{m['common.edit']()}</button>
-                  <button
+                  <button type="button" class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label={m['wh.editNamed']({ name: wh.name })}>{m['common.edit']()}</button>
+                  <button type="button"
                     class="btn btn-ghost btn-xs text-error"
                     onclick={() => remove(wh.id, wh.name)}
                     aria-label={m['wh.deleteNamed']({ name: wh.name })}
@@ -260,7 +260,7 @@ async function testWebhook(id: string) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
 {#if showModal}
- <Modal bind:open={showModal} title={editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()} size="lg">
+ <Modal bind:open={showModal} title={editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()} size="lg" onSubmit={save}>
  <div class="space-y-4">
  <div class="form-control">
  <label class="label" for="webhook-name"><span class="label-text">{m['common.nameRequired']()}</span></label>
@@ -331,8 +331,8 @@ async function testWebhook(id: string) {
  </label>
  </div>
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
- <button class="btn btn-primary" onclick={save}
+ <button type="button" class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
+ <button type="submit" class="btn btn-primary"
  disabled={saving || !form.name || !form.url || form.events.length === 0}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
  {editTarget ? m['common.save']() : m['common.create']()}

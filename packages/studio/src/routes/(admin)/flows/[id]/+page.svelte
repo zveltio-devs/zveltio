@@ -257,7 +257,7 @@ function updateStepName(name: string) {
             {/if}
 
             <div
-              class="card border transition-all cursor-pointer
+              class="card border transition-[border-color,background-color] cursor-pointer
                 {selectedStep?.id === step.id ? 'border-primary bg-primary/5' : 'bg-base-200 border-base-300 hover:border-base-400'}
                 {dragOverIdx === i ? 'scale-105' : ''}"
               role="button"
