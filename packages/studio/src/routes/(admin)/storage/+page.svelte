@@ -156,7 +156,7 @@ function openPreview(file: MediaFile) {
 
  <!-- Drag & Drop zone -->
  <div
- class="border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-default
+ class="border-2 border-dashed rounded-xl p-10 text-center transition-[border-color,background-color] cursor-default
  {dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-base-300 hover:border-base-content/20'}"
  ondragover={(e) => { e.preventDefault(); dragging = true; }}
  ondragleave={() => (dragging = false)}

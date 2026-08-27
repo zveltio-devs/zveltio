@@ -563,7 +563,7 @@ onMount(loadCatalog);
               {@const missingDeps = ext.missing_dependencies ?? []}
               {@const depsBlocked = missingDeps.length > 0}
 
-              <div class="card bg-base-100 shadow-sm border transition-all
+              <div class="card bg-base-100 shadow-sm border transition-[box-shadow,border-color]
                 {ext.is_running
                   ? 'border-success/40'
                   : ext.is_enabled && ext.needs_restart && !ext.files_on_disk

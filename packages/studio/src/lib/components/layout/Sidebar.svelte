@@ -93,7 +93,7 @@ function isActive(href: string): boolean {
 
 <aside class="
   hidden lg:flex flex-col shrink-0 bg-base-200/60 backdrop-blur-xl
-  transition-all duration-200 ease-in-out shadow-z1
+  transition-[width,transform] duration-200 ease-in-out shadow-z1
   {collapsed ? 'w-16' : 'w-64'}
 ">
   <!-- Logo + collapse toggle -->

@@ -299,7 +299,7 @@ let confirmState = $state<{
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {#each relTypesMeta as rt}
               <button
-                class="p-3 rounded-xl border-2 text-left transition-all
+                class="p-3 rounded-xl border-2 text-left transition-[border-color,background-color]
                        {relForm.type === rt.value
                          ? 'border-primary bg-primary/5'
                          : 'border-base-300 bg-base-100 hover:border-base-400'}"
