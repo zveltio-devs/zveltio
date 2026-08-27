@@ -214,7 +214,7 @@ const m2oTargetMap = $derived.by(() => {
       <h1 class="text-2xl font-bold tracking-tight">
         {collection?.display_name || collectionName}
       </h1>
-      <p class="text-sm text-base-content/40 font-mono mt-0.5">zvd_{collectionName}</p>
+      <p class="text-sm text-base-content/65 font-mono mt-0.5">zvd_{collectionName}</p>
       <!-- S3-03: collection-detail.header — extensions inject badges,
            status pills, sync indicators below the title.
            ctx carries the collection name so contributions can be
@@ -256,7 +256,7 @@ const m2oTargetMap = $derived.by(() => {
           class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1.5 flex items-center
                  {activeTab === tab.id
                    ? 'border-primary text-primary'
-                   : 'border-transparent text-base-content/50 hover:text-base-content'}"
+                   : 'border-transparent text-base-content/65 hover:text-base-content'}"
         >
           <tab.Icon size={13} />{tab.label}
         </button>
@@ -301,13 +301,13 @@ const m2oTargetMap = $derived.by(() => {
     <div class="space-y-5 max-w-lg">
 
       <!-- AI Search -->
-      <div class="card bg-base-200/50 border border-base-200">
+      <div class="card bg-base-100/50 border border-base-200">
         <div class="card-body gap-4 p-5">
           <div class="flex items-center gap-2">
             <Sparkles size={16} class="text-primary" />
             <h2 class="font-semibold text-sm">{m['col.aiSearch']()}</h2>
           </div>
-          <p class="text-sm text-base-content/50 leading-relaxed">
+          <p class="text-sm text-base-content/65 leading-relaxed">
             {m['col.aiSearchDesc']()}
             <code class="text-primary text-xs">POST /ext/ai/search</code>
           </p>
@@ -347,17 +347,17 @@ const m2oTargetMap = $derived.by(() => {
           <div class="card-body gap-3 p-5">
             <h2 class="font-semibold text-sm">{m['col.info']()}</h2>
             <div class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm items-center">
-              <span class="text-base-content/50">{m['col.table']()}</span>
+              <span class="text-base-content/65">{m['col.table']()}</span>
               <code class="font-mono text-xs">zvd_{collectionName}</code>
-              <span class="text-base-content/50">{m['col.managed']()}</span>
+              <span class="text-base-content/65">{m['col.managed']()}</span>
               <span>{collection.is_managed !== false ? m['col.managedYes']() : m['col.managedNo']()}</span>
               {#if collection.description}
-                <span class="text-base-content/50">{m['common.col.description']()}</span>
+                <span class="text-base-content/65">{m['common.col.description']()}</span>
                 <span>{collection.description}</span>
               {/if}
-              <span class="text-base-content/50">{m['common.fields']()}</span>
+              <span class="text-base-content/65">{m['common.fields']()}</span>
               <span>{m['col.fieldCounts']({ custom: customFields.length, system: 6 })}</span>
-              <span class="text-base-content/50">{m['col.relations']()}</span>
+              <span class="text-base-content/65">{m['col.relations']()}</span>
               <span>{relations.length}</span>
             </div>
           </div>

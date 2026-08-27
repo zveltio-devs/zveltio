@@ -528,7 +528,7 @@ onMount(loadCatalog);
       <nav class="w-36 shrink-0 space-y-0.5">
         <button
           class="w-full text-left px-3 py-1.5 rounded-lg text-sm
-                 {cat === 'all' ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/60 hover:bg-base-200'}"
+                 {cat === 'all' ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/65 hover:bg-base-200'}"
           onclick={() => cat = 'all'}
         >
           {m['common.filter.all']()} ({extensions.length})
@@ -536,7 +536,7 @@ onMount(loadCatalog);
         {#each CATEGORIES as c}
           <button
             class="w-full text-left px-3 py-1.5 rounded-lg text-sm capitalize
-                   {cat === c ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/60 hover:bg-base-200'}"
+                   {cat === c ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/65 hover:bg-base-200'}"
             onclick={() => cat = c}
           >
             {c}
@@ -563,7 +563,7 @@ onMount(loadCatalog);
               {@const missingDeps = ext.missing_dependencies ?? []}
               {@const depsBlocked = missingDeps.length > 0}
 
-              <div class="card bg-base-100 shadow-sm border transition-all
+              <div class="card bg-base-100 shadow-sm border transition-[box-shadow,border-color]
                 {ext.is_running
                   ? 'border-success/40'
                   : ext.is_enabled && ext.needs_restart && !ext.files_on_disk

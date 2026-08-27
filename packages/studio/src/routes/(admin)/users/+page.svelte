@@ -244,9 +244,9 @@ function confirmDelete(user: any) {
           <span class="text-sm">
             <strong>{selectedCount}</strong> selected
           </span>
-          <button class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label={m['users.deleteSelected']()}>
+          <button type="button" class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label={m['users.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
@@ -255,7 +255,7 @@ function confirmDelete(user: any) {
   {/snippet}
 
   {#snippet list()}
-   <div class="card bg-base-200">
+   <div class="card bg-base-100">
      <div class="overflow-x-auto">
        <table class="table table-sm w-full">
          <thead>
@@ -299,7 +299,7 @@ function confirmDelete(user: any) {
                          onsave={(next) => renameUser(user.id, next)}
                        />
                      </div>
-                     <div class="text-xs text-base-content/40">{user.email}</div>
+                     <div class="text-xs text-base-content/65">{user.email}</div>
                    </div>
                  </div>
                </td>
@@ -308,8 +308,8 @@ function confirmDelete(user: any) {
                    {user.role || 'member'}
                  </span>
                </td>
-               <td class="text-xs text-base-content/50">{formatDate(user.created_at)}</td>
-               <td class="text-xs text-base-content/50">{formatRelative(user.updated_at)}</td>
+               <td class="text-xs text-base-content/65">{formatDate(user.created_at)}</td>
+               <td class="text-xs text-base-content/65">{formatRelative(user.updated_at)}</td>
                <td class="text-right">
                  <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                    <a
@@ -320,7 +320,7 @@ function confirmDelete(user: any) {
                    >
                      <Shield size={13} />
                    </a>
-                   <button
+                   <button type="button"
                      class="btn btn-ghost btn-xs text-error"
                      onclick={() => confirmDelete(user)}
                      title={m['users.remove']()}
@@ -346,7 +346,7 @@ function confirmDelete(user: any) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showInviteModal = false; }} />
 
 {#if showInviteModal}
- <Modal bind:open={showInviteModal} title={m['dashboard.inviteUser']()} size="md">
+ <Modal bind:open={showInviteModal} title={m['dashboard.inviteUser']()} size="md" onSubmit={inviteUser}>
 
  <SchemaForm
    bind:this={inviteFormRef}
@@ -357,8 +357,8 @@ function confirmDelete(user: any) {
  />
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showInviteModal = false)}>{m['common.cancel']()}</button>
- <button class="btn btn-primary" onclick={inviteUser} disabled={inviting}>
+ <button type="button" class="btn btn-ghost" onclick={() => (showInviteModal = false)}>{m['common.cancel']()}</button>
+ <button type="submit" class="btn btn-primary" disabled={inviting}>
  {#if inviting}<span class="loading loading-spinner loading-sm"></span>{/if}
  Send Invite
  </button>

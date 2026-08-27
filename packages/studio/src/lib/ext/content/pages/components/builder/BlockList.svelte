@@ -123,7 +123,7 @@
 {#snippet dropZone(index: number)}
   {#if dragState.active}
     <div
-      class="col-span-12 rounded-full transition-all duration-150
+      class="col-span-12 rounded-full transition-[background-color,height] duration-150
         {isZone(index) ? 'h-8 bg-primary/15 border-2 border-dashed border-primary my-1' : 'h-1.5'}"
       ondragover={(e) => onZoneDragOver(e, index)}
       ondrop={(e) => onDrop(e, index)}
@@ -137,7 +137,7 @@
   {@render dropZone(i)}
 
   <div
-    class="group/blk relative rounded-xl transition-all duration-100 cursor-pointer
+    class="group/blk relative rounded-xl transition-[background-color,box-shadow] duration-100 cursor-pointer
       {spanClass(block)}
       {selectedId === block.id
         ? 'ring-2 ring-primary shadow-lg shadow-primary/10'
@@ -152,7 +152,7 @@
       bg-base-100 border border-base-300 rounded-lg px-1 py-0.5 shadow-sm
       opacity-0 group-hover/blk:opacity-100 transition-opacity
       {selectedId === block.id ? '!opacity-100' : ''}">
-      <span class="text-[9px] font-mono text-base-content/40 px-1 border-r border-base-300 mr-0.5">{block.type}</span>
+      <span class="text-[9px] font-mono text-base-content/65 px-1 border-r border-base-300 mr-0.5">{block.type}</span>
       <button class="btn btn-ghost btn-xs p-0.5 h-5 min-h-0" title={m['content.pages.b.moveUp']()}
         onclick={(e) => { e.stopPropagation(); onChange(nudge(tree, block.id, -1)); }}
         disabled={i === 0}><ChevronUp size={11} /></button>
@@ -186,7 +186,7 @@
         saying what the one block inside actually means.
       -->
       {#if block.type === 'collection_list'}
-        <p class="text-[10px] font-mono uppercase tracking-widest text-base-content/40 px-1 pb-1">
+        <p class="text-[10px] font-mono uppercase tracking-widest text-base-content/65 px-1 pb-1">
           {m['content.pages.b.repeatsFor']()} {block.content?.collection || '—'}
         </p>
       {/if}
@@ -203,7 +203,7 @@
           {onSelect}
         />
         {#if childrenOf(block).length === 0 && !dragState.active}
-          <p class="col-span-12 text-center text-xs text-base-content/30 py-6 select-none">
+          <p class="col-span-12 text-center text-xs text-base-content/55 py-6 select-none">
             {m['content.pages.b.emptyContainer']()}
           </p>
         {/if}

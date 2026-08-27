@@ -123,7 +123,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
         </div>
         <div class="flex-1 min-w-0">
           <p class="font-semibold text-sm leading-none text-base-content truncate">{siteName}</p>
-          <p class="text-[11px] text-base-content/45 mt-0.5">Employee Portal</p>
+          <p class="text-[11px] text-base-content/65 mt-0.5">Employee Portal</p>
         </div>
       </div>
 
@@ -132,7 +132,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
 
         <!-- Built-in routes -->
         <div class="px-3 pb-1">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/55 select-none">
             Workspace
           </span>
         </div>
@@ -143,7 +143,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
               href={b.href}
               class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
                 transition-colors duration-100
-                {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}"
+                {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}"
             >
               <b.Icon size={16} class="shrink-0" />
               <span class="truncate leading-none">{b.title}</span>
@@ -153,7 +153,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
 
         <!-- Zone pages — admin-configured -->
         <div class="px-3 pb-1 pt-4">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/55 select-none">
             Pages
           </span>
         </div>
@@ -166,7 +166,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
                 href={href}
                 class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
                   transition-colors duration-100
-                  {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}"
+                  {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}"
               >
                 {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{/if}
                 <span class="truncate leading-none">{p.title}</span>
@@ -175,7 +175,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
           {/each}
         {:else}
           <div class="px-4 py-2 text-center">
-            <p class="text-[11px] text-base-content/40 leading-snug">No custom pages yet.</p>
+            <p class="text-[11px] text-base-content/65 leading-snug">No custom pages yet.</p>
             <a href="{base}/zones/intranet" class="text-[11px] text-primary hover:underline mt-0.5 inline-block">Add pages →</a>
           </div>
         {/if}
@@ -183,12 +183,12 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
         <!-- Admin link (for users who also have admin access) -->
         <div class="px-2 pt-4">
           <div class="px-2 pb-1">
-            <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">Admin</span>
+            <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/55 select-none">Admin</span>
           </div>
           <a
             href="{base}/"
             class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-              text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors"
+              text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors"
           >
             <ShieldCheck size={16} class="shrink-0" />
             <span class="leading-none">Admin Panel</span>
@@ -201,7 +201,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
         <button
           onclick={() => (dark = !dark)}
           class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-            text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors"
+            text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors"
         >
           {#if dark}<Sun size={16} class="shrink-0" /><span>Light Mode</span>
           {:else}<Moon size={16} class="shrink-0" /><span>Dark Mode</span>{/if}
@@ -213,9 +213,9 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-[13px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
-            <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
+            <p class="text-[11px] text-base-content/65 mt-0.5 truncate">{auth.user?.email}</p>
           </div>
-          <button onclick={signOut} title="Sign out" class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content">
+          <button onclick={signOut} title="Sign out" class="btn btn-ghost btn-xs text-base-content/65 hover:text-base-content">
             <LogOut size={13} />
           </button>
         </div>
@@ -236,7 +236,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
             <div class="px-2 py-0.5">
               <a href={b.href} onclick={() => (mobileOpen = false)}
                 class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
-                  {isActive(b.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
+                  {isActive(b.href) ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}">
                 <b.Icon size={16} class="shrink-0" />
                 <span class="truncate">{b.title}</span>
               </a>
@@ -251,7 +251,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
               <div class="px-2 py-0.5" style="padding-left: {0.5 + depth * 1}rem">
                 <a href={href} onclick={() => (mobileOpen = false)}
                   class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
-                    {isActive(href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
+                    {isActive(href) ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}">
                   {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{/if}
                   <span class="truncate">{p.title}</span>
                 </a>

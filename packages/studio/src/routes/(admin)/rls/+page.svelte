@@ -187,10 +187,10 @@ function sourceLabel(src: string): string {
   <!-- Empty state -->
   <div class="flex flex-col items-center justify-center py-24 text-center">
     <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
-      <Shield class="h-10 w-10 text-base-content/30" />
+      <Shield class="h-10 w-10 text-base-content/55" />
     </div>
     <h2 class="text-lg font-semibold">{m['rls.emptyTitle']()}</h2>
-    <p class="mt-1 text-sm text-base-content/50">{m['rls.emptyDesc']()}</p>
+    <p class="mt-1 text-sm text-base-content/65">{m['rls.emptyDesc']()}</p>
     <button onclick={openNew} class="btn btn-primary btn-sm mt-4 gap-1">
       <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
     </button>
@@ -278,7 +278,7 @@ function sourceLabel(src: string): string {
       <div class="overflow-x-auto rounded-xl border border-base-content/10">
         <table class="table table-sm w-full">
           <thead>
-            <tr class="text-xs text-base-content/50">
+            <tr class="text-xs text-base-content/65">
               <th>{m['common.col.collection']()}</th>
               <th>{m['common.col.role']()}</th>
               <th>{m['rls.rule']()}</th>
@@ -297,7 +297,7 @@ function sourceLabel(src: string): string {
                 <td class="font-mono text-xs text-base-content/70">
                   {policy.filter_field} {policy.filter_op} <span class="text-primary">{sourceLabel(policy.filter_value_source)}</span>
                 </td>
-                <td class="text-sm text-base-content/50">{policy.description ?? '—'}</td>
+                <td class="text-sm text-base-content/65">{policy.description ?? '—'}</td>
                 <td class="text-center">
                   <input
                     type="checkbox"

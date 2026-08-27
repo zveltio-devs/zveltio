@@ -204,7 +204,7 @@ async function testWebhook(id: string) {
           {#each webhooks as wh}
             <tr class="hover group">
               <td class="font-medium">{wh.name}</td>
-              <td class="font-mono text-xs text-base-content/50 max-w-48 truncate">{wh.url}</td>
+              <td class="font-mono text-xs text-base-content/65 max-w-48 truncate">{wh.url}</td>
               <td>
                 <div class="flex flex-wrap gap-1">
                   {#each (wh.events || []).slice(0, 3) as ev}
@@ -227,7 +227,7 @@ async function testWebhook(id: string) {
               </td>
               <td class="text-right">
                 <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                  <button
+                  <button type="button"
                     class="btn btn-ghost btn-xs"
                     onclick={() => testWebhook(wh.id)}
                     disabled={testing === wh.id}
@@ -235,8 +235,8 @@ async function testWebhook(id: string) {
                   >
                     {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}{m['wh.test']()}{/if}
                   </button>
-                  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label={m['wh.editNamed']({ name: wh.name })}>{m['common.edit']()}</button>
-                  <button
+                  <button type="button" class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label={m['wh.editNamed']({ name: wh.name })}>{m['common.edit']()}</button>
+                  <button type="button"
                     class="btn btn-ghost btn-xs text-error"
                     onclick={() => remove(wh.id, wh.name)}
                     aria-label={m['wh.deleteNamed']({ name: wh.name })}
@@ -260,7 +260,7 @@ async function testWebhook(id: string) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
 {#if showModal}
- <Modal bind:open={showModal} title={editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()} size="lg">
+ <Modal bind:open={showModal} title={editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()} size="lg" onSubmit={save}>
  <div class="space-y-4">
  <div class="form-control">
  <label class="label" for="webhook-name"><span class="label-text">{m['common.nameRequired']()}</span></label>
@@ -280,7 +280,7 @@ async function testWebhook(id: string) {
  <div class="form-control">
  <label class="label" for="webhook-secret">
    <span class="label-text">{m['wh.secretOptional']()}</span>
-   <span class="label-text-alt text-base-content/50">{m['wh.hmacHint']()}</span>
+   <span class="label-text-alt text-base-content/65">{m['wh.hmacHint']()}</span>
  </label>
  <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder={m['wh.signingSecretPh']()} />
  </div>
@@ -289,14 +289,14 @@ async function testWebhook(id: string) {
  <div class="form-control">
  <label class="label" for="webhook-retry">
    <span class="label-text">{m['wh.retryAttempts']()}</span>
-   <span class="label-text-alt text-base-content/50">0–10</span>
+   <span class="label-text-alt text-base-content/65">0–10</span>
  </label>
  <input id="webhook-retry" type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
  </div>
  <div class="form-control">
  <label class="label" for="webhook-timeout">
    <span class="label-text">{m['wh.timeout']()}</span>
-   <span class="label-text-alt text-base-content/50">{m['wh.timeoutHint']()}</span>
+   <span class="label-text-alt text-base-content/65">{m['wh.timeoutHint']()}</span>
  </label>
  <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>
@@ -331,8 +331,8 @@ async function testWebhook(id: string) {
  </label>
  </div>
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
- <button class="btn btn-primary" onclick={save}
+ <button type="button" class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
+ <button type="submit" class="btn btn-primary"
  disabled={saving || !form.name || !form.url || form.events.length === 0}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
  {editTarget ? m['common.save']() : m['common.create']()}

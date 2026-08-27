@@ -86,10 +86,31 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     return c.json({ tenants });
   });
 
-  // GET /api/tenants/me — current user's tenants
+  // GET /api/tenants/me — the units this person may stand in.
+  //
+  // This is the question a unit switcher asks, and it is not the one `GET /`
+  // answers: that route is instance-admin only AND is itself scoped by RLS, so
+  // it reports "which units exist inside the unit I am already in" — one,
+  // always.
+  //
+  // An instance administrator gets every unit. They are the person who most
+  // needs to move between units and, by construction, a member of none:
+  // `zv_tenant_users` holds assignments, and a god user bypasses tenancy rather
+  // than being enrolled in it. Answering from assignments alone returned an
+  // empty list to exactly the caller this endpoint exists for.
   router.get('/me', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
+    if (await requireInstanceAdmin(user.id)) {
+      const all = await sql<{
+        id: string;
+        name: string;
+        slug: string;
+        parent_id: string | null;
+      }>`SELECT id, name, slug, parent_id FROM zv_tenants
+          WHERE closed_at IS NULL ORDER BY name`.execute(db);
+      return c.json({ tenants: all.rows });
+    }
     const tenants = await getUserTenants(user.id);
     return c.json({ tenants });
   });

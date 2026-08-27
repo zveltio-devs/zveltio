@@ -280,8 +280,43 @@ function statusIcon(status: string) {
   return XCircle;
 }
 
+// Audit rows are written with internal identifiers — `god_action`,
+// `settings.changed`. Printed raw they read as "god action", which is a name
+// from the codebase rather than anything an operator recognises. The map covers
+// what the engine actually writes; anything else falls back to a humanising
+// pass, so a new event type degrades to readable rather than to a blank.
+// Keyed to the catalogue, not to English literals: this page is translated into
+// nine languages and an event label is text the operator reads, wherever it
+// happens to be declared. A raw string here would have shipped English into
+// every other locale — the i18n gate catches those in markup and this one sits
+// in a script block, which is exactly how such strings survive.
+const EVENT_LABELS: Record<string, () => string> = {
+  god_action: m['audit.event.ownerOverride'],
+  'god_mode.used': m['audit.event.ownerOverride'],
+  'settings.changed': m['audit.event.settingsChanged'],
+  'user.created': m['audit.event.userCreated'],
+  'user.deleted': m['audit.event.userDeleted'],
+  'user.updated': m['audit.event.userUpdated'],
+  'auth.login': m['audit.event.signedIn'],
+  'auth.logout': m['audit.event.signedOut'],
+  'auth.failed': m['audit.event.signInFailed'],
+  'record.created': m['audit.event.recordCreated'],
+  'record.updated': m['audit.event.recordUpdated'],
+  'record.deleted': m['audit.event.recordDeleted'],
+  'collection.created': m['audit.event.collectionCreated'],
+  'collection.deleted': m['audit.event.collectionDeleted'],
+  'permission.changed': m['audit.event.permissionsChanged'],
+  'api_key.created': m['audit.event.apiKeyCreated'],
+  'api_key.revoked': m['audit.event.apiKeyRevoked'],
+  'extension.installed': m['audit.event.extensionInstalled'],
+  'extension.removed': m['audit.event.extensionRemoved'],
+};
+
 function eventLabel(type: string): string {
-  return type.replace(/_/g, ' ').replace(/\./g, ' › ');
+  const known = EVENT_LABELS[type];
+  if (known) return known();
+  const words = type.replace(/[._]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 // System health flag — surfaces a banner when something's wrong.
@@ -324,19 +359,21 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
        what's actually going on. -->
   <header class="flex items-end justify-between gap-4 flex-wrap">
     <div>
-      <h1 class="display-2xl bg-linear-to-r from-primary to-secondary bg-clip-text text-transparent">
-        {greeting}
-      </h1>
-      <p class="text-sm text-base-content/55 mt-1">
+      <!-- The greeting was `display-2xl` in a brand gradient: 40px, the largest
+           thing on screen, carrying no information — while the sentence that DOES
+           say something sat at 14px grey beneath it. Swapped. The greeting stays
+           as a lead-in; the state of the workspace gets the size. -->
+      <p class="text-sm font-medium text-base-content/65">{greeting}</p>
+      <h1 class="display-lg mt-0.5 text-base-content">
         {#if stats.collections > 0}
-          You have <strong class="text-base-content/80">{stats.collections}</strong>
+          You have <strong>{stats.collections}</strong>
           collection{stats.collections === 1 ? '' : 's'} holding
-          <strong class="text-base-content/80">{stats.total_records.toLocaleString()}</strong>
+          <strong>{stats.total_records.toLocaleString()}</strong>
           record{stats.total_records === 1 ? '' : 's'}.
         {:else}
           Let's get your first collection set up — it takes about 30 seconds.
         {/if}
-      </p>
+      </h1>
     </div>
     <button
       class="btn btn-ghost btn-sm gap-2"
@@ -380,7 +417,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <a
         href="{base}/collections"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary group"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary group"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -388,14 +425,14 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.collections}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['nav.collections']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['nav.collections']()}</p>
           </div>
         </div>
       </a>
 
       <a
         href={largestCollection ? `${base}/collections/${largestCollection.name}` : `${base}/collections`}
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
         title={largestCollection ? `Open ${largestCollection.label ?? largestCollection.name}` : 'Total records across all collections'}
       >
         <div class="card-body p-4 gap-2">
@@ -404,14 +441,14 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.total_records.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.totalRecords']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.totalRecords']()}</p>
           </div>
         </div>
       </a>
 
       <a
         href="{base}/request-logs"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -419,14 +456,14 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.api_calls_today.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
           </div>
         </div>
       </a>
 
       <a
         href="{base}/webhooks"
-        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-primary"
+        class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
@@ -434,7 +471,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.active_webhooks}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
           </div>
         </div>
       </a>
@@ -472,18 +509,20 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                 {#each activity as entry}
                   <tr class="hover">
                     <td>
-                      <span class="badge badge-ghost badge-sm font-mono text-xs">{eventLabel(entry.event_type)}</span>
+                      <span class="whitespace-nowrap text-xs font-medium">{eventLabel(entry.event_type)}</span>
                     </td>
-                    <td class="text-base-content/60 text-xs font-mono truncate max-w-32">
-                      {entry.user_id ? entry.user_id.slice(0, 8) + '…' : '—'}
+                    <td class="max-w-44 truncate text-xs text-base-content/70" title={entry.user_email ?? entry.user_id ?? ''}>
+                      {#if entry.user_email}{entry.user_email}
+                      {:else if entry.user_id}<span class="font-mono text-base-content/65">{entry.user_id.slice(0, 8)}…</span>
+                      {:else}<span class="text-base-content/65">{m['dashboard.actorSystem']()}</span>{/if}
                     </td>
-                    <td class="text-base-content/60 text-xs truncate max-w-32">
+                    <td class="max-w-48 truncate text-xs text-base-content/65">
                       {entry.resource_type ?? '—'}
                       {#if entry.resource_id}
                         <span class="font-mono">{entry.resource_id.slice(0, 6)}…</span>
                       {/if}
                     </td>
-                    <td class="text-right text-base-content/50 text-xs whitespace-nowrap">
+                    <td class="text-right text-base-content/65 text-xs whitespace-nowrap">
                       {formatRelative(entry.created_at)}
                     </td>
                   </tr>
@@ -524,10 +563,10 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                   <tr class="hover">
                     <td>
                       <div class="flex items-center gap-2">
-                        <Database size={14} class="text-base-content/40" />
+                        <Database size={14} class="text-base-content/65" />
                         <span class="font-medium">{col.label ?? col.name}</span>
                         {#if col.label}
-                          <span class="text-base-content/40 text-xs font-mono">{col.name}</span>
+                          <span class="text-base-content/65 text-xs font-mono">{col.name}</span>
                         {/if}
                       </div>
                     </td>
@@ -557,7 +596,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           {#if pendingSteps.length === 0}
             <span class="text-xs text-success flex items-center gap-1"><Sparkles size={12} /> {m['dashboard.allSet']()}</span>
           {:else}
-            <span class="text-xs text-base-content/50">{pendingSteps.length} pending</span>
+            <span class="text-xs text-base-content/65">{pendingSteps.length} pending</span>
           {/if}
         {/snippet}
         <ul class="space-y-2">
@@ -570,17 +609,17 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                 {#if step.done}
                   <CheckCircle size={16} class="text-success shrink-0 mt-0.5" />
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm line-through text-base-content/40">{step.label}</p>
+                    <p class="text-sm line-through text-base-content/65">{step.label}</p>
                   </div>
                 {:else}
-                  <Circle size={16} class="text-base-content/30 shrink-0 mt-0.5" />
+                  <Circle size={16} class="text-base-content/55 shrink-0 mt-0.5" />
                   <div class="flex-1 min-w-0">
                     <p class="text-sm text-base-content">{step.label}</p>
                     {#if step.hint}
-                      <p class="text-xs text-base-content/50 mt-0.5">{step.hint}</p>
+                      <p class="text-xs text-base-content/65 mt-0.5">{step.hint}</p>
                     {/if}
                   </div>
-                  <ArrowRight size={14} class="text-base-content/30 shrink-0 mt-1" />
+                  <ArrowRight size={14} class="text-base-content/55 shrink-0 mt-1" />
                 {/if}
               </a>
             </li>
@@ -611,26 +650,26 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           {@const CacheIcon = statusIcon(system.cache.status)}
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.database']()}</span>
+              <span class="text-base-content/65">{m['dashboard.database']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.database.status)}">
                 <DbIcon size={14} />
                 {system.database.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.cache']()}</span>
+              <span class="text-base-content/65">{m['dashboard.cache']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
                 <CacheIcon size={14} />
                 {system.cache.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.uptime']()}</span>
+              <span class="text-base-content/65">{m['dashboard.uptime']()}</span>
               <span class="text-base-content font-mono">{formatUptime(system.uptime)}</span>
             </div>
             {#if system.database.tables}
               <div class="flex items-center justify-between">
-                <span class="text-base-content/60">{m['dashboard.dbTables']()}</span>
+                <span class="text-base-content/65">{m['dashboard.dbTables']()}</span>
                 <span class="text-base-content font-mono">{system.database.tables}</span>
               </div>
             {/if}

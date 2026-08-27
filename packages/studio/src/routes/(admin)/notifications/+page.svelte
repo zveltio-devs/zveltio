@@ -117,7 +117,7 @@ function fmt(s: string) {
  <div class="border-b border-base-200 mb-4">
   <div class="flex gap-0">
     <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
-      {activeTab === 'inbox' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+      {activeTab === 'inbox' ? 'border-primary text-primary' : 'border-transparent text-base-content/65 hover:text-base-content'}"
       onclick={() => activeTab = 'inbox'}>
       Inbox
       {#if unreadCount > 0}
@@ -125,7 +125,7 @@ function fmt(s: string) {
       {/if}
     </button>
     <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
-      {activeTab === 'rules' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+      {activeTab === 'rules' ? 'border-primary text-primary' : 'border-transparent text-base-content/65 hover:text-base-content'}"
       onclick={() => activeTab = 'rules'}>
       Rules
     </button>
@@ -136,7 +136,7 @@ function fmt(s: string) {
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
- <div class="text-center py-16 text-base-content/40">
+ <div class="text-center py-16 text-base-content/65">
  {#if unreadOnly}
  <CheckCheck size={48} class="mx-auto mb-3" />
  <p class="text-sm">{m['notif.allCaughtUp']()}</p>
@@ -149,7 +149,7 @@ function fmt(s: string) {
  <div class="space-y-2">
  {#each filtered as notif}
  <div
- class="card bg-base-200 cursor-pointer hover:bg-base-300 transition-colors {!notif.is_read ? 'border-l-4 border-primary' : ''}"
+ class="card bg-base-100 cursor-pointer hover:bg-base-300 transition-colors {!notif.is_read ? 'border-l-4 border-primary' : ''}"
  onclick={() => !notif.is_read && markRead(notif.id)}
  role="button"
  tabindex="0"
@@ -163,9 +163,9 @@ function fmt(s: string) {
  <div class="flex-1 min-w-0">
  <div class="flex items-center justify-between gap-2">
  <p class="font-medium text-sm {!notif.is_read ? '' : 'text-base-content/70'}">{notif.title}</p>
- <span class="text-xs text-base-content/40 shrink-0">{fmt(notif.created_at)}</span>
+ <span class="text-xs text-base-content/65 shrink-0">{fmt(notif.created_at)}</span>
  </div>
- <p class="text-sm text-base-content/60 mt-0.5">{notif.message}</p>
+ <p class="text-sm text-base-content/65 mt-0.5">{notif.message}</p>
  </div>
  {#if !notif.is_read}
  <span class="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5"></span>
@@ -179,6 +179,6 @@ function fmt(s: string) {
  {/if}
 
  {#if activeTab === 'rules'}
- <div class="text-sm text-base-content/50 py-8 text-center">{m['notif.rulesSoon']()}</div>
+ <div class="text-sm text-base-content/65 py-8 text-center">{m['notif.rulesSoon']()}</div>
  {/if}
 </div>

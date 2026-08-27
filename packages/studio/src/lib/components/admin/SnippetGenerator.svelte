@@ -83,7 +83,7 @@ async function copyToClipboard(text: string) {
 }
 </script>
 
-<div class="card bg-base-200">
+<div class="card bg-base-100">
   <div class="card-body p-4">
     <div class="flex items-center justify-between mb-3">
       <h3 class="font-semibold flex items-center gap-2">

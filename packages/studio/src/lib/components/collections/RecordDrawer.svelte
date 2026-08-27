@@ -180,7 +180,7 @@ async function saveRecord() {
       <div class="flex items-center justify-between px-6 py-4 border-b border-base-200 shrink-0">
         <div>
           <h2 class="font-bold text-lg">{drawerMode === 'edit' ? 'Edit Record' : 'New Record'}</h2>
-          <p class="text-xs text-base-content/40 font-mono mt-0.5">
+          <p class="text-xs text-base-content/65 font-mono mt-0.5">
             {collectionName}{#if drawerMode === 'edit' && drawerRecordId} · {drawerRecordId.slice(0, 8)}…{/if}
           </p>
         </div>
@@ -193,7 +193,7 @@ async function saveRecord() {
       <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
         {#if insertableFields.length === 0}
-          <div class="flex flex-col items-center justify-center h-full py-16 text-base-content/40 gap-3">
+          <div class="flex flex-col items-center justify-center h-full py-16 text-base-content/65 gap-3">
             <Layers size={36} strokeWidth={1.2} />
             <p class="text-sm text-center">
               No fields defined yet.
@@ -224,7 +224,7 @@ async function saveRecord() {
               </div>
 
               {#if field.description}
-                <p class="text-xs text-base-content/40">{field.description}</p>
+                <p class="text-xs text-base-content/65">{field.description}</p>
               {/if}
 
               <!-- Input control based on field type -->
@@ -236,7 +236,7 @@ async function saveRecord() {
                     class="toggle toggle-primary toggle-sm"
                     bind:checked={insertForm[field.name]}
                   />
-                  <span class="text-sm text-base-content/60">
+                  <span class="text-sm text-base-content/65">
                     {insertForm[field.name] ? 'Yes' : 'No'}
                   </span>
                 </label>
@@ -310,7 +310,7 @@ async function saveRecord() {
                   {/if}
                 </select>
                 {#if !loadingRelOpts && !(relOptions[field.name]?.length)}
-                  <p class="text-xs text-base-content/40 mt-0.5">
+                  <p class="text-xs text-base-content/65 mt-0.5">
                     No records in <span class="font-mono">{field.options.related_collection}</span> yet
                   </p>
                 {/if}

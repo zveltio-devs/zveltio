@@ -351,16 +351,16 @@ function clearTemplate() {
       <div role="region" aria-label={m['common.bulkActions']()} class="card bg-primary/5 border border-primary/30">
         <div class="card-body p-3 flex flex-row items-center gap-3">
           <span class="text-sm"><strong>{selectedCount}</strong> {m['common.selected']()}</span>
-          <button class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
+          <button type="button" class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
       </div>
     {:else if selectableCollections.length > 0}
       <div class="flex items-center justify-between gap-2 flex-wrap">
-        <label class="flex items-center gap-2 text-xs text-base-content/50 cursor-pointer w-fit">
+        <label class="flex items-center gap-2 text-xs text-base-content/65 cursor-pointer w-fit">
           <input
             type="checkbox"
             class="checkbox checkbox-xs"
@@ -384,7 +384,7 @@ function clearTemplate() {
         <!-- `relative` + acțiuni absolute: în flux, cele trei butoane invizibile
              (`opacity-0`) rezervau 93px dintr-un rând de 201px, deci titlul primea
              96px și „Contacts" se rupea „Cont / acts". -->
-        <div class="group card relative bg-base-200 hover:bg-base-300 transition-colors border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
+        <div class="group card relative bg-base-100 shadow-z1 transition-shadow hover:shadow-z2 border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
               <div class="flex min-w-0 flex-1 items-center gap-2">
@@ -402,7 +402,7 @@ function clearTemplate() {
                 </div>
                 <div class="min-w-0">
                   <h3 class="truncate text-sm font-semibold" title={col.display_name || col.name}>{col.display_name || col.name}</h3>
-                  <p class="truncate font-mono text-xs text-base-content/40" title={col.name}>{col.name}</p>
+                  <p class="truncate font-mono text-xs text-base-content/65" title={col.name}>{col.name}</p>
                 </div>
               </div>
               <div class="absolute right-2 top-2 flex gap-0.5 rounded-lg bg-base-200/90 opacity-0 backdrop-blur-sm transition-opacity group-hover:bg-base-300/90 group-hover:opacity-100 focus-within:opacity-100">
@@ -413,7 +413,7 @@ function clearTemplate() {
                   <Shield size={13} />
                 </a>
                 {#if !col.is_system}
-                  <button
+                  <button type="button"
                     onclick={() => deleteCollection(col.name)}
                     class="btn btn-ghost btn-xs text-error"
                     title={m['collections.deleteCollection']()}
@@ -441,12 +441,12 @@ function clearTemplate() {
 </CrudListPage>
 
 {#snippet searchNoMatch(q: string)}
-  <p class="text-center text-sm text-base-content/40 py-8">No collections match "{q}"</p>
+  <p class="text-center text-sm text-base-content/65 py-8">No collections match "{q}"</p>
 {/snippet}
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg">
+  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg" onSubmit={createCollection}>
 
       <!-- Template picker -->
       <div class="mb-5">
@@ -455,26 +455,26 @@ function clearTemplate() {
           {#each TEMPLATES as tmpl}
             <button
               type="button"
-              class="border rounded-lg p-2.5 text-left transition-all
+              class="border rounded-lg p-2.5 text-left transition-[border-color,background-color]
                      {selectedTemplate === tmpl.id
                        ? 'border-primary bg-primary/5'
                        : 'border-base-300 hover:border-primary/40'}"
               onclick={() => applyTemplate(tmpl)}
             >
               <div class="font-medium text-xs">{tmpl.label}</div>
-              <div class="text-base-content/40 text-[10px] mt-0.5">{tmpl.fields.length} fields</div>
+              <div class="text-base-content/65 text-[10px] mt-0.5">{tmpl.fields.length} fields</div>
             </button>
           {/each}
           <button
             type="button"
-            class="border rounded-lg p-2.5 text-left transition-all
+            class="border rounded-lg p-2.5 text-left transition-[border-color,background-color]
                    {selectedTemplate === null
                      ? 'border-primary bg-primary/5'
                      : 'border-base-300 hover:border-primary/40'}"
             onclick={clearTemplate}
           >
             <div class="font-medium text-xs">{m['collections.blank']()}</div>
-            <div class="text-base-content/40 text-[10px] mt-0.5">{m['collections.startEmpty']()}</div>
+            <div class="text-base-content/65 text-[10px] mt-0.5">{m['collections.startEmpty']()}</div>
           </button>
         </div>
       </div>
@@ -482,7 +482,7 @@ function clearTemplate() {
       <div class="form-control mb-4">
         <label class="label" for="col-name">
           <span class="label-text font-medium">{m['collections.name']()}</span>
-          <span class="label-text-alt text-base-content/40">{m['collections.nameHint']()}</span>
+          <span class="label-text-alt text-base-content/65">{m['collections.nameHint']()}</span>
         </label>
         <input
           id="col-name"
@@ -502,7 +502,7 @@ function clearTemplate() {
       <div class="space-y-2 mb-5">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{m['common.fields']()}</span>
-          <button class="btn btn-ghost btn-xs" onclick={addField}>
+          <button type="button" class="btn btn-ghost btn-xs" onclick={addField}>
             <Plus size={13} /> Add field
           </button>
         </div>
@@ -539,7 +539,7 @@ function clearTemplate() {
               Required
             </label>
             {#if newFields.length > 1}
-              <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
+              <button type="button" onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
                 <Trash2 size={13} />
               </button>
             {/if}
@@ -568,8 +568,8 @@ function clearTemplate() {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary" onclick={createCollection} disabled={creating || !!nameError}>
+        <button type="button" class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
+        <button type="submit" class="btn btn-primary" disabled={creating || !!nameError}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
           Create Collection
         </button>

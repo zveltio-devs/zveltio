@@ -29,7 +29,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
     <div>
       <h1 class="text-xl font-semibold">{extMeta.displayName ?? extMeta.name}</h1>
       {#if extMeta.description}
-        <p class="text-sm text-base-content/60 mt-1">{extMeta.description}</p>
+        <p class="text-sm text-base-content/65 mt-1">{extMeta.description}</p>
       {/if}
     </div>
     <div class="flex items-center justify-center gap-2 text-sm text-success font-medium">
@@ -37,7 +37,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
       <span>{m['extPage.active']()}</span>
     </div>
     {#if extMeta.contributes?.engine}
-      <p class="text-sm text-base-content/50">
+      <p class="text-sm text-base-content/65">
         This extension adds API capabilities. Configure it via Settings or use its API endpoints directly.
       </p>
     {/if}
