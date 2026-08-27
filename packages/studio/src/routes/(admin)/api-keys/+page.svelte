@@ -111,9 +111,9 @@ async function createKey() {
 async function revokeKey(id: string) {
   confirmState = {
     open: true,
-    title: 'Revoke API Key',
-    message: 'Revoke this API key? This cannot be undone.',
-    confirmLabel: 'Revoke',
+    title: m['confirm.revokeApiKey.title'](),
+    message: m['confirm.revokeApiKey.message'](),
+    confirmLabel: m['common.revoke'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
