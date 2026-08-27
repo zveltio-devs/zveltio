@@ -208,10 +208,27 @@ COMMENT ON TABLE zv_tenant_transfers IS
 -- `003_rls_parallel_safe.sql` on master — 415 ms to 204 ms, no semantic change.
 -- The numbers in the table above are all with that marker already applied.
 
+-- Every function below is marked PARALLEL SAFE, and that is load-bearing rather
+-- than decorative. A function created without the marker defaults to PARALLEL
+-- UNSAFE, and the planner tests parallel safety on the parse tree BEFORE it
+-- inlines SQL functions — so an unmarked function in a policy qual bars parallel
+-- plans on every table that policy protects, even though it is inlined away and
+-- never called. That cost 415 ms against 204 ms on a 500 000-row scan; see
+-- `003_rls_parallel_safe.sql`.
+--
+-- The trap this migration would otherwise spring: `CREATE OR REPLACE FUNCTION`
+-- RESETS attributes that are not restated. Two of the definitions below replace
+-- `zveltio_tenant_scope_ok`, which 003 had just marked safe — so without the
+-- marker here, this migration would silently undo that fix for the whole schema.
+-- A test asserts the invariant generically (no function any RLS policy depends
+-- on may be PARALLEL UNSAFE) rather than naming these, so the next function to
+-- join a policy is covered too.
+
 CREATE OR REPLACE FUNCTION zveltio_visible_tenants()
 RETURNS uuid[]
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.visible_tenants', true), '') IS NOT NULL THEN
@@ -233,6 +250,7 @@ CREATE OR REPLACE FUNCTION zveltio_visible_tenants_text()
 RETURNS text[]
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.visible_tenants', true), '') IS NOT NULL THEN
@@ -251,6 +269,7 @@ CREATE OR REPLACE FUNCTION zveltio_ancestor_tenants()
 RETURNS uuid[]
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.ancestor_tenants', true), '') IS NOT NULL THEN
@@ -263,6 +282,7 @@ CREATE OR REPLACE FUNCTION zveltio_ancestor_tenants_text()
 RETURNS text[]
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.ancestor_tenants', true), '') IS NOT NULL THEN
@@ -290,6 +310,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_write_ok(row_tenant uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.current_tenant', true), '') IS NOT NULL THEN
@@ -306,6 +327,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_write_ok(row_tenant text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT CASE
     WHEN NULLIF(current_setting('zveltio.current_tenant', true), '') IS NOT NULL THEN
@@ -340,6 +362,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT row_tenant = ANY (zveltio_visible_tenants())
 $$;
@@ -348,6 +371,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT row_tenant = ANY (zveltio_visible_tenants_text())
 $$;
@@ -356,6 +380,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant uuid, inherit_down
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT row_tenant = ANY (zveltio_visible_tenants())
       OR (inherit_down AND row_tenant = ANY (zveltio_ancestor_tenants()))
@@ -365,6 +390,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_scope_ok(row_tenant text, inherit_down
 RETURNS boolean
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   SELECT row_tenant = ANY (zveltio_visible_tenants_text())
       OR (inherit_down AND row_tenant = ANY (zveltio_ancestor_tenants_text()))
@@ -384,6 +410,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_subtree(root uuid)
 RETURNS SETOF uuid
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   WITH RECURSIVE walk(id, depth) AS (
     SELECT t.id, 0 FROM zv_tenants t WHERE t.id = root
@@ -399,6 +426,7 @@ CREATE OR REPLACE FUNCTION zveltio_tenant_ancestors(node uuid)
 RETURNS SETOF uuid
 LANGUAGE sql
 STABLE
+PARALLEL SAFE
 AS $$
   WITH RECURSIVE walk(id, parent_id, depth) AS (
     SELECT t.id, t.parent_id, 0 FROM zv_tenants t WHERE t.id = node
