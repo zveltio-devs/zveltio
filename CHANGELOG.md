@@ -4,6 +4,50 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.63] - 2026-08-27
+
+**`zveltio migrate` could report "✅ Migrations complete" without applying a
+single migration.** The runner decided what had already been applied by the
+version NUMBER alone. That is sound while the chain only grows — and stops being
+sound the moment a number is reused, which is exactly what squashing the chain
+into a new baseline does to every database built before it. A database that
+records `002_insights_panels_title.sql` reads a build shipping `002_passkey.sql`
+as "version 2, already applied", skips it, and exits 0.
+
+Reproduced rather than reasoned about: a database was built with the real 45-file
+v3.0.0-beta.62 chain, then handed to binaries compiled from both sides of the
+fix. The old one printed two checksum warnings, said the migrations were
+complete, and left the schema untouched.
+
+Engine startup was already refusing that case, through a different guard, on the
+version number — but the message it refused with told the operator to "update to
+the latest version" when they were already on it. `zveltio migrate` and
+`POST /admin/migrate` had no such guard at all.
+
+### Fixed
+
+- **A divergent migration chain now stops the process instead of being skipped.**
+  `assertChainCompatible` compares identities — filename and content checksum,
+  for every migration the build ships — and runs before any shortcut decides
+  there is nothing to do. It also closes the case the version comparison could
+  never see: an already-applied file edited in place keeps its number, so the
+  high-water check never fires and warn-and-continue was the only thing standing
+  there. The error names both filenames and distinguishes the two causes; the old
+  text ("File may have been modified after being applied") named one cause and no
+  file. `ZVELTIO_ALLOW_MIGRATION_DIVERGENCE=1` overrides it, loudly. A `baseline`
+  checksum is still accepted — that is what a squash marks.
+- **`autoMigrate` no longer concludes "nothing to do" from a high-water mark.**
+  `lastApplied >= MAX_SCHEMA_VERSION` reads a squashed database — 46 rows
+  recorded, 2 files shipped — as "you are ahead of me", returning before the
+  per-file check is ever consulted.
+
+### Note for operators
+
+Databases created before the baseline squash cannot be upgraded in place; that
+was decided when the chain was squashed. What changes here is that they now stop
+and say why, naming the migration and both filenames, instead of a message about
+being ahead of the engine.
+
 ## [3.0.0-beta.62] - 2026-08-21
 
 **A payroll period could be paid without anyone approving it.** Not because the
