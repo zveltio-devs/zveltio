@@ -12,6 +12,7 @@
   No props for now; the signed-in user is taken from auth.user.
 -->
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
 import { auth } from '$lib/auth.svelte.js';
@@ -55,7 +56,7 @@ async function load(): Promise<void> {
 
 async function registerNew(): Promise<void> {
   if (!browserSupportsPasskey()) {
-    toast.error('This browser does not support passkeys');
+    toast.error(m['passkeys.unsupported']());
     return;
   }
   const label = prompt('Name this passkey (e.g. "MacBook Touch ID", "YubiKey 5")');
@@ -91,7 +92,7 @@ async function registerNew(): Promise<void> {
       const body = (await verifyRes.json().catch(() => null)) as any;
       throw new Error(body?.message ?? `Verification failed: HTTP ${verifyRes.status}`);
     }
-    toast.success('Passkey registered');
+    toast.success(m['passkeys.registered']());
     await load();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -121,7 +122,7 @@ async function deleteOne(id: string): Promise<void> {
       body: JSON.stringify({ id }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    toast.success('Passkey deleted');
+    toast.success(m['passkeys.deleted']());
     await load();
   } catch (e) {
     toast.error(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
@@ -159,7 +160,7 @@ function formatDate(iso: string): string {
           <Fingerprint size={20} class="text-primary" />
         </div>
         <div>
-          <h2 class="card-title text-base">Passkeys</h2>
+          <h2 class="card-title text-base">{m['passkeys.title']()}</h2>
           <p class="text-sm text-base-content/65 mt-0.5">
             Sign in without a password using your device's biometric authenticator
             (Touch ID, Windows Hello, security key).
@@ -171,8 +172,8 @@ function formatDate(iso: string): string {
           class="btn btn-ghost btn-sm"
           onclick={load}
           disabled={loading}
-          title="Refresh"
-          aria-label="Refresh passkeys list"
+          title={m['common.refresh']()}
+          aria-label={m['passkeys.refreshList']()}
         >
           <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
         </button>
@@ -195,10 +196,10 @@ function formatDate(iso: string): string {
 
     <div class="mt-4">
       {#if loading}
-        <div class="text-sm text-base-content/65 py-6 text-center">Loading passkeys…</div>
+        <div class="text-sm text-base-content/65 py-6 text-center">{m['passkeys.loading']()}</div>
       {:else if passkeys.length === 0}
         <div class="text-sm text-base-content/65 py-6 text-center">
-          No passkeys yet. Click <strong>Add passkey</strong> to register your first one.
+          No passkeys yet. Click <strong>{m['passkeys.add']()}</strong> to register your first one.
         </div>
       {:else}
         <ul class="divide-y divide-base-300">
@@ -217,7 +218,7 @@ function formatDate(iso: string): string {
                 class="btn btn-ghost btn-xs text-error"
                 onclick={() => deleteOne(pk.id)}
                 disabled={deletingId === pk.id}
-                aria-label="Delete passkey"
+                aria-label={m['passkeys.delete']()}
               >
                 <Trash2 size={13} />
               </button>
