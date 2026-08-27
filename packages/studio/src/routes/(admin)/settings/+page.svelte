@@ -175,23 +175,23 @@ const TABS = [
  <div class="form-control">
  <label class="label" for="setting-site-url">
  <span class="label-text font-medium">{m['settings.siteUrl']()}</span>
- <span class="label-text-alt text-base-content/50">{m['settings.siteUrlHint']()}</span>
+ <span class="label-text-alt text-base-content/65">{m['settings.siteUrlHint']()}</span>
  </label>
  <input id="setting-site-url" class="input font-mono" bind:value={s.site_url} placeholder="https://app.example.com" />
  </div>
  <div class="divider text-xs opacity-50">{m['settings.regional']()}</div>
- <p class="text-xs text-base-content/50 -mt-2 mb-1">{m['settings.dateFormatHint']()}</p>
+ <p class="text-xs text-base-content/65 -mt-2 mb-1">{m['settings.dateFormatHint']()}</p>
  <div class="form-control">
  <label class="label" for="setting-language">
  <span class="label-text font-medium">{m['settings.locale']()}</span>
- <span class="label-text-alt text-base-content/50">{m['settings.localeHint']()}</span>
+ <span class="label-text-alt text-base-content/65">{m['settings.localeHint']()}</span>
  </label>
  <input id="setting-language" class="input font-mono w-48" bind:value={s.language} placeholder="ro" />
  </div>
  <div class="form-control">
  <label class="label" for="setting-timezone">
  <span class="label-text font-medium">{m['settings.timezone']()}</span>
- <span class="label-text-alt text-base-content/50">{m['settings.timezoneHint']()}</span>
+ <span class="label-text-alt text-base-content/65">{m['settings.timezoneHint']()}</span>
  </label>
  <input id="setting-timezone" class="input font-mono w-64" bind:value={s.timezone} placeholder="Europe/Bucharest" />
  </div>
@@ -271,14 +271,14 @@ const TABS = [
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.registration_enabled} />
  <div>
  <p class="label-text font-medium">{m['settings.allowSignup']()}</p>
- <p class="text-xs text-base-content/50">{m['settings.signupHint']()}</p>
+ <p class="text-xs text-base-content/65">{m['settings.signupHint']()}</p>
  </div>
  </label>
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.two_factor_enabled} />
  <div>
  <p class="label-text font-medium">{m['settings.enable2fa']()}</p>
- <p class="text-xs text-base-content/50">{m['settings.enable2faHint']()}</p>
+ <p class="text-xs text-base-content/65">{m['settings.enable2faHint']()}</p>
  </div>
  </label>
  <div class="form-control">
@@ -291,12 +291,12 @@ const TABS = [
  </div>
 
  {:else if tab === 'rate_limiting'}
- <p class="text-sm text-base-content/60 mb-4">
+ <p class="text-sm text-base-content/65 mb-4">
  Configure request limits per tier. Changes apply within 60 seconds without restart.
  </p>
 
  {#if rlTiers.length === 0}
- <p class="text-sm text-base-content/40 text-center py-8">{m['settings.noRateLimits']()}</p>
+ <p class="text-sm text-base-content/65 text-center py-8">{m['settings.noRateLimits']()}</p>
  {:else}
  <div class="overflow-x-auto">
  <table class="table table-sm">
@@ -315,7 +315,7 @@ const TABS = [
  <td>
  <span class="font-mono font-semibold text-xs">{tier.key_prefix}</span>
  {#if tier.description}
- <p class="text-xs text-base-content/40 mt-0.5 max-w-45">{tier.description}</p>
+ <p class="text-xs text-base-content/65 mt-0.5 max-w-45">{tier.description}</p>
  {/if}
  </td>
  <td>
@@ -328,7 +328,7 @@ const TABS = [
  max="3600000"
  step="1000"
  />
- <span class="text-xs text-base-content/50">ms</span>
+ <span class="text-xs text-base-content/65">ms</span>
  </div>
  </td>
  <td>

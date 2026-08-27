@@ -26,7 +26,7 @@ const firstName = $derived((user?.name ?? '').split(' ')[0] || '');
     <div class="font-medium text-base-content">
       {firstName ? `Ask AI anything, ${firstName}` : 'Ask AI anything'}
     </div>
-    <div class="text-base-content/55 truncate">
+    <div class="text-base-content/65 truncate">
       Summaries, drafts, and lookups — open the prompt bar or jump to AI.
     </div>
   </div>

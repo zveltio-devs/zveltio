@@ -55,7 +55,7 @@ async function saveProfile(): Promise<void> {
         </div>
         <div class="flex-1">
           <h2 class="card-title text-base">{m['acct.profile']()}</h2>
-          <p class="text-sm text-base-content/60 mt-0.5">{m['acct.profileDesc']()}</p>
+          <p class="text-sm text-base-content/65 mt-0.5">{m['acct.profileDesc']()}</p>
         </div>
       </div>
 

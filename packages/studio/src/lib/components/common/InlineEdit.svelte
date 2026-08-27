@@ -161,7 +161,7 @@ function onKeydown(e: KeyboardEvent) {
       class="text-left w-full hover:underline decoration-dotted underline-offset-4 decoration-base-content/30 disabled:hover:no-underline disabled:cursor-default"
       aria-label="{label}: {value || placeholder}"
     >
-      {#if value}{value}{:else}<span class="text-base-content/40">{placeholder}</span>{/if}
+      {#if value}{value}{:else}<span class="text-base-content/65">{placeholder}</span>{/if}
     </button>
   {/if}
 </div>

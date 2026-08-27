@@ -1030,7 +1030,7 @@ const shellTabs = $derived(
     {#each active.filters as fl}
       {#if fl.type === 'dateRange'}
         <div class="flex flex-wrap items-end gap-3 mb-4">
-          {#if fl.label}<span class="text-xs font-medium text-base-content/60 pb-2">{t(fl.label)}</span>{/if}
+          {#if fl.label}<span class="text-xs font-medium text-base-content/65 pb-2">{t(fl.label)}</span>{/if}
           <label class="form-control">
             <span class="label-text text-xs">{t('common.col.from')}</span>
             <input
@@ -1130,7 +1130,7 @@ const shellTabs = $derived(
                 <option value={opt}>{opt}</option>
               {/each}
             </select>
-            <p class="text-xs text-base-content/50 mt-1">
+            <p class="text-xs text-base-content/65 mt-1">
               {checklistConfigured ? t('analytics.dashboard.customLayout') : t('analytics.dashboard.defaultLayout')}
             </p>
           </div>
@@ -1158,7 +1158,7 @@ const shellTabs = $derived(
           </button>
         </div>
         <div class="space-y-2">
-          <h2 class="font-medium text-sm text-base-content/60">{t('analytics.dashboard.includedWidgets')}</h2>
+          <h2 class="font-medium text-sm text-base-content/65">{t('analytics.dashboard.includedWidgets')}</h2>
           <div class="border border-base-300 rounded-lg p-4 bg-base-100 min-h-[8rem]">
             {#if checklistSelectedIds.length}
               <div class="flex flex-wrap gap-2">
@@ -1167,7 +1167,7 @@ const shellTabs = $derived(
                 {/each}
               </div>
             {:else}
-              <p class="text-sm text-base-content/50 py-8 text-center">{t('analytics.dashboard.noWidgets')}</p>
+              <p class="text-sm text-base-content/65 py-8 text-center">{t('analytics.dashboard.noWidgets')}</p>
             {/if}
           </div>
         </div>
@@ -1180,7 +1180,7 @@ const shellTabs = $derived(
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body p-2 gap-1">
             {#if masterRows.length === 0}
-              <p class="p-3 text-xs text-base-content/50">{t('common.noResults')}</p>
+              <p class="p-3 text-xs text-base-content/65">{t('common.noResults')}</p>
             {:else}
               {#each masterRows as mrow (mrow[mkey])}
                 <button type="button"
@@ -1327,7 +1327,7 @@ const shellTabs = $derived(
     {#if loading}
       <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
     {:else if clientFiltered.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{t('common.noResults')}</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/65 text-sm">{t('common.noResults')}</div></div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {#each clientFiltered as row (row.id)}
@@ -1337,7 +1337,7 @@ const shellTabs = $derived(
                 <div class="font-medium text-sm">{getPath(row, active.card?.title)}</div>
                 {#if active.card?.badge}<span class="badge badge-ghost badge-sm">{getPath(row, active.card.badge)}</span>{/if}
               </div>
-              {#if active.card?.subtitle}<div class="text-xs text-base-content/60 font-mono break-all">{getPath(row, active.card.subtitle)}</div>{/if}
+              {#if active.card?.subtitle}<div class="text-xs text-base-content/65 font-mono break-all">{getPath(row, active.card.subtitle)}</div>{/if}
               {#if active.rowActions}
                 <div class="flex justify-end gap-1">
                   {#each active.rowActions as a}
@@ -1431,7 +1431,7 @@ const shellTabs = $derived(
                     {:else}—{/if}
                   {:else if col.secondary}
                     <div class="font-medium">{cellText(row, col)}</div>
-                    {#if row[col.secondary]}<div class="text-xs text-base-content/50">{row[col.secondary]}</div>{/if}
+                    {#if row[col.secondary]}<div class="text-xs text-base-content/65">{row[col.secondary]}</div>{/if}
                   {:else}
                     {cellText(row, col)}
                   {/if}

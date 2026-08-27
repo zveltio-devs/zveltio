@@ -97,7 +97,7 @@ onMount(load);
 <PageHeader title={m['stor.title']()} subtitle={m['stor.subtitle']()} />
 
 {#if loading}
-  <div class="p-6 text-base-content/60">{m['common.loading']()}</div>
+  <div class="p-6 text-base-content/65">{m['common.loading']()}</div>
 {:else}
   <div class="max-w-2xl space-y-6 p-2">
     <!-- Driver -->
@@ -113,7 +113,7 @@ onMount(load);
       <div class="form-control">
         <label class="label" for="local-dir"><span class="label-text">{m['stor.directory']()}</span></label>
         <input id="local-dir" class="input input-bordered w-full" bind:value={localDir} placeholder="/var/lib/zveltio/storage" />
-        <span class="label-text-alt mt-1 text-base-content/60">{m['stor.dirHint']()}</span>
+        <span class="label-text-alt mt-1 text-base-content/65">{m['stor.dirHint']()}</span>
       </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -3,7 +3,7 @@
  * Abstract geometric illustrations for empty states.
  *
  * Three variants, all 120×120, using `currentColor` so they pick up
- * `text-primary` / `text-secondary` / `text-base-content/40` from the
+ * `text-primary` / `text-secondary` / `text-base-content/65` from the
  * parent. Two opacity layers per illustration create depth.
  *
  * Why abstract instead of scenes: scenes (people, plants, etc.) age

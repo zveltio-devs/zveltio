@@ -178,7 +178,7 @@
 </script>
 
 {#snippet label(text: string)}
-  <label class="block text-[10px] text-base-content/50 mb-0.5">{text}</label>
+  <label class="block text-[10px] text-base-content/65 mb-0.5">{text}</label>
 {/snippet}
 
 {#snippet colorRow(value: string, onInput: (v: string) => void)}
@@ -195,7 +195,7 @@
 
   <!-- Header -->
   <div class="px-3 py-2.5 border-b border-base-300 flex items-center justify-between">
-    <span class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.properties']()}</span>
+    <span class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['content.pages.b.properties']()}</span>
     <span class="text-[10px] badge badge-ghost font-mono">{block.type}</span>
   </div>
 
@@ -203,12 +203,12 @@
   <div class="flex border-b border-base-300">
     <button
       class="flex-1 py-2 text-xs font-medium transition-colors
-        {tab === 'content' ? 'text-primary border-b-2 border-primary' : 'text-base-content/50 hover:text-base-content'}"
+        {tab === 'content' ? 'text-primary border-b-2 border-primary' : 'text-base-content/65 hover:text-base-content'}"
       onclick={() => (tab = 'content')}
     >{m['content.pages.b.tabContent']()}</button>
     <button
       class="flex-1 py-2 text-xs font-medium transition-colors
-        {tab === 'style' ? 'text-primary border-b-2 border-primary' : 'text-base-content/50 hover:text-base-content'}"
+        {tab === 'style' ? 'text-primary border-b-2 border-primary' : 'text-base-content/65 hover:text-base-content'}"
       onclick={() => (tab = 'style')}
     >{m['content.pages.b.tabStyle']()}</button>
   </div>
@@ -219,7 +219,7 @@
     {#if tab === 'content'}
 
       {#if block.type === 'container'}
-        <p class="text-[11px] text-base-content/50 leading-snug">
+        <p class="text-[11px] text-base-content/65 leading-snug">
           {m['content.pages.b.containerHint']()}
         </p>
         <div>{@render label(m['content.pages.b.gapBetween']())}
@@ -230,7 +230,7 @@
             <option value="md">{m['content.pages.b.medium']()}</option>
             <option value="lg">{m['content.pages.b.large']()}</option>
           </select></div>
-        <p class="text-[10px] text-base-content/40">
+        <p class="text-[10px] text-base-content/65">
           {(p.children ?? []).length} {m['content.pages.b.blocksInside']()}
         </p>
 
@@ -318,7 +318,7 @@
           <input type="number" min="1" max="6" class="input input-xs w-full" value={p.columns ?? 4}
             oninput={(e) => patchContent('columns', Number(e.currentTarget.value))} /></div>
         <div>
-          <p class="text-[10px] font-medium text-base-content/60 mb-1">{m['content.pages.b.items']()}</p>
+          <p class="text-[10px] font-medium text-base-content/65 mb-1">{m['content.pages.b.items']()}</p>
           <div class="space-y-1.5">
             {#each (p.items ?? []) as item, i}
               <div class="flex gap-1">
@@ -340,7 +340,7 @@
           <input type="number" min="1" max="4" class="input input-xs w-full" value={p.count ?? 2}
             oninput={(e) => patchContent('count', Number(e.currentTarget.value))} /></div>
         <div>
-          <p class="text-[10px] font-medium text-base-content/60 mb-1">{m['content.pages.b.colContent']()}</p>
+          <p class="text-[10px] font-medium text-base-content/65 mb-1">{m['content.pages.b.colContent']()}</p>
           {#each (p.items ?? []) as col, i}
             <textarea class="textarea textarea-xs w-full font-mono text-[10px] resize-y min-h-[60px] mb-1"
               value={col}
@@ -392,7 +392,7 @@
           <input type="number" min="1" max="6" class="input input-xs w-full" value={p.columns ?? 3}
             oninput={(e) => patchContent('columns', Number(e.currentTarget.value))} /></div>
         <div>
-          <p class="text-[10px] font-medium text-base-content/60 mb-1">{m['content.pages.b.images']()}</p>
+          <p class="text-[10px] font-medium text-base-content/65 mb-1">{m['content.pages.b.images']()}</p>
           <div class="space-y-1">
             {#each (p.images ?? []) as img, i}
               <div class="flex gap-1 items-center">
@@ -453,13 +453,13 @@
           -->
           <div class="rounded border border-base-300 p-2 bg-base-200/40 space-y-1.5">
             {#if p.item_template}
-              <p class="text-[10px] text-base-content/60 leading-snug">
+              <p class="text-[10px] text-base-content/65 leading-snug">
                 {m['content.pages.b.templateHint']()}
               </p>
               <button class="btn btn-xs btn-ghost w-full text-error"
                 onclick={() => patchContent('item_template', null)}>{m['content.pages.b.templateRemove']()}</button>
             {:else}
-              <p class="text-[10px] text-base-content/60 leading-snug">
+              <p class="text-[10px] text-base-content/65 leading-snug">
                 {m['content.pages.b.templateNew']()}
               </p>
               <button class="btn btn-xs btn-primary w-full"
@@ -515,7 +515,7 @@
           only rows a new data block could show were "the most recent N".
         -->
         <div class="pt-1">
-          <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest mb-1">{m['content.pages.b.filters']()}</p>
+          <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest mb-1">{m['content.pages.b.filters']()}</p>
           <div class="space-y-1.5">
             {#each (Array.isArray(p.filters) ? p.filters : []) as f, i (i)}
               <div class="rounded border border-base-300 p-1.5 space-y-1 bg-base-200/40">
@@ -539,7 +539,7 @@
                   {/if}
                 </div>
                 {#if LIST_OPS.has(f.op)}
-                  <p class="text-[9px] text-base-content/40">{m['content.pages.b.commaList']()}</p>
+                  <p class="text-[9px] text-base-content/65">{m['content.pages.b.commaList']()}</p>
                 {/if}
               </div>
             {/each}
@@ -548,7 +548,7 @@
             >+ {m['content.pages.b.addFilter']()}</button>
           </div>
           {#if (p.filters ?? []).length > 0}
-            <p class="text-[9px] text-base-content/40 mt-1 leading-snug">
+            <p class="text-[9px] text-base-content/65 mt-1 leading-snug">
               {m['content.pages.b.filtersAll']()}
             </p>
           {/if}
@@ -572,7 +572,7 @@
         the first edit.
       -->
       <div class="flex items-baseline justify-between">
-        <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.width']()}</p>
+        <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['content.pages.b.width']()}</p>
         <span class="text-[9px] text-primary font-mono">{BREAKPOINT_LABEL[device]}</span>
       </div>
       <div class="flex gap-1">
@@ -584,7 +584,7 @@
         {/each}
       </div>
       {#if device !== 'base' && activeSpan === undefined}
-        <p class="text-[9px] text-base-content/40 leading-snug">
+        <p class="text-[9px] text-base-content/65 leading-snug">
           {m['content.pages.b.inheritsSmaller']()}
         </p>
       {:else if device !== 'base'}
@@ -599,7 +599,7 @@
         actually uses. A visitor who asked for reduced motion gets none of it,
         decided in the stylesheet so it responds without a reload.
       -->
-      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.motion']()}</p>
+      <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['content.pages.b.motion']()}</p>
       <div>{@render label(m['content.pages.b.motionType']())}
         <select class="select select-xs w-full" value={block.motion?.type ?? 'none'}
           onchange={(e) => patchMotion('type', e.currentTarget.value)}>
@@ -629,11 +629,11 @@
             oninput={(e) => patchMotion('stickyOffset', Number(e.currentTarget.value))} /></div>
       {/if}
 
-      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest">{m['content.pages.b.padding']()}</p>
+      <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['content.pages.b.padding']()}</p>
       <div class="grid grid-cols-2 gap-1.5">
         {#each [['Top','paddingTop'],['Bottom','paddingBottom'],['Left','paddingLeft'],['Right','paddingRight']] as [lbl, key]}
           <div>
-            <label class="text-[9px] text-base-content/40">{lbl}</label>
+            <label class="text-[9px] text-base-content/65">{lbl}</label>
             <input type="number" min="0" class="input input-xs w-full"
               value={s[key as keyof BlockStyle] ?? ''}
               oninput={(e) => patchStyle(key as keyof BlockStyle, e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
@@ -641,11 +641,11 @@
         {/each}
       </div>
 
-      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest mt-2">{m['content.pages.b.margin']()}</p>
+      <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest mt-2">{m['content.pages.b.margin']()}</p>
       <div class="grid grid-cols-2 gap-1.5">
         {#each [['Top','marginTop'],['Bottom','marginBottom']] as [lbl, key]}
           <div>
-            <label class="text-[9px] text-base-content/40">{lbl}</label>
+            <label class="text-[9px] text-base-content/65">{lbl}</label>
             <input type="number" class="input input-xs w-full"
               value={s[key as keyof BlockStyle] ?? ''}
               oninput={(e) => patchStyle(key as keyof BlockStyle, e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
@@ -653,7 +653,7 @@
         {/each}
       </div>
 
-      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest mt-2">{m['content.pages.b.colors']()}</p>
+      <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest mt-2">{m['content.pages.b.colors']()}</p>
       <div>{@render label(m['content.pages.b.background']())}
         <div class="flex gap-1 items-center">
           <input type="color" class="h-6 w-8 rounded cursor-pointer border border-base-300 p-0.5 shrink-0"
@@ -662,7 +662,7 @@
           <input class="input input-xs flex-1 font-mono" value={s.backgroundColor ?? ''}
             oninput={(e) => patchStyle('backgroundColor', e.currentTarget.value || undefined)} />
           {#if s.backgroundColor}
-            <button class="btn btn-ghost btn-xs px-1 text-base-content/40"
+            <button class="btn btn-ghost btn-xs px-1 text-base-content/65"
               onclick={() => patchStyle('backgroundColor', undefined)}>×</button>
           {/if}
         </div>
@@ -675,13 +675,13 @@
           <input class="input input-xs flex-1 font-mono" value={s.textColor ?? ''}
             oninput={(e) => patchStyle('textColor', e.currentTarget.value || undefined)} />
           {#if s.textColor}
-            <button class="btn btn-ghost btn-xs px-1 text-base-content/40"
+            <button class="btn btn-ghost btn-xs px-1 text-base-content/65"
               onclick={() => patchStyle('textColor', undefined)}>×</button>
           {/if}
         </div>
       </div>
 
-      <p class="text-[10px] font-bold text-base-content/40 uppercase tracking-widest mt-2">{m['content.pages.b.typography']()}</p>
+      <p class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest mt-2">{m['content.pages.b.typography']()}</p>
       <div>{@render label(m['content.pages.b.textAlign']())}
         <div class="flex gap-1">
           {#each ['left','center','right'] as align}
@@ -713,13 +713,13 @@
       </div>
 
       {#if mediaState === 'loading'}
-        <p class="text-sm text-base-content/50 py-8 text-center">{m['content.pages.b.loading']()}</p>
+        <p class="text-sm text-base-content/65 py-8 text-center">{m['content.pages.b.loading']()}</p>
       {:else if mediaState === 'unavailable'}
-        <p class="text-sm text-base-content/60 py-8 text-center">
+        <p class="text-sm text-base-content/65 py-8 text-center">
           {m['content.pages.b.mediaOff']()}
         </p>
       {:else if mediaFiles.length === 0}
-        <p class="text-sm text-base-content/50 py-8 text-center">{m['content.pages.b.noImages']()}</p>
+        <p class="text-sm text-base-content/65 py-8 text-center">{m['content.pages.b.noImages']()}</p>
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-[26rem] overflow-y-auto">
           {#each mediaFiles as f (f.id)}

@@ -194,7 +194,7 @@ function formatRelative(dateStr: string): string {
                 <td class="text-sm text-base-content/70">{scopesSummary(key.scopes)}</td>
                 <td class="text-sm">{key.rate_limit}/hr</td>
                 <td class="text-sm">{formatExpiry(key.expires_at)}</td>
-                <td class="text-sm text-base-content/60">
+                <td class="text-sm text-base-content/65">
                   {key.last_used_at ? formatRelative(key.last_used_at) : 'Never'}
                 </td>
                 <td>

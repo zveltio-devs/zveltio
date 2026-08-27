@@ -299,7 +299,7 @@ function confirmDelete(user: any) {
                          onsave={(next) => renameUser(user.id, next)}
                        />
                      </div>
-                     <div class="text-xs text-base-content/40">{user.email}</div>
+                     <div class="text-xs text-base-content/65">{user.email}</div>
                    </div>
                  </div>
                </td>
@@ -308,8 +308,8 @@ function confirmDelete(user: any) {
                    {user.role || 'member'}
                  </span>
                </td>
-               <td class="text-xs text-base-content/50">{formatDate(user.created_at)}</td>
-               <td class="text-xs text-base-content/50">{formatRelative(user.updated_at)}</td>
+               <td class="text-xs text-base-content/65">{formatDate(user.created_at)}</td>
+               <td class="text-xs text-base-content/65">{formatRelative(user.updated_at)}</td>
                <td class="text-right">
                  <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                    <a

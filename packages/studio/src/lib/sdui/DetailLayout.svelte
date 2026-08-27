@@ -278,7 +278,7 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if notFound || !record}
-    <div class="card bg-base-200"><div class="card-body items-center py-16 text-sm text-base-content/50">{t('common.notFound')}</div></div>
+    <div class="card bg-base-200"><div class="card-body items-center py-16 text-sm text-base-content/65">{t('common.notFound')}</div></div>
   {:else}
     <div class="tabs tabs-boxed bg-base-200 w-fit mb-4 flex-wrap">
       {#each d.panels as p}
@@ -300,7 +300,7 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
         {#each activePanel.fields ?? [] as f}
           <div class="card bg-base-200">
             <div class="card-body py-3 gap-1">
-              <p class="text-xs text-base-content/50">{t(f.label)}</p>
+              <p class="text-xs text-base-content/65">{t(f.label)}</p>
               <p class="text-sm font-medium {f.type === 'mono' ? 'font-mono' : ''}">
                 {cell(record, f.key, f.type)}
               </p>
@@ -337,7 +337,7 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
                   {/each}
                 </tr>
               {:else}
-                <tr><td colspan={(activePanel.columns ?? []).length} class="text-center text-base-content/40 py-8">{t('common.noResults')}</td></tr>
+                <tr><td colspan={(activePanel.columns ?? []).length} class="text-center text-base-content/65 py-8">{t('common.noResults')}</td></tr>
               {/each}
             </tbody>
           </table>
@@ -355,11 +355,11 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
             style="max-width: {activePanel.maxWidth ?? '280px'}; width: 100%; height: auto;"
           />
           {#if activePanel.caption}
-            <p class="text-xs text-base-content/60">{t(activePanel.caption)}</p>
+            <p class="text-xs text-base-content/65">{t(activePanel.caption)}</p>
           {/if}
         </div>
       {:else}
-        <p class="text-center text-sm text-base-content/40 py-12">{t('common.noResults')}</p>
+        <p class="text-center text-sm text-base-content/65 py-12">{t('common.noResults')}</p>
       {/if}
     {:else if activePanel?.kind === 'form' && activePanel.form && visiblePanelForm(activePanel)}
       <div class="card bg-base-200 max-w-xl">

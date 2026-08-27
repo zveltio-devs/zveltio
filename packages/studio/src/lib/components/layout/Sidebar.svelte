@@ -115,7 +115,7 @@ function isActive(href: string): boolean {
     <button
       type="button"
       onclick={onToggleCollapse}
-      class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0 {collapsed ? 'mx-auto' : ''}"
+      class="btn btn-ghost btn-xs text-base-content/65 hover:text-base-content shrink-0 {collapsed ? 'mx-auto' : ''}"
       aria-label={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
       title={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
     >
@@ -129,7 +129,7 @@ function isActive(href: string): boolean {
       {#if group.labelKey}
         {#if !collapsed}
           <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-            <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
+            <span class="text-[11px] font-semibold uppercase tracking-[.1em] text-base-content/70 select-none">
               {coreGroupLabel(group.labelKey)}
             </span>
           </div>
@@ -151,7 +151,7 @@ function isActive(href: string): boolean {
               focus-visible:outline-2 focus-visible:outline-primary
               {active
                 ? 'bg-primary/10 text-primary'
-                : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}
               {collapsed ? 'justify-center' : ''}
             "
           >
@@ -168,7 +168,7 @@ function isActive(href: string): boolean {
     {#each extNavGroups as group (group.id)}
       {#if !collapsed}
         <div class="px-4 pt-5 pb-1">
-          <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
+          <span class="text-[11px] font-semibold uppercase tracking-[.1em] text-base-content/70 select-none">
             {groupLabel(group.id)}
           </span>
         </div>
@@ -186,7 +186,7 @@ function isActive(href: string): boolean {
               flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
               transition-colors duration-100
               focus-visible:outline-2 focus-visible:outline-primary
-              {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+              {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}
               {collapsed ? 'justify-center' : ''}
             "
           >
@@ -212,7 +212,7 @@ function isActive(href: string): boolean {
       title={collapsed ? m['shell.intranet']() : undefined}
       class="
         flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-        text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
+        text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
         focus-visible:outline-2 focus-visible:outline-primary
         {collapsed ? 'justify-center' : ''}
       "
@@ -228,7 +228,7 @@ function isActive(href: string): boolean {
       aria-label={dark ? m['shell.lightMode']() : m['shell.darkMode']()}
       class="
         w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-        text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
+        text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
         focus-visible:outline-2 focus-visible:outline-primary
         {collapsed ? 'justify-center' : ''}
       "
@@ -250,7 +250,7 @@ function isActive(href: string): boolean {
       aria-pressed={density === 'compact'}
       class="
         w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-        text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
+        text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
         focus-visible:outline-2 focus-visible:outline-primary
         {collapsed ? 'justify-center' : ''}
       "
@@ -284,7 +284,7 @@ function isActive(href: string): boolean {
         {#if !collapsed}
           <div class="flex-1 min-w-0">
             <p class="text-[11px] font-medium leading-none truncate text-base-content">{user?.name || 'User'}</p>
-            <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{user?.email}</p>
+            <p class="text-[11px] text-base-content/65 mt-0.5 truncate">{user?.email}</p>
           </div>
         {/if}
       </a>
@@ -293,7 +293,7 @@ function isActive(href: string): boolean {
         onclick={onSignOut}
         title={m['nav.signOut']()}
         aria-label={m['nav.signOut']()}
-        class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0"
+        class="btn btn-ghost btn-xs text-base-content/65 hover:text-base-content shrink-0"
       >
         <LogOut size={13} />
       </button>

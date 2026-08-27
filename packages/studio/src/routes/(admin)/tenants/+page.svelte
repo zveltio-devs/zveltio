@@ -305,7 +305,7 @@ const PLAN_BADGES: Record<string, string> = {
  <tr class="hover group">
  <td>
  <div class="font-medium text-sm">{tenant.name}</div>
- <div class="text-xs text-base-content/40 font-mono">{tenant.slug}</div>
+ <div class="text-xs text-base-content/65 font-mono">{tenant.slug}</div>
  </td>
  <td>
  <span class="badge badge-xs {PLAN_BADGES[tenant.plan] ?? 'badge-ghost'} capitalize">{tenant.plan ?? 'free'}</span>
@@ -316,10 +316,10 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="h-full bg-primary rounded-full"
       style="width: {Math.min(((tenant._record_count ?? 0) / (tenant.max_records ?? 10000)) * 100, 100)}%"></div>
  </div>
- <span class="text-xs text-base-content/50">{(tenant._record_count ?? 0).toLocaleString()}</span>
+ <span class="text-xs text-base-content/65">{(tenant._record_count ?? 0).toLocaleString()}</span>
  </div>
  </td>
- <td class="text-xs text-base-content/50">{tenant._api_calls_today?.toLocaleString() ?? '—'}</td>
+ <td class="text-xs text-base-content/65">{tenant._api_calls_today?.toLocaleString() ?? '—'}</td>
  <td>
  <span class="badge badge-xs {tenant.status === 'active' ? 'badge-success' : 'badge-error'}">{tenant.status ?? 'active'}</span>
  </td>

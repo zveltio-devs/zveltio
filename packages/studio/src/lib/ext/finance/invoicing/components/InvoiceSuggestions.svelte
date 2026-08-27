@@ -42,7 +42,7 @@ const overdueCount = $derived(Number(stats?.overdue_count ?? 0));
         {m['invoicing.suggestions.overdueTitle']?.({ count: overdueCount }) ??
           `${overdueCount} overdue invoice${overdueCount === 1 ? '' : 's'}`}
       </div>
-      <div class="text-base-content/55">
+      <div class="text-base-content/65">
         {m['invoicing.suggestions.overdueHint']?.() ??
           'Review and send reminders from Invoicing.'}
       </div>

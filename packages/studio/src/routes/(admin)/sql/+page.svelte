@@ -53,7 +53,7 @@ function handleKeydown(e: KeyboardEvent) {
     <Terminal class="w-6 h-6 text-primary" />
     <div>
       <h1 class="text-2xl font-bold">{m['sqled.title']()}</h1>
-      <p class="text-base-content/60 text-sm">{m['sqled.subtitle']()}</p>
+      <p class="text-base-content/65 text-sm">{m['sqled.subtitle']()}</p>
     </div>
   </div>
 
@@ -67,7 +67,7 @@ function handleKeydown(e: KeyboardEvent) {
         spellcheck={false}
       ></textarea>
       <div class="flex items-center justify-between mt-2">
-        <span class="text-xs text-base-content/40">{m['sqled.ctrlEnter']()}</span>
+        <span class="text-xs text-base-content/65">{m['sqled.ctrlEnter']()}</span>
         <button class="btn btn-primary btn-sm gap-2" onclick={runQuery} disabled={running}>
           {#if running}
             <span class="loading loading-spinner loading-xs"></span>
@@ -85,7 +85,7 @@ function handleKeydown(e: KeyboardEvent) {
   {/if}
 
   {#if rowCount !== null}
-    <div class="flex items-center gap-4 mb-3 text-sm text-base-content/60">
+    <div class="flex items-center gap-4 mb-3 text-sm text-base-content/65">
       <span>{rowCount} row{rowCount !== 1 ? 's' : ''}</span>
       {#if elapsed !== null}<span>{elapsed}ms</span>{/if}
     </div>
@@ -106,7 +106,7 @@ function handleKeydown(e: KeyboardEvent) {
                 {#each columns as col}
                   <td class="font-mono text-xs max-w-xs truncate" title={String(row[col] ?? '')}>
                     {#if row[col] === null}
-                      <span class="text-base-content/30 italic">null</span>
+                      <span class="text-base-content/55 italic">null</span>
                     {:else if typeof row[col] === 'object'}
                       <span class="text-info">{JSON.stringify(row[col])}</span>
                     {:else}
@@ -120,7 +120,7 @@ function handleKeydown(e: KeyboardEvent) {
         </table>
       </div>
     {:else}
-      <div class="text-center py-8 text-base-content/40 text-sm">{m['sqled.noRows']()}</div>
+      <div class="text-center py-8 text-base-content/65 text-sm">{m['sqled.noRows']()}</div>
     {/if}
   {/if}
 </div>

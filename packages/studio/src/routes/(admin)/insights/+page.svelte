@@ -253,7 +253,7 @@ function statValue(p: Panel): string {
     {#if loadingDashboards}
       <div class="flex justify-center p-4"><span class="loading loading-spinner loading-sm"></span></div>
     {:else if dashboards.length === 0}
-      <div class="p-4 text-center text-xs text-base-content/40">{m['insights.noDashboards']()}</div>
+      <div class="p-4 text-center text-xs text-base-content/65">{m['insights.noDashboards']()}</div>
     {:else}
       <div class="flex-1 overflow-y-auto">
         {#each dashboards as d}
@@ -285,7 +285,7 @@ function statValue(p: Panel): string {
         <div>
           <h1 class="text-xl font-bold">{activeDashboard.name}</h1>
           {#if activeDashboard.description}
-            <p class="text-xs text-base-content/50">{activeDashboard.description}</p>
+            <p class="text-xs text-base-content/65">{activeDashboard.description}</p>
           {/if}
         </div>
         <div class="flex gap-2">
@@ -307,8 +307,8 @@ function statValue(p: Panel): string {
           <div class="flex justify-center py-12"><span class="loading loading-spinner"></span></div>
         {:else if panels.length === 0}
           <div class="flex flex-col items-center justify-center h-64 text-center">
-            <Grid size={40} class="text-base-content/20 mb-3" />
-            <p class="text-base-content/50 mb-3">{m['insights.noPanels']()}</p>
+            <Grid size={40} class="text-base-content/55 mb-3" />
+            <p class="text-base-content/65 mb-3">{m['insights.noPanels']()}</p>
             <button class="btn btn-primary btn-sm" onclick={() => (showNewPanel = true)}>{m['insights.addFirstPanel']()}</button>
           </div>
         {:else}
@@ -339,7 +339,7 @@ function statValue(p: Panel): string {
                   {:else if p.type === 'stat'}
                     <div class="flex flex-col items-center justify-center py-4">
                       <span class="text-4xl font-bold text-primary">{statValue(p)}</span>
-                      <span class="text-xs text-base-content/40 mt-1">{panelColumns(p)[0] ?? ''}</span>
+                      <span class="text-xs text-base-content/65 mt-1">{panelColumns(p)[0] ?? ''}</span>
                     </div>
                   {:else if p.type === 'text'}
                     <div class="prose prose-sm max-w-none">
@@ -360,15 +360,15 @@ function statValue(p: Panel): string {
                           </tbody>
                         </table>
                       </div>
-                      <p class="text-xs text-base-content/30">{res.data.length} rows</p>
+                      <p class="text-xs text-base-content/55">{res.data.length} rows</p>
                     {:else}
-                      <p class="text-xs text-base-content/40 py-3 text-center">{m['insights.noData']()}</p>
+                      <p class="text-xs text-base-content/65 py-3 text-center">{m['insights.noData']()}</p>
                     {/if}
                   {/if}
 
                   <!-- Query (collapsed) -->
                   <details class="text-xs">
-                    <summary class="cursor-pointer text-base-content/30 hover:text-base-content/60">SQL</summary>
+                    <summary class="cursor-pointer text-base-content/55 hover:text-base-content/65">SQL</summary>
                     <pre class="bg-base-200 rounded p-2 mt-1 overflow-x-auto font-mono">{p.query}</pre>
                   </details>
                 </div>
@@ -380,10 +380,10 @@ function statValue(p: Panel): string {
     {:else if !loadingDashboards}
       <!-- Empty state -->
       <div class="flex-1 flex flex-col items-center justify-center text-center gap-4">
-        <BarChart2 size={48} class="text-base-content/20" />
+        <BarChart2 size={48} class="text-base-content/55" />
         <div>
           <p class="font-semibold">{m['insights.noneSelected']()}</p>
-          <p class="text-sm text-base-content/50">{m['insights.createToStart']()}</p>
+          <p class="text-sm text-base-content/65">{m['insights.createToStart']()}</p>
         </div>
         <button class="btn btn-primary btn-sm" onclick={() => (showNewDash = true)}>{m['insights.createDashboard']()}</button>
       </div>
@@ -491,9 +491,9 @@ function statValue(p: Panel): string {
                 {/each}
               </tbody>
             </table>
-            <p class="text-xs text-base-content/40 mt-1">{adHocResult.data.length} rows</p>
+            <p class="text-xs text-base-content/65 mt-1">{adHocResult.data.length} rows</p>
           {:else}
-            <p class="text-xs text-base-content/50">{m['insights.noRows']()}</p>
+            <p class="text-xs text-base-content/65">{m['insights.noRows']()}</p>
           {/if}
         </div>
       {/if}
