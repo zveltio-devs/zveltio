@@ -227,6 +227,66 @@ body {
   animation: shimmer 1.6s ease-in-out infinite;
 }
 
+/* ── Form layout: the DaisyUI 4 classes this Studio is written in ─── */
+/*
+ * `form-control`, `label-text` and `label-text-alt` were REMOVED in DaisyUI 5.
+ * They emit no CSS at all. This Studio uses them 149 and 213 times.
+ *
+ * And `.label`, the one class that survived, had its meaning inverted: in v5 it
+ * is `display: inline-flex; white-space: nowrap`, a chip meant to sit INSIDE an
+ * input wrapper. The markup here puts it ABOVE the input, as v4 did.
+ *
+ * The visible result, measured on the settings page: five fields, five different
+ * left edges (392, 431, 577, 579, 587px) and three different widths. Not one
+ * pair aligned. Labels ran into their own hints — "Site URL Used in emails and
+ * webhooks" reads as one broken sentence because the hint had no styling to
+ * separate it.
+ *
+ * Restored here rather than rewritten across 362 call sites: this is twenty
+ * lines against a mechanical edit of every form in the product, it is reversible,
+ * and it fixes every screen at once instead of the ones someone remembered.
+ * Scoped under `.form-control` so the v5 `.label`-inside-an-input pattern keeps
+ * working wherever it is used.
+ */
+@layer components {
+  .form-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  /* The label goes back to a block above the field, and stops being nowrap so a
+     long hint can fold instead of pushing the input off its own row. */
+  .form-control > .label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.25rem 0.75rem;
+    white-space: normal;
+    padding-inline: 0.125rem;
+  }
+  .label-text {
+    font-size: 0.875rem;
+    line-height: 1.35;
+    color: var(--color-base-content);
+  }
+  /* The hint. Separated from the label by weight and size, not only by position
+     — side by side at the same size they read as one sentence. */
+  .label-text-alt {
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  }
+  /* Fields fill their column, which is what puts every input on one left edge.
+     Sized by content they landed wherever the label happened to end. */
+  .form-control > .input,
+  .form-control > .select,
+  .form-control > .textarea,
+  .form-control > .file-input {
+    width: 100%;
+  }
+}
+
 /* ── Motion tokens ───────────────────────────────────────────── */
 /* Named curves rather than a different hand-written cubic-bezier at each call
    site — the built stylesheet already carried five of those. Three, used by
