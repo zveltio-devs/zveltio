@@ -160,9 +160,9 @@ async function renameUser(id: string, name: string) {
 async function deleteUser(id: string, email: string) {
   confirmState = {
     open: true,
-    title: 'Delete User',
+    title: m['confirm.deleteUser.title'](),
     message: `Delete user ${email}?`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       await usersApi.delete(id);

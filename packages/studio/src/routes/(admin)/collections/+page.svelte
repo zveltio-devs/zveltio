@@ -223,9 +223,9 @@ async function createCollection() {
 async function deleteCollection(name: string) {
   confirmState = {
     open: true,
-    title: 'Delete Collection',
+    title: m['confirm.deleteCollection.title'](),
     message: `Delete collection "${name}"? This cannot be undone.`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {

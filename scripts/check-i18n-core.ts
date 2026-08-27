@@ -20,7 +20,7 @@
  * Usage: bun scripts/check-i18n-core.ts
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
@@ -251,17 +251,79 @@ for (const rel of TRANSLATED) {
       }
     }
   });
+
+  // The script block, for the shapes that ARE shown to a person: the fields of a
+  // confirm/modal descriptor, and the argument of a toast. Narrow on purpose —
+  // a variable named `title` holding a route segment is not a finding, and a
+  // gate that reports those stops being read.
+  const scriptBlock = /<script[\s\S]*?<\/script>/.exec(src)?.[0] ?? '';
+  const startLine = scriptBlock ? src.slice(0, src.indexOf(scriptBlock)).split('\n').length : 0;
+  scriptBlock.split('\n').forEach((line, i) => {
+    for (const m of line.matchAll(
+      /\b(title|message|confirmLabel|cancelLabel|heading|description)\s*:\s*'([^']{3,})'/g,
+    )) {
+      if (looksTranslatable(m[2]!)) {
+        findings.push({ file: rel, line: startLine + i, text: `${m[1]}: '${m[2]}'` });
+      }
+    }
+    for (const m of line.matchAll(/toast\.(?:error|success|warning|info)\(\s*'([^']{3,})'/g)) {
+      if (looksTranslatable(m[1]!)) {
+        findings.push({ file: rel, line: startLine + i, text: `toast('${m[1]}')` });
+      }
+    }
+  });
 }
 
-if (findings.length === 0) {
+// A ratchet, because sixty-eight of these already exist and a gate that fails on
+// day one gets switched off rather than fixed. New ones are refused; the number
+// only goes down. `--update` records where it stands after a translation pass.
+const BASELINE_FILE = join(import.meta.dir, '..', 'quality-gates', 'i18n-core-script.json');
+const isScript = (t: string) =>
+  /^(title|message|confirmLabel|cancelLabel|heading|description):|^toast\(/.test(t);
+const scriptFindings = findings.filter((f) => isScript(f.text));
+const markupFindings = findings.filter((f) => !isScript(f.text));
+
+let baseline = 0;
+try {
+  baseline = JSON.parse(readFileSync(BASELINE_FILE, 'utf-8')).count ?? 0;
+} catch {
+  baseline = 0;
+}
+
+if (process.argv.includes('--update')) {
+  writeFileSync(BASELINE_FILE, `${JSON.stringify({ count: scriptFindings.length }, null, 2)}\n`);
+  console.log(`[i18n-core] baseline updated: ${scriptFindings.length} script string(s).`);
+  process.exit(0);
+}
+
+if (scriptFindings.length > baseline) {
+  console.error(
+    `❌ i18n-core: ${scriptFindings.length} hardcoded string(s) in <script> — baseline allows ${baseline}.\n`,
+  );
+  for (const f of scriptFindings.slice(0, 20)) {
+    console.error(`  ${f.file}:${f.line}\n      ${f.text}`);
+  }
+  console.error('\nTranslate one, or run --update after lowering the count.');
+  process.exit(1);
+}
+if (scriptFindings.length < baseline) {
+  console.log(
+    `[i18n-core] script strings: ${scriptFindings.length} (baseline ${baseline}) — run --update to lock it in.`,
+  );
+}
+
+if (markupFindings.length === 0) {
   console.log(
     `✅ i18n-core: every message key resolves; ` +
-      `${TRANSLATED.length} page(s) free of hardcoded user-visible text.`,
+      `${TRANSLATED.length} page(s) free of hardcoded markup` +
+      (scriptFindings.length > 0
+        ? `, ${scriptFindings.length} string(s) still hardcoded in <script> (baseline).`
+        : ', and none in <script> either.'),
   );
   process.exit(0);
 }
 
-console.error(`❌ i18n-core: ${findings.length} hardcoded string(s) on translated pages.\n`);
+console.error(`❌ i18n-core: ${markupFindings.length} hardcoded string(s) on translated pages.\n`);
 for (const f of findings) {
   console.error(`  ${f.file}:${f.line}`);
   console.error(`      ${f.text}`);
