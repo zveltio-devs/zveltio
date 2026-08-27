@@ -76,7 +76,7 @@ function handleThemeToggle() {
 		{#if logo}
 			{@render logo()}
 		{:else}
-			<a href="/" class="btn btn-ghost text-xl font-bold">App</a>
+			<a href="/" class="btn btn-ghost text-xl font-bold">{m['nav.app']()}</a>
 		{/if}
 	</div>
 
@@ -131,7 +131,7 @@ function handleThemeToggle() {
 					</svg>
 				</button>
 				<ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
-					<li><button onclick={() => changePosition('top')}>Top</button></li>
+					<li><button onclick={() => changePosition('top')}>{m['nav.posTop']()}</button></li>
 					<li><button onclick={() => changePosition('bottom')}>{m['nav.posBottom']()}</button></li>
 					<li><button onclick={() => changePosition('left')}>{m['nav.posLeft']()}</button></li>
 					<li><button onclick={() => changePosition('right')}>{m['nav.posRight']()}</button></li>
