@@ -139,9 +139,44 @@ body {
   letter-spacing: -0.005em;
 }
 
-h1, .display-2xl { font: var(--font-display-2xl); letter-spacing: -0.025em; }
-h2, .display-xl  { font: var(--font-display-xl);  letter-spacing: -0.02em;  }
-h3, .display-lg  { font: var(--font-display-lg);  letter-spacing: -0.015em; }
+/* In `@layer base`, and longhand rather than the `font:` shorthand.
+ *
+ * Both halves are load-bearing, and this rule got both wrong. Written
+ * unlayered, it beat every Tailwind utility — utilities live in
+ * `@layer utilities`, and unlayered CSS wins over any layer regardless of
+ * specificity. Written as the `font:` shorthand, it reset font-size AND
+ * font-weight AND line-height AND family together, so there was nothing left
+ * for a utility to override even if it had won.
+ *
+ * The effect was silent and total: 100 headings across the Studio carry a
+ * `text-sm` or `font-semibold` that did nothing. Collection cards asking for
+ * 14px rendered at 24px and wrapped a character per line.
+ *
+ * `@layer base` restores the intent — these are DEFAULTS for a heading that
+ * asks for nothing, and any utility on the element beats them. */
+@layer base {
+  h1, .display-2xl {
+    font-family: var(--font-sans);
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+  }
+  h2, .display-xl {
+    font-family: var(--font-sans);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  h3, .display-lg {
+    font-family: var(--font-sans);
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+  }
+}
 
 /* ── Utility classes ─────────────────────────────────────────── */
 
