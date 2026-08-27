@@ -307,7 +307,7 @@ let confirmState = $state<{
               class="checkbox checkbox-xs"
               checked={selectedIds.size === records.length && records.length > 0}
               onchange={toggleSelectAll}
-              aria-label="Select all" />
+              aria-label={m['data.selectAll']()} />
           </th>
           {#each tableColumns as col}
             <th class="text-xs font-semibold text-base-content/65 uppercase tracking-wide whitespace-nowrap">
@@ -340,7 +340,7 @@ let confirmState = $state<{
                 class="checkbox checkbox-xs"
                 checked={selectedIds.has(record.id)}
                 onchange={() => toggleSelect(record.id)}
-                aria-label="Select row" />
+                aria-label={m['data.selectRow']()} />
             </td>
             {#each tableColumns as col}
               <td class="max-w-55">
@@ -370,16 +370,16 @@ let confirmState = $state<{
                 <button
                   onclick={() => onEdit(record)}
                   class="btn btn-ghost btn-xs"
-                  title="Edit record"
-                  aria-label="Edit"
+                  title={m['data.editRecord']()}
+                  aria-label={m['common.edit']()}
                 >
                   <Settings size={12} />
                 </button>
                 <button
                   onclick={() => deleteRecord(record.id)}
                   class="btn btn-ghost btn-xs text-error"
-                  title="Delete record"
-                  aria-label="Delete"
+                  title={m['data.deleteRecord']()}
+                  aria-label={m['common.op.delete']()}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -401,16 +401,16 @@ let confirmState = $state<{
             class="checkbox checkbox-sm mt-1"
             checked={selectedIds.has(record.id)}
             onchange={() => toggleSelect(record.id)}
-            aria-label="Select row" />
+            aria-label={m['data.selectRow']()} />
           <div class="flex-1 min-w-0">
             <p class="font-semibold truncate">{labelFromRecord(record)}</p>
             <p class="text-xs text-base-content/65 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
           </div>
           <div class="flex gap-1">
-            <button onclick={() => onEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
+            <button onclick={() => onEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label={m['common.edit']()}>
               <Settings size={12} />
             </button>
-            <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label="Delete">
+            <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label={m['common.op.delete']()}>
               <Trash2 size={12} />
             </button>
           </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * Toast renderer — place once in admin +layout.svelte.
  *
@@ -61,7 +62,7 @@ async function runAction(t: Toast) {
       <button
         class="btn btn-ghost btn-xs btn-circle"
         onclick={() => toast.remove(t.id)}
-        aria-label="Dismiss notification"
+        aria-label={m['common.dismissNotification']()}
       >
         <X size={14} />
       </button>

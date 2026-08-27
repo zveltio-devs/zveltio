@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { Download, ChevronDown } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 
@@ -30,7 +31,7 @@ async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
-    alert('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+    alert('Export failed: ' + (e instanceof Error ? e.message : m['common.unknownError']()));
   } finally {
     exporting = false;
   }
