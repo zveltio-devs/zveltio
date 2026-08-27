@@ -1,3 +1,25 @@
+# ⚠️ AND YET: no CI has ever run on a Dependabot pull request.
+#
+# Measured 2026-08-27, on nine open dependency PRs all opened 24 August:
+#
+#   this workflow            ran, succeeded, on all nine   (pull_request_target)
+#   ci.yml                   never ran on any of them      (pull_request)
+#
+# The two differ in exactly one thing, and it is the trigger. A repository with
+# "Allow GitHub Actions to run on Dependabot pull requests" turned OFF suppresses
+# `pull_request` runs from Dependabot while leaving `pull_request_target` alone,
+# because the latter executes in the BASE branch's context and is not treated as
+# untrusted contributor code.
+#
+# So the lockfile gets synced, faithfully, on a pull request nothing then tests.
+# Nine dependency bumps have been sitting mergeable-looking and unexercised: a
+# green tick nobody earned, which is the same shape as a skipped gate.
+#
+# The fix is a repository setting, not a file here — Settings → Code security →
+# Dependabot → "Allow GitHub Actions to run on Dependabot pull requests". Left to
+# the owner deliberately: it widens what a bot-authored branch may execute, and
+# that is a decision about trust rather than about plumbing.
+
 name: Dependabot lockfile sync
 
 # Dependabot only updates `package.json` for the npm ecosystem; it does
