@@ -24,7 +24,7 @@ import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
         <h2 class="text-xl font-bold">
           {page.status === 404 ? 'Page not found' : 'Something went wrong'}
         </h2>
-        <p class="text-sm text-base-content/60 max-w-md">
+        <p class="text-sm text-base-content/65 max-w-md">
           {page.status === 404
             ? 'That URL does not match any admin page.'
             : 'This page hit an error while loading. Retry first; if it keeps failing, file a bug with the message below.'}

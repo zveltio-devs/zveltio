@@ -43,7 +43,7 @@ onMount(async () => {
     <div>
       <h1 class="text-xl font-semibold text-base-content">{pageData.page.title}</h1>
       {#if pageData.page.description}
-        <p class="text-sm text-base-content/60 mt-1">{pageData.page.description}</p>
+        <p class="text-sm text-base-content/65 mt-1">{pageData.page.description}</p>
       {/if}
     </div>
 
@@ -64,7 +64,7 @@ onMount(async () => {
     />
 
     {#if (pageData.blocks ?? []).length === 0}
-      <div class="text-center py-12 text-base-content/40 text-sm">
+      <div class="text-center py-12 text-base-content/65 text-sm">
         This page has no blocks yet.
       </div>
     {/if}

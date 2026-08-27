@@ -47,7 +47,7 @@ async function saveProfile(): Promise<void> {
   <PageHeader title={m['acct.title']()} subtitle={m['acct.subtitle']()} />
 
   <!-- Profile -->
-  <section class="card bg-base-200">
+  <section class="card bg-base-100">
     <div class="card-body">
       <div class="flex items-start gap-3">
         <div class="p-2 bg-primary/10 rounded-lg shrink-0">
@@ -55,7 +55,7 @@ async function saveProfile(): Promise<void> {
         </div>
         <div class="flex-1">
           <h2 class="card-title text-base">{m['acct.profile']()}</h2>
-          <p class="text-sm text-base-content/60 mt-0.5">{m['acct.profileDesc']()}</p>
+          <p class="text-sm text-base-content/65 mt-0.5">{m['acct.profileDesc']()}</p>
         </div>
       </div>
 

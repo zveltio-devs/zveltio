@@ -71,7 +71,7 @@ const quickLinks = [
     <h1 class="text-2xl font-bold text-base-content">
       Welcome back, {auth.user?.name?.split(' ')[0] || 'there'} 👋
     </h1>
-    <p class="text-base-content/50 text-sm mt-1">
+    <p class="text-base-content/65 text-sm mt-1">
       {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
     </p>
   </div>
@@ -83,7 +83,7 @@ const quickLinks = [
       <a
         href={link.href}
         class="group card bg-base-200 hover:bg-base-300 border border-base-300 hover:border-primary/30
-          transition-all duration-150 hover:shadow-sm"
+          transition-shadow duration-150 hover:shadow-sm"
       >
         <div class="card-body p-4">
           <div class="flex items-center justify-between mb-3">
@@ -93,11 +93,11 @@ const quickLinks = [
             {#if count > 0}
               <span class="badge badge-primary badge-sm font-medium">{count}</span>
             {:else}
-              <ArrowRight size={14} class="text-base-content/30 group-hover:text-primary transition-colors" />
+              <ArrowRight size={14} class="text-base-content/55 group-hover:text-primary transition-colors" />
             {/if}
           </div>
           <p class="font-semibold text-sm text-base-content">{link.label}</p>
-          <p class="text-xs text-base-content/50 mt-0.5">{link.desc}</p>
+          <p class="text-xs text-base-content/65 mt-0.5">{link.desc}</p>
         </div>
       </a>
     {/each}
@@ -115,9 +115,9 @@ const quickLinks = [
           {#each zonePages as p}
             <a href="{base}/intranet/{p.slug}"
               class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-100 hover:bg-base-300 transition-colors text-sm">
-              {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{:else}<FileText size={14} class="text-base-content/40 shrink-0" />{/if}
+              {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{:else}<FileText size={14} class="text-base-content/65 shrink-0" />{/if}
               <span class="truncate">{p.title}</span>
-              <ArrowRight size={12} class="text-base-content/30 ml-auto" />
+              <ArrowRight size={12} class="text-base-content/55 ml-auto" />
             </a>
           {/each}
         </div>
@@ -153,7 +153,7 @@ const quickLinks = [
               <div class="flex-1 min-w-0">
                 <p class="text-sm text-base-content">{n.message || n.title || 'Notification'}</p>
                 {#if n.created_at}
-                  <p class="text-xs text-base-content/40 mt-0.5 flex items-center gap-1">
+                  <p class="text-xs text-base-content/65 mt-0.5 flex items-center gap-1">
                     <Clock size={10} />
                     {new Date(n.created_at).toLocaleString()}
                   </p>
@@ -176,7 +176,7 @@ const quickLinks = [
         </div>
         <div>
           <p class="font-semibold text-base-content">{auth.user?.name || 'User'}</p>
-          <p class="text-sm text-base-content/50">{auth.user?.email}</p>
+          <p class="text-sm text-base-content/65">{auth.user?.email}</p>
           <p class="text-xs text-base-content/35 mt-0.5 capitalize">{auth.user?.role || 'Employee'}</p>
         </div>
         <a href="{base}/intranet/profile" class="btn btn-outline btn-sm ml-auto">Edit Profile</a>

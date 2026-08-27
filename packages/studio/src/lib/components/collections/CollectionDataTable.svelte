@@ -242,12 +242,12 @@ let confirmState = $state<{
       oninput={onSearchInput}
       placeholder="Search records…"
       class="input input-sm w-full pl-8" />
-    <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/30"
+    <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/55"
       fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/>
     </svg>
   </div>
-  <span class="text-xs text-base-content/40 whitespace-nowrap">
+  <span class="text-xs text-base-content/65 whitespace-nowrap">
     {#if !loading}
       {pagination.total ?? 0} total
       {#if selectedIds.size > 0}· <span class="text-primary font-medium">{selectedIds.size} selected</span>{/if}
@@ -266,10 +266,10 @@ let confirmState = $state<{
 {#if loading}
   <LoadingSkeleton type="table" rows={6} cols={5} />
 {:else if records.length === 0}
-  <div class="flex flex-col items-center justify-center py-24 gap-4 text-base-content/30">
+  <div class="flex flex-col items-center justify-center py-24 gap-4 text-base-content/55">
     <Database size={44} strokeWidth={1.2} />
     <div class="text-center">
-      <p class="text-base font-semibold text-base-content/50">
+      <p class="text-base font-semibold text-base-content/65">
         {searchText ? `No records match "${searchText}"` : 'No records yet'}
       </p>
       <p class="text-sm mt-0.5">
@@ -296,7 +296,7 @@ let confirmState = $state<{
               aria-label="Select all" />
           </th>
           {#each tableColumns as col}
-            <th class="text-xs font-semibold text-base-content/50 uppercase tracking-wide whitespace-nowrap">
+            <th class="text-xs font-semibold text-base-content/65 uppercase tracking-wide whitespace-nowrap">
               <button class="inline-flex items-center gap-1 hover:text-base-content"
                 onclick={() => toggleSort(col.name)}>
                 {fieldLabel(col)}
@@ -306,7 +306,7 @@ let confirmState = $state<{
               </button>
             </th>
           {/each}
-          <th class="text-xs font-semibold text-base-content/50 uppercase tracking-wide w-28">
+          <th class="text-xs font-semibold text-base-content/65 uppercase tracking-wide w-28">
             <button class="inline-flex items-center gap-1 hover:text-base-content"
               onclick={() => toggleSort('created_at')}>
               Created
@@ -331,7 +331,7 @@ let confirmState = $state<{
             {#each tableColumns as col}
               <td class="max-w-55">
                 {#if record[col.name] === null || record[col.name] === undefined}
-                  <span class="text-base-content/20">—</span>
+                  <span class="text-base-content/55">—</span>
                 {:else if col.type === 'boolean'}
                   <span class="badge badge-xs {record[col.name] ? 'badge-success' : 'badge-ghost'}">
                     {record[col.name] ? 'Yes' : 'No'}
@@ -348,7 +348,7 @@ let confirmState = $state<{
                 {/if}
               </td>
             {/each}
-            <td class="text-xs text-base-content/40 whitespace-nowrap">
+            <td class="text-xs text-base-content/65 whitespace-nowrap">
               {fmtDate(record.created_at)}
             </td>
             <td>
@@ -390,7 +390,7 @@ let confirmState = $state<{
             aria-label="Select row" />
           <div class="flex-1 min-w-0">
             <p class="font-semibold truncate">{labelFromRecord(record)}</p>
-            <p class="text-xs text-base-content/40 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
+            <p class="text-xs text-base-content/65 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
           </div>
           <div class="flex gap-1">
             <button onclick={() => onEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
@@ -404,10 +404,10 @@ let confirmState = $state<{
         <dl class="space-y-1 text-sm">
           {#each tableColumns as col}
             <div class="flex justify-between gap-3 leading-tight">
-              <dt class="text-base-content/40 text-xs uppercase tracking-wide pt-0.5">{fieldLabel(col)}</dt>
+              <dt class="text-base-content/65 text-xs uppercase tracking-wide pt-0.5">{fieldLabel(col)}</dt>
               <dd class="text-right truncate max-w-[60%]">
                 {#if record[col.name] === null || record[col.name] === undefined}
-                  <span class="text-base-content/20">—</span>
+                  <span class="text-base-content/55">—</span>
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
                   <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary gap-1">
                     {(record[`${col.name}_expanded`] as { _label?: unknown })?._label}
@@ -426,7 +426,7 @@ let confirmState = $state<{
   <!-- Pagination footer -->
   {#if (pagination.pages ?? 0) > 1 || (pagination.total ?? 0) > (pagination.limit ?? 25)}
     <div class="flex items-center justify-between mt-4 text-sm">
-      <span class="text-base-content/50">
+      <span class="text-base-content/65">
         Page {pagination.page ?? 1} of {pagination.pages ?? 1}
       </span>
       <div class="join">

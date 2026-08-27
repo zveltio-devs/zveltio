@@ -62,7 +62,7 @@ function isActive(href: string): boolean {
   <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
     <div class="flex items-center h-14 px-3 gap-2 shadow-z1">
       <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center
-                  bg-linear-to-br from-primary to-secondary shadow-z1">
+                  bg-primary shadow-z1">
         <span class="text-primary-content font-bold text-sm">Z</span>
       </div>
       <span class="font-semibold text-sm tracking-tight text-base-content">Zveltio</span>
@@ -75,7 +75,7 @@ function isActive(href: string): boolean {
       {#each nav as group, gi}
         {#if group.labelKey}
           <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-            <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
+            <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/55 select-none">
               {coreGroupLabel(group.labelKey)}
             </span>
           </div>
@@ -91,7 +91,7 @@ function isActive(href: string): boolean {
                 flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                 transition-colors duration-100
                 focus-visible:outline-2 focus-visible:outline-primary
-                {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}
               "
             >
               <item.icon size={16} class="shrink-0" />
@@ -103,7 +103,7 @@ function isActive(href: string): boolean {
 
       {#each extNavGroups as group (group.id)}
         <div class="px-4 pt-5 pb-1">
-          <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
+          <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/55 select-none">
             {groupLabel(group.id)}
           </span>
         </div>
@@ -118,7 +118,7 @@ function isActive(href: string): boolean {
                 flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                 transition-colors duration-100
                 focus-visible:outline-2 focus-visible:outline-primary
-                {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}
               "
             >
               <item.icon size={16} class="shrink-0" />

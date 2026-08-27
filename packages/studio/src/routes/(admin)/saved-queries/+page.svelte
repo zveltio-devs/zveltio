@@ -271,7 +271,7 @@ function removeSort(i: number) {
 
   <!-- Query Builder -->
   {#if showBuilder}
-    <div class="card bg-base-200 border border-base-300">
+    <div class="card bg-base-100 border border-base-300">
       <div class="card-body space-y-4">
         <h2 class="font-semibold text-lg">{m['savedQueries.builder']()}</h2>
 
@@ -369,7 +369,7 @@ function removeSort(i: number) {
                 {/each}
               </tbody>
             </table>
-            <p class="p-2 text-base-content/50">{m['savedQueries.totalLabel']()} {executeResult.pagination?.total ?? 0}</p>
+            <p class="p-2 text-base-content/65">{m['savedQueries.totalLabel']()} {executeResult.pagination?.total ?? 0}</p>
           </div>
         {/if}
         {#if executeError}<p class="text-error text-xs">{executeError}</p>{/if}
@@ -430,11 +430,11 @@ function removeSort(i: number) {
                            {activeQuery?.id === q.id ? 'bg-primary/8 border-l-2 border-l-primary' : ''}"
                     onclick={() => selectQuery(q)}>
               <div class="text-sm font-medium truncate">{q.name}</div>
-              <div class="text-xs text-base-content/40 font-mono truncate mt-0.5">{(q.sql || q.query || q.collection || '').slice(0, 40)}...</div>
+              <div class="text-xs text-base-content/65 font-mono truncate mt-0.5">{(q.sql || q.query || q.collection || '').slice(0, 40)}...</div>
             </button>
           {/each}
           {#if filtered.length === 0}
-            <div class="text-xs text-base-content/30 text-center py-8">{m['savedQueries.noQueries']()}</div>
+            <div class="text-xs text-base-content/55 text-center py-8">{m['savedQueries.noQueries']()}</div>
           {/if}
         </div>
       </div>
@@ -461,9 +461,9 @@ function removeSort(i: number) {
           <div class="flex-1 overflow-auto p-4 bg-base-50 border-b border-base-200 min-h-0">
             {#if activeQuery.config}
               <div class="space-y-2">
-                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide">{m['common.col.collection']()}</div>
+                <div class="text-xs text-base-content/65 font-medium uppercase tracking-wide">{m['common.col.collection']()}</div>
                 <div class="font-mono text-sm">{activeQuery.collection}</div>
-                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide mt-3">{m['savedQueries.config']()}</div>
+                <div class="text-xs text-base-content/65 font-medium uppercase tracking-wide mt-3">{m['savedQueries.config']()}</div>
                 <pre class="text-xs font-mono bg-base-200 rounded p-3 overflow-auto">{JSON.stringify(activeQuery.config, null, 2)}</pre>
               </div>
             {:else}
@@ -480,12 +480,12 @@ function removeSort(i: number) {
                   <tbody>{#each queryResults.rows as row}<tr>{#each queryResults.columns ?? Object.keys(row) as col}<td class="font-mono text-xs">{row[col] ?? '—'}</td>{/each}</tr>{/each}</tbody>
                 </table>
               {:else}
-                <div class="p-3 text-xs text-base-content/50">{m['common.noResults']()}</div>
+                <div class="p-3 text-xs text-base-content/65">{m['common.noResults']()}</div>
               {/if}
             </div>
           {/if}
         {:else}
-          <div class="flex-1 flex items-center justify-center text-base-content/30 text-sm">
+          <div class="flex-1 flex items-center justify-center text-base-content/55 text-sm">
             {m['savedQueries.selectOrCreate']()}
           </div>
         {/if}

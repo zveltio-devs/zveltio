@@ -151,7 +151,7 @@ function formatDate(iso: string): string {
 }
 </script>
 
-<section class="card bg-base-200">
+<section class="card bg-base-100">
   <div class="card-body">
     <div class="flex items-start justify-between gap-4">
       <div class="flex items-start gap-3">
@@ -160,7 +160,7 @@ function formatDate(iso: string): string {
         </div>
         <div>
           <h2 class="card-title text-base">Passkeys</h2>
-          <p class="text-sm text-base-content/60 mt-0.5">
+          <p class="text-sm text-base-content/65 mt-0.5">
             Sign in without a password using your device's biometric authenticator
             (Touch ID, Windows Hello, security key).
           </p>
@@ -195,19 +195,19 @@ function formatDate(iso: string): string {
 
     <div class="mt-4">
       {#if loading}
-        <div class="text-sm text-base-content/40 py-6 text-center">Loading passkeys…</div>
+        <div class="text-sm text-base-content/65 py-6 text-center">Loading passkeys…</div>
       {:else if passkeys.length === 0}
-        <div class="text-sm text-base-content/40 py-6 text-center">
+        <div class="text-sm text-base-content/65 py-6 text-center">
           No passkeys yet. Click <strong>Add passkey</strong> to register your first one.
         </div>
       {:else}
         <ul class="divide-y divide-base-300">
           {#each passkeys as pk (pk.id)}
             <li class="py-2.5 flex items-center gap-3">
-              <Fingerprint size={16} class="text-base-content/40 shrink-0" />
+              <Fingerprint size={16} class="text-base-content/65 shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium truncate">{pk.name ?? 'Unnamed passkey'}</p>
-                <p class="text-xs text-base-content/50 mt-0.5">
+                <p class="text-xs text-base-content/65 mt-0.5">
                   Added {formatDate(pk.createdAt)}
                   {#if pk.deviceType}· {pk.deviceType}{/if}
                   {#if pk.backedUp}· Synced{/if}

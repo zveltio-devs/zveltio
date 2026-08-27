@@ -56,9 +56,9 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
 {:else if error}
   <div class="max-w-md mx-auto mt-12 text-center">
     {#if error.status === 404}
-      <FileX size={48} class="mx-auto text-base-content/30" strokeWidth={1.2} />
+      <FileX size={48} class="mx-auto text-base-content/55" strokeWidth={1.2} />
       <h1 class="text-lg font-semibold mt-4">Page not found</h1>
-      <p class="text-sm text-base-content/55 mt-1.5">
+      <p class="text-sm text-base-content/65 mt-1.5">
         There's no page with the slug <code class="font-mono px-1.5 py-0.5 rounded bg-base-200">{slug}</code> in the Intranet zone.
       </p>
       <div class="flex gap-2 justify-center mt-5">
@@ -74,7 +74,7 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
     {:else if error.status === 403}
       <ShieldCheck size={48} class="mx-auto text-warning" strokeWidth={1.2} />
       <h1 class="text-lg font-semibold mt-4">Access denied</h1>
-      <p class="text-sm text-base-content/55 mt-1.5">
+      <p class="text-sm text-base-content/65 mt-1.5">
         You don't have permission to view this page. Ask an administrator if this is unexpected.
       </p>
       <a href="{base}/intranet" class="btn btn-ghost btn-sm gap-1.5 mt-5">
@@ -83,7 +83,7 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
     {:else}
       <FileX size={48} class="mx-auto text-error" strokeWidth={1.2} />
       <h1 class="text-lg font-semibold mt-4">Something went wrong</h1>
-      <p class="text-sm text-base-content/55 mt-1.5">{error.message}</p>
+      <p class="text-sm text-base-content/65 mt-1.5">{error.message}</p>
       <a href="{base}/intranet" class="btn btn-ghost btn-sm gap-1.5 mt-5">
         <ArrowLeft size={14} /> Back to Intranet
       </a>
@@ -95,7 +95,7 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
     <div>
       <h1 class="text-xl font-semibold text-base-content">{pageData.page.title}</h1>
       {#if pageData.page.description}
-        <p class="text-sm text-base-content/60 mt-1">{pageData.page.description}</p>
+        <p class="text-sm text-base-content/65 mt-1">{pageData.page.description}</p>
       {/if}
     </div>
 
@@ -116,7 +116,7 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
     />
 
     {#if (pageData.blocks ?? []).length === 0}
-      <div class="text-center py-12 text-base-content/40 text-sm">
+      <div class="text-center py-12 text-base-content/65 text-sm">
         This page has no blocks yet.
       </div>
     {/if}

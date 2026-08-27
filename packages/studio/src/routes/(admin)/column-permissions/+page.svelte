@@ -205,7 +205,7 @@ function confirmDelete(p: ColumnPermission) {
           <option value={col}>{col}</option>
         {/each}
       </select>
-      <span class="text-xs text-base-content/40">{m['colPerms.ruleCount']({ count: filtered.length })}</span>
+      <span class="text-xs text-base-content/65">{m['colPerms.ruleCount']({ count: filtered.length })}</span>
     </div>
 
     <!-- Add/Edit form -->
@@ -297,10 +297,10 @@ function confirmDelete(p: ColumnPermission) {
     {#if filtered.length === 0 && !showForm}
       <div class="flex flex-col items-center justify-center py-24 text-center">
         <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
-          <TableProperties class="h-10 w-10 text-base-content/30" />
+          <TableProperties class="h-10 w-10 text-base-content/55" />
         </div>
         <h2 class="text-lg font-semibold">{m['colPerms.emptyTitle']()}</h2>
-        <p class="mt-1 text-sm text-base-content/50">
+        <p class="mt-1 text-sm text-base-content/65">
           {m['colPerms.emptyDesc1']()}<br/>
           {m['colPerms.emptyDesc2']()}
         </p>
@@ -313,7 +313,7 @@ function confirmDelete(p: ColumnPermission) {
       <div class="overflow-x-auto rounded-xl border border-base-content/10">
         <table class="table table-sm w-full">
           <thead>
-            <tr class="text-xs text-base-content/50">
+            <tr class="text-xs text-base-content/65">
               <th>{m['common.col.collection']()}</th>
               <th>{m['common.col.field']()}</th>
               <th>{m['common.col.role']()}</th>

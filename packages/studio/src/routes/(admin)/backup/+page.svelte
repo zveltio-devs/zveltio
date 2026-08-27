@@ -182,7 +182,7 @@ function fmtDate(s: string) {
  <span class="font-medium text-sm">{fmtDate(backup.created_at)}</span>
  <span class="badge badge-xs {backup.status === 'completed' ? 'badge-success' : backup.status === 'failed' ? 'badge-error' : 'badge-warning'}">{backup.status}</span>
  </div>
- <div class="text-xs text-base-content/40 mt-0.5 font-mono truncate">
+ <div class="text-xs text-base-content/65 mt-0.5 font-mono truncate">
  {backup.filename}
  {#if backup.size_human} · {backup.size_human}{/if}
  {#if backup.notes} · {backup.notes}{/if}

@@ -80,7 +80,7 @@ let expandedId = $state<string | null>(null);
  <PageHeader title={m['nav.auditLog']()} subtitle={m['audit.subtitle']()} />
 
  <!-- Filters -->
- <div class="card bg-base-200">
+ <div class="card bg-base-100">
  <div class="card-body p-4">
  <div class="flex flex-wrap gap-3">
  <div class="form-control">
@@ -137,12 +137,12 @@ let expandedId = $state<string | null>(null);
  {#if loading}
  <PageSpinner />
  {:else if revisions.length === 0}
- <div class="card bg-base-200 text-center py-16">
- <ClipboardList size={40} class="mx-auto text-base-content/30 mb-3" />
- <p class="text-base-content/60">{m['audit.noEntries']()}</p>
+ <div class="card bg-base-100 text-center py-16">
+ <ClipboardList size={40} class="mx-auto text-base-content/55 mb-3" />
+ <p class="text-base-content/65">{m['audit.noEntries']()}</p>
  </div>
  {:else}
- <div class="card bg-base-200">
+ <div class="card bg-base-100">
  <div class="overflow-x-auto">
  <table class="table table-sm">
  <thead>
@@ -169,15 +169,15 @@ let expandedId = $state<string | null>(null);
  {new Date(rev.created_at).toLocaleString()}
  </td>
  <td><code class="text-xs">{rev.collection}</code></td>
- <td><code class="text-xs text-base-content/60">{rev.record_id?.substring(0, 8)}…</code></td>
+ <td><code class="text-xs text-base-content/65">{rev.record_id?.substring(0, 8)}…</code></td>
  <td>
  <span class="badge badge-sm {opBadge(rev.operation)}">{rev.operation}</span>
  </td>
  <td class="text-xs text-base-content/70">
  {formatDiff(rev.before_data, rev.after_data).join(', ')}
  </td>
- <td class="text-xs text-base-content/60 font-mono">{rev.user_id?.substring(0, 8) || 'system'}…</td>
- <td class="text-xs text-base-content/40">{expandedId === rev.id ? '▲' : '▼'}</td>
+ <td class="text-xs text-base-content/65 font-mono">{rev.user_id?.substring(0, 8) || 'system'}…</td>
+ <td class="text-xs text-base-content/65">{expandedId === rev.id ? '▲' : '▼'}</td>
  </tr>
  {#if expandedId === rev.id}
  <tr class="bg-base-300">
@@ -185,7 +185,7 @@ let expandedId = $state<string | null>(null);
  <div class="grid grid-cols-2 gap-4">
  {#if rev.before_data}
  <div>
- <p class="text-xs font-semibold mb-1 text-base-content/60">{m['audit.before']()}</p>
+ <p class="text-xs font-semibold mb-1 text-base-content/65">{m['audit.before']()}</p>
  <pre class="text-xs bg-base-200 p-2 rounded overflow-auto max-h-48">{JSON.stringify(
  typeof rev.before_data === 'string' ? JSON.parse(rev.before_data) : rev.before_data,
  null, 2,
@@ -194,7 +194,7 @@ let expandedId = $state<string | null>(null);
  {/if}
  {#if rev.after_data}
  <div>
- <p class="text-xs font-semibold mb-1 text-base-content/60">{m['audit.after']()}</p>
+ <p class="text-xs font-semibold mb-1 text-base-content/65">{m['audit.after']()}</p>
  <pre class="text-xs bg-base-200 p-2 rounded overflow-auto max-h-48">{JSON.stringify(
  typeof rev.after_data === 'string' ? JSON.parse(rev.after_data) : rev.after_data,
  null, 2,
