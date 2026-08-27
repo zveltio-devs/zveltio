@@ -1,5 +1,7 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { page } from '$app/state';
+import { replaceState } from '$app/navigation';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
@@ -52,6 +54,23 @@ let currentPage = $state(1);
 let total = $state(0);
 const LIMIT = 20;
 let showInviteModal = $state(false);
+
+// `?new=1` opens the create dialog.
+//
+// This is what lets the command palette DO something rather than only navigate:
+// an action is a URL, so it also survives a bookmark, a paste into chat, and a
+// reload — none of which a function call does. The parameter is read once on
+// mount; leaving it in the address bar would reopen the dialog on every back
+// navigation, so it is cleared as soon as it has been honoured.
+$effect(() => {
+  if (page.url.searchParams.get('new') === '1') {
+    showInviteModal = true;
+    const url = new URL(page.url);
+    url.searchParams.delete('new');
+    replaceState(url, {});
+  }
+});
+
 let inviting = $state(false);
 let search = $state('');
 

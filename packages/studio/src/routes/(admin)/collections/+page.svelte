@@ -1,5 +1,7 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { page } from '$app/state';
+import { replaceState } from '$app/navigation';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { collectionsApi } from '$lib/api.js';
@@ -17,6 +19,22 @@ let creating = $state(false);
 let newCollectionName = $state('');
 let nameError = $state('');
 let showCreateModal = $state(false);
+
+// `?new=1` opens the create dialog.
+//
+// This is what lets the command palette DO something rather than only navigate:
+// an action is a URL, so it also survives a bookmark, a paste into chat, and a
+// reload — none of which a function call does. The parameter is read once on
+// mount; leaving it in the address bar would reopen the dialog on every back
+// navigation, so it is cleared as soon as it has been honoured.
+$effect(() => {
+  if (page.url.searchParams.get('new') === '1') {
+    showCreateModal = true;
+    const url = new URL(page.url);
+    url.searchParams.delete('new');
+    replaceState(url, {});
+  }
+});
 
 type NewField = {
   name: string;
