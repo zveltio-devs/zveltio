@@ -137,3 +137,123 @@ bate punctul 4.1.
   multiplexează.
 - Să nu presupui că tranzacțiile explicite din extensii te acoperă. Ele rezolvă
   *ce se comite împreună*; conexiunea e pinuită de tranzacția de deasupra lor.
+
+---
+
+## 10. Remăsurat 2026-08-26, pe `feat/tenancy-hierarchy`
+
+*Prima lucrare din §7 (raportul citiri/scrieri) cere o instalare în producție,
+care nu există. A doua — testul de conexiune curată — e făcută. Pe drum,
+măsurătoarea din §2 nu s-a mai reprodus, iar motivul schimbă recomandarea.*
+
+### §2 nu se mai reproduce — și de ce
+
+Instanță vie pe `:3399`, `DB_POOL_MAX=10`, `/api/me`, aceleași două rulări care
+diferă printr-un singur header:
+
+| concurență | fără `x-tenant-slug` | cu `x-tenant-slug` |
+|---|---|---|
+| 20 | 29ms p50, 685 req/s | 30ms p50, 670 req/s |
+| 50 | 73ms p50, 683 req/s | 74ms p50, 668 req/s |
+| 80 | 119ms p50, 670 req/s | 122ms p50, 640 req/s |
+| **120** | **178ms p50, 0 erori** | **177ms p50, 0 erori** |
+
+Cele două curbe sunt **indistinctibile până la c=120**, cu un pool de 10. Nicio
+prăpastie, niciun eșec. `pg_stat_activity` în timpul rulării arată 8–9 conexiuni
+`idle in transaction`, deci tranzacția chiar se deschide — mecanismul din §1 e
+real, dar **nu mai costă**.
+
+Cauza prăpastiei din §2 era **a doua rezervare**, nu tranzacția: o cerere ținea o
+conexiune rezervată ȘI cerea alta din pool. Comentariul din `db/index.ts` spune
+că golul acela a fost închis între timp — `createRequestScopedDb` dă rutelor
+proxy-ul care rezolvă tranzacția curentă și atinge pool-ul doar când nu există
+una. Măsurătoarea din §2 a prins codul de dinainte.
+
+### Precizare: §2 se reproduce în continuare pe `master` (2026-08-27)
+
+Măsurătoarea de mai sus e corectă, dar titlul induce în eroare. Am rulat
+controlul: `master`, bază curată, aceeași rută, același header, `DB_POOL_MAX=10`.
+
+| concurență | `master` | `feat/tenancy-hierarchy` |
+|---|---|---|
+| 15 | 23ms, 600 req/s | 26ms, 555 req/s |
+| **20** | **p99 10 371ms, 23 req/s** | **33ms, 607 req/s** |
+| **30** | p50 11 839ms, **125 din 240 eșuate** | 50ms, 0 eșecuri |
+
+Deci nu „măsurătoarea din §2 nu se mai reproduce" — **se reproduce exact pe
+`master`.** Ce s-a schimbat e că `cfc3af59` a închis cauza. Diagnosticul a doua
+rezervare de conexiune e corect; ce nu e corect e sugestia că era închisă
+dinainte.
+
+Nuanța contează pentru cine citește mai târziu: dovada din §2 nu era falsă și nu
+trebuie scoasă. E **istorică**, și explică de ce a fost făcută reparația. Fără
+precizarea asta, cineva care revine peste un an ar putea conchide că problema
+n-a existat niciodată, și ar putea da înapoi reparația.
+
+Concluzia despre recomandarea A rămâne însă valabilă, doar cu alt motiv: A își
+pierde dovada principală pentru că problema **a fost rezolvată**, nu pentru că
+n-a existat.
+
+### Prăpastia mai există exact unde a doua rezervare a rămas
+
+`insightsRoutes`, `backupRoutes`, `sqlEditorRoutes` și `flowsRoutes` primesc
+`poolDb` **explicit**. Ele rulează pe pool în timp ce cererea ține deja o
+tranzacție — deci cer a doua conexiune. Pe `/api/insights/dashboards`:
+
+| concurență | înainte | după |
+|---|---|---|
+| 5 | 10ms p50, 0 eșecuri, 530 req/s | 10ms p50, 457 req/s |
+| **10** | **12 000ms p50, 20 520ms p95, 55 din 60 eșuate, 1 req/s** | **15ms p50, 0 eșecuri, 629 req/s** |
+| 15 | (blocat) | 19ms p50, 791 req/s |
+| 50 | (blocat) | 52ms p50, 870 req/s |
+
+`pg_stat_activity` în rândul din mijloc: **zece conexiuni `idle in transaction`,
+zero `active`.** Nu încărcare — încremenire. Și se întâmplă exact la
+`c = DB_POOL_MAX`, nu treptat.
+
+**Reparat** adăugând cele patru prefixe în `TXN_SKIP_PREFIXES`. E sigur fiindcă
+niciunul nu citește `tenantTrx`: `insights` și `flows` filtrează explicit prin
+`tenantOf(c)` — trebuie, fiind pe pool — iar `backup` și `sql-editor` n-au deloc
+noțiune de firmă. `/api/users` **nu** e în listă: ia `poolDb` ca al treilea
+argument, doar ca să revoce sesiuni la ștergere, și rulează restul pe tranzacția
+cererii.
+
+Poarta `scripts/check-pooldb-txn-skip.ts` (în `prepush`) ține lista și
+`routes/index.ts` de acord, ca un router mutat pe `poolDb` mâine să nu
+reintroducă încremenirea tăcut. Verificat că pică pe cazul pe care îl păzește.
+
+### Ce înseamnă pentru §6
+
+**Recomandarea A („micșorează limita la unitatea de lucru") își pierde dovada
+principală.** Ea se sprijinea pe tabelul din §2; acel tabel măsura a doua
+rezervare, iar aceea e acum închisă în ambele locuri unde apărea. Pentru o rută
+care ține **o** conexiune și nu cere a doua, tranzacția pe cerere nu costă nimic
+măsurabil până la c=120.
+
+Ce rămâne real e **§8, punctul doi**: 13 handlere care țin o conexiune peste
+muncă non-bază (apeluri HTTP către ANAF, generare PDF, încărcare în object
+storage, conectare la un server de mail). Acelea chiar țin o conexiune secunde
+întregi.
+
+**Dar nu se pot repara din extensii.** Tranzacția e deschisă de
+`tenantMiddleware` pentru toată cererea; `ctx.db` doar o rezolvă. O extensie nu
+are cum să o închidă la mijlocul handlerului, iar a le pune în
+`TXN_SKIP_PREFIXES` le-ar lăsa fără RLS, ceea ce nu e o opțiune. Deci cele 13
+cer chiar mutarea limitei din gazdă — dar acum pentru **motivul corect** (muncă
+lentă în tranzacție), nu pentru cel din §2, și cu o rază mult mai mică: rutele
+care fac muncă non-bază, nu toate citirile.
+
+Asta e o decizie de proprietar, fiindcă schimbă felul în care fiecare rută
+primește mânerul de bază de date. Testul de la §7.2 există acum tocmai ca să o
+poată judeca: `src/tests/harness/connection-hygiene.test.ts`.
+
+### §7.2 — testul de conexiune curată, făcut
+
+`packages/engine/src/tests/harness/connection-hygiene.test.ts`. Pool fixat la
+**o singură conexiune**, ca „aceeași conexiune fizică" să fie singura
+posibilitate, cu `pg_backend_pid()` verificat, nu presupus. Trei cazuri: rolul și
+GUC-urile nu supraviețuiesc tranzacției; noile `visible_tenants` /
+`ancestor_tenants` nu supraviețuiesc nici ele; și — cazul care le ține pe
+primele două oneste — **detectorul chiar vede o conexiune murdară**, printr-un
+`SET` de sesiune deliberat, urmat de `DISCARD ALL`, care e rețeta pe care ar
+trebui să o folosească varianta B.

@@ -365,3 +365,151 @@ jumătate din mecanism. Ce lipsește e identitatea instanței (cheie publică/mT
 și transportul.
 
 **`rls_bypass` nu devine niciodată mecanismul federației.**
+
+---
+
+## 13. Note de implementare — ce s-a dovedit altfel (2026-08-26)
+
+*Adăugate după implementare, pe ramura `feat/tenancy-hierarchy`. Planul de mai
+sus a fost urmat; patru dintre afirmațiile lui nu au supraviețuit contactului cu
+baza de date, și fiecare conta.*
+
+### §5 — `DEFAULT false` ar fi rupt toate cele 315 politici
+
+Planul cerea `zveltio_tenant_scope_ok(row_tenant uuid, inherit_down boolean
+DEFAULT false)` **lângă** funcția existentă cu un argument, ca politicile vechi
+să cheme mai departe cu un argument. Postgres refuză:
+
+```
+ERROR:  function zveltio_tenant_scope_ok(uuid) is not unique
+HINT:  Could not choose a best candidate function.
+```
+
+Un parametru cu valoare implicită **intră în mulțimea de candidați** pentru un
+apel cu un argument, deci apelul devine ambiguu. Nu la creare — **la fiecare
+interogare**, pe toate cele 315 politici deodată.
+
+Nici înlocuirea prin ștergere nu e disponibilă: o politică ia dependență tare de
+funcția pe care o cheamă, iar `DROP FUNCTION` e refuzat cât timp există politica.
+
+Ce s-a făcut: funcția cu un argument e **rescrisă pe loc** (`CREATE OR REPLACE`,
+aceeași semnătură), iar varianta cu două argumente **nu are valoare implicită**,
+deci nu poate primi un apel cu un argument și nu creează ambiguitate.
+
+### §5 — tabelul de costuri măsura altceva decât rulează politica
+
+Cifrele din §5 (Index Only Scan, 0,29ms / 10,5ms) sunt reale, dar au fost
+măsurate pe un predicat **scris de mână** — `tenant_id = ANY (...)`. Politicile
+cheamă o **funcție booleană de rând**, care se expandează într-un `CASE` în
+jurul comparației, iar Postgres **nu poate folosi un index printr-un `CASE`**:
+coloana indexată trebuie să apară într-o clauză indexabilă la nivelul de sus.
+
+Măsurat pe 500 000 de rânduri, 200 de unități, cu index pe `tenant_id` prezent
+tot timpul:
+
+| forma predicatului | plan | timp |
+|---|---|---|
+| funcție booleană de rând (**forma folosită până acum**) | Seq Scan | **249 ms** |
+| `tenant_id = ANY (funcție STABLE care întoarce mulțimea)`, 1 unitate | Index Only Scan | 0,28 ms |
+| aceeași, 42 de unități | Index Only Scan | 10,8 ms |
+
+Prin urmare **nu costul ierarhiei era problema, ci forma predicatului — de
+dinainte de lucrarea asta.** Migrația scrie politicile în forma indexabilă:
+`USING (tenant_id = ANY (zveltio_visible_tenants()))`. Funcțiile cu nume vechi
+rămân definite peste aceleași mulțimi, fiindcă 57 de migrații de extensii le
+scriu în politicile pe care le creează și nu toate sunt în acest depozit; o
+extensie instalată mâine primește o politică **corectă, dar neindexată**, iar
+reconcilierul de la boot o mută pe forma rapidă.
+
+Contează mai mult acum decât înainte: un nod-părinte citește legitim de 42 de
+ori mai multe rânduri, deci ăsta e exact momentul în care o scanare secvențială
+încetează să fie ieftină.
+
+### Corecție la corecția de mai sus — forma indexabilă nu ține ca POLITICĂ (2026-08-27)
+
+Simptomul de mai sus e real și important. Mecanismul și remediul nu sunt.
+
+Măsurat pe 500 000 de rânduri din care 2 500 aparțin firmei, cu index prezent,
+`FORCE ROW LEVEL SECURITY` activ — deci cu politica chiar aplicată:
+
+| forma, **ca politică** | plan | rânduri scanate |
+|---|---|---|
+| funcție booleană de rând (vechea formă) | Index Only Scan, fără `Index Cond` | 500 000 |
+| `tenant_id = ANY (zveltio_visible_tenants())` — **forma scrisă de migrație** | **Parallel Seq Scan** | 500 000 |
+| predicat scris inline în politică | fără `Index Cond` | 500 000 |
+| înfășurat în `(SELECT …)` | fără `Index Cond` | 500 000 |
+| funcție wrapper marcată `LEAKPROOF` | fără `Index Cond` | 500 000 |
+
+Aceleași expresii, **ca `WHERE` obișnuit**, se comportă exact cum descrie tabelul
+de mai sus: `= ANY(funcție)` dă `Bitmap Index Scan` cu `Index Cond` pe 2 500 de
+rânduri, iar funcția booleană nu.
+
+**Deci diferența nu e forma predicatului, ci faptul că e politică.** Planificatorul
+estimează qualul de securitate ca potrivind tot — 208 333 de rânduri per worker
+față de 2 492 estimate corect pentru aceeași expresie ca `WHERE`. Fără o
+estimare, nu alege drumul prin index.
+
+Cifra de 0,28ms din tabelul de mai sus a fost aproape sigur măsurată **în afara
+politicii**. E aceeași greșeală de metodă pe care corecția o reproșează,
+corect, versiunii inițiale a acestui document — și pe care a repetat-o.
+
+**Ce funcționează, verificat:** politica rămâne, iar interogarea repetă filtrul
+explicit. Politica activă plus `WHERE tenant_id = current_setting(…)` →
+`Index Cond`, 2 500 de rânduri, cost 53 în loc de 6 600. RLS rămâne garanția;
+filtrul explicit e ce are nevoie planificatorul. Se poate injecta o singură dată,
+în proxy-ul cu domeniu de cerere, pentru engine și extensii deopotrivă.
+
+**Consecință pentru migrație:** forma nouă a politicilor e semantic corectă și
+nu strică nimic, dar **nu aduce câștigul de performanță invocat ca justificare**
+— iar la `count(*)` e un plan mai prost decât forma veche (Seq Scan față de Index
+Only Scan). Nu e motiv să se dea înapoi; e motiv ca justificarea să nu rămână
+scrisă greșit.
+
+### §6 — sunt 16 pe o instalare curată, nu 20
+
+Cele patru care lipsesc — `zvd_pages`, `zvd_views`, `zvd_zones`,
+`zvd_page_views` — **nu există pe o instalare curată**. Sunt tabelele vechi din
+care `content/pages` migrează. Baza pe care s-a măsurat §6 era moștenită
+dinainte de fuziune. Detalii și împărțirea completă în
+`TENANCY-COVERAGE-CLASSIFICATION.md`.
+
+Din cele 16, **5 intră în migrație** și 11 rămân afară cu motiv scris. Cele mai
+multe dintre cele 11 nu sunt „administrative": sunt tabele al căror unic
+cititor e un lucrător de fundal care rulează **pe pool, fără GUC** — unde o
+politică n-ar proteja nimic, ar stinge tăcut funcția. `zv_flows`,
+`zvd_webhooks`, `zv_revisions` și `zv_dashboards` sunt exact asta, iar
+`insightsRoutes(poolDb, …)` / `flowsRoutes(poolDb, …)` o spun în `routes/index.ts`.
+
+**Una era exploatabilă**, iar §6 lăsase întrebarea deschisă:
+`GET /ext/workflow/checklists/templates/:id/scoring-schemes` citea schemele de
+punctaj ale altei firme. Dovedit pe rânduri reale, reparat, și acum acoperit de
+politică.
+
+### §6 — „dacă numărul nu e 315, migrația se oprește" e prea rigid
+
+315 e ce are o instalare cu toate extensiile. O bază doar cu engine-ul are 4.
+Migrația nu poate ști numărul dinainte. Invariantul echivalent și verificabil pe
+orice instalare: **numărul rescris = numărul găsit**, **zero politici rămase pe
+predicatul vechi**, și toate cele rescrise poartă ambele predicate noi. Migrația
+se oprește dacă vreuna nu ține.
+
+### Un gol găsit în reconcilier, nu în plan
+
+`reconcileExtensionTenantRLS` filtra tabelele după prefixul `zv_`/`zvd_`. Cele
+11 tabele `trace_*` din `compliance/traceability` au `tenant_id`, declară
+politică `tenant_isolation_*` și **erau sărite de fiecare boot** — deci
+garanția „gazda pune fiecare tabelă de extensie pe predicatul gazdei" nu era
+adevărată, și nimic nu o spunea. Prefixul nu era ce făcea operația sigură;
+numele e în continuare validat ca identificator simplu înainte de interpolare.
+
+### Ce NU s-a făcut din §4, deliberat
+
+Cele patru coloane de abonament (`plan`, `trial_ends_at`, `billing_email`,
+`max_api_calls_day`) **nu au fost șterse**. Toate patru sunt vii:
+`routes/tenants.ts` le acceptă și le întoarce, Studio are formular pe `plan`, iar
+`max_api_calls_day` **e** mecanismul de cotă din `middleware/tenant-quota.ts` —
+ștergerea lui nu e curățenie, e oprirea cotelor per firmă. Restul planului e
+aditiv; asta ar fi fost singura lui parte distructivă, și nu e cerută de nimic
+altceva din el. Precedentul pentru amânare e în depozit: jumătatea de
+*contracție* a migrației 048 e un reconciliator pe care operatorul îl armează
+(`contractImportLogs`), nu o migrație. Decizie de proprietar.
