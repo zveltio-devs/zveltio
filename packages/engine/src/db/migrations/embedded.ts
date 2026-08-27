@@ -14,6 +14,7 @@ import m001 from './sql/001_initial.sql' with { type: 'text' };
 import m002 from './sql/002_passkey.sql' with { type: 'text' };
 import m003 from './sql/003_rls_parallel_safe.sql' with { type: 'text' };
 import m004 from './sql/004_tenancy_hierarchy.sql' with { type: 'text' };
+import m005 from './sql/005_rls_initplan_predicate.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -21,4 +22,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '002_passkey.sql': m002,
   '003_rls_parallel_safe.sql': m003,
   '004_tenancy_hierarchy.sql': m004,
+  '005_rls_initplan_predicate.sql': m005,
 };
