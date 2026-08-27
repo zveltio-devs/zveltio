@@ -14,7 +14,10 @@ test('confirm dialogs render in the chosen language', async ({ page }) => {
   await page.waitForTimeout(1200);
   await page.locator('#login-email').fill(E2E.admin.email);
   await page.locator('#login-password').fill(E2E.admin.password);
-  await page.getByRole('button', { name: /sign in$/i }).first().click();
+  await page
+    .getByRole('button', { name: /sign in$/i })
+    .first()
+    .click();
   await page.waitForTimeout(3500);
 
   // Switch to Romanian the way the locale store does, then reload.
