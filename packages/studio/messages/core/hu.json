@@ -673,6 +673,7 @@
   "mkt.uninstallFailed": "Az eltávolítás sikertelen: {error}",
   "mkt.uninstallMsg": "Eltávolítod: „{name}”? A konfiguráció elveszik.",
   "nav.account": "Fiók",
+  "nav.aiChat": "AI-csevegés",
   "nav.analytics": "Analitika",
   "nav.apiKeys": "API-kulcsok",
   "nav.approvals": "Jóváhagyások",

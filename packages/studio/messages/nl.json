@@ -2471,6 +2471,7 @@
   "mkt.uninstallFailed": "De-installatie mislukt: {error}",
   "mkt.uninstallMsg": "\"{name}\" de-installeren? De configuratie gaat verloren.",
   "nav.account": "Account",
+  "nav.aiChat": "AI-chat",
   "nav.analytics": "Analyse",
   "nav.apiKeys": "API-sleutels",
   "nav.approvals": "Goedkeuringen",

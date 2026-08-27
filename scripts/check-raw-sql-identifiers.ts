@@ -30,7 +30,51 @@ import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const DIRS = targets.length > 0 ? targets : [join(ROOT, '..', 'zveltio-extensions')];
+// This repository too, not only the sibling. The default was the extensions repo
+// alone, so a quoted interpolation inside `sql.raw` in the engine or the Studio
+// was never looked at — nine of them exist today and the gate had never seen one.
+const DIRS =
+  targets.length > 0 ? targets : [join(ROOT, 'packages'), join(ROOT, '..', 'zveltio-extensions')];
+
+/**
+ * What counts as having checked the name before interpolating it.
+ *
+ * A regex test on the value, membership of a literal list, an inline strip of
+ * everything but word characters, or a named assertion helper. Deliberately
+ * generous: a missed guard costs a finding nobody reads, while demanding the
+ * escaper everywhere costs churn on code that is already correct.
+ */
+const GUARDED =
+  /\.test\(|\.includes\(|assertSafe|safeIdent|SAFE_NAME|validate[A-Z]\w*\(|replace\(\s*\/\[\^/;
+// 20, not 8. A function that validates a name once at the top and interpolates
+// it twice puts the second use well outside a short window —
+// `fail-closed-tenant.ts` tests at line 17 and interpolates at 22 and 31. The
+// guard has to stay inside the same function to be meaningful, and twenty lines
+// is about as long as one of these is.
+const LOOKBACK = 20;
+
+/**
+ * The escape hatch, in the shape this repository already uses for
+ * `// fabricated-ok:`. A name validated far above its use, or one this code
+ * built from parts it controls, is safe in a way twenty lines of lookback
+ * cannot see — and the reason belongs written down next to it rather than
+ * rediscovered by whoever reads the finding next.
+ */
+const REVIEWED_OK = /^\s*\/\/\s*raw-ident-ok:\s*\S/;
+
+/**
+ * A whole-file review, for a module that is one pipeline from one validated
+ * input. `ghost-ddl.ts` derives four identifiers from a single table name and
+ * threads them through nineteen statements; annotating each is noise, and an
+ * attempt to do it mechanically put `//` comments inside SQL template literals,
+ * which is a syntax error rather than a comment.
+ *
+ * Coarse on purpose and therefore rationed: it must carry a reason, and a file
+ * claiming it should be one whose entry points validate. If this starts
+ * appearing on files that simply have a lot of findings, it has become an
+ * excuse and should be taken away again.
+ */
+const FILE_REVIEWED_OK = /\/\/\s*raw-ident-ok-file:\s*\S/;
 
 function tsFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -51,12 +95,37 @@ const findings: string[] = [];
 for (const dir of DIRS) {
   for (const file of tsFiles(dir)) {
     const src = readFileSync(file, 'utf8');
-    if (!src.includes('sql.raw')) continue;
+    // `sql\s*\.\s*raw` here too: a call written across two lines as `sql`
+    // then `.raw(` was skipped by the substring test before the regex below
+    // ever ran, so widening only the regex changed nothing.
+    if (!/sql\s*\.\s*raw/.test(src)) continue;
+    // Searched over the whole file, not a prefix: this module's header comment
+    // runs past four thousand characters.
+    if (FILE_REVIEWED_OK.test(src)) continue;
     // Only inside a `sql.raw` template — a quoted interpolation in a plain
     // string is prose (an error message naming a table), not SQL.
-    for (const m of src.matchAll(/sql\.raw\(\s*`([^`]*)`/g)) {
+    const lines = src.split('\n');
+    // `sql\s*\.\s*raw` — the pattern used to demand `sql.raw(` with nothing
+    // between, so a call written across two lines as `sql` then `.raw(` was
+    // invisible to it. ghost-ddl.ts has exactly that shape, with TWO quoted
+    // interpolations, and the gate had never seen either.
+    for (const m of src.matchAll(/sql\s*\.\s*raw\(\s*`([^`]*)`/g)) {
       for (const hit of m[1]!.matchAll(/"\$\{[^}]+\}"/g)) {
         const line = src.slice(0, m.index! + hit.index!).split('\n').length;
+        // A guard in the lines just above is the other correct answer, and the
+        // note at the top of this file already said so while the check did not
+        // look for it. Pointed at this repository, the pattern alone produced
+        // nine findings and every one was safe: a regex test immediately before
+        // the interpolation, membership of a literal allow-list, or a name this
+        // code generated itself. A gate whose every finding is a false positive
+        // does not get read.
+        // Three lines, not one: a reason worth writing is usually a sentence
+        // that wraps, and an annotation that only counts on one line quietly
+        // stops counting the moment somebody explains themselves properly.
+        const above = lines.slice(Math.max(0, line - 4), line - 1);
+        if (above.some((l) => REVIEWED_OK.test(l))) continue;
+        const before = lines.slice(Math.max(0, line - 1 - LOOKBACK), line).join('\n');
+        if (GUARDED.test(before)) continue;
         findings.push(`  ${file.replace(`${ROOT}/`, '')}:${line}  ${hit[0]}`);
       }
     }

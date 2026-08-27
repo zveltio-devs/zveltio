@@ -178,7 +178,7 @@ jobs:
       - name: Clone zveltio-extensions sibling
         # Three steps below check the extension catalogue and every one of them was
         # guarded with `if [ -d ../zveltio-extensions ]` … `else echo "skipping"`.
-        # This job never cloned it, so `ext:i18n-ownership` and `ext:raw-sql` printed
+        # This job never cloned it, so `ext:i18n-ownership` and `check:raw-sql` printed
         # "zveltio-extensions not checked out — skipping" on every run since they were
         # added, and the job went green. Nobody noticed because a skipped gate and a
         # passing gate look identical in the summary.
@@ -215,7 +215,7 @@ jobs:
       - name: Identifiers in raw SQL are escaped
         # A manual sweep fixed eleven of these and missed a twelfth, because it
         # enumerated variable names instead of matching the pattern.
-        run: bun run ext:raw-sql
+        run: bun run check:raw-sql
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index
