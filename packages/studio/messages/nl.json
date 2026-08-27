@@ -1495,6 +1495,7 @@
   "data.import.upsertHint": "Upsert on field (optional, e.g. email)",
   "data.recordDeleted": "Record verwijderd",
   "data.recordsDeleted": "Records verwijderd",
+  "data.searchRecords": "Records zoeken…",
   "denial.askAdmin": "Een beheerder van deze werkruimte kan dit verlenen.",
   "denial.askPerson": "{name} kan je toegang geven.",
   "denial.confidential": "{resource} zijn vertrouwelijke gegevens.",
