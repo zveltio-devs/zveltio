@@ -206,7 +206,7 @@ async function addMember(tenantId: string) {
     });
     memberForm[tenantId] = { email: '', role: 'member' };
     await loadMembers(tenantId);
-    toast.success('Member added');
+    toast.success(m['tenants.memberAdded']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Failed to add member');
@@ -219,7 +219,7 @@ async function removeMember(tenantId: string, userId: string) {
   try {
     await api.delete(`/api/tenants/${tenantId}/members/${userId}`);
     await loadMembers(tenantId);
-    toast.success('Member removed');
+    toast.success(m['tenants.memberRemoved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Failed to remove member');

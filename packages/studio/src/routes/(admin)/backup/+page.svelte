@@ -107,9 +107,9 @@ function pollBackup(id: string) {
 async function deleteBackup(id: string, filename: string) {
   confirmState = {
     open: true,
-    title: 'Delete Backup',
+    title: m['confirm.deleteBackup.title'](),
     message: `Delete backup "${filename}"?`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {

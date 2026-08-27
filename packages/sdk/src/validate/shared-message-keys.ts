@@ -10,7 +10,7 @@
  * host whose core catalogue happens to know about it, which is not a property
  * an installable extension should depend on.
  *
- * Source: packages/studio/messages/core/en.json (182 keys)
+ * Source: packages/studio/messages/core/en.json (189 keys)
  */
 export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.actions',
@@ -115,15 +115,18 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.col.year',
   'common.collectionRequired',
   'common.confirm',
+  'common.copied',
   'common.copy',
   'common.copyShort',
   'common.create',
   'common.delete',
+  'common.deleteFailed',
   'common.discard',
   'common.done',
   'common.download',
   'common.edit',
   'common.emptyDash',
+  'common.failed',
   'common.fields',
   'common.filter.admin',
   'common.filter.all',
@@ -134,6 +137,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.generate',
   'common.loading',
   'common.manage',
+  'common.mergeFailed',
   'common.nameRequired',
   'common.new',
   'common.next',
@@ -154,8 +158,10 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.reject',
   'common.remove',
   'common.required',
+  'common.resetFailed',
   'common.revoke',
   'common.save',
+  'common.saveFailed',
   'common.saved',
   'common.search',
   'common.selectCollection',
@@ -173,6 +179,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.testConnection',
   'common.unexpectedError',
   'common.upload',
+  'common.uploadFailed',
   'common.uploading',
   'common.view',
   'common.viewAll',
