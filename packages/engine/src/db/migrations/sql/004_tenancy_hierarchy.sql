@@ -155,27 +155,41 @@ COMMENT ON TABLE zv_tenant_transfers IS
 -- ── 4. The predicates ──────────────────────────────────────────────
 --
 -- Shaped as `tenant_id = ANY (<stable set function>)` rather than as a boolean
--- function of the row, and that shape is the whole performance story.
+-- function of the row. The set functions are STABLE and take no argument, so
+-- they are evaluated once per query rather than once per row, and the shape
+-- reads as what it is: membership in the visible set.
 --
--- A predicate spelled `zveltio_tenant_scope_ok(tenant_id)` inlines to a CASE
--- expression wrapped around the comparison, and Postgres cannot use an index
--- through a CASE — the indexed column has to appear in an indexable clause at
--- the top level. Measured on 500 000 rows across 200 units, with an index on
--- `tenant_id` present the whole time:
+-- What this shape does NOT do is make the plan indexable. An earlier version of
+-- this comment claimed it did, on measurements of
 --
---   boolean function of the row (the shape used until now)   Seq Scan     249 ms
---   tenant_id = ANY (stable set function), 1 unit            Index Only  0.28 ms
---   tenant_id = ANY (stable set function), 42 units          Index Only  10.8 ms
+--     SELECT ... WHERE tenant_id = ANY (fn())
 --
--- The middle row is what the design document's cost table records, and the top
--- row is what the deployed policies were actually doing — the table was
--- measured against a bare predicate rather than against the function. Nothing
--- regressed here; this makes the stated cost true for the first time. It also
--- matters more now than it did: a consolidating parent legitimately reads 42
--- times the rows, so this is the moment a sequential scan stops being cheap.
+-- which is not what a policy is. Re-measured 2026-08-27 with the policy actually
+-- enforced (`FORCE ROW LEVEL SECURITY`), 500 000 rows of which 2 500 belong to
+-- the unit:
 --
--- The set functions are STABLE and take no argument, so they are evaluated once
--- per query, not once per row.
+--   as a POLICY, boolean function of the row      Index Only Scan, no cond   500 000 rows
+--   as a POLICY, = ANY (set function)  ← this     Parallel Seq Scan          500 000 rows
+--   as a POLICY, predicate written inline         no index cond              500 000 rows
+--   as a POLICY, wrapped in (SELECT …)            no index cond              500 000 rows
+--   as a POLICY, LEAKPROOF wrapper                no index cond              500 000 rows
+--   the same expressions as a plain WHERE         Index Cond                   2 500 rows
+--
+-- So the cost is not in the shape of the predicate, it is in being a policy at
+-- all: the planner has no selectivity estimate for a security qual and assumes
+-- it matches everything (208 333 rows per worker against a correct estimate of
+-- 2 492 for the same expression outside a policy), so it never chooses the
+-- index. Measured times for the two policy shapes are the same order — 24.9 ms
+-- and 22.3 ms — because both read every row.
+--
+-- Nothing regressed. Nothing improved either. This is a PRE-EXISTING cost that
+-- applies to every RLS-protected read in the product, and it is worth its own
+-- piece of work rather than a claim in a migration comment.
+--
+-- What restores the index, verified: leave the policy as the guarantee and
+-- repeat the filter in the query — `WHERE tenant_id = current_setting(…)` on top
+-- of the policy gives `Index Cond`, 2 500 rows, cost 53 against 6 600. That
+-- belongs in the request-scoped proxy, once, for engine and extensions alike.
 
 CREATE OR REPLACE FUNCTION zveltio_visible_tenants()
 RETURNS uuid[]
