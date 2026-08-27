@@ -285,31 +285,36 @@ function statusIcon(status: string) {
 // from the codebase rather than anything an operator recognises. The map covers
 // what the engine actually writes; anything else falls back to a humanising
 // pass, so a new event type degrades to readable rather than to a blank.
-const EVENT_LABELS: Record<string, string> = {
-  god_action: 'Owner override',
-  'god_mode.used': 'Owner override',
-  'settings.changed': 'Settings changed',
-  'user.created': 'User created',
-  'user.deleted': 'User deleted',
-  'user.updated': 'User updated',
-  'auth.login': 'Signed in',
-  'auth.logout': 'Signed out',
-  'auth.failed': 'Sign-in failed',
-  'record.created': 'Record created',
-  'record.updated': 'Record updated',
-  'record.deleted': 'Record deleted',
-  'collection.created': 'Collection created',
-  'collection.deleted': 'Collection deleted',
-  'permission.changed': 'Permissions changed',
-  'api_key.created': 'API key created',
-  'api_key.revoked': 'API key revoked',
-  'extension.installed': 'Extension installed',
-  'extension.removed': 'Extension removed',
+// Keyed to the catalogue, not to English literals: this page is translated into
+// nine languages and an event label is text the operator reads, wherever it
+// happens to be declared. A raw string here would have shipped English into
+// every other locale — the i18n gate catches those in markup and this one sits
+// in a script block, which is exactly how such strings survive.
+const EVENT_LABELS: Record<string, () => string> = {
+  god_action: m['audit.event.ownerOverride'],
+  'god_mode.used': m['audit.event.ownerOverride'],
+  'settings.changed': m['audit.event.settingsChanged'],
+  'user.created': m['audit.event.userCreated'],
+  'user.deleted': m['audit.event.userDeleted'],
+  'user.updated': m['audit.event.userUpdated'],
+  'auth.login': m['audit.event.signedIn'],
+  'auth.logout': m['audit.event.signedOut'],
+  'auth.failed': m['audit.event.signInFailed'],
+  'record.created': m['audit.event.recordCreated'],
+  'record.updated': m['audit.event.recordUpdated'],
+  'record.deleted': m['audit.event.recordDeleted'],
+  'collection.created': m['audit.event.collectionCreated'],
+  'collection.deleted': m['audit.event.collectionDeleted'],
+  'permission.changed': m['audit.event.permissionsChanged'],
+  'api_key.created': m['audit.event.apiKeyCreated'],
+  'api_key.revoked': m['audit.event.apiKeyRevoked'],
+  'extension.installed': m['audit.event.extensionInstalled'],
+  'extension.removed': m['audit.event.extensionRemoved'],
 };
 
 function eventLabel(type: string): string {
   const known = EVENT_LABELS[type];
-  if (known) return known;
+  if (known) return known();
   const words = type.replace(/[._]/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -509,7 +514,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                     <td class="max-w-44 truncate text-xs text-base-content/70" title={entry.user_email ?? entry.user_id ?? ''}>
                       {#if entry.user_email}{entry.user_email}
                       {:else if entry.user_id}<span class="font-mono text-base-content/65">{entry.user_id.slice(0, 8)}…</span>
-                      {:else}<span class="text-base-content/65">System</span>{/if}
+                      {:else}<span class="text-base-content/65">{m['dashboard.actorSystem']()}</span>{/if}
                     </td>
                     <td class="max-w-48 truncate text-xs text-base-content/65">
                       {entry.resource_type ?? '—'}
