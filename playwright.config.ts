@@ -46,7 +46,20 @@ export default defineConfig({
     video: 'off',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Playwright's bundled headless shell needs GTK/ATK libraries this box
+        // does not have. `CHROMIUM_PATH` points at a system Chromium instead;
+        // CI leaves it unset and keeps the bundled, pinned browser.
+        ...(process.env.CHROMIUM_PATH
+          ? { launchOptions: { executablePath: process.env.CHROMIUM_PATH } }
+          : {}),
+      },
+    },
+  ],
 
   webServer: {
     command: 'bun e2e/setup/boot.ts',

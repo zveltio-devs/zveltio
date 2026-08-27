@@ -32,8 +32,6 @@ import {
   Workflow,
   LayoutGrid,
   ArrowRight,
-  ArrowUp,
-  ArrowDown,
   Shield,
   Sparkles,
 } from '@lucide/svelte';
@@ -42,7 +40,6 @@ import PageHeader from '$lib/components/common/PageHeader.svelte';
 import SectionCard from '$lib/components/common/SectionCard.svelte';
 import EmptyState from '$lib/components/common/EmptyState.svelte';
 import Slot from '$lib/components/common/Slot.svelte';
-import Sparkline from '$lib/components/common/Sparkline.svelte';
 import { auth } from '$lib/auth.svelte.js';
 import { extensions } from '$lib/extensions.svelte.js';
 
@@ -304,41 +301,21 @@ function timeOfDayGreeting(): string {
 const firstName = $derived((auth.user?.name ?? '').split(' ')[0] || '');
 const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : timeOfDayGreeting());
 
-// Mock sparkline series — deterministic per metric so the dashboard
-// doesn't reshuffle on every refresh. Replace with real time-series
-// from a future /api/admin/stats?series=7d endpoint.
-function mockSeries(seed: number, target: number, points = 14): number[] {
-  const out: number[] = [];
-  let v = Math.max(0, target * 0.6);
-  for (let i = 0; i < points; i++) {
-    const r = Math.sin((i + 1) * (seed + 0.37)) * 0.5 + 0.5;
-    v = v + (target - v) * 0.2 + (r - 0.5) * Math.max(2, target * 0.08);
-    out.push(Math.max(0, Math.round(v)));
-  }
-  out[out.length - 1] = target;
-  return out;
-}
-const collectionsSeries = $derived(mockSeries(1, stats.collections));
-const recordsSeries = $derived(mockSeries(2, stats.total_records));
-const apiCallsSeries = $derived(mockSeries(3, stats.api_calls_today));
-const webhooksSeries = $derived(mockSeries(4, stats.active_webhooks));
-
-const collectionsTrend = $derived(trend(collectionsSeries));
-const recordsTrend = $derived(trend(recordsSeries));
-const apiCallsTrend = $derived(trend(apiCallsSeries));
-const webhooksTrend = $derived(trend(webhooksSeries));
-
-// Trend delta — compares latest point to first point of the series.
-function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
-  if (series.length < 2) return { pct: 0, dir: 'flat' };
-  const first = series[0];
-  const last = series[series.length - 1];
-  if (first === 0 && last === 0) return { pct: 0, dir: 'flat' };
-  if (first === 0) return { pct: 100, dir: 'up' };
-  const pct = Math.round(((last - first) / first) * 100);
-  if (Math.abs(pct) < 1) return { pct: 0, dir: 'flat' };
-  return { pct: Math.abs(pct), dir: pct > 0 ? 'up' : 'down' };
-}
+// No sparklines and no delta badges until there is a time series to draw.
+//
+// What stood here generated one: `mockSeries(seed, target)` walked a sine wave
+// from a seed and forced the last point to the real value, and the delta badge
+// was computed from THAT series. On a fresh install with zero records, the
+// invented series started above zero and ended at zero, so the first screen of
+// the product told a new operator their records had fallen 100%.
+//
+// The chart was invented, the statistic derived from the invention, and both
+// were presented as measurement. For a Business OS sold to companies and public
+// institutions that is a trust problem rather than a polish one.
+//
+// Bringing them back means a real series. `zv_audit_logs` already carries
+// timestamps, so API calls per day is the one that could be honest first; an
+// endpoint like `/api/admin/stats?series=7d` is the shape it needs.
 </script>
 
 <div class="space-y-6">
@@ -408,19 +385,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
             <div class="p-2 bg-primary/10 rounded-xl"><Database size={18} class="text-primary" /></div>
-            {#if collectionsTrend.dir !== 'flat'}
-              <span class="badge badge-sm gap-1 {collectionsTrend.dir === 'up' ? 'badge-success' : 'badge-error'} badge-soft">
-                {#if collectionsTrend.dir === 'up'}<ArrowUp size={11} />{:else}<ArrowDown size={11} />{/if}
-                {collectionsTrend.pct}%
-              </span>
-            {/if}
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.collections}</p>
             <p class="text-xs text-base-content/55 mt-0.5">{m['nav.collections']()}</p>
-          </div>
-          <div class="text-primary">
-            <Sparkline data={collectionsSeries} height={26} width={200} color="currentColor" />
           </div>
         </div>
       </a>
@@ -433,19 +401,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
             <div class="p-2 bg-secondary/10 rounded-xl"><Database size={18} class="text-secondary" /></div>
-            {#if recordsTrend.dir !== 'flat'}
-              <span class="badge badge-sm gap-1 {recordsTrend.dir === 'up' ? 'badge-success' : 'badge-error'} badge-soft">
-                {#if recordsTrend.dir === 'up'}<ArrowUp size={11} />{:else}<ArrowDown size={11} />{/if}
-                {recordsTrend.pct}%
-              </span>
-            {/if}
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.total_records.toLocaleString()}</p>
             <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.totalRecords']()}</p>
-          </div>
-          <div class="text-secondary">
-            <Sparkline data={recordsSeries} height={26} width={200} color="currentColor" />
           </div>
         </div>
       </a>
@@ -457,19 +416,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
             <div class="p-2 bg-accent/10 rounded-xl"><Zap size={18} class="text-accent" /></div>
-            {#if apiCallsTrend.dir !== 'flat'}
-              <span class="badge badge-sm gap-1 {apiCallsTrend.dir === 'up' ? 'badge-success' : 'badge-error'} badge-soft">
-                {#if apiCallsTrend.dir === 'up'}<ArrowUp size={11} />{:else}<ArrowDown size={11} />{/if}
-                {apiCallsTrend.pct}%
-              </span>
-            {/if}
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.api_calls_today.toLocaleString()}</p>
             <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
-          </div>
-          <div class="text-accent">
-            <Sparkline data={apiCallsSeries} height={26} width={200} color="currentColor" />
           </div>
         </div>
       </a>
@@ -481,19 +431,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
             <div class="p-2 bg-info/10 rounded-xl"><Webhook size={18} class="text-info" /></div>
-            {#if webhooksTrend.dir !== 'flat'}
-              <span class="badge badge-sm gap-1 {webhooksTrend.dir === 'up' ? 'badge-success' : 'badge-error'} badge-soft">
-                {#if webhooksTrend.dir === 'up'}<ArrowUp size={11} />{:else}<ArrowDown size={11} />{/if}
-                {webhooksTrend.pct}%
-              </span>
-            {/if}
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.active_webhooks}</p>
             <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
-          </div>
-          <div class="text-info">
-            <Sparkline data={webhooksSeries} height={26} width={200} color="currentColor" />
           </div>
         </div>
       </a>
