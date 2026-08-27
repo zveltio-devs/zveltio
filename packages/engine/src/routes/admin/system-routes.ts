@@ -310,17 +310,23 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
+    // The email, joined here for the same reason as on `/audit`: every consumer
+    // otherwise renders a truncated user id, which tells a reader nothing about
+    // who changed the record they are looking at. LEFT, so a deleted user does
+    // not delete the history of what they did.
     let query = db
       .selectFrom('zv_revisions')
-      .selectAll()
-      .where('tenant_id', '=', tenantId(c))
-      .orderBy('created_at', 'desc')
+      .leftJoin('user', 'user.id', 'zv_revisions.user_id')
+      .selectAll('zv_revisions')
+      .select('user.email as user_email')
+      .where('zv_revisions.tenant_id', '=', tenantId(c))
+      .orderBy('zv_revisions.created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset);
 
-    if (collection) query = query.where('collection', '=', collection);
-    if (record_id) query = query.where('record_id', '=', record_id);
-    if (user_id) query = query.where('user_id', '=', user_id);
+    if (collection) query = query.where('zv_revisions.collection', '=', collection);
+    if (record_id) query = query.where('zv_revisions.record_id', '=', record_id);
+    if (user_id) query = query.where('zv_revisions.user_id', '=', user_id);
 
     const revisions = await query.execute();
     return c.json({ revisions });
