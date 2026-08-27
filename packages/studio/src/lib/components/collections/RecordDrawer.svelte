@@ -5,8 +5,8 @@ import { m } from '$lib/i18n.svelte.js';
 // name + the insertable field list and an `onSaved` callback; this component
 // owns the drawer open/mode state and exposes `openCreate()` / `openEdit()` so
 // the page header + data-table rows can trigger it via `bind:this`.
-import { X, Layers, Save, Plus } from '@lucide/svelte';
-import { dataApi } from '$lib/api.js';
+import { X, Layers, Save, Plus, History, ChevronDown } from '@lucide/svelte';
+import { api, dataApi } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { fieldLabel, fieldBadgeColor, labelFromRecord } from './field-helpers.js';
 import type { CollectionField, CollectionRecord } from './types.js';
@@ -20,6 +20,59 @@ interface Props {
   onGoToSchema: () => void;
 }
 const { collectionName, insertableFields, onSaved, onGoToSchema }: Props = $props();
+
+// ── Who changed this, and when ───────────────────────────
+//
+// There is a global audit page, and the question a person actually asks standing
+// in front of a record is narrower: "who changed THIS". Answering it meant
+// leaving the record, opening another screen and filtering it down — so in
+// practice nobody asked.
+//
+// `zv_revisions` was built for exactly this query and the Studio never ran it
+// here: the table carries an index on `(collection, record_id, created_at DESC)`
+// and nothing else uses it that way.
+type Revision = {
+  id: string;
+  action: 'create' | 'update' | 'delete';
+  delta: Record<string, unknown> | null;
+  user_email: string | null;
+  user_id: string | null;
+  created_at: string;
+};
+
+let history = $state<Revision[]>([]);
+let historyLoading = $state(false);
+let historyOpen = $state(false);
+let historyError = $state<string | null>(null);
+
+async function loadHistory() {
+  if (!drawerRecordId) return;
+  historyLoading = true;
+  historyError = null;
+  try {
+    const res = await api.get<{ revisions: Revision[] }>(
+      `/api/admin/revisions?collection=${encodeURIComponent(collectionName)}` +
+        `&record_id=${encodeURIComponent(drawerRecordId)}&limit=20`,
+    );
+    history = res.revisions ?? [];
+  } catch (e) {
+    // NOT swallowed into an empty list. "Could not load the history" and "this
+    // record has no history" are different sentences, and showing the second
+    // when the first is true is the same lie this codebase has spent the day
+    // removing — the first version of this function did exactly that, and hid a
+    // missing import behind "No changes recorded yet".
+    historyError = (e as Error).message || m['common.failed']();
+    history = [];
+  } finally {
+    historyLoading = false;
+  }
+}
+
+/** The field names a revision touched, which is the part worth reading. */
+function changedFields(r: Revision): string[] {
+  if (!r.delta || typeof r.delta !== 'object') return [];
+  return Object.keys(r.delta);
+}
 
 let drawerOpen = $state(false);
 let drawerMode = $state<'create' | 'edit'>('create');
@@ -350,6 +403,69 @@ async function saveRecord() {
           {/each}
 
         {/if}
+
+        {#if drawerMode === 'edit' && drawerRecordId}
+          <!-- Collapsed by default and loaded only when opened: the history is a
+               question people ask sometimes, and the fields are what they came
+               for. A drawer that is merely being edited should not pay for a
+               query nobody asked for. -->
+          <div class="border-t border-base-200 pt-4">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between text-sm font-medium text-base-content/70 hover:text-base-content"
+              onclick={() => {
+                historyOpen = !historyOpen;
+                if (historyOpen && history.length === 0) void loadHistory();
+              }}
+            >
+              <span class="flex items-center gap-2"><History size={14} /> {m['record.history']()}</span>
+              <ChevronDown size={14} class="transition-transform {historyOpen ? 'rotate-180' : ''}" />
+            </button>
+
+            {#if historyOpen}
+              <div class="mt-3">
+                {#if historyLoading}
+                  <p class="text-xs text-base-content/65">{m['common.loading']()}</p>
+                {:else if historyError}
+                  <p class="text-xs text-error">{historyError}</p>
+                {:else if history.length === 0}
+                  <p class="text-xs text-base-content/65">{m['record.noHistory']()}</p>
+                {:else}
+                  <ol class="flex flex-col gap-3">
+                    {#each history as rev (rev.id)}
+                      <li class="flex gap-3 text-xs">
+                        <span
+                          class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full {rev.action === 'create'
+                            ? 'bg-success'
+                            : rev.action === 'delete'
+                              ? 'bg-error'
+                              : 'bg-primary'}"
+                        ></span>
+                        <div class="min-w-0">
+                          <p class="text-base-content/80">
+                            {rev.action === 'create'
+                              ? m['record.created']()
+                              : rev.action === 'delete'
+                                ? m['record.deletedAction']()
+                                : m['record.updated']()}
+                            {#if changedFields(rev).length > 0}
+                              <span class="text-base-content/65">· {changedFields(rev).join(', ')}</span>
+                            {/if}
+                          </p>
+                          <p class="text-base-content/65">
+                            {rev.user_email ?? m['dashboard.actorSystem']()} ·
+                            {new Date(rev.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </li>
+                    {/each}
+                  </ol>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
       </div>
 
       <!-- Panel footer -->
