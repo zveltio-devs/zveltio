@@ -63,7 +63,7 @@ onMount(load);
     <h1 class="text-xl font-semibold flex items-center gap-2">
       <SquareCheck size={18} class="text-primary" /> My Tasks
     </h1>
-    <p class="text-sm text-base-content/50 mt-0.5">Pending approvals and items assigned to you.</p>
+    <p class="text-sm text-base-content/65 mt-0.5">Pending approvals and items assigned to you.</p>
   </div>
 
   {#if loading}
@@ -85,9 +85,9 @@ onMount(load);
               <div class="flex-1 min-w-0">
                 <p class="font-medium text-sm">{t.title ?? t.name ?? `Task ${(t.id as string)?.slice(0,8) ?? ''}`}</p>
                 {#if t.description}
-                  <p class="text-sm text-base-content/60 mt-0.5">{t.description}</p>
+                  <p class="text-sm text-base-content/65 mt-0.5">{t.description}</p>
                 {/if}
-                <p class="text-xs text-base-content/40 mt-1.5 flex items-center gap-1">
+                <p class="text-xs text-base-content/65 mt-1.5 flex items-center gap-1">
                   <Clock size={10} />
                   {new Date(t.created_at ?? Date.now()).toLocaleString()}
                 </p>

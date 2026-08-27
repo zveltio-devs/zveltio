@@ -70,7 +70,7 @@
       {#each (p.items ?? []) as item}
         <div class="text-center">
           <p class="text-3xl font-extrabold text-primary leading-none">{item.value}</p>
-          <p class="text-xs text-base-content/60 mt-1">{item.label}</p>
+          <p class="text-xs text-base-content/65 mt-1">{item.label}</p>
         </div>
       {/each}
     </div>
@@ -88,7 +88,7 @@
 
   {:else if block.type === 'spacer'}
     <div style="height:{p.height ?? 48}px" class="w-full flex items-center justify-center">
-      <span class="text-[10px] text-base-content/20 font-mono">{p.height ?? 48}px</span>
+      <span class="text-[10px] text-base-content/55 font-mono">{p.height ?? 48}px</span>
     </div>
 
   {:else if block.type === 'divider'}
@@ -101,7 +101,7 @@
       {#if p.url}
         <img src={p.url} alt={p.alt ?? ''} class="w-full object-cover rounded" />
       {:else}
-        <div class="flex items-center justify-center bg-base-200 rounded h-32 text-base-content/30 text-sm gap-2">
+        <div class="flex items-center justify-center bg-base-200 rounded h-32 text-base-content/55 text-sm gap-2">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
             <polyline points="21 15 16 10 5 21"/>
@@ -109,7 +109,7 @@
           Image
         </div>
       {/if}
-      {#if p.caption}<figcaption class="text-center text-xs text-base-content/50 mt-1">{p.caption}</figcaption>{/if}
+      {#if p.caption}<figcaption class="text-center text-xs text-base-content/65 mt-1">{p.caption}</figcaption>{/if}
     </figure>
 
   {:else if block.type === 'video'}
@@ -118,7 +118,7 @@
         {@const embedUrl = p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url}
         <iframe src={embedUrl} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
       {:else}
-        <div class="flex flex-col items-center gap-2 text-base-content/30">
+        <div class="flex flex-col items-center gap-2 text-base-content/55">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
             <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
           </svg>
@@ -134,7 +134,7 @@
         <img src={img.url ?? img} alt={img.alt ?? ''} class="w-full aspect-square object-cover rounded" />
       {:else}
         {#each { length: cols } as _, i (i)}
-          <div class="aspect-square bg-base-200 rounded flex items-center justify-center text-base-content/20 text-xs">
+          <div class="aspect-square bg-base-200 rounded flex items-center justify-center text-base-content/55 text-xs">
             {i + 1}
           </div>
         {/each}
@@ -148,7 +148,7 @@
         {@html p.html}
       </div>
     {:else}
-      <div class="flex items-center justify-center h-16 bg-base-200 rounded text-base-content/30 text-xs gap-1.5 font-mono">
+      <div class="flex items-center justify-center h-16 bg-base-200 rounded text-base-content/55 text-xs gap-1.5 font-mono">
         <span>&lt;/&gt;</span> HTML / Embed
       </div>
     {/if}
@@ -175,7 +175,7 @@
       editor only ever receives the names, from `GET /pages/vocabulary`. Drawing
       the real glyph here would mean a second copy of the icon set.
     -->
-    <div class="p-3 flex items-center gap-2 text-base-content/60">
+    <div class="p-3 flex items-center gap-2 text-base-content/65">
       <span class="inline-flex items-center justify-center rounded border border-dashed"
         style="width:{Math.min(Number(p.size) || 32, 48)}px;height:{Math.min(Number(p.size) || 32, 48)}px;color:{p.color || 'currentColor'}">
         <span class="text-[9px] font-mono">icon</span>
@@ -206,7 +206,7 @@
   {:else if block.type === 'container'}
     <!-- Reached only if a container is previewed outside the canvas; the canvas
          draws containers as their real contents instead. -->
-    <div class="p-4 text-xs text-base-content/40 border border-dashed rounded">
+    <div class="p-4 text-xs text-base-content/65 border border-dashed rounded">
       Container — {(block.content?.children ?? []).length} block(s)
     </div>
 
@@ -223,7 +223,7 @@
               {#if p.fields?.length > 0}
                 {#each p.fields as f}<th class="font-mono text-[10px]">{f}</th>{/each}
               {:else}
-                <th class="text-base-content/30 text-[10px] italic">{m['content.pages.b.configFields']()}</th>
+                <th class="text-base-content/55 text-[10px] italic">{m['content.pages.b.configFields']()}</th>
               {/if}
             </tr>
           </thead>
@@ -242,11 +242,11 @@
           </tbody>
         </table>
       </div>
-      {#if p.limit}<p class="text-[10px] text-base-content/30 mt-1">Showing up to {p.limit} records</p>{/if}
+      {#if p.limit}<p class="text-[10px] text-base-content/55 mt-1">Showing up to {p.limit} records</p>{/if}
     </div>
 
   {:else}
-    <div class="flex items-center justify-center h-12 bg-base-200 rounded text-base-content/30 text-xs font-mono">
+    <div class="flex items-center justify-center h-12 bg-base-200 rounded text-base-content/55 text-xs font-mono">
       {block.type}
     </div>
   {/if}

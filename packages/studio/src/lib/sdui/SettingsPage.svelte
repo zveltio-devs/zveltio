@@ -144,7 +144,7 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
                     <input class="input input-sm flex-1 font-mono text-xs" readonly value={infoValue(inf.value)} />
                     <button class="btn btn-ghost btn-sm" onclick={() => copy(infoValue(inf.value))}><Copy size={13} /></button>
                   </div>
-                  {#if inf.hint}<span class="text-xs text-base-content/50">{t(inf.hint)}</span>{/if}
+                  {#if inf.hint}<span class="text-xs text-base-content/65">{t(inf.hint)}</span>{/if}
                 </div>
               {/each}
               <div class="divider my-0"></div>
@@ -154,7 +154,7 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
           {#each schema.fields ?? [] as f}{@render field(f)}{/each}
 
           {#each schema.sections ?? [] as sec}
-            <div class="divider my-0 text-xs text-base-content/30">{t(sec.title)}</div>
+            <div class="divider my-0 text-xs text-base-content/55">{t(sec.title)}</div>
             <div class="grid grid-cols-2 gap-3">{#each sec.fields as f}{@render field(f)}{/each}</div>
           {/each}
         </div>

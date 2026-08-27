@@ -358,7 +358,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
            thing on screen, carrying no information — while the sentence that DOES
            say something sat at 14px grey beneath it. Swapped. The greeting stays
            as a lead-in; the state of the workspace gets the size. -->
-      <p class="text-sm font-medium text-base-content/50">{greeting}</p>
+      <p class="text-sm font-medium text-base-content/65">{greeting}</p>
       <h1 class="display-lg mt-0.5 text-base-content">
         {#if stats.collections > 0}
           You have <strong>{stats.collections}</strong>
@@ -420,7 +420,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.collections}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['nav.collections']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['nav.collections']()}</p>
           </div>
         </div>
       </a>
@@ -436,7 +436,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.total_records.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.totalRecords']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.totalRecords']()}</p>
           </div>
         </div>
       </a>
@@ -451,7 +451,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.api_calls_today.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
           </div>
         </div>
       </a>
@@ -466,7 +466,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.active_webhooks}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
+            <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
           </div>
         </div>
       </a>
@@ -508,16 +508,16 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                     </td>
                     <td class="max-w-44 truncate text-xs text-base-content/70" title={entry.user_email ?? entry.user_id ?? ''}>
                       {#if entry.user_email}{entry.user_email}
-                      {:else if entry.user_id}<span class="font-mono text-base-content/45">{entry.user_id.slice(0, 8)}…</span>
-                      {:else}<span class="text-base-content/45">System</span>{/if}
+                      {:else if entry.user_id}<span class="font-mono text-base-content/65">{entry.user_id.slice(0, 8)}…</span>
+                      {:else}<span class="text-base-content/65">System</span>{/if}
                     </td>
-                    <td class="max-w-48 truncate text-xs text-base-content/60">
+                    <td class="max-w-48 truncate text-xs text-base-content/65">
                       {entry.resource_type ?? '—'}
                       {#if entry.resource_id}
                         <span class="font-mono">{entry.resource_id.slice(0, 6)}…</span>
                       {/if}
                     </td>
-                    <td class="text-right text-base-content/50 text-xs whitespace-nowrap">
+                    <td class="text-right text-base-content/65 text-xs whitespace-nowrap">
                       {formatRelative(entry.created_at)}
                     </td>
                   </tr>
@@ -558,10 +558,10 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                   <tr class="hover">
                     <td>
                       <div class="flex items-center gap-2">
-                        <Database size={14} class="text-base-content/40" />
+                        <Database size={14} class="text-base-content/65" />
                         <span class="font-medium">{col.label ?? col.name}</span>
                         {#if col.label}
-                          <span class="text-base-content/40 text-xs font-mono">{col.name}</span>
+                          <span class="text-base-content/65 text-xs font-mono">{col.name}</span>
                         {/if}
                       </div>
                     </td>
@@ -591,7 +591,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           {#if pendingSteps.length === 0}
             <span class="text-xs text-success flex items-center gap-1"><Sparkles size={12} /> {m['dashboard.allSet']()}</span>
           {:else}
-            <span class="text-xs text-base-content/50">{pendingSteps.length} pending</span>
+            <span class="text-xs text-base-content/65">{pendingSteps.length} pending</span>
           {/if}
         {/snippet}
         <ul class="space-y-2">
@@ -604,17 +604,17 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                 {#if step.done}
                   <CheckCircle size={16} class="text-success shrink-0 mt-0.5" />
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm line-through text-base-content/40">{step.label}</p>
+                    <p class="text-sm line-through text-base-content/65">{step.label}</p>
                   </div>
                 {:else}
-                  <Circle size={16} class="text-base-content/30 shrink-0 mt-0.5" />
+                  <Circle size={16} class="text-base-content/55 shrink-0 mt-0.5" />
                   <div class="flex-1 min-w-0">
                     <p class="text-sm text-base-content">{step.label}</p>
                     {#if step.hint}
-                      <p class="text-xs text-base-content/50 mt-0.5">{step.hint}</p>
+                      <p class="text-xs text-base-content/65 mt-0.5">{step.hint}</p>
                     {/if}
                   </div>
-                  <ArrowRight size={14} class="text-base-content/30 shrink-0 mt-1" />
+                  <ArrowRight size={14} class="text-base-content/55 shrink-0 mt-1" />
                 {/if}
               </a>
             </li>
@@ -645,26 +645,26 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           {@const CacheIcon = statusIcon(system.cache.status)}
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.database']()}</span>
+              <span class="text-base-content/65">{m['dashboard.database']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.database.status)}">
                 <DbIcon size={14} />
                 {system.database.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.cache']()}</span>
+              <span class="text-base-content/65">{m['dashboard.cache']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
                 <CacheIcon size={14} />
                 {system.cache.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">{m['dashboard.uptime']()}</span>
+              <span class="text-base-content/65">{m['dashboard.uptime']()}</span>
               <span class="text-base-content font-mono">{formatUptime(system.uptime)}</span>
             </div>
             {#if system.database.tables}
               <div class="flex items-center justify-between">
-                <span class="text-base-content/60">{m['dashboard.dbTables']()}</span>
+                <span class="text-base-content/65">{m['dashboard.dbTables']()}</span>
                 <span class="text-base-content font-mono">{system.database.tables}</span>
               </div>
             {/if}

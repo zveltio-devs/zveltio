@@ -81,7 +81,7 @@ onMount(load);
       <h1 class="text-xl font-semibold flex items-center gap-2">
         <Bell size={18} class="text-primary" /> Notifications
       </h1>
-      <p class="text-sm text-base-content/50 mt-0.5">Alerts, mentions and system updates.</p>
+      <p class="text-sm text-base-content/65 mt-0.5">Alerts, mentions and system updates.</p>
     </div>
     <button class="btn btn-ghost btn-sm gap-1.5"
       onclick={markAllRead}
@@ -129,7 +129,7 @@ onMount(load);
                 <p class="text-sm text-base-content/70 mt-0.5">
                   {n.message ?? n.body ?? '—'}
                 </p>
-                <p class="text-xs text-base-content/40 mt-1.5 flex items-center gap-1">
+                <p class="text-xs text-base-content/65 mt-1.5 flex items-center gap-1">
                   <Clock size={10} />
                   {new Date(n.created_at).toLocaleString()}
                 </p>

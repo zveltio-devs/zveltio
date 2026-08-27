@@ -24,7 +24,7 @@ let { collectionName, active }: Props = $props();
         class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1.5 flex items-center
                {active === tab.id
                  ? 'border-primary text-primary'
-                 : 'border-transparent text-base-content/50 hover:text-base-content'}"
+                 : 'border-transparent text-base-content/65 hover:text-base-content'}"
       >
         <tab.Icon size={13} />{tab.label}
       </a>

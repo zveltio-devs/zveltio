@@ -50,11 +50,11 @@ let {
     {#if illustration}
       <EmptyIllustration variant={illustration} color={illustrationColor} size={120} />
     {:else if Icon}
-      <div class="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center text-base-content/40 shadow-z1">
+      <div class="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center text-base-content/65 shadow-z1">
         <Icon size={36} />
       </div>
     {:else}
-      <div class="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center text-base-content/40 shadow-z1">
+      <div class="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center text-base-content/65 shadow-z1">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-9 h-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 13h6m-3-3v6m5 5H5a2 2 0 01-2-2V9a2 2 0 012-2h4l3 3h4a2 2 0 012 2v1a2 2 0 01-2 2z" />
@@ -64,7 +64,7 @@ let {
   </div>
 
   <h3 class="text-lg font-semibold text-base-content mb-1 tracking-tight">{title}</h3>
-  <p class="text-sm text-base-content/55 max-w-md mx-auto mb-6 leading-relaxed">{description}</p>
+  <p class="text-sm text-base-content/65 max-w-md mx-auto mb-6 leading-relaxed">{description}</p>
 
   {#if action}
     {@render action()}

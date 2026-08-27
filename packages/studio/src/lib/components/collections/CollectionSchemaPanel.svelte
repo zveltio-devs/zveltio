@@ -270,7 +270,7 @@ let confirmState = $state<{
       <div class="flex items-center justify-between">
         <div>
           <h3 class="font-semibold">New Relation</h3>
-          <p class="text-xs text-base-content/50 mt-0.5">
+          <p class="text-xs text-base-content/65 mt-0.5">
             How is <code class="font-mono">{collectionName}</code> connected to another collection?
           </p>
         </div>
@@ -307,7 +307,7 @@ let confirmState = $state<{
               >
                 <div class="font-mono text-xl font-bold text-primary/60 mb-1 leading-none">{rt.symbol}</div>
                 <div class="font-semibold text-xs">{rt.label}</div>
-                <div class="text-[10px] text-base-content/50 mt-0.5 leading-tight">
+                <div class="text-[10px] text-base-content/65 mt-0.5 leading-tight">
                   {rt.example(collectionName, relForm.target_collection)}
                 </div>
               </button>
@@ -327,7 +327,7 @@ let confirmState = $state<{
               <input id="rel-source-field" type="text" bind:value={relForm.source_field}
                 placeholder="e.g. {singular(relForm.target_collection)}_id"
                 class="input input-sm font-mono" autocomplete="off" />
-              <p class="text-[10px] text-base-content/40 mt-1">
+              <p class="text-[10px] text-base-content/65 mt-1">
                 A new UUID column on <code class="font-mono">{collectionName}</code> that references the chosen {singular(relForm.target_collection)}.
               </p>
             </div>
@@ -352,7 +352,7 @@ let confirmState = $state<{
               <input id="rel-source-field-o2m" type="text" bind:value={relForm.source_field}
                 placeholder={relForm.target_collection || 'related'}
                 class="input input-sm font-mono" autocomplete="off" />
-              <p class="text-[10px] text-base-content/40 mt-1">
+              <p class="text-[10px] text-base-content/65 mt-1">
                 Virtual name used to access the related list — no physical column is created here.
               </p>
             </div>
@@ -365,7 +365,7 @@ let confirmState = $state<{
               <input id="rel-target-field" type="text" bind:value={relForm.target_field}
                 placeholder="e.g. {singular(collectionName)}_id"
                 class="input input-sm font-mono" autocomplete="off" />
-              <p class="text-[10px] text-base-content/40 mt-1">
+              <p class="text-[10px] text-base-content/65 mt-1">
                 The actual column added to <code class="font-mono">{relForm.target_collection}</code> pointing back to {singular(collectionName)}.
               </p>
             </div>
@@ -391,7 +391,7 @@ let confirmState = $state<{
               <input id="rel-source-field-m2m" type="text" bind:value={relForm.source_field}
                 placeholder={relForm.target_collection}
                 class="input input-sm font-mono" autocomplete="off" />
-              <p class="text-[10px] text-base-content/40 mt-1">
+              <p class="text-[10px] text-base-content/65 mt-1">
                 A junction table <code class="font-mono">zvd_jnc_{collectionName}_{relForm.target_collection}</code> will be created automatically.
               </p>
             </div>
@@ -433,11 +433,11 @@ let confirmState = $state<{
 
     <!-- Section: Custom Fields -->
     <section>
-      <h2 class="text-xs font-semibold text-base-content/40 uppercase tracking-widest mb-2.5">
+      <h2 class="text-xs font-semibold text-base-content/65 uppercase tracking-widest mb-2.5">
         Fields ({customFields.length})
       </h2>
       {#if customFields.length === 0}
-        <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/40 gap-2">
+        <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
           <Columns size={28} strokeWidth={1.4} />
           <p class="text-sm">No custom fields yet</p>
           <button class="btn btn-primary btn-sm btn-outline gap-1 mt-1"
@@ -455,7 +455,7 @@ let confirmState = $state<{
                 {field.name}
               </code>
               {#if field.label && field.label !== field.name}
-                <span class="text-base-content/40 text-xs hidden lg:block">{field.label}</span>
+                <span class="text-base-content/65 text-xs hidden lg:block">{field.label}</span>
               {/if}
               <div class="flex items-center gap-1 shrink-0 flex-wrap justify-end">
                 <span class="badge badge-xs badge-outline font-mono {fieldBadgeColor(field.type)}">
@@ -486,11 +486,11 @@ let confirmState = $state<{
 
     <!-- Section: Relations (O2M / M2M / M2A — virtual, no FK column in this table) -->
     <section>
-      <h2 class="text-xs font-semibold text-base-content/40 uppercase tracking-widest mb-2.5">
+      <h2 class="text-xs font-semibold text-base-content/65 uppercase tracking-widest mb-2.5">
         Relations ({virtualRelations.length})
       </h2>
       {#if virtualRelations.length === 0}
-        <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/40 gap-2">
+        <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
           <GitFork size={28} strokeWidth={1.4} />
           <p class="text-sm">No virtual relations — add 1→∞ or ∞↔∞</p>
           <button class="btn btn-outline btn-sm gap-1 mt-1" onclick={openRelForm}>
@@ -507,18 +507,18 @@ let confirmState = $state<{
               </span>
               <div class="flex-1 min-w-0">
                 <span class="font-semibold text-sm">{rel.name}</span>
-                <div class="flex items-center gap-1 text-xs text-base-content/40 font-mono mt-0.5 flex-wrap">
+                <div class="flex items-center gap-1 text-xs text-base-content/65 font-mono mt-0.5 flex-wrap">
                   <span>{rel.source_collection}</span>
                   {#if rel.source_field}
-                    <span class="text-base-content/25">.{rel.source_field}</span>
+                    <span class="text-base-content/55">.{rel.source_field}</span>
                   {/if}
                   <ArrowRight size={10} class="shrink-0" />
                   <span>{rel.target_collection}</span>
                   {#if rel.target_field}
-                    <span class="text-base-content/25">.{rel.target_field}</span>
+                    <span class="text-base-content/55">.{rel.target_field}</span>
                   {/if}
                   {#if rel.junction_table}
-                    <span class="text-base-content/25 ml-1">via {rel.junction_table}</span>
+                    <span class="text-base-content/55 ml-1">via {rel.junction_table}</span>
                   {/if}
                 </div>
               </div>
@@ -539,7 +539,7 @@ let confirmState = $state<{
 
     <!-- Section: System Fields -->
     <section class="pt-2 border-t border-base-200">
-      <h2 class="text-xs font-semibold text-base-content/25 uppercase tracking-widest mb-2.5">
+      <h2 class="text-xs font-semibold text-base-content/55 uppercase tracking-widest mb-2.5">
         System Fields (auto-managed)
       </h2>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">

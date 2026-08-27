@@ -24,7 +24,7 @@
   {#if resolvedSrc}
     <PdfViewer src={resolvedSrc} {height} {toolbar} />
   {:else}
-    <div class="flex items-center justify-center bg-base-200 rounded text-base-content/40 text-sm" style="height:{height}px">
+    <div class="flex items-center justify-center bg-base-200 rounded text-base-content/65 text-sm" style="height:{height}px">
       No PDF document selected.
     </div>
   {/if}

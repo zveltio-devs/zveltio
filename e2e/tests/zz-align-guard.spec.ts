@@ -19,7 +19,10 @@ test('settings fields share one left edge', async ({ page }) => {
   await page.waitForTimeout(1200);
   await page.locator('#login-email').fill(E2E.admin.email);
   await page.locator('#login-password').fill(E2E.admin.password);
-  await page.getByRole('button', { name: /sign in$/i }).first().click();
+  await page
+    .getByRole('button', { name: /sign in$/i })
+    .first()
+    .click();
   await page.waitForTimeout(3500);
   await page.goto('/admin/settings/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);

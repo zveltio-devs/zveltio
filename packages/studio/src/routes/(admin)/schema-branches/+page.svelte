@@ -327,7 +327,7 @@ function fmt(d: string | null) {
                 {#if branch.review_status}
                   <span class="badge badge-sm {reviewBadge(branch.review_status)}">{branch.review_status.replace('_', ' ')}</span>
                 {:else}
-                  <span class="text-xs text-base-content/30">{m['schemaBranches.none']()}</span>
+                  <span class="text-xs text-base-content/55">{m['schemaBranches.none']()}</span>
                 {/if}
               </td>
               <td>
@@ -340,7 +340,7 @@ function fmt(d: string | null) {
                     title={m['schemaBranches.requireBeforeMerge']()}
                   />
                 {:else}
-                  <span class="text-xs text-base-content/30">—</span>
+                  <span class="text-xs text-base-content/55">—</span>
                 {/if}
               </td>
               <td class="text-sm opacity-60">{branch.changes?.length || 0}</td>
@@ -468,13 +468,13 @@ function fmt(d: string | null) {
         <div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>
       {:else if reviews.length > 0}
         <div class="mb-4 space-y-2">
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">{m['schemaBranches.reviewHistory']()}</p>
+          <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide">{m['schemaBranches.reviewHistory']()}</p>
           {#each reviews as r}
             <div class="flex items-start gap-2 bg-base-200 rounded p-2 text-sm">
               <span class="badge badge-xs {reviewBadge(r.status)} mt-0.5">{r.status?.replace('_', ' ')}</span>
               <div class="flex-1 min-w-0">
                 {#if r.reviewer_note}<p class="text-xs text-base-content/70">{r.reviewer_note}</p>{/if}
-                <p class="text-xs text-base-content/30">{fmt(r.reviewed_at ?? r.created_at)}</p>
+                <p class="text-xs text-base-content/55">{fmt(r.reviewed_at ?? r.created_at)}</p>
               </div>
             </div>
           {/each}

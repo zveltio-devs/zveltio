@@ -204,7 +204,7 @@ async function testWebhook(id: string) {
           {#each webhooks as wh}
             <tr class="hover group">
               <td class="font-medium">{wh.name}</td>
-              <td class="font-mono text-xs text-base-content/50 max-w-48 truncate">{wh.url}</td>
+              <td class="font-mono text-xs text-base-content/65 max-w-48 truncate">{wh.url}</td>
               <td>
                 <div class="flex flex-wrap gap-1">
                   {#each (wh.events || []).slice(0, 3) as ev}
@@ -280,7 +280,7 @@ async function testWebhook(id: string) {
  <div class="form-control">
  <label class="label" for="webhook-secret">
    <span class="label-text">{m['wh.secretOptional']()}</span>
-   <span class="label-text-alt text-base-content/50">{m['wh.hmacHint']()}</span>
+   <span class="label-text-alt text-base-content/65">{m['wh.hmacHint']()}</span>
  </label>
  <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder={m['wh.signingSecretPh']()} />
  </div>
@@ -289,14 +289,14 @@ async function testWebhook(id: string) {
  <div class="form-control">
  <label class="label" for="webhook-retry">
    <span class="label-text">{m['wh.retryAttempts']()}</span>
-   <span class="label-text-alt text-base-content/50">0–10</span>
+   <span class="label-text-alt text-base-content/65">0–10</span>
  </label>
  <input id="webhook-retry" type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
  </div>
  <div class="form-control">
  <label class="label" for="webhook-timeout">
    <span class="label-text">{m['wh.timeout']()}</span>
-   <span class="label-text-alt text-base-content/50">{m['wh.timeoutHint']()}</span>
+   <span class="label-text-alt text-base-content/65">{m['wh.timeoutHint']()}</span>
  </label>
  <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>

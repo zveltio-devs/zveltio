@@ -77,7 +77,7 @@ function applyFilters() {
     <Activity class="w-6 h-6 text-primary" />
     <div>
       <h1 class="text-2xl font-bold">{m['rlog.title']()}</h1>
-      <p class="text-base-content/60 text-sm">{m['rlog.subtitle']()}</p>
+      <p class="text-base-content/65 text-sm">{m['rlog.subtitle']()}</p>
     </div>
   </div>
 
@@ -102,13 +102,13 @@ function applyFilters() {
       {/each}
     </select>
     <button class="btn btn-sm btn-primary" onclick={applyFilters}>{m['rlog.apply']()}</button>
-    <span class="ml-auto text-sm text-base-content/50 self-center">{m['rlog.totalCount']({ count: total.toLocaleString() })}</span>
+    <span class="ml-auto text-sm text-base-content/65 self-center">{m['rlog.totalCount']({ count: total.toLocaleString() })}</span>
   </div>
 
   {#if loading}
     <PageSpinner size={24} />
   {:else if logs.length === 0}
-    <div class="text-center py-16 text-base-content/40">
+    <div class="text-center py-16 text-base-content/65">
       <Activity class="w-10 h-10 mx-auto mb-3 opacity-30" />
       <p>{m['rlog.empty']()}</p>
     </div>

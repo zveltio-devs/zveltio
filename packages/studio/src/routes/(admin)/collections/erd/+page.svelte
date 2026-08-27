@@ -857,7 +857,7 @@ function edgeColor(type: string): string {
     <h1 class="text-base font-semibold ml-2 flex items-center gap-2">
       <Database size={16} /> {m['erd.title']()}
     </h1>
-    <span class="text-xs text-base-content/50">
+    <span class="text-xs text-base-content/65">
       {m['erd.counts']({ collections: visible.length, relations: edges.length })}
     </span>
 
@@ -883,7 +883,7 @@ function edgeColor(type: string): string {
     </button>
 
     <span
-      class="text-[10px] tabular-nums {serverSynced ? 'text-success' : 'text-base-content/40'}"
+      class="text-[10px] tabular-nums {serverSynced ? 'text-success' : 'text-base-content/65'}"
       title={serverSynced ? m['erd.syncedTitle']() : m['erd.localOnlyTitle']()}
     >
       {serverSynced ? m['erd.synced']() : m['erd.localOnly']()}
@@ -915,7 +915,7 @@ function edgeColor(type: string): string {
     <div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="new-col-title">
       <div class="bg-base-100 rounded-xl shadow-xl border border-base-300 p-6 w-full max-w-md">
         <h2 id="new-col-title" class="text-lg font-semibold mb-3">{m['erd.newCollection']()}</h2>
-        <label class="block text-xs text-base-content/60 mb-1" for="new-col-name">{m['erd.nameSnakeCase']()}</label>
+        <label class="block text-xs text-base-content/65 mb-1" for="new-col-name">{m['erd.nameSnakeCase']()}</label>
         <input
           id="new-col-name"
           class="input input-bordered input-sm w-full"
@@ -927,7 +927,7 @@ function edgeColor(type: string): string {
         {#if newCollectionError}
           <p class="text-xs text-error mt-1">{newCollectionError}</p>
         {/if}
-        <p class="text-xs text-base-content/50 mt-2">
+        <p class="text-xs text-base-content/65 mt-2">
           {m['erd.titleFieldNote']()}
         </p>
         <div class="flex justify-end gap-2 mt-5">
@@ -941,7 +941,7 @@ function edgeColor(type: string): string {
   {/if}
 
   <!-- Legend -->
-  <div class="flex flex-wrap items-center gap-4 px-3 py-2 text-xs text-base-content/60 border-b border-base-300 bg-base-100">
+  <div class="flex flex-wrap items-center gap-4 px-3 py-2 text-xs text-base-content/65 border-b border-base-300 bg-base-100">
     <span class="font-medium">{m['erd.relationTypes']()}</span>
     <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-0.5" style="background: #6366f1"></span> m2o / reference (N→1)</span>
     <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-0.5" style="background: #22c55e"></span> o2m (1→N)</span>
@@ -964,7 +964,7 @@ function edgeColor(type: string): string {
         <LoadingSkeleton />
       </div>
     {:else if visible.length === 0}
-      <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 gap-2">
+      <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/65 gap-2">
         <Database size={48} />
         <p class="text-sm">{m['erd.noCollections']()}</p>
         <a href="{base}/collections" class="btn btn-primary btn-sm mt-2">{m['erd.createFirst']()}</a>
@@ -1009,10 +1009,10 @@ function edgeColor(type: string): string {
             >
               <!-- Header -->
               <div class="px-3 py-2 bg-base-200 border-b border-base-300 flex items-center gap-2">
-                <Database size={14} class={col.is_system ? 'text-base-content/40' : 'text-primary'} />
+                <Database size={14} class={col.is_system ? 'text-base-content/65' : 'text-primary'} />
                 <div class="min-w-0 grow">
                   <div class="text-sm font-semibold truncate">{col.display_name || col.name}</div>
-                  <div class="text-[10px] font-mono text-base-content/40 truncate">{col.name}</div>
+                  <div class="text-[10px] font-mono text-base-content/65 truncate">{col.name}</div>
                 </div>
                 {#if !col.is_system}
                   <button
@@ -1050,14 +1050,14 @@ function edgeColor(type: string): string {
                         onclick={(e) => e.stopPropagation()}
                         autocomplete="off"
                       />
-                      <span class="text-base-content/40 shrink-0">{field.type}</span>
+                      <span class="text-base-content/65 shrink-0">{field.type}</span>
                       {#if renameError}
                         <span class="text-error text-[9px] absolute mt-5" title={renameError}>!</span>
                       {/if}
                     {:else}
                       <span
                         data-no-drag={!isSys && !col.is_system ? true : undefined}
-                        class="font-mono truncate grow {isRel ? 'text-indigo-400' : ''} {isSys ? 'text-base-content/40' : ''}"
+                        class="font-mono truncate grow {isRel ? 'text-indigo-400' : ''} {isSys ? 'text-base-content/65' : ''}"
                         class:cursor-text={!isSys && !col.is_system}
                         ondblclick={(e) => {
                           if (isSys || col.is_system) return;
@@ -1066,19 +1066,19 @@ function edgeColor(type: string): string {
                         }}
                         title={isSys ? m['erd.systemField']() : m['erd.fieldHint']()}
                       >{field.name}</span>
-                      <span class="text-base-content/40 shrink-0">{field.type}</span>
+                      <span class="text-base-content/65 shrink-0">{field.type}</span>
                       {#if field.required}<span class="text-error">*</span>{/if}
                       {#if !isSys && !col.is_system}
                         <button
                           data-no-drag
-                          class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/40 hover:text-primary shrink-0"
+                          class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/65 hover:text-primary shrink-0"
                           onclick={(e) => { e.stopPropagation(); openFieldEdit(col.name, field); }}
                           title={m['erd.editField']()}
                           aria-label={m['erd.editFieldNamed']({ name: field.name })}
                         ><Pencil size={10} /></button>
                         <button
                           data-no-drag
-                          class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/40 hover:text-error shrink-0"
+                          class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/65 hover:text-error shrink-0"
                           onclick={(e) => { e.stopPropagation(); deleteField(col.name, field.name); }}
                           title={m['erd.removeField']()}
                           aria-label={m['erd.removeFieldNamed']({ name: field.name })}
@@ -1125,7 +1125,7 @@ function edgeColor(type: string): string {
                   {/if}
                 {/each}
                 {#if col.fields.length > 12}
-                  <div class="px-3 py-1 text-[10px] text-base-content/40 italic">
+                  <div class="px-3 py-1 text-[10px] text-base-content/65 italic">
                     {m['erd.andMore']({ count: col.fields.length - 12 })}
                   </div>
                 {/if}
@@ -1145,7 +1145,7 @@ function edgeColor(type: string): string {
                         <select class="select select-bordered select-xs text-[11px] grow" bind:value={newFieldType}>
                           {#each FIELD_TYPES_QUICK as t}<option value={t}>{t}</option>{/each}
                         </select>
-                        <label class="flex items-center gap-1 text-[10px] text-base-content/60 cursor-pointer">
+                        <label class="flex items-center gap-1 text-[10px] text-base-content/65 cursor-pointer">
                           <input type="checkbox" class="checkbox checkbox-xs" bind:checked={newFieldRequired} />
                           {m['erd.req']()}
                         </label>
@@ -1161,7 +1161,7 @@ function edgeColor(type: string): string {
                   {:else}
                     <button
                       data-no-drag
-                      class="w-full text-left px-3 py-1 text-[10px] text-base-content/40 hover:text-primary hover:bg-base-200 transition-colors border-t border-base-300/50 flex items-center gap-1"
+                      class="w-full text-left px-3 py-1 text-[10px] text-base-content/65 hover:text-primary hover:bg-base-200 transition-colors border-t border-base-300/50 flex items-center gap-1"
                       onclick={(e) => { e.stopPropagation(); openAddField(col.name); }}
                     >
                       <Plus size={10} /> {m['erd.addField']()}

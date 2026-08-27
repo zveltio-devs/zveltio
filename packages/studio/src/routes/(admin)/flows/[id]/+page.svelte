@@ -202,7 +202,7 @@ function updateStepName(name: string) {
       <!-- Left sidebar: flow meta -->
       <aside class="w-56 shrink-0 border-r border-base-300 bg-base-100 p-4 space-y-4 overflow-y-auto">
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-2">{m['flowEdit.flow']()}</p>
+          <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide mb-2">{m['flowEdit.flow']()}</p>
           <div class="form-control">
             <label class="label py-0" for="sidebar-flow-name"><span class="label-text text-xs">{m['common.col.name']()}</span></label>
             <input id="sidebar-flow-name" class="input input-xs" bind:value={flow.name} />
@@ -213,17 +213,17 @@ function updateStepName(name: string) {
           </div>
         </div>
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">{m['flowEdit.trigger']()}</p>
+          <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide mb-1">{m['flowEdit.trigger']()}</p>
           <span class="badge badge-outline badge-sm">{flow.trigger_type}</span>
           {#if flow.trigger_config?.collection}
-            <p class="text-xs text-base-content/50 mt-1">{flow.trigger_config.collection}</p>
+            <p class="text-xs text-base-content/65 mt-1">{flow.trigger_config.collection}</p>
           {/if}
           {#if flow.trigger_config?.expression}
-            <p class="text-xs font-mono text-base-content/50 mt-1">{flow.trigger_config.expression}</p>
+            <p class="text-xs font-mono text-base-content/65 mt-1">{flow.trigger_config.expression}</p>
           {/if}
         </div>
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">{m['flowEdit.steps']()}</p>
+          <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide mb-1">{m['flowEdit.steps']()}</p>
           <p class="text-sm">{m['flowEdit.stepCount']({ count: flow.steps.length })}</p>
         </div>
       </aside>
@@ -270,13 +270,13 @@ function updateStepName(name: string) {
               onkeydown={(e) => { if (e.key === 'Enter') selectStep(step); }}
             >
               <div class="card-body p-3 flex-row items-center gap-3">
-                <GripVertical size={14} class="text-base-content/30 shrink-0 cursor-grab" />
-                <StepIcon size={16} class="shrink-0 {selectedStep?.id === step.id ? 'text-primary' : 'text-base-content/50'}" />
+                <GripVertical size={14} class="text-base-content/55 shrink-0 cursor-grab" />
+                <StepIcon size={16} class="shrink-0 {selectedStep?.id === step.id ? 'text-primary' : 'text-base-content/65'}" />
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium truncate">{step.name}</p>
-                  <p class="text-xs text-base-content/50">{step.type}</p>
+                  <p class="text-xs text-base-content/65">{step.type}</p>
                 </div>
-                <span class="text-xs text-base-content/30 shrink-0">#{i + 1}</span>
+                <span class="text-xs text-base-content/55 shrink-0">#{i + 1}</span>
                 <button
                   class="btn btn-ghost btn-xs text-error shrink-0"
                   title={m['flowEdit.deleteStep']()}
@@ -302,7 +302,7 @@ function updateStepName(name: string) {
                       class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-base-200 rounded text-left"
                       onclick={() => addStep(st.value)}
                     >
-                      <StIcon size={14} class="text-base-content/60" />
+                      <StIcon size={14} class="text-base-content/65" />
                       {st.label()}
                     </button>
                   {/each}
@@ -478,7 +478,7 @@ function updateStepName(name: string) {
 
             <!-- Raw config JSON (advanced) -->
             <details class="mt-2">
-              <summary class="text-xs text-base-content/40 cursor-pointer">{m['flowEdit.advancedRaw']()}</summary>
+              <summary class="text-xs text-base-content/65 cursor-pointer">{m['flowEdit.advancedRaw']()}</summary>
               <pre class="mt-2 text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{JSON.stringify(selectedStep.config, null, 2)}</pre>
             </details>
           </div>
