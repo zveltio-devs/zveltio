@@ -5,12 +5,15 @@ import { base } from '$app/paths';
 import { api } from '$lib/api.js';
 import { m, i18n } from '$lib/i18n.svelte.js';
 import type { PaletteNavItem } from '$lib/nav-model.js';
-import { Search, Database } from '@lucide/svelte';
+import { Search, Database, Plus, UserPlus, KeyRound, Webhook, Moon, LogOut } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
 type PaletteItem = {
   label: string;
-  href: string;
+  /** Where it goes. Actions use a URL too — see ACTIONS below. */
+  href?: string;
+  /** What it does, for the few things that are not a place. */
+  run?: () => void;
   icon: Component;
   group: string;
   sub?: string;
@@ -32,6 +35,53 @@ let collectionItems = $state<PaletteItem[]>([]);
 let loading = $state(false);
 
 const _locale = $derived(i18n.locale);
+
+/**
+ * The things a palette should DO, not only the places it should go.
+ *
+ * A palette that only navigates leaves the person one keystroke from the page
+ * and then back on the mouse — which is most of the way to not having one.
+ *
+ * Creating something is expressed as a URL with `?new=1` rather than a callback.
+ * That keeps this list declarative, and it means the same action survives a
+ * bookmark, a paste into chat and a reload, which a function call does not.
+ * The two that are genuinely not places — the theme, signing out — carry `run`.
+ */
+const actionItems = $derived.by((): PaletteItem[] => {
+  void _locale;
+  const group = m['palette.group.actions']();
+  return [
+    { label: m['palette.newCollection'](), href: `${base}/collections?new=1`, icon: Plus, group },
+    { label: m['palette.inviteUser'](), href: `${base}/users?new=1`, icon: UserPlus, group },
+    { label: m['palette.newApiKey'](), href: `${base}/api-keys?new=1`, icon: KeyRound, group },
+    { label: m['palette.newWebhook'](), href: `${base}/webhooks?new=1`, icon: Webhook, group },
+    {
+      label: m['palette.toggleTheme'](),
+      icon: Moon,
+      group,
+      run: () => {
+        const root = document.documentElement;
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try {
+          localStorage.setItem('zveltio.theme', next);
+        } catch {
+          // private mode — the choice simply does not persist
+        }
+      },
+    },
+    {
+      label: m['palette.signOut'](),
+      icon: LogOut,
+      group,
+      run: () => {
+        void api.post('/api/auth/sign-out', {}).finally(() => {
+          window.location.href = `${base}/login`;
+        });
+      },
+    },
+  ];
+});
 
 const staticNavItems = $derived.by(() => {
   void _locale;
@@ -72,7 +122,7 @@ async function loadCollections() {
 const filtered = $derived.by(() => {
   void _locale;
   const q = query.toLowerCase().trim();
-  const all: PaletteItem[] = [...staticNavItems, ...collectionItems];
+  const all: PaletteItem[] = [...actionItems, ...staticNavItems, ...collectionItems];
   if (!q) return all.slice(0, 20);
   return all
     .filter(
@@ -89,9 +139,10 @@ $effect(() => {
   selectedIdx = 0;
 });
 
-function navigate(href: string) {
-  goto(href);
+function choose(item: PaletteItem) {
   onclose();
+  if (item.run) item.run();
+  else if (item.href) goto(item.href);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -109,7 +160,8 @@ function handleKeydown(e: KeyboardEvent) {
     selectedIdx = Math.max(selectedIdx - 1, 0);
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    if (items[selectedIdx]) navigate(items[selectedIdx].href);
+    const picked = items[selectedIdx];
+    if (picked) choose(picked);
   }
 }
 
@@ -177,7 +229,7 @@ function noResultsMessage(q: string): string {
             <button
               type="button"
               class="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left {idx === selectedIdx ? 'bg-primary/10 text-primary' : 'hover:bg-base-200'}"
-              onclick={() => navigate(item.href)}
+              onclick={() => choose(item)}
             >
               <item.icon size={16} class="shrink-0 opacity-60" aria-hidden="true" />
               <div class="flex-1 min-w-0">
