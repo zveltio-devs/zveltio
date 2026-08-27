@@ -190,7 +190,7 @@ function formatDate(iso: string): string {
 
     {#if !browserSupportsPasskey()}
       <div class="alert alert-warning mt-4 text-sm">
-        <span>This browser does not support passkeys. Use a recent version of Chrome, Edge, Safari, or Firefox.</span>
+        <span>{m['passkeys.unsupportedLong']()}</span>
       </div>
     {/if}
 

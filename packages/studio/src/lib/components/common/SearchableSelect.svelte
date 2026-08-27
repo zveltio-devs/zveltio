@@ -109,7 +109,7 @@ $effect(() => {
 			<!-- Options List -->
 			<div class="max-h-60 overflow-auto">
 				{#if loading}
-					<div class="p-4 text-center text-sm opacity-50">Loading...</div>
+					<div class="p-4 text-center text-sm opacity-50">{m['common.loading']()}</div>
 				{:else if filteredOptions.length === 0}
 					<div class="p-4 text-center text-sm opacity-50">{m['common.noResults']()}</div>
 				{:else}
