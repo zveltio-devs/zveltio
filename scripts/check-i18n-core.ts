@@ -224,7 +224,41 @@ if (brokenRefs.length > 0) {
 }
 
 const findings: Finding[] = [];
-for (const rel of TRANSLATED) {
+/**
+ * The shared components too, not only the pages.
+ *
+ * Those render ON the translated pages, and the gate never looked at them — so
+ * `CollectionDataTable.svelte` carried "Delete Record" and "Bulk delete failed"
+ * on a screen this check was reporting clean. Forty-two more sat in nine other
+ * components. It is the fourth blind spot found in this one gate today; the
+ * first three were the `<script>` block, the fixed page list, and pages added to
+ * the routes tree without being added to the list.
+ *
+ * Enumerated rather than listed by hand: a component added tomorrow is covered
+ * without anybody remembering to add it, which is exactly how the page list
+ * fell eight behind.
+ */
+function sharedComponents(): string[] {
+  const root = join(STUDIO, 'src/lib/components');
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.svelte')) out.push(relative(STUDIO, full));
+    }
+  };
+  try {
+    walk(root);
+  } catch {
+    // no components directory — nothing to scan
+  }
+  return out;
+}
+
+const SCANNED = [...TRANSLATED, ...sharedComponents()];
+
+for (const rel of SCANNED) {
   let src: string;
   try {
     src = readFileSync(join(STUDIO, rel), 'utf-8');
@@ -278,10 +312,19 @@ for (const rel of TRANSLATED) {
 // day one gets switched off rather than fixed. New ones are refused; the number
 // only goes down. `--update` records where it stands after a translation pass.
 const BASELINE_FILE = join(import.meta.dir, '..', 'quality-gates', 'i18n-core-script.json');
+const COMPONENT_BASELINE = join(import.meta.dir, '..', 'quality-gates', 'i18n-components.json');
 const isScript = (t: string) =>
   /^(title|message|confirmLabel|cancelLabel|heading|description):|^toast\(/.test(t);
-const scriptFindings = findings.filter((f) => isScript(f.text));
-const markupFindings = findings.filter((f) => !isScript(f.text));
+const inComponent = (f: Finding) => f.file.startsWith('src/lib/components/');
+
+// Pages keep zero tolerance — they got there and must stay. Components are
+// ratcheted instead: they were never scanned until today and carry a hundred and
+// nineteen strings, and a gate that fails on day one gets switched off rather
+// than fixed. The number only goes down.
+const componentFindings = findings.filter(inComponent);
+const pageFindings = findings.filter((f) => !inComponent(f));
+const scriptFindings = pageFindings.filter((f) => isScript(f.text));
+const markupFindings = pageFindings.filter((f) => !isScript(f.text));
 
 let baseline = 0;
 try {
@@ -290,10 +333,42 @@ try {
   baseline = 0;
 }
 
+let componentBaseline = 0;
+try {
+  componentBaseline = JSON.parse(readFileSync(COMPONENT_BASELINE, 'utf-8')).count ?? 0;
+} catch {
+  componentBaseline = 0;
+}
+
 if (process.argv.includes('--update')) {
   writeFileSync(BASELINE_FILE, `${JSON.stringify({ count: scriptFindings.length }, null, 2)}\n`);
-  console.log(`[i18n-core] baseline updated: ${scriptFindings.length} script string(s).`);
+  writeFileSync(
+    COMPONENT_BASELINE,
+    `${JSON.stringify({ count: componentFindings.length }, null, 2)}\n`,
+  );
+  console.log(
+    `[i18n-core] baselines updated: ${scriptFindings.length} script, ` +
+      `${componentFindings.length} component string(s).`,
+  );
   process.exit(0);
+}
+
+if (componentFindings.length > componentBaseline) {
+  console.error(
+    `❌ i18n-core: ${componentFindings.length} hardcoded string(s) in shared components — ` +
+      `baseline allows ${componentBaseline}.\n`,
+  );
+  for (const f of componentFindings.slice(0, 15)) {
+    console.error(`  ${f.file}:${f.line}\n      ${f.text}`);
+  }
+  console.error('\nTranslate one, or run --update after lowering the count.');
+  process.exit(1);
+}
+if (componentFindings.length < componentBaseline) {
+  console.log(
+    `[i18n-core] component strings: ${componentFindings.length} ` +
+      `(baseline ${componentBaseline}) — run --update to lock it in.`,
+  );
 }
 
 if (scriptFindings.length > baseline) {
@@ -315,10 +390,11 @@ if (scriptFindings.length < baseline) {
 if (markupFindings.length === 0) {
   console.log(
     `✅ i18n-core: every message key resolves; ` +
-      `${TRANSLATED.length} page(s) free of hardcoded markup` +
-      (scriptFindings.length > 0
-        ? `, ${scriptFindings.length} string(s) still hardcoded in <script> (baseline).`
-        : ', and none in <script> either.'),
+      `${SCANNED.length} page(s) and component(s) free of hardcoded markup` +
+      (scriptFindings.length + componentFindings.length > 0
+        ? `; ${scriptFindings.length} in <script>, ` +
+          `${componentFindings.length} in shared components (both under a baseline).`
+        : ', and none in <script> or in a shared component either.'),
   );
   process.exit(0);
 }

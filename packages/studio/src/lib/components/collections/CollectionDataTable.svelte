@@ -1,4 +1,6 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
+import { deferWithUndo } from '$lib/stores/deferred.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 // The Data tab of the collections detail page: record browsing (search, sort,
 // selection, pagination), realtime live-sync, row delete, and bulk delete.
@@ -176,18 +178,18 @@ async function bulkDeleteSelected() {
   if (selectedIds.size === 0) return;
   confirmState = {
     open: true,
-    title: 'Delete selected records',
-    message: `Delete ${selectedIds.size} record(s)? This cannot be undone.`,
-    confirmLabel: 'Delete',
+    title: m['data.deleteSelected.title'](),
+    message: m['data.deleteSelected.message']({ count: selectedIds.size }),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
         await dataApi.bulkDelete(collectionName, [...selectedIds]);
         selectedIds = new Set();
         await reloadData();
-        toast.success('Records deleted');
+        toast.success(m['data.recordsDeleted']());
       } catch (e) {
-        toast.error((e as Error).message || 'Bulk delete failed');
+        toast.error((e as Error).message || m['data.bulkDeleteFailed']());
       }
     },
   };
@@ -198,29 +200,41 @@ function goToPage(p: number) {
   reloadData({ page: p });
 }
 
-// ── Delete record (optimistic) ────────────────────────────────────────────
-async function deleteRecord(id: string) {
-  confirmState = {
-    open: true,
-    title: 'Delete Record',
-    message: 'Delete this record? This cannot be undone.',
-    confirmLabel: 'Delete',
-    onconfirm: async () => {
-      confirmState.open = false;
-      const snapshot = records;
-      await withOptimistic({
-        apply: () => {
-          records = records.filter((r) => r.id !== id);
-        },
-        rollback: (prev) => {
-          records = prev;
-        },
-        snapshot,
-        commit: () => dataApi.delete(collectionName, id),
-        onError: (err) => toast.error(err.message),
-      });
+// ── Delete record: undo, not "are you sure" ──────────────
+//
+// A confirm dialog interrupts every delete to prevent the rare mistake. It is
+// paid on the common path — the one where the person meant it — and buys little,
+// because a dialog answered a hundred times is answered without reading.
+//
+// The row leaves the table at once and the request is held for five seconds. If
+// they take it back, nothing was ever sent: `DELETE` here is a hard delete with
+// no `deleted_at` on any route, so an undo firing afterwards would have nothing
+// to restore.
+//
+// Deleting a whole COLLECTION keeps its dialog. That takes the data with it, and
+// five seconds of grace is not the right protection for it.
+function deleteRecord(id: string) {
+  const snapshot = records;
+  records = records.filter((r) => r.id !== id);
+  deferWithUndo(
+    async () => {
+      try {
+        await dataApi.delete(collectionName, id);
+      } catch (e) {
+        // The window closed and the delete failed: put the row back, because the
+        // table is now showing something that is not true.
+        records = snapshot;
+        toast.error((e as Error).message || m['common.deleteFailed']());
+      }
     },
-  };
+    {
+      message: m['data.recordDeleted'](),
+      undoLabel: m['common.undo'](),
+      onUndo: () => {
+        records = snapshot;
+      },
+    },
+  );
 }
 
 // ── Confirm modal ─────────────────────────────────────────────────────────
@@ -240,7 +254,7 @@ let confirmState = $state<{
       type="text"
       bind:value={searchText}
       oninput={onSearchInput}
-      placeholder="Search records…"
+      placeholder={m['data.searchRecords']()}
       class="input input-sm w-full pl-8" />
     <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/55"
       fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -258,7 +272,7 @@ let confirmState = $state<{
       <Trash2 size={14} /> Delete {selectedIds.size}
     </button>
   {/if}
-  <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title="Refresh" aria-label="Refresh">
+  <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title={m['common.refresh']()} aria-label={m['common.refresh']()}>
     <RefreshCw size={14} />
   </button>
 </div>
