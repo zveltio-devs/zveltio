@@ -222,7 +222,7 @@ function formatRelative(dateStr?: string): string {
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
  {#each flows as flow}
  {@const TriggerIcon = triggerIcon(flow.trigger_type)}
- <div class="card bg-base-200 group {!flow.is_active ? 'opacity-60' : ''}">
+ <div class="card bg-base-100 group {!flow.is_active ? 'opacity-60' : ''}">
  <div class="card-body p-4 space-y-3">
  <div class="flex items-start justify-between gap-2">
  <div class="flex items-center gap-2 flex-1 min-w-0">
@@ -234,7 +234,7 @@ function formatRelative(dateStr?: string): string {
  <div class="flex-1 min-w-0">
  <p class="font-semibold text-sm truncate">{flow.name}</p>
  {#if flow.description}
- <p class="text-xs text-base-content/50 truncate">{flow.description}</p>
+ <p class="text-xs text-base-content/65 truncate">{flow.description}</p>
  {/if}
  </div>
  </div>
@@ -252,7 +252,7 @@ function formatRelative(dateStr?: string): string {
  </div>
  </div>
 
- <div class="flex items-center gap-1.5 text-xs text-base-content/60">
+ <div class="flex items-center gap-1.5 text-xs text-base-content/65">
  <TriggerIcon size={13} />
  <span>{triggerLabel(flow)}</span>
  {#if flow.total_runs}
@@ -260,7 +260,7 @@ function formatRelative(dateStr?: string): string {
  {/if}
  </div>
 
- <div class="text-xs text-base-content/40">
+ <div class="text-xs text-base-content/65">
  Last run: {formatRelative(flow.last_run_at)}
  </div>
 
@@ -329,7 +329,7 @@ function formatRelative(dateStr?: string): string {
  <div class="form-control">
  <div class="label">
  <span class="label-text text-xs">{m['flows.cronExpression']()}</span>
- <span class="label-text-alt text-xs text-base-content/50">{m['flows.cronHint']()}</span>
+ <span class="label-text-alt text-xs text-base-content/65">{m['flows.cronHint']()}</span>
  </div>
  <input
  class="input input-sm font-mono"

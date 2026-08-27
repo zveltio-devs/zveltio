@@ -220,7 +220,7 @@ onMount(() => {
       <Sparkles class="text-primary" size={20} />
       <h1 class="text-2xl font-bold">{m['tpl.title']()}</h1>
     </div>
-    <p class="text-sm text-base-content/60 max-w-2xl">
+    <p class="text-sm text-base-content/65 max-w-2xl">
       Skip the blank-page problem. Install a starter app — collections, fields,
       and relations ready to use. Customise anything afterwards. Templates are
       additive: existing collections aren't touched.
@@ -236,7 +236,7 @@ onMount(() => {
       {#each templates as t}
         {@const Icon = (t.icon && ICONS[t.icon]) || Sparkles}
         <button
-          class="card bg-base-200 hover:bg-base-300 transition-colors border border-base-300 hover:border-primary text-left"
+          class="card bg-base-100 hover:bg-base-300 transition-colors border border-base-300 hover:border-primary text-left"
           onclick={() => openPreview(t.id)}
         >
           <div class="card-body p-5 gap-3">
@@ -244,11 +244,11 @@ onMount(() => {
               <div class="p-2.5 rounded-lg bg-primary/10">
                 <Icon class="text-primary" size={20} />
               </div>
-              <ChevronRight size={16} class="text-base-content/40 mt-2" />
+              <ChevronRight size={16} class="text-base-content/65 mt-2" />
             </div>
             <h3 class="font-semibold text-base">{t.name}</h3>
-            <p class="text-xs text-base-content/60 line-clamp-2">{t.description}</p>
-            <div class="flex items-center gap-3 mt-1 text-xs text-base-content/40">
+            <p class="text-xs text-base-content/65 line-clamp-2">{t.description}</p>
+            <div class="flex items-center gap-3 mt-1 text-xs text-base-content/65">
               <span>{t.collection_count} collections</span>
               <span>·</span>
               <span>{t.relation_count} relations</span>
@@ -279,9 +279,9 @@ onMount(() => {
         <div class="min-w-0">
           {#if preview}
             <h2 class="text-lg font-bold">{preview.name}</h2>
-            <p class="text-sm text-base-content/60">{preview.description}</p>
+            <p class="text-sm text-base-content/65">{preview.description}</p>
           {:else}
-            <span class="text-sm text-base-content/60">{m['common.loading']()}</span>
+            <span class="text-sm text-base-content/65">{m['common.loading']()}</span>
           {/if}
         </div>
         <button class="btn btn-ghost btn-sm" onclick={closePreview} disabled={installing} aria-label={m['common.close']()}>
@@ -300,19 +300,19 @@ onMount(() => {
             </h3>
             <div class="space-y-3">
               {#each preview.collections as col}
-                <div class="card bg-base-200 border border-base-300">
+                <div class="card bg-base-100 border border-base-300">
                   <div class="card-body p-4 gap-2">
                     <div class="flex items-baseline justify-between gap-2">
                       <h4 class="font-semibold text-sm">{col.display_name || col.name}</h4>
-                      <span class="text-[11px] font-mono text-base-content/40">{prefix ? `${prefix}_${col.name}` : col.name}</span>
+                      <span class="text-[11px] font-mono text-base-content/65">{prefix ? `${prefix}_${col.name}` : col.name}</span>
                     </div>
                     <ul class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-base-content/70">
                       {#each col.fields as f}
                         {@const isRel = ['m2o', 'o2m', 'm2m', 'reference'].includes(f.type)}
                         <li class="flex items-center gap-1.5">
                           <span class="font-mono {isRel ? 'text-indigo-400' : ''}">{f.name}</span>
-                          <span class="text-base-content/40">·</span>
-                          <span class="text-base-content/40">{f.type}</span>
+                          <span class="text-base-content/65">·</span>
+                          <span class="text-base-content/65">{f.type}</span>
                           {#if f.required}<span class="text-error">*</span>{/if}
                         </li>
                       {/each}
@@ -329,7 +329,7 @@ onMount(() => {
             <label class="form-control w-full">
               <div class="label py-1">
                 <span class="label-text text-xs">{m['tpl.prefixLabel']()}</span>
-                <span class="label-text-alt text-[10px] text-base-content/40">
+                <span class="label-text-alt text-[10px] text-base-content/65">
                   e.g. <code>sales</code> → <code>sales_crm_companies</code>
                 </span>
               </div>
@@ -358,7 +358,7 @@ onMount(() => {
                     {#if i < installCompletedCount}
                       <Check size={14} class="text-success" />
                     {:else}
-                      <Loader2 size={14} class="animate-spin text-base-content/40" />
+                      <Loader2 size={14} class="animate-spin text-base-content/65" />
                     {/if}
                     <span class="font-mono">{name}</span>
                   </li>

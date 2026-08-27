@@ -295,7 +295,7 @@ function fmt(d: string | null) {
         <AlertCircle size={16} />
         <span class="text-sm">{m['schemaBranches.infoBanner']()}</span>
       </div>
-      <button class="btn btn-ghost btn-sm shrink-0" onclick={loadBranches} disabled={loading} aria-label={m['schemaBranches.refresh']()}>
+      <button type="button" class="btn btn-ghost btn-sm shrink-0" onclick={loadBranches} disabled={loading} aria-label={m['schemaBranches.refresh']()}>
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
       </button>
     </div>
@@ -327,7 +327,7 @@ function fmt(d: string | null) {
                 {#if branch.review_status}
                   <span class="badge badge-sm {reviewBadge(branch.review_status)}">{branch.review_status.replace('_', ' ')}</span>
                 {:else}
-                  <span class="text-xs text-base-content/30">{m['schemaBranches.none']()}</span>
+                  <span class="text-xs text-base-content/55">{m['schemaBranches.none']()}</span>
                 {/if}
               </td>
               <td>
@@ -340,39 +340,39 @@ function fmt(d: string | null) {
                     title={m['schemaBranches.requireBeforeMerge']()}
                   />
                 {:else}
-                  <span class="text-xs text-base-content/30">—</span>
+                  <span class="text-xs text-base-content/55">—</span>
                 {/if}
               </td>
               <td class="text-sm opacity-60">{branch.changes?.length || 0}</td>
               <td class="text-sm opacity-60">{fmt(branch.created_at)}</td>
               <td>
                 <div class="flex items-center justify-end gap-1">
-                  <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewDiff(branch)} title={m['schemaBranches.viewDiff']()}>
+                  <button type="button" class="btn btn-ghost btn-xs gap-1" onclick={() => viewDiff(branch)} title={m['schemaBranches.viewDiff']()}>
                     <Eye size={12} /> Diff
                   </button>
 
                   {#if branch.status === 'open'}
                     <!-- Preview -->
                     {#if branch.preview_enabled}
-                      <button class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title={m['schemaBranches.showPreviewToken']()}>
+                      <button type="button" class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title={m['schemaBranches.showPreviewToken']()}>
                         <Globe size={12} />
                       </button>
-                      <button class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title={m['schemaBranches.disablePreview']()}>
+                      <button type="button" class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title={m['schemaBranches.disablePreview']()}>
                         <GlobeLock size={12} />
                       </button>
                     {:else}
-                      <button class="btn btn-ghost btn-xs gap-1" onclick={() => enablePreview(branch)} disabled={enablingPreview} title={m['schemaBranches.enablePreview']()}>
+                      <button type="button" class="btn btn-ghost btn-xs gap-1" onclick={() => enablePreview(branch)} disabled={enablingPreview} title={m['schemaBranches.enablePreview']()}>
                         <Globe size={12} />
                       </button>
                     {/if}
 
                     <!-- Review -->
-                    <button class="btn btn-ghost btn-xs gap-1" onclick={() => openReviewModal(branch)} title={m['schemaBranches.submitReview']()}>
+                    <button type="button" class="btn btn-ghost btn-xs gap-1" onclick={() => openReviewModal(branch)} title={m['schemaBranches.submitReview']()}>
                       <MessageSquare size={12} /> {m['schemaBranches.review']()}
                     </button>
 
                     <!-- Merge -->
-                    <button
+                    <button type="button"
                       class="btn btn-success btn-xs gap-1"
                       onclick={() => openMergeModal(branch)}
                       title={branch.requires_approval && branch.review_status !== 'approved' ? m['schemaBranches.approvalBeforeMerge']() : m['schemaBranches.mergeToProduction']()}
@@ -380,7 +380,7 @@ function fmt(d: string | null) {
                       <Merge size={12} /> {m['schemaBranches.merge']()}
                     </button>
 
-                    <button class="btn btn-ghost btn-xs text-error" onclick={() => (deleteTarget = branch)} title={m['schemaBranches.closeBranch']()}>
+                    <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => (deleteTarget = branch)} title={m['schemaBranches.closeBranch']()}>
                       <Trash2 size={12} />
                     </button>
                   {/if}
@@ -396,7 +396,7 @@ function fmt(d: string | null) {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title={m['schemaBranches.createModalTitle']()} size="md">
+  <Modal bind:open={showCreateModal} title={m['schemaBranches.createModalTitle']()} size="md" onSubmit={createBranch}>
       <div class="space-y-3">
         <div class="form-control">
           <label class="label" for="branch-name"><span class="label-text">{m['schemaBranches.branchName']()}</span></label>
@@ -408,8 +408,8 @@ function fmt(d: string | null) {
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary" onclick={createBranch} disabled={!newBranchName.trim() || creating}>
+        <button type="button" class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
+        <button type="submit" class="btn btn-primary" disabled={!newBranchName.trim() || creating}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
           {m['common.create']()}
         </button>
@@ -454,7 +454,7 @@ function fmt(d: string | null) {
         </div>
       {/if}
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showDiffModal = false)}>{m['common.close']()}</button>
+        <button type="button" class="btn btn-ghost" onclick={() => (showDiffModal = false)}>{m['common.close']()}</button>
       </div>
   </Modal>
 {/if}
@@ -468,13 +468,13 @@ function fmt(d: string | null) {
         <div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>
       {:else if reviews.length > 0}
         <div class="mb-4 space-y-2">
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">{m['schemaBranches.reviewHistory']()}</p>
+          <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide">{m['schemaBranches.reviewHistory']()}</p>
           {#each reviews as r}
             <div class="flex items-start gap-2 bg-base-200 rounded p-2 text-sm">
               <span class="badge badge-xs {reviewBadge(r.status)} mt-0.5">{r.status?.replace('_', ' ')}</span>
               <div class="flex-1 min-w-0">
                 {#if r.reviewer_note}<p class="text-xs text-base-content/70">{r.reviewer_note}</p>{/if}
-                <p class="text-xs text-base-content/30">{fmt(r.reviewed_at ?? r.created_at)}</p>
+                <p class="text-xs text-base-content/55">{fmt(r.reviewed_at ?? r.created_at)}</p>
               </div>
             </div>
           {/each}
@@ -486,19 +486,19 @@ function fmt(d: string | null) {
       <div class="space-y-3">
         <p class="text-sm font-medium">{m['schemaBranches.submitNewReview']()}</p>
         <div class="flex gap-2">
-          <button
+          <button type="button"
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'approved' ? 'btn-success' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'approved')}
           >
             <ShieldCheck size={14} /> {m['common.approve']()}
           </button>
-          <button
+          <button type="button"
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'changes_requested' ? 'btn-warning' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'changes_requested')}
           >
             <MessageSquare size={14} /> {m['schemaBranches.requestChanges']()}
           </button>
-          <button
+          <button type="button"
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'rejected' ? 'btn-error' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'rejected')}
           >
@@ -512,8 +512,8 @@ function fmt(d: string | null) {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showReviewModal = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary" onclick={submitReview} disabled={submittingReview}>
+        <button type="button" class="btn btn-ghost" onclick={() => (showReviewModal = false)}>{m['common.cancel']()}</button>
+        <button type="button" class="btn btn-primary" onclick={submitReview} disabled={submittingReview}>
           {#if submittingReview}<span class="loading loading-spinner loading-sm"></span>{/if}
           {m['schemaBranches.submitReview']()}
         </button>
@@ -537,8 +537,8 @@ function fmt(d: string | null) {
           </div>
         {/if}
         <div class="modal-action">
-          <button class="btn btn-ghost" onclick={() => (showMergeModal = false)}>{m['common.cancel']()}</button>
-          <button
+          <button type="button" class="btn btn-ghost" onclick={() => (showMergeModal = false)}>{m['common.cancel']()}</button>
+          <button type="button"
             class="btn btn-success gap-1"
             onclick={mergeBranch}
             disabled={merging || (selectedBranch.requires_approval && selectedBranch.review_status !== 'approved')}
@@ -563,7 +563,7 @@ function fmt(d: string | null) {
           {/if}
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" onclick={() => { showMergeModal = false; mergeResult = null; }}>{m['common.close']()}</button>
+          <button type="button" class="btn btn-ghost" onclick={() => { showMergeModal = false; mergeResult = null; }}>{m['common.close']()}</button>
         </div>
       {/if}
   </Modal>
@@ -576,8 +576,8 @@ function fmt(d: string | null) {
       <div class="bg-base-200 rounded p-3 font-mono text-sm break-all select-all mb-2">{previewToken}</div>
       <p class="text-xs opacity-50 mb-4">{m['schemaBranches.headerLabel']()} <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>{m['common.copyShort']()}</button>
-        <button class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>{m['common.copyShort']()}</button>
+        <button type="button" class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
       </div>
   </Modal>
 {/if}
@@ -587,8 +587,8 @@ function fmt(d: string | null) {
   <Modal open={true} title={m['schemaBranches.closeBranch']()} size="md" dismissible={false}>
       <p class="text-sm opacity-70">{m['schemaBranches.closeConfirm']({ name: deleteTarget.name })}</p>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (deleteTarget = null)}>{m['common.cancel']()}</button>
-        <button class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> {m['schemaBranches.closeBranch']()}</button>
+        <button type="button" class="btn btn-ghost" onclick={() => (deleteTarget = null)}>{m['common.cancel']()}</button>
+        <button type="button" class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> {m['schemaBranches.closeBranch']()}</button>
       </div>
   </Modal>
 {/if}

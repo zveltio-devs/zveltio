@@ -46,7 +46,7 @@
   role="region"
   aria-label={m['content.pages.b.canvas']()}
 >
-  <div class="mx-auto transition-all duration-300 grid grid-cols-12 gap-x-4 items-start {widthClass}">
+  <div class="mx-auto transition-[max-width] duration-300 grid grid-cols-12 gap-x-4 items-start {widthClass}">
     <BlockList
       {blocks}
       parentId={null}
@@ -60,7 +60,7 @@
 
     {#if blocks.length === 0 && !dragState.active}
       <div class="col-span-12 mt-2 border-2 border-dashed border-base-300 rounded-2xl py-24
-        flex flex-col items-center gap-3 text-base-content/25 select-none">
+        flex flex-col items-center gap-3 text-base-content/55 select-none">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
           <rect x="3" y="3" width="18" height="18" rx="3"/>
           <path d="M12 8v8M8 12h8"/>

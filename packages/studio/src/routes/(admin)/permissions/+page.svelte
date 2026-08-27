@@ -267,8 +267,8 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {#if collections.length > 0}
         <div>
           <div class="flex items-center gap-2 mb-3">
-            <Database size={15} class="text-base-content/50" />
-            <span class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
+            <Database size={15} class="text-base-content/65" />
+            <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
               Collections ({collections.length}{matrixFilter ? ` of ${totalCollections}` : ''})
             </span>
           </div>
@@ -311,8 +311,8 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {#if zones.length > 0}
         <div>
           <div class="flex items-center gap-2 mb-3">
-            <Globe size={15} class="text-base-content/50" />
-            <span class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
+            <Globe size={15} class="text-base-content/65" />
+            <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
               Zones ({zones.length}{matrixFilter ? ` of ${totalZones}` : ''})
             </span>
           </div>
@@ -350,7 +350,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {/if}
 
         {#if resources.length === 0}
-        <div class="text-center text-base-content/40 py-8 text-sm">
+        <div class="text-center text-base-content/65 py-8 text-sm">
           No collections or zones yet. Create some to configure permissions.
         </div>
         {/if}
@@ -362,7 +362,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
   {:else if tab === 'roles'}
     <div class="space-y-4">
-      <div class="card bg-base-200">
+      <div class="card bg-base-100">
         <div class="card-body p-4">
           <h3 class="font-semibold mb-3">{m['permissions.createRole']()}</h3>
           <div class="flex gap-2">
@@ -377,16 +377,16 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       </div>
 
       {#if roles.length === 0}
-        <p class="text-center text-base-content/40 py-8 text-sm">{m['permissions.noRoles']()}</p>
+        <p class="text-center text-base-content/65 py-8 text-sm">{m['permissions.noRoles']()}</p>
       {:else}
         <div class="space-y-2">
           {#each roles as role}
-          <div class="card bg-base-200">
+          <div class="card bg-base-100">
             <div class="card-body p-3 flex-row items-center justify-between">
               <div class="flex items-center gap-2">
                 <Shield size={16} class="opacity-40" />
                 <span class="font-medium">{role.name}</span>
-                {#if role.description}<span class="text-sm text-base-content/50">{role.description}</span>{/if}
+                {#if role.description}<span class="text-sm text-base-content/65">{role.description}</span>{/if}
               </div>
               <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteRole(role.id, role.name)}>
                 <Trash2 size={14} />
@@ -413,7 +413,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         </div>
       </div>
 
-      <div class="card bg-base-200">
+      <div class="card bg-base-100">
         <div class="card-body p-4">
           <h3 class="font-semibold mb-3">{m['permissions.addInheritance']()}</h3>
           <div class="flex items-center gap-3 flex-wrap">
@@ -421,7 +421,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
               <option value="">{m['permissions.childRole']()}</option>
               {#each roleNames as r}<option value={r}>{r}</option>{/each}
             </select>
-            <ArrowRight size={16} class="text-base-content/40 shrink-0" />
+            <ArrowRight size={16} class="text-base-content/65 shrink-0" />
             <select class="select select-sm flex-1 min-w-32" bind:value={hierParent}>
               <option value="">{m['permissions.parentRole']()}</option>
               {#each roleNames as r}<option value={r}>{r}</option>{/each}
@@ -435,12 +435,12 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
               Add
             </button>
           </div>
-          <p class="text-xs text-base-content/40 mt-2">{m['permissions.readsAs']()} <em>{m['permissions.inheritExplain']()}</em></p>
+          <p class="text-xs text-base-content/65 mt-2">{m['permissions.readsAs']()} <em>{m['permissions.inheritExplain']()}</em></p>
         </div>
       </div>
 
       <div>
-        <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wider mb-3">
+        <h3 class="text-sm font-semibold text-base-content/65 uppercase tracking-wider mb-3">
           Active Inheritance Rules ({hierarchy.length})
         </h3>
         {#if hierarchy.length === 0}
@@ -452,13 +452,13 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {:else}
           <div class="space-y-2">
             {#each hierarchy as edge}
-            <div class="card bg-base-200 hover:bg-base-300 transition-colors">
+            <div class="card bg-base-100 hover:bg-base-300 transition-colors">
               <div class="card-body p-3 flex-row items-center gap-3">
                 <div class="flex items-center gap-2 flex-1 min-w-0">
                   <span class="badge badge-outline badge-sm font-mono">{edge.child}</span>
-                  <ChevronRight size={14} class="text-base-content/30 shrink-0" />
+                  <ChevronRight size={14} class="text-base-content/55 shrink-0" />
                   <span class="badge badge-primary badge-sm font-mono">{edge.parent}</span>
-                  <span class="text-xs text-base-content/40 ml-1">{m['permissions.inherits']()}</span>
+                  <span class="text-xs text-base-content/65 ml-1">{m['permissions.inherits']()}</span>
                 </div>
                 <button
                   class="btn btn-ghost btn-xs text-error shrink-0"
@@ -472,7 +472,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {/if}
       </div>
 
-      <div class="text-xs text-base-content/40 border border-base-300 rounded-lg p-3">
+      <div class="text-xs text-base-content/65 border border-base-300 rounded-lg p-3">
         <p class="font-semibold mb-1">{m['permissions.builtInRoles']()}</p>
         <ul class="space-y-0.5 ml-2">
           <li>• <code>god</code> {m['permissions.roleGod']()}</li>

@@ -66,6 +66,20 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
+  /** JSONB arrives as a string from this driver; hand callers the array. */
+  function parseScopes(raw: unknown): Array<{ collection: string; actions: string[] }> {
+    if (Array.isArray(raw)) return raw as Array<{ collection: string; actions: string[] }>;
+    if (typeof raw !== 'string') return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? (parsed as Array<{ collection: string; actions: string[] }>)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
   // GET / — List API keys
   app.get('/', async (c) => {
     const { page = '1', limit = '50' } = c.req.query();
@@ -112,6 +126,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     return c.json({
       api_keys: keys.map((k) => ({
         ...k,
+        // `scopes` is JSONB and this driver hands it back as a STRING, not a
+        // parsed array. Callers then run `.map` on it and get "e.map is not a
+        // function" — which is exactly what the Studio did the moment a key
+        // existed. Parsed once here rather than in every caller; an array passes
+        // through untouched, and an unparseable value becomes an empty scope
+        // list rather than an exception, because one malformed row must not take
+        // the whole listing down with it.
+        scopes: parseScopes(k.scopes),
         is_instance_wide: k.tenant_id === DEFAULT_TENANT_ID,
       })),
     });

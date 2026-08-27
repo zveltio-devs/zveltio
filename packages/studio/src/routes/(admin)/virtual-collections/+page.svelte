@@ -163,21 +163,21 @@ onMount(load);
  {#if loading}
  <PageSpinner py={20} />
  {:else if collections.length === 0}
- <div class="card bg-base-200 text-center py-16">
- <Plug size={40} class="mx-auto mb-4 text-base-content/30" />
- <p class="text-base-content/50 text-lg">{m['virtualCollections.noVC']()}</p>
- <p class="text-base-content/40 text-sm mt-1">
+ <div class="card bg-base-100 text-center py-16">
+ <Plug size={40} class="mx-auto mb-4 text-base-content/55" />
+ <p class="text-base-content/65 text-lg">{m['virtualCollections.noVC']()}</p>
+ <p class="text-base-content/65 text-sm mt-1">
  {m['virtualCollections.connectDesc']()}
  </p>
  </div>
  {:else}
  <div class="grid gap-4">
  {#each collections as col}
- <div class="card bg-base-200 p-4">
+ <div class="card bg-base-100 p-4">
  <div class="flex items-center justify-between">
  <div>
  <div class="font-semibold text-lg">{col.display_name || col.name}</div>
- <div class="text-sm text-base-content/50 font-mono">{col.virtual_config?.source_url}</div>
+ <div class="text-sm text-base-content/65 font-mono">{col.virtual_config?.source_url}</div>
  <div class="flex gap-2 mt-1">
  <span class="badge badge-outline badge-sm">{col.virtual_config?.auth_type}</span>
  <span class="badge badge-outline badge-sm">{col.name}</span>

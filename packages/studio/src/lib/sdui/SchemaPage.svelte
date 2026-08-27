@@ -1030,7 +1030,7 @@ const shellTabs = $derived(
     {#each active.filters as fl}
       {#if fl.type === 'dateRange'}
         <div class="flex flex-wrap items-end gap-3 mb-4">
-          {#if fl.label}<span class="text-xs font-medium text-base-content/60 pb-2">{t(fl.label)}</span>{/if}
+          {#if fl.label}<span class="text-xs font-medium text-base-content/65 pb-2">{t(fl.label)}</span>{/if}
           <label class="form-control">
             <span class="label-text text-xs">{t('common.col.from')}</span>
             <input
@@ -1086,7 +1086,7 @@ const shellTabs = $derived(
       {:else if fl.param && fl.options}
         <div class="tabs tabs-boxed bg-base-200 w-fit mb-4">
           {#each fl.options as opt}
-            <button
+            <button type="button"
               class="tab {(filterValues[fl.param] ?? 'all') === opt.value ? 'tab-active' : ''}"
               onclick={() => {
                 filterValues = { ...filterValues, [fl.param!]: opt.value };
@@ -1130,7 +1130,7 @@ const shellTabs = $derived(
                 <option value={opt}>{opt}</option>
               {/each}
             </select>
-            <p class="text-xs text-base-content/50 mt-1">
+            <p class="text-xs text-base-content/65 mt-1">
               {checklistConfigured ? t('analytics.dashboard.customLayout') : t('analytics.dashboard.defaultLayout')}
             </p>
           </div>
@@ -1153,12 +1153,12 @@ const shellTabs = $derived(
               {/each}
             </div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick={saveChecklist} disabled={checklistSaving || !checklistSelected}>
+          <button type="button" class="btn btn-primary btn-sm" onclick={saveChecklist} disabled={checklistSaving || !checklistSelected}>
             {t('common.save')}
           </button>
         </div>
         <div class="space-y-2">
-          <h2 class="font-medium text-sm text-base-content/60">{t('analytics.dashboard.includedWidgets')}</h2>
+          <h2 class="font-medium text-sm text-base-content/65">{t('analytics.dashboard.includedWidgets')}</h2>
           <div class="border border-base-300 rounded-lg p-4 bg-base-100 min-h-[8rem]">
             {#if checklistSelectedIds.length}
               <div class="flex flex-wrap gap-2">
@@ -1167,7 +1167,7 @@ const shellTabs = $derived(
                 {/each}
               </div>
             {:else}
-              <p class="text-sm text-base-content/50 py-8 text-center">{t('analytics.dashboard.noWidgets')}</p>
+              <p class="text-sm text-base-content/65 py-8 text-center">{t('analytics.dashboard.noWidgets')}</p>
             {/if}
           </div>
         </div>
@@ -1180,10 +1180,10 @@ const shellTabs = $derived(
         <div class="card bg-base-200 border border-base-300">
           <div class="card-body p-2 gap-1">
             {#if masterRows.length === 0}
-              <p class="p-3 text-xs text-base-content/50">{t('common.noResults')}</p>
+              <p class="p-3 text-xs text-base-content/65">{t('common.noResults')}</p>
             {:else}
               {#each masterRows as mrow (mrow[mkey])}
-                <button
+                <button type="button"
                   class="btn btn-ghost btn-sm h-auto py-2 justify-start {String(mrow[mkey]) === String(selectedMasterId) ? 'btn-active' : ''}"
                   onclick={() => selectMaster(mrow[mkey])}
                 >
@@ -1210,7 +1210,7 @@ const shellTabs = $derived(
           <div class="flex gap-2 mb-3 justify-end">
             {#each active.detailActions as a}
               {#if actionVisible(selectedMaster, a)}
-                <button class="btn btn-outline btn-sm gap-1 {a.variant ?? ''}" onclick={() => runAction(selectedMaster, a)}>
+                <button type="button" class="btn btn-outline btn-sm gap-1 {a.variant ?? ''}" onclick={() => runAction(selectedMaster, a)}>
                   {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={13} />{/if}
                   {t(a.label)}
                 </button>
@@ -1224,7 +1224,7 @@ const shellTabs = $derived(
               <div class="flex flex-wrap items-center gap-2 mb-2 px-1">
                 <span class="text-sm opacity-70">{selectedIds.size} selected</span>
                 {#each active.bulkActions as a}
-                  <button
+                  <button type="button"
                     class="btn btn-sm {a.variant ?? 'btn-outline'}"
                     disabled={busyRowKey === '__bulk__'}
                     onclick={() => void runBulkAction(a)}
@@ -1299,7 +1299,7 @@ const shellTabs = $derived(
                       <td class="text-right whitespace-nowrap">
                         {#each active.rowActions as a}
                           {#if actionVisible(row, a)}
-                            <button
+                            <button type="button"
                               class="btn btn-ghost btn-xs {a.variant ?? ''}"
                               title={t(a.label)}
                               disabled={busyRowKey === rowKey(row)}
@@ -1327,7 +1327,7 @@ const shellTabs = $derived(
     {#if loading}
       <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
     {:else if clientFiltered.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{t('common.noResults')}</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/65 text-sm">{t('common.noResults')}</div></div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {#each clientFiltered as row (row.id)}
@@ -1337,12 +1337,12 @@ const shellTabs = $derived(
                 <div class="font-medium text-sm">{getPath(row, active.card?.title)}</div>
                 {#if active.card?.badge}<span class="badge badge-ghost badge-sm">{getPath(row, active.card.badge)}</span>{/if}
               </div>
-              {#if active.card?.subtitle}<div class="text-xs text-base-content/60 font-mono break-all">{getPath(row, active.card.subtitle)}</div>{/if}
+              {#if active.card?.subtitle}<div class="text-xs text-base-content/65 font-mono break-all">{getPath(row, active.card.subtitle)}</div>{/if}
               {#if active.rowActions}
                 <div class="flex justify-end gap-1">
                   {#each active.rowActions as a}
                     {#if actionVisible(row, a)}
-                      <button class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
+                      <button type="button" class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
                         {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={12} />{:else}{t(a.label)}{/if}
                       </button>
                     {/if}
@@ -1361,7 +1361,7 @@ const shellTabs = $derived(
         <div class="flex flex-wrap items-center gap-2 mb-2 px-1">
           <span class="text-sm opacity-70">{selectedIds.size} selected</span>
           {#each active.bulkActions as a}
-            <button
+            <button type="button"
               class="btn btn-sm {a.variant ?? 'btn-outline'}"
               disabled={busyRowKey === '__bulk__'}
               onclick={() => void runBulkAction(a)}
@@ -1431,7 +1431,7 @@ const shellTabs = $derived(
                     {:else}—{/if}
                   {:else if col.secondary}
                     <div class="font-medium">{cellText(row, col)}</div>
-                    {#if row[col.secondary]}<div class="text-xs text-base-content/50">{row[col.secondary]}</div>{/if}
+                    {#if row[col.secondary]}<div class="text-xs text-base-content/65">{row[col.secondary]}</div>{/if}
                   {:else}
                     {cellText(row, col)}
                   {/if}
@@ -1442,7 +1442,7 @@ const shellTabs = $derived(
                   <div class="flex gap-1 justify-end">
                     {#each active.rowActions as a}
                       {#if actionVisible(row, a)}
-                        <button
+                        <button type="button"
                           class="btn btn-ghost btn-xs {a.variant ?? ''}"
                           title={t(a.label)}
                           disabled={busyRowKey === rowKey(row)}
@@ -1469,7 +1469,7 @@ const shellTabs = $derived(
 
   {#if active.pagination && total > active.pagination.limit}
     <div class="flex justify-center gap-2 mt-4">
-      <button class="btn btn-sm" disabled={pageNum === 1} onclick={() => pageNum--}>{t('common.prev')}</button>
+      <button type="button" class="btn btn-sm" disabled={pageNum === 1} onclick={() => pageNum--}>{t('common.prev')}</button>
       <span class="btn btn-sm btn-disabled">{pageNum} / {Math.ceil(total / active.pagination.limit) || 1}</span>
       <button class="btn btn-sm" disabled={pageNum * active.pagination.limit >= total} onclick={() => pageNum++}>{t('common.next')}</button>
     </div>
@@ -1484,12 +1484,12 @@ const shellTabs = $derived(
         <p class="text-sm text-warning py-2">{t(active.form.reveal.note ?? 'ext.reveal.note')}</p>
         <div class="flex items-center gap-2">
           <code class="bg-base-200 rounded px-3 py-2 text-sm break-all flex-1 select-all">{revealValue}</code>
-          <button class="btn btn-sm btn-primary" onclick={copyReveal}>
+          <button type="button" class="btn btn-sm btn-primary" onclick={copyReveal}>
             {revealCopied ? t('ext.copied') : t('ext.reveal.copy')}
           </button>
         </div>
         <div class="modal-action">
-          <button class="btn btn-sm" onclick={() => (revealValue = null)}>{t('common.close')}</button>
+          <button type="button" class="btn btn-sm" onclick={() => (revealValue = null)}>{t('common.close')}</button>
         </div>
     </Modal>
   {/if}
@@ -1529,8 +1529,8 @@ const shellTabs = $derived(
         </div>
       {/if}
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={cancelPreview}>{t('common.cancel')}</button>
-        <button class="btn btn-error" onclick={submitForm} disabled={saving}>
+        <button type="button" class="btn btn-ghost" onclick={cancelPreview}>{t('common.cancel')}</button>
+        <button type="button" class="btn btn-error" onclick={submitForm} disabled={saving}>
           {saving ? '…' : t(active.form.preview.confirmLabel ?? 'operations.traceability.action.confirm')}
         </button>
       </div>
@@ -1598,8 +1598,8 @@ const shellTabs = $derived(
         {#each P.fields as f}{@render fieldInput(f, promptData)}{/each}
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (promptFor = null)}>{t('common.cancel')}</button>
-        <button
+        <button type="button" class="btn btn-ghost" onclick={() => (promptFor = null)}>{t('common.cancel')}</button>
+        <button type="button"
           class="btn btn-primary {promptFor.action.variant ?? ''}"
           disabled={!promptValid}
           onclick={submitPrompt}
@@ -1610,7 +1610,7 @@ const shellTabs = $derived(
 
 {#if showForm && active.form}
   {@const F = active.form}
-  <Modal bind:open={showForm} title={editingId ? t('common.edit') : t(schema.newLabel)} size="xl">
+  <Modal bind:open={showForm} title={editingId ? t('common.edit') : t(schema.newLabel)} size="xl" onSubmit={submitForm}>
 
       {#if F.fields}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -1630,7 +1630,7 @@ const shellTabs = $derived(
         <div class="mb-3">
           <div class="flex items-center justify-between mb-2">
             <p class="font-semibold text-sm">{t(rep.label)}</p>
-            <button class="btn btn-ghost btn-xs" onclick={addRepeatRow}>{t(rep.addLabel)}</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick={addRepeatRow}>{t(rep.addLabel)}</button>
           </div>
           <div class="overflow-x-auto">
           <table class="table table-xs">
@@ -1659,7 +1659,7 @@ const shellTabs = $derived(
                       {/if}
                     </td>
                   {/each}
-                  <td>{#if (formData[rep.name]?.length ?? 0) > (rep.min ?? 0)}<button class="btn btn-ghost btn-xs text-error" onclick={() => removeRepeatRow(i)}>✕</button>{/if}</td>
+                  <td>{#if (formData[rep.name]?.length ?? 0) > (rep.min ?? 0)}<button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeRepeatRow(i)}>✕</button>{/if}</td>
                 </tr>
               {/each}
             </tbody>
@@ -1673,8 +1673,8 @@ const shellTabs = $derived(
       {/each}
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showForm = false)}>{t('common.cancel')}</button>
-        <button class="btn btn-primary" onclick={submitForm} disabled={saving || !formValid}>
+        <button type="button" class="btn btn-ghost" onclick={() => (showForm = false)}>{t('common.cancel')}</button>
+        <button type="submit" class="btn btn-primary" disabled={saving || !formValid}>
           {#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}
           {#if F.submit?.kind === 'download'}{t('common.download')}
           {:else if F.submit?.kind === 'upload'}{t('common.upload')}

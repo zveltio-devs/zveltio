@@ -30,6 +30,24 @@ let {
   onClose = null,
   /** Set false for a dialog the user must answer (a destructive confirm). */
   dismissible = true,
+  /**
+   * Pass a submit handler and the body becomes a real <form>.
+   *
+   * What that buys, and why it is not cosmetic: Enter from any field submits,
+   * which is what someone typing into a dialog expects and what every one of
+   * these dialogs was missing; the browser runs `required` and `type` checks
+   * before the handler; and a password manager can recognise a credential form,
+   * which it cannot do without one.
+   *
+   * Named `onSubmit`, not `onsubmit`: Svelte 5 reads a lowercase `on*` on a
+   * COMPONENT as an event attribute rather than a prop, so the handler never
+   * arrives and the form silently never renders.
+   *
+   * Left off, the body renders exactly as before — a dialog whose fields apply
+   * as they change has nothing to submit, and wrapping it would invent a
+   * submission that does not exist.
+   */
+  onSubmit = null,
 }: {
   children: Snippet;
   open?: boolean;
@@ -37,6 +55,7 @@ let {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   onClose?: (() => void) | null;
   dismissible?: boolean;
+  onSubmit?: (() => void) | null;
 } = $props();
 
 const sizes: Record<string, string> = {
@@ -126,10 +145,22 @@ $effect(() => {
           aria-label={m['common.close']()}>✕</button
         >
       {/if}
-      <div class="py-4">{@render children()}</div>
+      {#if onSubmit}
+        <form
+          class="py-4"
+          onsubmit={(e) => {
+            e.preventDefault();
+            onSubmit();
+          }}
+        >
+          {@render children()}
+        </form>
+      {:else}
+        <div class="py-4">{@render children()}</div>
+      {/if}
     </div>
     {#if dismissible}
-      <button class="modal-backdrop" aria-label={m['common.close']()} onclick={close}></button>
+      <button type="button" class="modal-backdrop" aria-label={m['common.close']()} onclick={close}></button>
     {/if}
   </dialog>
 {/if}

@@ -156,7 +156,7 @@ function openPreview(file: MediaFile) {
 
  <!-- Drag & Drop zone -->
  <div
- class="border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-default
+ class="border-2 border-dashed rounded-xl p-10 text-center transition-[border-color,background-color] cursor-default
  {dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-base-300 hover:border-base-content/20'}"
  ondragover={(e) => { e.preventDefault(); dragging = true; }}
  ondragleave={() => (dragging = false)}
@@ -164,7 +164,7 @@ function openPreview(file: MediaFile) {
  role="region" aria-label={m['media.dropZone']()}
  >
  <HardDrive size={36} class="mx-auto mb-2 opacity-30" />
- <p class="text-sm text-base-content/50">{m['media.dropHere']()}</p>
+ <p class="text-sm text-base-content/65">{m['media.dropHere']()}</p>
  </div>
 
  <!-- Filter tabs -->
@@ -184,14 +184,14 @@ function openPreview(file: MediaFile) {
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
- <div class="text-center py-16 text-base-content/40">
+ <div class="text-center py-16 text-base-content/65">
  <File size={48} class="mx-auto mb-3" />
  <p class="text-sm">No {filter === 'all' ? '' : filter} files yet</p>
  </div>
  {:else}
  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
  {#each filtered as file}
- <div class="card bg-base-200 overflow-hidden relative group {selectedFiles.has(file.id) ? 'ring-2 ring-primary' : ''}">
+ <div class="card bg-base-100 overflow-hidden relative group {selectedFiles.has(file.id) ? 'ring-2 ring-primary' : ''}">
  <!-- Checkbox overlay -->
  <div class="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity {selectedFiles.has(file.id) ? 'opacity-100' : ''}">
  <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
@@ -222,7 +222,7 @@ function openPreview(file: MediaFile) {
  <div class="p-3 space-y-2">
  <div>
  <p class="text-sm font-medium truncate" title={file.original_name}>{file.original_name}</p>
- <div class="flex justify-between text-xs text-base-content/50">
+ <div class="flex justify-between text-xs text-base-content/65">
  <span>{fmt(file.size)}</span>
  <span>{fmtDate(file.created_at)}</span>
  </div>
