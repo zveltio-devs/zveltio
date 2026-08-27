@@ -1298,7 +1298,14 @@ async function bootstrap() {
   // so on a settled install this writes nothing and costs one query.
   try {
     const { listKnownResources, materializeDefaultGrants } = await import('./lib/tenancy/index.js');
-    const n = await materializeDefaultGrants(db, await listKnownResources(db));
+    const { resolveExtensionsBase } = await import('./lib/extensions/index.js');
+    // The extensions directory is resolved here and handed over: `tenancy`
+    // reaching into `extensions` for it closes an import cycle (see the note on
+    // `resourcesDeclaredOnDisk`).
+    const n = await materializeDefaultGrants(
+      db,
+      await listKnownResources(db, resolveExtensionsBase()),
+    );
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {
     console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);
