@@ -425,6 +425,46 @@ Contează mai mult acum decât înainte: un nod-părinte citește legitim de 42 
 ori mai multe rânduri, deci ăsta e exact momentul în care o scanare secvențială
 încetează să fie ieftină.
 
+### Corecție la corecția de mai sus — forma indexabilă nu ține ca POLITICĂ (2026-08-27)
+
+Simptomul de mai sus e real și important. Mecanismul și remediul nu sunt.
+
+Măsurat pe 500 000 de rânduri din care 2 500 aparțin firmei, cu index prezent,
+`FORCE ROW LEVEL SECURITY` activ — deci cu politica chiar aplicată:
+
+| forma, **ca politică** | plan | rânduri scanate |
+|---|---|---|
+| funcție booleană de rând (vechea formă) | Index Only Scan, fără `Index Cond` | 500 000 |
+| `tenant_id = ANY (zveltio_visible_tenants())` — **forma scrisă de migrație** | **Parallel Seq Scan** | 500 000 |
+| predicat scris inline în politică | fără `Index Cond` | 500 000 |
+| înfășurat în `(SELECT …)` | fără `Index Cond` | 500 000 |
+| funcție wrapper marcată `LEAKPROOF` | fără `Index Cond` | 500 000 |
+
+Aceleași expresii, **ca `WHERE` obișnuit**, se comportă exact cum descrie tabelul
+de mai sus: `= ANY(funcție)` dă `Bitmap Index Scan` cu `Index Cond` pe 2 500 de
+rânduri, iar funcția booleană nu.
+
+**Deci diferența nu e forma predicatului, ci faptul că e politică.** Planificatorul
+estimează qualul de securitate ca potrivind tot — 208 333 de rânduri per worker
+față de 2 492 estimate corect pentru aceeași expresie ca `WHERE`. Fără o
+estimare, nu alege drumul prin index.
+
+Cifra de 0,28ms din tabelul de mai sus a fost aproape sigur măsurată **în afara
+politicii**. E aceeași greșeală de metodă pe care corecția o reproșează,
+corect, versiunii inițiale a acestui document — și pe care a repetat-o.
+
+**Ce funcționează, verificat:** politica rămâne, iar interogarea repetă filtrul
+explicit. Politica activă plus `WHERE tenant_id = current_setting(…)` →
+`Index Cond`, 2 500 de rânduri, cost 53 în loc de 6 600. RLS rămâne garanția;
+filtrul explicit e ce are nevoie planificatorul. Se poate injecta o singură dată,
+în proxy-ul cu domeniu de cerere, pentru engine și extensii deopotrivă.
+
+**Consecință pentru migrație:** forma nouă a politicilor e semantic corectă și
+nu strică nimic, dar **nu aduce câștigul de performanță invocat ca justificare**
+— iar la `count(*)` e un plan mai prost decât forma veche (Seq Scan față de Index
+Only Scan). Nu e motiv să se dea înapoi; e motiv ca justificarea să nu rămână
+scrisă greșit.
+
 ### §6 — sunt 16 pe o instalare curată, nu 20
 
 Cele patru care lipsesc — `zvd_pages`, `zvd_views`, `zvd_zones`,

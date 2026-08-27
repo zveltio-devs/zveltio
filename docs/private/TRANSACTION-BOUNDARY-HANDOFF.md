@@ -169,6 +169,31 @@ că golul acela a fost închis între timp — `createRequestScopedDb` dă rutel
 proxy-ul care rezolvă tranzacția curentă și atinge pool-ul doar când nu există
 una. Măsurătoarea din §2 a prins codul de dinainte.
 
+### Precizare: §2 se reproduce în continuare pe `master` (2026-08-27)
+
+Măsurătoarea de mai sus e corectă, dar titlul induce în eroare. Am rulat
+controlul: `master`, bază curată, aceeași rută, același header, `DB_POOL_MAX=10`.
+
+| concurență | `master` | `feat/tenancy-hierarchy` |
+|---|---|---|
+| 15 | 23ms, 600 req/s | 26ms, 555 req/s |
+| **20** | **p99 10 371ms, 23 req/s** | **33ms, 607 req/s** |
+| **30** | p50 11 839ms, **125 din 240 eșuate** | 50ms, 0 eșecuri |
+
+Deci nu „măsurătoarea din §2 nu se mai reproduce" — **se reproduce exact pe
+`master`.** Ce s-a schimbat e că `cfc3af59` a închis cauza. Diagnosticul a doua
+rezervare de conexiune e corect; ce nu e corect e sugestia că era închisă
+dinainte.
+
+Nuanța contează pentru cine citește mai târziu: dovada din §2 nu era falsă și nu
+trebuie scoasă. E **istorică**, și explică de ce a fost făcută reparația. Fără
+precizarea asta, cineva care revine peste un an ar putea conchide că problema
+n-a existat niciodată, și ar putea da înapoi reparația.
+
+Concluzia despre recomandarea A rămâne însă valabilă, doar cu alt motiv: A își
+pierde dovada principală pentru că problema **a fost rezolvată**, nu pentru că
+n-a existat.
+
 ### Prăpastia mai există exact unde a doua rezervare a rămas
 
 `insightsRoutes`, `backupRoutes`, `sqlEditorRoutes` și `flowsRoutes` primesc
