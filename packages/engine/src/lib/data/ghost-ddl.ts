@@ -67,6 +67,16 @@ export function isAllowedGhostDdl(statement: string): boolean {
   return ALLOWED_DDL_RE.test(statement.trim());
 }
 
+// raw-ident-ok-file: every identifier this module interpolates is derived from
+// the `tableName` that `createGhost` validates against /^[a-zA-Z_][a-zA-Z0-9_]*$/
+// before building anything from it — the ghost table, the changelog table, the
+// trigger and its function are all that name plus a literal prefix, and the
+// `migration` record carried between steps holds those same four strings.
+//
+// Whole-file rather than nineteen separate annotations: this is one pipeline
+// from one input, and marking each statement would say the same sentence
+// nineteen times.
+
 export class GhostDDL {
   /**
    * STEP 1: Creates ghost table identical to original + applies DDL changes on it.
@@ -77,6 +87,17 @@ export class GhostDDL {
     tableName: string,
     ddlStatements: string[], // ex: ['ADD COLUMN phone TEXT', 'DROP COLUMN fax']
   ): Promise<GhostMigration> {
+    // Validated here rather than trusted from the caller. Four identifiers are
+    // derived from this one string and every one is interpolated into a
+    // `sql.raw` template below, so a name carrying a double quote would escape
+    // the identifier and land arbitrary SQL inside a DDL statement.
+    //
+    // Nothing in the product calls this yet — only tests do — which is exactly
+    // when an entry point is cheapest to close.
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+      throw new Error(`Unsafe table name for ghost migration: "${tableName}"`);
+    }
+
     const ghost = `_zv_ghost_${tableName}`;
     const changelog = `_zv_changelog_${tableName}`;
     const triggerFn = `_zv_trg_ghost_${tableName}_fn`;

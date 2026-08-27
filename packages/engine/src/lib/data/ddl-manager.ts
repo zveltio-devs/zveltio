@@ -223,6 +223,15 @@ export class DDLManager {
           'transaction block (SQLSTATE 25001).',
       );
     }
+    // The three identifiers below are interpolated into a `sql.raw` template.
+    // `onDelete` / `onUpdate` were already checked against an allow-list; the
+    // names were not, and a name is the easier thing for a caller to get wrong.
+    for (const n of [tableName, fieldName, targetTable]) {
+      if (!SAFE_NAME_RE.test(n)) {
+        throw new Error(`Unsafe identifier for a relation FK: "${n}"`);
+      }
+    }
+
     const od = onDelete.toUpperCase();
     const ou = onUpdate.toUpperCase();
     if (!ON_DELETE_SAFE.has(od) || !ON_DELETE_SAFE.has(ou)) {
@@ -291,6 +300,16 @@ export class DDLManager {
     sourceName: string,
     targetName: string,
   ): Promise<string> {
+    // Validated here, not only in the caller. Both names are interpolated into
+    // identifiers below, and `createCollection` happens to test `target` before
+    // calling — which protects this call and not the next one somebody writes.
+    // The check belongs where the interpolation is.
+    for (const n of [sourceName, targetName]) {
+      if (!SAFE_NAME_RE.test(n)) {
+        throw new Error(`Unsafe collection name for a junction table: "${n}"`);
+      }
+    }
+
     const sourceTable = this.getTableName(sourceName);
     const targetTable = this.getTableName(targetName);
     const junctionTable = `zvd_jnc_${sourceName}_${targetName}`;

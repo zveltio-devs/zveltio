@@ -673,6 +673,7 @@
   "mkt.uninstallFailed": "Odinstalowanie nie powiodło się: {error}",
   "mkt.uninstallMsg": "Odinstalować „{name}”? Konfiguracja zostanie utracona.",
   "nav.account": "Konto",
+  "nav.aiChat": "Czat AI",
   "nav.analytics": "Analityka",
   "nav.apiKeys": "Klucze API",
   "nav.approvals": "Zatwierdzenia",

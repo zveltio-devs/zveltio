@@ -673,6 +673,7 @@
   "mkt.uninstallFailed": "Dezinstalarea a eșuat: {error}",
   "mkt.uninstallMsg": "Dezinstalezi „{name}”? Configurația se va pierde.",
   "nav.account": "Cont",
+  "nav.aiChat": "Chat AI",
   "nav.analytics": "Analiză",
   "nav.apiKeys": "Chei API",
   "nav.approvals": "Aprobări",

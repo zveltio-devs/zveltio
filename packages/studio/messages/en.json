@@ -2471,6 +2471,7 @@
   "mkt.uninstallFailed": "Uninstall failed: {error}",
   "mkt.uninstallMsg": "Uninstall \"{name}\"? Configuration will be lost.",
   "nav.account": "Account",
+  "nav.aiChat": "AI Chat",
   "nav.analytics": "Analytics",
   "nav.apiKeys": "API Keys",
   "nav.approvals": "Approvals",

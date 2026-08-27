@@ -13,8 +13,13 @@ const PAGES = ['/admin/', '/admin/collections/', '/admin/settings/', '/admin/use
  * screenshot showed. The canvas resolves any CSS colour to sRGB, and that is
  * what makes the numbers here real.
  *
- * The remaining failures are DaisyUI component defaults — a badge, a table
- * header, an inactive tab — rather than choices this Studio made.
+ * Getting here took three wrong turns worth recording. `@layer components` lost
+ * to DaisyUI, which emits component colours into `@layer utilities` — layer
+ * order is settled before specificity is consulted, so raising specificity
+ * inside the losing layer changed nothing. And the last two failures were not
+ * component defaults at all: they were `--color-info` and `--color-secondary`
+ * being too light for white text at badge sizes, which no component override
+ * could have fixed.
  */
 test('text meets WCAG AA on the main screens', async ({ page }) => {
   test.setTimeout(300_000);
