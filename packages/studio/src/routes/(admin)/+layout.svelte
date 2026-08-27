@@ -51,6 +51,7 @@ import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
 import CommandPalette from '$lib/components/common/CommandPalette.svelte';
 import TenantSwitcher from '$lib/components/layout/TenantSwitcher.svelte';
+import KeyboardMap from '$lib/components/common/KeyboardMap.svelte';
 import PreferencesMenu from '$lib/components/layout/PreferencesMenu.svelte';
 import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
@@ -59,6 +60,7 @@ let collapsed = $state(false);
 let mobileOpen = $state(false);
 let dark = $state(false);
 let cmdOpen = $state(false);
+let keysOpen = $state(false);
 let density = $state<'comfortable' | 'compact'>('comfortable');
 /** Set after `installExtensionApi` — contributions must not run before the global exists. */
 let contributionApiReady = $state(false);
@@ -147,6 +149,23 @@ $effect(() => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
       cmdOpen = !cmdOpen;
+      return;
+    }
+    // `?` opens the keyboard map — but not while somebody is typing one. A
+    // shortcut that eats a character out of a search box is worse than no
+    // shortcut, so focus in a field, a textarea or a contenteditable is left
+    // alone.
+    if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const el = document.activeElement as HTMLElement | null;
+      const typing =
+        !!el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable);
+      if (typing) return;
+      e.preventDefault();
+      keysOpen = !keysOpen;
     }
   }
   window.addEventListener('keydown', onKeydown);
@@ -313,3 +332,4 @@ async function signOut() {
 <ToastContainer />
 <UpdateBanner />
 <CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} navItems={paletteNavItems} />
+<KeyboardMap open={keysOpen} onclose={() => (keysOpen = false)} />
