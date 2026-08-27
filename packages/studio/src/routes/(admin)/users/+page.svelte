@@ -145,7 +145,7 @@ async function inviteUser() {
     inviteForm = { email: '', name: '', role: 'member' };
     await loadUsers();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to invite user');
+    toast.error(err instanceof Error ? err.message : m['users.inviteFailed']());
   } finally {
     inviting = false;
   }

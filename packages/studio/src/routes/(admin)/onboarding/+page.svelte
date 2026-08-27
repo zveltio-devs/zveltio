@@ -93,7 +93,7 @@ async function createCollection() {
     colCreated = true;
     toast.success(`Collection "${colLabel || colName}" created!`);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create collection');
+    toast.error(err instanceof Error ? err.message : m['collections.createFailed']());
   } finally {
     loading = false;
   }
@@ -110,14 +110,14 @@ async function createApiKey() {
     apiKey = res.key ?? '';
     keyCreated = true;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create API key');
+    toast.error(err instanceof Error ? err.message : m['apiKeys.createFailed']());
   } finally {
     loading = false;
   }
 }
 
 function copyKey() {
-  navigator.clipboard.writeText(apiKey).then(() => toast.success('Copied!'));
+  navigator.clipboard.writeText(apiKey).then(() => toast.success(m['common.copied']()));
 }
 
 // ── Step 4: test API call ──────────────────────────────────────
@@ -159,10 +159,10 @@ async function createWebhook() {
       events: webhookEvents,
       is_active: true,
     });
-    toast.success('Webhook created!');
+    toast.success(m['webhooks.created']());
     next();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create webhook');
+    toast.error(err instanceof Error ? err.message : m['webhooks.createFailed']());
   } finally {
     loading = false;
   }

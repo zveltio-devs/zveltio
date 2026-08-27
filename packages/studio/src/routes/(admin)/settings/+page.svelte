@@ -87,10 +87,10 @@ async function save() {
   try {
     await settingsApi.updateBulk(s);
     saved = true;
-    toast.success('Settings saved successfully');
+    toast.success(m['settings.saved']());
     setTimeout(() => (saved = false), 3000);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Save failed');
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
     saving = false;
   }
@@ -106,7 +106,7 @@ async function saveTier(tier: (typeof rlTiers)[number]) {
     });
     toast.success(`${tier.key_prefix} limits saved`);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Save failed');
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
     rlSaving = null;
   }
@@ -116,10 +116,10 @@ async function resetDefaults() {
   rlResetting = true;
   try {
     await api.post('/api/admin/rate-limits/reset', {});
-    toast.success('Rate limits reset to defaults');
+    toast.success(m['settings.rateLimitsReset']());
     await loadRateLimiting();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Reset failed');
+    toast.error(err instanceof Error ? err.message : m['common.resetFailed']());
   } finally {
     rlResetting = false;
   }

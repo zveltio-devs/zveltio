@@ -142,10 +142,10 @@ async function saveMatrix() {
     }
     await api.post('/api/admin/permissions/bulk', { permissions: list });
     saved = true;
-    toast.success('Permissions saved');
+    toast.success(m['permissions.saved']());
     setTimeout(() => (saved = false), 3000);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Save failed');
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
     saving = false;
   }
@@ -163,7 +163,7 @@ async function createRole() {
     newRoleDesc = '';
     await loadAll();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create role');
+    toast.error(err instanceof Error ? err.message : m['roles.createFailed']());
   } finally {
     creatingRole = false;
   }
@@ -172,9 +172,9 @@ async function createRole() {
 async function deleteRole(id: string, name: string) {
   confirmState = {
     open: true,
-    title: 'Delete Role',
+    title: m['confirm.deleteRole.title'](),
     message: `Delete role "${name}"? All permissions for this role will be removed.`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -182,7 +182,7 @@ async function deleteRole(id: string, name: string) {
         if (selectedRoleId === id) selectedRoleId = roles.find((r) => r.id !== id)?.id ?? '';
         await loadAll();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to delete role');
+        toast.error(err instanceof Error ? err.message : m['roles.deleteFailed']());
       }
     },
   };
