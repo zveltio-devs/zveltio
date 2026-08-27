@@ -1495,6 +1495,7 @@
   "data.import.upsertHint": "Upsert on field (optional, e.g. email)",
   "data.recordDeleted": "Record deleted",
   "data.recordsDeleted": "Records deleted",
+  "data.searchRecords": "Search records…",
   "denial.askAdmin": "An administrator of this workspace can grant it.",
   "denial.askPerson": "{name} can give you access.",
   "denial.confidential": "{resource} is confidential.",

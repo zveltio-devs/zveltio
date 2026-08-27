@@ -424,6 +424,7 @@
   "data.deleteSelected.title": "Kijelölt rekordok törlése",
   "data.recordDeleted": "Rekord törölve",
   "data.recordsDeleted": "Rekordok törölve",
+  "data.searchRecords": "Rekordok keresése…",
   "denial.askAdmin": "A munkaterület egyik adminisztrátora megadhatja.",
   "denial.askPerson": "{name} hozzáférést adhat neked.",
   "denial.confidential": "A(z) {resource} bizalmas adat.",

@@ -424,6 +424,7 @@
   "data.deleteSelected.title": "Geselecteerde records verwijderen",
   "data.recordDeleted": "Record verwijderd",
   "data.recordsDeleted": "Records verwijderd",
+  "data.searchRecords": "Records zoeken…",
   "denial.askAdmin": "Een beheerder van deze werkruimte kan dit verlenen.",
   "denial.askPerson": "{name} kan je toegang geven.",
   "denial.confidential": "{resource} zijn vertrouwelijke gegevens.",

@@ -254,7 +254,7 @@ let confirmState = $state<{
       type="text"
       bind:value={searchText}
       oninput={onSearchInput}
-      placeholder="Search records…"
+      placeholder={m['data.searchRecords']()}
       class="input input-sm w-full pl-8" />
     <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/55"
       fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -272,7 +272,7 @@ let confirmState = $state<{
       <Trash2 size={14} /> Delete {selectedIds.size}
     </button>
   {/if}
-  <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title="Refresh" aria-label="Refresh">
+  <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title={m['common.refresh']()} aria-label={m['common.refresh']()}>
     <RefreshCw size={14} />
   </button>
 </div>

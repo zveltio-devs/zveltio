@@ -1495,6 +1495,7 @@
   "data.import.upsertHint": "Upsert sur le champ (facultatif, ex. email)",
   "data.recordDeleted": "Enregistrement supprimé",
   "data.recordsDeleted": "Enregistrements supprimés",
+  "data.searchRecords": "Rechercher des enregistrements…",
   "denial.askAdmin": "Un administrateur de cet espace peut vous l'accorder.",
   "denial.askPerson": "{name} peut vous donner accès.",
   "denial.confidential": "{resource} sont des données confidentielles.",
