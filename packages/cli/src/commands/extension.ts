@@ -161,8 +161,8 @@ ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;
 --    named \`tenant_isolation_*\` onto it at boot.
 DROP POLICY IF EXISTS tenant_isolation_${table} ON ${table};
 CREATE POLICY tenant_isolation_${table} ON ${table}
-  USING (zveltio_tenant_scope_ok(tenant_id))
-  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
+  USING (tenant_id = ANY (zveltio_visible_tenants()))
+  WITH CHECK (zveltio_tenant_write_ok(tenant_id));
 `,
   );
 

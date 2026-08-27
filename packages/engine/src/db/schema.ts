@@ -249,6 +249,11 @@ export interface ZvTenantsTable {
   settings: Generated<unknown>; // JSONB DEFAULT '{}'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  // Migration 003 — units are a tree of arbitrary depth.
+  parent_id: string | null;
+  /** A unit is never deleted; dissolution is a date, so historical rows keep a live referent. */
+  closed_at: Date | null;
+  merged_into: string | null;
 }
 
 export interface ZvTenantUsersTable {
@@ -258,6 +263,32 @@ export interface ZvTenantUsersTable {
   role: 'owner' | 'admin' | 'member' | 'viewer';
   invited_by: string | null;
   joined_at: Generated<Date>;
+  // Migration 003 — the assignment, not the tree, is what gets configured.
+  /** How far this assignment READS. Writing has no reach; it is always the own node. */
+  read_scope: Generated<'self' | 'subtree' | 'list' | 'org'>;
+  /** Only for read_scope = 'list'; a CHECK constraint refuses the other combinations. */
+  scope_list: string[] | null;
+  valid_from: Generated<Date>;
+  /** NULL = open-ended. Revocation is a date, which is why the reach is resolved per request. */
+  valid_to: Date | null;
+}
+
+/**
+ * Records moved between units.
+ *
+ * The row moves; the FACT of the move stays. Not full temporal ownership —
+ * that would need columns on all 48 tenant tables — but it answers "who held
+ * this file in March" and does not stand in the way of the fuller version.
+ */
+export interface ZvTenantTransfersTable {
+  id: Generated<string>;
+  table_name: string;
+  record_id: string;
+  from_tenant: string;
+  to_tenant: string;
+  moved_at: Generated<Date>;
+  moved_by: string | null;
+  reason: string | null;
 }
 
 export interface ZvTenantUsageTable {
@@ -826,6 +857,18 @@ export interface ZvdCollectionsTable {
   is_system: Generated<boolean>; // DEFAULT false
   schema_locked: Generated<boolean>; // DEFAULT false
   has_trgm: Generated<boolean>; // 059: DEFAULT false (pg_trgm full-text)
+  /**
+   * 003: rows written at an ancestor unit are readable from below.
+   *
+   * Off by default — head-office payroll does not become county-visible merely
+   * by sitting higher. Compiled into the collection's policy as a LITERAL, so a
+   * collection that did not opt in costs nothing: the planner folds the branch
+   * away. Upward visibility has no matching flag on purpose; it is governed by
+   * `read_scope` on the assignment and by Casbin on the resource, and a third
+   * axis would mostly duplicate the second while inviting the belief that data
+   * are hidden when they are not.
+   */
+  inherit_down: Generated<boolean>; // DEFAULT false
 }
 
 export interface ZvdRelationsTable {
@@ -1397,6 +1440,7 @@ export interface DbSchema {
   zv_tenants: ZvTenantsTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenant_usage: ZvTenantUsageTable;
+  zv_tenant_transfers: ZvTenantTransfersTable;
   zv_environments: ZvEnvironmentsTable;
   zv_flows: ZvFlowsTable;
   zv_flow_steps: ZvFlowStepsTable;

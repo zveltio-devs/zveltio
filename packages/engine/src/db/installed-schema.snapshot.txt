@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 384
+# tables: 385
 
 table account
   col accessToken                    text
@@ -1278,7 +1278,7 @@ table zv_edge_function_logs
   fk  zv_edge_function_logs_function_id_fkey FOREIGN KEY (function_id) REFERENCES zv_edge_functions(id) ON DELETE CASCADE
   pk  zv_edge_function_logs_pkey PRIMARY KEY (id)
   rls enabled forced
-  pol tenant_isolation_zv_edge_function_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation_zv_edge_function_logs FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_edge_functions
   col code                           text NOT NULL DEFAULT ''::text
@@ -1299,7 +1299,7 @@ table zv_edge_functions
   pk  zv_edge_functions_pkey PRIMARY KEY (id)
   uq  zv_edge_functions_tenant_name_key UNIQUE (tenant_id, name)
   rls enabled forced
-  pol tenant_isolation_zv_edge_functions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation_zv_edge_functions FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_efactura_daily_stats
   col accepted_count                 integer NOT NULL DEFAULT 0
@@ -2597,12 +2597,14 @@ table zv_record_comments
   col is_resolved                    boolean NOT NULL DEFAULT false
   col parent_id                      uuid
   col record_id                      text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col user_id                        text
   fk  zv_record_comments_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zv_record_comments(id) ON DELETE CASCADE
   pk  zv_record_comments_pkey PRIMARY KEY (id)
   fk  zv_record_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation_zv_record_comments FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_request_logs
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -2919,10 +2921,12 @@ table zv_saved_queries
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_shared                      boolean NOT NULL DEFAULT false
   col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   fk  zv_saved_queries_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE CASCADE
   pk  zv_saved_queries_pkey PRIMARY KEY (id)
+  rls enabled forced
+  pol tenant_isolation_zv_saved_queries FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_schema_branches
   col base_schema                    text NOT NULL DEFAULT 'public'::text
@@ -3072,6 +3076,19 @@ table zv_storage_quotas
   rls enabled forced
   pol tenant_isolation_zv_storage_quotas FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
+table zv_tenant_transfers
+  col from_tenant                    uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col moved_at                       timestamp with time zone NOT NULL DEFAULT now()
+  col moved_by                       text
+  col reason                         text
+  col record_id                      uuid NOT NULL
+  col table_name                     text NOT NULL
+  col to_tenant                      uuid NOT NULL
+  fk  zv_tenant_transfers_from_tenant_fkey FOREIGN KEY (from_tenant) REFERENCES zv_tenants(id)
+  pk  zv_tenant_transfers_pkey PRIMARY KEY (id)
+  fk  zv_tenant_transfers_to_tenant_fkey FOREIGN KEY (to_tenant) REFERENCES zv_tenants(id)
+
 table zv_tenant_usage
   col api_calls                      integer NOT NULL DEFAULT 0
   col date                           date NOT NULL DEFAULT CURRENT_DATE
@@ -3087,31 +3104,42 @@ table zv_tenant_users
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col invited_by                     text
   col joined_at                      timestamp with time zone NOT NULL DEFAULT now()
+  col read_scope                     text NOT NULL DEFAULT 'self'::text
   col role                           text NOT NULL DEFAULT 'member'::text
+  col scope_list                     ARRAY
   col tenant_id                      uuid NOT NULL
   col user_id                        text NOT NULL
+  col valid_from                     timestamp with time zone NOT NULL DEFAULT now()
+  col valid_to                       timestamp with time zone
   fk  zv_tenant_users_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_tenant_users_pkey PRIMARY KEY (id)
+  ck  zv_tenant_users_read_scope_check CHECK ((read_scope = ANY (ARRAY['self'::text, 'subtree'::text, 'list'::text, 'org'::text])))
   ck  zv_tenant_users_role_check CHECK ((role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text])))
+  ck  zv_tenant_users_scope_list_check CHECK ((((read_scope = 'list'::text) AND (scope_list IS NOT NULL) AND (cardinality(scope_list) > 0)) OR ((read_scope <> 'list'::text) AND (scope_list IS NULL))))
   fk  zv_tenant_users_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE
   uq  zv_tenant_users_tenant_id_user_id_key UNIQUE (tenant_id, user_id)
   fk  zv_tenant_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
 
 table zv_tenants
   col billing_email                  text
+  col closed_at                      timestamp with time zone
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col max_api_calls_day              integer NOT NULL DEFAULT 10000
   col max_records                    integer NOT NULL DEFAULT 10000
   col max_storage_gb                 numeric NOT NULL DEFAULT 1.0
   col max_users                      integer NOT NULL DEFAULT 5
+  col merged_into                    uuid
   col name                           text NOT NULL
+  col parent_id                      uuid
   col plan                           text NOT NULL DEFAULT 'free'::text
   col settings                       jsonb DEFAULT '{}'::jsonb
   col slug                           text NOT NULL
   col status                         text NOT NULL DEFAULT 'active'::text
   col trial_ends_at                  timestamp with time zone
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  fk  zv_tenants_merged_into_fkey FOREIGN KEY (merged_into) REFERENCES zv_tenants(id)
+  fk  zv_tenants_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zv_tenants(id)
   pk  zv_tenants_pkey PRIMARY KEY (id)
   ck  zv_tenants_plan_check CHECK ((plan = ANY (ARRAY['free'::text, 'pro'::text, 'enterprise'::text, 'custom'::text])))
   uq  zv_tenants_slug_key UNIQUE (slug)
@@ -3734,6 +3762,7 @@ table zvd_collections
   col has_trgm                       boolean NOT NULL DEFAULT false
   col icon                           text DEFAULT 'Table'::text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col inherit_down                   boolean NOT NULL DEFAULT false
   col is_managed                     boolean NOT NULL DEFAULT true
   col is_permissioned                boolean DEFAULT true
   col is_system                      boolean NOT NULL DEFAULT false
@@ -4910,7 +4939,7 @@ table zvd_insight_saved_queries
   col use_count                      integer NOT NULL DEFAULT 0
   pk  zvd_insight_saved_queries_pkey PRIMARY KEY (id)
   rls enabled forced
-  pol tenant_isolation_zvd_insight_saved_queries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation_zvd_insight_saved_queries FOR * USING (tenant_id = ANY (zveltio_visible_tenants())) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zvd_invoice_lines
   col description                    text NOT NULL
