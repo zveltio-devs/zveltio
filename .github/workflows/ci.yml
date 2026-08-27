@@ -566,6 +566,14 @@ jobs:
           # at a writable dir so the upload round-trip actually stores (the
           # default /var/lib/zveltio/storage isn't writable on the runner).
           STORAGE_LOCAL_DIR: /tmp/zveltio-int-storage
+          # The engine the integration tests drive dials the registry on its own.
+          # Without this it reaches for the real one over GitHub's network, and a
+          # test waiting on such a request fails at exactly 5001ms with no
+          # message, in a different file each run — the signature this repository
+          # already documents twice in this same file, on the unit and
+          # integration STEPS. The step had it; the engine the step talks to did
+          # not.
+          REGISTRY_URL: http://127.0.0.1:9
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
