@@ -3,17 +3,21 @@
  * engine, not boot quietly.
  *
  * Reproduced before the fix, on a database built by the real v3.0.0-beta.62
- * chain and then handed to HEAD: three warnings, exit 0, and NOTHING applied —
- * no passkey table, no later schema at all. The install would have run
- * indefinitely on a schema the code was not written against, reporting a
- * successful start the whole time.
+ * chain and then handed to a binary compiled from HEAD: `zveltio migrate`
+ * printed two warnings, said "✅ Migrations complete", and exited 0 with
+ * NOTHING applied. `POST /admin/migrate` has the same shape. Engine boot was
+ * already refusing that case — but through `checkSchemaCompatibility`, on the
+ * version number, telling the operator to "update to the latest version" when
+ * they were already on it.
  *
- * Two independent holes let that happen, so both are covered here:
+ * Two independent holes, so both are covered here:
  *   1. `applyMigration` keyed on the version NUMBER, so a number reused by a
  *      different file counted as "already applied".
  *   2. `autoMigrate` short-circuits on `lastApplied >= MAX_SCHEMA_VERSION`,
  *      which reads a squashed database (46 recorded, 2 shipped) as "you are
  *      ahead of me, nothing to do" — returning before (1) is ever consulted.
+ *      The same comparison is why a divergence at or BELOW that number — an
+ *      applied file edited in place — was never noticed at all.
  *
  * Requires TEST_DATABASE_URL.
  */

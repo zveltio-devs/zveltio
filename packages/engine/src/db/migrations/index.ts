@@ -334,11 +334,26 @@ export function timeoutSetting(envVar: string, fallback: string): string {
  * the number was reused by a different file — which is what a squash does to
  * every database built before it.
  *
- * It fails closed. The old behaviour was `console.warn` + skip, and the cost of
- * that is not hypothetical: reproduced on a database built by the v3.0.0-beta.62
- * chain, upgrading the binary printed warnings, exited 0, and applied NOTHING —
- * no passkey table, no later schema at all — while reporting a successful start.
- * The install then ran indefinitely on a schema the code no longer matched.
+ * It fails closed. The old behaviour was `console.warn` + skip. Measured on a
+ * database built by the real v3.0.0-beta.62 chain, against binaries compiled
+ * from both sides of this change:
+ *
+ *   `zveltio migrate` (and POST /admin/migrate), before:
+ *     two warnings, "✅ Migrations complete", exit 0 — and NOTHING applied.
+ *     Neither path has any other guard. That is the hole.
+ *
+ *   Engine boot, before:
+ *     the same two warnings, then exit 1 — but from `checkSchemaCompatibility`,
+ *     which fires on `recorded (46) > MAX_SCHEMA_VERSION (2)`. So boot was
+ *     already refusing. What it refused WITH was wrong: "Database schema is
+ *     newer than this engine version! Update Zveltio to the latest version" —
+ *     advice that cannot help, since the operator is already on the latest and
+ *     the chain was squashed, not outrun.
+ *
+ * That version comparison is also the reason a divergence at or BELOW
+ * MAX_SCHEMA_VERSION went unnoticed entirely: an applied file edited in place
+ * leaves the number unchanged, so the guard never fires and the old warn-and-
+ * continue was the only thing standing there.
  *
  * The old warning text ("File may have been modified after being applied") named
  * only one of the two causes and neither filename, so an operator seeing it had
@@ -374,6 +389,10 @@ function reportDivergence(migrationNumber: number, shipped: string, recorded: st
  * ahead of me, nothing to do", and returns without ever reaching the per-file
  * check below. That comparison is only meaningful while the chain grows
  * monotonically. This one compares identities, not the high-water mark.
+ *
+ * On the boot path a later guard did catch that particular case, for the wrong
+ * reason and with the wrong advice; see `reportDivergence`. On `zveltio
+ * migrate` there was no later guard at all.
  */
 export async function assertChainCompatible(db: Database): Promise<void> {
   const shipped = await listShippedMigrations();
