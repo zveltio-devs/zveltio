@@ -271,7 +271,7 @@ function removeSort(i: number) {
 
   <!-- Query Builder -->
   {#if showBuilder}
-    <div class="card bg-base-200 border border-base-300">
+    <div class="card bg-base-100 border border-base-300">
       <div class="card-body space-y-4">
         <h2 class="font-semibold text-lg">{m['savedQueries.builder']()}</h2>
 

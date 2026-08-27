@@ -265,7 +265,7 @@ let confirmState = $state<{
 
 <!-- Add Relation inline form -->
 {#if showRelForm}
-  <div class="card bg-base-200/60 border border-primary/20 mb-6">
+  <div class="card bg-base-100/60 border border-primary/20 mb-6">
     <div class="card-body gap-4 p-5">
       <div class="flex items-center justify-between">
         <div>

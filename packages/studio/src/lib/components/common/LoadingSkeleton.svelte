@@ -30,7 +30,7 @@ const skel = 'animate-shimmer rounded-md';
 {#if type === 'card'}
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 {className ?? ''}" aria-busy="true" aria-label="Loading">
     {#each Array.from({ length: Math.max(2, rows) }) as _}
-      <div class="card bg-base-200/60 shadow-z1 p-4">
+      <div class="card bg-base-100/60 shadow-z1 p-4">
         <div class="flex items-center gap-3 mb-3">
           <div class="{skel} w-10 h-10 rounded-xl"></div>
           <div class="flex-1 space-y-2">

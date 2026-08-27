@@ -1,5 +1,44 @@
 import { ENGINE_URL } from './config.js';
 
+/**
+ * The unit the Studio is standing in.
+ *
+ * The engine has read `x-tenant-slug` off the request since tenancy shipped, and
+ * this client never sent it — so with hierarchical units now in the product,
+ * there was no way for a person to see which unit they were in, let alone move
+ * between them. The value lives in `localStorage` because it is a per-browser
+ * choice, not an account setting: the same administrator may want one tab on the
+ * county office and another on a district.
+ *
+ * Absent, the engine falls back to its own resolution, which is the behaviour
+ * every install had before this existed.
+ */
+const TENANT_KEY = 'zveltio.tenantSlug';
+
+export function currentTenantSlug(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage?.getItem(TENANT_KEY) || null;
+  } catch {
+    return null; // private mode
+  }
+}
+
+export function setCurrentTenantSlug(slug: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (slug) window.localStorage.setItem(TENANT_KEY, slug);
+    else window.localStorage.removeItem(TENANT_KEY);
+  } catch {
+    // nothing to do — the header simply will not be sent
+  }
+}
+
+function tenantHeader(): Record<string, string> {
+  const slug = currentTenantSlug();
+  return slug ? { 'x-tenant-slug': slug } : {};
+}
+
 class ApiClient {
   private base: string;
 
@@ -59,7 +98,7 @@ class ApiClient {
     return fetch(`${this.base}${path}`, {
       credentials: 'include',
       ...init,
-      headers: { ...(init.headers ?? {}) },
+      headers: { ...tenantHeader(), ...(init.headers ?? {}) },
     });
   }
 

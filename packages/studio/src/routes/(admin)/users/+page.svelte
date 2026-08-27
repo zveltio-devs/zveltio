@@ -255,7 +255,7 @@ function confirmDelete(user: any) {
   {/snippet}
 
   {#snippet list()}
-   <div class="card bg-base-200">
+   <div class="card bg-base-100">
      <div class="overflow-x-auto">
        <table class="table table-sm w-full">
          <thead>

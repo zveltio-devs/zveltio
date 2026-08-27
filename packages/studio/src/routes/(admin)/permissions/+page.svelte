@@ -362,7 +362,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
   {:else if tab === 'roles'}
     <div class="space-y-4">
-      <div class="card bg-base-200">
+      <div class="card bg-base-100">
         <div class="card-body p-4">
           <h3 class="font-semibold mb-3">{m['permissions.createRole']()}</h3>
           <div class="flex gap-2">
@@ -381,7 +381,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       {:else}
         <div class="space-y-2">
           {#each roles as role}
-          <div class="card bg-base-200">
+          <div class="card bg-base-100">
             <div class="card-body p-3 flex-row items-center justify-between">
               <div class="flex items-center gap-2">
                 <Shield size={16} class="opacity-40" />
@@ -413,7 +413,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         </div>
       </div>
 
-      <div class="card bg-base-200">
+      <div class="card bg-base-100">
         <div class="card-body p-4">
           <h3 class="font-semibold mb-3">{m['permissions.addInheritance']()}</h3>
           <div class="flex items-center gap-3 flex-wrap">
@@ -452,7 +452,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {:else}
           <div class="space-y-2">
             {#each hierarchy as edge}
-            <div class="card bg-base-200 hover:bg-base-300 transition-colors">
+            <div class="card bg-base-100 hover:bg-base-300 transition-colors">
               <div class="card-body p-3 flex-row items-center gap-3">
                 <div class="flex items-center gap-2 flex-1 min-w-0">
                   <span class="badge badge-outline badge-sm font-mono">{edge.child}</span>

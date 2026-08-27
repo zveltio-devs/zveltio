@@ -301,7 +301,7 @@ const m2oTargetMap = $derived.by(() => {
     <div class="space-y-5 max-w-lg">
 
       <!-- AI Search -->
-      <div class="card bg-base-200/50 border border-base-200">
+      <div class="card bg-base-100/50 border border-base-200">
         <div class="card-body gap-4 p-5">
           <div class="flex items-center gap-2">
             <Sparkles size={16} class="text-primary" />

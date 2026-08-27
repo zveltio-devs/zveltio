@@ -151,7 +151,7 @@ function formatDate(iso: string): string {
 }
 </script>
 
-<section class="card bg-base-200">
+<section class="card bg-base-100">
   <div class="card-body">
     <div class="flex items-start justify-between gap-4">
       <div class="flex items-start gap-3">

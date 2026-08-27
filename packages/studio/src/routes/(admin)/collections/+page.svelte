@@ -384,7 +384,7 @@ function clearTemplate() {
         <!-- `relative` + acțiuni absolute: în flux, cele trei butoane invizibile
              (`opacity-0`) rezervau 93px dintr-un rând de 201px, deci titlul primea
              96px și „Contacts" se rupea „Cont / acts". -->
-        <div class="group card relative bg-base-200 hover:bg-base-300 transition-colors border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
+        <div class="group card relative bg-base-100 shadow-z1 transition-shadow hover:shadow-z2 border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
               <div class="flex min-w-0 flex-1 items-center gap-2">
