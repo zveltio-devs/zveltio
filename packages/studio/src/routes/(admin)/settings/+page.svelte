@@ -165,7 +165,7 @@ const TABS = [
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else}
- <div class="card bg-base-200 max-w-2xl">
+ <div class="card bg-base-100 max-w-2xl">
  <div class="card-body space-y-4">
  {#if tab === 'general'}
  <div class="form-control">

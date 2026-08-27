@@ -62,7 +62,7 @@ function isActive(href: string): boolean {
   <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
     <div class="flex items-center h-14 px-3 gap-2 shadow-z1">
       <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center
-                  bg-linear-to-br from-primary to-secondary shadow-z1">
+                  bg-primary shadow-z1">
         <span class="text-primary-content font-bold text-sm">Z</span>
       </div>
       <span class="font-semibold text-sm tracking-tight text-base-content">Zveltio</span>

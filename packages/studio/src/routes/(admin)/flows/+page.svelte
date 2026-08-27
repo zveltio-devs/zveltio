@@ -222,7 +222,7 @@ function formatRelative(dateStr?: string): string {
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
  {#each flows as flow}
  {@const TriggerIcon = triggerIcon(flow.trigger_type)}
- <div class="card bg-base-200 group {!flow.is_active ? 'opacity-60' : ''}">
+ <div class="card bg-base-100 group {!flow.is_active ? 'opacity-60' : ''}">
  <div class="card-body p-4 space-y-3">
  <div class="flex items-start justify-between gap-2">
  <div class="flex items-center gap-2 flex-1 min-w-0">

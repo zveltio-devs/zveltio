@@ -13,7 +13,6 @@
 import { base } from '$app/paths';
 import { page } from '$app/state';
 import Slot from '$lib/components/common/Slot.svelte';
-import LocaleSwitcher from '$lib/components/common/LocaleSwitcher.svelte';
 import { m, i18n } from '$lib/i18n.svelte.js';
 import { navLabel } from '$lib/nav-i18n.js';
 import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
@@ -100,13 +99,13 @@ function isActive(href: string): boolean {
   <div class="flex items-center h-14 px-3 shrink-0 gap-2">
     {#if collapsed}
       <div class="mx-auto w-8 h-8 rounded-xl shrink-0 flex items-center justify-center
-                  bg-linear-to-br from-primary to-secondary shadow-z1">
+                  bg-primary shadow-z1">
         <span class="text-primary-content font-bold text-sm leading-none">Z</span>
       </div>
     {:else}
       <a href="{base}/" class="flex items-center gap-2.5 flex-1 min-w-0 focus-visible:outline-2 focus-visible:outline-primary rounded-lg">
         <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center
-                    bg-linear-to-br from-primary to-secondary shadow-z1">
+                    bg-primary shadow-z1">
           <span class="text-primary-content font-bold text-sm leading-none">Z</span>
         </div>
         <span class="font-semibold text-sm tracking-tight text-base-content truncate">Zveltio</span>
@@ -205,7 +204,6 @@ function isActive(href: string): boolean {
 
   <!-- Footer -->
   <div class="shrink-0 px-2 py-2 space-y-0.5 bg-base-200/40">
-    <LocaleSwitcher {collapsed} />
 
     <a
       href="{base}/intranet"
@@ -221,48 +219,7 @@ function isActive(href: string): boolean {
       {#if !collapsed}<span class="leading-none">{m['shell.intranet']()}</span>{/if}
     </a>
 
-    <button
-      type="button"
-      onclick={onToggleDark}
-      title={dark ? m['shell.lightMode']() : m['shell.darkMode']()}
-      aria-label={dark ? m['shell.lightMode']() : m['shell.darkMode']()}
-      class="
-        w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-        text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
-        focus-visible:outline-2 focus-visible:outline-primary
-        {collapsed ? 'justify-center' : ''}
-      "
-    >
-      {#if dark}
-        <Sun size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">{m['shell.lightMode']()}</span>{/if}
-      {:else}
-        <Moon size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">{m['shell.darkMode']()}</span>{/if}
-      {/if}
-    </button>
 
-    <button
-      type="button"
-      onclick={onToggleDensity}
-      title={density === 'compact' ? m['shell.densityComfortable']() : m['shell.densityCompact']()}
-      aria-label={density === 'compact' ? m['shell.densityComfortable']() : m['shell.densityCompact']()}
-      aria-pressed={density === 'compact'}
-      class="
-        w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-        text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
-        focus-visible:outline-2 focus-visible:outline-primary
-        {collapsed ? 'justify-center' : ''}
-      "
-    >
-      {#if density === 'compact'}
-        <Rows3 size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">{m['shell.densityComfortable']()}</span>{/if}
-      {:else}
-        <Rows2 size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">{m['shell.densityCompact']()}</span>{/if}
-      {/if}
-    </button>
 
     <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg {collapsed ? 'flex-col' : ''}">
       <a
