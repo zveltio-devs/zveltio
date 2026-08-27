@@ -187,7 +187,7 @@ async function testWebhook(id: string) {
   } catch (err) {
     testResults = {
       ...testResults,
-      [id]: { ok: false, error: err instanceof Error ? err.message : 'Failed' },
+      [id]: { ok: false, error: err instanceof Error ? err.message : m['common.failed']() },
     };
   } finally {
     testing = null;

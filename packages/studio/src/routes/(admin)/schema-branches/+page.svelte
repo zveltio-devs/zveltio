@@ -93,7 +93,7 @@ async function loadBranches() {
     const data = await api.get<{ branches: SchemaBranch[] }>('/api/schema/branches');
     branches = data.branches || [];
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to load branches');
+    toast.error(e instanceof Error ? e.message : m['branches.loadFailed']());
   } finally {
     loading = false;
   }
@@ -111,9 +111,9 @@ async function createBranch() {
     newBranchName = '';
     newBranchDesc = '';
     await loadBranches();
-    toast.success('Branch created');
+    toast.success(m['branches.created']());
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to create branch');
+    toast.error(e instanceof Error ? e.message : m['branches.createFailed']());
   } finally {
     creating = false;
   }
@@ -128,7 +128,7 @@ async function viewDiff(branch: SchemaBranch) {
     const data = await api.get<{ diff: Diff }>(`/api/schema/branches/${branch.id}/diff`);
     branchDiff = data.diff;
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to load diff');
+    toast.error(e instanceof Error ? e.message : m['branches.diffFailed']());
   } finally {
     loadingDiff = false;
   }
@@ -159,7 +159,7 @@ async function mergeBranch() {
     mergeResult = {
       success: false,
       applied: [],
-      errors: [body?.error ?? (e instanceof Error ? e.message : 'Merge failed')],
+      errors: [body?.error ?? (e instanceof Error ? e.message : m['common.mergeFailed']())],
       review_status: body?.review_status,
     };
   } finally {
@@ -173,9 +173,9 @@ async function closeBranch() {
     await api.delete(`/api/schema/branches/${deleteTarget.id}`);
     deleteTarget = null;
     await loadBranches();
-    toast.success('Branch closed');
+    toast.success(m['branches.closed']());
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to close branch');
+    toast.error(e instanceof Error ? e.message : m['branches.closeFailed']());
   }
 }
 
@@ -190,7 +190,7 @@ async function enablePreview(branch: SchemaBranch) {
     previewBranch = branch;
     await loadBranches();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to enable preview');
+    toast.error(e instanceof Error ? e.message : m['branches.previewEnableFailed']());
   } finally {
     enablingPreview = false;
   }
@@ -203,7 +203,7 @@ async function disablePreview(branch: SchemaBranch) {
     previewBranch = null;
     await loadBranches();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to disable preview');
+    toast.error(e instanceof Error ? e.message : m['branches.previewDisableFailed']());
   }
 }
 
@@ -236,7 +236,7 @@ async function submitReview() {
     showReviewModal = false;
     await loadBranches();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to submit review');
+    toast.error(e instanceof Error ? e.message : m['branches.reviewFailed']());
   } finally {
     submittingReview = false;
   }
@@ -249,7 +249,7 @@ async function toggleRequiresApproval(branch: SchemaBranch) {
     });
     await loadBranches();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to update branch');
+    toast.error(e instanceof Error ? e.message : m['branches.updateFailed']());
   }
 }
 
