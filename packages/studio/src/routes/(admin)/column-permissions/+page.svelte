@@ -70,7 +70,7 @@ async function loadAll() {
     const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
     roles = ['*', 'god', 'admin', 'member', ...customRoles];
   } catch {
-    toast.error('Failed to load column permissions');
+    toast.error(m['permissions.loadColumnsFailed']());
   } finally {
     loading = false;
   }
@@ -132,7 +132,7 @@ async function save() {
     showForm = false;
     await loadAll();
   } catch {
-    toast.error('Failed to save permission');
+    toast.error(m['permissions.saveFailed']());
   } finally {
     saving = false;
   }
@@ -147,7 +147,7 @@ async function toggleField(p: ColumnPermission, field: 'can_read' | 'can_write')
     });
     permissions = permissions.map((x) => (x.id === p.id ? { ...x, [field]: !x[field] } : x));
   } catch {
-    toast.error('Failed to update permission');
+    toast.error(m['permissions.updateFailed']());
   }
 }
 
@@ -165,7 +165,7 @@ function confirmDelete(p: ColumnPermission) {
         toast.success(m['colPerms.permDeleted']());
         await loadAll();
       } catch {
-        toast.error('Failed to delete permission');
+        toast.error(m['permissions.deleteFailed']());
       }
     },
   };

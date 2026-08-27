@@ -131,9 +131,9 @@ async function toggleFlow(flow: Flow) {
 async function deleteFlow(id: string, flowName: string) {
   confirmState = {
     open: true,
-    title: 'Delete Flow',
+    title: m['confirm.deleteFlow.title'](),
     message: `Delete flow "${flowName}"?`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {

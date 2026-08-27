@@ -21,7 +21,7 @@ onMount(async () => {
 
 async function saveProfile(): Promise<void> {
   if (!name.trim()) {
-    toast.error('Name is required');
+    toast.error(m['common.nameRequired']());
     return;
   }
   saving = true;
@@ -33,10 +33,10 @@ async function saveProfile(): Promise<void> {
       body: JSON.stringify({ name: name.trim() }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    toast.success('Profile updated');
+    toast.success(m['profile.updated']());
     await auth.init();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to update profile');
+    toast.error(e instanceof Error ? e.message : m['profile.updateFailed']());
   } finally {
     saving = false;
   }

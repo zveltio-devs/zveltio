@@ -80,7 +80,7 @@ async function upload(fileList: FileList | null) {
     }
     await loadFiles();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Upload failed');
+    toast.error(err instanceof Error ? err.message : m['common.uploadFailed']());
   } finally {
     uploading = false;
   }
@@ -89,16 +89,16 @@ async function upload(fileList: FileList | null) {
 async function deleteFile(id: string, name: string) {
   confirmState = {
     open: true,
-    title: 'Delete File',
+    title: m['confirm.deleteFile.title'](),
     message: `Delete "${name}"? This cannot be undone.`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
         await api.delete(`/api/storage/${id}`);
         files = files.filter((f) => f.id !== id);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Delete failed');
+        toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
       }
     },
   };
@@ -110,7 +110,7 @@ async function bulkDelete() {
     try {
       await api.delete(`/api/storage/${id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
     }
   }
   selectedFiles = new Set();

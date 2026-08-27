@@ -72,7 +72,7 @@ async function loadAll() {
     const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
     roles = ['*', 'god', 'admin', 'member', ...customRoles];
   } catch (err) {
-    toast.error('Failed to load RLS policies');
+    toast.error(m['rls.loadFailed']());
   } finally {
     loading = false;
   }
@@ -121,7 +121,7 @@ async function save() {
     showForm = false;
     await loadAll();
   } catch (err) {
-    toast.error('Failed to save policy');
+    toast.error(m['rls.saveFailed']());
   } finally {
     saving = false;
   }
@@ -138,7 +138,7 @@ function confirmDelete(p: RlsPolicy) {
         toast.success(m['rls.policyDeleted']());
         await loadAll();
       } catch {
-        toast.error('Failed to delete policy');
+        toast.error(m['rls.deleteFailed']());
       }
     },
   };
@@ -149,7 +149,7 @@ async function toggleEnabled(p: RlsPolicy) {
     await api.patch(`/api/admin/rls/${p.id}`, { is_enabled: !p.is_enabled });
     p.is_enabled = !p.is_enabled;
   } catch {
-    toast.error('Failed to update policy');
+    toast.error(m['rls.updateFailed']());
   }
 }
 
