@@ -61,9 +61,9 @@ async function handleAddField(body: Record<string, unknown>) {
 function deleteField(fieldName: string) {
   confirmState = {
     open: true,
-    title: 'Delete Field',
+    title: m['fields.deleteField'](),
     message: `Delete field '${fieldName}'? This will permanently DROP the column and all its data.`,
-    confirmLabel: 'Drop Field',
+    confirmLabel: m['fields.dropField'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -217,7 +217,7 @@ async function addRelation() {
     await api.post('/api/relations', payload);
     await onSchemaChanged();
     showRelForm = false;
-    toast.success('Relation created');
+    toast.success(m['relations.created']());
   } catch (err) {
     relFormError = (err as Error).message || 'Failed to create relation';
   } finally {
@@ -228,7 +228,7 @@ async function addRelation() {
 function deleteRelation(id: string, relName: string) {
   confirmState = {
     open: true,
-    title: 'Delete Relation',
+    title: m['relations.deleteRelation'](),
     message: `Delete relation '${relName}'? For M2M relations, the junction table will also be dropped.`,
     confirmLabel: m['common.op.delete'](),
     onconfirm: async () => {
@@ -270,7 +270,7 @@ let confirmState = $state<{
     <div class="card-body gap-4 p-5">
       <div class="flex items-center justify-between">
         <div>
-          <h3 class="font-semibold">New Relation</h3>
+          <h3 class="font-semibold">{m['relations.newRelation']()}</h3>
           <p class="text-xs text-base-content/65 mt-0.5">
             How is <code class="font-mono">{collectionName}</code> connected to another collection?
           </p>
@@ -283,10 +283,10 @@ let confirmState = $state<{
       <!-- Step 1: pick the target collection (drives the rest) -->
       <div class="form-control">
         <label class="label py-1" for="rel-target">
-          <span class="label-text text-xs font-medium">1. Connect with…</span>
+          <span class="label-text text-xs font-medium">{m['relations.step1']()}</span>
         </label>
         <select id="rel-target" bind:value={relForm.target_collection} onchange={onRelTargetChange} class="select select-sm">
-          <option value="">Choose collection…</option>
+          <option value="">{m['relations.chooseCollection']()}</option>
           {#each allCollections as col}
             <option value={col.name}>{col.display_name || col.name}</option>
           {/each}
@@ -296,7 +296,7 @@ let confirmState = $state<{
       <!-- Step 2: relationship shape, only after a target is picked -->
       {#if relForm.target_collection}
         <div>
-          <p class="label-text text-xs font-medium mb-2">2. What's the shape?</p>
+          <p class="label-text text-xs font-medium mb-2">{m['relations.step2']()}</p>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {#each relTypesMeta as rt}
               <button
@@ -326,7 +326,7 @@ let confirmState = $state<{
                 </span>
               </label>
               <input id="rel-source-field" type="text" bind:value={relForm.source_field}
-                placeholder="e.g. {singular(relForm.target_collection)}_id"
+                placeholder={m['fields.egForeignKey']({ name: singular(relForm.target_collection) })}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
                 A new UUID column on <code class="font-mono">{collectionName}</code> that references the chosen {singular(relForm.target_collection)}.
@@ -337,10 +337,10 @@ let confirmState = $state<{
                 <span class="label-text text-xs font-medium">When the {singular(relForm.target_collection)} is deleted…</span>
               </label>
               <select id="rel-on-delete" bind:value={relForm.on_delete} class="select select-sm">
-                <option value="SET NULL">Keep this record but clear the link (SET NULL)</option>
-                <option value="CASCADE">Delete this record too (CASCADE)</option>
-                <option value="RESTRICT">Block the deletion (RESTRICT)</option>
-                <option value="NO ACTION">Do nothing — let the DB decide (NO ACTION)</option>
+                <option value="SET NULL">{m['relations.onDelete.setNullKeep']()}</option>
+                <option value="CASCADE">{m['relations.onDelete.cascadeThis']()}</option>
+                <option value="RESTRICT">{m['relations.onDelete.restrict']()}</option>
+                <option value="NO ACTION">{m['relations.onDelete.noAction']()}</option>
               </select>
             </div>
           {:else if relForm.type === 'o2m'}
@@ -364,7 +364,7 @@ let confirmState = $state<{
                 </span>
               </label>
               <input id="rel-target-field" type="text" bind:value={relForm.target_field}
-                placeholder="e.g. {singular(collectionName)}_id"
+                placeholder={m['fields.egForeignKey']({ name: singular(collectionName) })}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
                 The actual column added to <code class="font-mono">{relForm.target_collection}</code> pointing back to {singular(collectionName)}.
@@ -375,10 +375,10 @@ let confirmState = $state<{
                 <span class="label-text text-xs font-medium">When a {singular(collectionName)} is deleted…</span>
               </label>
               <select id="rel-on-delete-o2m" bind:value={relForm.on_delete} class="select select-sm">
-                <option value="SET NULL">Orphan the related records (SET NULL)</option>
-                <option value="CASCADE">Delete the related records too (CASCADE)</option>
-                <option value="RESTRICT">Block the deletion (RESTRICT)</option>
-                <option value="NO ACTION">Do nothing — let the DB decide (NO ACTION)</option>
+                <option value="SET NULL">{m['relations.onDelete.setNullRelated']()}</option>
+                <option value="CASCADE">{m['relations.onDelete.cascadeRelated']()}</option>
+                <option value="RESTRICT">{m['relations.onDelete.restrict']()}</option>
+                <option value="NO ACTION">{m['relations.onDelete.noAction']()}</option>
               </select>
             </div>
           {:else}
@@ -400,7 +400,7 @@ let confirmState = $state<{
 
           <div class="form-control sm:col-span-2">
             <label class="label py-1" for="rel-name">
-              <span class="label-text text-xs font-medium opacity-60">Internal name (for the relations registry)</span>
+              <span class="label-text text-xs font-medium opacity-60">{m['relations.internalName']()}</span>
             </label>
             <input id="rel-name" type="text" bind:value={relForm.name}
               placeholder="auto-generated" class="input input-sm" autocomplete="off" />
@@ -440,7 +440,7 @@ let confirmState = $state<{
       {#if customFields.length === 0}
         <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
           <Columns size={28} strokeWidth={1.4} />
-          <p class="text-sm">No custom fields yet</p>
+          <p class="text-sm">{m['fields.none']()}</p>
           <button class="btn btn-primary btn-sm btn-outline gap-1 mt-1"
             onclick={() => (addFieldOpen = true)}>
             <Plus size={13} /> Add first field
@@ -493,7 +493,7 @@ let confirmState = $state<{
       {#if virtualRelations.length === 0}
         <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
           <GitFork size={28} strokeWidth={1.4} />
-          <p class="text-sm">No virtual relations — add 1→∞ or ∞↔∞</p>
+          <p class="text-sm">{m['relations.none']()}</p>
           <button class="btn btn-outline btn-sm gap-1 mt-1" onclick={openRelForm}>
             <Plus size={13} /> Add relation
           </button>
