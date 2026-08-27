@@ -232,13 +232,18 @@ describe('applyTenantRLS', () => {
       at = found + 1;
     }
 
-    // Reading and writing are different predicates since migration 003, and the
-    // read half is shaped as `= ANY(set)` rather than as a boolean function of
-    // the row so Postgres can answer it from the index on tenant_id. Both are
-    // asserted: a policy that put the read predicate back into WITH CHECK would
-    // let a parent unit write into a child's rows.
+    // Reading and writing are different predicates since the hierarchy work, and
+    // the read half is shaped as `= ANY((SELECT set)::uuid[])`. The `(SELECT …)`
+    // is not decoration: calling the function directly leaves the planner with
+    // nothing to estimate, so it takes the index and then reads the whole table
+    // — 406 ms against 143 ms on a 500 000-row scan. See
+    // `005_rls_initplan_predicate.sql`. Both halves are asserted: a policy that
+    // put the read predicate back into WITH CHECK would let a parent unit write
+    // into a child's rows.
     const policy = sqls.find((q) => q.includes('CREATE POLICY tenant_isolation')) ?? '';
-    expect(policy).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
+    expect(policy).toContain(
+      'USING (tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[]))',
+    );
     expect(policy).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
   });
 });
@@ -414,7 +419,9 @@ describe('reconcileExtensionTenantRLS', () => {
     expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(1);
     const created = db.executed(/CREATE POLICY/i);
     expect(created).toHaveLength(1);
-    expect(created[0]?.sql).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
+    expect(created[0]?.sql).toContain(
+      'USING (tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[]))',
+    );
     expect(created[0]?.sql).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
     // Both directions — a policy with USING but no WITH CHECK stops reads and
     // still allows a write into another tenant.
