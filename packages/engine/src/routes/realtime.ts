@@ -95,18 +95,27 @@ function ctxTenantId(c: Context): string | null {
 }
 
 // ── Presence ──────────────────────────────────────────────────────────────────
-// In-memory fallback when Valkey is unavailable: channel → Map<userId, lastSeen>
+// In-memory fallback when Valkey is unavailable.
+//
+// Keyed by the SAME `presenceKey(tenantId, channel)` the Valkey path uses, and
+// that is not a tidiness point. This map used to be keyed on the bare channel
+// while the Valkey path was tenant-scoped, so an instance with no cache — the
+// default for a small self-hosted install, and also any instance whose cache
+// call happens to throw, since every branch below falls through to here — served
+// one tenant's roster to another for any channel name they shared. Channel names
+// are guessable (`zvd_invoices`, `record:zvd_salaries:<id>`), and as the listing
+// route says: the roster is the disclosure, not the join.
 const presenceStore = new Map<string, Map<string, number>>();
 const PRESENCE_TTL_MS = 60_000; // consider user offline after 60s without heartbeat
 
-function presenceCleanup(channel: string) {
-  const members = presenceStore.get(channel);
+function presenceCleanup(key: string) {
+  const members = presenceStore.get(key);
   if (!members) return;
   const cutoff = Date.now() - PRESENCE_TTL_MS;
   for (const [uid, ts] of members) {
     if (ts < cutoff) members.delete(uid);
   }
-  if (members.size === 0) presenceStore.delete(channel);
+  if (members.size === 0) presenceStore.delete(key);
 }
 
 /**
@@ -182,8 +191,9 @@ async function presenceJoin(
       /* fall through to in-memory */
     }
   }
-  if (!presenceStore.has(channel)) presenceStore.set(channel, new Map());
-  presenceStore.get(channel)!.set(userId, ts);
+  const fallbackKey = presenceKey(tenantId, channel);
+  if (!presenceStore.has(fallbackKey)) presenceStore.set(fallbackKey, new Map());
+  presenceStore.get(fallbackKey)!.set(userId, ts);
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -197,7 +207,7 @@ async function presenceLeave(cache: any, tenantId: string | null, channel: strin
       /* fall through */
     }
   }
-  presenceStore.get(channel)?.delete(userId);
+  presenceStore.get(presenceKey(tenantId, channel))?.delete(userId);
 }
 
 async function presenceList(
@@ -221,8 +231,9 @@ async function presenceList(
       /* fall through */
     }
   }
-  presenceCleanup(channel);
-  const members = presenceStore.get(channel);
+  const fallbackKey = presenceKey(tenantId, channel);
+  presenceCleanup(fallbackKey);
+  const members = presenceStore.get(fallbackKey);
   if (!members) return [];
   return [...members.entries()].map(([userId, lastSeen]) => ({ userId, lastSeen }));
 }
