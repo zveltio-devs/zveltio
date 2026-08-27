@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { Plus, Trash2, X, ArrowRight, GitFork, Columns, GripVertical } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -229,7 +230,7 @@ function deleteRelation(id: string, relName: string) {
     open: true,
     title: 'Delete Relation',
     message: `Delete relation '${relName}'? For M2M relations, the junction table will also be dropped.`,
-    confirmLabel: 'Delete',
+    confirmLabel: m['common.op.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -274,7 +275,7 @@ let confirmState = $state<{
             How is <code class="font-mono">{collectionName}</code> connected to another collection?
           </p>
         </div>
-        <button class="btn btn-ghost btn-xs btn-square" onclick={() => (showRelForm = false)} aria-label="Close">
+        <button class="btn btn-ghost btn-xs btn-square" onclick={() => (showRelForm = false)} aria-label={m['common.close']()}>
           <X size={14} />
         </button>
       </div>
@@ -474,7 +475,7 @@ let confirmState = $state<{
               <button
                 onclick={() => deleteField(field.name)}
                 class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
-                title="Delete field"
+                title={m['data.deleteRecord']()}
               >
                 <Trash2 size={13} />
               </button>

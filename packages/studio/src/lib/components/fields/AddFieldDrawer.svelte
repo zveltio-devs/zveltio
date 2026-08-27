@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import {
   X,
   Plus,
@@ -252,7 +253,7 @@ async function submit() {
           </p>
         </div>
       </div>
-      <button class="btn btn-ghost btn-sm btn-square" onclick={close} aria-label="Close">
+      <button class="btn btn-ghost btn-sm btn-square" onclick={close} aria-label={m['common.close']()}>
         <X size={18} />
       </button>
     </div>
@@ -262,7 +263,7 @@ async function submit() {
 
       <!-- Left sidebar: categories -->
       <aside class="w-52 shrink-0 border-r border-base-200 bg-base-200/30 flex flex-col py-3 px-2 gap-0.5 overflow-y-auto">
-        <p class="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-base-content/65">Category</p>
+        <p class="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-base-content/65">{m['common.col.category']()}</p>
         {#each categories as cat}
           {@const count = fieldTypes.filter((t) => t.category === cat.id).length}
           {#if count > 0}
@@ -344,7 +345,7 @@ async function submit() {
         <div class="px-6 pb-6 space-y-4">
           <!-- Section title + selected type chip -->
           <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">Configure</h3>
+            <h3 class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">{m['mkt.configure']()}</h3>
             <span class="badge badge-primary badge-sm font-mono">{form.type}</span>
             {#if selectedTypeDef?.description}
               <span class="text-xs text-base-content/65 hidden sm:inline">{selectedTypeDef.description}</span>
@@ -392,7 +393,7 @@ async function submit() {
           <!-- Description -->
           <div class="form-control">
             <label class="label py-1" for="afd_desc">
-              <span class="label-text text-xs font-medium">Description <span class="text-base-content/65">(optional)</span></span>
+              <span class="label-text text-xs font-medium">{m['common.col.description']()}<span class="text-base-content/65">(optional)</span></span>
             </label>
             <input
               id="afd_desc"
@@ -462,7 +463,7 @@ async function submit() {
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.required} class="checkbox checkbox-sm checkbox-error" />
                 <div>
-                  <span class="label-text text-sm font-medium">Required</span>
+                  <span class="label-text text-sm font-medium">{m['common.required']()}</span>
                   <p class="text-xs text-base-content/65">Cannot be empty</p>
                 </div>
               </label>
@@ -508,7 +509,7 @@ async function submit() {
         {/if}
       </div>
       <div class="flex items-center gap-3 ml-auto">
-        <button class="btn btn-ghost btn-sm" onclick={close} disabled={saving}>Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick={close} disabled={saving}>{m['common.cancel']()}</button>
         <button
           class="btn btn-primary btn-sm gap-2"
           onclick={submit}

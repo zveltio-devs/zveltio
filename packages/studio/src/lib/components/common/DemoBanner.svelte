@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * DemoBanner — renders a sticky banner at the top of every admin page
  * when the engine reports `demo_mode: true` on /api/health.
@@ -65,10 +66,10 @@ function dismiss() {
 </script>
 
 {#if demo?.enabled && !dismissed}
-  <div role="status" aria-label="Demo mode banner" class="bg-warning text-warning-content px-4 py-2 flex items-center gap-3 text-sm shadow-md">
+  <div role="status" aria-label={m['demo.banner']()} class="bg-warning text-warning-content px-4 py-2 flex items-center gap-3 text-sm shadow-md">
     <Sparkles size={16} class="shrink-0" />
     <div class="grow min-w-0">
-      <strong class="font-semibold">Demo instance</strong>
+      <strong class="font-semibold">{m['demo.instance']()}</strong>
       <span class="opacity-90">— data resets {demo.reset_cron ? `(${demo.reset_cron})` : 'periodically'}. Don't store anything important.</span>
       {#if demo.credentials}
         <span class="opacity-90 ml-1">
@@ -77,7 +78,7 @@ function dismiss() {
         </span>
       {/if}
     </div>
-    <button class="btn btn-ghost btn-xs" onclick={dismiss} aria-label="Dismiss banner">
+    <button class="btn btn-ghost btn-xs" onclick={dismiss} aria-label={m['demo.dismissBanner']()}>
       <X size={14} />
     </button>
   </div>
