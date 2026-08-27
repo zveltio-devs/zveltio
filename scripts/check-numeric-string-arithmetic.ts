@@ -33,12 +33,15 @@ import { SQL } from 'bun';
 
 const ROOT = join(import.meta.dir, '..');
 const BASELINE = join(ROOT, 'quality-gates', 'numeric-string-arithmetic.json');
-const DIRS = [join(ROOT, 'packages'), join(ROOT, '..', 'zveltio-extensions')];
+const EXT_DIR = join(ROOT, '..', 'zveltio-extensions');
+const DIRS = [join(ROOT, 'packages'), EXT_DIR];
 
 const url = process.env.DATABASE_URL;
 if (!url) {
-  console.log('[numeric-arith] SKIP — no DATABASE_URL; this gate needs a live schema.');
-  process.exit(0);
+  console.error('[numeric-arith] FAIL — no DATABASE_URL; this gate needs a live schema.');
+  console.error('It used to exit 0 here. A gate that cannot run is not a gate that passed:');
+  console.error('green meant "checked nothing" in three different ways, and nothing said so.');
+  process.exit(1);
 }
 
 let columns: string[];
@@ -50,13 +53,46 @@ try {
   columns = rows.map((r) => r.column_name);
   await sql.end();
 } catch (err) {
-  console.log(`[numeric-arith] SKIP — cannot reach the database (${(err as Error).message}).`);
-  process.exit(0);
+  console.error(`[numeric-arith] FAIL — cannot reach the database (${(err as Error).message}).`);
+  console.error('The column corpus comes from the live schema; without it nothing is checked.');
+  process.exit(1);
 }
 
 if (columns.length === 0) {
-  console.log('[numeric-arith] SKIP — the schema has no bigint/numeric columns yet.');
-  process.exit(0);
+  console.error('[numeric-arith] FAIL — the schema has no bigint/numeric columns.');
+  console.error('Point DATABASE_URL at a migrated database with the extensions installed.');
+  process.exit(1);
+}
+
+/**
+ * Can this schema see the sites the baseline records?
+ *
+ * The patterns key on column names read from the live database, so the gate's
+ * reach is whatever happens to be installed. On a core-only schema none of the
+ * finance columns exist, every baselined site becomes invisible, and the run
+ * ends `OK — 0 site(s), baseline allows 22`. Naming the columns the baseline
+ * depends on turns that silence into a failure.
+ */
+const requiredColumns: string[] = (() => {
+  if (!existsSync(BASELINE)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(BASELINE, 'utf8')) as Record<string, unknown>;
+    const req = parsed._required_columns;
+    return Array.isArray(req) ? req.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+})();
+
+const present = new Set(columns);
+const missingColumns = requiredColumns.filter((c) => !present.has(c));
+if (missingColumns.length > 0) {
+  console.error('[numeric-arith] FAIL — the schema is missing columns this gate keys on:\n');
+  for (const c of missingColumns) console.error(`  ${c}`);
+  console.error('\nThe baselined sites reference these, so a pass here would prove nothing.');
+  console.error('Boot the engine against this database with ZVELTIO_EXTENSIONS_PATH set, so the');
+  console.error('extension tables exist before the gate runs.');
+  process.exit(1);
 }
 
 // Column names too generic to key on: `value`, `amount` and friends name a
@@ -224,6 +260,33 @@ function readBaseline(): Record<string, number> {
 
 const baseline = readBaseline();
 
+/**
+ * Is the gate even looking at the code it was calibrated against?
+ *
+ * Every key in the baseline names a file that had findings when it was recorded.
+ * `tsFiles()` returns `[]` for a directory that is not there, so when the
+ * extensions sibling is missing the scan quietly covers nothing and the run ends
+ * with `OK — 0 site(s)`. That is what green looked like while the detector was
+ * blind, and it is indistinguishable from a clean repository unless somebody
+ * checks that the corpus is present. So: check.
+ */
+const missingCorpus = Object.keys(baseline).filter((key) => {
+  const path = key.startsWith('ext:') ? join(EXT_DIR, key.slice('ext:'.length)) : join(ROOT, key);
+  return !existsSync(path);
+});
+
+if (missingCorpus.length > 0) {
+  console.error(
+    '[numeric-arith] FAIL — the corpus this baseline was recorded against is missing:\n',
+  );
+  for (const key of missingCorpus) console.error(`  ${key}`);
+  console.error('\nThe scan cannot have covered these files, so a pass here would mean nothing.');
+  console.error(
+    'Check out the zveltio-extensions sibling, or re-record the baseline without them.',
+  );
+  process.exit(1);
+}
+
 const counts: Record<string, number> = {};
 for (const f of findings) counts[f.key] = (counts[f.key] ?? 0) + 1;
 
@@ -241,4 +304,22 @@ if (regressions.length > 0) {
 
 const total = findings.length;
 const allowed = Object.values(baseline).reduce((a, b) => a + b, 0);
+
+// The corpus files are on disk and the baseline says there are sites in them,
+// yet the detector matched nothing. The patterns key on column names taken from
+// the live schema, so the usual cause is a database without the extension tables
+// — the same green-while-blind this gate exits 1 for above, arriving by a
+// different road. If the sites were genuinely fixed, re-record the baseline.
+if (allowed > 0 && total === 0) {
+  console.error(
+    `[numeric-arith] FAIL — baseline records ${allowed} site(s) and the scan found none.`,
+  );
+  console.error(
+    'The files are present, so the column corpus is the suspect: point DATABASE_URL at',
+  );
+  console.error('a schema with the extension tables. If the sites really are fixed, edit');
+  console.error('quality-gates/numeric-string-arithmetic.json down to the counts that remain.');
+  process.exit(1);
+}
+
 console.log(`[numeric-arith] OK — ${total} site(s), baseline allows ${allowed}.`);
