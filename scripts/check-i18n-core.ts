@@ -36,6 +36,10 @@ const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
 // received portals, and this list naming files that no longer exist is what
 // made the gate fail rather than what it is there to catch.
 const TRANSLATED = [
+  'src/routes/(admin)/collections/[name]/+page.svelte',
+  'src/routes/(admin)/collections/[name]/fields/+page.svelte',
+  'src/routes/(admin)/collections/[name]/relations/+page.svelte',
+  'src/routes/(admin)/ai/chat/+page.svelte',
   'src/routes/(admin)/+page.svelte',
   'src/routes/(admin)/collections/+page.svelte',
   'src/routes/(admin)/users/+page.svelte',
