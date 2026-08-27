@@ -424,6 +424,7 @@
   "data.deleteSelected.title": "Ausgewählte Datensätze löschen",
   "data.recordDeleted": "Datensatz gelöscht",
   "data.recordsDeleted": "Datensätze gelöscht",
+  "data.searchRecords": "Datensätze suchen…",
   "denial.askAdmin": "Ein Administrator dieses Arbeitsbereichs kann ihn gewähren.",
   "denial.askPerson": "{name} kann Ihnen Zugriff gewähren.",
   "denial.confidential": "{resource} sind vertrauliche Daten.",

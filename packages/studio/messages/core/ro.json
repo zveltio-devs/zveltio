@@ -424,6 +424,7 @@
   "data.deleteSelected.title": "Șterge înregistrările selectate",
   "data.recordDeleted": "Înregistrare ștearsă",
   "data.recordsDeleted": "Înregistrări șterse",
+  "data.searchRecords": "Caută înregistrări…",
   "denial.askAdmin": "Un administrator al spațiului de lucru îți poate da acces.",
   "denial.askPerson": "{name} îți poate da acces.",
   "denial.confidential": "{resource} sunt date confidențiale.",

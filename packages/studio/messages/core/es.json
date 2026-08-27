@@ -424,6 +424,7 @@
   "data.deleteSelected.title": "Eliminar registros seleccionados",
   "data.recordDeleted": "Registro eliminado",
   "data.recordsDeleted": "Registros eliminados",
+  "data.searchRecords": "Buscar registros…",
   "denial.askAdmin": "Un administrador de este espacio puede concederlo.",
   "denial.askPerson": "{name} puede darte acceso.",
   "denial.confidential": "{resource} son datos confidenciales.",
