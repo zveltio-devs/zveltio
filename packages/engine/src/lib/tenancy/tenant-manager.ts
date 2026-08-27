@@ -189,6 +189,15 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
             `COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})`,
         )
         .execute(db);
+      // The index `applyTenantRLS` creates for collection tables, which this
+      // path never did. A policy without it is not wrong, only slow: the
+      // predicate can only become an Index Cond if there is an index to use,
+      // and without one every tenant-scoped read of the table is a full scan.
+      // Extensions that ship their own index are unaffected — 6 of 201
+      // policy-bearing tables in a real install had none.
+      await sql
+        .raw(`CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_id" ON ${t}(tenant_id)`)
+        .execute(db);
       await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`DROP POLICY IF EXISTS ${`"${policyname}"`} ON ${t}`).execute(db);
