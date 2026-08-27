@@ -80,6 +80,26 @@ describe.skipIf(skipAll)('RLS predicate does not restrict the planner', () => {
     }
   });
 
+  it('never calls the visible-set function directly in a policy qual', async () => {
+    // `= ANY (fn())` gives the planner nothing to estimate with — it takes the
+    // index and then reads the whole table. `(SELECT fn())` makes the array an
+    // InitPlan parameter, so `scalararraysel` can reach the column statistics
+    // and the estimate follows the data. 406 ms against 143 ms on a full scan,
+    // identical on a selective one.
+    //
+    // Two places write these: the migrations, and `applyTenantRLS` /
+    // `reconcileExtensionTenantRLS` at run time for collection and extension
+    // tables. This asserts the result rather than either source, so a new table
+    // created through any path is covered.
+    const rows = await sql<{ tablename: string; qual: string }>`
+      SELECT tablename, qual FROM pg_policies
+       WHERE schemaname = 'public'
+         AND qual LIKE '%zveltio_visible_tenants%'
+         AND qual NOT LIKE '%SELECT zveltio_visible_tenants%'
+    `.execute(db);
+    expect(rows.rows.map((r) => r.tablename)).toEqual([]);
+  });
+
   it('gives every policy-bearing table an index leading with tenant_id', async () => {
     // `applyTenantRLS` always created this; the extension reconciler beside it
     // did not, so extension tables relied on the extension having shipped one.
