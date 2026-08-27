@@ -1,4 +1,6 @@
 <script lang="ts">
+import { page } from '$app/state';
+import { replaceState } from '$app/navigation';
 import { m } from '$lib/i18n.svelte.js';
 import { deferWithUndo } from '$lib/stores/deferred.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
@@ -43,6 +45,42 @@ let sortField = $state('');
 let sortDir = $state<'asc' | 'desc'>('desc');
 let selectedIds = $state(new Set<string>());
 
+// ── The view lives in the URL ────────────────────────────
+//
+// Search, sort and page were component state and nothing else, so "the overdue
+// invoices for Cluj, newest first" could not be reloaded, bookmarked, or sent to
+// a colleague. A list you cannot link to is a list you have to describe.
+//
+// `replaceState`, not `pushState`: typing four characters into the search box
+// should not put four entries in the back button.
+function readViewFromUrl() {
+  const q = page.url.searchParams;
+  searchText = q.get('q') ?? '';
+  sortField = q.get('sort') ?? '';
+  sortDir = q.get('dir') === 'asc' ? 'asc' : 'desc';
+  const p = Number(q.get('p'));
+  if (Number.isFinite(p) && p > 0) pagination.page = p;
+  const n = Number(q.get('n'));
+  if (Number.isFinite(n) && n > 0) pagination.limit = n;
+}
+
+function writeViewToUrl() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(page.url);
+  const set = (k: string, v: string | number | null) => {
+    if (v === null || v === '' || v === undefined) url.searchParams.delete(k);
+    else url.searchParams.set(k, String(v));
+  };
+  set('q', searchText || null);
+  set('sort', sortField || null);
+  // Only when a sort field is chosen: a direction on its own says nothing and
+  // would sit in every link for no reason.
+  set('dir', sortField ? sortDir : null);
+  set('p', pagination.page > 1 ? pagination.page : null);
+  set('n', pagination.limit !== 25 ? pagination.limit : null);
+  if (url.href !== page.url.href) replaceState(url, {});
+}
+
 /** Build URL params for the data list — includes ?expand= for every m2o field
  *  so the table can render link chips instead of raw UUIDs. */
 function buildDataParams(p: { page?: number; limit?: number } = {}) {
@@ -65,7 +103,13 @@ function buildDataParams(p: { page?: number; limit?: number } = {}) {
   return params;
 }
 
+readViewFromUrl();
+
 async function reloadData(p: { page?: number; limit?: number } = {}) {
+  // Written here rather than in each handler: paging, sorting and searching all
+  // funnel through this one call, so this is the single place the URL can be
+  // kept honest without four separate reminders to do it.
+  queueMicrotask(writeViewToUrl);
   try {
     const res = await dataApi.list(collectionName, buildDataParams(p));
     records = res.records;
@@ -307,7 +351,7 @@ let confirmState = $state<{
               class="checkbox checkbox-xs"
               checked={selectedIds.size === records.length && records.length > 0}
               onchange={toggleSelectAll}
-              aria-label="Select all" />
+              aria-label={m['data.selectAll']()} />
           </th>
           {#each tableColumns as col}
             <th class="text-xs font-semibold text-base-content/65 uppercase tracking-wide whitespace-nowrap">
@@ -340,7 +384,7 @@ let confirmState = $state<{
                 class="checkbox checkbox-xs"
                 checked={selectedIds.has(record.id)}
                 onchange={() => toggleSelect(record.id)}
-                aria-label="Select row" />
+                aria-label={m['data.selectRow']()} />
             </td>
             {#each tableColumns as col}
               <td class="max-w-55">
@@ -370,16 +414,16 @@ let confirmState = $state<{
                 <button
                   onclick={() => onEdit(record)}
                   class="btn btn-ghost btn-xs"
-                  title="Edit record"
-                  aria-label="Edit"
+                  title={m['data.editRecord']()}
+                  aria-label={m['common.edit']()}
                 >
                   <Settings size={12} />
                 </button>
                 <button
                   onclick={() => deleteRecord(record.id)}
                   class="btn btn-ghost btn-xs text-error"
-                  title="Delete record"
-                  aria-label="Delete"
+                  title={m['data.deleteRecord']()}
+                  aria-label={m['common.op.delete']()}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -401,16 +445,16 @@ let confirmState = $state<{
             class="checkbox checkbox-sm mt-1"
             checked={selectedIds.has(record.id)}
             onchange={() => toggleSelect(record.id)}
-            aria-label="Select row" />
+            aria-label={m['data.selectRow']()} />
           <div class="flex-1 min-w-0">
             <p class="font-semibold truncate">{labelFromRecord(record)}</p>
             <p class="text-xs text-base-content/65 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
           </div>
           <div class="flex gap-1">
-            <button onclick={() => onEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
+            <button onclick={() => onEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label={m['common.edit']()}>
               <Settings size={12} />
             </button>
-            <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label="Delete">
+            <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label={m['common.op.delete']()}>
               <Trash2 size={12} />
             </button>
           </div>

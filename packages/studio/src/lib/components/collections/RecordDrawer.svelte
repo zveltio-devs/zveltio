@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 // Create/Edit record slide-over. Extracted from collections/[name]/+page.svelte
 // (H-07 studio split). Self-contained form: the parent passes the collection
 // name + the insertable field list and an `onSaved` callback; this component
@@ -139,10 +140,10 @@ async function saveRecord() {
     }
     if (drawerMode === 'create') {
       await dataApi.create(collectionName, payload);
-      toast.success('Record created');
+      toast.success(m['record.created']());
     } else if (drawerRecordId) {
       await dataApi.update(collectionName, drawerRecordId, payload);
-      toast.success('Record updated');
+      toast.success(m['record.updated']());
     }
     drawerOpen = false;
     insertForm = {};
@@ -162,7 +163,7 @@ async function saveRecord() {
     class="fixed inset-0 z-50 flex"
     role="dialog"
     aria-modal="true"
-    aria-label="New Record"
+    aria-label={m['record.new']()}
   >
     <!-- Backdrop -->
     <div
@@ -184,7 +185,7 @@ async function saveRecord() {
             {collectionName}{#if drawerMode === 'edit' && drawerRecordId} · {drawerRecordId.slice(0, 8)}…{/if}
           </p>
         </div>
-        <button class="btn btn-ghost btn-sm btn-square" onclick={() => (drawerOpen = false)} aria-label="Close">
+        <button class="btn btn-ghost btn-sm btn-square" onclick={() => (drawerOpen = false)} aria-label={m['common.close']()}>
           <X size={16} />
         </button>
       </div>
@@ -353,7 +354,7 @@ async function saveRecord() {
 
       <!-- Panel footer -->
       <div class="px-6 py-4 border-t border-base-200 flex justify-end gap-2 shrink-0 bg-base-50">
-        <button class="btn btn-ghost" onclick={() => (drawerOpen = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (drawerOpen = false)}>{m['common.cancel']()}</button>
         <button
           class="btn btn-primary gap-1.5"
           onclick={saveRecord}

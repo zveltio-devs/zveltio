@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * SmartNavbar - Intelligent navbar with dynamic positioning
  * Positions: top, bottom, left, right
@@ -102,8 +103,8 @@ function handleThemeToggle() {
 		<button
 			class="btn btn-ghost btn-circle btn-sm"
 			onclick={handleThemeToggle}
-			title="Toggle theme"
-			aria-label="Toggle theme"
+			title={m['nav.toggleTheme']()}
+			aria-label={m['nav.toggleTheme']()}
 		>
 			{#if currentTheme === 'light'}
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -122,8 +123,8 @@ function handleThemeToggle() {
 				<button
 					tabindex="0"
 					class="btn btn-ghost btn-circle btn-sm"
-					title="Change position"
-					aria-label="Change navbar position"
+					title={m['nav.changePosition']()}
+					aria-label={m['nav.changeNavbarPosition']()}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -131,9 +132,9 @@ function handleThemeToggle() {
 				</button>
 				<ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
 					<li><button onclick={() => changePosition('top')}>Top</button></li>
-					<li><button onclick={() => changePosition('bottom')}>Bottom</button></li>
-					<li><button onclick={() => changePosition('left')}>Left</button></li>
-					<li><button onclick={() => changePosition('right')}>Right</button></li>
+					<li><button onclick={() => changePosition('bottom')}>{m['nav.posBottom']()}</button></li>
+					<li><button onclick={() => changePosition('left')}>{m['nav.posLeft']()}</button></li>
+					<li><button onclick={() => changePosition('right')}>{m['nav.posRight']()}</button></li>
 				</ul>
 			</div>
 		{/if}
@@ -141,7 +142,7 @@ function handleThemeToggle() {
 		<!-- User Menu -->
 		{#if user}
 			<div class="dropdown {isVertical ? 'dropdown-right' : 'dropdown-end'}">
-				<button tabindex="0" class="btn btn-ghost btn-circle avatar placeholder" aria-label="User menu">
+				<button tabindex="0" class="btn btn-ghost btn-circle avatar placeholder" aria-label={m['nav.userMenu']()}>
 					{#if user.avatar}
 						<div class="w-10 rounded-full">
 							<img src={user.avatar} alt={user.name} />
@@ -156,11 +157,11 @@ function handleThemeToggle() {
 					<li class="menu-title">
 						<span>{user.name || user.email}</span>
 					</li>
-					<li><a href="/private/profile">Profile</a></li>
-					<li><a href="/private/settings">Settings</a></li>
+					<li><a href="/private/profile">{m['acct.profile']()}</a></li>
+					<li><a href="/private/settings">{m['nav.settings']()}</a></li>
 					<li class="divider"></li>
 					{#if onLogout}
-						<li><button onclick={onLogout}>Logout</button></li>
+						<li><button onclick={onLogout}>{m['common.logout']()}</button></li>
 					{/if}
 				</ul>
 			</div>

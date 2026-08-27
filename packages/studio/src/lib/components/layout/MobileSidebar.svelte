@@ -71,7 +71,7 @@ function isActive(href: string): boolean {
       </button>
     </div>
 
-    <nav class="flex-1 overflow-y-auto py-2" aria-label="Primary">
+    <nav class="flex-1 overflow-y-auto py-2" aria-label={m['nav.primary']()}>
       {#each nav as group, gi}
         {#if group.labelKey}
           <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">

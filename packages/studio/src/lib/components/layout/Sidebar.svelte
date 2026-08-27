@@ -123,7 +123,7 @@ function isActive(href: string): boolean {
   </div>
 
   <!-- Navigation -->
-  <nav class="flex-1 overflow-y-auto overflow-x-hidden py-2" aria-label="Primary">
+  <nav class="flex-1 overflow-y-auto overflow-x-hidden py-2" aria-label={m['nav.primary']()}>
     {#each nav as group, gi}
       {#if group.labelKey}
         {#if !collapsed}
@@ -224,7 +224,7 @@ function isActive(href: string): boolean {
     <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg {collapsed ? 'flex-col' : ''}">
       <a
         href="{base}/account"
-        title="Account settings"
+        title={m['nav.accountSettings']()}
         class="
           flex items-center gap-2.5 flex-1 min-w-0 hover:bg-base-300 rounded-md
           focus-visible:outline-2 focus-visible:outline-primary

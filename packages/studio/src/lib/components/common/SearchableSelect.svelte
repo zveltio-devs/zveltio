@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * SearchableSelect - Dropdown with server-side search
  * Zero dependencies, callback-based
@@ -99,7 +100,7 @@ $effect(() => {
 					type="text"
 					bind:value={searchTerm}
 					oninput={(e) => handleSearch(e.currentTarget.value)}
-					placeholder="Type to search..."
+					placeholder={m['common.typeToSearch']()}
 					class="input input-sm input-bordered w-full"
 					autofocus
 				/>
@@ -110,7 +111,7 @@ $effect(() => {
 				{#if loading}
 					<div class="p-4 text-center text-sm opacity-50">Loading...</div>
 				{:else if filteredOptions.length === 0}
-					<div class="p-4 text-center text-sm opacity-50">No results</div>
+					<div class="p-4 text-center text-sm opacity-50">{m['common.noResults']()}</div>
 				{:else}
 					{#each filteredOptions as opt}
 						<button
