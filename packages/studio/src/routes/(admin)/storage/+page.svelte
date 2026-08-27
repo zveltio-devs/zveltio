@@ -164,7 +164,7 @@ function openPreview(file: MediaFile) {
  role="region" aria-label={m['media.dropZone']()}
  >
  <HardDrive size={36} class="mx-auto mb-2 opacity-30" />
- <p class="text-sm text-base-content/50">{m['media.dropHere']()}</p>
+ <p class="text-sm text-base-content/65">{m['media.dropHere']()}</p>
  </div>
 
  <!-- Filter tabs -->
@@ -184,7 +184,7 @@ function openPreview(file: MediaFile) {
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
- <div class="text-center py-16 text-base-content/40">
+ <div class="text-center py-16 text-base-content/65">
  <File size={48} class="mx-auto mb-3" />
  <p class="text-sm">No {filter === 'all' ? '' : filter} files yet</p>
  </div>
@@ -222,7 +222,7 @@ function openPreview(file: MediaFile) {
  <div class="p-3 space-y-2">
  <div>
  <p class="text-sm font-medium truncate" title={file.original_name}>{file.original_name}</p>
- <div class="flex justify-between text-xs text-base-content/50">
+ <div class="flex justify-between text-xs text-base-content/65">
  <span>{fmt(file.size)}</span>
  <span>{fmtDate(file.created_at)}</span>
  </div>

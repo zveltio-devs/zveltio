@@ -19,7 +19,7 @@ let { title, subtitle, count, children }: Props = $props();
       {/if}
     </div>
     {#if subtitle}
-      <p class="text-sm text-base-content/50 mt-0.5">{subtitle}</p>
+      <p class="text-sm text-base-content/65 mt-0.5">{subtitle}</p>
     {/if}
   </div>
   {#if children}{@render children()}{/if}

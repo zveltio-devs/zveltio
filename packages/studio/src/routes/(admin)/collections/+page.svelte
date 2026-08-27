@@ -360,7 +360,7 @@ function clearTemplate() {
       </div>
     {:else if selectableCollections.length > 0}
       <div class="flex items-center justify-between gap-2 flex-wrap">
-        <label class="flex items-center gap-2 text-xs text-base-content/50 cursor-pointer w-fit">
+        <label class="flex items-center gap-2 text-xs text-base-content/65 cursor-pointer w-fit">
           <input
             type="checkbox"
             class="checkbox checkbox-xs"
@@ -402,7 +402,7 @@ function clearTemplate() {
                 </div>
                 <div class="min-w-0">
                   <h3 class="truncate text-sm font-semibold" title={col.display_name || col.name}>{col.display_name || col.name}</h3>
-                  <p class="truncate font-mono text-xs text-base-content/40" title={col.name}>{col.name}</p>
+                  <p class="truncate font-mono text-xs text-base-content/65" title={col.name}>{col.name}</p>
                 </div>
               </div>
               <div class="absolute right-2 top-2 flex gap-0.5 rounded-lg bg-base-200/90 opacity-0 backdrop-blur-sm transition-opacity group-hover:bg-base-300/90 group-hover:opacity-100 focus-within:opacity-100">
@@ -441,7 +441,7 @@ function clearTemplate() {
 </CrudListPage>
 
 {#snippet searchNoMatch(q: string)}
-  <p class="text-center text-sm text-base-content/40 py-8">No collections match "{q}"</p>
+  <p class="text-center text-sm text-base-content/65 py-8">No collections match "{q}"</p>
 {/snippet}
 
 <!-- Create Modal -->
@@ -462,7 +462,7 @@ function clearTemplate() {
               onclick={() => applyTemplate(tmpl)}
             >
               <div class="font-medium text-xs">{tmpl.label}</div>
-              <div class="text-base-content/40 text-[10px] mt-0.5">{tmpl.fields.length} fields</div>
+              <div class="text-base-content/65 text-[10px] mt-0.5">{tmpl.fields.length} fields</div>
             </button>
           {/each}
           <button
@@ -474,7 +474,7 @@ function clearTemplate() {
             onclick={clearTemplate}
           >
             <div class="font-medium text-xs">{m['collections.blank']()}</div>
-            <div class="text-base-content/40 text-[10px] mt-0.5">{m['collections.startEmpty']()}</div>
+            <div class="text-base-content/65 text-[10px] mt-0.5">{m['collections.startEmpty']()}</div>
           </button>
         </div>
       </div>
@@ -482,7 +482,7 @@ function clearTemplate() {
       <div class="form-control mb-4">
         <label class="label" for="col-name">
           <span class="label-text font-medium">{m['collections.name']()}</span>
-          <span class="label-text-alt text-base-content/40">{m['collections.nameHint']()}</span>
+          <span class="label-text-alt text-base-content/65">{m['collections.nameHint']()}</span>
         </label>
         <input
           id="col-name"

@@ -247,7 +247,7 @@ async function submit() {
         </div>
         <div>
           <h2 class="font-bold text-lg leading-tight">Add Field</h2>
-          <p class="text-xs text-base-content/50 mt-0.5">
+          <p class="text-xs text-base-content/65 mt-0.5">
             to collection <span class="font-mono text-primary font-medium">{collectionName}</span>
           </p>
         </div>
@@ -262,7 +262,7 @@ async function submit() {
 
       <!-- Left sidebar: categories -->
       <aside class="w-52 shrink-0 border-r border-base-200 bg-base-200/30 flex flex-col py-3 px-2 gap-0.5 overflow-y-auto">
-        <p class="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-base-content/40">Category</p>
+        <p class="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-base-content/65">Category</p>
         {#each categories as cat}
           {@const count = fieldTypes.filter((t) => t.category === cat.id).length}
           {#if count > 0}
@@ -271,7 +271,7 @@ async function submit() {
               class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-[background-color,color] text-left
                 {selectedCategory === cat.id
                   ? 'bg-primary text-primary-content font-semibold shadow-sm'
-                  : 'text-base-content/60 hover:bg-base-200 hover:text-base-content'}"
+                  : 'text-base-content/65 hover:bg-base-200 hover:text-base-content'}"
               onclick={() => (selectedCategory = cat.id)}
             >
               <cat.Icon
@@ -320,17 +320,17 @@ async function submit() {
                   size={22}
                   class={'mb-2.5 transition-colors ' + (form.type === ft.type
                     ? 'text-primary'
-                    : 'text-base-content/30 group-hover:text-base-content/60')}
+                    : 'text-base-content/55 group-hover:text-base-content/65')}
                 />
                 <p class="font-semibold text-sm leading-tight {form.type === ft.type ? 'text-primary' : ''}">
                   {ft.label}
                 </p>
                 {#if ft.description}
-                  <p class="text-xs text-base-content/40 mt-1 leading-relaxed line-clamp-3">
+                  <p class="text-xs text-base-content/65 mt-1 leading-relaxed line-clamp-3">
                     {ft.description}
                   </p>
                 {:else}
-                  <p class="text-xs font-mono text-base-content/30 mt-1">{ft.type}</p>
+                  <p class="text-xs font-mono text-base-content/55 mt-1">{ft.type}</p>
                 {/if}
               </button>
             {/each}
@@ -344,10 +344,10 @@ async function submit() {
         <div class="px-6 pb-6 space-y-4">
           <!-- Section title + selected type chip -->
           <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-base-content/50 uppercase tracking-wider">Configure</h3>
+            <h3 class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">Configure</h3>
             <span class="badge badge-primary badge-sm font-mono">{form.type}</span>
             {#if selectedTypeDef?.description}
-              <span class="text-xs text-base-content/40 hidden sm:inline">{selectedTypeDef.description}</span>
+              <span class="text-xs text-base-content/65 hidden sm:inline">{selectedTypeDef.description}</span>
             {/if}
           </div>
 
@@ -368,7 +368,7 @@ async function submit() {
                 autocomplete="off"
               />
               <div class="label py-0.5">
-                <span class="label-text-alt text-base-content/40 text-[11px]">lowercase_with_underscores</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">lowercase_with_underscores</span>
               </div>
             </div>
 
@@ -384,7 +384,7 @@ async function submit() {
                 class="input input-sm"
               />
               <div class="label py-0.5">
-                <span class="label-text-alt text-base-content/40 text-[11px]">Shown in Studio (optional)</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">Shown in Studio (optional)</span>
               </div>
             </div>
           </div>
@@ -392,7 +392,7 @@ async function submit() {
           <!-- Description -->
           <div class="form-control">
             <label class="label py-1" for="afd_desc">
-              <span class="label-text text-xs font-medium">Description <span class="text-base-content/40">(optional)</span></span>
+              <span class="label-text text-xs font-medium">Description <span class="text-base-content/65">(optional)</span></span>
             </label>
             <input
               id="afd_desc"
@@ -418,7 +418,7 @@ async function submit() {
                 {/each}
               </select>
               <div class="label py-0.5">
-                <span class="label-text-alt text-base-content/40 text-[11px]">
+                <span class="label-text-alt text-base-content/65 text-[11px]">
                   {form.type === 'o2m'
                     ? 'The collection that has many records pointing back here'
                     : form.type === 'm2m'
@@ -436,7 +436,7 @@ async function submit() {
                 <span class="label-text text-xs font-medium">
                   Allowed values <span class="text-error">*</span>
                 </span>
-                <span class="label-text-alt text-base-content/40 text-[11px]">comma or newline separated</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">comma or newline separated</span>
               </label>
               <textarea
                 id="afd_enum"
@@ -457,27 +457,27 @@ async function submit() {
 
           <!-- Constraints -->
           <div>
-            <p class="text-xs font-medium text-base-content/50 mb-2">Constraints</p>
+            <p class="text-xs font-medium text-base-content/65 mb-2">Constraints</p>
             <div class="flex flex-wrap gap-6">
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.required} class="checkbox checkbox-sm checkbox-error" />
                 <div>
                   <span class="label-text text-sm font-medium">Required</span>
-                  <p class="text-xs text-base-content/40">Cannot be empty</p>
+                  <p class="text-xs text-base-content/65">Cannot be empty</p>
                 </div>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.unique} class="checkbox checkbox-sm checkbox-warning" />
                 <div>
                   <span class="label-text text-sm font-medium">Unique</span>
-                  <p class="text-xs text-base-content/40">No duplicate values</p>
+                  <p class="text-xs text-base-content/65">No duplicate values</p>
                 </div>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.indexed} class="checkbox checkbox-sm checkbox-info" />
                 <div>
                   <span class="label-text text-sm font-medium">Indexed</span>
-                  <p class="text-xs text-base-content/40">Faster queries on this field</p>
+                  <p class="text-xs text-base-content/65">Faster queries on this field</p>
                 </div>
               </label>
             </div>
@@ -496,7 +496,7 @@ async function submit() {
 
     <!-- ── Footer ─────────────────────────────────────────────── -->
     <div class="shrink-0 flex items-center justify-between px-6 py-4 border-t border-base-200 bg-base-100">
-      <div class="text-xs text-base-content/40 hidden sm:block">
+      <div class="text-xs text-base-content/65 hidden sm:block">
         {#if form.name}
           <span class="font-mono text-base-content/70">{form.name}</span>
           <span class="mx-1">·</span>

@@ -24,7 +24,7 @@ const labels: Record<string, () => string> = {
   <label
     class="
       flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium w-full
-      text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
+      text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors
       focus-within:outline-2 focus-within:outline-primary
       {collapsed ? 'justify-center' : ''}
     "

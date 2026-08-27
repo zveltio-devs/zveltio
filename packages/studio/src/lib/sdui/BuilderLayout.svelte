@@ -327,7 +327,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
   {:else if notFound || !draft}
     <div class="card bg-base-200">
       <div class="card-body items-center text-center py-16">
-        <p class="text-sm text-base-content/50">{t('forms.error.notFound')}</p>
+        <p class="text-sm text-base-content/65">{t('forms.error.notFound')}</p>
       </div>
     </div>
   {:else if panel !== 'edit' && b.secondary}
@@ -338,8 +338,8 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
     {:else if secondaryRows.length === 0}
       <div class="card bg-base-200">
         <div class="card-body items-center text-center py-16 gap-3">
-          <Inbox size={36} class="text-base-content/20" />
-          <p class="text-sm text-base-content/50">{t(b.secondary.emptyLabel)}</p>
+          <Inbox size={36} class="text-base-content/55" />
+          <p class="text-sm text-base-content/65">{t(b.secondary.emptyLabel)}</p>
         </div>
       </div>
     {:else}
@@ -360,7 +360,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
                 <td>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                     {#each Object.entries(answers(r)) as [k, v]}
-                      <dt class="text-base-content/50">{labelFor(k)}</dt>
+                      <dt class="text-base-content/65">{labelFor(k)}</dt>
                       <dd>{renderAnswer(v)}</dd>
                     {/each}
                   </dl>
@@ -419,7 +419,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
             ondrop={(e) => onDrop(e, idx)}
           >
             <div
-              class="md:col-span-1 flex items-center justify-center pb-1 cursor-grab active:cursor-grabbing text-base-content/30"
+              class="md:col-span-1 flex items-center justify-center pb-1 cursor-grab active:cursor-grabbing text-base-content/55"
               draggable="true"
               ondragstart={(e) => onDragStart(e, idx)}
               ondragend={onDragEnd}
@@ -479,7 +479,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
             {/if}
           </div>
         {:else}
-          <p class="text-xs text-base-content/40 py-4 text-center">{t(b.collection.emptyLabel)}</p>
+          <p class="text-xs text-base-content/65 py-4 text-center">{t(b.collection.emptyLabel)}</p>
         {/each}
       </div>
     </div>

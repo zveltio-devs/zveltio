@@ -79,7 +79,7 @@ async function changePassword() {
     <h1 class="text-xl font-semibold flex items-center gap-2">
       <UserIcon size={18} class="text-primary" /> My Profile
     </h1>
-    <p class="text-sm text-base-content/50 mt-0.5">Manage your account info and password.</p>
+    <p class="text-sm text-base-content/65 mt-0.5">Manage your account info and password.</p>
   </div>
 
   <!-- Header card -->
@@ -90,9 +90,9 @@ async function changePassword() {
       </div>
       <div class="flex-1 min-w-0">
         <p class="font-semibold text-base">{auth.user?.name ?? 'User'}</p>
-        <p class="text-sm text-base-content/60 flex items-center gap-1.5"><Mail size={12} /> {auth.user?.email ?? '—'}</p>
+        <p class="text-sm text-base-content/65 flex items-center gap-1.5"><Mail size={12} /> {auth.user?.email ?? '—'}</p>
         {#if auth.user?.createdAt}
-          <p class="text-xs text-base-content/40 mt-1 flex items-center gap-1.5">
+          <p class="text-xs text-base-content/65 mt-1 flex items-center gap-1.5">
             <Calendar size={11} /> Joined {fmtDate(auth.user.createdAt)}
           </p>
         {/if}
@@ -113,7 +113,7 @@ async function changePassword() {
       <div class="form-control">
         <label class="label py-1" for="profile-email"><span class="label-text text-xs">Email</span></label>
         <input id="profile-email" type="email" value={email} disabled class="input input-sm input-bordered opacity-60" />
-        <span class="label-text-alt text-xs text-base-content/40 mt-1">Email changes are managed by an administrator.</span>
+        <span class="label-text-alt text-xs text-base-content/65 mt-1">Email changes are managed by an administrator.</span>
       </div>
 
       <button class="btn btn-primary btn-sm w-fit gap-1.5" onclick={saveProfile} disabled={saving}>
@@ -138,7 +138,7 @@ async function changePassword() {
       <div class="form-control">
         <label class="label py-1" for="pw-new"><span class="label-text text-xs">New password</span></label>
         <input id="pw-new" type="password" bind:value={pwNew} class="input input-sm input-bordered" autocomplete="new-password" minlength="8" />
-        <span class="label-text-alt text-xs text-base-content/40 mt-1">At least 8 characters.</span>
+        <span class="label-text-alt text-xs text-base-content/65 mt-1">At least 8 characters.</span>
       </div>
 
       <button class="btn btn-primary btn-sm w-fit gap-1.5" onclick={changePassword} disabled={pwBusy || !pwOld || !pwNew}>

@@ -90,7 +90,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
       <!-- Dynamic nav from Zones API -->
       <nav class="flex-1 overflow-y-auto py-3">
         <div class="px-3 pb-1">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/55 select-none">
             Navigation
           </span>
         </div>
@@ -103,7 +103,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
               class="
                 flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
                 transition-colors duration-100
-                {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                {active ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}
               "
             >
               {#if p.icon}
@@ -114,7 +114,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
           </div>
         {/each}
         {#if navPages.length === 0}
-          <p class="px-5 py-3 text-xs text-base-content/40">No pages configured.</p>
+          <p class="px-5 py-3 text-xs text-base-content/65">No pages configured.</p>
         {/if}
       </nav>
 
@@ -123,7 +123,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
         <button
           onclick={() => (dark = !dark)}
           class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-            text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors"
+            text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors"
         >
           {#if dark}<Sun size={16} class="shrink-0" /><span>Light Mode</span>
           {:else}<Moon size={16} class="shrink-0" /><span>Dark Mode</span>{/if}
@@ -135,9 +135,9 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-[13px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
-            <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
+            <p class="text-[11px] text-base-content/65 mt-0.5 truncate">{auth.user?.email}</p>
           </div>
-          <button onclick={signOut} title="Sign out" class="btn btn-ghost btn-xs text-base-content/40">
+          <button onclick={signOut} title="Sign out" class="btn btn-ghost btn-xs text-base-content/65">
             <LogOut size={13} />
           </button>
         </div>
@@ -158,7 +158,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
             <div class="px-2 py-0.5">
               <a href={href} onclick={() => (mobileOpen = false)}
                 class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
-                  {isActive(href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
+                  {isActive(href) ? 'bg-primary/10 text-primary' : 'text-base-content/65 hover:bg-base-300 hover:text-base-content'}">
                 {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{/if}
                 <span class="truncate">{p.title}</span>
               </a>

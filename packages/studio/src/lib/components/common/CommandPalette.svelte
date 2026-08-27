@@ -149,29 +149,29 @@ function noResultsMessage(q: string): string {
     aria-label={m['shell.search']()}
   >
     <div class="flex items-center gap-3 border-b border-base-200 px-4 py-3">
-      <Search size={18} class="shrink-0 text-base-content/40" aria-hidden="true" />
+      <Search size={18} class="shrink-0 text-base-content/65" aria-hidden="true" />
       <input
         bind:this={inputEl}
         bind:value={query}
         type="search"
         placeholder={m['palette.placeholder']()}
-        class="flex-1 bg-transparent text-sm outline-none placeholder:text-base-content/30"
+        class="flex-1 bg-transparent text-sm outline-none placeholder:text-base-content/55"
       />
       {#if loading}
-        <span class="loading loading-spinner loading-xs text-base-content/30" aria-hidden="true"></span>
+        <span class="loading loading-spinner loading-xs text-base-content/55" aria-hidden="true"></span>
       {:else}
-        <kbd class="kbd kbd-sm text-base-content/30">Esc</kbd>
+        <kbd class="kbd kbd-sm text-base-content/55">Esc</kbd>
       {/if}
     </div>
 
     <div class="max-h-80 overflow-y-auto py-2">
       {#if filtered.length === 0}
-        <p class="px-4 py-6 text-center text-sm text-base-content/40">{noResultsMessage(query)}</p>
+        <p class="px-4 py-6 text-center text-sm text-base-content/65">{noResultsMessage(query)}</p>
       {:else}
         {@const items = filtered}
         {@const groups = groupedItems(items)}
         {#each groups as [groupName, groupItems] (groupName)}
-          <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-base-content/30">{groupName}</p>
+          <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-base-content/55">{groupName}</p>
           {#each groupItems as item (item.href + item.label)}
             {@const idx = items.indexOf(item)}
             <button
@@ -183,7 +183,7 @@ function noResultsMessage(q: string): string {
               <div class="flex-1 min-w-0">
                 <span class="text-sm font-medium">{item.label}</span>
                 {#if item.sub}
-                  <span class="ml-2 text-xs text-base-content/40 font-mono">{item.sub}</span>
+                  <span class="ml-2 text-xs text-base-content/65 font-mono">{item.sub}</span>
                 {/if}
               </div>
             </button>
@@ -192,7 +192,7 @@ function noResultsMessage(q: string): string {
       {/if}
     </div>
 
-    <div class="border-t border-base-200 px-4 py-2 flex items-center gap-4 text-xs text-base-content/30">
+    <div class="border-t border-base-200 px-4 py-2 flex items-center gap-4 text-xs text-base-content/55">
       <span><kbd class="kbd kbd-xs">↑↓</kbd> {m['palette.hint.navigate']()}</span>
       <span><kbd class="kbd kbd-xs">↵</kbd> {m['palette.hint.open']()}</span>
       <span><kbd class="kbd kbd-xs">Esc</kbd> {m['palette.hint.close']()}</span>

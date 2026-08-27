@@ -137,7 +137,7 @@ async function signInWithPasskey() {
     <span class="text-white font-bold text-xl">Z</span>
    </div>
    <h1 class="text-2xl font-semibold">{m['auth.studioTitle']()}</h1>
-   <p class="text-base-content/50 text-sm mt-1">{m['auth.studioSubtitle']()}</p>
+   <p class="text-base-content/65 text-sm mt-1">{m['auth.studioSubtitle']()}</p>
   </div>
 
   {#if reasonMessage}
@@ -195,7 +195,7 @@ async function signInWithPasskey() {
     </button>
 
     {#if browserSupportsPasskey()}
-     <div class="divider text-xs text-base-content/40 my-1">{m['auth.orDivider']()}</div>
+     <div class="divider text-xs text-base-content/65 my-1">{m['auth.orDivider']()}</div>
      <button
       type="button"
       class="btn btn-outline w-full gap-2"

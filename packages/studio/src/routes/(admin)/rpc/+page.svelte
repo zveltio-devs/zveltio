@@ -197,10 +197,10 @@ function confirmDelete(fn: RpcFunction) {
     {#if functions.length === 0 && !showForm}
       <div class="flex flex-col items-center justify-center py-24 text-center">
         <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
-          <Zap class="h-10 w-10 text-base-content/30" />
+          <Zap class="h-10 w-10 text-base-content/55" />
         </div>
         <h2 class="text-lg font-semibold">{m['rpc.emptyTitle']()}</h2>
-        <p class="mt-1 text-sm text-base-content/50">
+        <p class="mt-1 text-sm text-base-content/65">
           {m['rpc.emptyDesc']()}
         </p>
         <button onclick={openNew} class="btn btn-primary btn-sm mt-4 gap-1">
@@ -212,7 +212,7 @@ function confirmDelete(fn: RpcFunction) {
       <div class="overflow-x-auto rounded-xl border border-base-content/10">
         <table class="table table-sm w-full">
           <thead>
-            <tr class="text-xs text-base-content/50">
+            <tr class="text-xs text-base-content/65">
               <th>{m['rpc.colFunction']()}</th>
               <th>{m['common.col.description']()}</th>
               <th>{m['rpc.requiredRole']()}</th>
@@ -225,7 +225,7 @@ function confirmDelete(fn: RpcFunction) {
             {#each functions as fn (fn.id)}
               <tr class="hover:bg-base-200/50">
                 <td class="font-mono text-xs font-semibold">{fn.function_name}</td>
-                <td class="text-xs text-base-content/60 max-w-xs truncate">{fn.description ?? '—'}</td>
+                <td class="text-xs text-base-content/65 max-w-xs truncate">{fn.description ?? '—'}</td>
                 <td>
                   <span class="badge badge-ghost badge-sm">{fn.required_role}</span>
                 </td>
@@ -237,7 +237,7 @@ function confirmDelete(fn: RpcFunction) {
                     class="checkbox checkbox-sm checkbox-primary"
                   />
                 </td>
-                <td class="text-xs text-base-content/40">
+                <td class="text-xs text-base-content/65">
                   {fmtDate(fn.created_at)}
                 </td>
                 <td class="text-right">
