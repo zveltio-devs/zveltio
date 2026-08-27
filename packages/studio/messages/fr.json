@@ -2471,6 +2471,7 @@
   "mkt.uninstallFailed": "Échec de la désinstallation : {error}",
   "mkt.uninstallMsg": "Désinstaller « {name} » ? La configuration sera perdue.",
   "nav.account": "Compte",
+  "nav.aiChat": "Chat IA",
   "nav.analytics": "Analytique",
   "nav.apiKeys": "Clés d'API",
   "nav.approvals": "Approbations",
