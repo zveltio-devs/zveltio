@@ -47,7 +47,7 @@ async function loadAll() {
     const res = await api.get<{ functions: RpcFunction[] }>('/api/rpc/');
     functions = res.functions ?? [];
   } catch {
-    toast.error('Failed to load RPC functions');
+    toast.error(m['rpc.loadFailed']());
   } finally {
     loading = false;
   }
@@ -72,7 +72,7 @@ async function save() {
     showForm = false;
     await loadAll();
   } catch {
-    toast.error('Failed to register function');
+    toast.error(m['rpc.registerFailed']());
   } finally {
     saving = false;
   }
@@ -83,7 +83,7 @@ async function toggleEnabled(fn: RpcFunction) {
     await api.patch(`/api/rpc/${fn.id}`, { is_enabled: !fn.is_enabled });
     functions = functions.map((f) => (f.id === fn.id ? { ...f, is_enabled: !f.is_enabled } : f));
   } catch {
-    toast.error('Failed to update function');
+    toast.error(m['rpc.updateFailed']());
   }
 }
 
@@ -98,7 +98,7 @@ function confirmDelete(fn: RpcFunction) {
         toast.success(m['rpc.fnRemoved']());
         await loadAll();
       } catch {
-        toast.error('Failed to remove function');
+        toast.error(m['rpc.removeFailed']());
       }
     },
   };

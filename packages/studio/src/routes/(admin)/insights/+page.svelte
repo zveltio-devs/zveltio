@@ -142,9 +142,9 @@ async function createDashboard() {
 async function deleteDashboard(id: string) {
   confirmState = {
     open: true,
-    title: 'Delete Dashboard',
-    message: 'Delete this dashboard and all its panels?',
-    confirmLabel: 'Delete',
+    title: m['confirm.deleteDashboard.title'](),
+    message: m['confirm.deleteDashboard.message'](),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       await api.fetch(`/api/insights/dashboards/${id}`, {
