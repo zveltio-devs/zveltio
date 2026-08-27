@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * Skeleton placeholders for content-shape loading states.
  *
@@ -28,7 +29,7 @@ const skel = 'animate-shimmer rounded-md';
 </script>
 
 {#if type === 'card'}
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 {className ?? ''}" aria-busy="true" aria-label="Loading">
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 {className ?? ''}" aria-busy="true" aria-label={m['common.loading']()}>
     {#each Array.from({ length: Math.max(2, rows) }) as _}
       <div class="card bg-base-100/60 shadow-z1 p-4">
         <div class="flex items-center gap-3 mb-3">
@@ -44,7 +45,7 @@ const skel = 'animate-shimmer rounded-md';
   </div>
 
 {:else if type === 'table'}
-  <div class="overflow-x-auto {className ?? ''}" aria-busy="true" aria-label="Loading">
+  <div class="overflow-x-auto {className ?? ''}" aria-busy="true" aria-label={m['common.loading']()}>
     <table class="table w-full">
       <thead>
         <tr>
@@ -66,7 +67,7 @@ const skel = 'animate-shimmer rounded-md';
   </div>
 
 {:else if type === 'list'}
-  <div class="space-y-3 {className ?? ''}" aria-busy="true" aria-label="Loading">
+  <div class="space-y-3 {className ?? ''}" aria-busy="true" aria-label={m['common.loading']()}>
     {#each Array.from({ length: rows }) as _}
       <div class="flex items-center gap-3 p-3 bg-base-200/60 shadow-z1 rounded-xl">
         <div class="{skel} w-10 h-10 rounded-full"></div>
@@ -80,7 +81,7 @@ const skel = 'animate-shimmer rounded-md';
 
 {:else if type === 'text'}
   <!-- Deterministic widths (no random()) — Tailwind needs static classes. -->
-  <div class="space-y-3 {className ?? ''}" aria-busy="true" aria-label="Loading">
+  <div class="space-y-3 {className ?? ''}" aria-busy="true" aria-label={m['common.loading']()}>
     {#each Array.from({ length: rows }) as _, i}
       <div class="{skel} h-3 {i % 3 === 0 ? 'w-full' : i % 3 === 1 ? 'w-5/6' : 'w-2/3'}"></div>
     {/each}

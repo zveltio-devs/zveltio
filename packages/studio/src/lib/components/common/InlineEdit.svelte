@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * Inline text editor — click (or focus + Enter) on a value to edit it
  * in place. Save on blur or Enter; Cancel on Escape.
@@ -138,14 +139,14 @@ function onKeydown(e: KeyboardEvent) {
           onmousedown={(e) => e.preventDefault()}
           onclick={commit}
           class="btn btn-ghost btn-xs text-success shrink-0"
-          aria-label="Save"
+          aria-label={m['common.save']()}
         ><Check size={12} /></button>
         <button
           type="button"
           onmousedown={(e) => e.preventDefault()}
           onclick={cancel}
           class="btn btn-ghost btn-xs shrink-0"
-          aria-label="Cancel edit"
+          aria-label={m['common.cancelEdit']()}
         ><X size={12} /></button>
       {/if}
     </div>

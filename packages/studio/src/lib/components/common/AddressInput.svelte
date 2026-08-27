@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 /**
  * AddressInput - Address field with geocoding
  */
@@ -52,7 +53,7 @@ function selectAddress(addr: Address) {
 			type="text"
 			value={value.street || ''}
 			oninput={(e) => handleSearch(e.currentTarget.value)}
-			placeholder="Start typing address..."
+			placeholder={m['address.startTyping']()}
 			{disabled}
 			class="input input-bordered w-full"
 		/>
@@ -81,8 +82,8 @@ function selectAddress(addr: Address) {
 
 	{#if value.city}
 		<div class="grid grid-cols-2 gap-2 mt-2">
-			<input type="text" bind:value={value.city} placeholder="City" class="input input-sm input-bordered" {disabled} />
-			<input type="text" bind:value={value.postal_code} placeholder="Postal" class="input input-sm input-bordered" {disabled} />
+			<input type="text" bind:value={value.city} placeholder={m['address.city']()} class="input input-sm input-bordered" {disabled} />
+			<input type="text" bind:value={value.postal_code} placeholder={m['address.postal']()} class="input input-sm input-bordered" {disabled} />
 		</div>
 	{/if}
 </div>
