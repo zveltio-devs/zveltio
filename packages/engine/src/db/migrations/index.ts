@@ -1,4 +1,5 @@
 import type { Database } from '../index.js';
+import { sql } from 'kysely';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
@@ -326,6 +327,112 @@ export function timeoutSetting(envVar: string, fallback: string): string {
   return raw;
 }
 
+/**
+ * The database and this build disagree about what migration N *is*.
+ *
+ * Two shapes reach here. Either an already-applied file was edited in place, or
+ * the number was reused by a different file — which is what a squash does to
+ * every database built before it.
+ *
+ * It fails closed. The old behaviour was `console.warn` + skip, and the cost of
+ * that is not hypothetical: reproduced on a database built by the v3.0.0-beta.62
+ * chain, upgrading the binary printed warnings, exited 0, and applied NOTHING —
+ * no passkey table, no later schema at all — while reporting a successful start.
+ * The install then ran indefinitely on a schema the code no longer matched.
+ *
+ * The old warning text ("File may have been modified after being applied") named
+ * only one of the two causes and neither filename, so an operator seeing it had
+ * no way to tell which had happened.
+ */
+function reportDivergence(migrationNumber: number, shipped: string, recorded: string): void {
+  const cause =
+    recorded !== shipped
+      ? `migration ${migrationNumber} is recorded as "${recorded}" but this build ships ` +
+        `"${shipped}" — the chain was renumbered or squashed, so this database cannot be ` +
+        'upgraded in place'
+      : `migration ${migrationNumber} ("${shipped}") was edited after it was applied — the ` +
+        'database holds the old version and no longer matches this build';
+  const message =
+    `Migration chain divergence: ${cause}. Refusing to start, because continuing would leave ` +
+    'the schema silently behind the binary. Restore from a backup taken on the matching ' +
+    'version, or rebuild the database. Set ZVELTIO_ALLOW_MIGRATION_DIVERGENCE=1 to proceed ' +
+    'anyway, which accepts a schema this build was not written against.';
+  if (process.env.ZVELTIO_ALLOW_MIGRATION_DIVERGENCE !== '1') {
+    throw new Error(message);
+  }
+  console.warn(
+    `⚠️  ${message}\n⚠️  Overridden by ZVELTIO_ALLOW_MIGRATION_DIVERGENCE=1 — proceeding.`,
+  );
+}
+
+/**
+ * Checks every migration this build ships against what the database records,
+ * BEFORE anything decides there is nothing to do.
+ *
+ * `autoMigrate` short-circuits on `lastApplied >= MAX_SCHEMA_VERSION`, which
+ * reads a squashed database — 46 rows recorded, 2 files shipped — as "you are
+ * ahead of me, nothing to do", and returns without ever reaching the per-file
+ * check below. That comparison is only meaningful while the chain grows
+ * monotonically. This one compares identities, not the high-water mark.
+ */
+export async function assertChainCompatible(db: Database): Promise<void> {
+  const shipped = await listShippedMigrations();
+  if (shipped.length === 0) return;
+
+  // Raw `sql` rather than the query builder: `zv_schema_versions` is not in the
+  // Kysely `Database` type, and every other reader here reaches for `db as any`
+  // to get past that. A typed template needs no suppression.
+  let recorded: Array<{ version: number; filename: string; checksum: string }>;
+  try {
+    const versions = shipped.map((m) => m.version);
+    const res = await sql<{ version: number; filename: string; checksum: string }>`
+      SELECT version, filename, checksum FROM zv_schema_versions
+      WHERE version = ANY(${versions})`.execute(db);
+    recorded = res.rows;
+  } catch (err) {
+    // 42P01: the tracking table does not exist yet, so this is a fresh database
+    // and there is nothing to disagree with. Any other error means the answer is
+    // unknown, and an unknown answer must not read as "compatible".
+    const code =
+      (err as { errno?: string; code?: string }).errno ?? (err as { code?: string }).code ?? '';
+    if (code === '42P01') return;
+    throw err;
+  }
+
+  const byVersion = new Map(recorded.map((r) => [r.version, r]));
+  for (const m of shipped) {
+    const row = byVersion.get(m.version);
+    if (!row || row.checksum === 'baseline') continue;
+    if (row.checksum !== m.checksum || row.filename !== m.filename) {
+      reportDivergence(m.version, m.filename, row.filename);
+    }
+  }
+}
+
+/** The migrations this build ships, with their numbers and content checksums. */
+async function listShippedMigrations(): Promise<
+  Array<{ version: number; filename: string; checksum: string }>
+> {
+  const migrationsDir = join(import.meta.dir, 'sql');
+  const fromDir = await dirExists(migrationsDir);
+  const files = (
+    fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS)
+  ).sort();
+  const out = [];
+  for (const filename of files) {
+    const content = fromDir
+      ? await Bun.file(join(migrationsDir, filename)).text()
+      : EMBEDDED_MIGRATIONS[filename];
+    const { up } = parseMigrationFile(content);
+    out.push({
+      version: getMigrationNumber(filename),
+      filename,
+      checksum: createHash('sha256').update(up).digest('hex').slice(0, 16),
+    });
+  }
+  return out;
+}
+
 async function applyMigration(
   db: Database,
   migrationNumber: number,
@@ -349,12 +456,12 @@ async function applyMigration(
   // created by `001_initial.sql`, so before the first migration runs the table
   // genuinely does not exist. That is 42P01, and it means "nothing has been
   // applied", which is true. Every other error means the answer is unknown.
-  let existing: { version: number; checksum: string } | undefined;
+  let existing: { version: number; checksum: string; filename: string } | undefined;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     existing = await (db as any)
       .selectFrom('zv_schema_versions')
-      .select(['version', 'checksum'])
+      .select(['version', 'checksum', 'filename'])
       .where('version', '=', migrationNumber)
       .executeTakeFirst();
   } catch (err) {
@@ -365,10 +472,22 @@ async function applyMigration(
 
   if (existing) {
     if (existing.checksum !== checksum && existing.checksum !== 'baseline') {
-      console.warn(
-        `⚠️  Migration ${migrationNumber} checksum mismatch! ` +
-          `File may have been modified after being applied.`,
-      );
+      // This used to be a console.warn followed by `return`, which is the
+      // fail-open shape: the database and the binary disagree about what
+      // migration N *is*, and the engine booted anyway.
+      //
+      // Reproduced on a real beta.62 database: after the chain was squashed
+      // (45 files folded into 001), upgrading the binary printed three of
+      // these warnings, exited 0, and applied NOTHING. No passkey table, no
+      // tenancy hierarchy, no policy rewrite — the install kept running on
+      // the old schema while reporting a successful start. The skip is silent
+      // because the runner keys on the version NUMBER: 002 and 003 were
+      // already taken by different files, so the new ones were never eligible.
+      //
+      // The warning text was wrong too. "File may have been modified after
+      // being applied" describes only one of the two causes, and it named
+      // neither file, so the operator could not tell which.
+      reportDivergence(migrationNumber, filename, existing.filename);
     }
     return; // Already applied
   }
