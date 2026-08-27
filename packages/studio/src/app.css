@@ -36,7 +36,9 @@
   /* No violet second brand hue. `secondary` survives because DaisyUI components
    * and twelve call sites use it, but it is now the same blue lifted, not a
    * different colour — so a two-hue gradient stops being possible by accident. */
-  --color-secondary:         oklch(0.58 0.11 248);
+  /* 0.52, not 0.58: `secondary` is worn by role badges at 12px, where white on
+     the lighter value measured 4.14:1 — under the 4.5 floor for small text. */
+  --color-secondary:         oklch(0.52 0.11 248);
   --color-secondary-content: oklch(0.99 0 0);
 
   /* The one warm note in the system, and the only other temperature. Reserved
@@ -61,7 +63,11 @@
 
   /* `info` used to sit 20° from the brand hue, so "this is us" and "this is a
    * notice" were the same blue. Moved to teal, which no other role uses. */
-  --color-info:              oklch(0.58 0.10 205);
+  /* 0.50, not 0.58. White on the lighter value measured 3.99:1, and `info` is
+     worn by badges at 10px — small text, where 4.5:1 is the floor rather than
+     a nicety. Darkening the token fixes every use at once; overriding the badge
+     would have fixed one. */
+  --color-info:              oklch(0.50 0.10 205);
   --color-info-content:      oklch(0.99 0 0);
 
   /* The pale brand tint — the idea worth taking from that designer's pair.
@@ -303,6 +309,58 @@ body {
   --z-ease-snap:   cubic-bezier(0.23, 1, 0.32, 1);    /* entering, responding */
   --z-ease-move:   cubic-bezier(0.77, 0, 0.175, 1);   /* moving on screen     */
   --z-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);    /* panels, sheets       */
+}
+
+/* ── Component contrast floors ───────────────────────────────── */
+/*
+ * The last text below WCAG AA on the main screens is not this Studio's doing —
+ * it is three DaisyUI defaults, each landing just under the line:
+ *
+ *   .table thead      60% of base-content   4.37:1   (the column headers)
+ *   .tab, inactive    50%                   3.16:1
+ *   .badge-ghost      ~55%                  3.99:1
+ *
+ * A column header is text a person reads to understand the table, not chrome,
+ * and 4.37 against a required 4.5 is the kind of near-miss that survives review
+ * because it looks fine. Raised to the same 65% floor the rest of the Studio
+ * now uses.
+ */
+/* In `@layer utilities`, which is where DaisyUI 5 actually puts these.
+ *
+ * Two attempts failed first, and both failures are worth the note.
+ * `@layer components` lost — utilities beats components regardless of
+ * specificity, and DaisyUI emits its `.table :where(thead,tfoot)` colour into
+ * utilities despite it being component styling. Raising specificity inside
+ * `components` changed nothing for the same reason: layer order is decided
+ * before specificity is consulted.
+ *
+ * Still layered, deliberately. Unlayered would win against everything including
+ * a `text-*` utility written on the element — exactly the mechanism that
+ * silently disabled a hundred headings, and repeating it here to save a line
+ * would be the same mistake with a different victim. */
+@layer utilities {
+  .table thead,
+  .table tfoot {
+    color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
+  }
+  .tabs .tab:not(:checked, label:has(:checked), :hover, .tab-active, [aria-selected='true'], [aria-current='true'], [aria-current='page']) {
+    color: color-mix(in oklab, var(--color-base-content) 68%, transparent);
+  }
+  .badge.badge-ghost {
+    color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
+  }
+  /* `badge-info` and `badge-accent` are soft fills whose own content colour
+     lands under the line at badge sizes — 3.99:1 and 4.14:1 measured. A badge is
+     a label a person reads, not decoration, and 10px of it needs MORE contrast
+     than body text rather than less. */
+  .badge.badge-info {
+    color: var(--color-info-content);
+    background-color: var(--color-info);
+  }
+  .badge.badge-accent {
+    color: var(--color-accent-content);
+    background-color: var(--color-accent);
+  }
 }
 
 /* ── Press feedback ──────────────────────────────────────────── */

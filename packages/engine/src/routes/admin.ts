@@ -227,7 +227,20 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         metadata: { name, scopes },
       });
 
-      return c.json({ ...apiKey, key: rawKey });
+      // Not `...apiKey`. The insert above uses `returningAll()`, so spreading it
+      // hands the caller `key_hash` — a credential-adjacent value they have no
+      // use for, which then sits in devtools, in any network capture, and in
+      // whatever client-side error reporting the operator runs. The listing
+      // beside this one selects columns explicitly for exactly that reason;
+      // this undid the care.
+      //
+      // It is an HMAC keyed with the server secret, so it is not brute-forceable
+      // without that secret — the argument for removing it is that nothing
+      // needed it, not that it was breaking anything.
+      //
+      // `key` is the one thing the caller genuinely cannot get again.
+      const { key_hash: _discardedHash, ...safe } = apiKey as typeof apiKey & { key_hash?: string };
+      return c.json({ ...safe, key: rawKey });
     },
   );
 

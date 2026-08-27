@@ -142,6 +142,9 @@ async function reindexInvalid(db: Database): Promise<void> {
   for (const row of rows.rows) {
     try {
       await sql
+        // raw-ident-ok: both names come back from the `pg_index` / `pg_stat` query
+        // above, filtered to schema `public` and `zv%` — they are identifiers
+        // PostgreSQL itself is reporting, not names any caller supplied.
         .raw(`REINDEX INDEX CONCURRENTLY "${row.schemaname}"."${row.indexname}"`)
         .execute(db);
     } catch (err) {

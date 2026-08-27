@@ -2471,6 +2471,7 @@
   "mkt.uninstallFailed": "Deinstallation fehlgeschlagen: {error}",
   "mkt.uninstallMsg": "„{name}“ deinstallieren? Die Konfiguration geht verloren.",
   "nav.account": "Konto",
+  "nav.aiChat": "KI-Chat",
   "nav.analytics": "Analytik",
   "nav.apiKeys": "API-Schlüssel",
   "nav.approvals": "Genehmigungen",
