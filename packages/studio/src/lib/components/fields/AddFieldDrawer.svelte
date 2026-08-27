@@ -247,7 +247,7 @@ async function submit() {
           <Plus size={20} class="text-primary" />
         </div>
         <div>
-          <h2 class="font-bold text-lg leading-tight">Add Field</h2>
+          <h2 class="font-bold text-lg leading-tight">{m['fields.addField']()}</h2>
           <p class="text-xs text-base-content/65 mt-0.5">
             to collection <span class="font-mono text-primary font-medium">{collectionName}</span>
           </p>
@@ -364,7 +364,7 @@ async function submit() {
                 id="afd_name"
                 type="text"
                 bind:value={form.name}
-                placeholder="e.g. product_name"
+                placeholder={m['fields.egFieldName']()}
                 class="input input-sm font-mono"
                 autocomplete="off"
               />
@@ -375,17 +375,17 @@ async function submit() {
 
             <div class="form-control">
               <label class="label py-1" for="afd_label">
-                <span class="label-text text-xs font-medium">Display label</span>
+                <span class="label-text text-xs font-medium">{m['fields.displayLabel']()}</span>
               </label>
               <input
                 id="afd_label"
                 type="text"
                 bind:value={form.label}
-                placeholder="e.g. Product Name"
+                placeholder={m['fields.egDisplayLabel']()}
                 class="input input-sm"
               />
               <div class="label py-0.5">
-                <span class="label-text-alt text-base-content/65 text-[11px]">Shown in Studio (optional)</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">{m['fields.shownInStudio']()}</span>
               </div>
             </div>
           </div>
@@ -399,7 +399,7 @@ async function submit() {
               id="afd_desc"
               type="text"
               bind:value={form.description}
-              placeholder="What does this field store?"
+              placeholder={m['fields.whatStores']()}
               class="input input-sm"
             />
           </div>
@@ -413,7 +413,7 @@ async function submit() {
                 </span>
               </label>
               <select id="afd_related" class="select select-sm" bind:value={form.related_collection}>
-                <option value="">— Select collection —</option>
+                <option value="">{m['fields.selectCollection']()}</option>
                 {#each allCollections as col}
                   <option value={col.name}>{col.display_name || col.name}</option>
                 {/each}
@@ -437,7 +437,7 @@ async function submit() {
                 <span class="label-text text-xs font-medium">
                   Allowed values <span class="text-error">*</span>
                 </span>
-                <span class="label-text-alt text-base-content/65 text-[11px]">comma or newline separated</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">{m['fields.commaOrNewline']()}</span>
               </label>
               <textarea
                 id="afd_enum"
@@ -458,27 +458,27 @@ async function submit() {
 
           <!-- Constraints -->
           <div>
-            <p class="text-xs font-medium text-base-content/65 mb-2">Constraints</p>
+            <p class="text-xs font-medium text-base-content/65 mb-2">{m['fields.constraints']()}</p>
             <div class="flex flex-wrap gap-6">
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.required} class="checkbox checkbox-sm checkbox-error" />
                 <div>
                   <span class="label-text text-sm font-medium">{m['common.required']()}</span>
-                  <p class="text-xs text-base-content/65">Cannot be empty</p>
+                  <p class="text-xs text-base-content/65">{m['fields.cannotBeEmpty']()}</p>
                 </div>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.unique} class="checkbox checkbox-sm checkbox-warning" />
                 <div>
-                  <span class="label-text text-sm font-medium">Unique</span>
-                  <p class="text-xs text-base-content/65">No duplicate values</p>
+                  <span class="label-text text-sm font-medium">{m['fields.unique']()}</span>
+                  <p class="text-xs text-base-content/65">{m['fields.noDuplicates']()}</p>
                 </div>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" bind:checked={form.indexed} class="checkbox checkbox-sm checkbox-info" />
                 <div>
-                  <span class="label-text text-sm font-medium">Indexed</span>
-                  <p class="text-xs text-base-content/65">Faster queries on this field</p>
+                  <span class="label-text text-sm font-medium">{m['fields.indexed']()}</span>
+                  <p class="text-xs text-base-content/65">{m['fields.fasterQueries']()}</p>
                 </div>
               </label>
             </div>
@@ -505,7 +505,7 @@ async function submit() {
           {#if form.required}<span class="badge badge-error badge-xs ml-1">required</span>{/if}
           {#if form.unique}<span class="badge badge-warning badge-xs ml-1">unique</span>{/if}
         {:else}
-          <span class="italic">Fill in the field name to continue</span>
+          <span class="italic">{m['fields.fillNameToContinue']()}</span>
         {/if}
       </div>
       <div class="flex items-center gap-3 ml-auto">
