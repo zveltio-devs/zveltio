@@ -18,6 +18,9 @@
  */
 
 import type { Hono } from 'hono';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 
@@ -65,6 +68,21 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   // "sorry, too many clients already" — this default covered the harness and
   // nothing else.
   process.env.DB_POOL_MAX ??= '10';
+
+  // Every test gets its own extensions directory, outside the repository.
+  //
+  // `resolveExtensionsBase()` falls back to `./extensions` under the working
+  // directory, which is the repo root when tests run — so any test that installs
+  // an extension writes a generated bundle into the tree and leaves it there.
+  // `lint:ratchet` then scans that bundle and fails on warnings nobody wrote,
+  // on a branch that changed no source. That cost twenty minutes today, on a
+  // dependency-bump branch where the obvious suspect was the dependency bump.
+  //
+  // `marketplace.test.ts` already did this for itself. One test defending the
+  // tree only defends it from that test; this is the boundary every test crosses.
+  if (!process.env.EXTENSIONS_DIR) {
+    process.env.EXTENSIONS_DIR = mkdtempSync(join(tmpdir(), 'zv-harness-ext-'));
+  }
 
   const { initDatabase } = await import('../db/index.js');
   const db = await initDatabase();
