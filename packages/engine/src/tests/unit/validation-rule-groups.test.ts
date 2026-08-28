@@ -46,6 +46,11 @@ function freshCollection(): string {
 
 function dbWith(groupRows: unknown[], ruleRows: unknown[]): CannedDb {
   const db = new CannedDb();
+  // The engine asks whether the table exists before reading it, instead of
+  // reading it and catching the refusal — a refusal aborts the transaction and
+  // a JavaScript `catch` does not undo that. The probe has to be answered here
+  // or the read never happens.
+  db.when(/to_regclass/, [{ present: true }] as never[]);
   db.when(/FROM zvd_validation_rule_groups/, groupRows as never[]);
   db.when(/from "zv_validation_rules"/, ruleRows as never[]);
   return db;
