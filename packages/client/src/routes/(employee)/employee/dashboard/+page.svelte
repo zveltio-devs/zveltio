@@ -174,21 +174,21 @@ const has = (id: string) => !!dash?.widgets.includes(id);
             <div class="card bg-base-200"><div class="card-body p-5">
               <div class="flex items-center gap-2 text-base-content/60 text-sm"><Users size={16} /> People</div>
               <p class="text-3xl font-bold tabular-nums">{fmtNum(dash.data.people?.total)}</p>
-              <p class="text-xs text-base-content/50">{dash.data.people?.admins ?? 0} with full access</p>
+              <p class="text-xs text-base-content/65">{dash.data.people?.admins ?? 0} with full access</p>
             </div></div>
           {/if}
           {#if has('data')}
             <div class="card bg-base-200"><div class="card-body p-5">
               <div class="flex items-center gap-2 text-base-content/60 text-sm"><Database size={16} /> Records</div>
               <p class="text-3xl font-bold tabular-nums">~{fmtNum(dash.data.data?.records_estimate)}</p>
-              <p class="text-xs text-base-content/50">across {dash.data.data?.collections ?? 0} collections</p>
+              <p class="text-xs text-base-content/65">across {dash.data.data?.collections ?? 0} collections</p>
             </div></div>
           {/if}
           {#if has('activity')}
             <div class="card bg-base-200"><div class="card-body p-5">
               <div class="flex items-center gap-2 text-base-content/60 text-sm"><Activity size={16} /> Activity today</div>
               <p class="text-3xl font-bold tabular-nums">{fmtNum(dash.data.activity?.today)}</p>
-              <p class="text-xs text-base-content/50">recorded events</p>
+              <p class="text-xs text-base-content/65">recorded events</p>
             </div></div>
           {/if}
         </div>
@@ -198,13 +198,13 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         <div class="card bg-base-200"><div class="card-body p-5">
           <h2 class="font-semibold flex items-center gap-2"><Activity size={16} /> Recent activity</h2>
           {#if !dash.data.activity?.recent?.length}
-            <p class="text-sm text-base-content/50 py-4 text-center">{m['dash.no_activity']()}</p>
+            <p class="text-sm text-base-content/65 py-4 text-center">{m['dash.no_activity']()}</p>
           {:else}
             <ul class="divide-y divide-base-300/50 -mx-1">
               {#each dash.data.activity.recent as e (e.created_at)}
                 <li class="flex items-center justify-between gap-3 py-2.5 px-1">
                   <span class="text-sm">{describe(e)}</span>
-                  <span class="text-xs text-base-content/40 whitespace-nowrap tabular-nums">{fmtDateTime(e.created_at)}</span>
+                  <span class="text-xs text-base-content/65 whitespace-nowrap tabular-nums">{fmtDateTime(e.created_at)}</span>
                 </li>
               {/each}
             </ul>
@@ -216,17 +216,17 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         <div class="card bg-base-200 border border-primary/20"><div class="card-body p-5">
           <h2 class="font-semibold flex items-center gap-2 text-primary"><ShieldCheck size={16} /> Your data is protected</h2>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/30 mt-0.5'} /><div><p class="text-sm font-medium">{m['about.encryption']()}</p><p class="text-xs text-base-content/50">{dash.data.trust?.encryption ? 'Encrypted at rest' : 'Not configured'}</p></div></div>
-            <div class="flex items-start gap-2.5"><ScrollText size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.audit_trail']()}</p><p class="text-xs text-base-content/50">{m['about.every_change']()}</p></div></div>
-            <div class="flex items-start gap-2.5"><Server size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.self_hosted']()}</p><p class="text-xs text-base-content/50">{m['about.on_your_infra']()}</p></div></div>
-            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">{m['about.backups']()}</p><p class="text-xs text-base-content/50">{dash.data.trust?.last_backup ? `Last: ${fmtDateTime(dash.data.trust.last_backup)}` : 'None yet'}</p></div></div>
+            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/55 mt-0.5'} /><div><p class="text-sm font-medium">{m['about.encryption']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.encryption ? 'Encrypted at rest' : 'Not configured'}</p></div></div>
+            <div class="flex items-start gap-2.5"><ScrollText size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.audit_trail']()}</p><p class="text-xs text-base-content/65">{m['about.every_change']()}</p></div></div>
+            <div class="flex items-start gap-2.5"><Server size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.self_hosted']()}</p><p class="text-xs text-base-content/65">{m['about.on_your_infra']()}</p></div></div>
+            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">{m['about.backups']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.last_backup ? `Last: ${fmtDateTime(dash.data.trust.last_backup)}` : 'None yet'}</p></div></div>
           </div>
         </div></div>
       {/if}
     </div>
 
     {#if dash.personalized}
-      <p class="text-xs text-base-content/40 text-center">
+      <p class="text-xs text-base-content/65 text-center">
         Personalized view. <button class="link" onclick={() => mutate('DELETE')}>{m['common.reset_default']()}</button>
       </p>
     {/if}

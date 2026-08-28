@@ -213,7 +213,7 @@ function formatRelative(dateStr?: string): string {
     <div class="flex justify-end">
       <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading} aria-label={m['flows.refresh']()}>
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
-        Refresh
+        {m['common.refresh']()}
       </button>
     </div>
   {/snippet}
@@ -261,7 +261,7 @@ function formatRelative(dateStr?: string): string {
  </div>
 
  <div class="text-xs text-base-content/65">
- Last run: {formatRelative(flow.last_run_at)}
+ {m['flows.lastRun']({ when: formatRelative(flow.last_run_at) })}
  </div>
 
  <div class="flex gap-1 pt-1 border-t border-base-300">
@@ -353,7 +353,7 @@ function formatRelative(dateStr?: string): string {
  <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary" onclick={createFlow} disabled={saving || !name}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
- Create Flow
+ {m['flows.create']()}
  </button>
  </div>
  </div>

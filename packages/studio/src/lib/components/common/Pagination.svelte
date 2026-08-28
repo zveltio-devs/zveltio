@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 interface Props {
   total: number;
   page: number;
@@ -13,7 +14,7 @@ const to = $derived(Math.min(page * limit, total));
 
 {#if totalPages > 1}
   <div class="flex items-center justify-between mt-4 text-sm">
-    <span class="text-base-content/65 text-xs">{from}–{to} of {total.toLocaleString()}</span>
+    <span class="text-base-content/65 text-xs">{m['common.rangeOf']({ from, to, total: total.toLocaleString() })}</span>
     <div class="join">
       <button class="join-item btn btn-xs" disabled={page === 1} onclick={() => onchange(page - 1)}>«</button>
       {#each Array.from({length: Math.min(totalPages, 7)}, (_, i) => {

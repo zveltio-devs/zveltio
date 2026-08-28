@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { ArrowUpCircle, X } from '@lucide/svelte';
 import { api } from '$lib/api.js';
@@ -51,8 +52,7 @@ onMount(async () => {
     <div class="flex items-center gap-2 text-sm">
       <ArrowUpCircle size={16} />
       <span>
-        Zveltio <strong>v{updateInfo.latest}</strong> is available
-        (current: v{updateInfo.current})
+        {m['update.available']({ latest: `v${updateInfo.latest}`, current: `v${updateInfo.current}` })}
       </span>
       <a
         href={updateInfo.release_url}
@@ -60,7 +60,7 @@ onMount(async () => {
         rel="noopener noreferrer"
         class="underline opacity-75 hover:opacity-100"
       >
-        Release notes
+        {m['update.releaseNotes']()}
       </a>
       <span class="opacity-50">→</span>
       <code class="bg-base-200 px-1 rounded text-xs">zveltio update</code>

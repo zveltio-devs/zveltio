@@ -348,7 +348,7 @@ function fmt(d: string | null) {
               <td>
                 <div class="flex items-center justify-end gap-1">
                   <button type="button" class="btn btn-ghost btn-xs gap-1" onclick={() => viewDiff(branch)} title={m['schemaBranches.viewDiff']()}>
-                    <Eye size={12} /> Diff
+                    <Eye size={12} /> {m['schemaBranches.diff']()}
                   </button>
 
                   {#if branch.status === 'open'}

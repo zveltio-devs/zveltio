@@ -100,7 +100,7 @@ function fmt(s: string) {
   <label class="flex items-center gap-2 text-sm cursor-pointer">
   <input type="checkbox" class="checkbox checkbox-sm" bind:checked={unreadOnly}
   onchange={loadNotifications} />
-  Unread only
+  {m['notif.unreadOnly']()}
   </label>
   <button class="btn btn-ghost btn-sm" onclick={loadNotifications}>
   <RefreshCw size={15} />
@@ -108,7 +108,7 @@ function fmt(s: string) {
   {#if unreadCount > 0}
   <button class="btn btn-outline btn-sm" onclick={markAllRead} disabled={markingAll}>
   {#if markingAll}<LoaderCircle size={14} class="animate-spin" />{:else}<CheckCheck size={14} />{/if}
-  Mark all read
+  {m['notif.markAllRead']()}
   </button>
   {/if}
   </div>
@@ -119,7 +119,7 @@ function fmt(s: string) {
     <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
       {activeTab === 'inbox' ? 'border-primary text-primary' : 'border-transparent text-base-content/65 hover:text-base-content'}"
       onclick={() => activeTab = 'inbox'}>
-      Inbox
+      {m['notif.inbox']()}
       {#if unreadCount > 0}
         <span class="badge badge-primary badge-xs ml-1">{unreadCount}</span>
       {/if}
@@ -127,7 +127,7 @@ function fmt(s: string) {
     <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
       {activeTab === 'rules' ? 'border-primary text-primary' : 'border-transparent text-base-content/65 hover:text-base-content'}"
       onclick={() => activeTab = 'rules'}>
-      Rules
+      {m['notif.rules']()}
     </button>
   </div>
  </div>
