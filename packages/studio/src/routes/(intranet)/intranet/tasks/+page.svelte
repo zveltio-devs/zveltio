@@ -71,7 +71,7 @@ onMount(load);
       <span class="loading loading-spinner loading-md text-primary"></span>
     </div>
   {:else if tasks.length === 0}
-    <div class="text-center py-16 text-base-content/35">
+    <div class="text-center py-16 text-base-content/65">
       <Inbox size={40} class="mx-auto mb-3 opacity-40" strokeWidth={1.3} />
       <p class="text-base font-medium">Nothing on your plate</p>
       <p class="text-sm mt-1">Approvals and tasks assigned to you will appear here.</p>

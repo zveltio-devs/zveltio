@@ -228,15 +228,15 @@ const m2oTargetMap = $derived.by(() => {
     <!-- Context-sensitive header actions -->
     {#if activeTab === 'data'}
       <button onclick={() => recordDrawer?.openCreate()} class="btn btn-primary btn-sm gap-1.5">
-        <Plus size={14} /> New Record
+        <Plus size={14} /> {m['records.new']()}
       </button>
     {:else if activeTab === 'schema'}
       <div class="flex gap-2">
         <button onclick={() => schemaPanel?.openAddField()} class="btn btn-primary btn-sm gap-1.5">
-          <Columns size={14} /> Add Field
+          <Columns size={14} /> {m['fields.addField']()}
         </button>
         <button onclick={() => schemaPanel?.openRelForm()} class="btn btn-outline btn-sm gap-1.5">
-          <GitFork size={14} /> Add Relation
+          <GitFork size={14} /> {m['relations.add']()}
         </button>
       </div>
     {/if}

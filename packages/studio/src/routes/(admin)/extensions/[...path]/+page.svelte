@@ -38,7 +38,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
     </div>
     {#if extMeta.contributes?.engine}
       <p class="text-sm text-base-content/65">
-        This extension adds API capabilities. Configure it via Settings or use its API endpoints directly.
+        {m['extPage.apiOnly']()}
       </p>
     {/if}
   </div>
@@ -47,7 +47,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
     <div class="text-center opacity-50">
       <p class="text-lg font-semibold">{m['extPage.notFound']()}</p>
       <p class="text-sm mt-2">
-        The extension <code class="font-mono">{paramPath}</code> is not installed or active.
+        {m['extPage.notInstalled']({ name: paramPath })}
       </p>
     </div>
   </div>

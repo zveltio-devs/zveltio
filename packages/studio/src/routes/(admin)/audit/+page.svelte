@@ -112,7 +112,7 @@ let expandedId = $state<string | null>(null);
  </div>
  <div class="flex items-end">
  <button class="btn btn-sm btn-primary gap-2" onclick={applyFilters}>
- <Filter size={14} />Apply
+ <Filter size={14} />{m['rlog.apply']()}
  </button>
  </div>
  </div>

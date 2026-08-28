@@ -307,13 +307,13 @@ let confirmState = $state<{
   </div>
   <span class="text-xs text-base-content/65 whitespace-nowrap">
     {#if !loading}
-      {pagination.total ?? 0} total
+      {m['data.totalCount']({ count: pagination.total ?? 0 })}
       {#if selectedIds.size > 0}· <span class="text-primary font-medium">{selectedIds.size} selected</span>{/if}
     {/if}
   </span>
   {#if selectedIds.size > 0}
     <button onclick={bulkDeleteSelected} class="btn btn-error btn-sm gap-1">
-      <Trash2 size={14} /> Delete {selectedIds.size}
+      <Trash2 size={14} /> {m['data.deleteSelected']({ count: selectedIds.size })}
     </button>
   {/if}
   <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title={m['common.refresh']()} aria-label={m['common.refresh']()}>
@@ -336,7 +336,7 @@ let confirmState = $state<{
     </div>
     {#if !searchText}
       <button onclick={() => onCreate()} class="btn btn-primary btn-sm gap-1.5 mt-1">
-        <Plus size={14} /> Add first record
+        <Plus size={14} /> {m['data.addFirst']()}
       </button>
     {/if}
   </div>
@@ -367,7 +367,7 @@ let confirmState = $state<{
           <th class="text-xs font-semibold text-base-content/65 uppercase tracking-wide w-28">
             <button class="inline-flex items-center gap-1 hover:text-base-content"
               onclick={() => toggleSort('created_at')}>
-              Created
+              {m['common.col.created']()}
               {#if sortField === 'created_at'}
                 <span class="text-primary">{sortDir === 'asc' ? '↑' : '↓'}</span>
               {/if}
@@ -485,7 +485,7 @@ let confirmState = $state<{
   {#if (pagination.pages ?? 0) > 1 || (pagination.total ?? 0) > (pagination.limit ?? 25)}
     <div class="flex items-center justify-between mt-4 text-sm">
       <span class="text-base-content/65">
-        Page {pagination.page ?? 1} of {pagination.pages ?? 1}
+        {m['common.pageOf']({ page: pagination.page ?? 1, total: pagination.pages ?? 1 })}
       </span>
       <div class="join">
         <button class="join-item btn btn-sm" disabled={(pagination.page ?? 1) <= 1}

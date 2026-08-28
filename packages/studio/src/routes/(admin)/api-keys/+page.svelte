@@ -309,7 +309,7 @@ function formatRelative(dateStr: string): string {
         <button type="button" class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
         <button type="submit" class="btn btn-primary" disabled={creating || !form.name.trim()}>
           {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
-          Create
+          {m['common.create']()}
         </button>
       </div>
   </Modal>

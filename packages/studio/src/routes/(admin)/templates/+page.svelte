@@ -221,9 +221,7 @@ onMount(() => {
       <h1 class="text-2xl font-bold">{m['tpl.title']()}</h1>
     </div>
     <p class="text-sm text-base-content/65 max-w-2xl">
-      Skip the blank-page problem. Install a starter app — collections, fields,
-      and relations ready to use. Customise anything afterwards. Templates are
-      additive: existing collections aren't touched.
+      {m['tpl.intro']()}
     </p>
   </header>
 
@@ -350,7 +348,7 @@ onMount(() => {
           {#if installing || installedCollections.length > 0}
             <section class="border-t border-base-300 pt-5">
               <h3 class="text-sm font-semibold mb-2 text-base-content/70">
-                Progress — {installCompletedCount} / {installedCollections.length}
+                {m['tpl.progress']({ done: installCompletedCount, total: installedCollections.length })}
               </h3>
               <ul class="space-y-1.5">
                 {#each installedCollections as name, i}
@@ -380,9 +378,9 @@ onMount(() => {
           disabled={!preview || installing || !!prefixError}
         >
           {#if installing}
-            <Loader2 class="animate-spin" size={14} /> Installing…
+            <Loader2 class="animate-spin" size={14} /> {m['tpl.installing']()}
           {:else}
-            <Download size={14} /> Install template
+            <Download size={14} /> {m['tpl.install']()}
           {/if}
         </button>
       </footer>
