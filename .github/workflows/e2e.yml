@@ -103,6 +103,9 @@ jobs:
           E2E_PG_ADMIN: postgres://postgres:postgres@localhost:5432/postgres
           EXTENSIONS_DIR: ${{ github.workspace }}/../zveltio-extensions
           ZVELTIO_EXTENSIONS: crm
+          # DIAGNOSTIC: print every failed statement. A 25P02 only says
+          # "an earlier statement failed"; this says which one.
+          ZVELTIO_TRACE_SQL_ERRORS: '1'
         run: bun x playwright test
 
       - name: Upload traces
