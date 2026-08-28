@@ -43,6 +43,15 @@ export async function withSavepoint<T>(
     // raw-ident-ok: `name` is a literal at every call site, never caller input.
     await sql.raw(`SAVEPOINT ${name}`).execute(db);
   } catch {
+    // Tried on every call, deliberately, and NOT remembered per handle.
+    //
+    // The handle core routes hold is a proxy that resolves to the request's
+    // tenant transaction when there is one and to the pool when there is not —
+    // the same JavaScript object either way. Caching "this handle refuses
+    // SAVEPOINT" would therefore switch the guard off for every later request
+    // that IS in a transaction, which is the case it exists for. A refused
+    // SAVEPOINT costs one round trip and poisons nothing: outside a transaction
+    // every statement is its own, which is why there was nothing to guard.
     guarded = false;
   }
 
