@@ -66,6 +66,49 @@ function localPermSet(key: string, value: boolean): void {
  * ~370 ms each. The bookkeeping is what a test can check cheaply; the cap itself
  * is four lines above and holds by construction.
  */
+/**
+ * Every `p.obj` the loaded policies actually name.
+ *
+ * The memo above rescues repeated checks, and a `checkPermission` that is asked
+ * the SAME question twice is now free. It does nothing for a caller that varies
+ * the question, and that is the shape of the attack: measured on the live
+ * engine, hitting `/api/data/<random>` runs at **2 req/s with p50 5,5 s**, while
+ * the same path with a fixed name runs at 67 req/s. Every distinct name is a
+ * fresh 364 ms `enforce()`.
+ *
+ * The matcher makes the collapse safe. Object comparison is plain equality —
+ *
+ *   (r.obj == p.obj || (p.obj == '*' && p.act == '*'))
+ *
+ * — with no `keyMatch` and no pattern anywhere. So for any resource name that no
+ * policy names literally, the only rules that can match are the `'*'` ones, and
+ * the answer therefore does not depend on the name at all. All such names share
+ * one memo entry per (domain, user, action), and the attack collapses to a
+ * single `enforce()` no matter how many names are invented.
+ *
+ * `enforce()` is still called with the REAL resource — the collapse is in where
+ * the answer is filed, never in how it is computed.
+ */
+const UNKNOWN_RESOURCE = '\u0000unnamed';
+let _policyObjects: Set<string> | null = null;
+
+/** Dropped whenever policies change, so a newly named resource stops collapsing. */
+function invalidatePolicyObjectIndex(): void {
+  _policyObjects = null;
+}
+
+async function policyObjectIndex(): Promise<Set<string>> {
+  if (_policyObjects) return _policyObjects;
+  const e = await getEnforcer();
+  const index = new Set<string>();
+  for (const rule of await e.getPolicy()) {
+    const obj = rule[2];
+    if (typeof obj === 'string') index.add(obj);
+  }
+  _policyObjects = index;
+  return index;
+}
+
 export function __localPermissionCacheSize(): number {
   return _localPerm.size;
 }
@@ -73,6 +116,7 @@ export function __localPermissionCacheSize(): number {
 export function clearLocalPermissionCache(userId?: string): void {
   if (!userId) {
     _localPerm.clear();
+    invalidatePolicyObjectIndex();
     return;
   }
   // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
@@ -133,6 +177,8 @@ let _enforcer: Enforcer | null = null;
 class KyselyCasbinAdapter {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async loadPolicy(model: any): Promise<void> {
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     const policies = await sql<{
       ptype: string;
       v0: string | null;
@@ -194,6 +240,11 @@ class KyselyCasbinAdapter {
   }
 
   async addPolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+    // Every policy write reaches the database through this adapter, whichever
+    // route or boot task called it — so this is the one place where dropping the
+    // memo and the object index catches all of them.
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     await sql`
       INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
       VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
@@ -202,6 +253,8 @@ class KyselyCasbinAdapter {
   }
 
   async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     // 4-token policies (p: sub,dom,obj,act) — match all provided columns.
     await sql`
       DELETE FROM zvd_permissions
@@ -539,7 +592,11 @@ export async function checkPermission(
 
   const domain = getCurrentDomain();
   const cache = getCache();
-  const cacheKey = `perm:${domain}:${userId}:${resource}:${action}`;
+  // A name no policy mentions cannot change the answer — see `policyObjectIndex`.
+  // Filing every such name under one key is what stops an invented-name flood
+  // from costing one full `enforce()` each.
+  const named = (await policyObjectIndex()).has(resource) ? resource : UNKNOWN_RESOURCE;
+  const cacheKey = `perm:${domain}:${userId}:${named}:${action}`;
 
   if (cache) {
     try {

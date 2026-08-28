@@ -122,20 +122,90 @@ d('permission memo (in-process, no shared cache)', () => {
     }
   });
 
-  it('keeps its bookkeeping straight — entries land, and clearing empties it', async () => {
+  describe('names no policy mentions share one answer', () => {
+    // The memo rescues a repeated question; it does nothing for a caller that
+    // varies it. Measured on the live engine, `/api/data/<random>` ran at
+    // 2 req/s with p50 5,5 s while a fixed name ran at 67 — every invented name
+    // was a fresh 364 ms `enforce()`. The matcher compares objects with plain
+    // equality, so a name no policy mentions can only be decided by the `'*'`
+    // rules, and the answer cannot depend on the name. These tests pin that the
+    // collapse is safe, not that it is fast.
+
+    it('a second invented name costs nothing', async () => {
+      await checkPermission(userId, `invented_${STAMP}_1`, 'read');
+
+      const t = performance.now();
+      await checkPermission(userId, `invented_${STAMP}_2`, 'read');
+      expect(performance.now() - t).toBeLessThan(50);
+    });
+
+    it('and every invented name gets the same answer', async () => {
+      const a = await checkPermission(userId, `invented_${STAMP}_a`, 'read');
+      const b = await checkPermission(userId, `invented_${STAMP}_b`, 'read');
+      expect(b).toBe(a);
+      expect(a).toBe(false);
+    });
+
+    it('naming a resource in a policy takes it out of the shared answer', async () => {
+      // The one that would be a privilege bug if it regressed: a resource that
+      // starts unnamed must stop sharing the collapsed answer the moment a
+      // policy names it, or the grant is invisible until a TTL expires.
+      const resource = `promoted_${STAMP}`;
+      expect(await checkPermission(userId, resource, 'read')).toBe(false);
+
+      const e = await getEnforcer();
+      const domain = getCurrentDomain();
+      await e.addPolicy(userId, domain, resource, 'read');
+      try {
+        expect(await checkPermission(userId, resource, 'read')).toBe(true);
+        // A different invented name must NOT inherit the grant.
+        expect(await checkPermission(userId, `promoted_${STAMP}_other`, 'read')).toBe(false);
+      } finally {
+        await e.removePolicy(userId, domain, resource, 'read');
+      }
+    });
+
+    it('removing the policy puts the name back in the shared answer', async () => {
+      const resource = `demoted_${STAMP}`;
+      const e = await getEnforcer();
+      const domain = getCurrentDomain();
+      await e.addPolicy(userId, domain, resource, 'read');
+      expect(await checkPermission(userId, resource, 'read')).toBe(true);
+
+      await e.removePolicy(userId, domain, resource, 'read');
+      expect(await checkPermission(userId, resource, 'read')).toBe(false);
+    });
+  });
+
+  it('keeps its bookkeeping straight — and invented names share one entry', async () => {
     // The 10 000-entry cap cannot be filled honestly in a test: every miss is an
     // uncached `enforce()` at ~370 ms. What is checkable cheaply is that the map
-    // is actually managed — entries are recorded, and a clear really empties it.
+    // is managed — and that the collapse is visible in the bookkeeping itself.
     clearLocalPermissionCache();
     expect(__localPermissionCacheSize()).toBe(0);
 
     await checkPermission(userId, `bound_${STAMP}_a`, 'read');
     await checkPermission(userId, `bound_${STAMP}_b`, 'read');
+    // Two invented names, one entry: neither is mentioned by any policy, so both
+    // are the same question wearing different words.
+    expect(__localPermissionCacheSize()).toBe(1);
+
+    // A different action IS a different question.
+    await checkPermission(userId, `bound_${STAMP}_c`, 'update');
     expect(__localPermissionCacheSize()).toBe(2);
 
-    // A repeat must be served from the memo, not stored a second time.
-    await checkPermission(userId, `bound_${STAMP}_a`, 'read');
-    expect(__localPermissionCacheSize()).toBe(2);
+    // And a resource a policy actually names gets an entry of its own.
+    const e = await getEnforcer();
+    const domain = getCurrentDomain();
+    const named = `bound_named_${STAMP}`;
+    await e.addPolicy(userId, domain, named, 'read');
+    try {
+      await checkPermission(userId, named, 'read');
+      await checkPermission(userId, `bound_${STAMP}_d`, 'read');
+      expect(__localPermissionCacheSize()).toBe(2);
+    } finally {
+      await e.removePolicy(userId, domain, named, 'read');
+    }
 
     clearLocalPermissionCache();
     expect(__localPermissionCacheSize()).toBe(0);
