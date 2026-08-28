@@ -109,6 +109,100 @@ async function policyObjectIndex(): Promise<Set<string>> {
   return index;
 }
 
+/**
+ * Everything one subject may do in one domain, resolved once.
+ *
+ * `enforce()` is `some(where p.eft == allow)`, so it stops at the first policy
+ * that matches — which is why a user WITH a matching role answers in 8 ms and a
+ * user without one takes 364-885 ms: a denial has to read all 7 208 policies to
+ * establish that none of them applies. Denials are the expensive case, and
+ * denials are the case an attacker picks.
+ *
+ * Casbin's own `getImplicitPermissionsForUser` cannot be used to precompute this.
+ * The `p` rules here carry `dom = '*'` and the matcher honours it —
+ * `(p.dom == '*' || r.dom == p.dom)` — but the implicit API filters by exact
+ * domain and knows nothing of the custom matcher. Asked for a `tenant_admin`'s
+ * permissions it answers **zero**, and a permission set built on that would deny
+ * everything. `getImplicitRolesForUser` IS trustworthy: it resolves role chains
+ * and honours the domain matcher registered for `g`.
+ *
+ * So the set is built from the matcher's own terms, and
+ * `permission-set-matches-enforce.test.ts` holds it to `enforce()` across the
+ * real policy table — the fast path is only allowed to exist while it agrees.
+ */
+interface EffectivePermissions {
+  /** A `('*','*')` rule: everything in this domain, whatever it is called. */
+  all: boolean;
+  /** `obj\u0000act` pairs. */
+  exact: Set<string>;
+  /** Objects granted with `act = '*'`. */
+  anyAction: Set<string>;
+}
+
+const _effective = new Map<string, { perms: EffectivePermissions; expires: number }>();
+
+/** Answer a check from a resolved set — the matcher, minus the scan. */
+function allowedBy(perms: EffectivePermissions, resource: string, action: string): boolean {
+  if (perms.all) return true;
+  if (perms.anyAction.has(resource)) return true;
+  return perms.exact.has(`${resource}\u0000${action}`);
+}
+
+async function effectivePermissions(userId: string, domain: string): Promise<EffectivePermissions> {
+  const key = `${domain}\u0000${userId}`;
+  const hit = _effective.get(key);
+  if (hit && hit.expires > Date.now()) return hit.perms;
+
+  const e = await getEnforcer();
+  // Role chains and the `'*'` domain grant, resolved by casbin itself.
+  const subjects = new Set<string>([userId]);
+  for (const role of await e.getImplicitRolesForUser(userId, domain)) subjects.add(role);
+
+  const perms: EffectivePermissions = { all: false, exact: new Set(), anyAction: new Set() };
+  for (const rule of await e.getPolicy()) {
+    const [ps, pd, po, pa] = rule;
+    if (ps === undefined || po === undefined || pa === undefined) continue;
+    if (!subjects.has(ps)) continue;
+    if (pd !== '*' && pd !== domain) continue;
+    if (po === '*') {
+      // Only `('*','*')` is a wildcard object in this matcher — `('*', 'read')`
+      // matches nothing, and treating it as a grant would invent permissions.
+      if (pa === '*') perms.all = true;
+      continue;
+    }
+    if (pa === '*') perms.anyAction.add(po);
+    else perms.exact.add(`${po}\u0000${pa}`);
+  }
+
+  if (_effective.size >= LOCAL_PERM_MAX) {
+    const oldest = _effective.keys().next().value;
+    if (oldest !== undefined) _effective.delete(oldest);
+  }
+  _effective.set(key, { perms, expires: Date.now() + PERMISSION_CACHE_TTL * 1000 });
+  return perms;
+}
+
+/**
+ * Test seam: the answer the resolved set gives, without going near `enforce()`.
+ *
+ * Exported so `permission-set-matches-enforce.test.ts` can hold the two against
+ * each other over the real policy table. A fast authorization path that nobody
+ * checks against the slow one is how a permission bug ships.
+ */
+export async function __allowViaSet(
+  userId: string,
+  domain: string,
+  resource: string,
+  action: string,
+): Promise<boolean> {
+  return allowedBy(await effectivePermissions(userId, domain), resource, action);
+}
+
+/** Test seam — how many resolved subjects are held. */
+export function __effectivePermissionsSize(): number {
+  return _effective.size;
+}
+
 export function __localPermissionCacheSize(): number {
   return _localPerm.size;
 }
@@ -116,6 +210,7 @@ export function __localPermissionCacheSize(): number {
 export function clearLocalPermissionCache(userId?: string): void {
   if (!userId) {
     _localPerm.clear();
+    _effective.clear();
     invalidatePolicyObjectIndex();
     return;
   }
@@ -123,6 +218,9 @@ export function clearLocalPermissionCache(userId?: string): void {
   const needle = `:${userId}:`;
   for (const key of _localPerm.keys()) {
     if (key.includes(needle)) _localPerm.delete(key);
+  }
+  for (const key of _effective.keys()) {
+    if (key.endsWith(`\u0000${userId}`)) _effective.delete(key);
   }
 }
 const ROLE_CACHE_TTL = 300; // seconds
@@ -616,8 +714,12 @@ export async function checkPermission(
     if (local !== null) return local;
   }
 
-  const e = await getEnforcer();
-  const result = await e.enforce(userId, domain, resource, action);
+  // Resolved once per (user, domain), then answered by lookup — see
+  // `effectivePermissions`. `enforce()` stops at the first matching policy, so a
+  // granted question was already cheap; it was the DENIALS that read all 7 208
+  // rules to conclude nothing applied, at 364-885 ms each. Those are the answers
+  // an attacker asks for, and now they cost a Set miss.
+  const result = allowedBy(await effectivePermissions(userId, domain), resource, action);
 
   if (cache) {
     try {
