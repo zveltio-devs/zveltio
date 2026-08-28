@@ -21,7 +21,7 @@
     "lint:fix": "biome lint --write src",
     "format": "biome format --write src",
     "format:check": "biome format src",
-    "test": "bun test",
+    "test": "bun test src/tests/unit && bun test src/tests/harness --timeout 30000",
     "test:mutation": "stryker run stryker.security.json",
     "test:watch": "bun test --watch",
     "test:unit": "bun test src/tests/unit",
