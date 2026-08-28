@@ -15,10 +15,18 @@
  * this way; migrations 029-033 reached master the same way and were caught
  * only by compiling by hand before the tag. A gate is cheaper than remembering.
  *
- * Compares the SET OF VERSION NUMBERS, not file contents. Contents are already
- * covered — `embedded.ts` imports each .sql with `type: 'text'`, so a changed
- * file is embedded verbatim at build time and cannot drift. What drifts is
- * membership: a file nobody added an import line for.
+ * Membership is the safety property: `embedded.ts` imports each .sql with
+ * `type: 'text'`, so a changed SQL file is embedded verbatim at build time and
+ * cannot drift. What drifts is membership — a file nobody added an import for.
+ *
+ * The second check is a different property: `embedded.ts` must be EXACTLY what
+ * the generator emits. It is a build output, so anything written into it by
+ * hand is deleted by the next build, and nothing notices because nobody
+ * re-reads a comment. That is not hypothetical — the file carried a
+ * hand-written note about the baseline squash that a routine `turbo run test`
+ * (test dependsOn build) silently reverted, along with the variable naming.
+ * The note now lives in the generator, where it is emitted every run. Rather
+ * than restate the template here, the gate imports it.
  *
  * Usage: bun scripts/check-embedded-migrations-fresh.ts
  */
@@ -73,6 +81,23 @@ if (extra.length > 0) {
   process.exit(1);
 }
 
+const { migrationFiles, renderEmbedded } = await import(
+  '../packages/engine/scripts/gen-embedded-migrations.ts'
+);
+const expected = renderEmbedded(migrationFiles());
+
+if (embeddedText !== expected) {
+  console.error(
+    '❌ embedded-migrations-fresh: embedded.ts is not what the generator emits.\n\n' +
+      '   It is a build output. Whatever the difference is, the next build deletes\n' +
+      '   it — quietly, because no test reads a generated file for its prose.\n' +
+      '   Prose that has to survive belongs in gen-embedded-migrations.ts.\n\n' +
+      `   Regenerate:  ${REGEN}\n`,
+  );
+  process.exit(1);
+}
+
 console.log(
-  `✅ embedded-migrations-fresh: all ${onDisk.size} migrations are embedded (max ${Math.max(...onDisk)}).`,
+  `✅ embedded-migrations-fresh: all ${onDisk.size} migrations are embedded (max ${Math.max(...onDisk)}), ` +
+    'and the file matches the generator byte for byte.',
 );
