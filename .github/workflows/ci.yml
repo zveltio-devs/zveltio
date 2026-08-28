@@ -483,6 +483,22 @@ jobs:
         # this refuses new ones.
         run: bun run check:atomic-writes
 
+      - name: No tenant table on the raw pool
+        # `reqDb(c, db)` hands a handler the request transaction, which is where
+        # `SET LOCAL` lives and therefore the only place a query is bound by the
+        # tenant policies. The same query on the route's raw `db` runs on the
+        # pool as the engine's own role and sees every tenant's rows.
+        #
+        # This is a gate rather than a review note because `reqDb` falls back to
+        # the pool when no transaction is open — right for single-tenant
+        # installs, and exactly what would turn a missing transaction into a
+        # silent cross-tenant read. Forty-five call sites take that fallback
+        # today, so anything that stops the transaction from opening converts
+        # all of them at once. The repository has been here before: a
+        # synchronous `finally` cleared the transaction early and left 302
+        # policies inert, with the tests still green.
+        run: bun run check:tenant-on-pool
+
       - name: Schema snapshot
         # Records what a real install produces and fails when it changes. Every
         # other schema gate asks whether the code agrees with the migrations;
