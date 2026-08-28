@@ -61,6 +61,18 @@ const CASES: Case[] = [
       '  return sql`SELECT 1`.execute(db as never).catch(() => ({ rows: [] }));\n}\n',
   },
   {
+    // A route handler reaching for a tenant table on the raw pool — the query
+    // that runs outside the request transaction and therefore outside RLS.
+    // Planted under `routes/` because that is the only tree the gate walks.
+    gate: 'check-tenant-table-on-pool',
+    cmd: 'bun run scripts/check-tenant-table-on-pool.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import type { Database } from '../db/index.js';\n" +
+      'export const probe = (db: Database) =>\n' +
+      "  db.selectFrom('zv_api_keys').selectAll().execute();\n",
+  },
+  {
     // A backtick inside an SQL `--` comment, which ends the template early.
     gate: 'check-sql-template-backticks',
     cmd: 'bun run scripts/check-sql-template-backticks.ts',
