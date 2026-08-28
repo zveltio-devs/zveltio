@@ -87,7 +87,7 @@
     <CheckCircle size={24} class="text-success mb-2" />
     <span class="text-sm text-success">Uploaded!</span>
   {:else}
-    <Upload size={24} class="text-base-content/50 mb-2" />
-    <span class="text-sm text-base-content/50">Click or drag to upload</span>
+    <Upload size={24} class="text-base-content/65 mb-2" />
+    <span class="text-sm text-base-content/65">Click or drag to upload</span>
   {/if}
 </label>

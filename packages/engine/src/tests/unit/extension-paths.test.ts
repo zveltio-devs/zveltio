@@ -39,6 +39,12 @@ describe('resolveExtensionsBase', () => {
   });
 
   it('falls back to ./extensions under the current working directory', () => {
+    // The fallback is only reachable with EXTENSIONS_DIR absent, and this suite
+    // does not run alone: `app-harness.ts` sets that variable process-wide and
+    // never restores it, so any harness test loaded earlier in the same `bun
+    // test` process would decide this one's outcome. Asserting a fallback means
+    // clearing what outranks it. (afterEach restores the saved value.)
+    delete process.env.EXTENSIONS_DIR;
     const cwd = mkdtempSync(join(tmpdir(), 'zv-ext-cwd-'));
     const ext = join(cwd, 'extensions');
     mkdirSync(ext, { recursive: true });
