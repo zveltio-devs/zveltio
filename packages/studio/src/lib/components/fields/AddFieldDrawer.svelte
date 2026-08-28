@@ -249,7 +249,7 @@ async function submit() {
         <div>
           <h2 class="font-bold text-lg leading-tight">{m['fields.addField']()}</h2>
           <p class="text-xs text-base-content/65 mt-0.5">
-            to collection <span class="font-mono text-primary font-medium">{collectionName}</span>
+            {m['fields.toCollection']({ name: collectionName })}
           </p>
         </div>
       </div>
@@ -301,7 +301,7 @@ async function submit() {
               <cat.Icon size={16} class={cat.color} />
             {/if}{/each}
             <h3 class="text-sm font-semibold text-base-content/70">
-              {categories.find((c) => c.id === selectedCategory)?.label ?? ''} Fields
+              {m['fields.categoryFields']({ category: categories.find((c) => c.id === selectedCategory)?.label ?? '' })}
             </h3>
           </div>
 
@@ -357,7 +357,7 @@ async function submit() {
             <div class="form-control">
               <label class="label py-1" for="afd_name">
                 <span class="label-text text-xs font-medium">
-                  Field name <span class="text-error">*</span>
+                  {m['fields.fieldName']()} <span class="text-error">*</span>
                 </span>
               </label>
               <input
@@ -409,7 +409,7 @@ async function submit() {
             <div class="form-control">
               <label class="label py-1" for="afd_related">
                 <span class="label-text text-xs font-medium">
-                  Target collection <span class="text-error">*</span>
+                  {m['fields.targetCollection']()} <span class="text-error">*</span>
                 </span>
               </label>
               <select id="afd_related" class="select select-sm" bind:value={form.related_collection}>
@@ -435,7 +435,7 @@ async function submit() {
             <div class="form-control">
               <label class="label py-1" for="afd_enum">
                 <span class="label-text text-xs font-medium">
-                  Allowed values <span class="text-error">*</span>
+                  {m['fields.allowedValues']()} <span class="text-error">*</span>
                 </span>
                 <span class="label-text-alt text-base-content/65 text-[11px]">{m['fields.commaOrNewline']()}</span>
               </label>
@@ -517,10 +517,10 @@ async function submit() {
         >
           {#if saving}
             <span class="loading loading-spinner loading-xs"></span>
-            Adding…
+            {m['fields.adding']()}
           {:else}
             <Plus size={15} />
-            Add Field
+            {m['fields.addField']()}
           {/if}
         </button>
       </div>

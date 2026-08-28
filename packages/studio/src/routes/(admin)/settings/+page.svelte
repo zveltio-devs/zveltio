@@ -144,7 +144,7 @@ const TABS = [
   {:else}
   <button class="btn btn-ghost btn-sm" onclick={resetDefaults} disabled={rlResetting}>
   {#if rlResetting}<LoaderCircle size={16} class="animate-spin" />{/if}
-  Reset Defaults
+  {m['settings.resetDefaults']()}
   </button>
   {/if}
  </PageHeader>
@@ -292,7 +292,7 @@ const TABS = [
 
  {:else if tab === 'rate_limiting'}
  <p class="text-sm text-base-content/65 mb-4">
- Configure request limits per tier. Changes apply within 60 seconds without restart.
+ {m['settings.rateLimitIntro']()}
  </p>
 
  {#if rlTiers.length === 0}

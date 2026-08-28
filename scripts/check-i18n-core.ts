@@ -68,7 +68,6 @@ const TRANSLATED = [
   'src/routes/(admin)/[...extPath]/+page.svelte',
   'src/routes/(admin)/account/+page.svelte',
   'src/routes/(admin)/backup/+page.svelte',
-  'src/routes/(admin)/collections/[name]/+page.svelte',
   'src/routes/(admin)/collections/erd/+page.svelte',
   'src/routes/(admin)/extensions/[...path]/+page.svelte',
   'src/routes/(admin)/flows/[id]/+page.svelte',
@@ -140,6 +139,10 @@ const ALLOWED_EXACT: RegExp[] = [
   /^[a-z_][a-z0-9_]*((,| \/) ?[a-z_][a-z0-9_]*)+$/,
   /^\/\*[\s\S]*\*\/$/, // a CSS or JS sample shown as code in a placeholder
   /^(Bearer token|Basic auth)$/, // HTTP auth scheme names (RFC 6750 / 7617)
+  // An HTTP header name shown in a code sample. `X-API-Key:` and
+  // `X-Preview-Token:` are wire identifiers — a translated header does not
+  // reach the server.
+  /^X-[A-Za-z][A-Za-z0-9-]*:$/,
   /^(GET|POST|PUT|PATCH|DELETE) \//, // an HTTP method and path, e.g. POST /api/rpc/:function
   // ERD legend: a relation-type identifier plus its cardinality, e.g.
   // "m2o / reference (N→1)". Both halves are notation, not prose.
@@ -154,6 +157,40 @@ interface Finding {
   file: string;
   line: number;
   text: string;
+}
+
+/**
+ * Blank every `{...}` expression, keeping its newlines so line numbers survive.
+ *
+ * Runs BEFORE anything looks for tags, and that order is the whole point: an
+ * expression may contain `>` — `{#if tabs.length > 0 && activeTab}` — and a
+ * tag scan that meets that operator first reads the rest of the condition as a
+ * text node. The first version of this check reported
+ * `0 && activeTab && onTabChange` as untranslated prose.
+ *
+ * Braces are counted rather than matched with `\{[^}]*\}`, so a nested object
+ * literal — `{Array.from({ length: rows })}` — does not end the blanking early
+ * and leak `)}` into the markup.
+ */
+function blankExpressions(text: string): string {
+  let out = '';
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === '{') {
+      depth++;
+      continue;
+    }
+    if (ch === '}' && depth > 0) {
+      depth--;
+      continue;
+    }
+    if (depth > 0) {
+      if (ch === '\n') out += ch;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 /** Text that a user would read: two or more letters, not an identifier. */
@@ -214,6 +251,57 @@ function checkKeyReferences(): string[] {
 
   walk(join(STUDIO, 'src', 'routes'));
   return broken;
+}
+
+/**
+ * A file that calls `m['key']()` must import `m`.
+ *
+ * The key check above proves the catalogue has the key. It says nothing about
+ * whether `m` is in scope, and an unimported `m` is not a missing translation —
+ * it is `ReferenceError: m is not defined`, thrown during render, which blanks
+ * the component and everything below it. Svelte does not fail the build for it
+ * and `tsc` does not see inside the template.
+ *
+ * Found by shipping it three times in one pass: `Pagination`, `UpdateBanner`
+ * and `SnippetGenerator` each got a translated string and no import, and only
+ * `Pagination` had a component test to notice.
+ */
+function checkMessageImports(): string[] {
+  const broken: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!entry.name.endsWith('.svelte')) continue;
+      const src = readFileSync(p, 'utf-8');
+      if (!/\bm\[['"]/.test(src)) continue;
+      // Any import that binds `m`, not one blessed path: the wrapper
+      // `$lib/i18n.svelte.js` is the usual source, but extension components
+      // import the compiled runtime `$lib/paraglide/messages.js` directly and
+      // are perfectly correct. A first version named only the wrapper and
+      // reported `ReceivablesCard` — which imports the other one — as broken.
+      if (/import\s*\{[^}]*\bm\b[^}]*\}\s*from/.test(src)) continue;
+      broken.push(relative(STUDIO, p));
+    }
+  };
+  walk(join(STUDIO, 'src'));
+  return broken;
+}
+
+const missingImports = checkMessageImports();
+if (missingImports.length > 0) {
+  console.error(
+    `❌ i18n-core: ${missingImports.length} file(s) call m['...'] without importing m.\n`,
+  );
+  for (const f of missingImports) console.error(`  ${f}`);
+  console.error(
+    '\nThat is not a missing translation — it throws `m is not defined` at render\n' +
+      "and blanks the component. Add:  import { m } from '$lib/i18n.svelte.js';\n",
+  );
+  process.exit(1);
 }
 
 const brokenRefs = checkKeyReferences();
@@ -278,18 +366,53 @@ for (const rel of SCANNED) {
     process.exit(1);
   }
 
-  // Blank the <script> block rather than deleting it: only markup is
-  // user-visible text, but removing the lines shifts every number after it and
-  // a gate that points at the wrong line is worse than no line at all.
-  const markup = src.replace(/<script[\s\S]*?<\/script>/g, (block) =>
-    '\n'.repeat((block.match(/\n/g) ?? []).length),
-  );
+  // Blank the <script>, <style> and comment blocks rather than deleting them:
+  // only markup is user-visible text, but removing the lines shifts every number
+  // after it and a gate that points at the wrong line is worse than no line at
+  // all.
+  const blank = (block: string) => '\n'.repeat((block.match(/\n/g) ?? []).length);
+  const markup = src
+    .replace(/<script[\s\S]*?<\/script>/g, blank)
+    .replace(/<style[\s\S]*?<\/style>/g, blank)
+    .replace(/<!--[\s\S]*?-->/g, blank);
+
+  // Text nodes, ACROSS lines.
+  //
+  // This was `/>([^<>{}\n]+)</` applied line by line, which required the opening
+  // `>`, the text and the closing `<` to sit on ONE line with no braces between
+  // them. Svelte is not written that way — a formatter puts the text on its own
+  // line — so the ordinary shape was never looked at:
+  //
+  //     <h3 class="...">
+  //       Active Inheritance Rules ({hierarchy.length})
+  //     </h3>
+  //
+  // The gate reported that file clean with that heading in it, and reported the
+  // whole Studio at zero while twenty-six such strings were on screen. Two
+  // exclusions had to miss at once, and both did: the newline and the
+  // interpolation. It is the fifth blind spot found in this one gate.
+  //
+  // So: take every span between `>` and the next `<` whatever it contains, then
+  // remove the Svelte expressions with BALANCED braces — `{#if}`, `{:else}` and
+  // `{@const}` fall out with them, and a nested `{ length: n }` does not end the
+  // strip early the way `\{[^}]*\}` would. What survives is the literal text.
+  const proseOnly = blankExpressions(markup);
+  for (const m of proseOnly.matchAll(/>([^<>]*)</g)) {
+    const raw = m[1]!;
+    const literal = raw.replace(/\s+/g, ' ').trim();
+    if (!looksTranslatable(literal)) continue;
+    // Point at the TEXT, not at the `>` that opened it. On a multi-line node
+    // those are different lines, and a gate that names the tag line sends the
+    // reader — or a script — to the wrong place.
+    const lead = raw.length - raw.trimStart().length;
+    findings.push({
+      file: rel,
+      line: proseOnly.slice(0, m.index! + 1 + lead).split('\n').length,
+      text: literal,
+    });
+  }
+
   markup.split('\n').forEach((line, i) => {
-    for (const m of line.matchAll(/>([^<>{}\n]+)</g)) {
-      if (looksTranslatable(m[1]!)) {
-        findings.push({ file: rel, line: i + 1, text: m[1]!.trim() });
-      }
-    }
     for (const m of line.matchAll(/(placeholder|title|aria-label|alt)="([^"]+)"/g)) {
       // An attribute whose value is nothing but expressions and punctuation —
       // `aria-label="{label}: {value}"` — has no words of its own. They live in
@@ -361,6 +484,18 @@ try {
   componentBaseline = JSON.parse(readFileSync(COMPONENT_BASELINE, 'utf-8')).count ?? 0;
 } catch {
   componentBaseline = 0;
+}
+
+// `--list` prints every finding, machine-readably, and exits 0.
+//
+// The failure paths below cap their output at fifteen or twenty lines, which is
+// right for a gate — a wall of text does not get read. It is wrong for doing the
+// work: a translation pass needs the whole list, and the component ratchet stops
+// the run before the page findings are ever printed.
+if (process.argv.includes('--list')) {
+  for (const f of findings) console.log(`${f.file}:${f.line}\t${f.text}`);
+  console.error(`[i18n-core] ${findings.length} finding(s).`);
+  process.exit(0);
 }
 
 if (process.argv.includes('--update')) {

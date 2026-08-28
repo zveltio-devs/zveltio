@@ -85,7 +85,7 @@ async function upload(file: File) {
     <CheckCircle size={24} class="text-success mb-2" />
     <span class="text-sm text-success">{m['upload.done']()}</span>
   {:else}
-    <Upload size={24} class="text-base-content/50 mb-2" />
-    <span class="text-sm text-base-content/50">{m['upload.hint']()}</span>
+    <Upload size={24} class="text-base-content/65 mb-2" />
+    <span class="text-sm text-base-content/65">{m['upload.hint']()}</span>
   {/if}
 </label>
