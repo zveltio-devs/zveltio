@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import { sql } from 'kysely';
+import { withSavepoint } from '../lib/savepoint.js';
 import type { Database } from '../db/index.js';
 
 // Preview environment middleware — when X-Preview-Token header is present,
@@ -30,31 +31,44 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
       return next();
     }
 
-    try {
-      const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
-        SELECT preview_schema, preview_expires_at FROM zv_schema_branches
-        WHERE preview_token = ${token}
-          AND preview_enabled = true
-          AND (preview_expires_at IS NULL OR preview_expires_at > NOW())
-        LIMIT 1
-      `.execute(db);
+    // Guarded: what follows is allowed to fail, and "allowed to fail" has to be
+    // made true rather than assumed. The lookup runs on the request's
+    // transaction; a failed statement aborts it, and the `catch` below would
+    // then hand back a request whose every later statement answers 25P02 —
+    // including, once the connection returns to the pool, statements belonging
+    // to somebody else. See lib/savepoint.ts for the trace.
+    await withSavepoint(
+      db,
+      'zv_preview_env',
+      async () => {
+        const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
+          SELECT preview_schema, preview_expires_at FROM zv_schema_branches
+          WHERE preview_token = ${token}
+            AND preview_enabled = true
+            AND (preview_expires_at IS NULL OR preview_expires_at > NOW())
+          LIMIT 1
+        `.execute(db);
 
-      const row = result.rows[0];
-      if (row?.preview_expires_at && new Date(row.preview_expires_at) < new Date()) {
-        // Expired — auto-disable (fire-and-forget)
-        sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`
-          .execute(db)
-          .catch(() => {});
-      }
-      const schema = row?.preview_schema;
-      if (schema) {
-        // Set search_path for this connection so queries hit the branch schema first
-        await sql`SET LOCAL search_path TO ${sql.id(schema)}, public`.execute(db);
-        c.set('previewSchema', schema);
-      }
-    } catch {
-      /* non-fatal — fall through to normal schema */
-    }
+        const row = result.rows[0];
+        if (row?.preview_expires_at && new Date(row.preview_expires_at) < new Date()) {
+          // Expired — disable it. Awaited, not fire-and-forget: an unawaited
+          // statement on the request's transaction lands after the handler has
+          // moved on, on a transaction that may already be committing.
+          await sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`.execute(
+            db,
+          );
+        }
+        const schema = row?.preview_schema;
+        if (schema) {
+          // Set search_path for this connection so queries hit the branch schema first
+          await sql`SET LOCAL search_path TO ${sql.id(schema)}, public`.execute(db);
+          c.set('previewSchema', schema);
+        }
+      },
+      () => {
+        /* non-fatal — fall through to the normal schema */
+      },
+    );
 
     return next();
   };

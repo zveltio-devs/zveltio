@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
+import { withSavepoint } from '../savepoint.js';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { getCurrentDomain } from './tenant-context.js';
@@ -360,22 +361,32 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
     }
   }
 
-  try {
-    const result = await sql<{ role: string }>`
+  // Guarded, because the fallback below runs on the caller's transaction.
+  //
+  // `return 'public'` on a database fault is the right answer — least privilege
+  // when the DB is down. What was wrong is what it left behind: the failed
+  // SELECT had already aborted the transaction, so the request that asked "who
+  // is this?" got a safe answer and then died on its next statement with 25P02,
+  // as did anything that later drew the same pooled connection.
+  return withSavepoint(
+    _db,
+    'zv_resolve_role',
+    async () => {
+      const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
-    const role = result.rows[0]?.role || 'public';
-    if (cache) {
-      try {
-        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
-      } catch {
-        /* cache unavailable */
+      const role = result.rows[0]?.role || 'public';
+      if (cache) {
+        try {
+          await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
+        } catch {
+          /* cache unavailable */
+        }
       }
-    }
-    return role;
-  } catch {
-    return 'public'; // fail closed — least privilege when the DB is down
-  }
+      return role;
+    },
+    () => 'public', // fail closed — least privilege when the DB is down
+  );
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {
@@ -396,26 +407,36 @@ export async function isGodUser(userId: string): Promise<boolean> {
     }
   }
 
-  try {
-    const result = await sql<{ role: string }>`
+  // Guarded, because the fallback below runs on the caller's transaction.
+  //
+  // `return 'public'` on a database fault is the right answer — least privilege
+  // when the DB is down. What was wrong is what it left behind: the failed
+  // SELECT had already aborted the transaction, so the request that asked "who
+  // is this?" got a safe answer and then died on its next statement with 25P02,
+  // as did anything that later drew the same pooled connection.
+  return withSavepoint(
+    _db,
+    'zv_resolve_role',
+    async () => {
+      const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
 
-    const isGod = result.rows[0]?.role === 'god';
+      const isGod = result.rows[0]?.role === 'god';
 
-    if (cache) {
-      try {
-        // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
-        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
-      } catch {
-        /* cache unavailable */
+      if (cache) {
+        try {
+          // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
+          await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
+        } catch {
+          /* cache unavailable */
+        }
       }
-    }
 
-    return isGod;
-  } catch {
-    return false; // Fail closed — if DB is down, do NOT grant god access
-  }
+      return isGod;
+    },
+    () => false, // fail closed — if the DB is down, do NOT grant god access
+  );
 }
 
 /**
