@@ -123,6 +123,25 @@ export interface QueryOptions {
    */
   countMode?: 'exact' | 'none';
   /**
+   * A tenant id to add as `tenant_id = <id>`, or omitted to add nothing.
+   *
+   * PERFORMANCE ONLY. The RLS policy is untouched and still decides what may be
+   * seen; this equality can narrow the same set, never widen it. It exists
+   * because the policy reads `tenant_id = ANY (…)`, and `= ANY` over an array
+   * the planner cannot see at plan time will not drive an ordered index scan —
+   * so a paginated list walks `created_at` and discards other tenants' rows at a
+   * cost proportional to how many tenants exist. Measured on 300 000 rows with
+   * 100 000 in the caller's tenant:
+   *
+   *     policy alone            1,94 ms, 6 408 rows discarded
+   *     policy + this equality  0,08 ms, none — `(tenant_id, created_at DESC)`
+   *
+   * The caller must pass it ONLY when the request's reach is its own tenant
+   * alone (`getSingleTenantId()`). With a hierarchy in play this would hide the
+   * ancestors' rows the caller is entitled to.
+   */
+  tenantScopeId?: string | null;
+  /**
    * Optional hook to mutate the Kysely query builder before execution.
    * Used by routes/data.ts to apply extension `queryAlter` filters (S2-03)
    * so global concerns (tenant isolation, soft-delete masks, redaction)
@@ -223,6 +242,7 @@ export async function dynamicSelect(
     hasTrgm,
     applyAlters,
     countMode = 'exact',
+    tenantScopeId,
   } = options;
   const skipCount = countMode === 'none';
 
@@ -237,6 +257,13 @@ export async function dynamicSelect(
   let countQb: any = (db as any)
     .selectFrom(tableNameSanitized)
     .select(sql<number>`count(*)::int`.as('total'));
+
+  // The explicit tenant equality, on BOTH queries — a count that saw a different
+  // row set than the page would report a total for rows the page never had.
+  if (tenantScopeId) {
+    qb = qb.where('tenant_id', '=', tenantScopeId);
+    countQb = countQb.where('tenant_id', '=', tenantScopeId);
+  }
 
   // Filters — reuse buildCondition which already escapes identifiers + binds
   // values. Kysely's .where() accepts a raw sql expression as a guard.

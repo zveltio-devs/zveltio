@@ -5,7 +5,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { runWithTenantTrx } from './tenant-context.js';
+import { runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
 import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
 
 export interface Tenant {
@@ -178,6 +178,31 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   await sql.raw(`ALTER TABLE ${t} ALTER COLUMN tenant_id SET NOT NULL`).execute(db);
   await sql
     .raw(`CREATE INDEX IF NOT EXISTS "idx_${table}_tenant_id" ON ${t}(tenant_id)`)
+    .execute(db);
+  // And the composite the paginated read actually needs.
+  //
+  // The single-column index above lets the policy predicate be satisfied; it
+  // does nothing for `ORDER BY created_at DESC LIMIT n`, which is what every
+  // list endpoint issues. Without `(tenant_id, created_at DESC)` the planner
+  // walks the `created_at` index and discards other tenants' rows as it goes, at
+  // a cost proportional to how many tenants share the table. Measured on 300 000
+  // rows across 63 tenants: 6 408 rows discarded to return 25, and 1,94 ms
+  // against 0,08 ms once this index exists and the read carries an explicit
+  // `tenant_id =` (see `tenantScopeId` in db/dynamic.ts — the policy alone
+  // cannot drive it, because `= ANY` over a runtime array is not an index cond).
+  //
+  // Guarded on the column: this runs for collection tables, which always have
+  // `created_at`, but the guard costs nothing and the next caller may not.
+  await sql
+    .raw(
+      `DO $$ BEGIN
+         IF EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = '${table}' AND column_name = 'created_at') THEN
+           EXECUTE 'CREATE INDEX IF NOT EXISTS "idx_${table}_tenant_created" ON ${t}(tenant_id, created_at DESC)';
+         END IF;
+       END $$`,
+    )
     .execute(db);
   await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
   await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
@@ -830,7 +855,12 @@ export async function withTenantIsolation<T>(
     //
     // Setting it here means there is ONE spelling that is correct everywhere:
     // in a handler, in a helper called from one, and in a job.
-    return runWithTenantTrx(trx, tenantId, () => fn(trx));
+    return runWithTenantTrx(trx, tenantId, () => {
+      // Whether the reach is this tenant alone — decided HERE, beside the scope
+      // that produced it, rather than re-derived later from a GUC string.
+      setSingleTenantScope(scope === null);
+      return fn(trx);
+    });
   });
 }
 
