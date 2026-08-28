@@ -14,7 +14,22 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      // Turbo filters the environment by default, so an exported
+      // TEST_DATABASE_URL never reached the tests: `bun run test` reported 286
+      // failures on a healthy tree. These are inputs the tests read, not values
+      // the output should vary on, which is what passThroughEnv means.
+      "passThroughEnv": [
+        "TEST_DATABASE_URL",
+        "DATABASE_URL",
+        "BETTER_AUTH_SECRET",
+        "FIELD_ENCRYPTION_KEY",
+        "ZVELTIO_REGISTRATION_ENABLED",
+        "SLOW_QUERY_THRESHOLD_MS",
+        "REGISTRY_URL",
+        "VALKEY_URL",
+        "S3_*"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^build"]
