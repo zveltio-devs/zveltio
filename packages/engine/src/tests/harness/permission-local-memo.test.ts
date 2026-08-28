@@ -19,6 +19,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
   checkPermission,
+  __effectivePermissionsSize,
   __localPermissionCacheSize,
   clearLocalPermissionCache,
   getCurrentDomain,
@@ -54,55 +55,57 @@ d('permission memo (in-process, no shared cache)', () => {
   });
 
   it('answers a repeated check from the memo, and answers it the same', async () => {
+    clearLocalPermissionCache();
     const first = await checkPermission(userId, `memo_${STAMP}`, 'read');
+    expect(__localPermissionCacheSize()).toBe(1);
 
-    const t = performance.now();
     const second = await checkPermission(userId, `memo_${STAMP}`, 'read');
-    const elapsed = performance.now() - t;
 
     expect(second).toBe(first);
-    // The uncached call is ~370ms on this dataset; anything under 50ms cannot
-    // have gone through `enforce()`. Deliberately loose — this asserts "was
-    // memoized", not a benchmark that would flake on a loaded machine.
-    expect(elapsed).toBeLessThan(50);
+    // Deliberately not a timing assertion. Timing was the proxy while a miss
+    // cost 364 ms; now that a miss is a Set lookup too, elapsed time proves
+    // nothing and would flake on a loaded machine. The bookkeeping is the fact.
+    expect(__localPermissionCacheSize()).toBe(1);
   });
 
-  it('a full clear sends the next check back through the enforcer', async () => {
+  it('a full clear drops both the answers and the resolved subjects', async () => {
     await checkPermission(userId, `clear_${STAMP}`, 'read');
+    expect(__localPermissionCacheSize()).toBeGreaterThan(0);
+    expect(__effectivePermissionsSize()).toBeGreaterThan(0);
+
     clearLocalPermissionCache();
 
-    const t = performance.now();
-    await checkPermission(userId, `clear_${STAMP}`, 'read');
-    expect(performance.now() - t).toBeGreaterThan(50);
+    expect(__localPermissionCacheSize()).toBe(0);
+    expect(__effectivePermissionsSize()).toBe(0);
   });
 
-  it('clearing one user leaves another user memoized', async () => {
+  it('clearing one user leaves another user untouched', async () => {
     const other = `not-a-real-user-${STAMP}`;
+    clearLocalPermissionCache();
     await checkPermission(userId, `scoped_${STAMP}`, 'read');
     await checkPermission(other, `scoped_${STAMP}`, 'read');
+    expect(__effectivePermissionsSize()).toBe(2);
 
     clearLocalPermissionCache(userId);
 
-    const tOther = performance.now();
-    await checkPermission(other, `scoped_${STAMP}`, 'read');
-    expect(performance.now() - tOther).toBeLessThan(50);
-
-    const tMine = performance.now();
-    await checkPermission(userId, `scoped_${STAMP}`, 'read');
-    expect(performance.now() - tMine).toBeGreaterThan(50);
+    // One subject resolved away, the other still held.
+    expect(__effectivePermissionsSize()).toBe(1);
+    expect(await checkPermission(other, `scoped_${STAMP}`, 'read')).toBe(false);
   });
 
   it('invalidateUserPermCache drops the memo even with no shared cache', async () => {
     // This is the one that turns a memo into a security bug if it regresses:
     // the function used to return early when `getCache()` was null, which would
     // leave a revoked grant answering from memory until its TTL ran out.
+    clearLocalPermissionCache();
     await checkPermission(userId, `revoke_${STAMP}`, 'read');
+    expect(__localPermissionCacheSize()).toBeGreaterThan(0);
+    expect(__effectivePermissionsSize()).toBeGreaterThan(0);
 
     await invalidateUserPermCache(userId);
 
-    const t = performance.now();
-    await checkPermission(userId, `revoke_${STAMP}`, 'read');
-    expect(performance.now() - t).toBeGreaterThan(50);
+    expect(__localPermissionCacheSize()).toBe(0);
+    expect(__effectivePermissionsSize()).toBe(0);
   });
 
   it('a real grant change is visible immediately, not after a TTL', async () => {
@@ -131,12 +134,13 @@ d('permission memo (in-process, no shared cache)', () => {
     // rules, and the answer cannot depend on the name. These tests pin that the
     // collapse is safe, not that it is fast.
 
-    it('a second invented name costs nothing', async () => {
+    it('a second invented name adds no entry of its own', async () => {
+      clearLocalPermissionCache();
       await checkPermission(userId, `invented_${STAMP}_1`, 'read');
+      const afterFirst = __localPermissionCacheSize();
 
-      const t = performance.now();
       await checkPermission(userId, `invented_${STAMP}_2`, 'read');
-      expect(performance.now() - t).toBeLessThan(50);
+      expect(__localPermissionCacheSize()).toBe(afterFirst);
     });
 
     it('and every invented name gets the same answer', async () => {
