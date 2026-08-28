@@ -506,6 +506,27 @@ class BunSqlSmartConnection implements DatabaseConnection {
         e?.code === '0A000' || /cached plan must not change result type/i.test(e?.message ?? '');
       if (!isCachedPlan) throw err;
 
+      // Inside a transaction the retry cannot work, and trying destroys the
+      // evidence.
+      //
+      // `0A000` is a failed statement like any other, so Postgres has already
+      // aborted the transaction. The retry below then answers `25P02 current
+      // transaction is aborted`, `stillCached` is false, and THAT is what gets
+      // thrown — so the caller, the request log and Kysely's error hook all see
+      // 25P02 and nothing else. The real cause never surfaces anywhere.
+      //
+      // That is how it read from the outside: an intermittent 500 with
+      // `25P02` and no failed statement before it in the trace, on
+      // `select * from "zvd_collections" where "name" = $1` — a prepared
+      // statement against a table the collection-create path is busy altering,
+      // which is exactly what raises `0A000`. E2E failed that way in 8 of 19
+      // runs, on a different endpoint each time.
+      //
+      // Outside a transaction the retry is still right: each statement is its
+      // own transaction, so nothing is aborted and a second attempt — or the
+      // simple-query fallback — genuinely recovers.
+      if (this.#inTransaction) throw err;
+
       try {
         return await runPrepared();
       } catch (err2) {
