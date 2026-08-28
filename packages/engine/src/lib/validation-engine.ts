@@ -8,6 +8,7 @@
 
 import { Parser } from 'expr-eval-fork';
 import { sql } from 'kysely';
+import { withSavepoint } from './savepoint.js';
 import type { Database } from '../db/index.js';
 
 const parser = new Parser({
@@ -241,26 +242,87 @@ const groupsCache = new Map<string, { groups: RuleGroup[]; ts: number }>();
  * into the engine beside the rules it groups — a schema change to a table
  * holding customer configuration, and an owner's call rather than mine.
  */
+/**
+ * Does the extension's table exist? Asked once per process, not per write.
+ *
+ * `null` = not asked yet. The answer only changes when the extension is
+ * installed or removed, which restarts the engine.
+ */
+const ruleGroupsTablePresent = new WeakMap<object, boolean>();
+
+async function hasRuleGroupsTable(db: Database): Promise<boolean> {
+  const known = ruleGroupsTablePresent.get(db as unknown as object);
+  if (known !== undefined) return known;
+  let present = false;
+  try {
+    const probe = await sql<{ present: boolean }>`
+      SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS present
+    `.execute(db);
+    present = probe.rows[0]?.present === true;
+  } catch {
+    // This catch is not the one that caused the bug, and the difference is the
+    // whole point: `to_regclass` returns NULL for a name that does not exist
+    // rather than raising, so it cannot fail for the case being asked about and
+    // cannot abort anything. A throw here means there is no usable database
+    // at all — or a test handing over a stub that answers a fixed set of
+    // queries — and "no groups" is then both the old behaviour and the strict
+    // direction: every rule on a field stays required.
+    present = false;
+  }
+  ruleGroupsTablePresent.set(db as unknown as object, present);
+  return present;
+}
+
+/** Test seam — a test may create or drop the table under a handle it reuses. */
+export function resetRuleGroupsTableProbe(db?: Database): void {
+  if (db) ruleGroupsTablePresent.delete(db as unknown as object);
+}
+
 async function getRuleGroups(db: Database, collection: string): Promise<RuleGroup[]> {
   const cached = groupsCache.get(collection);
   if (cached && Date.now() - cached.ts < 60_000) return cached.groups;
 
   let groups: RuleGroup[] = [];
-  try {
-    const rows = await sql<{ field_name: string; logic: string; rule_ids: string[] | null }>`
-      SELECT field_name, logic, rule_ids
-      FROM zvd_validation_rule_groups
-      WHERE collection = ${collection} AND is_active = true
-    `.execute(db);
-    groups = rows.rows.map((r) => ({
-      field_name: r.field_name,
-      logic: String(r.logic ?? 'AND').toUpperCase(),
-      rule_ids: toIdArray(r.rule_ids),
-    }));
-  } catch {
-    // The extension is not installed, so the table does not exist. Not an error
-    // — it is the state of most instances.
-    groups = [];
+  // Ask whether the table is there instead of asking it a question and
+  // catching the refusal.
+  //
+  // The refusal is `42P01`, and `42P01` ABORTS THE TRANSACTION. Catching it in
+  // JavaScript does not undo that — every later statement on the connection
+  // answers `25P02 current transaction is aborted`, including statements
+  // belonging to a completely different request once the connection goes back
+  // to the pool. Traced in CI: this query failed during
+  // `POST /api/data/hist_probe_…`, and a later `GET` on the same collection
+  // died on its FIRST statement, `select * from zvd_collections where name = $1`,
+  // having done nothing wrong itself. E2E failed that way in 8 of 19 runs.
+  //
+  // `to_regclass` returns NULL rather than raising, so the probe cannot poison
+  // anything, and the answer is cached for the life of the process: installing
+  // or removing an extension restarts the engine.
+  //
+  if (await hasRuleGroupsTable(db)) {
+    // Guarded even though the probe just said the table is there. The probe's
+    // answer is cached for the life of the process, so it can be stale — a
+    // migration during the run, or, in `bun test`, an earlier file that
+    // answered the probe differently. A stale "present" would put us right back
+    // to a failed statement inside somebody's transaction.
+    groups = await withSavepoint(
+      db,
+      'zv_rule_groups',
+      async () => {
+        const rows = await sql<{ field_name: string; logic: string; rule_ids: string[] | null }>`
+          SELECT field_name, logic, rule_ids
+          FROM zvd_validation_rule_groups
+          WHERE collection = ${collection} AND is_active = true
+        `.execute(db);
+        return rows.rows.map((r) => ({
+          field_name: r.field_name,
+          logic: String(r.logic ?? 'AND').toUpperCase(),
+          rule_ids: toIdArray(r.rule_ids),
+        }));
+      },
+      // No groups is the strict reading — every rule on a field stays required.
+      () => [],
+    );
   }
   groupsCache.set(collection, { groups, ts: Date.now() });
   return groups;
