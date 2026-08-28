@@ -3,7 +3,11 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
+import {
+  checkPermission,
+  clearLocalPermissionCache,
+  getEnforcer,
+} from '../../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -322,6 +326,10 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 }
 
 async function invalidatePermissionCache() {
+  // First, and unconditionally: the in-process memo is the only cache a
+  // deployment without Valkey has, and returning early below would leave a
+  // revoked grant answering `true` until its TTL ran out.
+  clearLocalPermissionCache();
   const cache = getCache();
   if (!cache) return;
   try {
