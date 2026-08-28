@@ -20,6 +20,16 @@
  * Prefer NOT failing at all where the failure is predictable — probe for the
  * table or the role once and skip the statement, as `getRuleGroups` now does.
  * This is for the rest: a fallback that must survive a fault it cannot foresee.
+ *
+ * ONLY call this where the handle is genuinely inside a transaction.
+ *
+ * Outside one, `SAVEPOINT` raises `25P01 SAVEPOINT can only be used in
+ * transaction blocks` — and on this driver a failed statement leaves the pooled
+ * connection unusable for whoever draws it next. Measured: wrapping
+ * `resolveUserRole`, which holds the POOL handle, produced thirteen consecutive
+ * 25P01s and then a `25P02` on an unrelated request. The guard had become the
+ * thing it exists to prevent. Middleware that runs inside `tenantMiddleware` is
+ * the safe case; a module-level `_db` set at boot is not.
  */
 
 import { sql } from 'kysely';
