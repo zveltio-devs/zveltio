@@ -162,8 +162,7 @@ function formatDate(iso: string): string {
         <div>
           <h2 class="card-title text-base">{m['passkeys.title']()}</h2>
           <p class="text-sm text-base-content/65 mt-0.5">
-            Sign in without a password using your device's biometric authenticator
-            (Touch ID, Windows Hello, security key).
+            {m['passkeys.intro']()}
           </p>
         </div>
       </div>
@@ -199,7 +198,7 @@ function formatDate(iso: string): string {
         <div class="text-sm text-base-content/65 py-6 text-center">{m['passkeys.loading']()}</div>
       {:else if passkeys.length === 0}
         <div class="text-sm text-base-content/65 py-6 text-center">
-          No passkeys yet. Click <strong>{m['passkeys.add']()}</strong> to register your first one.
+          {m['passkeys.noneYet']({ action: m['passkeys.add']() })}
         </div>
       {:else}
         <ul class="divide-y divide-base-300">
@@ -209,9 +208,9 @@ function formatDate(iso: string): string {
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium truncate">{pk.name ?? 'Unnamed passkey'}</p>
                 <p class="text-xs text-base-content/65 mt-0.5">
-                  Added {formatDate(pk.createdAt)}
+                  {m['passkeys.added']({ date: formatDate(pk.createdAt) })}
                   {#if pk.deviceType}· {pk.deviceType}{/if}
-                  {#if pk.backedUp}· Synced{/if}
+                  {#if pk.backedUp}· {m['passkeys.synced']()}{/if}
                 </p>
               </div>
               <button

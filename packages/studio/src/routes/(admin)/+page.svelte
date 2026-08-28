@@ -366,12 +366,12 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
       <p class="text-sm font-medium text-base-content/65">{greeting}</p>
       <h1 class="display-lg mt-0.5 text-base-content">
         {#if stats.collections > 0}
-          You have <strong>{stats.collections}</strong>
-          collection{stats.collections === 1 ? '' : 's'} holding
-          <strong>{stats.total_records.toLocaleString()}</strong>
-          record{stats.total_records === 1 ? '' : 's'}.
+          {m['dashboard.summary']({
+            collections: stats.collections.toLocaleString(),
+            records: stats.total_records.toLocaleString(),
+          })}
         {:else}
-          Let's get your first collection set up — it takes about 30 seconds.
+          {m['dashboard.emptyLead']()}
         {/if}
       </h1>
     </div>
@@ -381,7 +381,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
       aria-label={m['dashboard.refreshData']()}
     >
       <RefreshCw size={14} />
-      Refresh
+      {m['common.refresh']()}
     </button>
   </header>
 
@@ -390,7 +390,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
     <div role="alert" class="alert alert-warning">
       <AlertCircle size={18} />
       <div class="flex-1">
-        <h3 class="font-semibold">Database status: {system.database.status}</h3>
+        <h3 class="font-semibold">{m['dashboard.dbStatus']({ status: system.database.status })}</h3>
         <p class="text-xs opacity-80">{m['dashboard.degraded']()}</p>
       </div>
     </div>

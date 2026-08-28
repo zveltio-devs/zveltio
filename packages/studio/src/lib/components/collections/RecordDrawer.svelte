@@ -250,13 +250,13 @@ async function saveRecord() {
           <div class="flex flex-col items-center justify-center h-full py-16 text-base-content/65 gap-3">
             <Layers size={36} strokeWidth={1.2} />
             <p class="text-sm text-center">
-              No fields defined yet.
+              {m['fields.noneDefined']()}
             </p>
             <button
               class="btn btn-link btn-sm"
               onclick={() => { drawerOpen = false; onGoToSchema(); }}
             >
-              Go to Schema to add fields →
+              {m['fields.goToSchema']()}
             </button>
           </div>
         {:else}
@@ -365,7 +365,7 @@ async function saveRecord() {
                 </select>
                 {#if !loadingRelOpts && !(relOptions[field.name]?.length)}
                   <p class="text-xs text-base-content/65 mt-0.5">
-                    No records in <span class="font-mono">{field.options.related_collection}</span> yet
+                    {m['relations.noRecordsIn']({ name: field.options.related_collection })}
                   </p>
                 {/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { Code, Copy, Check } from '@lucide/svelte';
 
 interface Props {
@@ -88,7 +89,7 @@ async function copyToClipboard(text: string) {
     <div class="flex items-center justify-between mb-3">
       <h3 class="font-semibold flex items-center gap-2">
         <Code size={16} />
-        Code Snippets
+        {m['snippets.title']()}
       </h3>
       <div class="join">
         {#each (['svelte', 'sdk', 'curl'] as const) as tab}

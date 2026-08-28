@@ -186,7 +186,9 @@ function openPreview(file: MediaFile) {
  {:else if filtered.length === 0}
  <div class="text-center py-16 text-base-content/65">
  <File size={48} class="mx-auto mb-3" />
- <p class="text-sm">No {filter === 'all' ? '' : filter} files yet</p>
+ <p class="text-sm">{filter === 'all'
+   ? m['storage.noFiles']()
+   : m['storage.noFilesOfKind']({ kind: filter })}</p>
  </div>
  {:else}
  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -229,8 +231,8 @@ function openPreview(file: MediaFile) {
  </div>
  <div class="flex gap-1">
  <button class="btn btn-ghost btn-xs flex-1 text-xs" onclick={() => copyUrl(file.url, file.id)}>
- {#if copied === file.id}<Check size={13} class="text-success" /> Copied!
- {:else}<Copy size={13} /> Copy URL{/if}
+ {#if copied === file.id}<Check size={13} class="text-success" /> {m['common.copied']()}
+ {:else}<Copy size={13} /> {m['storage.copyUrl']()}{/if}
  </button>
  <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteFile(file.id, file.original_name)}>
  <Trash2 size={13} />

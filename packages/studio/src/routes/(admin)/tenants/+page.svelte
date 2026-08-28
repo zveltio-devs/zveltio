@@ -281,7 +281,7 @@ const PLAN_BADGES: Record<string, string> = {
     <div class="flex justify-end">
       <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading} aria-label={m['tenants.refresh']()}>
         <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
-        Refresh
+        {m['common.refresh']()}
       </button>
     </div>
   {/snippet}
@@ -377,7 +377,7 @@ const PLAN_BADGES: Record<string, string> = {
  onclick={() => openCreateEnv(tenant)}
  >
  <Plus size={12} />
- Add Environment
+ {m['tenants.addEnvironment']()}
  </button>
  </div>
 
@@ -466,7 +466,7 @@ const PLAN_BADGES: Record<string, string> = {
  onclick={() => addMember(tenant.id)}
  >
  <Plus size={12} />
- Add member
+ {m['tenants.addMember']()}
  </button>
  </div>
  {/if}
@@ -576,7 +576,7 @@ const PLAN_BADGES: Record<string, string> = {
  {:else}
  <Check size={16} />
  {/if}
- Create Tenant
+ {m['tenants.createTenant']()}
  </button>
  </div>
  </div>
@@ -596,7 +596,7 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="modal modal-open">
  <div class="modal-box max-w-md">
  <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">Edit Limits — {editingTenant.name}</h3>
+ <h3 class="font-bold text-lg">{m['tenants.editLimits']({ name: editingTenant.name })}</h3>
  <button class="btn btn-ghost btn-sm btn-circle" onclick={() => (editingTenant = null)}>
  <X size={16} />
  </button>
@@ -673,7 +673,7 @@ const PLAN_BADGES: Record<string, string> = {
  {:else}
  <Check size={16} />
  {/if}
- Save
+ {m['common.save']()}
  </button>
  </div>
  </div>
@@ -703,7 +703,7 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
 
  <p class="text-sm opacity-60 mb-3">
- Tenant: <strong>{creatingEnvForTenant.name}</strong>
+ {m['tenants.tenantLabel']({ name: creatingEnvForTenant.name })}
  </p>
 
  {#if createEnvError}
@@ -751,7 +751,7 @@ const PLAN_BADGES: Record<string, string> = {
  {:else}
  <Check size={16} />
  {/if}
- Create
+ {m['common.create']()}
  </button>
  </div>
  </div>

@@ -54,7 +54,7 @@ let drawerOpen = $state(false);
           </div>
           <div class="text-sm">
             <div class="font-medium">{data.user?.name}</div>
-            <div class="text-base-content/50 text-xs">{data.user?.email}</div>
+            <div class="text-base-content/65 text-xs">{data.user?.email}</div>
           </div>
         </div>
         <button onclick={() => auth.signOut()} class="btn btn-ghost btn-sm w-full justify-start gap-2">

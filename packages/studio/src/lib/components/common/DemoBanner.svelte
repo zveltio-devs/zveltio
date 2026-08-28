@@ -70,10 +70,12 @@ function dismiss() {
     <Sparkles size={16} class="shrink-0" />
     <div class="grow min-w-0">
       <strong class="font-semibold">{m['demo.instance']()}</strong>
-      <span class="opacity-90">— data resets {demo.reset_cron ? `(${demo.reset_cron})` : 'periodically'}. Don't store anything important.</span>
+      <span class="opacity-90">{demo.reset_cron
+        ? m['demo.resetsOn']({ schedule: demo.reset_cron })
+        : m['demo.resetsPeriodically']()}</span>
       {#if demo.credentials}
         <span class="opacity-90 ml-1">
-          Login: <code class="font-mono">{demo.credentials.email}</code> /
+          {m['demo.login']()} <code class="font-mono">{demo.credentials.email}</code> /
           <code class="font-mono">{demo.credentials.password}</code>
         </span>
       {/if}

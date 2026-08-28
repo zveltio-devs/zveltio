@@ -372,7 +372,7 @@ function clearTemplate() {
           <button type="button" class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
           <button type="button" class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
-            <Trash2 size={14} /> Delete {selectedCount}
+            <Trash2 size={14} /> {m['data.deleteSelected']({ count: selectedCount })}
           </button>
         </div>
       </div>
@@ -390,7 +390,7 @@ function clearTemplate() {
           Select all
         </label>
         <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label={m['collections.viewDiagram']()}>
-          <GitFork size={13} /> Schema diagram
+          <GitFork size={13} /> {m['erd.title']()}
         </a>
       </div>
     {/if}
@@ -459,7 +459,7 @@ function clearTemplate() {
 </CrudListPage>
 
 {#snippet searchNoMatch(q: string)}
-  <p class="text-center text-sm text-base-content/65 py-8">No collections match "{q}"</p>
+  <p class="text-center text-sm text-base-content/65 py-8">{m['collections.noMatch']({ query: q })}</p>
 {/snippet}
 
 <!-- Create Modal -->
@@ -521,7 +521,7 @@ function clearTemplate() {
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">{m['common.fields']()}</span>
           <button type="button" class="btn btn-ghost btn-xs" onclick={addField}>
-            <Plus size={13} /> Add field
+            <Plus size={13} /> {m['fields.addField']()}
           </button>
         </div>
 
@@ -554,7 +554,7 @@ function clearTemplate() {
             </select>
             <label class="flex items-center gap-1.5 text-xs whitespace-nowrap self-center">
               <input type="checkbox" bind:checked={field.required} class="checkbox checkbox-xs" />
-              Required
+              {m['common.required']()}
             </label>
             {#if newFields.length > 1}
               <button type="button" onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
@@ -589,7 +589,7 @@ function clearTemplate() {
         <button type="button" class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
         <button type="submit" class="btn btn-primary" disabled={creating || !!nameError}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
-          Create Collection
+          {m['collections.create']()}
         </button>
       </div>
   </Modal>
