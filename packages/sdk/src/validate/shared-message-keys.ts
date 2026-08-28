@@ -10,10 +10,11 @@
  * host whose core catalogue happens to know about it, which is not a property
  * an installable extension should depend on.
  *
- * Source: packages/studio/messages/core/en.json (197 keys)
+ * Source: packages/studio/messages/core/en.json (200 keys)
  */
 export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.actions',
+  'common.add',
   'common.added',
   'common.aiStudio',
   'common.approve',
@@ -158,6 +159,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.post',
   'common.prev',
   'common.publish',
+  'common.rangeOf',
   'common.refresh',
   'common.reject',
   'common.remove',
@@ -189,6 +191,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.upload',
   'common.uploadFailed',
   'common.uploading',
+  'common.verifyingPermissions',
   'common.view',
   'common.viewAll',
   'ext.approved',

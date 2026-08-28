@@ -224,7 +224,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
   <div class="tabs tabs-bordered">
     <button class="tab {tab === 'matrix' ? 'tab-active' : ''}" onclick={() => (tab = 'matrix')}>{m['permissions.matrix']()}</button>
-    <button class="tab {tab === 'roles' ? 'tab-active' : ''}" onclick={() => (tab = 'roles')}>Roles ({roles.length})</button>
+    <button class="tab {tab === 'roles' ? 'tab-active' : ''}" onclick={() => (tab = 'roles')}>{m['permissions.rolesCount']({ count: roles.length })}</button>
     <button class="tab {tab === 'hierarchy' ? 'tab-active' : ''}" onclick={() => (tab = 'hierarchy')}>{m['permissions.hierarchy']()}</button>
   </div>
 
@@ -269,7 +269,9 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
           <div class="flex items-center gap-2 mb-3">
             <Database size={15} class="text-base-content/65" />
             <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
-              Collections ({collections.length}{matrixFilter ? ` of ${totalCollections}` : ''})
+              {matrixFilter
+                ? m['permissions.collectionsFiltered']({ count: collections.length, total: totalCollections })
+                : m['permissions.collectionsCount']({ count: collections.length })}
             </span>
           </div>
 
@@ -313,7 +315,9 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
           <div class="flex items-center gap-2 mb-3">
             <Globe size={15} class="text-base-content/65" />
             <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
-              Zones ({zones.length}{matrixFilter ? ` of ${totalZones}` : ''})
+              {matrixFilter
+                ? m['permissions.zonesFiltered']({ count: zones.length, total: totalZones })
+                : m['permissions.zonesCount']({ count: zones.length })}
             </span>
           </div>
 
@@ -351,7 +355,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
         {#if resources.length === 0}
         <div class="text-center text-base-content/65 py-8 text-sm">
-          No collections or zones yet. Create some to configure permissions.
+          {m['permissions.noResources']()}
         </div>
         {/if}
 
@@ -370,7 +374,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
             <input class="input input-sm flex-1" bind:value={newRoleDesc} placeholder={m['permissions.descPlaceholder']()} />
             <button class="btn btn-primary btn-sm" onclick={createRole} disabled={!newRoleName.trim() || creatingRole}>
               {#if creatingRole}<LoaderCircle size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
-              Create
+              {m['common.create']()}
             </button>
           </div>
         </div>
@@ -407,8 +411,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         <div>
           <p class="font-semibold">{m['permissions.casbinInheritance']()}</p>
           <p class="text-xs mt-0.5 opacity-80">
-            When role A inherits role B, every permission granted to B is automatically available to A.
-            Example: <code class="bg-base-100/50 px-1 rounded">manager → employee</code> means managers get all employee permissions plus their own.
+            {m['permissions.inheritanceExplained']({ example: 'manager → employee' })}
           </p>
         </div>
       </div>
@@ -432,7 +435,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
               disabled={!hierChild || !hierParent || hierChild === hierParent || hierSaving}
             >
               {#if hierSaving}<LoaderCircle size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
-              Add
+              {m['common.add']()}
             </button>
           </div>
           <p class="text-xs text-base-content/65 mt-2">{m['permissions.readsAs']()} <em>{m['permissions.inheritExplain']()}</em></p>
@@ -441,10 +444,10 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
       <div>
         <h3 class="text-sm font-semibold text-base-content/65 uppercase tracking-wider mb-3">
-          Active Inheritance Rules ({hierarchy.length})
+          {m['permissions.activeRules']({ count: hierarchy.length })}
         </h3>
         {#if hierarchy.length === 0}
-          <div class="text-center py-10 text-base-content/35">
+          <div class="text-center py-10 text-base-content/65">
             <GitBranch size={32} class="mx-auto mb-2 opacity-40" />
             <p class="text-sm">{m['permissions.noInheritance']()}</p>
             <p class="text-xs mt-1">{m['permissions.builtIn']()} <code>admin → *</code>, <code>god → admin</code></p>

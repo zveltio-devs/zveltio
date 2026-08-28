@@ -141,7 +141,7 @@ const quickLinks = [
           <span class="loading loading-spinner loading-sm text-primary"></span>
         </div>
       {:else if notifications.length === 0}
-        <div class="text-center py-8 text-base-content/35">
+        <div class="text-center py-8 text-base-content/65">
           <Bell size={28} class="mx-auto mb-2 opacity-40" />
           <p class="text-sm">No unread notifications</p>
         </div>
@@ -177,7 +177,7 @@ const quickLinks = [
         <div>
           <p class="font-semibold text-base-content">{auth.user?.name || 'User'}</p>
           <p class="text-sm text-base-content/65">{auth.user?.email}</p>
-          <p class="text-xs text-base-content/35 mt-0.5 capitalize">{auth.user?.role || 'Employee'}</p>
+          <p class="text-xs text-base-content/65 mt-0.5 capitalize">{auth.user?.role || 'Employee'}</p>
         </div>
         <a href="{base}/intranet/profile" class="btn btn-outline btn-sm ml-auto">Edit Profile</a>
       </div>

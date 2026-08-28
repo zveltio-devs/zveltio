@@ -80,8 +80,7 @@ const resolved = $derived.by(() => {
     <PackageX size={40} class="text-base-content/55" />
     <h1 class="text-lg font-semibold">{m['common.notFound']?.() ?? 'Page not found'}</h1>
     <p class="text-sm text-base-content/65 max-w-md">
-      Nothing is registered at <code class="text-xs">/{slug}</code>. If this is an extension page,
-      make sure the extension is installed and enabled.
+      {m['extPage.nothingRegistered']({ path: `/${slug}` })}
     </p>
   </div>
 {:else if !resolved.ok}

@@ -272,7 +272,7 @@ function statValue(p: Panel): string {
     <!-- Ad-hoc query button -->
     <div class="p-3 border-t border-base-300">
       <button class="btn btn-xs btn-outline w-full gap-1" onclick={() => (showAdHoc = !showAdHoc)}>
-        <Code2 size={12} /> SQL Console
+        <Code2 size={12} /> {m['insights.sqlConsole']()}
       </button>
     </div>
   </div>
@@ -293,7 +293,7 @@ function statValue(p: Panel): string {
             <RefreshCw size={14} />
           </button>
           <button class="btn btn-sm btn-primary gap-1" onclick={() => (showNewPanel = true)}>
-            <Plus size={14} /> Add panel
+            <Plus size={14} /> {m['insights.addPanel']()}
           </button>
           <button class="btn btn-sm btn-ghost btn-error" onclick={() => deleteDashboard(activeDashboard!.id)}>
             <Trash2 size={14} />
@@ -461,7 +461,7 @@ function statValue(p: Panel): string {
   <div class="fixed right-0 top-0 h-full w-96 bg-base-100 border-l border-base-300 shadow-2xl z-40 flex flex-col">
     <div class="flex items-center justify-between p-4 border-b border-base-300 shrink-0">
       <span class="font-semibold text-sm flex items-center gap-2">
-        <Code2 size={16} /> SQL Console
+        <Code2 size={16} /> {m['insights.sqlConsole']()}
       </span>
       <button class="btn btn-ghost btn-xs" onclick={() => (showAdHoc = false)}><X size={14} /></button>
     </div>
@@ -473,7 +473,7 @@ function statValue(p: Panel): string {
       ></textarea>
       <button class="btn btn-primary btn-sm w-full gap-1" onclick={runAdHoc} disabled={adHocRunning}>
         {#if adHocRunning}<span class="loading loading-spinner loading-xs"></span>{:else}<Play size={14} />{/if}
-        Run Query
+        {m['insights.runQuery']()}
       </button>
       {#if adHocError}
         <div class="text-error text-xs">{adHocError}</div>
