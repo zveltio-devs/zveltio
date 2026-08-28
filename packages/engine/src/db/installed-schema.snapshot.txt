@@ -13,6 +13,7 @@ table account
   col createdAt                      timestamp with time zone NOT NULL DEFAULT now()
   col id                             text NOT NULL
   col idToken                        text
+  col issuer                         text
   col password                       text
   col providerId                     text NOT NULL
   col refreshToken                   text

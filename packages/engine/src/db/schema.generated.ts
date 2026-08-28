@@ -28,6 +28,7 @@ export interface AccountTable {
   password: string | null;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
+  issuer: string | null;
 }
 
 export interface SessionTable {
