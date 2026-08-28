@@ -146,7 +146,7 @@ function applyFilters() {
     {#if total > limit}
       <div class="flex justify-center gap-2 mt-4">
         <button class="btn btn-sm" onclick={() => { page--; load(); }} disabled={page === 1}>←</button>
-        <span class="btn btn-sm btn-ghost no-animation">Page {page} / {Math.ceil(total / limit)}</span>
+        <span class="btn btn-sm btn-ghost no-animation">{m['common.pageOf']({ page, total: Math.ceil(total / limit) })}</span>
         <button class="btn btn-sm" onclick={() => { page++; load(); }} disabled={page >= Math.ceil(total / limit)}>→</button>
       </div>
     {/if}

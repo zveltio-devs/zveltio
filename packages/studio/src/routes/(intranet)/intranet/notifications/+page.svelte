@@ -103,7 +103,7 @@ onMount(load);
       <span class="loading loading-spinner loading-md text-primary"></span>
     </div>
   {:else if notifications.length === 0}
-    <div class="text-center py-16 text-base-content/35">
+    <div class="text-center py-16 text-base-content/65">
       <Bell size={40} class="mx-auto mb-3 opacity-40" strokeWidth={1.3} />
       <p class="text-base font-medium">{filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}</p>
       <p class="text-sm mt-1">

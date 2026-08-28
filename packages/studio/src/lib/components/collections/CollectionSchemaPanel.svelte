@@ -272,7 +272,7 @@ let confirmState = $state<{
         <div>
           <h3 class="font-semibold">{m['relations.newRelation']()}</h3>
           <p class="text-xs text-base-content/65 mt-0.5">
-            How is <code class="font-mono">{collectionName}</code> connected to another collection?
+            {m['relations.howConnected']({ name: collectionName })}
           </p>
         </div>
         <button class="btn btn-ghost btn-xs btn-square" onclick={() => (showRelForm = false)} aria-label={m['common.close']()}>
@@ -322,19 +322,19 @@ let confirmState = $state<{
             <div class="form-control sm:col-span-2">
               <label class="label py-1" for="rel-source-field">
                 <span class="label-text text-xs font-medium">
-                  3. Foreign-key column to add in <code class="font-mono">{collectionName}</code>
+                  {m['relations.m2o.fkLabel']({ name: collectionName })}
                 </span>
               </label>
               <input id="rel-source-field" type="text" bind:value={relForm.source_field}
                 placeholder={m['fields.egForeignKey']({ name: singular(relForm.target_collection) })}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
-                A new UUID column on <code class="font-mono">{collectionName}</code> that references the chosen {singular(relForm.target_collection)}.
+                {m['relations.m2o.fkHint']({ name: collectionName, target: singular(relForm.target_collection) })}
               </p>
             </div>
             <div class="form-control">
               <label class="label py-1" for="rel-on-delete">
-                <span class="label-text text-xs font-medium">When the {singular(relForm.target_collection)} is deleted…</span>
+                <span class="label-text text-xs font-medium">{m['relations.m2o.onDeleteLabel']({ target: singular(relForm.target_collection) })}</span>
               </label>
               <select id="rel-on-delete" bind:value={relForm.on_delete} class="select select-sm">
                 <option value="SET NULL">{m['relations.onDelete.setNullKeep']()}</option>
@@ -347,32 +347,32 @@ let confirmState = $state<{
             <div class="form-control">
               <label class="label py-1" for="rel-source-field-o2m">
                 <span class="label-text text-xs font-medium">
-                  3. Alias on <code class="font-mono">{collectionName}</code>
+                  {m['relations.aliasLabel']({ name: collectionName })}
                 </span>
               </label>
               <input id="rel-source-field-o2m" type="text" bind:value={relForm.source_field}
                 placeholder={relForm.target_collection || 'related'}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
-                Virtual name used to access the related list — no physical column is created here.
+                {m['relations.o2m.aliasHint']()}
               </p>
             </div>
             <div class="form-control">
               <label class="label py-1" for="rel-target-field">
                 <span class="label-text text-xs font-medium">
-                  4. FK column to add in <code class="font-mono">{relForm.target_collection}</code>
+                  {m['relations.o2m.fkLabel']({ name: relForm.target_collection })}
                 </span>
               </label>
               <input id="rel-target-field" type="text" bind:value={relForm.target_field}
                 placeholder={m['fields.egForeignKey']({ name: singular(collectionName) })}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
-                The actual column added to <code class="font-mono">{relForm.target_collection}</code> pointing back to {singular(collectionName)}.
+                {m['relations.o2m.fkHint']({ name: relForm.target_collection, source: singular(collectionName) })}
               </p>
             </div>
             <div class="form-control sm:col-span-2">
               <label class="label py-1" for="rel-on-delete-o2m">
-                <span class="label-text text-xs font-medium">When a {singular(collectionName)} is deleted…</span>
+                <span class="label-text text-xs font-medium">{m['relations.o2m.onDeleteLabel']({ source: singular(collectionName) })}</span>
               </label>
               <select id="rel-on-delete-o2m" bind:value={relForm.on_delete} class="select select-sm">
                 <option value="SET NULL">{m['relations.onDelete.setNullRelated']()}</option>
@@ -386,14 +386,14 @@ let confirmState = $state<{
             <div class="form-control sm:col-span-2">
               <label class="label py-1" for="rel-source-field-m2m">
                 <span class="label-text text-xs font-medium">
-                  3. Alias on <code class="font-mono">{collectionName}</code>
+                  {m['relations.aliasLabel']({ name: collectionName })}
                 </span>
               </label>
               <input id="rel-source-field-m2m" type="text" bind:value={relForm.source_field}
                 placeholder={relForm.target_collection}
                 class="input input-sm font-mono" autocomplete="off" />
               <p class="text-[10px] text-base-content/65 mt-1">
-                A junction table <code class="font-mono">zvd_jnc_{collectionName}_{relForm.target_collection}</code> will be created automatically.
+                {m['relations.m2m.junctionHint']({ name: `zvd_jnc_${collectionName}_${relForm.target_collection}` })}
               </p>
             </div>
           {/if}
@@ -416,11 +416,11 @@ let confirmState = $state<{
         <button class="btn btn-primary btn-sm" onclick={addRelation}
           disabled={savingRel || !relForm.target_collection}>
           {#if savingRel}<span class="loading loading-spinner loading-xs"></span>{/if}
-          Create Relation
+          {m['relations.create']()}
         </button>
         <button class="btn btn-ghost btn-sm"
           onclick={() => { showRelForm = false; relFormError = ''; }}>
-          Cancel
+          {m['common.cancel']()}
         </button>
       </div>
     </div>
@@ -435,7 +435,7 @@ let confirmState = $state<{
     <!-- Section: Custom Fields -->
     <section>
       <h2 class="text-xs font-semibold text-base-content/65 uppercase tracking-widest mb-2.5">
-        Fields ({customFields.length})
+        {m['schema.fieldsCount']({ count: customFields.length })}
       </h2>
       {#if customFields.length === 0}
         <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
@@ -443,7 +443,7 @@ let confirmState = $state<{
           <p class="text-sm">{m['fields.none']()}</p>
           <button class="btn btn-primary btn-sm btn-outline gap-1 mt-1"
             onclick={() => (addFieldOpen = true)}>
-            <Plus size={13} /> Add first field
+            <Plus size={13} /> {m['fields.addFirst']()}
           </button>
         </div>
       {:else}
@@ -451,7 +451,7 @@ let confirmState = $state<{
           {#each customFields as field (field.name)}
             <div class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-base-100
                         border border-base-200 hover:border-base-300 group transition-colors">
-              <GripVertical size={14} class="text-base-content/15 cursor-grab shrink-0" />
+              <GripVertical size={14} class="text-base-content/55 cursor-grab shrink-0" />
               <code class="font-mono text-sm font-semibold min-w-0 truncate flex-1">
                 {field.name}
               </code>
@@ -488,14 +488,14 @@ let confirmState = $state<{
     <!-- Section: Relations (O2M / M2M / M2A — virtual, no FK column in this table) -->
     <section>
       <h2 class="text-xs font-semibold text-base-content/65 uppercase tracking-widest mb-2.5">
-        Relations ({virtualRelations.length})
+        {m['schema.relationsCount']({ count: virtualRelations.length })}
       </h2>
       {#if virtualRelations.length === 0}
         <div class="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-base-300 text-base-content/65 gap-2">
           <GitFork size={28} strokeWidth={1.4} />
           <p class="text-sm">{m['relations.none']()}</p>
           <button class="btn btn-outline btn-sm gap-1 mt-1" onclick={openRelForm}>
-            <Plus size={13} /> Add relation
+            <Plus size={13} /> {m['relations.add']()}
           </button>
         </div>
       {:else}
@@ -541,7 +541,7 @@ let confirmState = $state<{
     <!-- Section: System Fields -->
     <section class="pt-2 border-t border-base-200">
       <h2 class="text-xs font-semibold text-base-content/55 uppercase tracking-widest mb-2.5">
-        System Fields (auto-managed)
+        {m['schema.systemFields']()}
       </h2>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
         {#each [

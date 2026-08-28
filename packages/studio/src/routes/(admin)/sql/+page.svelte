@@ -72,7 +72,7 @@ function handleKeydown(e: KeyboardEvent) {
           {#if running}
             <span class="loading loading-spinner loading-xs"></span>
           {/if}
-          Run Query
+          {m['insights.runQuery']()}
         </button>
       </div>
     </div>
