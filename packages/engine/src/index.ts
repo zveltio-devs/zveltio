@@ -466,6 +466,12 @@ if (_cmd === 'create-god') {
       providerId: 'credential',
       userId: _id,
       password: _hash,
+      // Better Auth 1.7 stamps this on every credential account it writes, and
+      // looks for it when signing one in. This row is written directly through
+      // Kysely rather than through the library, so it has to match by hand —
+      // without it, sign-in answers "User not found" for an account that plainly
+      // exists, which is what upgrading from 1.6.23 produced.
+      issuer: 'local:credential',
       createdAt: _now,
       updatedAt: _now,
     })
