@@ -126,6 +126,26 @@ const CASES: Case[] = [
     file: 'packages/engine/src/db/migrations/sql/099__gate_probe.sql',
     body: '-- planted by scripts/audit-gates.ts\nSELECT 1;\n',
   },
+  {
+    // Appends a hand-written comment to a generated file. The membership half
+    // of this gate would not notice — the migration set is unchanged — so a
+    // plant that only added a .sql file would have proved the wrong half.
+    gate: 'check-embedded-migrations-fresh',
+    cmd: 'bun run scripts/check-embedded-migrations-fresh.ts',
+    file: 'packages/engine/src/db/migrations/embedded.ts',
+    body: '\n// a note written by hand into a file the next build overwrites\n',
+    mode: 'append',
+  },
+  {
+    // Must be a file the sync actually writes. The gate restores the synced
+    // trees itself, so it hands back the planted bytes and the harness below
+    // writes the original over them — the two restores agree.
+    gate: 'check-ext-snapshot-fresh',
+    cmd: 'bun run scripts/check-ext-snapshot-fresh.ts',
+    file: 'packages/studio/src/lib/ext/content/pages/components/builder/BlockList.svelte',
+    body: '\n<!-- edited in the snapshot, where the next build deletes it -->\n',
+    mode: 'append',
+  },
 ];
 // Refuse only if a plant path already exists — precise, where "the tree is
 // clean" was not. Blocking on any modification meant the audit could not run

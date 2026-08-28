@@ -89,6 +89,14 @@ jobs:
         # Runnable locally: `bun run scripts/check-sdui-contract.ts <extDir>`
         run: bun run scripts/check-sdui-contract.ts ../zveltio-extensions
 
+      - name: Studio extension snapshot is not hand-edited
+        # `src/lib/ext/` and the synced `(admin)` pages are build outputs:
+        # `prebuild` overwrites them from the extensions repo. An edit made here
+        # is reviewed, merged, and then deleted by the next build without a
+        # word. It has happened four times; the last one reverted a WCAG AA
+        # contrast fix and an i18n'd page title.
+        run: bun run check:ext-snapshot
+
       - name: SDUI schema headers
         # Every manifest-referenced studio/schemas/*.json must declare sduiSchema + title.
         run: bun run check:sdui-schemas
