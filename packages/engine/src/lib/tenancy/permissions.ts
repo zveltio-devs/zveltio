@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
-import { withSavepoint } from '../savepoint.js';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { getCurrentDomain } from './tenant-context.js';
@@ -361,32 +360,29 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
     }
   }
 
-  // Guarded, because the fallback below runs on the caller's transaction.
+  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
   //
-  // `return 'public'` on a database fault is the right answer — least privilege
-  // when the DB is down. What was wrong is what it left behind: the failed
-  // SELECT had already aborted the transaction, so the request that asked "who
-  // is this?" got a safe answer and then died on its next statement with 25P02,
-  // as did anything that later drew the same pooled connection.
-  return withSavepoint(
-    _db,
-    'zv_resolve_role',
-    async () => {
-      const result = await sql<{ role: string }>`
+  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
+  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
+  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
+  // followed by a `25P02` on an unrelated request — the guard had become the
+  // thing it was added to prevent. See lib/savepoint.ts.
+  try {
+    const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
-      const role = result.rows[0]?.role || 'public';
-      if (cache) {
-        try {
-          await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
-        } catch {
-          /* cache unavailable */
-        }
+    const role = result.rows[0]?.role || 'public';
+    if (cache) {
+      try {
+        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
+      } catch {
+        /* cache unavailable */
       }
-      return role;
-    },
-    () => 'public', // fail closed — least privilege when the DB is down
-  );
+    }
+    return role;
+  } catch {
+    return 'public'; // fail closed — least privilege when the DB is down
+  }
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {
@@ -407,36 +403,33 @@ export async function isGodUser(userId: string): Promise<boolean> {
     }
   }
 
-  // Guarded, because the fallback below runs on the caller's transaction.
+  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
   //
-  // `return 'public'` on a database fault is the right answer — least privilege
-  // when the DB is down. What was wrong is what it left behind: the failed
-  // SELECT had already aborted the transaction, so the request that asked "who
-  // is this?" got a safe answer and then died on its next statement with 25P02,
-  // as did anything that later drew the same pooled connection.
-  return withSavepoint(
-    _db,
-    'zv_resolve_role',
-    async () => {
-      const result = await sql<{ role: string }>`
+  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
+  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
+  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
+  // followed by a `25P02` on an unrelated request — the guard had become the
+  // thing it was added to prevent. See lib/savepoint.ts.
+  try {
+    const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
 
-      const isGod = result.rows[0]?.role === 'god';
+    const isGod = result.rows[0]?.role === 'god';
 
-      if (cache) {
-        try {
-          // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
-          await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
-        } catch {
-          /* cache unavailable */
-        }
+    if (cache) {
+      try {
+        // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
+        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
+      } catch {
+        /* cache unavailable */
       }
+    }
 
-      return isGod;
-    },
-    () => false, // fail closed — if the DB is down, do NOT grant god access
-  );
+    return isGod;
+  } catch {
+    return false; // Fail closed — if DB is down, do NOT grant god access
+  }
 }
 
 /**
