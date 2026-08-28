@@ -1,27 +1,25 @@
 #!/usr/bin/env bun
 /**
- * A route handler must not query a tenant-scoped table on the raw pool.
+ * A route handler must not query a tenant-scoped table on `poolDb`.
  *
- * `tenantMiddleware` opens the request transaction and hands it over as
- * `c.get('tenantTrx')`; `reqDb(c, db)` is how a handler picks it up. The
- * transaction is where `SET LOCAL` lives, so it is the only place a query is
- * bound by the tenant policies. The same query on the route's raw `db` runs on
- * the pool as the engine's own role and sees every tenant's rows.
+ * Routers are handed TWO database handles, and the difference is the whole
+ * point: `registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth })`. The
+ * `db` a route receives is `createRequestScopedDb` — a proxy that resolves the
+ * request's transaction per access, so `db.selectFrom(...)` is already bound by
+ * the tenant policies. `poolDb` is the raw pool, running as the engine's own
+ * role, and a tenant-scoped query on it sees every tenant's rows.
  *
- * The idiom that makes this easy to get wrong is `reqDb`'s own fallback:
+ * `poolDb` exists for good reasons — the four routers in `TXN_SKIP_PREFIXES`
+ * would otherwise pin one connection and reach for a second, which deadlocks at
+ * a concurrency equal to the pool size. This gate does not object to `poolDb`.
+ * It objects to `poolDb` plus a table that carries a tenant.
  *
- *     const trx = c.get('tenantTrx');
- *     return trx ?? fallback;          // ← no transaction? use the pool
- *
- * That fallback is right for single-tenant installs, where no transaction is
- * opened at all. It is also exactly what would turn a missing transaction into
- * a silent cross-tenant read — which is why this gate exists BEFORE anyone makes
- * the transaction lazy. Forty-five call sites reach for that fallback today; a
- * lazy transaction that fails to open would convert all of them at once, and
- * nothing else in the build would notice.
- *
- * The repository has been here: a synchronous `finally` once cleared the
- * transaction early and left 302 policies inert, and the tests stayed green.
+ * The first version of this gate had the premise backwards: it flagged `db.`,
+ * on the belief that a route's `db` was the raw pool. It reported three
+ * findings, all of them correct code, and one was waved through with a baseline
+ * entry — a gate that excuses the right pattern is worse than no gate, because
+ * the excuse looks like review. `poolDb` is the handle with no tenant binding;
+ * `db` is the one that has it.
  *
  * What counts as tenant-scoped is read from `db/schema.ts` — the interface a
  * table maps to in `DbSchema`, and whether that interface declares `tenant_id`.
@@ -77,23 +75,15 @@ function tsFiles(dir: string): string[] {
   return out;
 }
 
-const QUERY = /\bdb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)'/g;
+const QUERY = /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)'/g;
 
 /**
- * Sites read and understood, keyed `file:table`.
- *
- * The gate sees one statement at a time and cannot see a guard three lines
- * above it. Each entry here is a case where the tenant check is real but lives
- * in a different statement, and the reason is written out so the next reader
- * does not have to re-derive it.
+ * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
+ * way: an entry here is a promise that somebody checked the tenant binding by
+ * hand, and the previous version of this file shows how easily that becomes a
+ * rubber stamp.
  */
-const allowed = new Map<string, string>([
-  [
-    'packages/engine/src/routes/insights.ts:zv_dashboards',
-    'The DELETE is preceded by a SELECT of the same id with `.where(tenant_id, =, tenantOf(c))` ' +
-      'that answers 404 when it misses, so the id is already proven to belong to the caller.',
-  ],
-]);
+const allowed = new Map<string, string>();
 
 const findings: string[] = [];
 
@@ -105,10 +95,6 @@ for (const file of tsFiles(ROUTES_DIR)) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) continue;
-    // `reqDb(c, db).selectFrom(...)` is the correct form and ends in `db)` — the
-    // pattern below would otherwise read its argument as the raw pool.
-    if (/reqDb\s*\(/.test(line)) continue;
-
     QUERY.lastIndex = 0;
     for (const m of line.matchAll(QUERY)) {
       const table = m[2]!;
@@ -120,14 +106,14 @@ for (const file of tsFiles(ROUTES_DIR)) {
 }
 
 if (findings.length > 0) {
-  console.error('[tenant-on-pool] FAIL — tenant-scoped table queried on the raw pool:\n');
+  console.error('[tenant-on-pool] FAIL — tenant-scoped table queried on `poolDb`:\n');
   for (const f of findings) console.error(`  ${f}\n`);
-  console.error('Use `reqDb(c, db)` so the query runs inside the request transaction.');
-  console.error('If the router genuinely belongs on the pool, it belongs in TXN_SKIP_PREFIXES,');
-  console.error('and the reason belongs next to the entry there.');
+  console.error("Use the router's `db` — it is `createRequestScopedDb`, already bound to the");
+  console.error('request transaction and therefore to the tenant policies. `poolDb` is the raw');
+  console.error('pool and is for work that must not join the request transaction at all.');
   process.exit(1);
 }
 
 console.log(
-  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known, none queried on the pool from a route.`,
+  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known, none queried on \`poolDb\` from a route.`,
 );
