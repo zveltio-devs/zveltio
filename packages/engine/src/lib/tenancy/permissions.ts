@@ -360,6 +360,13 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
     }
   }
 
+  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
+  //
+  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
+  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
+  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
+  // followed by a `25P02` on an unrelated request — the guard had become the
+  // thing it was added to prevent. See lib/savepoint.ts.
   try {
     const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
@@ -396,6 +403,13 @@ export async function isGodUser(userId: string): Promise<boolean> {
     }
   }
 
+  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
+  //
+  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
+  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
+  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
+  // followed by a `25P02` on an unrelated request — the guard had become the
+  // thing it was added to prevent. See lib/savepoint.ts.
   try {
     const result = await sql<{ role: string }>`
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
