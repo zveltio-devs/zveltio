@@ -419,6 +419,17 @@ class BunSqlSmartConnection implements DatabaseConnection {
   #reserved: BunReservedConnection | null = null;
   /** True between BEGIN and COMMIT/ROLLBACK. Read by `release()`. */
   #inTransaction = false;
+  /**
+   * Set once this connection has raised `0A000`. From then on it stops using
+   * prepared statements, which is the only thing that can raise it.
+   *
+   * The alternative — a SAVEPOINT before every statement so the retry becomes
+   * legal — costs a round trip on every query inside a transaction, forever, to
+   * protect against something most connections never see. This costs nothing
+   * until it happens and nothing that matters afterwards: the simple-query path
+   * skips the plan cache, so it cannot go stale.
+   */
+  #skipPrepared = false;
 
   constructor(pool: BunSQLPool) {
     this.#pool = pool;
@@ -491,6 +502,8 @@ class BunSqlSmartConnection implements DatabaseConnection {
       return BunSqlSmartConnection.#wrap(rows);
     };
 
+    if (this.#skipPrepared) return runInline();
+
     try {
       return await runPrepared();
     } catch (err) {
@@ -505,6 +518,34 @@ class BunSqlSmartConnection implements DatabaseConnection {
       const isCachedPlan =
         e?.code === '0A000' || /cached plan must not change result type/i.test(e?.message ?? '');
       if (!isCachedPlan) throw err;
+
+      // Inside a transaction the retry cannot work, and trying destroys the
+      // evidence.
+      //
+      // `0A000` is a failed statement like any other, so Postgres has already
+      // aborted the transaction. The retry below then answers `25P02 current
+      // transaction is aborted`, `stillCached` is false, and THAT is what gets
+      // thrown — so the caller, the request log and Kysely's error hook all see
+      // 25P02 and nothing else. The real cause never surfaces anywhere.
+      //
+      // That is how it read from the outside: an intermittent 500 with
+      // `25P02` and no failed statement before it in the trace, on
+      // `select * from "zvd_collections" where "name" = $1` — a prepared
+      // statement against a table the collection-create path is busy altering,
+      // which is exactly what raises `0A000`. E2E failed that way in 8 of 19
+      // runs, on a different endpoint each time.
+      //
+      // Outside a transaction the retry is still right: each statement is its
+      // own transaction, so nothing is aborted and a second attempt — or the
+      // simple-query fallback — genuinely recovers.
+      // Whatever happens to this statement, stop preparing on this connection.
+      // A stale plan is not a one-off: the same cached plan is reused until the
+      // backend goes away, so the next request to draw this connection meets it
+      // again. Turning the plan cache off for this connection makes the failure
+      // non-recurring instead of periodic.
+      this.#skipPrepared = true;
+
+      if (this.#inTransaction) throw err;
 
       try {
         return await runPrepared();

@@ -106,7 +106,19 @@ export async function initDatabase(): Promise<Database> {
   // Still not a throughput knob, and no default fixes the real problem: a
   // connection is pinned for the whole request. See report-slow-in-transaction.
   const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+  // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
+  // 25P02 only says "an earlier statement failed"; this says WHICH.
+  const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
   _db = new Kysely({
+    log: traceSqlErrors
+      ? (event) => {
+          if (event.level !== 'error') return;
+          const err = event.error as { errno?: string; message?: string };
+          console.error(
+            `[sql-error] errno=${err?.errno ?? '?'} ${err?.message ?? ''}\n           SQL: ${event.query.sql}`,
+          );
+        }
+      : undefined,
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
       // Not a throughput knob — a ceiling on concurrent requests.
