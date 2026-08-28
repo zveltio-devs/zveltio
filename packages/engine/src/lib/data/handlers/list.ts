@@ -267,6 +267,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       offset,
       fts: query.search ? query.search.trim().substring(0, 500) : undefined,
       hasTrgm: !!collectionDef.has_trgm,
+      countMode: query.count,
       applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
     });
   }
