@@ -5,6 +5,29 @@ import type { DbSchema } from './schema.js';
 export type Database = Kysely<DbSchema>;
 
 /**
+ * The pool size when nobody set one — and the single place that decides it.
+ *
+ * This used to be spelled twice. `initDatabase` built the pool with `?? 25`
+ * while `startup-guards.ts` reasoned about it with `?? 10`, so a boot with the
+ * variable unset printed *"DB_POOL_MAX=10 in-flight requests per instance
+ * (server max_connections=200, so ~19 instance(s) fit)"* — while the pool it had
+ * just created was 25, and about 7 instances fit. An operator sizing a
+ * deployment from that line provisions more than twice the instances the
+ * database can carry, and finds out at the worst possible moment.
+ *
+ * Advice about a number has to come from the number.
+ */
+export const DEFAULT_DB_POOL_MAX = 25;
+
+/** The effective pool ceiling: an explicit `DB_POOL_MAX`, or the default above. */
+export function resolvePoolMax(): number {
+  const raw = process.env.DB_POOL_MAX;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_DB_POOL_MAX;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DB_POOL_MAX;
+}
+
+/**
  * Creates a standalone Kysely instance for a given connection string.
  * Used primarily in integration tests to get an isolated db connection.
  */
@@ -105,7 +128,7 @@ export async function initDatabase(): Promise<Database> {
   //
   // Still not a throughput knob, and no default fixes the real problem: a
   // connection is pinned for the whole request. See report-slow-in-transaction.
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+  const poolMax = resolvePoolMax();
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
