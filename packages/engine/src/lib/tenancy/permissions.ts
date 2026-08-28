@@ -8,6 +8,79 @@ import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
+
+/**
+ * The same memo, in process, for a deployment with no Valkey.
+ *
+ * `checkPermission` is one `enforce()` over every loaded policy, and measured on
+ * a 7 208-policy instance that call costs **364 ms** — all of it single-threaded
+ * CPU on the request thread. Nothing memoized it: asking twice for the same
+ * resource cost the same twice. The Valkey branch below was the only thing
+ * standing between that and every authenticated request, so an install without
+ * a cache answered a plain 401 in 348 ms and served three requests a second, at
+ * any concurrency.
+ *
+ * Deliberately active ONLY when there is no shared cache. A per-process memo in
+ * a multi-instance deployment would answer from an instance that never saw the
+ * revocation, and a revoked permission served for a whole TTL is a worse bug
+ * than the one being fixed. With no Valkey the engine is single-instance
+ * anyway — `realtime-bus` says so in as many words — so in-process invalidation
+ * is complete invalidation, and every path that clears the shared cache clears
+ * this one first.
+ */
+const LOCAL_PERM_MAX = 10_000;
+const _localPerm = new Map<string, { value: boolean; expires: number }>();
+
+function localPermGet(key: string): boolean | null {
+  const hit = _localPerm.get(key);
+  if (!hit) return null;
+  if (hit.expires <= Date.now()) {
+    _localPerm.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function localPermSet(key: string, value: boolean): void {
+  // Bounded: a Map that only grows is a leak wearing a cache's clothes. Map
+  // preserves insertion order, so the first key is the oldest written.
+  if (_localPerm.size >= LOCAL_PERM_MAX) {
+    const oldest = _localPerm.keys().next().value;
+    if (oldest !== undefined) _localPerm.delete(oldest);
+  }
+  _localPerm.set(key, { value, expires: Date.now() + PERMISSION_CACHE_TTL * 1000 });
+}
+
+/**
+ * Drop in-process permission answers — all of them, or one user's.
+ *
+ * Called from every path that invalidates the shared cache, INCLUDING the ones
+ * that used to return early when no cache was configured. That early return is
+ * exactly how a memo like this turns into a security bug.
+ */
+/**
+ * Test seam: how many answers the memo is holding.
+ *
+ * Not part of the contract — it exists because the eviction cap is 10 000 and a
+ * test that filled it honestly would need 10 000 uncached `enforce()` calls at
+ * ~370 ms each. The bookkeeping is what a test can check cheaply; the cap itself
+ * is four lines above and holds by construction.
+ */
+export function __localPermissionCacheSize(): number {
+  return _localPerm.size;
+}
+
+export function clearLocalPermissionCache(userId?: string): void {
+  if (!userId) {
+    _localPerm.clear();
+    return;
+  }
+  // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
+  const needle = `:${userId}:`;
+  for (const key of _localPerm.keys()) {
+    if (key.includes(needle)) _localPerm.delete(key);
+  }
+}
 const ROLE_CACHE_TTL = 300; // seconds
 const GOD_CACHE_TTL = 300; // seconds
 
@@ -442,6 +515,7 @@ export async function isGodUser(userId: string): Promise<boolean> {
  *                       blocking the server during the scan.
  */
 export async function invalidateGodCache(userId: string): Promise<void> {
+  clearLocalPermissionCache(userId);
   const cache = getCache();
   if (!cache) return;
   try {
@@ -478,6 +552,11 @@ export async function checkPermission(
     } catch {
       /* cache unavailable */
     }
+  } else {
+    // No shared cache — see the note on `_localPerm`. No HMAC here: the value
+    // never leaves this process, so there is nothing to tamper with in transit.
+    const local = localPermGet(cacheKey);
+    if (local !== null) return local;
   }
 
   const e = await getEnforcer();
@@ -492,6 +571,8 @@ export async function checkPermission(
     } catch {
       /* cache unavailable */
     }
+  } else {
+    localPermSet(cacheKey, result);
   }
 
   return result;
@@ -664,6 +745,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
  *                              here because we track keys explicitly at write time.
  */
 export async function invalidateUserPermCache(userId: string): Promise<void> {
+  clearLocalPermissionCache(userId);
   const cache = getCache();
   if (cache) {
     try {
