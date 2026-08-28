@@ -419,6 +419,17 @@ class BunSqlSmartConnection implements DatabaseConnection {
   #reserved: BunReservedConnection | null = null;
   /** True between BEGIN and COMMIT/ROLLBACK. Read by `release()`. */
   #inTransaction = false;
+  /**
+   * Set once this connection has raised `0A000`. From then on it stops using
+   * prepared statements, which is the only thing that can raise it.
+   *
+   * The alternative — a SAVEPOINT before every statement so the retry becomes
+   * legal — costs a round trip on every query inside a transaction, forever, to
+   * protect against something most connections never see. This costs nothing
+   * until it happens and nothing that matters afterwards: the simple-query path
+   * skips the plan cache, so it cannot go stale.
+   */
+  #skipPrepared = false;
 
   constructor(pool: BunSQLPool) {
     this.#pool = pool;
@@ -491,6 +502,8 @@ class BunSqlSmartConnection implements DatabaseConnection {
       return BunSqlSmartConnection.#wrap(rows);
     };
 
+    if (this.#skipPrepared) return runInline();
+
     try {
       return await runPrepared();
     } catch (err) {
@@ -525,6 +538,13 @@ class BunSqlSmartConnection implements DatabaseConnection {
       // Outside a transaction the retry is still right: each statement is its
       // own transaction, so nothing is aborted and a second attempt — or the
       // simple-query fallback — genuinely recovers.
+      // Whatever happens to this statement, stop preparing on this connection.
+      // A stale plan is not a one-off: the same cached plan is reused until the
+      // backend goes away, so the next request to draw this connection meets it
+      // again. Turning the plan cache off for this connection makes the failure
+      // non-recurring instead of periodic.
+      this.#skipPrepared = true;
+
       if (this.#inTransaction) throw err;
 
       try {
