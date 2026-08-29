@@ -168,6 +168,61 @@ măsurătoare falsă care a condus un audit întreg. Merită curățenie în `af
 
 ---
 
+## Blocul 3 — colecțiile pe care suita le lasă în urmă
+
+Nu e igienă. **O măsurătoare falsă produsă de aici a condus un audit întreg** și a
+ajuns în două rapoarte ca „364 ms per decizie de autorizare". Baza avea 163 de
+colecții din teste; instanța reală are 3.
+
+| # | Pas | Stare | Rezultat |
+|---|---|---|---|
+| 0 | Citește documentul | — | (la fiecare pas) |
+| 1 | Măsoară: câte colecții lasă o rulare completă, pe bază curată | ✅ **FĂCUT** | **5 colecții + 2 tabele fantomă per rulare** |
+| 2 | Identifică fișierele vinovate | ✅ **FĂCUT** | 5 fișiere, două ale mele |
+| 3 | Repară curățenia | ✅ **FĂCUT** | helper comun `dropTestCollection` |
+| 4 | Poartă | ✅ **FĂCUT** | `check:test-leftovers`, dovedită prin plantare |
+| 5 | Verificare pe bază curată | ✅ **FĂCUT** | **zero rămășițe**, 865 de teste trec |
+| 6 | **PUNCT DE VALIDARE** | ✅ **TRECUT** | ambele criterii îndeplinite |
+
+### Ce s-a găsit (pașii 1–3)
+
+O rulare completă lăsa **5 colecții** — deci cele 163 s-au adunat din ~30 de rulări
+în timpul auditului. Cauza, în toate cazurile: testele ștergeau **tabelul** dar
+lăsau rândul din `zvd_collections`.
+
+| Fișier | Ce lăsa |
+|---|---|
+| `collections.test.ts` | o a doua colecție, cu numele generat inline — nimic n-o mai putea numi ca s-o șteargă |
+| `ddl-tenant-default-guard.test.ts` | rândul |
+| `revisions-tenant-isolation.test.ts` | rândul |
+| `data-list-count-mode.test.ts` (al meu) | rândul |
+| `ghost-ddl-orphan-sweep.test.ts` (al meu) | rândul |
+| `ghost-ddl-alter-column` / `-execute` | copia de după swap, fiindcă anulează deliberat timer-ul |
+
+Reparate cu un helper comun, `dropTestCollection(db, name)`, care șterge **și**
+tabelul **și** rândul. Cele două de ghost DDL folosesc `sweepGhostOrphans(db)` — deci
+testul curăță cu exact calea de cod pe care o folosește producția, nu cu o a doua
+scriere a ei.
+
+### Poarta
+
+`check:test-leftovers` caută colecții cu sufix de marcă de timp (deci o colecție
+reală a unui operator nu e confundată cu resturi) și tabele `_zv_old_*` /
+`_zv_changelog_*`. **Dovedită prin plantare, nu prin citire:** cu o colecție
+plantată pică; pe bază curată trece. În CI, imediat după suita de harness.
+
+### Criteriile punctului de validare (scrise ÎNAINTE)
+
+- O rulare completă de harness pe o bază curată lasă **zero** colecții și zero
+  tabele `zvd_*` orfane.
+- Poarta pică pe un test care lasă o colecție în urmă (dovedit prin plantare, nu
+  prin citire).
+
+Dacă poarta nu poate fi făcută să pice la o violare plantată, nu se comite — o
+poartă nedovedită e decor, și tocmai am petrecut o săptămână demonstrând asta.
+
+---
+
 ## Jurnal
 
 | Când | Pas | Ce s-a întâmplat |

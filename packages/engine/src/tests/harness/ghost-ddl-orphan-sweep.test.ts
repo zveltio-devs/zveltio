@@ -21,7 +21,7 @@ import {
   GhostDDL,
   sweepGhostOrphans,
 } from '../../lib/data/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -47,7 +47,6 @@ d('Ghost DDL orphan sweep (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     for (const t of [
-      TABLE,
       `_zv_old_${TABLE}`,
       `_zv_changelog_${TABLE}`,
       `_zv_ghost_${TABLE}`,
@@ -55,6 +54,8 @@ d('Ghost DDL orphan sweep (in-process)', () => {
     ]) {
       await sql.raw(`DROP TABLE IF EXISTS "${t}" CASCADE`).execute(db);
     }
+    // The collection itself: table AND the row that names it.
+    await dropTestCollection(db, COLLECTION);
   });
 
   it('a shutdown inside the 60s window strands the copy — and the sweep reclaims it', async () => {
