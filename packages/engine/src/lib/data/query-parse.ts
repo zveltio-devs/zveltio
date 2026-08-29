@@ -24,6 +24,16 @@ export const QuerySchema = z.object({
   search: z.string().optional(),
   as_of: z.string().optional(),
   cursor: z.string().optional(), // base64url-encoded {id, val}
+  /**
+   * `exact` (default) keeps `pagination.total`; `none` drops it.
+   *
+   * The count is a `count(*)` over the caller's whole tenant, and on a 100 000-row
+   * tenant it measured 10,06 ms next to a 1,63 ms page — so a client that renders
+   * "page 3 of 40" pays for it and one that renders "load more" pays for it too.
+   * `none` answers "is there more" from one extra row instead, which is what the
+   * cursor path has always done. Default unchanged, so no existing caller moves.
+   */
+  count: z.enum(['exact', 'none']).default('exact'),
 });
 
 /** The parsed, validated list query. */

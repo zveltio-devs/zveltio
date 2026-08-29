@@ -8,6 +8,221 @@ import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
+
+/**
+ * The same memo, in process, for a deployment with no Valkey.
+ *
+ * `checkPermission` is one `enforce()` over every loaded policy, and measured on
+ * a 7 208-policy instance that call costs **364 ms** — all of it single-threaded
+ * CPU on the request thread. Nothing memoized it: asking twice for the same
+ * resource cost the same twice. The Valkey branch below was the only thing
+ * standing between that and every authenticated request, so an install without
+ * a cache answered a plain 401 in 348 ms and served three requests a second, at
+ * any concurrency.
+ *
+ * Deliberately active ONLY when there is no shared cache. A per-process memo in
+ * a multi-instance deployment would answer from an instance that never saw the
+ * revocation, and a revoked permission served for a whole TTL is a worse bug
+ * than the one being fixed. With no Valkey the engine is single-instance
+ * anyway — `realtime-bus` says so in as many words — so in-process invalidation
+ * is complete invalidation, and every path that clears the shared cache clears
+ * this one first.
+ */
+export const LOCAL_PERM_MAX = 10_000;
+const _localPerm = new Map<string, { value: boolean; expires: number }>();
+
+function localPermGet(key: string): boolean | null {
+  const hit = _localPerm.get(key);
+  if (!hit) return null;
+  if (hit.expires <= Date.now()) {
+    _localPerm.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function localPermSet(key: string, value: boolean): void {
+  // Bounded: a Map that only grows is a leak wearing a cache's clothes. Map
+  // preserves insertion order, so the first key is the oldest written.
+  if (_localPerm.size >= LOCAL_PERM_MAX) {
+    const oldest = _localPerm.keys().next().value;
+    if (oldest !== undefined) _localPerm.delete(oldest);
+  }
+  _localPerm.set(key, { value, expires: Date.now() + PERMISSION_CACHE_TTL * 1000 });
+}
+
+/**
+ * Drop in-process permission answers — all of them, or one user's.
+ *
+ * Called from every path that invalidates the shared cache, INCLUDING the ones
+ * that used to return early when no cache was configured. That early return is
+ * exactly how a memo like this turns into a security bug.
+ */
+/**
+ * Test seam: how many answers the memo is holding.
+ *
+ * Not part of the contract — it exists because the eviction cap is 10 000 and a
+ * test that filled it honestly would need 10 000 uncached `enforce()` calls at
+ * ~370 ms each. The bookkeeping is what a test can check cheaply; the cap itself
+ * is four lines above and holds by construction.
+ */
+/**
+ * Every `p.obj` the loaded policies actually name.
+ *
+ * The memo above rescues repeated checks, and a `checkPermission` that is asked
+ * the SAME question twice is now free. It does nothing for a caller that varies
+ * the question, and that is the shape of the attack: measured on the live
+ * engine, hitting `/api/data/<random>` runs at **2 req/s with p50 5,5 s**, while
+ * the same path with a fixed name runs at 67 req/s. Every distinct name is a
+ * fresh 364 ms `enforce()`.
+ *
+ * The matcher makes the collapse safe. Object comparison is plain equality —
+ *
+ *   (r.obj == p.obj || (p.obj == '*' && p.act == '*'))
+ *
+ * — with no `keyMatch` and no pattern anywhere. So for any resource name that no
+ * policy names literally, the only rules that can match are the `'*'` ones, and
+ * the answer therefore does not depend on the name at all. All such names share
+ * one memo entry per (domain, user, action), and the attack collapses to a
+ * single `enforce()` no matter how many names are invented.
+ *
+ * `enforce()` is still called with the REAL resource — the collapse is in where
+ * the answer is filed, never in how it is computed.
+ */
+const UNKNOWN_RESOURCE = '\u0000unnamed';
+let _policyObjects: Set<string> | null = null;
+
+/** Dropped whenever policies change, so a newly named resource stops collapsing. */
+function invalidatePolicyObjectIndex(): void {
+  _policyObjects = null;
+}
+
+async function policyObjectIndex(): Promise<Set<string>> {
+  if (_policyObjects) return _policyObjects;
+  const e = await getEnforcer();
+  const index = new Set<string>();
+  for (const rule of await e.getPolicy()) {
+    const obj = rule[2];
+    if (typeof obj === 'string') index.add(obj);
+  }
+  _policyObjects = index;
+  return index;
+}
+
+/**
+ * Everything one subject may do in one domain, resolved once.
+ *
+ * `enforce()` is `some(where p.eft == allow)`, so it stops at the first policy
+ * that matches — which is why a user WITH a matching role answers in 8 ms and a
+ * user without one takes 364-885 ms: a denial has to read all 7 208 policies to
+ * establish that none of them applies. Denials are the expensive case, and
+ * denials are the case an attacker picks.
+ *
+ * Casbin's own `getImplicitPermissionsForUser` cannot be used to precompute this.
+ * The `p` rules here carry `dom = '*'` and the matcher honours it —
+ * `(p.dom == '*' || r.dom == p.dom)` — but the implicit API filters by exact
+ * domain and knows nothing of the custom matcher. Asked for a `tenant_admin`'s
+ * permissions it answers **zero**, and a permission set built on that would deny
+ * everything. `getImplicitRolesForUser` IS trustworthy: it resolves role chains
+ * and honours the domain matcher registered for `g`.
+ *
+ * So the set is built from the matcher's own terms, and
+ * `permission-set-matches-enforce.test.ts` holds it to `enforce()` across the
+ * real policy table — the fast path is only allowed to exist while it agrees.
+ */
+interface EffectivePermissions {
+  /** A `('*','*')` rule: everything in this domain, whatever it is called. */
+  all: boolean;
+  /** `obj\u0000act` pairs. */
+  exact: Set<string>;
+  /** Objects granted with `act = '*'`. */
+  anyAction: Set<string>;
+}
+
+const _effective = new Map<string, { perms: EffectivePermissions; expires: number }>();
+
+/** Answer a check from a resolved set — the matcher, minus the scan. */
+function allowedBy(perms: EffectivePermissions, resource: string, action: string): boolean {
+  if (perms.all) return true;
+  if (perms.anyAction.has(resource)) return true;
+  return perms.exact.has(`${resource}\u0000${action}`);
+}
+
+async function effectivePermissions(userId: string, domain: string): Promise<EffectivePermissions> {
+  const key = `${domain}\u0000${userId}`;
+  const hit = _effective.get(key);
+  if (hit && hit.expires > Date.now()) return hit.perms;
+
+  const e = await getEnforcer();
+  // Role chains and the `'*'` domain grant, resolved by casbin itself.
+  const subjects = new Set<string>([userId]);
+  for (const role of await e.getImplicitRolesForUser(userId, domain)) subjects.add(role);
+
+  const perms: EffectivePermissions = { all: false, exact: new Set(), anyAction: new Set() };
+  for (const rule of await e.getPolicy()) {
+    const [ps, pd, po, pa] = rule;
+    if (ps === undefined || po === undefined || pa === undefined) continue;
+    if (!subjects.has(ps)) continue;
+    if (pd !== '*' && pd !== domain) continue;
+    if (po === '*') {
+      // Only `('*','*')` is a wildcard object in this matcher — `('*', 'read')`
+      // matches nothing, and treating it as a grant would invent permissions.
+      if (pa === '*') perms.all = true;
+      continue;
+    }
+    if (pa === '*') perms.anyAction.add(po);
+    else perms.exact.add(`${po}\u0000${pa}`);
+  }
+
+  if (_effective.size >= LOCAL_PERM_MAX) {
+    const oldest = _effective.keys().next().value;
+    if (oldest !== undefined) _effective.delete(oldest);
+  }
+  _effective.set(key, { perms, expires: Date.now() + PERMISSION_CACHE_TTL * 1000 });
+  return perms;
+}
+
+/**
+ * Test seam: the answer the resolved set gives, without going near `enforce()`.
+ *
+ * Exported so `permission-set-matches-enforce.test.ts` can hold the two against
+ * each other over the real policy table. A fast authorization path that nobody
+ * checks against the slow one is how a permission bug ships.
+ */
+export async function __allowViaSet(
+  userId: string,
+  domain: string,
+  resource: string,
+  action: string,
+): Promise<boolean> {
+  return allowedBy(await effectivePermissions(userId, domain), resource, action);
+}
+
+/** Test seam — how many resolved subjects are held. */
+export function __effectivePermissionsSize(): number {
+  return _effective.size;
+}
+
+export function __localPermissionCacheSize(): number {
+  return _localPerm.size;
+}
+
+export function clearLocalPermissionCache(userId?: string): void {
+  if (!userId) {
+    _localPerm.clear();
+    _effective.clear();
+    invalidatePolicyObjectIndex();
+    return;
+  }
+  // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
+  const needle = `:${userId}:`;
+  for (const key of _localPerm.keys()) {
+    if (key.includes(needle)) _localPerm.delete(key);
+  }
+  for (const key of _effective.keys()) {
+    if (key.endsWith(`\u0000${userId}`)) _effective.delete(key);
+  }
+}
 const ROLE_CACHE_TTL = 300; // seconds
 const GOD_CACHE_TTL = 300; // seconds
 
@@ -60,6 +275,8 @@ let _enforcer: Enforcer | null = null;
 class KyselyCasbinAdapter {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   async loadPolicy(model: any): Promise<void> {
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     const policies = await sql<{
       ptype: string;
       v0: string | null;
@@ -121,6 +338,11 @@ class KyselyCasbinAdapter {
   }
 
   async addPolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+    // Every policy write reaches the database through this adapter, whichever
+    // route or boot task called it — so this is the one place where dropping the
+    // memo and the object index catches all of them.
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     await sql`
       INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
       VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
@@ -129,6 +351,8 @@ class KyselyCasbinAdapter {
   }
 
   async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
     // 4-token policies (p: sub,dom,obj,act) — match all provided columns.
     await sql`
       DELETE FROM zvd_permissions
@@ -442,6 +666,7 @@ export async function isGodUser(userId: string): Promise<boolean> {
  *                       blocking the server during the scan.
  */
 export async function invalidateGodCache(userId: string): Promise<void> {
+  clearLocalPermissionCache(userId);
   const cache = getCache();
   if (!cache) return;
   try {
@@ -465,7 +690,11 @@ export async function checkPermission(
 
   const domain = getCurrentDomain();
   const cache = getCache();
-  const cacheKey = `perm:${domain}:${userId}:${resource}:${action}`;
+  // A name no policy mentions cannot change the answer — see `policyObjectIndex`.
+  // Filing every such name under one key is what stops an invented-name flood
+  // from costing one full `enforce()` each.
+  const named = (await policyObjectIndex()).has(resource) ? resource : UNKNOWN_RESOURCE;
+  const cacheKey = `perm:${domain}:${userId}:${named}:${action}`;
 
   if (cache) {
     try {
@@ -478,10 +707,19 @@ export async function checkPermission(
     } catch {
       /* cache unavailable */
     }
+  } else {
+    // No shared cache — see the note on `_localPerm`. No HMAC here: the value
+    // never leaves this process, so there is nothing to tamper with in transit.
+    const local = localPermGet(cacheKey);
+    if (local !== null) return local;
   }
 
-  const e = await getEnforcer();
-  const result = await e.enforce(userId, domain, resource, action);
+  // Resolved once per (user, domain), then answered by lookup — see
+  // `effectivePermissions`. `enforce()` stops at the first matching policy, so a
+  // granted question was already cheap; it was the DENIALS that read all 7 208
+  // rules to conclude nothing applied, at 364-885 ms each. Those are the answers
+  // an attacker asks for, and now they cost a Set miss.
+  const result = allowedBy(await effectivePermissions(userId, domain), resource, action);
 
   if (cache) {
     try {
@@ -492,6 +730,8 @@ export async function checkPermission(
     } catch {
       /* cache unavailable */
     }
+  } else {
+    localPermSet(cacheKey, result);
   }
 
   return result;
@@ -664,6 +904,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
  *                              here because we track keys explicitly at write time.
  */
 export async function invalidateUserPermCache(userId: string): Promise<void> {
+  clearLocalPermissionCache(userId);
   const cache = getCache();
   if (cache) {
     try {

@@ -28,6 +28,8 @@
  * gate, kept so upgrading an existing install does not break the extensions
  * already on it.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { isSensitiveResource } from './permissions.js';
@@ -52,6 +54,13 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
  * at the time deny-by-default landed. Note that none of these is a collection
  * name: the two namespaces are disjoint, so a materialization that only walked
  * `zvd_collections` would silently close all 28 of them.
+ *
+ * This list is a floor, not the mechanism. An extension declares its resources in
+ * `manifest.resources`, `register.ts` materializes them as it loads, and
+ * `listKnownResources` below reads the same declarations off disk for everything
+ * installed — so the ecosystem grows without anyone editing this array. What stays
+ * here covers installs that predate that wiring, where no manifest is available to
+ * read. Nothing new needs adding.
  */
 export const KNOWN_EXTENSION_RESOURCES: readonly string[] = [
   'accounting',
@@ -178,9 +187,61 @@ export async function materializeDefaultGrants(
  * older version, or one belonging to an extension installed since, is picked up
  * here rather than needing its own migration.
  */
-export async function listKnownResources(db: Database): Promise<string[]> {
+export async function listKnownResources(db: Database, extensionsBase?: string): Promise<string[]> {
   const collections = await sql<{ name: string }>`
     SELECT name FROM zvd_collections
   `.execute(db);
-  return [...new Set([...collections.rows.map((r) => r.name), ...KNOWN_EXTENSION_RESOURCES])];
+  const declared = extensionsBase ? await resourcesDeclaredOnDisk(db, extensionsBase) : [];
+  return [
+    ...new Set([...collections.rows.map((r) => r.name), ...declared, ...KNOWN_EXTENSION_RESOURCES]),
+  ];
+}
+
+/**
+ * `manifest.resources` for everything installed, read from disk.
+ *
+ * The frozen array above was the only extension-side input this reconcile had,
+ * which made it go stale by construction: an extension installed but not loaded
+ * on this boot contributed nothing, and the fix was to edit engine source. The
+ * declarations are already on disk and already authoritative — `register.ts`
+ * materializes from the same field — so read them instead of remembering them.
+ */
+async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<string[]> {
+  if (!existsSync(base)) return [];
+
+  let installed: string[];
+  try {
+    const rows = await sql<{ name: string }>`
+      SELECT name FROM zv_extension_registry WHERE is_installed = true
+    `.execute(db);
+    installed = rows.rows.map((r) => r.name);
+  } catch (err) {
+    // Before the registry table exists there is nothing to read, and the frozen
+    // list still covers the reconcile. Saying so beats an empty catch.
+    console.warn(
+      '[resource-grants] could not read the extension registry; falling back to the ' +
+        'built-in resource list:',
+      (err as Error).message,
+    );
+    return [];
+  }
+
+  const out: string[] = [];
+  for (const name of installed) {
+    const manifestPath = join(base, name, 'manifest.json');
+    if (!existsSync(manifestPath)) continue;
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { resources?: unknown };
+      if (Array.isArray(manifest.resources)) {
+        for (const r of manifest.resources) if (typeof r === 'string' && r) out.push(r);
+      }
+    } catch (err) {
+      console.warn(
+        `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
+          'not in this reconcile:',
+        (err as Error).message,
+      );
+    }
+  }
+  return out;
 }

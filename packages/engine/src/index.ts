@@ -39,7 +39,7 @@ import { websocketHandler } from './routes/ws.js';
 import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
-import { cancelPendingCleanups } from './lib/data/index.js';
+import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
@@ -1298,7 +1298,14 @@ async function bootstrap() {
   // so on a settled install this writes nothing and costs one query.
   try {
     const { listKnownResources, materializeDefaultGrants } = await import('./lib/tenancy/index.js');
-    const n = await materializeDefaultGrants(db, await listKnownResources(db));
+    const { resolveExtensionsBase } = await import('./lib/extensions/index.js');
+    // The extensions directory is resolved here and handed over: `tenancy`
+    // reaching into `extensions` for it closes an import cycle (see the note on
+    // `resourcesDeclaredOnDisk`).
+    const n = await materializeDefaultGrants(
+      db,
+      await listKnownResources(db, resolveExtensionsBase()),
+    );
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {
     console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);
@@ -1313,6 +1320,29 @@ async function bootstrap() {
     if (n > 0) console.log(`🔒 Tenant RLS reconciled on ${n} extension table(s)`);
   } catch (err) {
     console.warn('⚠️ Extension RLS reconcile failed (non-fatal):', (err as Error).message);
+  }
+
+  // A Ghost DDL swap schedules its own DROP sixty seconds out, in memory. Any
+  // exit before then — including the graceful one, which cancels the timer —
+  // leaves a full, policy-less copy of the table behind for good. Boot is the
+  // one moment we know those timers are gone, so it is where they get reclaimed.
+  try {
+    const swept = await sweepGhostOrphans(db);
+    if (swept.dropped.length > 0) {
+      console.log(`🧹 Reclaimed ${swept.dropped.length} orphaned Ghost DDL table(s)`);
+    }
+    for (const { table, reason } of swept.failed) {
+      console.warn(`⚠️  [ghost-ddl] could not drop orphan ${table}: ${reason}`);
+    }
+    if (swept.abandonedGhosts.length > 0) {
+      console.warn(
+        `⚠️  [ghost-ddl] ${swept.abandonedGhosts.length} ghost table(s) present — ` +
+          'left alone in case a run on another instance is still copying into them: ' +
+          swept.abandonedGhosts.join(', '),
+      );
+    }
+  } catch (err) {
+    console.warn('⚠️ Ghost DDL orphan sweep failed (non-fatal):', (err as Error).message);
   }
 
   // ═══ Background workers (fire-and-forget) ═══

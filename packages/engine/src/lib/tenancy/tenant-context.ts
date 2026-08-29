@@ -23,6 +23,24 @@ import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 interface TenantStore {
   domain: string;
   trx?: Database;
+  /**
+   * True when this request's reach is exactly its own tenant — no hierarchy set
+   * was published into `zveltio.visible_tenants`.
+   *
+   * Read by the data layer to add `tenant_id = <domain>` to a query as an
+   * explicit predicate. That is a PERFORMANCE addition, never a security one:
+   * the RLS policy is untouched and still decides what may be seen. The reason
+   * it matters is that the policy reads `tenant_id = ANY (…)`, and `= ANY` over
+   * an array the planner cannot see at plan time will not drive an ordered index
+   * scan — so a paginated list scans `created_at` and throws away everyone
+   * else's rows, at a cost proportional to how many tenants exist. Measured on
+   * 300 000 rows: 1,94 ms and 6 408 rows discarded, against 0,08 ms and none
+   * once the explicit equality lets `(tenant_id, created_at DESC)` be used.
+   *
+   * Undefined when a hierarchy IS in play, and then no filter is added — adding
+   * one there would hide the ancestors' rows the request is entitled to.
+   */
+  singleTenant?: boolean;
 }
 
 const store = new AsyncLocalStorage<TenantStore>();
@@ -136,6 +154,22 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
 
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
+}
+
+/** Mark this request's reach as its own tenant alone. See `TenantStore`. */
+export function setSingleTenantScope(single: boolean): void {
+  const current = store.getStore();
+  if (current) current.singleTenant = single;
+}
+
+/**
+ * The tenant to add as an explicit equality, or `null` when one must not be
+ * added — no store, no tenant, or a hierarchy is in play.
+ */
+export function getSingleTenantId(): string | null {
+  const current = store.getStore();
+  if (!current?.singleTenant) return null;
+  return current.domain || null;
 }
 
 /**
