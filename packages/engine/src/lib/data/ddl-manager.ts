@@ -964,6 +964,11 @@ export class DDLManager {
     );
     statements.push(
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_id ON ${tableName}(tenant_id);`,
+      // The composite every list endpoint needs: `ORDER BY created_at DESC` for
+      // one tenant. Without it the planner walks `created_at` and throws away
+      // the other tenants' rows — 6 408 discarded to return 25, on a table with
+      // 63 tenants. See the note in tenant-manager.applyTenantRLS.
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_created ON ${tableName}(tenant_id, created_at DESC);`,
     );
     statements.push(
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`,

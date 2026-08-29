@@ -17,7 +17,7 @@ import { DDLManager } from '../ddl-manager.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters, matchesRlsFilters } from '../../tenancy/index.js';
+import { getRlsFilters, matchesRlsFilters, getSingleTenantId } from '../../tenancy/index.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
@@ -251,6 +251,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           offset,
           fts: query.search ? query.search.trim().substring(0, 500) : undefined,
           hasTrgm: !!collectionDef.has_trgm,
+          tenantScopeId: getSingleTenantId(),
           applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
         }),
       );
@@ -267,6 +268,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       offset,
       fts: query.search ? query.search.trim().substring(0, 500) : undefined,
       hasTrgm: !!collectionDef.has_trgm,
+      countMode: query.count,
+      // Null whenever a hierarchy is in play, and then nothing is added.
+      tenantScopeId: getSingleTenantId(),
       applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
     });
   }
