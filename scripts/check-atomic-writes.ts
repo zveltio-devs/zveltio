@@ -48,6 +48,8 @@ import { join, relative } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+requireSibling(EXT_ROOT, 'atomic-writes');
+import { requireSibling } from './lib/require-sibling.js';
 const BASELINE = join(ROOT, 'quality-gates', 'atomic-writes.json');
 const UPDATE = process.argv.includes('--update');
 /** Print each flagged handler instead of per-file totals. Optionally filtered by
