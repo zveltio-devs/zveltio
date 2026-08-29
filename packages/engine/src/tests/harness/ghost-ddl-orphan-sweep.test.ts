@@ -105,6 +105,38 @@ d('Ghost DDL orphan sweep (in-process)', () => {
     expect(await exists(db, ghost)).toBe(true);
   });
 
+  it('refuses a table name that is not a plain identifier', async () => {
+    // The entry point is the cheapest place to close this: every statement below
+    // interpolates the name, so a name that is not an identifier must never get
+    // past here.
+    for (const bad of ['users; DROP TABLE x', 'has space', '"quoted"', '1starts_with_digit']) {
+      await expect(GhostDDL.execute(db, bad, ['ADD COLUMN z TEXT'])).rejects.toThrow(
+        /Unsafe table name/,
+      );
+    }
+  });
+
+  it('reports a drop it could not do instead of pretending it swept', async () => {
+    // A `DROP` can legitimately fail — something still depends on the table. The
+    // sweep must say so rather than return a clean result, because a silent
+    // failure here is how the orphans accumulated unnoticed in the first place.
+    const stuck = `_zv_old_zvd_stuck_${STAMP}`;
+    await sql.raw(`CREATE TABLE "${stuck}" (id INT)`).execute(db);
+    await sql.raw(`CREATE VIEW "v_${stuck}" AS SELECT * FROM "${stuck}"`).execute(db);
+    try {
+      const swept = await sweepGhostOrphans(db);
+
+      expect(swept.dropped).not.toContain(stuck);
+      expect(swept.failed.map((f) => f.table)).toContain(stuck);
+      expect(swept.failed.find((f) => f.table === stuck)?.reason).toBeTruthy();
+      // And it is still there, which is the honest outcome.
+      expect(await exists(db, stuck)).toBe(true);
+    } finally {
+      await sql.raw(`DROP VIEW IF EXISTS "v_${stuck}"`).execute(db);
+      await sql.raw(`DROP TABLE IF EXISTS "${stuck}" CASCADE`).execute(db);
+    }
+  });
+
   it('does not treat the prefix underscores as LIKE wildcards', async () => {
     // `_zv_old_%` unescaped matches <any>zv<any>old<any> — this table among them.
     const decoy = `azvxoldy_${STAMP}`;
