@@ -14,7 +14,7 @@
  * proving a revocation is never served from it.
  */
 
-import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
@@ -26,7 +26,8 @@ import {
   getEnforcer,
   invalidateUserPermCache,
 } from '../../lib/tenancy/index.js';
-import { getCache } from '../../lib/runtime/index.js';
+import { _setCacheForTests, getCache } from '../../lib/runtime/index.js';
+import type Redis from 'ioredis';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -36,10 +37,23 @@ d('permission memo (in-process, no shared cache)', () => {
   let db: Database;
   let userId: string;
 
+  let savedCache: Redis | null = null;
+
   beforeAll(async () => {
     ({ db } = await getTestApp());
     const u = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
     userId = u.rows[0]!.id;
+    // The memo only engages when there is no shared cache, so the precondition
+    // has to be established rather than assumed. Run alone this file already had
+    // it; run as part of the suite it did not, because an earlier file leaves a
+    // cache behind in the shared process — which is how these tests passed
+    // locally and failed in CI.
+    savedCache = getCache();
+    _setCacheForTests(null);
+  });
+
+  afterAll(() => {
+    _setCacheForTests(savedCache);
   });
 
   afterEach(() => {
@@ -50,7 +64,8 @@ d('permission memo (in-process, no shared cache)', () => {
     // The whole safety argument rests on this: with Valkey the engine may run
     // several instances, and a per-process memo would answer from one that
     // never saw the revocation. Without it the engine is single-instance, so
-    // in-process invalidation is complete invalidation.
+    // in-process invalidation is complete invalidation. `beforeAll` establishes
+    // the condition; this states that the rest of the file depends on it.
     expect(getCache()).toBeNull();
   });
 
