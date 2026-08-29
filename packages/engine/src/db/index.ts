@@ -1,5 +1,9 @@
 import { Kysely, sql } from 'kysely';
 import { BunSqlDialect } from './bun-sql-dialect.js';
+
+// Re-exported so boot code reaches it through this module rather than the
+// dialect file: `db/index.ts` is what the rest of the engine imports.
+export { recycleActivePool } from './bun-sql-dialect.js';
 import type { DbSchema } from './schema.js';
 
 export type Database = Kysely<DbSchema>;

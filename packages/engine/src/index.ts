@@ -16,7 +16,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
-import { initDatabase } from './db/index.js';
+import { initDatabase, recycleActivePool } from './db/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
@@ -1210,6 +1210,26 @@ async function bootstrap() {
       console.warn('⚠️ Realtime bus init failed (non-fatal):', err.message);
     }),
   ]);
+
+  // Extension migrations just ran, and some of them alter tables the ENGINE
+  // owns — ten today, `zvd_collections` among them. The boot steps above
+  // (auth, tenant manager, permissions, the webhook repair) already queried the
+  // database, so the pool is holding prepared plans built against the shape
+  // those tables had a moment ago. The next request to draw such a connection
+  // gets `0A000 cached plan must not change result type`, and inside the request
+  // transaction the dialect deliberately does not retry — so it reaches the
+  // caller as a 500.
+  //
+  // Measured in CI with a DDL event trigger: engine start at 18:52:55.23, then
+  // `ALTER TABLE zvd_collections` twice at 18:52:56.51 from the `ai` extension's
+  // migration, adding three columns. Intermittent because it depends on whether
+  // a connection prepared the statement inside that window and is reused after.
+  //
+  // Here and not earlier: this is the first point where every migration, engine
+  // and extension, has finished. `Bun.serve` has not started, so nothing is
+  // mid-request.
+  await recycleActivePool();
+
   console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
 
   // ═══ Tenant row-level security ═══
