@@ -69,7 +69,7 @@ plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțe
 | 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | ✅ **FĂCUT** (toate dimensiunile) | **7 porți fail-open**, reparate — vezi §Pasul 4 |
 | 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | ✅ **FĂCUT** | `check-gate-coverage`, dovedită prin plantare |
 | 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | ⛔ **ANULAT** | **nu merită** — vezi §Pasul 6 |
-| 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
+| 7 | **PUNCT DE VALIDARE** | ⚠️ **3 din 4** | criteriul 1 NEîndeplinit — blocul rămâne deschis |
 
 ### Pasul 1 — acoperirea reală (măsurat 2026-08-29)
 
@@ -301,6 +301,44 @@ fierbinte și e o proiectare, nu o extindere; nu se face pe impuls, în coada al
 
 Al cincilea rezultat „nu merită" al lucrării. Consistent cu statistica propriului plan.
 
+## PUNCT DE VALIDARE — verdict: 3 criterii din 4. Blocul NU se închide.
+
+Rulat 2026-08-29 pe `fdf78b4b`, împotriva criteriilor scrise la începutul documentului,
+înainte de orice măsurătoare.
+
+| # | criteriu | verdict |
+|---|---|---|
+| 1 | Zero porți trec pe o violare plantată, **pe mulțimea completă** | ❌ **NU** |
+| 2 | Fiecare poartă: caz în `audit-gates.ts` **sau** motiv scris | ✅ da |
+| 3 | Nicio poartă nu iese cu 0 când n-a putut verifica | ✅ da |
+| 4 | O poartă nouă fără caz nu se poate comite, dovedit prin plantare | ✅ da |
+
+**Criteriul 1 pică, și pică pe litera lui.** `audit:gates` dă 16/16 — dar 16 e numărul
+de cazuri, iar cazurile acoperă 14 scripturi din cele 40 pe care CI le rulează. Pentru
+celelalte 26 (23 neacoperite + 3 declarate ne-porți) nu există violare plantată, deci
+afirmația „zero porți trec" **nu poate fi făcută despre ele**. Exact distincția pe care
+criteriul o cerea explicit: *nu „11 din 11 verzi", ci pe mulțimea completă.*
+
+Documentul prevedea și o ieșire devreme: *blocul se poate închide dacă mulțimea
+neacoperită e mică și fiecare are motiv legitim.* **23 nu e mică**, și multe dintre
+motive nu sunt „nu poate avea caz", ci „încă n-are". Deci ieșirea aia nu se aplică.
+
+**Ce NU fac:** să rescriu criteriul acum că văd cifra. Un criteriu ajustat după
+măsurătoare nu mai e criteriu, e justificare — și e chiar regula pe care blocul ăsta a
+fost construit s-o apere.
+
+### Ce s-a câștigat totuși, și de ce blocul nu e un eșec
+
+- meta-poarta **rula nicăieri**; rulează la fiecare Lint
+- acoperirea dovedită: **9 → 14**, iar cifra din plan („11/11") era greșită
+- **7 porți fail-open** reparate, pe trei dimensiuni de input măsurate
+- un ratchet care face ca numărul să nu mai poată **scădea**: o poartă nouă vine cu caz
+  sau cu motiv, iar un motiv rămas după ce cazul există pică poarta
+- pasul 6, anulat măsurat, cu recomandarea corectată la sursă
+
+Blocul rămâne **deschis la pasul 3**. Nu e o datorie tăcută: e o listă de 23 de rânduri,
+fiecare cu un motiv scris și cu ce s-a măsurat despre el, păzită de o poartă.
+
 ## Anexă — instrumentarea lui `0A000` (nu e pas al blocului)
 
 Nu face parte din Blocul C, dar defectul pică lane-ul de integrare la ~2 din 3 rulări
@@ -360,6 +398,7 @@ nu de strecurat într-un PR despre porți.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | **7 VALIDARE** | **3 criterii din 4.** 1 pică pe litera lui: 16/16 sunt CAZURI, acoperind 14 scripturi din 40 — despre celelalte 26 afirmația nu se poate face. Ieșirea devreme nu se aplică (23 nu e „mic"). **Criteriul NU se rescrie.** Blocul rămâne deschis la pasul 3. |
 | 2026-08-29 | 6 | **ANULAT, măsurat.** `lib/` conține identificatorul `poolDb` o singură dată, într-un COMENTARIU; `routes/` de 19 ori. Poarta extinsă n-ar putea prinde nimic — fusese deja încercată și revenită, cu motivul în antetul ei. Expunerea rămâne reală dar cere o aserțiune de runtime, nu o poartă de build; notată ca observație. |
 | 2026-08-29 | 4 (rest) | Celelalte trei dimensiuni măsurate. **`ext:seam` ieșea cu 0 cu baza inaccesibilă** — 474 de INSERT-uri necomparate, raportate curat; reparat. Baseline lipsă: **nicio poartă vinovată**, fiindcă toate tratează absența ca „nu permit nimic" — uitându-mă doar la `rc`, aș fi raportat trei porți bune drept fail-open. Artefacte de build: curat, `studio.yml` chiar setează `REQUIRE_STUDIO_DIST`. |
 | 2026-08-29 | 4 | **6 porți raportau OK fără repo-ul soră**, între ele `check-raw-sql-identifiers`, care e scoped ANUME pe el. Corpusul tăcut: 5 handler-e în loc de 32, 73 tabele în loc de 384. Reparat cu `require-sibling.ts`, opt-out îngust pe care CI nu-l setează. Prima măsurătoare a fost falsă (`rc=$?` după pipe) și refăcută. |
