@@ -23,7 +23,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, copyFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -79,7 +79,17 @@ describe('check-numeric-string-arithmetic fails closed', () => {
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
       copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
-      copyFileSync(BASELINE, join(root, 'quality-gates', 'numeric-string-arithmetic.json'));
+      // The real baseline minus `_required_columns`. The gate checks the columns
+      // BEFORE the corpus, so on a database without the extension tables — which
+      // is what CI's harness has — the column check fires first and this case
+      // never reaches the behaviour it is here to pin. Dropping the key isolates
+      // the corpus check; the column check has its own test below.
+      const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as Record<string, unknown>;
+      delete baseline._required_columns;
+      writeFileSync(
+        join(root, 'quality-gates', 'numeric-string-arithmetic.json'),
+        JSON.stringify(baseline),
+      );
     });
 
     afterAll(() => {
