@@ -32,6 +32,7 @@
  * SEAM_DATABASE_URL. Without one it exits 0 with a note.
  */
 
+import { requireSibling } from './lib/require-sibling.js';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { SQL } from 'bun';
@@ -485,10 +486,10 @@ function tsFiles(dir: string): string[] {
 }
 
 async function main(): Promise<void> {
-  if (!existsSync(EXT_ROOT)) {
-    console.log('[insert-schema] SKIP — no sibling zveltio-extensions checkout.');
-    return;
-  }
+  // Was a SKIP that returned green. This gate reads every extension's INSERTs
+  // against the real table shape; with no sibling there are no INSERTs to read,
+  // and saying so quietly is how a gate stops being one.
+  requireSibling(EXT_ROOT, 'insert-schema');
   let admin: SQL;
   try {
     admin = new SQL(ADMIN_URL);

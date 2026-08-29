@@ -46,6 +46,17 @@ type Case = {
  */
 const INTERP = '$' + '{t}';
 
+/**
+ * The `noExplicitAny` suppression marker, in pieces.
+ *
+ * Same reason as `INTERP` above, one rule further: `any-ratchet` counts these
+ * markers across the repository, so a probe carrying a literal one makes THIS
+ * file a violation of the gate it is testing. CI caught it — `scripts: 14 → 15`
+ * — which is the ratchet doing its job on the file written to prove the ratchet
+ * does its job.
+ */
+const ANY_MARKER = 'biome-' + 'ignore lint/suspicious/noExplicitAny';
+
 const CASES: Case[] = [
   {
     // The `.catch` must swallow a QUERY — the gate looks for `.execute(` or a
@@ -156,6 +167,82 @@ const CASES: Case[] = [
     cmd: 'bun run scripts/check-ext-snapshot-fresh.ts',
     file: 'packages/studio/src/lib/ext/content/pages/components/builder/BlockList.svelte',
     body: '\n<!-- edited in the snapshot, where the next build deletes it -->\n',
+    mode: 'append',
+  },
+  {
+    // A route module reaching for the bare `checkPermission(user, 'admin', '*')`
+    // instead of the permission the route actually needs. The gate reads the
+    // routes tree line by line, so one planted file is the whole violation.
+    gate: 'admin-gate-check',
+    cmd: 'bun run scripts/admin-gate-check.ts',
+    file: 'packages/engine/src/routes/__gate_probe_admin.ts',
+    body:
+      'export const probe = (user: string, checkPermission: Function) =>\n' +
+      "  checkPermission(user, 'admin', '*');\n",
+  },
+  {
+    // A deep import past a subsystem barrel (H-08). `lib/tenancy` ships an
+    // index.ts, so reaching `lib/tenancy/column-permissions.js` from a route is
+    // exactly what the gate refuses.
+    //
+    // `append` onto a TRACKED file, and this is the whole lesson of the case:
+    // the gate enumerates through `git ls-files`, so a freshly created probe is
+    // invisible to it and the first version of this case reported a working gate
+    // as decoration. The blind spot is real but not the gate's problem — CI
+    // checks out a commit, where every file is tracked.
+    //
+    // `backup.ts` rather than `data.ts`: the latter is the one file exempted for
+    // `lib/data`, and picking an exempted target is the same mistake wearing a
+    // different hat.
+    gate: 'import-boundaries',
+    cmd: 'bun run scripts/import-boundaries.ts',
+    file: 'packages/engine/src/routes/backup.ts',
+    body: "\nexport { getColumnAccess } from '../lib/tenancy/column-permissions.js';\n",
+    mode: 'append',
+  },
+  {
+    // One more `noExplicitAny` suppression than the baseline records. The
+    // ratchet counts markers, so the probe has to carry a real one.
+    // `append` on a TRACKED file — the third gate in this file that enumerates
+    // through `git ls-files`, after import-boundaries and check-migration-safety.
+    // A created probe is invisible to all three, and the first version of this
+    // case only went red because `audit-gates.ts` itself then held a literal
+    // marker and pushed the repo over its own baseline. It reported the right
+    // answer for the wrong reason, which is worse than reporting the wrong one.
+    gate: 'any-ratchet',
+    cmd: 'bun run scripts/any-ratchet.ts',
+    file: 'packages/engine/src/routes/backup.ts',
+    body: `\n// ${ANY_MARKER}: gate probe\nexport const __gateProbeAny: any = null;\n`,
+    mode: 'append',
+  },
+  {
+    // Two migrations both creating the same table. Whichever runs second is a
+    // silent no-op under IF NOT EXISTS, so the columns the second one meant to
+    // ship never exist and the failure surfaces far away.
+    // Planted in the SIBLING repo, and that is the point of the case. Two engine
+    // migrations creating one table are deliberately NOT two creators — `add()`
+    // keys on owner, so a table split across an owner's own migrations is fine.
+    // Only distinct owners shadow each other. A probe inside the engine reports
+    // this working gate as decoration, which is what the first version did.
+    gate: 'check-duplicate-table-creators',
+    cmd: 'bun run scripts/check-duplicate-table-creators.ts',
+    file: '../zveltio-extensions/analytics/dashboard/engine/migrations/900_gate_probe_dup.sql',
+    body: 'CREATE TABLE IF NOT EXISTS zv_schema_versions (id uuid PRIMARY KEY);\n',
+  },
+  {
+    // The gate that keeps the others honest, kept honest itself.
+    //
+    // The violation is a NEW gate joining CI without either a planted case or a
+    // recorded reason — the exact thing that let twenty-two of them accumulate
+    // unnoticed while the plan recorded "11/11". Planted by appending a step to
+    // the workflow, because that is how a real one would arrive.
+    //
+    // `append`, so the workflow is restored byte for byte; `create` would leave
+    // CI defined by a probe.
+    gate: 'check-gate-coverage',
+    cmd: 'bun run scripts/check-gate-coverage.ts',
+    file: '.github/workflows/ci.yml',
+    body: '\n        run: bun run scripts/__gate_probe_uncovered.ts\n',
     mode: 'append',
   },
 ];
