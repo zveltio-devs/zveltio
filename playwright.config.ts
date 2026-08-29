@@ -51,12 +51,35 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Playwright's bundled headless shell needs GTK/ATK libraries this box
-        // does not have. `CHROMIUM_PATH` points at a system Chromium instead;
-        // CI leaves it unset and keeps the bundled, pinned browser.
+        // The full browser, headless — NOT the bundled headless shell.
+        //
+        // Since Playwright 1.49 the default is `chrome-headless-shell`, a
+        // smaller binary. That binary segfaults here: `browser.newContext` fails
+        // with `Target page, context or browser has been closed`, and the
+        // browser stderr carries `Received signal 11 SEGV_MAPERR 0000000001b0` —
+        // the same fault address every time. It failed 8 of 19 runs on master,
+        // always on whatever spec sat in one particular slot: on 2026-08-27
+        // 10:55 that was `zz-design-capture`, and when `zz-align-guard` was
+        // added forty minutes later the identical crash moved onto it.
+        //
+        // We are already on the newest published Playwright (1.62.1), so there
+        // is no newer shell to move to. `channel: 'chromium'` selects the full
+        // Chromium build instead — a different binary, running headless via
+        // `--headless=new`. The suite is ten journeys; the extra startup cost is
+        // paid once per run and buys a browser that does not die mid-suite.
+        //
+        // A retry would also make the suite green. It would also make every
+        // future crash invisible, and this one took a day to find precisely
+        // because it looked like flakiness.
+        // Playwright's bundled browsers need GTK/ATK libraries some machines do
+        // not have. `CHROMIUM_PATH` points at a system Chromium instead; CI
+        // leaves it unset and takes the bundled build through the channel.
+        //
+        // The two are mutually exclusive — an explicit `executablePath` is the
+        // binary, and naming a channel as well asks for two different ones.
         ...(process.env.CHROMIUM_PATH
           ? { launchOptions: { executablePath: process.env.CHROMIUM_PATH } }
-          : {}),
+          : { channel: 'chromium' }),
       },
     },
   ],
