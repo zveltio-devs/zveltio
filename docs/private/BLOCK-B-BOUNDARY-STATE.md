@@ -69,7 +69,7 @@ lucrător de fundal pe pool, fără GUC.
 | 1 | **E derivabilă din cod?** Clasifică din SQL-ul ambelor repo-uri, fără bază vie | ✅ **FĂCUT** | **DA** — 384 tabele, 332/52 |
 | 2 | O singură sursă, citibilă de mașină | ✅ **FĂCUT** | `quality-gates/tenant-boundary.json` |
 | 3 | Poartă: o tabelă nouă declară partea | ✅ **FĂCUT** | dovedită prin plantare |
-| 4 | Confruntă derivarea cu o bază instalată complet | DE FĂCUT | — |
+| 4 | Confruntă derivarea cu o bază instalată complet | ⚠️ **ÎNCERCAT, NEÎNCHEIAT** | baza de referință naivă e inutilizabilă — vezi §Pasul 4 |
 | 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | 🟡 **PARȚIAL** | 30 motivate, **22 NEVERIFICAT** |
 | 6 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
@@ -132,6 +132,41 @@ citirea n-ar fi arătat.
 **22 sunt marcate NEVERIFICAT**. Un rând NEVERIFICAT nu e o justificare, e o sarcină —
 scris așa tocmai ca să nu devină „scuza care arată a revizie". Ăsta e restul pasului 5.
 
+### Pasul 4 — încercat, și eșecul e rezultatul (2026-08-29)
+
+Criteriul cerea confruntarea derivării cu o bază instalată complet. Am construit una:
+bază virgină → migrațiile engine-ului (72 de tabele) → toate migrațiile de extensii
+aplicate cu `psql -f`, în bucle repetate până la stagnare → **345 de tabele**.
+
+Comparația a dat **245 de nepotriviri din 345**, toate în aceeași direcție: derivarea
+spune că tabela are `tenant_id`, baza vie spune că nu.
+
+**Cifra aia nu e un rezultat. E un artefact, și baza e de vină.**
+
+38 de migrații eșuau constant, iar reluarea lor nu ajuta — deci nu era ordinea. Cauza:
+`psql -v ON_ERROR_STOP=1` oprește la **prima** eroare din fișier, lăsând migrația **pe
+jumătate aplicată**. Proba: `zvd_collections` avea `ai_embed_excluded_fields` (linia 233
+din `ai/001_initial.sql`) dar **nu** `ai_search_enabled` (linia 154), iar `zv_ai_chats`
+nu exista deloc. O schemă incoerentă, nu una incompletă.
+
+Deci: cele 245 de „nepotriviri" spun ceva despre metoda mea de instalare, **nimic**
+despre derivare. Le raportez ca eșec de instrument, nu ca finding — e aceeași capcană
+care a produs „364 ms", într-un costum nou: **o bază construită prost dă cifre
+credibile și false.**
+
+**Ce ar cere un pas 4 corect:** baza de referință construită pe calea pe care proiectul
+o folosește el însuși — suita de teste a repo-ului soră peste o bază virgină cu schema
+engine, apoi un al doilea boot ca să ruleze reconcilierile (`project_ext_contract_suite_recipe`).
+Nu `psql -f` într-o buclă. E o lucrare în sine, nu un pas de zece minute.
+
+**Ce rămâne totuși dovedit despre derivare, fără baza aia:**
+- **10 din 10** pe tabele a căror parte era cunoscută independent
+- **două implementări scrise separat** (analiză în Python, poartă în TypeScript) dau
+  aceleași 52 de tabele de instanță
+- poarta e dovedită prin plantare, iar plantarea i-a găsit deja un punct orb real
+
+Nu e criteriul 4, și n-am de gând să-l declar îndeplinit. E ce se poate afirma azi.
+
 ## Ce NU se atinge în blocul ăsta
 
 - **Politicile RLS existente și forma predicatului.** S-a schimbat de trei ori și e
@@ -158,6 +193,7 @@ scris așa tocmai ca să nu devină „scuza care arată a revizie". Ăsta e res
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 4 | **Încercat, neîncheiat.** Baza de referință construită cu `psql -f` în buclă e **pe jumătate aplicată** (`ON_ERROR_STOP` oprește la prima eroare din fișier), deci incoerentă: `zvd_collections` avea o coloană `ai_*` dar nu și celelalte, `zv_ai_chats` lipsea. Comparația a dat 245 de „nepotriviri" care spun ceva despre instalarea mea și nimic despre derivare — artefact, nu finding. Un pas 4 corect cere calea din `project_ext_contract_suite_recipe`. |
 | 2026-08-29 | 1–3 | **Derivabilă din cod: DA.** 384 tabele, 332 per firmă, 52 de instanță, **9 copii ai unor tabele per-firmă** — izolare fără a doua linie. Derivarea validată 10/10 pe adevăruri cunoscute și scrisă de două ori independent. Poarta `check-tenant-boundary` dovedită prin plantare; sonda i-a găsit un punct orb (CREATE pe o singură linie). Baseline: 30 motivate, 22 NEVERIFICAT. |
 | 2026-08-29 | setup | Branch `block-b/boundary` din `b2dabd27`. Document scris, criterii fixate ÎNAINTE de măsurare. Pasul 1 pune întrebarea care poate închide blocul devreme: e distincția derivabilă din cod, sau adevărul stă doar într-o bază vie? |
 
