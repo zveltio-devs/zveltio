@@ -46,6 +46,17 @@ type Case = {
  */
 const INTERP = '$' + '{t}';
 
+/**
+ * The `noExplicitAny` suppression marker, in pieces.
+ *
+ * Same reason as `INTERP` above, one rule further: `any-ratchet` counts these
+ * markers across the repository, so a probe carrying a literal one makes THIS
+ * file a violation of the gate it is testing. CI caught it — `scripts: 14 → 15`
+ * — which is the ratchet doing its job on the file written to prove the ratchet
+ * does its job.
+ */
+const ANY_MARKER = 'biome-' + 'ignore lint/suspicious/noExplicitAny';
+
 const CASES: Case[] = [
   {
     // The `.catch` must swallow a QUERY — the gate looks for `.execute(` or a
@@ -192,12 +203,17 @@ const CASES: Case[] = [
   {
     // One more `noExplicitAny` suppression than the baseline records. The
     // ratchet counts markers, so the probe has to carry a real one.
+    // `append` on a TRACKED file — the third gate in this file that enumerates
+    // through `git ls-files`, after import-boundaries and check-migration-safety.
+    // A created probe is invisible to all three, and the first version of this
+    // case only went red because `audit-gates.ts` itself then held a literal
+    // marker and pushed the repo over its own baseline. It reported the right
+    // answer for the wrong reason, which is worse than reporting the wrong one.
     gate: 'any-ratchet',
     cmd: 'bun run scripts/any-ratchet.ts',
-    file: 'packages/engine/src/lib/__gate_probe_any.ts',
-    body:
-      '// biome-ignore lint/suspicious/noExplicitAny: gate probe\n' +
-      'export const probe: any = null;\n',
+    file: 'packages/engine/src/routes/backup.ts',
+    body: `\n// ${ANY_MARKER}: gate probe\nexport const __gateProbeAny: any = null;\n`,
+    mode: 'append',
   },
   {
     // Two migrations both creating the same table. Whichever runs second is a

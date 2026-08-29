@@ -113,6 +113,23 @@ poartă care funcționează drept decor — exact avertismentul din antetul meta
 | `check-duplicate-table-creators` | `add()` cheie pe **proprietar** ⇒ două migrații ale engine-ului = UN creator, deliberat | corectă; doar proprietari diferiți se umbresc. Sonda trebuie plantată în **sora** |
 | `check-migration-safety` | selectează prin `git diff --diff-filter=AM origin/master...HEAD` ⇒ **o sondă nestagiată e invizibilă** | corectă; nu poate fi dovedită de meta-poarta de azi — trecută înapoi în baseline **cu motivul măsurat** |
 
+**Și una structurală, găsită a patra oară pe aceeași cauză:** `any-ratchet` enumeră
+tot prin `git ls-files`. Deci **`mode: 'create'` din meta-poartă e orb la orice poartă
+care enumeră prin git** — și astea sunt majoritatea. Pentru fiecare dintre cele 23
+rămase, prima întrebare e „enumeră prin git?"; dacă da, cazul trebuie `append` pe un
+fișier urmărit, ori plantat în soră.
+
+Cazul `any-ratchet` a fost, la prima încercare, **verde din motivul greșit**: sonda nu
+declanșa nimic, dar `audit-gates.ts` ajunsese el însuși peste baseline fiindcă purta
+marcajul literal în corpul sondei. A raportat răspunsul corect din cauza greșită, ceea
+ce e mai rău decât un răspuns greșit. Marcajul se construiește acum din bucăți, exact
+cum face `INTERP` de deasupra lui, pentru același motiv cu o regulă mai încolo.
+
+**Îmbunătățire evidentă, nefăcută încă:** meta-poarta ar putea face `git add -N` pe
+sondă înainte de a rula comanda, și atunci `create` ar merge și pentru porțile care
+enumeră prin git. Mută indexul, deci cere grijă într-un repo cu worktree-uri partajate
+— de cântărit la pasul 4.
+
 Morala, pentru cine continuă: **o sondă care nu declanșează nu e o poartă moartă până
 nu citești de ce.** Diferența dintre „poarta e decor" și „sonda e greșită" e o lectură
 de cinci minute, iar planul are deja două ocoluri greșite luate exact prin sărirea
