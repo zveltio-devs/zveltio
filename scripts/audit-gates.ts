@@ -159,6 +159,61 @@ const CASES: Case[] = [
     mode: 'append',
   },
   {
+    // A route module reaching for the bare `checkPermission(user, 'admin', '*')`
+    // instead of the permission the route actually needs. The gate reads the
+    // routes tree line by line, so one planted file is the whole violation.
+    gate: 'admin-gate-check',
+    cmd: 'bun run scripts/admin-gate-check.ts',
+    file: 'packages/engine/src/routes/__gate_probe_admin.ts',
+    body:
+      'export const probe = (user: string, checkPermission: Function) =>\n' +
+      "  checkPermission(user, 'admin', '*');\n",
+  },
+  {
+    // A deep import past a subsystem barrel (H-08). `lib/tenancy` ships an
+    // index.ts, so reaching `lib/tenancy/column-permissions.js` from a route is
+    // exactly what the gate refuses.
+    //
+    // `append` onto a TRACKED file, and this is the whole lesson of the case:
+    // the gate enumerates through `git ls-files`, so a freshly created probe is
+    // invisible to it and the first version of this case reported a working gate
+    // as decoration. The blind spot is real but not the gate's problem — CI
+    // checks out a commit, where every file is tracked.
+    //
+    // `backup.ts` rather than `data.ts`: the latter is the one file exempted for
+    // `lib/data`, and picking an exempted target is the same mistake wearing a
+    // different hat.
+    gate: 'import-boundaries',
+    cmd: 'bun run scripts/import-boundaries.ts',
+    file: 'packages/engine/src/routes/backup.ts',
+    body: "\nexport { getColumnAccess } from '../lib/tenancy/column-permissions.js';\n",
+    mode: 'append',
+  },
+  {
+    // One more `noExplicitAny` suppression than the baseline records. The
+    // ratchet counts markers, so the probe has to carry a real one.
+    gate: 'any-ratchet',
+    cmd: 'bun run scripts/any-ratchet.ts',
+    file: 'packages/engine/src/lib/__gate_probe_any.ts',
+    body:
+      '// biome-ignore lint/suspicious/noExplicitAny: gate probe\n' +
+      'export const probe: any = null;\n',
+  },
+  {
+    // Two migrations both creating the same table. Whichever runs second is a
+    // silent no-op under IF NOT EXISTS, so the columns the second one meant to
+    // ship never exist and the failure surfaces far away.
+    // Planted in the SIBLING repo, and that is the point of the case. Two engine
+    // migrations creating one table are deliberately NOT two creators — `add()`
+    // keys on owner, so a table split across an owner's own migrations is fine.
+    // Only distinct owners shadow each other. A probe inside the engine reports
+    // this working gate as decoration, which is what the first version did.
+    gate: 'check-duplicate-table-creators',
+    cmd: 'bun run scripts/check-duplicate-table-creators.ts',
+    file: '../zveltio-extensions/analytics/dashboard/engine/migrations/900_gate_probe_dup.sql',
+    body: 'CREATE TABLE IF NOT EXISTS zv_schema_versions (id uuid PRIMARY KEY);\n',
+  },
+  {
     // The gate that keeps the others honest, kept honest itself.
     //
     // The violation is a NEW gate joining CI without either a planted case or a
