@@ -41,10 +41,10 @@ e constantă. Pentru un „Business OS multi-tenant", asta e plafonul care conte
 | 0 | Citește documentul ăsta | — | (la fiecare pas) |
 | 1 | Banc de scalare controlat pe bază proprie `zv_casbin` | ✅ **FĂCUT** | vezi §Curba |
 | 2 | Curba rezolvării — formă, nu două puncte | ✅ **FĂCUT** | **liniară, ușor supra-liniară** |
-| 3 | Fezabilitatea `loadFilteredPolicy` cu enforcer singleton partajat între firme | **ÎN LUCRU** | |
-| 4 | Ce s-ar rupe dacă regulile `p` ar fi legate de domeniu în loc de `dom='*'` | DE FĂCUT | |
-| 5 | Creșterea regulilor `g` (958 acum) cu utilizatori × firme | DE FĂCUT | |
-| 6 | **PUNCT DE VALIDARE** — vezi criteriile de mai jos | DE FĂCUT | |
+| 3 | Fezabilitatea `loadFilteredPolicy` cu enforcer singleton partajat între firme | ✅ **FĂCUT** | **NU e fezabil** |
+| 4 | Ce s-ar rupe dacă regulile `p` ar fi legate de domeniu în loc de `dom='*'` | ✅ **FĂCUT** | index: 13–19×, dar premisa e falsă |
+| 5 | Creșterea regulilor `g` cu utilizatori × firme | ⛔ **ANULAT** | premisa a căzut la pasul 4 |
+| 6 | **PUNCT DE VALIDARE** | ✅ **FĂCUT** | **BLOCUL 2 NU SE DESCHIDE** |
 
 ### Criteriile punctului de validare (scrise ÎNAINTE de măsurare)
 
@@ -88,9 +88,83 @@ pe care îl cere un atacator.
 **Prima jumătate a criteriului de validare e îndeplinită:** curba e cel puțin
 liniară. Rămâne de arătat că există o cale care o reduce.
 
+### Pasul 3 — `loadFilteredPolicy`: nu e fezabil
+
+Adaptorul Kysely **nu** implementează `FilteredAdapter` (fără `isFiltered`, fără
+`loadFilteredPolicy`), iar `_enforcer` e un singleton partajat între firme. Dar
+obstacolul real e mai adânc: **nu există felie după care să filtrezi.** Toate
+regulile `p` au `dom='*'`, deci o încărcare filtrată pe domeniu le-ar întoarce pe
+toate.
+
+### Pasul 4 — indexul ajută, dar numai cu datele schimbate
+
+La 48 000 de politici:
+
+| | Timp | Construit o dată |
+|---|---|---|
+| A. scanare completă (azi) | 3,405 ms | — |
+| B. index pe domeniu | **0,264 ms** | 6,8 ms |
+| C. index pe (domeniu, subiect) | **0,182 ms** | 13,9 ms |
+| D. index pe subiect, **date neschimbate** | **12,096 ms** | 7,3 ms |
+
+D e verdictul care contează: **fără schimbarea datelor, indexul nu dă nimic** —
+`tenant_member` deține 36 000 din 48 000 de reguli, deci separarea pe subiect nu
+reduce nimic pentru rolul comun. B și C funcționează doar pentru că le-am construit
+pe politici legate de domeniu.
+
 ---
 
-## Blocul 2 — (se definește abia după validarea blocului 1)
+## PUNCT DE VALIDARE — verdict: BLOCUL 2 NU SE DESCHIDE
+
+**Premisa branch-ului e falsă, și am descoperit-o abia aici.**
+
+`zvd_collections` **nu are `tenant_id`.** Colecțiile sunt la nivel de instanță,
+**partajate între firme** — o instalare cu 100 de firme și 20 de colecții are 20 de
+colecții, nu 2 000. Deci numărul de politici **NU crește cu numărul de firme.**
+Crește cu numărul de resurse pe care le definește operatorul, mărginit de ce
+construiește el, nu de câți clienți are.
+
+Ceea ce înseamnă și că legarea pe domeniu (singura cale care taie curba) **n-are ce
+lega**: nu există felie per firmă, fiindcă resursele sunt comune.
+
+### De unde a venit greșeala: propria mea poluare
+
+Baza pe care am măsurat avea **167 de colecții, dintre care 163 artefacte ale
+propriilor mele teste** (nume cu marcă de timp). Instanța reală `/opt/zveltio` are
+**3 colecții, 79 de politici `p`, 23 de resurse distincte** — de ~300 de ori mai
+puțin.
+
+### Corecție la cifrele raportate anterior
+
+Recalculat pe scări realiste:
+
+| Resurse | Politici | `enforce()` — codul vechi | `checkPermission` — codul nou |
+|---|---|---|---|
+| **23 (instanța reală)** | 92 | **0,930 ms** | 0,351 ms |
+| 300 (toate extensiile) | 1 200 | 7,271 ms | 0,672 ms |
+| 1 000 | 4 000 | 23,435 ms | 1,509 ms |
+| 6 000 | 24 000 | 142,835 ms | 11,440 ms |
+
+**Cifra de „364 ms per decizie" din auditul precedent a fost măsurată pe baza
+poluată.** Pe o instanță reală, codul vechi costa **0,93 ms**. Vectorul de
+amplificare „3 req/s cu un cont gratuit" e la fel de supraevaluat.
+
+**Reparația rămâne corectă și rămâne utilă** — schimbă panta, iar la ~300 de resurse
+(o instalare cu toate extensiile) codul vechi ajunge la 7,3 ms per refuz față de
+0,67 ms. Dar nu a reparat o problemă de producție existentă azi; a reparat una care
+apare la o scară pe care instanțele reale n-o ating încă.
+
+### Ce se face în schimb
+
+Nimic pe branch-ul ăsta. Concluzia e rezultatul.
+
+Rămâne o singură acțiune, ieftină și fără legătură cu Casbin: **suita de teste lasă
+în urmă colecții** (163 într-o singură bază). Asta nu e doar dezordine — a produs o
+măsurătoare falsă care a condus un audit întreg. Merită curățenie în `afterAll`.
+
+---
+
+## Blocul 2 — NU SE DESCHIDE (vezi punctul de validare)
 
 ---
 
@@ -100,6 +174,9 @@ liniară. Rămâne de arătat că există o cale care o reduce.
 |---|---|---|
 | 2026-08-29 | setup | Branch creat din `422377b2`. Document de stare scris. Blocul 1 definit cu criterii de validare stabilite înainte de măsurare. |
 | 2026-08-29 | 1–2 | Banc pe bază proprie `zv_casbin`, cinci puncte de măsurare. Curba e liniară: 6 000 → 96 000 de politici mută rezolvarea de la 3,57 la 62,33 ms. Prima jumătate a criteriului e îndeplinită. |
+| 2026-08-29 | 3 | `loadFilteredPolicy` nu e fezabil: adaptorul nu implementează interfața, enforcer-ul e partajat, și nu există felie de filtrat fiindcă `dom='*'`. |
+| 2026-08-29 | 4 | Indexul dă 13–19× **doar** pe politici legate de domeniu. Fără schimbarea datelor: zero. |
+| 2026-08-29 | **VALIDARE** | **Blocul 2 NU se deschide.** `zvd_collections` n-are `tenant_id` — colecțiile sunt partajate, deci politicile NU cresc cu firmele. Baza de măsurare avea 163 de colecții din teste; instanța reală are 3. Cifra de 364 ms din auditul precedent a fost artefact de poluare; real e 0,93 ms. |
 
 ---
 
