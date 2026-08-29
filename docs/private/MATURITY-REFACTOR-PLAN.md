@@ -10,6 +10,71 @@
 > s-au încheiat exact așa** — și de fiecare dată măsurătoarea a găsit ceva mai bun
 > decât planul pe care îl aveam în cap.
 
+
+---
+
+## Metoda de lucru — obligatorie, nu recomandată
+
+Nu e ceremonie. E procedura care a produs documentul ăsta, și motivul pentru care
+patru din cinci blocuri s-au închis cu „nu merită" **înainte** să se scrie cod.
+
+### 1. Un document de stare care călătorește cu sarcina
+
+Un singur fișier care ține starea curentă a lucrării. **Se citește la începutul
+fiecărui pas** și **se actualizează după fiecare pas** — nu la finalul blocului, nu
+„când e ceva de spus".
+
+Trebuie să conțină:
+
+- **De ce există blocul** — cu cifrele care l-au justificat, nu cu intenția
+- **Tabel de pași**, fiecare cu stare (`DE FĂCUT` / `ÎN LUCRU` / `FĂCUT` / `ANULAT`)
+  și rezultatul lui
+- **Criteriile punctului de validare, scrise ÎNAINTE de măsurare** — ca să nu poată
+  fi ajustate după ce se văd cifrele. Ăsta e punctul central al metodei.
+- **Ce NU se atinge în bloc** — explicit
+- **Jurnal** cu o linie per pas
+- **Context care nu trebuie re-descoperit** — mediu, variabile, capcane. Fără el,
+  următorul care preia pierde o zi refăcând ce s-a aflat deja.
+
+Exemplu viu: `docs/private/CASBIN-SCALING-STATE.md`.
+
+### 2. Descompunere în blocuri de 5–7 pași
+
+Nu mai mult. Un bloc de doisprezece pași e un plan care nu s-a gândit unde poate
+greși. Pasul 0 al fiecărui bloc e întotdeauna „citește documentul de stare".
+
+Primul pas al unui bloc **măsoară**, nu construiește. Dacă măsurătoarea nu confirmă
+premisa, blocul se închide acolo și restul pașilor nu se mai fac. S-a întâmplat de
+patru ori într-o săptămână.
+
+### 3. Punct de validare între blocuri
+
+Blocul următor **nu se deschide** decât dacă criteriile scrise dinainte sunt
+îndeplinite. Un „nu merită" măsurat e un rezultat, nu un eșec — se scrie în document
+și se raportează.
+
+Trei reguli care fac diferența dintre validare reală și formalitate:
+
+- **Criteriile se scriu înainte de măsurare.** După, nu mai sunt criterii, sunt
+  justificări.
+- **O poartă nedovedită prin plantare e decor.** Plantezi violarea pe care zice că o
+  prinde și verifici că pică. `audit-gates.ts` face asta pentru toate cele 11.
+- **Verifică pe mediul lor, nu pe al tău.** În săptămâna asta, patru schimbări au
+  trecut local și au picat în CI — suita `unit` rulează fără bază de date, procesul e
+  partajat între fișiere, iar primul rând din `user` poate fi contul god.
+
+### Capcana care a costat cel mai mult
+
+**O bază de date murdară nu dă un test roșu. Dă un număr credibil și fals.**
+
+Suita lăsa cinci colecții per rulare. Treizeci de rulări au produs o bază în care
+autorizarea măsura 364 ms per decizie. Cifra a ajuns în două rapoarte scrise înainte
+ca cineva să întrebe câte colecții are o instalare reală. Răspunsul era trei, iar
+costul real 0,93 ms.
+
+Înainte de orice măsurătoare care produce o cifră raportabilă: **verifică pe ce fel
+de bază măsori.**
+
 ---
 
 ## Ce NU e în plan, și de ce
@@ -173,17 +238,27 @@ tot setul citit înainte de filtrare.
 
 ## Ordinea recomandată
 
-**C înainte de A.** Blocul A e cea mai riscantă refactorizare din document și trece
-prin terenul unde un `finally` sincron a lăsat odată 302 politici inerte cu testele
-verzi. Nu se începe fără plasa din blocul C.
+**1. Blocul C — porțile.** Primul, deși e cel mai puțin spectaculos. Blocul A trece
+prin terenul unde un `finally` sincron a lăsat odată 302 politici inerte **cu testele
+verzi**. Nu se începe fără plasa. Fără C, o regresie din A nu se vede.
 
-Apoi **B**, fiindcă e ieftin și pentru că neclaritatea lui a produs deja două
-concluzii greșite ale mele într-o singură săptămână.
+**2. Blocul B — granița per-firmă / instanță.** Ieftin, și neclaritatea lui a produs
+deja două concluzii greșite ale mele într-o singură săptămână: o poartă care raporta
+cod corect drept violare, și premisa falsă a unui branch întreg. Trebuie făcut
+înainte de A, fiindcă A mută exact codul care depinde de distincția asta.
 
-**A** la urmă, cu tot timpul din lume — și cu libertatea de a se opri la pasul 1
-dacă măsurătoarea nu confirmă câștigul.
+**3. Blocul A — contextul explicit.** La urmă, cu tot timpul din lume, și cu
+libertatea declarată de a se opri la pasul 1 dacă măsurătoarea nu confirmă că
+plafonul se mută.
 
-**D** și **E** oricând; nu blochează nimic.
+**D și E oricând** — nu blochează nimic și nu sunt blocate de nimic.
+
+### De ce ordinea asta și nu ordinea valorii
+
+A e cea mai valoroasă și e ultima. Nu din prudență: din faptul că e singura care
+poate rupe izolarea tăcut. C și B costă puțin și transformă o eventuală greșeală din
+A dintr-una tăcută într-una zgomotoasă. Ordinea e aleasă după **ce se întâmplă dacă
+greșim**, nu după ce câștigăm dacă reușim.
 
 ---
 
