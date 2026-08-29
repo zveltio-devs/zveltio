@@ -158,6 +158,22 @@ const CASES: Case[] = [
     body: '\n<!-- edited in the snapshot, where the next build deletes it -->\n',
     mode: 'append',
   },
+  {
+    // The gate that keeps the others honest, kept honest itself.
+    //
+    // The violation is a NEW gate joining CI without either a planted case or a
+    // recorded reason — the exact thing that let twenty-two of them accumulate
+    // unnoticed while the plan recorded "11/11". Planted by appending a step to
+    // the workflow, because that is how a real one would arrive.
+    //
+    // `append`, so the workflow is restored byte for byte; `create` would leave
+    // CI defined by a probe.
+    gate: 'check-gate-coverage',
+    cmd: 'bun run scripts/check-gate-coverage.ts',
+    file: '.github/workflows/ci.yml',
+    body: '\n        run: bun run scripts/__gate_probe_uncovered.ts\n',
+    mode: 'append',
+  },
 ];
 // Refuse only if a plant path already exists — precise, where "the tree is
 // clean" was not. Blocking on any modification meant the audit could not run
