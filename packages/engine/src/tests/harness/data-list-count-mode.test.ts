@@ -20,7 +20,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -53,7 +58,7 @@ d('data list count mode (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql.raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`).execute(db);
+    await dropTestCollection(db, COLLECTION);
   });
 
   const list = async (qs: string): Promise<ListBody> => {
