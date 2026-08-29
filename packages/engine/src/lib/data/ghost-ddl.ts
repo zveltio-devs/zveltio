@@ -364,8 +364,14 @@ export class GhostDDL {
       try {
         await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(db);
         await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(db);
-      } catch {
-        /* best-effort cleanup — don't throw errors in background */
+      } catch (err) {
+        // Not fatal — a background timer has nobody to throw to — but silence
+        // is what let these accumulate unnoticed. `sweepGhostOrphans` reclaims
+        // them on the next boot; saying so here is what makes that traceable.
+        console.warn(
+          `[ghost-ddl] post-swap cleanup failed for ${oldTable}; it will be reclaimed at next boot:`,
+          (err as Error).message,
+        );
       }
     }, 60_000);
     _pendingCleanups.add(timer);
@@ -463,4 +469,79 @@ export class GhostDDL {
       throw err;
     }
   }
+}
+
+/** What one sweep reclaimed, so the caller can report it. */
+export interface GhostSweepResult {
+  /** `_zv_old_` tables dropped, with their changelogs. */
+  dropped: string[];
+  /** `_zv_ghost_` tables seen but deliberately left alone. */
+  abandonedGhosts: string[];
+  /** Tables a DROP refused to give up, with the reason. */
+  failed: { table: string; reason: string }[];
+}
+
+const OLD_PREFIX = '_zv_old_';
+const GHOST_PREFIX = '_zv_ghost_';
+const CHANGELOG_PREFIX = '_zv_changelog_';
+
+/**
+ * Reclaim the tables a Ghost DDL run left behind.
+ *
+ * The post-swap DROP is an in-process `setTimeout` sixty seconds out. A process
+ * that exits first leaves `_zv_old_<table>` and its changelog on disk for good —
+ * and that is not the rare case: `cancelPendingCleanups()` runs on graceful
+ * shutdown, so an ordinary deploy inside the window cancels the DROP outright.
+ * What stays behind is a full copy of the original rows which, unlike the live
+ * table, carries no tenant policies, and nothing ever came back for it.
+ *
+ * `_zv_old_` is created only inside the swap transaction, after the ghost has
+ * already taken the original's name. A table with that prefix is therefore dead
+ * by construction — the swap it belonged to has committed — so dropping it at
+ * boot is safe even while another instance is running.
+ *
+ * `_zv_ghost_` is a different animal: a run on another instance may be copying
+ * into it at this very moment, and no lock exists to tell us apart from it. Those
+ * are reported and left alone.
+ */
+export async function sweepGhostOrphans(db: Database): Promise<GhostSweepResult> {
+  const result: GhostSweepResult = { dropped: [], abandonedGhosts: [], failed: [] };
+
+  // `LIKE` needs the underscores escaped or `_` matches any single character,
+  // which would pull in unrelated tables that merely resemble the prefix.
+  // `_` is a single-character wildcard in LIKE, so the prefixes have to be
+  // escaped or `_zv_old_%` also matches any table shaped <any>zv<any>old<any>.
+  // The escape character is `!` rather than the conventional backslash because
+  // a backslash in a template literal is an escape sequence of its own and the
+  // pattern would reach PostgreSQL with the escaping already stripped out.
+  const rows = await sql<{ tablename: string }>`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = current_schema()
+      AND (tablename LIKE '!_zv!_old!_%' ESCAPE '!'
+        OR tablename LIKE '!_zv!_ghost!_%' ESCAPE '!')
+    ORDER BY tablename
+  `.execute(db);
+
+  for (const { tablename } of rows.rows) {
+    if (tablename.startsWith(GHOST_PREFIX)) {
+      result.abandonedGhosts.push(tablename);
+      continue;
+    }
+
+    const original = tablename.slice(OLD_PREFIX.length);
+    const changelog = `${CHANGELOG_PREFIX}${original}`;
+    try {
+      // The changelog goes first: it is the one the swap's trigger wrote into,
+      // and dropping the copy while its changelog survives is the half-cleanup
+      // that made this hard to spot in the first place.
+      await sql`DROP TABLE IF EXISTS ${sql.id(changelog)}`.execute(db);
+      await sql`DROP TABLE IF EXISTS ${sql.id(tablename)}`.execute(db);
+      result.dropped.push(tablename);
+    } catch (err) {
+      result.failed.push({ table: tablename, reason: (err as Error).message });
+    }
+  }
+
+  return result;
 }

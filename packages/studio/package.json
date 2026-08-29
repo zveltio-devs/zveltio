@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "svelte-kit sync && tsc --noEmit"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.18.0",

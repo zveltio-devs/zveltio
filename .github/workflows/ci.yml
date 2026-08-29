@@ -483,6 +483,22 @@ jobs:
         # this refuses new ones.
         run: bun run check:atomic-writes
 
+      - name: No tenant table on the raw pool
+        # `reqDb(c, db)` hands a handler the request transaction, which is where
+        # `SET LOCAL` lives and therefore the only place a query is bound by the
+        # tenant policies. The same query on the route's raw `db` runs on the
+        # pool as the engine's own role and sees every tenant's rows.
+        #
+        # This is a gate rather than a review note because `reqDb` falls back to
+        # the pool when no transaction is open — right for single-tenant
+        # installs, and exactly what would turn a missing transaction into a
+        # silent cross-tenant read. Forty-five call sites take that fallback
+        # today, so anything that stops the transaction from opening converts
+        # all of them at once. The repository has been here before: a
+        # synchronous `finally` cleared the transaction early and left 302
+        # policies inert, with the tests still green.
+        run: bun run check:tenant-on-pool
+
       - name: Schema snapshot
         # Records what a real install produces and fails when it changes. Every
         # other schema gate asks whether the code agrees with the migrations;
@@ -540,6 +556,24 @@ jobs:
           bun-version: '1.3.14'
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      # This job runs `ext:seam` and `sql:numeric-arith`, and both read the
+      # sibling repository — but it was the one job that never cloned it.
+      # `tsFiles()` returns [] for a directory that is not there, so the scans
+      # covered nothing and still exited 0. The engine below has the same gap
+      # from the other side: `ZVELTIO_EXTENSIONS_PATH` pointed at
+      # `$GITHUB_WORKSPACE/extensions`, which does not exist in this checkout,
+      # and the loader skips a path that is missing without a word. So the gates
+      # ran against a core-only schema and passed having seen none of it.
+      - name: Clone zveltio-extensions sibling (the gates below read it)
+        run: |
+          REF="${{ github.head_ref || github.ref_name }}"
+          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+            echo "Cloning zveltio-extensions@$REF (paired branch)"
+            git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          else
+            echo "Cloning zveltio-extensions@master (no paired branch $REF)"
+            git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
+          fi
       # SDK dist/ is .gitignored — build it so the engine (and its tests)
       # can import `@zveltio/sdk/testing` and `@zveltio/sdk/extension`.
       - name: Build SDK
@@ -563,7 +597,7 @@ jobs:
           # Encrypted-field writes (e.g. webhook secrets) now fail-closed when
           # unset; give the integration engine a real key so they encrypt.
           FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
-          ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/extensions
+          ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/../zveltio-extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
           # /metrics is fail-closed (401) without a token by default; this test

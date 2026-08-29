@@ -14,6 +14,8 @@
  * before.
  */
 
+import { resolvePoolMax } from '../db/index.js';
+
 export interface ProductionGuardViolation {
   /** The variable at fault, so the operator can act without reading source. */
   variable: string;
@@ -122,7 +124,7 @@ export async function reportConcurrencyCeiling(db: {
   // biome-ignore lint/suspicious/noExplicitAny: minimal structural shape, avoids importing Kysely here
   executeQuery?: any;
 }): Promise<void> {
-  const poolMax = Number(process.env.DB_POOL_MAX ?? 10);
+  const poolMax = resolvePoolMax();
   try {
     const { sql } = await import('kysely');
     const res = await sql<{ max_connections: string }>`SHOW max_connections`.execute(db as never);
