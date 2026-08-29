@@ -621,6 +621,30 @@ jobs:
       # can import `@zveltio/sdk/testing` and `@zveltio/sdk/extension`.
       - name: Build SDK
         run: cd packages/sdk && bun run build
+      - name: Log every DDL statement Postgres executes
+        # For the intermittent `0A000 cached plan must not change result type`
+        # on `select * from "zvd_collections" where "name" = $1`, which has now
+        # failed this lane in four of six runs.
+        #
+        # The engine-side trace (ZVELTIO_TRACE_SQL_ERRORS) names the statement
+        # that BROKE. What is still unknown is what changed the table's shape
+        # underneath it, and when. Everything reachable by reading has been
+        # eliminated by measurement: creating a collection does NOT alter
+        # `zvd_collections` (19 columns before and after, on a live engine);
+        # migrations run before the engine starts; `ext:seam` works in separate
+        # databases via CREATE DATABASE … TEMPLATE; and nothing here sends
+        # `X-Preview-Token`, the only thing that switches `search_path`.
+        #
+        # A DDL log settles it: the container's Postgres output is already
+        # printed by "Stop containers", so the offending statement appears there
+        # with a timestamp, beside the ERROR it caused.
+        #
+        # Database-level rather than ALTER SYSTEM: no reload needed, and it
+        # applies to every session opened afterwards — the migration run below
+        # and the engine's whole pool.
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
+            -c "ALTER DATABASE zveltio_test SET log_statement = 'ddl';"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
