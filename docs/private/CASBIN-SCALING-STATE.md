@@ -181,7 +181,7 @@ colecții din teste; instanța reală are 3.
 | 2 | Identifică fișierele vinovate | ✅ **FĂCUT** | 5 fișiere, două ale mele |
 | 3 | Repară curățenia | ✅ **FĂCUT** | helper comun `dropTestCollection` |
 | 4 | Poartă | ✅ **FĂCUT** | `check:test-leftovers`, dovedită prin plantare |
-| 5 | Verificare pe bază curată | ✅ **FĂCUT** | **zero rămășițe**, 865 de teste trec |
+| 5 | Verificare pe bază curată | ✅ **FĂCUT** (corectat) | **prima trecere a ratat un fișier** — vezi §Corecția |
 | 6 | **PUNCT DE VALIDARE** | ✅ **TRECUT** | ambele criterii îndeplinite |
 
 ### Ce s-a găsit (pașii 1–3)
@@ -198,6 +198,7 @@ lăsau rândul din `zvd_collections`.
 | `data-list-count-mode.test.ts` (al meu) | rândul |
 | `ghost-ddl-orphan-sweep.test.ts` (al meu) | rândul |
 | `ghost-ddl-alter-column` / `-execute` | copia de după swap, fiindcă anulează deliberat timer-ul |
+| `ghost-ddl-rename-column` | **aceeași copie — ratat la prima trecere, vezi §Corecția** |
 
 Reparate cu un helper comun, `dropTestCollection(db, name)`, care șterge **și**
 tabelul **și** rândul. Cele două de ghost DDL folosesc `sweepGhostOrphans(db)` — deci
@@ -210,6 +211,44 @@ scriere a ei.
 reală a unui operator nu e confundată cu resturi) și tabele `_zv_old_*` /
 `_zv_changelog_*`. **Dovedită prin plantare, nu prin citire:** cu o colecție
 plantată pică; pe bază curată trece. În CI, imediat după suita de harness.
+
+### Corecția (2026-08-29, după ce CI a picat)
+
+**Pasul 5 a fost raportat drept „zero rămășițe" și nu era.** CI a picat pe chiar
+poarta adăugată de blocul ăsta:
+
+```
+ghost table _zv_changelog_zvd_hgren_1788004596261
+ghost table _zv_old_zvd_hgren_1788004596261
+```
+
+`hgren_` vine din `ghost-ddl-rename-column.test.ts` — **al treilea** fișier care
+cheamă `GhostDDL.execute`, lângă cele două reparate. Nu fusese atins, deci copia de
+după swap și changelog-ul ei supraviețuiau: `DROP TABLE ... CASCADE` pe tabela sursă
+nu le atinge, sunt tabele separate.
+
+**Nu e o condiție de CI.** Reproduce local în 1,2 s, pe bază curată, rulând singur
+fișierul. Verificarea din pasul 5 pur și simplu nu a acoperit fișierul ăsta — n-a
+fost mediu diferit, a fost acoperire lipsă.
+
+Clasa de greșeală e chiar cea scrisă în antetul lui `check-raw-sql-identifiers.ts`:
+*enumerating names is the mistake; the pattern is what to match*. Reparația a
+enumerat fișierele ghost-ddl de care își amintea, nu pe cele care cheamă
+`GhostDDL.execute`. Enumerarea corectă are nouă fișiere; cele patru `harness/`
+rămase fără sweep (`multi-ddl`, `changelog-update`, `changelog-delete`,
+`changelog-live`) **nu lasă nimic** — verificat pe suita completă, nu presupus,
+fiindcă nu anulează timer-ul de curățenie.
+
+Măsurat în ambele direcții, pe două baze curate separate:
+
+| | rezultat |
+|---|---|
+| fără reparație, doar `ghost-ddl-rename-column` | 2 tabele fantomă, poarta pică |
+| cu reparație, suita completă (865 pass, 0 fail) | **zero colecții, zero fantome**, poarta trece |
+
+A doua reparație din același tur: `dropTestCollection` interpola un identificator
+citat într-un `sql.raw` fără gardă, ceea ce `check:raw-sql` a prins. Are acum
+`SAFE_NAME` — un test care dă un nume nescriibil primește o eroare, nu SQL rupt.
 
 ### Criteriile punctului de validare (scrise ÎNAINTE)
 
@@ -231,6 +270,7 @@ poartă nedovedită e decor, și tocmai am petrecut o săptămână demonstrând
 | 2026-08-29 | 1–2 | Banc pe bază proprie `zv_casbin`, cinci puncte de măsurare. Curba e liniară: 6 000 → 96 000 de politici mută rezolvarea de la 3,57 la 62,33 ms. Prima jumătate a criteriului e îndeplinită. |
 | 2026-08-29 | 3 | `loadFilteredPolicy` nu e fezabil: adaptorul nu implementează interfața, enforcer-ul e partajat, și nu există felie de filtrat fiindcă `dom='*'`. |
 | 2026-08-29 | 4 | Indexul dă 13–19× **doar** pe politici legate de domeniu. Fără schimbarea datelor: zero. |
+| 2026-08-29 | 3.5 corecție | **Pasul 5 era greșit.** CI a picat pe poarta blocului: `ghost-ddl-rename-column` — al treilea fișier care cheamă `GhostDDL.execute` — nu fusese atins. Reproduce local în 1,2 s, deci n-a fost mediu diferit, a fost acoperire lipsă. Reparat prin `sweepGhostOrphans`; enumerarea completă are 9 fișiere, restul verificate curate. Plus garda `SAFE_NAME` în `dropTestCollection`, cerută de `check:raw-sql`. |
 | 2026-08-29 | **VALIDARE** | **Blocul 2 NU se deschide.** `zvd_collections` n-are `tenant_id` — colecțiile sunt partajate, deci politicile NU cresc cu firmele. Baza de măsurare avea 163 de colecții din teste; instanța reală are 3. Cifra de 364 ms din auditul precedent a fost artefact de poluare; real e 0,93 ms. |
 
 ---
