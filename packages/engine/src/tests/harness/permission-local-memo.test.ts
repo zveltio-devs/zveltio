@@ -41,8 +41,17 @@ d('permission memo (in-process, no shared cache)', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    const u = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
-    userId = u.rows[0]!.id;
+    // A subject invented here, not the first row of `user`.
+    //
+    // `checkPermission` short-circuits on `isGodUser` before it ever reaches the
+    // memo, so a fixture whose first user happens to be the god account makes
+    // every assertion below fail on a cache that was never asked to hold
+    // anything. Locally that row was a plain member and the tests passed; in CI
+    // it was not. The memo does not care whether the subject exists — casbin
+    // resolves an unknown subject to no roles, which is a perfectly good
+    // "denied" — so the test does not need a real one, and a real one is exactly
+    // what made it depend on the fixture.
+    userId = `memo-subject-${STAMP}`;
     // The memo only engages when there is no shared cache, so the precondition
     // has to be established rather than assumed. Run alone this file already had
     // it; run as part of the suite it did not, because an earlier file leaves a
