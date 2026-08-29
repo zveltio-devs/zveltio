@@ -370,7 +370,9 @@ explicită de rol. Iar câștigul ei măsurat e mai mic decât cel gratuit.
 
 1. **Un câștig gratuit, verificat:** rolul mutat în `set_config`-ul existent —
    **0,055 ms per cerere, 24% din costul de pregătire**, o linie, risc zero.
-2. **Expunerea se închide mai bine la build:** extinderea porții
+2. ⛔ **INFIRMAT 2026-08-29 — recomandarea de mai jos nu se poate face.** În `lib/` mânerul neîngrădit se numește `db`, la fel ca o tranzacție: măsurat, `lib/` conține identificatorul `poolDb` **o dată, într-un comentariu**, față de 19 ori în `routes/`. O poartă extinsă acolo n-ar prinde nimic, niciodată — și fusese deja încercată și revenită. Vezi `BLOCK-C-GATES-STATE.md` §Pasul 6. Textul original se păstrează mai jos, ca să nu fie re-propus.
+
+   ~~**Expunerea se închide mai bine la build:**~~ extinderea porții
    `check-tenant-table-on-pool` la `lib/`, cu o listă explicită de excepții motivate
    pentru munca de fundal care are nevoie legitimă de vedere globală. Prinde aceeași
    clasă fără să riște să orbească nimic.
