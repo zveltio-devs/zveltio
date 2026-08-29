@@ -12,6 +12,14 @@
  *
  * These tests pin the exit codes. The script has no local imports, so a copy of
  * it in a temporary root is a faithful subject.
+ *
+ * They live in the HARNESS suite, not the unit suite, and that placement is the
+ * point: three of them hand the gate a DATABASE_URL and assert on what it says
+ * about the schema behind it. In `src/tests/unit` they passed locally — where a
+ * database happens to be reachable — and failed in CI, which runs that suite
+ * without one. A test that depends on ambient environment is the thing this
+ * whole gate exists to refuse, so it does not get to live in the suite that has
+ * no database.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
