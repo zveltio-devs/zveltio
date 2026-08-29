@@ -229,6 +229,20 @@ jobs:
         # internal files instead of going through the barrel index
         # (docs/private/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
+      - name: Pool-backed routers stay outside the request transaction
+        # The failure this prevents is a total standstill, invisible until
+        # concurrency reaches the pool size: `tenantMiddleware` reserves one
+        # pooled connection for the request, a handler on `poolDb` needs a
+        # second, and at c=DB_POOL_MAX every request holds one and waits for
+        # one. Measured on /api/insights/dashboards with DB_POOL_MAX=10: 10ms
+        # p50 at c=5, 12000ms p50 and 55 of 60 failing at c=10, with ten
+        # connections `idle in transaction` and zero `active`.
+        #
+        # It was in `prepush` and nowhere else — and `prepush` is wired to no
+        # hook (no .husky/, core.hooksPath unset, only .sample in hooks/), so it
+        # ran only when somebody typed it. The one gate of that script CI did
+        # not already run.
+        run: bun run check:pooldb-txn
       - name: No backticks inside SQL template comments
         # A backtick ends the template literal. Inside an SQL `--` comment it
         # looks ordinary and the parse error lands lines away from the cause.
@@ -327,6 +341,35 @@ jobs:
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
         run: bun run format:check
+      - name: Every gate is proved by planting, or listed with a reason
+        # The ratchet on the step below. `audit-gates.ts` proves the gates it has
+        # cases for — it cannot say how many it is missing, and the maturity plan
+        # recorded "100% coverage, 11/11 today" while 11 was the number of CASES,
+        # targeting 9 gate files out of the 31 CI runs. Twenty-two ran unproven
+        # and nothing said so.
+        #
+        # A new gate now has to arrive with a planted case or an entry in
+        # quality-gates/gate-coverage.json saying why it cannot have one. The
+        # recorded list may shrink, never grow.
+        run: bun run scripts/check-gate-coverage.ts
+      - name: Do the gates above actually catch anything?
+        # Every step before this one is a gate that runs in CI. That much is
+        # verifiable by reading this file. What reading cannot tell you is
+        # whether a gate would CATCH the thing it names, and the repository has
+        # already paid for the difference: `check-numeric-string-arithmetic`
+        # exited 0 in four distinct ways that all meant "nothing to report", and
+        # `scripts/dr-drill.sh` was cited as evidence for a P0 for two months
+        # while aborting on its first command.
+        #
+        # `audit-gates.ts` plants the violation each covered gate claims to
+        # detect and fails if the gate stays green. It existed before this step
+        # and was never wired anywhere — not to CI, not to `prepush` — so it ran
+        # only when somebody remembered, which is the exact failure mode it was
+        # built to catch, applied to itself.
+        #
+        # Placed last in this job: it is a check ON the gates above, and it needs
+        # the extensions sibling this job already cloned.
+        run: bun run audit:gates
 
   security-audit:
     name: Dependency audit
@@ -578,6 +621,30 @@ jobs:
       # can import `@zveltio/sdk/testing` and `@zveltio/sdk/extension`.
       - name: Build SDK
         run: cd packages/sdk && bun run build
+      - name: Log every DDL statement Postgres executes
+        # For the intermittent `0A000 cached plan must not change result type`
+        # on `select * from "zvd_collections" where "name" = $1`, which has now
+        # failed this lane in four of six runs.
+        #
+        # The engine-side trace (ZVELTIO_TRACE_SQL_ERRORS) names the statement
+        # that BROKE. What is still unknown is what changed the table's shape
+        # underneath it, and when. Everything reachable by reading has been
+        # eliminated by measurement: creating a collection does NOT alter
+        # `zvd_collections` (19 columns before and after, on a live engine);
+        # migrations run before the engine starts; `ext:seam` works in separate
+        # databases via CREATE DATABASE … TEMPLATE; and nothing here sends
+        # `X-Preview-Token`, the only thing that switches `search_path`.
+        #
+        # A DDL log settles it: the container's Postgres output is already
+        # printed by "Stop containers", so the offending statement appears there
+        # with a timestamp, beside the ERROR it caused.
+        #
+        # Database-level rather than ALTER SYSTEM: no reload needed, and it
+        # applies to every session opened afterwards — the migration run below
+        # and the engine's whole pool.
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
+            -c "ALTER DATABASE zveltio_test SET log_statement = 'ddl';"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -600,6 +667,16 @@ jobs:
           ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/../zveltio-extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
+          # Which statement failed, not just that one did. This lane has failed
+          # twice in a row on `0A000 cached plan must not change result type`,
+          # both times on the same two webhook tests, both times on a change that
+          # could not have caused it — once on a commit touching only
+          # documentation. The engine log names the route and the error; the
+          # statement holding the stale plan is what would settle it, and PR #356
+          # added this trace for exactly that, wiring it into the E2E workflow
+          # only. The next occurrence should arrive as evidence, not as another
+          # re-run.
+          ZVELTIO_TRACE_SQL_ERRORS: '1'
           # /metrics is fail-closed (401) without a token by default; this test
           # engine opts into unauthenticated exposure so the health suite can
           # assert the Prometheus payload. Prod stays fail-closed.
