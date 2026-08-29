@@ -229,6 +229,20 @@ jobs:
         # internal files instead of going through the barrel index
         # (docs/private/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
+      - name: Pool-backed routers stay outside the request transaction
+        # The failure this prevents is a total standstill, invisible until
+        # concurrency reaches the pool size: `tenantMiddleware` reserves one
+        # pooled connection for the request, a handler on `poolDb` needs a
+        # second, and at c=DB_POOL_MAX every request holds one and waits for
+        # one. Measured on /api/insights/dashboards with DB_POOL_MAX=10: 10ms
+        # p50 at c=5, 12000ms p50 and 55 of 60 failing at c=10, with ten
+        # connections `idle in transaction` and zero `active`.
+        #
+        # It was in `prepush` and nowhere else — and `prepush` is wired to no
+        # hook (no .husky/, core.hooksPath unset, only .sample in hooks/), so it
+        # ran only when somebody typed it. The one gate of that script CI did
+        # not already run.
+        run: bun run check:pooldb-txn
       - name: No backticks inside SQL template comments
         # A backtick ends the template literal. Inside an SQL `--` comment it
         # looks ordinary and the parse error lands lines away from the cause.
@@ -327,6 +341,24 @@ jobs:
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
         run: bun run format:check
+      - name: Do the gates above actually catch anything?
+        # Every step before this one is a gate that runs in CI. That much is
+        # verifiable by reading this file. What reading cannot tell you is
+        # whether a gate would CATCH the thing it names, and the repository has
+        # already paid for the difference: `check-numeric-string-arithmetic`
+        # exited 0 in four distinct ways that all meant "nothing to report", and
+        # `scripts/dr-drill.sh` was cited as evidence for a P0 for two months
+        # while aborting on its first command.
+        #
+        # `audit-gates.ts` plants the violation each covered gate claims to
+        # detect and fails if the gate stays green. It existed before this step
+        # and was never wired anywhere — not to CI, not to `prepush` — so it ran
+        # only when somebody remembered, which is the exact failure mode it was
+        # built to catch, applied to itself.
+        #
+        # Placed last in this job: it is a check ON the gates above, and it needs
+        # the extensions sibling this job already cloned.
+        run: bun run audit:gates
 
   security-audit:
     name: Dependency audit

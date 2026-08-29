@@ -1,0 +1,167 @@
+# Stare — Blocul C: porțile înainte de cod
+
+> **Se citește la începutul fiecărui pas. Se actualizează după fiecare pas.**
+> Branch: `block-c/gates` · pornit din `dfe3ab99` (master, post-#359)
+> Plan: `MATURITY-REFACTOR-PLAN.md` §Blocul C. Ordinea: **C → B → F → A**.
+> Regula care le guvernează pe toate: **nu se construiește nimic înainte ca o
+> măsurătoare să arate că merită.** Un bloc are voie să se încheie cu „nu merită".
+
+---
+
+## De ce există blocul
+
+Nu pentru că porțile ar fi puține. Pentru că **o poartă care nu verifică nimic nu
+dă un test roșu — dă o liniște falsă**, iar auditul din 27–29 august a găsit trei
+forme distincte ale aceluiași lucru:
+
+- `check-numeric-string-arithmetic` ieșea cu **0 în patru feluri diferite**, niciunul
+  însemnând „am verificat și e curat".
+- Jobul de CI care o rula era **singurul care nu clona repo-ul soră**, deci o hrănea
+  cu un corpus gol.
+- Suita lăsa **5 colecții per rulare**; 30 de rulări au produs o bază în care o
+  măsurătoare a raportat autorizarea la **364 ms** când realitatea era **0,93 ms**.
+  Cifra a ajuns în două rapoarte scrise.
+- `scripts/dr-drill.sh` a fost citat ca dovadă pentru un P0 **două luni**, murind pe
+  prima lui comandă, cu rândul din TECHNICAL-GAPS pe DONE tot timpul.
+
+Și proba cea mai recentă, din chiar ziua deschiderii blocului: poarta
+`check:test-leftovers`, adăugată de #359, **a picat la primul ei tur de CI** pe o
+rămășiță pe care verificarea manuală a aceleiași sesiuni o declarase curată. Poarta
+a prins ce omul ratase. Ăsta e argumentul blocului, livrat de la sine.
+
+**Blocul A trece prin terenul unde un `finally` sincron a lăsat odată 302 politici
+inerte, cu testele verzi.** Fără plasa asta, o regresie de acolo nu se vede.
+
+---
+
+## Criteriile punctului de validare — SCRISE ÎNAINTE DE MĂSURARE
+
+Blocul se închide ca reușit **doar dacă toate patru** sunt adevărate:
+
+1. **Zero porți trec pe o violare plantată.** Nu „11 din 11 verzi" — zero eșecuri
+   ale plantării, pe mulțimea completă de porți, nu pe cea de care ne amintim.
+2. **Fiecare poartă din repo are ori un caz în `audit-gates.ts`, ori un motiv scris
+   de ce nu poate avea.** Un motiv scris e un rezultat acceptabil; absența unei
+   mențiuni nu e.
+3. **Nicio poartă nu iese cu 0 când nu a putut verifica.** Corpus gol, repo soră
+   lipsă, bază de date absentă, fișier de referință inexistent — toate ies non-zero.
+4. **O poartă nouă fără caz în meta-poartă nu se poate comite** — dovedit prin
+   plantare, nu prin citirea codului meta-porții.
+
+Dacă pasul 1 arată că mulțimea de porți neacoperite e mică și fiecare are un motiv
+legitim de a rămâne așa, **blocul se poate închide devreme** — cu motivele scrise.
+Un „nu merită" măsurat e un rezultat, nu un eșec.
+
+**Ce NU e criteriu:** numărul de porți. O poartă în plus care nu e dovedită prin
+plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțească.
+
+---
+
+## Pași
+
+| # | Pas | Stare | Rezultat |
+|---|---|---|---|
+| 0 | Citește documentul ăsta | — | (la fiecare pas) |
+| 1 | **Inventar + acoperire:** enumeră TOATE porțile (scripts/ + CI, nu package.json), cross-referă cu cazurile din `audit-gates.ts` | ✅ **FĂCUT** | **9 din 31, nu 11/11** — vezi §Pasul 1 |
+| 2 | Rulează meta-poarta: chiar pică fiecare caz pe violarea plantată? | ✅ **FĂCUT** | **11/11 prind** — cele acoperite chiar funcționează |
+| 2.5 | **Meta-poarta să ruleze automat** — descoperit la pasul 1, nu era în lista inițială | ✅ **FĂCUT** | `audit:gates` + `check:pooldb-txn` în lane-ul Lint |
+| 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | DE FĂCUT | — |
+| 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | DE FĂCUT | — |
+| 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | DE FĂCUT | — |
+| 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | DE FĂCUT | — |
+| 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
+
+### Pasul 1 — acoperirea reală (măsurat 2026-08-29)
+
+**Planul spunea „100% acoperire, azi 11/11". Cifra aia era greșită**, și greșeala e
+instructivă: 11 e numărul de **cazuri** din `audit-gates.ts`, nu numărul de porți.
+Cele 11 cazuri vizează **9 fișiere de poartă** (două porți au câte două cazuri).
+
+Enumerat din `scripts/` **și** din workflow-urile CI, nu din `package.json` — un
+script pe care CI nu-l rulează nu apără nimic, iar `package.json` conține și scripturi
+care nu sunt porți:
+
+| | număr |
+|---|---:|
+| scripturi-poartă care rulează în CI | **31** |
+| dovedite prin plantare | **9** |
+| **rulează în CI, NEdovedite** | **22** |
+| există, dar CI nu le rulează deloc | **1** |
+
+Cele 22 includ porți deloc periferice: `check-migration-safety`, `check-atomic-writes`,
+`check-insert-schema-match` (`ext:seam`), `coverage-gate`, `release-gate`,
+`route-collision-check`, `schema-drift-check`, `import-boundaries` — și
+`check-test-leftovers`, adăugată chiar de #359.
+
+**Cea care nu rulează în CI: `check-pooldb-txn-skip.ts`.** Apare o singură dată, în
+scriptul `prepush`. Iar `prepush` **nu e legat de niciun hook**: nu există `.husky/`,
+`core.hooksPath` e nesetat, iar în `hooks/` nu e decât `.sample`. Deci rulează numai
+dacă tastează cineva `bun run prepush`. Șapte porți depind exclusiv de disciplina aia.
+
+### Pasul 2 — cele acoperite chiar prind (măsurat 2026-08-29)
+
+`bun run audit:gates` → **11/11 prind violarea plantată.** Nicio decorațiune printre
+cele acoperite. Problema nu e calitatea cazurilor existente, ci câte lipsesc.
+
+### Pasul 2.5 — descoperit la pasul 1: meta-poarta nu rulează nicăieri
+
+**`audit:gates` nu e în niciun workflow CI și nici în `prepush`.** Există doar ca
+script în `package.json`, deci rulează exclusiv când își amintește cineva.
+
+Ăsta e exact tiparul pe care meta-poarta a fost construită să-l vâneze — `dr-drill.sh`
+citat două luni ca dovadă în timp ce murea pe prima comandă — aplicat **instrumentului
+însuși**. Cât timp nimeni n-o rulează, orice caz adăugat la pașii 3–6 e decorațiune la
+pătrat: dovedit o dată, la scriere, și niciodată după.
+
+**De aceea pasul ăsta trece înaintea lui 3.** Nu are rost să crești acoperirea unui
+instrument care nu se execută.
+
+**Făcut:** `audit:gates` rulează acum ca ultim pas al lane-ului Lint — ultim fiindcă e
+o verificare ASUPRA porților dinaintea lui, și fiindcă are nevoie de sora pe care
+jobul deja o clonează. Odată cu el, `check:pooldb-txn`, singura poartă din `prepush`
+pe care CI n-o rula: apără prăbușirea măsurată la `c=DB_POOL_MAX` (10 ms p50 la c=5,
+12 000 ms și 55 din 60 eșecuri la c=10, cu zece conexiuni `idle in transaction` și
+zero `active`). Trece azi — deci a fost adăugată ca plasă, nu ca reparație.
+
+Pasul 6 e singurul rezultat acționabil rămas din blocul 4 al
+`CASBIN-SCALING-STATE.md`, care a decis **măsurat** că rolul de conectare al
+engine-ului nu se schimbă.
+
+---
+
+## Ce NU se atinge în blocul ăsta
+
+- **Codul de producție**, cu excepția strictă a pasului 6 (o poartă, nu o rută).
+- **Politica RLS, enforcer-ul, forma predicatului.** Predicatul s-a schimbat de trei
+  ori și e acum cel corect; blocul F îl atinge, nu ăsta.
+- **Numărul de porți ca scop în sine.** O poartă nouă se adaugă doar dacă acoperă o
+  clasă dovedită, nu ca să crească o cifră.
+- **Suita de teste.** Curățenia ei s-a făcut în #359.
+
+---
+
+## Jurnal
+
+| Când | Pas | Ce s-a întâmplat |
+|---|---|---|
+| 2026-08-29 | 2.5 | `audit:gates` legat de lane-ul Lint, ca ultim pas. Plus `check:pooldb-txn`, singura poartă din `prepush` absentă din CI — trece azi, deci e plasă, nu reparație. YAML validat. |
+| 2026-08-29 | 1–2 | **Acoperirea reală e 9 din 31, nu 11/11** — cifra din plan număra cazuri, nu porți. 22 de porți rulează în CI nedovedite; `check-pooldb-txn-skip` nu rulează în CI deloc, iar `prepush`, singurul lui apelant, nu e legat de niciun hook. Meta-poarta prinde 11/11 pe violări plantate, deci cazurile existente sunt bune. **Dar `audit:gates` nu e nici în CI, nici în prepush** — instrumentul care dovedește că porțile nu-s decor e el însuși nerulat. Pas 2.5 inserat înaintea lui 3. |
+| 2026-08-29 | setup | Branch `block-c/gates` din `dfe3ab99`. Document scris, cu criteriile de validare stabilite ÎNAINTE de orice măsurătoare. Orientare: 11 cazuri în `audit-gates.ts` acoperind 9 porți distincte; `package.json` listează ~22 de scripturi care arată a poartă. Cifrele astea sunt orientative — pasul 1 le înlocuiește cu enumerarea reală. |
+
+---
+
+## Context care nu trebuie re-descoperit
+
+- **Mediul:** worktree `/home/liviu/zveltio-audit-ba/zveltio`, sora în
+  `../zveltio-extensions`. Bazele mele: `zv_audit_ba`. Portul `:3400`.
+  Ocupate de alții: `:3000`, `:3200`, `:3201`, `:3300`.
+- **Env fără de care testele mint:** `ZVELTIO_REGISTRATION_ENABLED=1`,
+  `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL`, fiecare pe
+  **linie separată** (`export A=1 B=$A` expandează `$A` înainte de atribuire).
+- **`bun --cwd X run Y` NU rulează scriptul** — se face `cd X && bun run Y`.
+- **`typecheck` poate fi verde din cache-ul turbo.** `cd packages/engine && bun run
+  typecheck` ocolește cache-ul.
+- **Porțile care scanează repo-ul soră au calea `../zveltio-extensions` HARDCODATĂ**
+  și ignoră `argv`. `check-i18n-core` NU citește sora, deci eșecurile lui sunt reale.
+- **`audit-gates.ts` refuză să pornească dacă vreo cale de plantare există deja** —
+  o probă nu poate fi confundată cu fișierul cuiva.
