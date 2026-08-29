@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, GhostDDL } from '../../lib/data/index.js';
+import { DDLManager, GhostDDL, sweepGhostOrphans } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -47,6 +47,11 @@ d('ghost DDL alter column (in-process)', () => {
       .where('name', '=', COLLECTION)
       .execute()
       .catch(() => {});
+    // A real ghost migration ran here, and this file cancels the 60-second
+    // cleanup timer on purpose — so the post-swap copy is deliberately stranded.
+    // The boot sweep is what reclaims those in production; using it here means
+    // the test cleans up with the same code path instead of a second spelling.
+    await sweepGhostOrphans(db);
   });
 
   it('GhostDDL.execute alters a column default without losing rows', async () => {
