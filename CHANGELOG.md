@@ -4,6 +4,70 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.64] - 2026-08-29
+
+**Presence leaked between tenants on any instance without Valkey.** The Valkey
+path keyed on `presence:<tenantId>:<channel>`; the in-memory fallback keyed on the
+channel name alone, in all six places that touch it. So on the ordinary
+configuration of a small self-hosted install, tenant A saw who was present on
+tenant B's channels whenever the name matched — and channel names are guessable
+(`zvd_invoices`, `record:zvd_salaries:<id>`). Not limited to cacheless instances
+either: every Valkey branch has a `catch` that falls through to the in-memory
+path, so a transient cache error silently degraded a correctly configured one.
+
+Reading the code did not find this. Those functions had been read and reported as
+isolated, which was true of the Valkey half. It surfaced from a test written to
+raise coverage on the channel routes — the routes the cross-tenant adversarial
+probe skips because it cannot synthesise a `{channel}`.
+
+**Ghost DDL left whole copies of a table behind, permanently.** The post-swap DROP
+was a 60-second in-process `setTimeout`, and graceful shutdown *cancelled* it. What
+survived was a full copy of the rows carrying none of the tenant policies, and
+nothing ever came back for it. Reclaimed at boot now; `_zv_ghost_` tables are
+reported rather than dropped, since a run on another instance may still be copying
+into one.
+
+### Authorization is no longer 364 ms per decision
+
+`checkPermission` was one Casbin `enforce()` over every loaded policy, with nothing
+memoizing it. `enforce` stops at the first match, so a user *with* a matching role
+answered in 8 ms and one without took 364–885 ms — the denial was the expensive
+case, which is the case an attacker asks for. With a valid cookie, a plain 401 took
+348 ms and held the engine at 3 req/s at any concurrency.
+
+    cold   364–885 ms → 4,7 ms
+    warm              → 0,115 ms
+    /api/collections    3 → 822 req/s
+
+Three layers: an in-process memo (active only when no shared cache exists — with
+Valkey the engine may run several instances, and one that never saw a revocation
+must not answer from memory), collapsing names no policy mentions (the matcher
+compares objects by plain equality, so the answer cannot depend on the name), and
+an effective permission set resolved once per user.
+
+### Data path
+
+- `?count=none` skips the `count(*)` over the caller's whole tenant that every
+  paginated list ran to fill `pagination.total` — 10,06 ms of counting beside a
+  1,63 ms page. Default unchanged.
+- Paginated reads now carry an explicit `tenant_id =` alongside a
+  `(tenant_id, created_at DESC)` index. The policy is untouched: `= ANY` over a
+  runtime array cannot drive an ordered index scan, so a list walked `created_at`
+  and discarded other tenants' rows at a cost proportional to how many tenants
+  exist — 6 408 discarded to return 25. Now 0, and 1,94 ms → 0,08 ms.
+- The startup advice about `DB_POOL_MAX` was computed from a different default
+  than the pool used (`?? 10` against `?? 25`), so a boot announced room for ~19
+  instances where ~7 fit.
+
+### Gates
+
+`check-numeric-string-arithmetic` exited 0 in four distinct ways without checking
+anything; measured, the meta-gate scored 7/8 on a core-only database and 8/8 after
+one `amount numeric` column. The CI job that runs it was also the only one that
+never cloned the extensions sibling. New gate: a route may not query a
+tenant-scoped table on `poolDb`.
+
+
 ## [3.0.0-beta.63] - 2026-08-27
 
 **`zveltio migrate` could report "✅ Migrations complete" without applying a
