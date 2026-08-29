@@ -645,6 +645,11 @@ jobs:
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
             -c "ALTER DATABASE zveltio_test SET log_statement = 'ddl';"
+          # And an event trigger, because the statement log above has a blind
+          # spot: DDL issued inside a `DO $$ ... EXECUTE ... $$` block never
+          # reaches it, and the engine has one. See scripts/sql/ddl-watch.sql.
+          PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test \
+            -v ON_ERROR_STOP=1 -f scripts/sql/ddl-watch.sql
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test

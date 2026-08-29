@@ -269,6 +269,37 @@ engine-ului nu se schimbă.
 
 ---
 
+## Anexă — instrumentarea lui `0A000` (nu e pas al blocului)
+
+Nu face parte din Blocul C, dar defectul pică lane-ul de integrare la ~2 din 3 rulări
+și face imposibil de deosebit o regresie de zgomot, deci instrumentul merită ținut aici.
+
+**Prima rulare eșuată sub jurnalul de instrucțiuni (2026-08-29, 18:44):**
+
+| | |
+|---|---|
+| `Run migrations` | 18:44:55.45 |
+| 4× `ALTER TABLE zvd_collections ADD COLUMN` | 18:44:55.66 – .716 |
+| `Start engine` | 18:44:56.14 |
+| testele, și eșecul | 18:45:24 → |
+
+**Zero DDL pe `zvd_collections` după pornirea motorului.** Zero `CREATE SCHEMA`. Nicio
+a doua relație cu acel nume. Deci nici „s-a schimbat forma", nici „numele s-a rezolvat
+la altă tabelă" — ambele ipoteze, infirmate de aceeași rulare.
+
+**Dar instrumentul are un punct orb**, găsit imediat după: `log_statement='ddl'`
+înregistrează doar instrucțiuni de nivel superior. **DDL emis dintr-un bloc
+`DO $$ ... EXECUTE ... $$` nu apare deloc** — iar engine-ul are exact așa ceva,
+`applyTenantRLS` (`tenant-manager.ts:198`) își construiește indexul în felul ăsta.
+„Niciun DDL" și „DDL pe care nu-l pot vedea" arată identic din afară.
+
+Adăugat `scripts/sql/ddl-watch.sql`: un event trigger pe `ddl_command_end`, care se
+declanșează pentru orice comandă, indiferent cine a emis-o. **Dovedit local, nu presupus** —
+prinde și `CREATE TABLE` direct, și `CREATE INDEX` dintr-un bloc `DO`.
+
+Următoarea apariție dă un răspuns binar: ori un DDL post-boot cu numele obiectului, ori
+tăcere completă — și atunci cauza nu e DDL, ceea ce ar fi la fel de valoros.
+
 ## Jurnal
 
 | Când | Pas | Ce s-a întâmplat |
