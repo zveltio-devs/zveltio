@@ -68,7 +68,7 @@ plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțe
 | 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | 🟡 **ÎN LUCRU** | **9 → 14 dovedite**; 23 rămase cu motiv |
 | 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | ✅ **FĂCUT** (toate dimensiunile) | **7 porți fail-open**, reparate — vezi §Pasul 4 |
 | 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | ✅ **FĂCUT** | `check-gate-coverage`, dovedită prin plantare |
-| 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | DE FĂCUT | — |
+| 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | ⛔ **ANULAT** | **nu merită** — vezi §Pasul 6 |
 | 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
 ### Pasul 1 — acoperirea reală (măsurat 2026-08-29)
@@ -269,6 +269,38 @@ engine-ului nu se schimbă.
 
 ---
 
+### Pasul 6 — ANULAT, măsurat (2026-08-29)
+
+Recomandarea venea din blocul 4 al `CASBIN-SCALING-STATE.md` și a intrat în plan ca pas.
+**Fusese însă deja încercată și revenită**, iar motivul e scris în chiar antetul porții:
+în `lib/`, mânerul neîngrădit se numește `db` — același nume sub care se pasează și o
+tranzacție — deci o poartă ori nu prinde nimic (căutând `poolDb`), ori se îneacă în
+fals-pozitive (căutând `db`).
+
+**Verificat, nu crezut pe cuvânt:**
+
+| | apariții ale identificatorului `poolDb` |
+|---|---:|
+| `routes/` | **19** |
+| `lib/` (fără teste) | **1 — și aceea într-un comentariu** |
+
+Deci extinderea ar produce o poartă care nu poate prinde nimic, niciodată. Prima
+încercare a livrat exact asta, plus patru „excepții motivate" pentru violări care nu
+puteau apărea. **O poartă a cărei listă de excepții e singurul lucru pe care-l produce e
+mai rea decât nicio poartă**, fiindcă scuza arată a revizie.
+
+**Expunerea rămâne reală** și e inventariată: `repairUnsignedWebhooksAtBoot` citește
+webhook-urile tuturor firmelor, `flow-executor` caută firma unui flow ca să afle în ce
+firmă rulează, reconcilierile de la boot trec peste tabelele tuturor. Toate au nevoie
+**structurală** de vedere globală — de aceea rolul engine-ului nu se restrânge.
+
+**Observație, nu plan:** singura cale care ar deosebi cele două cazuri e la **runtime**,
+nu la build — o aserțiune care, sub `NODE_ENV=test`, semnalează o interogare pe o tabelă
+de firmă fără GUC de firmă setat. Ar deosebi ce numele nu poate. Dar atinge calea
+fierbinte și e o proiectare, nu o extindere; nu se face pe impuls, în coada altui bloc.
+
+Al cincilea rezultat „nu merită" al lucrării. Consistent cu statistica propriului plan.
+
 ## Anexă — instrumentarea lui `0A000` (nu e pas al blocului)
 
 Nu face parte din Blocul C, dar defectul pică lane-ul de integrare la ~2 din 3 rulări
@@ -328,6 +360,7 @@ nu de strecurat într-un PR despre porți.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 6 | **ANULAT, măsurat.** `lib/` conține identificatorul `poolDb` o singură dată, într-un COMENTARIU; `routes/` de 19 ori. Poarta extinsă n-ar putea prinde nimic — fusese deja încercată și revenită, cu motivul în antetul ei. Expunerea rămâne reală dar cere o aserțiune de runtime, nu o poartă de build; notată ca observație. |
 | 2026-08-29 | 4 (rest) | Celelalte trei dimensiuni măsurate. **`ext:seam` ieșea cu 0 cu baza inaccesibilă** — 474 de INSERT-uri necomparate, raportate curat; reparat. Baseline lipsă: **nicio poartă vinovată**, fiindcă toate tratează absența ca „nu permit nimic" — uitându-mă doar la `rc`, aș fi raportat trei porți bune drept fail-open. Artefacte de build: curat, `studio.yml` chiar setează `REQUIRE_STUDIO_DIST`. |
 | 2026-08-29 | 4 | **6 porți raportau OK fără repo-ul soră**, între ele `check-raw-sql-identifiers`, care e scoped ANUME pe el. Corpusul tăcut: 5 handler-e în loc de 32, 73 tabele în loc de 384. Reparat cu `require-sibling.ts`, opt-out îngust pe care CI nu-l setează. Prima măsurătoare a fost falsă (`rc=$?` după pipe) și refăcută. |
 | 2026-08-29 | 3 | Patru porți convertite (`admin-gate-check`, `import-boundaries`, `any-ratchet`, `check-duplicate-table-creators`): **9 → 14 dovedite, 23 rămase**. **3 sonde din 5 greșite la prima încercare** — `git ls-files`, cheia pe proprietar, `git diff` — fiecare ar fi raportat o poartă bună drept decor. `check-migration-safety` trecută înapoi în baseline cu motivul măsurat. Ratchet-ul dovedit că se și STRÂNGE: pică dacă un rând rămâne după ce cazul lui există. |

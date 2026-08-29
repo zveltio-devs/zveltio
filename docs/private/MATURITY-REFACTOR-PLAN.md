@@ -227,14 +227,19 @@ credibil și fals**, care ajunge în două rapoarte scrise.
 | 2 | Nicio poartă nu are voie să iasă cu 0 când nu poate verifica | fail-closed peste tot |
 | 3 | Fiecare poartă declară de ce are nevoie; CI îi dă exact aia | fără sărituri tăcute |
 | 4 | Poartă asupra porților: una nouă fără caz în meta-poartă nu se comite | dovedită prin plantare |
-| 5 | `check-tenant-table-on-pool` extinsă la `lib/`, cu listă explicită de excepții motivate pentru munca de fundal | dovedită prin plantare |
+| 5 | ~~`check-tenant-table-on-pool` extinsă la `lib/`~~ | ⛔ **ANULAT 2026-08-29, măsurat** |
 | 6 | **VALIDARE** — există vreo poartă care trece pe o violare plantată? | zero |
 
-Pasul 5 e singurul rezultat acționabil rămas din blocul 4 al
-`CASBIN-SCALING-STATE.md`, care a decis măsurat că **rolul de conectare al
-engine-ului nu se schimbă**. Recomandarea a rămas până acum doar în documentul de
-stare: expunerea se închide mai bine la build decât prin restrângerea rolului,
-fiindcă prinde aceeași clasă fără să riște să orbească fundalul.
+**Pasul 5 s-a închis cu „nu merită".** Venea din blocul 4 al
+`CASBIN-SCALING-STATE.md`, dar fusese deja încercat și revenit, iar motivul e scris în
+antetul porții: în `lib/` mânerul neîngrădit se numește `db`, la fel ca o tranzacție.
+Măsurat: `lib/` conține identificatorul `poolDb` **o singură dată, într-un comentariu**;
+`routes/` de 19 ori. Poarta extinsă n-ar putea prinde nimic, niciodată — prima încercare
+a livrat exact asta, plus patru „excepții motivate" pentru violări imposibile.
+
+Expunerea rămâne reală, dar cere o aserțiune de **runtime** (o interogare pe o tabelă de
+firmă fără GUC de firmă, sub `NODE_ENV=test`), nu o poartă de build. E o proiectare
+separată, nu o extindere.
 
 ---
 
