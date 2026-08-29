@@ -297,8 +297,32 @@ Adăugat `scripts/sql/ddl-watch.sql`: un event trigger pe `ddl_command_end`, car
 declanșează pentru orice comandă, indiferent cine a emis-o. **Dovedit local, nu presupus** —
 prinde și `CREATE TABLE` direct, și `CREATE INDEX` dintr-un bloc `DO`.
 
-Următoarea apariție dă un răspuns binar: ori un DDL post-boot cu numele obiectului, ori
-tăcere completă — și atunci cauza nu e DDL, ceea ce ar fi la fel de valoros.
+**Și a răspuns din prima rulare — cauza e găsită.**
+
+| oră | pid | ce |
+|---|---|---|
+| 18:52:54.70–54.87 | 119 | migrațiile engine-ului creează/alterează `zvd_collections` |
+| **18:52:55.23** | — | **`Start engine` — pool deschis, planuri pregătite** |
+| **18:52:56.51** | **144** | **`ALTER TABLE zvd_collections` ×2, +3 coloane** |
+
+Cele trei coloane sunt `ai_search_enabled`, `ai_search_field`,
+`ai_embed_excluded_fields` — din `zveltio-extensions/ai/engine/migrations/001_initial.sql`.
+**Migrațiile extensiilor rulează după ce motorul și-a deschis pool-ul, iar extensia `ai`
+alterează tabela de metadate a ENGINE-ului.**
+
+Lanțul: o conexiune pregătește `select * from zvd_collections where name = $1` cu tip de
+rezultat de 19 coloane; 1,3 secunde mai târziu tabela are 22; următoarea cerere care ia
+acea conexiune primește `0A000`. În tranzacția lui `tenantMiddleware`, dialectul refuză
+deliberat să reîncerce ⇒ 500. Intermitent fiindcă depinde de fereastra aia de 1,3 s.
+
+**De ce a contat instrumentul:** `log_statement='ddl'` nu l-a arătat — instrucțiunile SQL
+sunt pe mai multe linii, iar DDL-ul din blocuri `DO` nu apare deloc. Event trigger-ul dă
+`object_identity` pe o singură linie, pentru orice comandă.
+
+**Remediul nu e ales** — sunt patru variante plauzibile (migrațiile extensiilor înaintea
+pool-ului; reciclarea conexiunilor după migrații; interzicerea alterării tabelelor
+engine-ului de către extensii; coloane numite în `getCollection`) și e decizie de owner,
+nu de strecurat într-un PR despre porți.
 
 ## Jurnal
 
