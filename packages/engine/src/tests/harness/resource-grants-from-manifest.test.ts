@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { createDb, type Database } from '../../db/index.js';
 import {
   KNOWN_EXTENSION_RESOURCES,
   listKnownResources,
@@ -86,6 +86,60 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       expect(known).toContain(resource);
     }
   });
+
+  it('a manifest that is not valid JSON costs only its own resources', async () => {
+    // One broken extension must not take the reconcile down for every other
+    // resource on the instance — the catch exists for that, so it gets exercised.
+    const brokenName = `audit/broken-json-${STAMP}`;
+    mkdirSync(join(extRoot, brokenName), { recursive: true });
+    writeFileSync(join(extRoot, brokenName, 'manifest.json'), '{ this is not json');
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
+      VALUES (${brokenName}, 'Broken', '1.0.0', true, false)
+    `.execute(db);
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
+      VALUES (${EXT_NAME}, 'Sweep Test', '1.0.0', true, false)
+    `.execute(db);
+    try {
+      const known = await listKnownResources(db, extRoot);
+      // The good neighbour is still there.
+      expect(known).toContain(NOVEL_RESOURCE);
+      // And the built-in floor survived too.
+      expect(known).toContain(KNOWN_EXTENSION_RESOURCES[0]);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${brokenName}`.execute(db);
+      rmSync(join(extRoot, brokenName), { recursive: true, force: true });
+    }
+  });
+
+  it('a database without the registry table falls back instead of throwing', async () => {
+    // Literally the case the catch documents: an install mid-upgrade, where
+    // collections exist and `zv_extension_registry` does not yet. A reconcile
+    // that threw here would take the boot with it, and the built-in floor still
+    // covers it — so the failure is a warning, not a stop.
+    const dbName = `zv_noreg_${STAMP}`;
+    const admin = createDb('postgresql://postgres:postgres@localhost:5432/postgres');
+    await sql.raw(`CREATE DATABASE "${dbName}"`).execute(admin);
+    await admin.destroy();
+
+    const partial = createDb(`postgresql://postgres:postgres@localhost:5432/${dbName}`);
+    try {
+      await sql.raw('CREATE TABLE zvd_collections (name TEXT PRIMARY KEY)').execute(partial);
+      await sql.raw("INSERT INTO zvd_collections (name) VALUES ('widgets')").execute(partial);
+
+      const known = await listKnownResources(partial, extRoot);
+
+      expect(known).toContain('widgets');
+      // The floor survived the missing registry.
+      expect(known).toContain(KNOWN_EXTENSION_RESOURCES[0]);
+    } finally {
+      await partial.destroy();
+      const cleanup = createDb('postgresql://postgres:postgres@localhost:5432/postgres');
+      await sql.raw(`DROP DATABASE IF EXISTS "${dbName}"`).execute(cleanup);
+      await cleanup.destroy();
+    }
+  }, 60_000);
 
   it('survives an extension whose manifest is missing or unreadable', async () => {
     await sql`

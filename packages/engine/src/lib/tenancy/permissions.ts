@@ -28,7 +28,7 @@ const PERMISSION_CACHE_TTL = 60; // seconds
  * is complete invalidation, and every path that clears the shared cache clears
  * this one first.
  */
-const LOCAL_PERM_MAX = 10_000;
+export const LOCAL_PERM_MAX = 10_000;
 const _localPerm = new Map<string, { value: boolean; expires: number }>();
 
 function localPermGet(key: string): boolean | null {

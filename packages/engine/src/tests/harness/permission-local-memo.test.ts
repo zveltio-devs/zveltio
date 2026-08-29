@@ -21,6 +21,7 @@ import {
   checkPermission,
   __effectivePermissionsSize,
   __localPermissionCacheSize,
+  LOCAL_PERM_MAX,
   clearLocalPermissionCache,
   getCurrentDomain,
   getEnforcer,
@@ -204,6 +205,33 @@ d('permission memo (in-process, no shared cache)', () => {
       expect(await checkPermission(userId, resource, 'read')).toBe(false);
     });
   });
+
+  it('evicts the oldest entry rather than growing without end', async () => {
+    // I called this untestable once, and was wrong for an instructive reason:
+    // I assumed distinct RESOURCES, which collapse into one entry because no
+    // policy names them. Distinct ACTIONS do not collapse — the action is part
+    // of the key — and each one is a Set lookup against an already-resolved
+    // subject, so filling the cap is seconds rather than minutes.
+    clearLocalPermissionCache();
+    for (let i = 0; i < LOCAL_PERM_MAX + 50; i++) {
+      await checkPermission(userId, `evict_${STAMP}`, `act_${i}`);
+    }
+    // Bounded, not merely large: a map that only grows is a leak wearing a
+    // cache's clothes.
+    expect(__localPermissionCacheSize()).toBeLessThanOrEqual(LOCAL_PERM_MAX);
+    expect(__localPermissionCacheSize()).toBeGreaterThan(LOCAL_PERM_MAX / 2);
+  }, 120_000);
+
+  it('bounds the resolved-subject map too', async () => {
+    // The other map, keyed on (domain, subject). Unknown subjects resolve to no
+    // roles, so building one is a walk over the policy list with every
+    // membership test failing immediately — cheap enough to fill the cap.
+    clearLocalPermissionCache();
+    for (let i = 0; i < LOCAL_PERM_MAX + 50; i++) {
+      await checkPermission(`bound-subject-${STAMP}-${i}`, `res_${STAMP}`, 'read');
+    }
+    expect(__effectivePermissionsSize()).toBeLessThanOrEqual(LOCAL_PERM_MAX);
+  }, 300_000);
 
   it('keeps its bookkeeping straight — and invented names share one entry', async () => {
     // The 10 000-entry cap cannot be filled honestly in a test: every miss is an
