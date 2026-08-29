@@ -816,6 +816,19 @@ jobs:
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:harness:coverage
+      - name: The suite left nothing behind
+        # Not tidiness. Every run left five collections in the database it ran
+        # against, each invisible on its own. Thirty runs during one audit left
+        # 163 — and a measurement taken in that database reported authorization
+        # at 364 ms per decision. That figure reached two written reports before
+        # anyone asked how many collections a real install has. The answer was
+        # three, and the real cost was 0,93 ms.
+        #
+        # The failure this prevents is not a dirty database. It is a measurement
+        # that lies, taken in good faith and acted on.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun run check:test-leftovers
       - name: Merge unit + harness coverage and gate the honest combined number
         # Unions per-line hits from both lanes → the real all-of-lib/ figure,
         # then ratchets it against quality-gates/coverage-baseline.json (H-02/H-16).

@@ -25,6 +25,7 @@
     "check:atomic-writes": "bun run scripts/check-atomic-writes.ts",
     "check:pooldb-txn": "bun run scripts/check-pooldb-txn-skip.ts",
     "check:tenant-on-pool": "bun run scripts/check-tenant-table-on-pool.ts",
+    "check:test-leftovers": "bun run scripts/check-test-leftovers.ts",
     "release:gate:dry": "bun run scripts/release-gate.ts --dry-run",
     "check:studio-embed": "bun run scripts/check-studio-embed-freshness.ts",
     "coverage:gate": "bun run scripts/coverage-gate.ts",

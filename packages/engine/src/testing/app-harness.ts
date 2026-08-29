@@ -133,3 +133,33 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
   }
   return cookie;
 }
+
+/**
+ * Undo a collection a test created — the table AND the row that names it.
+ *
+ * Dropping only the table is what every test here did, and it is half the job:
+ * `zvd_collections` keeps the row, so the collection still exists as far as the
+ * engine is concerned. One leftover per test file is invisible; thirty runs of
+ * the suite left 163 of them in a shared database, and a measurement taken there
+ * reported authorization at 364 ms per decision when the real figure on a real
+ * instance is 0,93 ms. That number reached two written reports before anyone
+ * checked how many collections a real install has.
+ *
+ * So this is not tidiness. A test that leaves state behind is a test that can
+ * make the next measurement lie.
+ *
+ * `CASCADE` because a collection under test may have grown indexes, triggers or
+ * a changelog; `IF EXISTS` because a test that already dropped the table should
+ * still be able to drop the row.
+ */
+export async function dropTestCollection(db: Database, name: string): Promise<void> {
+  const table = name.startsWith('zvd_') ? name : `zvd_${name}`;
+  const bare = table.slice('zvd_'.length);
+  // The interpolation below is quoted, so a name carrying a double quote would
+  // break out of it. Collection names are SAFE_NAME everywhere else in the
+  // engine; a test handing this anything else gets an error, not broken SQL.
+  const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
+  if (!SAFE_NAME.test(bare)) throw new Error(`Invalid test collection name: "${name}"`);
+  await sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`).execute(db);
+  await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
+}

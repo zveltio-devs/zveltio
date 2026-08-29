@@ -12,7 +12,12 @@ import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -58,10 +63,7 @@ d('revisions/time-travel tenant isolation (in-process)', () => {
       .where('collection', '=', COLLECTION)
       .execute()
       .catch(() => {});
-    await sql
-      .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
-      .execute(db)
-      .catch(() => {});
+    await dropTestCollection(db, COLLECTION);
   });
 
   it('GET /api/revisions does not list another tenant’s history', async () => {

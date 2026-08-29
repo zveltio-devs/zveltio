@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, GhostDDL } from '../../lib/data/index.js';
+import { DDLManager, GhostDDL, sweepGhostOrphans } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -51,6 +51,15 @@ d('ghost DDL rename column (in-process)', () => {
       .where('name', '=', COLLECTION)
       .execute()
       .catch(() => {});
+    // Same reason as the two sibling ghost-ddl files: a real ghost migration ran
+    // here, so the post-swap copy and its changelog outlive the source table —
+    // `DROP TABLE ... CASCADE` does not reach them, they are separate tables.
+    // The boot sweep is what reclaims those in production, so the test cleans up
+    // through the same code path rather than a second spelling of it.
+    //
+    // This file was missed when the other two were fixed: that sweep enumerated
+    // the files it remembered instead of the ones that call GhostDDL.execute.
+    await sweepGhostOrphans(db);
   });
 
   it('GhostDDL.execute renames a column and preserves row data', async () => {

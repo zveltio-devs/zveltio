@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { DDLManager } from '../../lib/data/index.js';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COL = `hddlguard_${Date.now()}`;
@@ -35,11 +35,7 @@ d('ddl tenant_id default tolerates an empty GUC (in-process)', () => {
   });
 
   afterAll(async () => {
-    if (db)
-      await sql
-        .raw(`DROP TABLE IF EXISTS "zvd_${COL}" CASCADE`)
-        .execute(db)
-        .catch(() => {});
+    if (db) await dropTestCollection(db, COL);
   });
 
   it('inserts a row when the tenant GUC is the empty string (set-then-reset on a pooled conn)', async () => {

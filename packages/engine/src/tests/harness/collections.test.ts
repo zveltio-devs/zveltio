@@ -17,10 +17,17 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hcol_${Date.now()}`;
+/** Creată de testul de POST; numită aici ca `afterAll` să o poată curăța. */
+const CREATED = `hcol_create_${Date.now()}`;
 
 d('collections routes (in-process)', () => {
   let app: Hono;
@@ -47,6 +54,9 @@ d('collections routes (in-process)', () => {
         .where('name', '=', COLLECTION)
         .execute()
         .catch(() => {});
+      // The POST test creates a second one. Its name used to be generated inline,
+      // so nothing could name it again to clean it up — one leftover per run.
+      await dropTestCollection(db, CREATED);
     }
   });
 
@@ -119,7 +129,7 @@ d('collections routes (in-process)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
-        name: `hcol_create_${Date.now()}`,
+        name: CREATED,
         fields: [{ name: 'x', type: 'text' }],
       }),
     });
