@@ -39,9 +39,9 @@ e constantă. Pentru un „Business OS multi-tenant", asta e plafonul care conte
 | # | Pas | Stare | Rezultat |
 |---|---|---|---|
 | 0 | Citește documentul ăsta | — | (la fiecare pas) |
-| 1 | Banc de scalare controlat: seturi de politici 1×, 2×, 5×, 10× pe o bază proprie | **DE FĂCUT** | |
-| 2 | Curba rezolvării pe acele seturi — formă, nu două puncte | DE FĂCUT | |
-| 3 | Fezabilitatea `loadFilteredPolicy` cu enforcer singleton partajat între firme | DE FĂCUT | |
+| 1 | Banc de scalare controlat pe bază proprie `zv_casbin` | ✅ **FĂCUT** | vezi §Curba |
+| 2 | Curba rezolvării — formă, nu două puncte | ✅ **FĂCUT** | **liniară, ușor supra-liniară** |
+| 3 | Fezabilitatea `loadFilteredPolicy` cu enforcer singleton partajat între firme | **ÎN LUCRU** | |
 | 4 | Ce s-ar rupe dacă regulile `p` ar fi legate de domeniu în loc de `dom='*'` | DE FĂCUT | |
 | 5 | Creșterea regulilor `g` (958 acum) cu utilizatori × firme | DE FĂCUT | |
 | 6 | **PUNCT DE VALIDARE** — vezi criteriile de mai jos | DE FĂCUT | |
@@ -63,6 +63,31 @@ se raportează. Un „nu merită" măsurat e un rezultat, nu un eșec.
 Cod de producție. Politica RLS. Enforcer-ul. Nimic din `packages/engine/src` în
 afară de fișiere de măsurare aruncate după.
 
+### Curba (pașii 1–2, măsurat 2026-08-29)
+
+Bancul imită forma reală: politici pe ROL, una per (rol, resursă, acțiune), toate
+`dom='*'`. În instanța de audit: `tenant_member` × 3 acțiuni + `tenant_viewer` × 1,
+peste 6 161 de resurse = 24 644 de reguli.
+
+| Resurse | Politici | Rezolvare (cu rol) | Rezolvare (fără rol) |
+|---|---|---|---|
+| 1 500 | 6 000 | 3,57 ms | 1,17 ms |
+| 3 000 | 12 000 | 7,26 ms | 2,50 ms |
+| 6 000 | 24 000 | 16,32 ms | 7,01 ms |
+| 12 000 | 48 000 | 28,50 ms | 10,70 ms |
+| 24 000 | 96 000 | **62,33 ms** | 26,55 ms |
+
+**De 16× mai multe politici ⇒ de 17,5× mai mult timp.** Liniar, ușor supra-liniar.
+
+Extrapolat la 1 000 de firme × 24 de colecții: **62 ms** pentru fiecare rezolvare
+(utilizator, firmă), plătită la prima verificare din fiecare fereastră de TTL de 60 s.
+
+Cazul „fără rol" e mai ieftin dar crește la fel — și el e cazul refuzului, adică cel
+pe care îl cere un atacator.
+
+**Prima jumătate a criteriului de validare e îndeplinită:** curba e cel puțin
+liniară. Rămâne de arătat că există o cale care o reduce.
+
 ---
 
 ## Blocul 2 — (se definește abia după validarea blocului 1)
@@ -74,6 +99,7 @@ afară de fișiere de măsurare aruncate după.
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
 | 2026-08-29 | setup | Branch creat din `422377b2`. Document de stare scris. Blocul 1 definit cu criterii de validare stabilite înainte de măsurare. |
+| 2026-08-29 | 1–2 | Banc pe bază proprie `zv_casbin`, cinci puncte de măsurare. Curba e liniară: 6 000 → 96 000 de politici mută rezolvarea de la 3,57 la 62,33 ms. Prima jumătate a criteriului e îndeplinită. |
 
 ---
 
