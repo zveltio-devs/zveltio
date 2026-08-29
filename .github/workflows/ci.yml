@@ -341,6 +341,17 @@ jobs:
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
         run: bun run format:check
+      - name: Every table declares which side of the tenancy boundary it is on
+        # The prefix does not say: `zvd_collections` carries no `tenant_id` and is
+        # shared across tenants, `zvd_webhooks` carries one. A table with no
+        # `tenant_id` looks identical whether that was a decision or an omission,
+        # and the ambiguity has cost twice — a gate that reported three pieces of
+        # correct code as violations, and the false premise of a whole branch.
+        #
+        # Derived from the SQL of both repositories, with no database. Nine of the
+        # instance-level tables reference a tenant-scoped parent: not leaks, but
+        # isolation with no second line, since RLS has no column to bind.
+        run: bun run scripts/check-tenant-boundary.ts
       - name: Every gate is proved by planting, or listed with a reason
         # The ratchet on the step below. `audit-gates.ts` proves the gates it has
         # cases for — it cannot say how many it is missing, and the maturity plan
