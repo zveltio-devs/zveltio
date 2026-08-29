@@ -66,7 +66,7 @@ plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțe
 | 2 | Rulează meta-poarta: chiar pică fiecare caz pe violarea plantată? | ✅ **FĂCUT** | **11/11 prind** — cele acoperite chiar funcționează |
 | 2.5 | **Meta-poarta să ruleze automat** — descoperit la pasul 1, nu era în lista inițială | ✅ **FĂCUT** | `audit:gates` + `check:pooldb-txn` în lane-ul Lint |
 | 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | 🟡 **ÎN LUCRU** | **9 → 14 dovedite**; 23 rămase cu motiv |
-| 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | DE FĂCUT | — |
+| 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | ✅ **FĂCUT** (sora) | **6 porți erau fail-open** — vezi §Pasul 4 |
 | 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | ✅ **FĂCUT** | `check-gate-coverage`, dovedită prin plantare |
 | 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | DE FĂCUT | — |
 | 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
@@ -97,6 +97,40 @@ Cele 22 includ porți deloc periferice: `check-migration-safety`, `check-atomic-
 scriptul `prepush`. Iar `prepush` **nu e legat de niciun hook**: nu există `.husky/`,
 `core.hooksPath` e nesetat, iar în `hooks/` nu e decât `.sample`. Deci rulează numai
 dacă tastează cineva `bun run prepush`. Șapte porți depind exclusiv de disciplina aia.
+
+### Pasul 4 — șase porți raportau OK fără corpus (măsurat 2026-08-29)
+
+**Metoda:** un worktree temporar al engine-ului la o cale unde **nu există soră lângă
+el**, apoi fiecare poartă care citește sora, rulată acolo. Condiția e reală, nu
+teoretică: jobul de CI care rula poarta numerică era singurul care nu clona sora, și
+exact așa a raportat curat un corpus gol.
+
+*(Prima măsurătoare a fost falsă: `rc=$?` după un pipe dă codul lui `tail`, nu al
+porții, deci toate arătau `rc=0`. Refăcută corect. A patra oară în ziua asta când o
+măsurătoare a trebuit refăcută fiindcă instrumentul măsura altceva.)*
+
+| poartă | fără soră, ÎNAINTE | ce spunea |
+|---|---|---|
+| `check-raw-sql-identifiers` | **rc=0** | „every identifier is escaped" — **fără să deschidă repo-ul pe care antetul lui zice că e scoped anume** |
+| `check-atomic-writes` | **rc=0** | „OK — 5 handler(s)" (cu soră: **32**) |
+| `check-duplicate-table-creators` | **rc=0** | „OK — 73 tables" (cu soră: **384**) |
+| `check-fabricated-success` | **rc=0** | „OK — 0 site(s)", scanând nimic |
+| `check-insert-schema-match` | **rc=0** | „SKIP", cinstit și totuși verde |
+| `check-extension-sdui-schemas` | **rc=0** | „skip", la fel |
+
+Celelalte cinci ieșeau deja non-zero — trei dintre ele însă **prin prăbușire**, nu prin
+decizie. Fail-closed din accident, nu din proiectare; de reținut, nu de reparat acum.
+
+**Reparat** cu `scripts/lib/require-sibling.ts`: un corpus absent nu e un corpus curat.
+Opt-out îngust și deliberat — `ZVELTIO_ALLOW_MISSING_SIBLING=1` dă un avertisment în loc
+de refuz, pentru cine lucrează fără soră. **CI nu-l setează niciodată**: joburile clonează
+sora, iar unul care uită trebuie să devină roșu, nu tăcut.
+
+Verificat în ambele direcții: cu soră toate trec (și numărul crește — 32 în loc de 5, 384
+în loc de 73, care e chiar mărimea găurii); fără soră toate șase pică; cu opt-out, avertisment.
+
+**Ce rămâne la pasul 4:** fail-open-ul pe alte inputuri decât sora — bază de date
+absentă, baseline lipsă, Studio nebuildat. Măsurat doar dimensiunea „soră".
 
 ### Pasul 3 — patru porți convertite, și ce a ieșit din plantare (2026-08-29)
 
@@ -209,6 +243,7 @@ engine-ului nu se schimbă.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 4 | **6 porți raportau OK fără repo-ul soră**, între ele `check-raw-sql-identifiers`, care e scoped ANUME pe el. Corpusul tăcut: 5 handler-e în loc de 32, 73 tabele în loc de 384. Reparat cu `require-sibling.ts`, opt-out îngust pe care CI nu-l setează. Prima măsurătoare a fost falsă (`rc=$?` după pipe) și refăcută. |
 | 2026-08-29 | 3 | Patru porți convertite (`admin-gate-check`, `import-boundaries`, `any-ratchet`, `check-duplicate-table-creators`): **9 → 14 dovedite, 23 rămase**. **3 sonde din 5 greșite la prima încercare** — `git ls-files`, cheia pe proprietar, `git diff` — fiecare ar fi raportat o poartă bună drept decor. `check-migration-safety` trecută înapoi în baseline cu motivul măsurat. Ratchet-ul dovedit că se și STRÂNGE: pică dacă un rând rămâne după ce cazul lui există. |
 | 2026-08-29 | 5 | `check-gate-coverage` + baseline, legată de CI, **dovedită prin plantare** (12/12). Plantarea a găsit o slăbiciune pe care citirea n-o arătase: regexul prindea și comentariile din workflow. 40 de scripturi în CI: 10 dovedite, 27 cu motiv, 3 ne-porți. |
 | 2026-08-29 | 2.5 | `audit:gates` legat de lane-ul Lint, ca ultim pas. Plus `check:pooldb-txn`, singura poartă din `prepush` absentă din CI — trece azi, deci e plasă, nu reparație. YAML validat. |

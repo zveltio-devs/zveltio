@@ -11,6 +11,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { requireSibling } from './lib/require-sibling.js';
+
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT =
   process.env.EXTENSIONS_DIR ??
@@ -19,6 +21,9 @@ const EXT_ROOT =
     : null);
 
 if (!EXT_ROOT) {
+  // Was a skip that exited 0. An absent corpus is not a clean corpus, and this
+  // gate exists to check extension SDUI schema files — of which it then saw none.
+  requireSibling(join(ROOT, '../zveltio-extensions'), 'check-sdui-schemas');
   console.log('⏭️  check-sdui-schemas: no EXTENSIONS_DIR / zveltio-extensions — skip');
   process.exit(0);
 }
