@@ -643,6 +643,16 @@ jobs:
           ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/../zveltio-extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
+          # Which statement failed, not just that one did. This lane has failed
+          # twice in a row on `0A000 cached plan must not change result type`,
+          # both times on the same two webhook tests, both times on a change that
+          # could not have caused it — once on a commit touching only
+          # documentation. The engine log names the route and the error; the
+          # statement holding the stale plan is what would settle it, and PR #356
+          # added this trace for exactly that, wiring it into the E2E workflow
+          # only. The next occurrence should arrive as evidence, not as another
+          # re-run.
+          ZVELTIO_TRACE_SQL_ERRORS: '1'
           # /metrics is fail-closed (401) without a token by default; this test
           # engine opts into unauthenticated exposure so the health suite can
           # assert the Prometheus payload. Prod stays fail-closed.
