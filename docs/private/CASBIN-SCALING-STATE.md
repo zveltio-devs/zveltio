@@ -252,3 +252,99 @@ poartă nedovedită e decor, și tocmai am petrecut o săptămână demonstrând
   prin **egalitate simplă**, fără `keyMatch`. `getImplicitRolesForUser` e de
   încredere; `getImplicitPermissionsForUser` **NU** — filtrează pe domeniu exact și
   întoarce zero pentru un `tenant_admin`, fiindcă regulile `p` au `dom='*'`.
+
+
+---
+
+## Blocul 4 — rolul engine-ului: e arhitectura de azi cea bună?
+
+Măsurat: engine-ul se conectează ca `postgres` (`rolsuper=t`, `rolbypassrls=t`).
+Pe un tabel cu `FORCE ROW LEVEL SECURITY` pornit, acel rol vede **306 360 de rânduri
+din 63 de firme**; `zveltio_rls` vede 100 360 dintr-una. Superuserii nu sunt legați
+de RLS, niciodată.
+
+Deci **cererile de utilizator sunt izolate** (`withTenantIsolation` coboară rolul),
+iar **tot restul nu e**: job-uri de fundal, reconcilieri, audit, backup.
+
+### Întrebarea de arhitectură, nu doar de configurație
+
+Azi **fiecare cerere își coboară singură privilegiile**. Implicitul e „neîngrădit
+până se restrânge cineva". Trei variante de comparat:
+
+- **Zero — azi.** Pool superuser + `SET LOCAL ROLE` per cerere.
+- **A — rol simplu + ridicare explicită.** Engine-ul rulează restrâns; ce are nevoie
+  de vedere globală se ridică explicit. Inversează implicitul.
+- **B — două pool-uri.** Unul conectat CA rol restrâns pentru cereri, unul privilegiat
+  pentru fundal și DDL. Identitatea conexiunii poartă privilegiul, deci `SET LOCAL
+  ROLE` dispare din calea fierbinte, iar implicitul devine sigur prin construcție.
+
+| # | Pas | Stare | Rezultat |
+|---|---|---|---|
+| 0 | Citește documentul | — | (la fiecare pas) |
+| 1 | Inventar | ✅ **FĂCUT** | 111 tabele cu `tenant_id`; ~14 situri în `lib/` |
+| 2 | Clasificare | ✅ **FĂCUT** | fundalul are nevoie **structurală** de vedere globală |
+| 3 | Costul lui `SET LOCAL ROLE` | ✅ **FĂCUT** | 0,055 ms — și se poate lua **fără** schimbare de arhitectură |
+| 4 | Fezabilitatea B | ✅ **FĂCUT** | posibilă, dar nu reduce expunerea |
+| 5 | Ce se rupe | ⛔ **ANULAT** | verdictul s-a stabilit la pasul 2 |
+| 6 | **PUNCT DE VALIDARE** | ✅ **FĂCUT** | **NU se schimbă rolul** |
+
+### Pasul 1–2 — inventarul, și de ce clasificarea decide totul
+
+111 tabele poartă `tenant_id`. În `lib/`, ~14 situri le ating în afara tranzacției.
+Dar numărul nu e ce contează; **natura lor e.**
+
+- `repairUnsignedWebhooksAtBoot` citește webhook-urile **tuturor** firmelor.
+- `flow-executor` caută `tenant_id`-ul unui flow **ca să afle** în ce firmă rulează.
+- Reconcilierile de la boot trec peste tabelele tuturor firmelor.
+
+Munca de fundal care operează *între* firme trebuie, prin definiție, să vadă între
+firme. Un rol restrâns nu le-ar face nesigure — le-ar face **oarbe**.
+
+### Pasul 3 — câștigul de performanță nu cere schimbarea
+
+| | Timp per cerere |
+|---|---|
+| Azi: `SET LOCAL ROLE` ca instrucțiune separată | 0,230 ms |
+| Varianta B: rolul vine cu conexiunea | 0,181 ms |
+| **Rolul setat în același `set_config`** | **0,175 ms** |
+
+A treia e **mai rapidă decât B** și nu cere nicio schimbare de arhitectură.
+Verificat că e echivalentă, nu doar mai rapidă: `set_config('role','zveltio_rls',true)`
+dă `current_user = zveltio_rls` și RLS se aplică — o firmă vizibilă, exact ca
+`SET LOCAL ROLE`. Superuserul vede 63.
+
+---
+
+## PUNCT DE VALIDARE — verdict: NU se schimbă rolul engine-ului
+
+**Criteriul 1 pică.** Locurile care au nevoie de vedere globală nu sunt o mulțime
+mică și închidabilă — sunt întregul strat de fundal, prin proiectare.
+
+**Criteriul 2 pică pe fond.** Varianta B e tehnic fezabilă (DDL-ul trece prin
+pg-boss, deci prin pool-ul privilegiat), dar **nu reduce expunerea**: pool-ul de
+fundal ar rămâne privilegiat, și exact acolo trăiește accesul neîngrădit. B ar face
+sigură-prin-construcție doar calea de cerere, care e deja sigură prin coborârea
+explicită de rol. Iar câștigul ei măsurat e mai mic decât cel gratuit.
+
+### Ce iese totuși din bloc
+
+1. **Un câștig gratuit, verificat:** rolul mutat în `set_config`-ul existent —
+   **0,055 ms per cerere, 24% din costul de pregătire**, o linie, risc zero.
+2. **Expunerea se închide mai bine la build:** extinderea porții
+   `check-tenant-table-on-pool` la `lib/`, cu o listă explicită de excepții motivate
+   pentru munca de fundal care are nevoie legitimă de vedere globală. Prinde aceeași
+   clasă fără să riște să orbească nimic.
+
+**Ce NU se face:** schimbarea rolului de conectare al engine-ului.
+
+### Criteriile punctului de validare (scrise ÎNAINTE)
+
+Se recomandă o schimbare **doar dacă**:
+- Numărul locurilor care au nevoie legitimă de vedere globală e mic și enumerabil
+  (sub ~10), **și** fiecare poate primi o cale explicită.
+- **Sau** varianta B se dovedește fezabilă fără să rupă DDL-ul.
+
+Dacă ies multe locuri legitime: **nu se schimbă rolul.** Expunerea se închide mai
+bine caz cu caz — și atunci recomandarea e extinderea porții
+`check-tenant-table-on-pool` la `lib/`, care prinde aceeași clasă la build fără să
+riște să orbească nimic.
