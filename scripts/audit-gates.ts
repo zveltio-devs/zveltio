@@ -230,6 +230,21 @@ const CASES: Case[] = [
     body: 'CREATE TABLE IF NOT EXISTS zv_schema_versions (id uuid PRIMARY KEY);\n',
   },
   {
+    // A new table that carries no `tenant_id` and declares nothing. It looks
+    // identical to a deliberate instance-level table, which is the whole reason
+    // the gate exists.
+    //
+    // One line on purpose: the first version of the gate demanded the closing
+    // paren on a line of its own and was blind to exactly this shape. Planting
+    // found that; reading the regex would not have.
+    gate: 'check-tenant-boundary',
+    cmd: 'bun run scripts/check-tenant-boundary.ts',
+    file: 'packages/engine/src/db/migrations/sql/902_gate_probe_boundary.sql',
+    body:
+      'CREATE TABLE IF NOT EXISTS zz_boundary_probe ' +
+      '(id uuid PRIMARY KEY, flow_id uuid REFERENCES zv_flows(id));\n',
+  },
+  {
     // The gate that keeps the others honest, kept honest itself.
     //
     // The violation is a NEW gate joining CI without either a planted case or a
