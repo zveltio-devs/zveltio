@@ -211,6 +211,18 @@ export class BunSqlDialect implements Dialect {
 // protocol (prepared statements) even without params, which forbids multiple
 // commands. Migrations need simple-query, so they use this reference directly.
 export let _activeBunPool: BunSQLPool | null = null;
+let _activeDriver: BunSqlDriver | null = null;
+
+/**
+ * Drop every pooled connection and its cached plans. See `recyclePool`.
+ *
+ * A no-op when no driver has initialised — a test that never opened a pool has
+ * no stale plans to clear, and throwing there would make the caller guard a
+ * condition that cannot matter.
+ */
+export async function recycleActivePool(): Promise<void> {
+  await _activeDriver?.recyclePool();
+}
 
 /** Exposed for the worker-extension-host (C-minimal isolation): worker
  *  RPC `db:query` runs against this pool with the host as gatekeeper. */
@@ -280,6 +292,36 @@ class BunSqlDriver implements Driver {
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
     }) as BunSQLPool;
     _activeBunPool = this.#pool;
+    _activeDriver = this;
+  }
+
+  /**
+   * Throw away every pooled backend and open a fresh pool.
+   *
+   * Called once at boot, after extension migrations. Those migrations alter
+   * tables the ENGINE owns — ten of them today, `zvd_collections` among them —
+   * and they run AFTER the boot steps that already queried the database, so the
+   * pool is holding prepared plans built against the old shape. The next request
+   * to draw such a connection gets `0A000 cached plan must not change result
+   * type`, and inside the request transaction the dialect deliberately does not
+   * retry, so it surfaces as a 500. Measured in CI: the engine started at
+   * 18:52:55.23 and the `ai` extension's migration added three columns to
+   * `zvd_collections` at 18:52:56.51.
+   *
+   * Why a new pool and not `DISCARD ALL`: measured, not assumed. `DISCARD ALL`
+   * deallocates server-side while Bun keeps referring to the statement by name,
+   * so the very next query fails with `26000 prepared statement … does not
+   * exist` — and keeps failing. A fresh pool drops both sides at once.
+   *
+   * Safe where it is called: extension loading is awaited, and `Bun.serve` has
+   * not started, so nothing is mid-request.
+   */
+  async recyclePool(): Promise<void> {
+    if (!this.#pool) return;
+    const old = this.#pool;
+    this.#pool = null;
+    await old.close().catch(() => {});
+    await this.init();
   }
 
   /**
