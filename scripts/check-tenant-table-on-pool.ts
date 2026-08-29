@@ -9,6 +9,22 @@
  * the tenant policies. `poolDb` is the raw pool, running as the engine's own
  * role, and a tenant-scoped query on it sees every tenant's rows.
  *
+ * Scope: `routes/` only, and that boundary is a finding rather than an oversight.
+ * Extending it to `lib/` was tried and reverted. There, the unscoped handle is
+ * spelled `db` — the same name a transaction is passed under — so the gate either
+ * catches nothing (matching only `poolDb`, which `lib/` does not use) or drowns in
+ * false positives (matching `db`, which is usually the request transaction). The
+ * first version of the extension took the harmless option and shipped four
+ * "reviewed exceptions" for violations that could never fire. A gate whose
+ * exception list is the only thing it produces is worse than no gate.
+ *
+ * The background access it would have covered is real and was inventoried:
+ * `repairUnsignedWebhooksAtBoot` reads every tenant's webhooks; `flow-executor`
+ * looks up a flow's tenant in order to learn which one to run as; the boot
+ * reconciles walk every tenant's tables. All of them need to see across tenants by
+ * design, which is why the engine's own role is not restricted — see the note in
+ * `docs/private/CASBIN-SCALING-STATE.md`.
+ *
  * `poolDb` exists for good reasons — the four routers in `TXN_SKIP_PREFIXES`
  * would otherwise pin one connection and reach for a second, which deadlocks at
  * a concurrency equal to the pool size. This gate does not object to `poolDb`.
@@ -81,6 +97,12 @@ const QUERY = /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\
  * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
  * way: an entry here is a promise that somebody checked the tenant binding by
  * hand, and the previous version of this file shows how easily that becomes a
+ * rubber stamp.
+ */
+/**
+ * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
+ * way: an entry here is a promise that somebody checked the tenant binding by
+ * hand, and an earlier version of this file shows how easily that becomes a
  * rubber stamp.
  */
 const allowed = new Map<string, string>();
