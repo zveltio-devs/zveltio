@@ -65,9 +65,9 @@ plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțe
 | 1 | **Inventar + acoperire:** enumeră TOATE porțile (scripts/ + CI, nu package.json), cross-referă cu cazurile din `audit-gates.ts` | ✅ **FĂCUT** | **9 din 31, nu 11/11** — vezi §Pasul 1 |
 | 2 | Rulează meta-poarta: chiar pică fiecare caz pe violarea plantată? | ✅ **FĂCUT** | **11/11 prind** — cele acoperite chiar funcționează |
 | 2.5 | **Meta-poarta să ruleze automat** — descoperit la pasul 1, nu era în lista inițială | ✅ **FĂCUT** | `audit:gates` + `check:pooldb-txn` în lane-ul Lint |
-| 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | DE FĂCUT | — |
+| 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | 🟡 **PARȚIAL** | 27 au motiv scris; **cele ușoare n-au încă un caz** |
 | 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | DE FĂCUT | — |
-| 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | DE FĂCUT | — |
+| 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | ✅ **FĂCUT** | `check-gate-coverage`, dovedită prin plantare |
 | 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | DE FĂCUT | — |
 | 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
@@ -97,6 +97,34 @@ Cele 22 includ porți deloc periferice: `check-migration-safety`, `check-atomic-
 scriptul `prepush`. Iar `prepush` **nu e legat de niciun hook**: nu există `.husky/`,
 `core.hooksPath` e nesetat, iar în `hooks/` nu e decât `.sample`. Deci rulează numai
 dacă tastează cineva `bun run prepush`. Șapte porți depind exclusiv de disciplina aia.
+
+### Pasul 5 — poarta asupra porților (2026-08-29)
+
+`scripts/check-gate-coverage.ts` + `quality-gates/gate-coverage.json`. O poartă nouă
+care intră în CI trebuie să vină ori cu un caz plantat, ori cu un rând scris care
+spune de ce nu poate avea unul. Lista înregistrată **poate doar să scadă**.
+
+**Allowlist, nu denylist:** orice `scripts/*.ts` pe care un workflow îl invocă e
+tratat ca poartă până când `not_a_gate` spune altfel, cu motiv. Inversul — o listă de
+nume cunoscute — e chiar ce lasă următoarea să scape sub un nume la care nu s-a gândit
+nimeni; `check-pooldb-txn-skip` a stat în afara CI tocmai fiindcă trăia doar în
+`prepush`.
+
+**Dovedită prin plantare**, nu prin citire: cazul adaugă un pas de workflow care
+cheamă un script inexistent, iar poarta trebuie să pice. `mode: 'append'`, deci
+`ci.yml` e restaurat octet cu octet — verificat cu `git diff` după rulare.
+
+Plantarea a scos la iveală și o slăbiciune a porții pe care citirea n-o arătase:
+regexul prindea invocări din **liniile de comentariu** ale workflow-ului, deci un
+comentariu despre trecut ar fi adăugat un script pe listă. Reparat în același pas.
+Ăsta e argumentul pentru plantare, în miniatură.
+
+Stare: **40 de scripturi rulate de CI — 10 dovedite prin plantare, 27 înregistrate cu
+motiv, 3 declarate ne-porți.** `audit:gates` raportează **12/12**.
+
+**Ce rămâne, spus cinstit:** din cele 27, multe au ca motiv „plantare ușoară" — ceea
+ce nu e un motiv pentru care *nu pot* avea un caz, ci constatarea că încă n-au unul.
+Ratchet-ul oprește hemoragia; conversia lor e restul pasului 3.
 
 ### Pasul 2 — cele acoperite chiar prind (măsurat 2026-08-29)
 
@@ -144,6 +172,7 @@ engine-ului nu se schimbă.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 5 | `check-gate-coverage` + baseline, legată de CI, **dovedită prin plantare** (12/12). Plantarea a găsit o slăbiciune pe care citirea n-o arătase: regexul prindea și comentariile din workflow. 40 de scripturi în CI: 10 dovedite, 27 cu motiv, 3 ne-porți. |
 | 2026-08-29 | 2.5 | `audit:gates` legat de lane-ul Lint, ca ultim pas. Plus `check:pooldb-txn`, singura poartă din `prepush` absentă din CI — trece azi, deci e plasă, nu reparație. YAML validat. |
 | 2026-08-29 | 1–2 | **Acoperirea reală e 9 din 31, nu 11/11** — cifra din plan număra cazuri, nu porți. 22 de porți rulează în CI nedovedite; `check-pooldb-txn-skip` nu rulează în CI deloc, iar `prepush`, singurul lui apelant, nu e legat de niciun hook. Meta-poarta prinde 11/11 pe violări plantate, deci cazurile existente sunt bune. **Dar `audit:gates` nu e nici în CI, nici în prepush** — instrumentul care dovedește că porțile nu-s decor e el însuși nerulat. Pas 2.5 inserat înaintea lui 3. |
 | 2026-08-29 | setup | Branch `block-c/gates` din `dfe3ab99`. Document scris, cu criteriile de validare stabilite ÎNAINTE de orice măsurătoare. Orientare: 11 cazuri în `audit-gates.ts` acoperind 9 porți distincte; `package.json` listează ~22 de scripturi care arată a poartă. Cifrele astea sunt orientative — pasul 1 le înlocuiește cu enumerarea reală. |

@@ -341,6 +341,17 @@ jobs:
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
         run: bun run format:check
+      - name: Every gate is proved by planting, or listed with a reason
+        # The ratchet on the step below. `audit-gates.ts` proves the gates it has
+        # cases for — it cannot say how many it is missing, and the maturity plan
+        # recorded "100% coverage, 11/11 today" while 11 was the number of CASES,
+        # targeting 9 gate files out of the 31 CI runs. Twenty-two ran unproven
+        # and nothing said so.
+        #
+        # A new gate now has to arrive with a planted case or an entry in
+        # quality-gates/gate-coverage.json saying why it cannot have one. The
+        # recorded list may shrink, never grow.
+        run: bun run scripts/check-gate-coverage.ts
       - name: Do the gates above actually catch anything?
         # Every step before this one is a gate that runs in CI. That much is
         # verifiable by reading this file. What reading cannot tell you is
