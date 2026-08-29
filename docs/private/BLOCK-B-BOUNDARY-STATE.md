@@ -70,7 +70,7 @@ lucrător de fundal pe pool, fără GUC.
 | 2 | O singură sursă, citibilă de mașină | ✅ **FĂCUT** | `quality-gates/tenant-boundary.json` |
 | 3 | Poartă: o tabelă nouă declară partea | ✅ **FĂCUT** | dovedită prin plantare |
 | 4 | Confruntă derivarea cu o bază instalată complet | ⚠️ **ÎNCERCAT, NEÎNCHEIAT** | baza de referință naivă e inutilizabilă — vezi §Pasul 4 |
-| 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | 🟡 **PARȚIAL** | 30 motivate, **22 NEVERIFICAT** |
+| 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | 🟡 **AVANSAT** | 34 verificate, 8 plauzibile-necitite, **10 nedecise** |
 | 6 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
 ---
@@ -167,6 +167,43 @@ Nu `psql -f` într-o buclă. E o lucrare în sine, nu un pas de zece minute.
 
 Nu e criteriul 4, și n-am de gând să-l declar îndeplinit. E ce se poate afirma azi.
 
+### Pasul 5 — citit tabelă cu tabelă (2026-08-29)
+
+Din cele 22 marcate `NEVERIFICAT`, **12 au primit acum un motiv din cod**; 8 sunt
+clasificate plauzibil din natura operației dar **fără să le fi citit codul**, marcate ca
+atare; **10 rămân nedecise**.
+
+**O problemă găsită: `zv_prompt_templates`.** Șabloane la nivel de instanță, dar scrise
+printr-o rută păzită de `checkPermission(user.id, 'admin', '*')` — care trece pentru un
+`tenant_admin`, fiindcă domeniul vine din ALS. Deci **administratorul firmei A poate crea
+șabloane pe care le vede toată instanța**, iar `name` fiind **UNIQUE global**, firma A
+poate ocupa un nume pe care firma B nu-l mai poate folosi. Nu e scurgere de date de
+afaceri; e vizibilitate inter-firme a configurației plus un spațiu de nume comun. Decizie
+de proprietar: `tenant_id` + unicitate compusă, sau ruta se restrânge la admin de instanță.
+
+**Două clasificate corect, care merită notate:** `zvd_panel_cache` e apărat — cache-ul se
+citește DUPĂ `canReadDashboard` și e cheiat pe un panou care aparține unui dashboard
+per-firmă. Iar `zv_rag_documents` are **două referințe în tot codul ambelor repo-uri**,
+niciuna o interogare de rulare: pare tabelă moartă, iar o tabelă moartă n-are graniță de
+apărat.
+
+### Descoperire colaterală: `admin-gate-check` nu se uită în repo-ul soră
+
+Poarta interzice `checkPermission(<user>, 'admin', '*')` în `packages/engine/src/routes`.
+Măsurat:
+
+| | situri de COD (fără comentarii) |
+|---|---:|
+| `packages/engine/src/routes` | **0** — cele 5 potriviri sunt comentarii care explică de ce să n-o faci |
+| `../zveltio-extensions` | **111**, în **46 de fișiere** |
+
+Poarta păzește locul unde nu se întâmplă și ignoră locul unde se întâmplă de 111 ori. E o
+constatare de Blocul C, ieșită la iveală în Blocul B — și e chiar mecanismul care face
+problema lui `zv_prompt_templates` posibilă.
+
+*(Prima mea numărătoare a dat 112 și 5 „în engine". Erau comentarii — poarta le sare
+corect, `grep` nu. Fals pozitiv al meu, prins citind ce sare poarta.)*
+
 ## Ce NU se atinge în blocul ăsta
 
 - **Politicile RLS existente și forma predicatului.** S-a schimbat de trei ori și e
@@ -193,6 +230,7 @@ Nu e criteriul 4, și n-am de gând să-l declar îndeplinit. E ce se poate afir
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 5 | Citit tabelă cu tabelă: 12 din 22 au primit motiv din cod, 8 plauzibile-necitite, 10 nedecise. **Găsit: `zv_prompt_templates`** — instanță, scrisă printr-o gardă care trece pentru `tenant_admin`, cu `name` UNIQUE global. **Colateral: `admin-gate-check` nu scanează sora — 0 situri de cod în engine, 111 în 46 de fișiere de extensie.** |
 | 2026-08-29 | 4 | **Încercat, neîncheiat.** Baza de referință construită cu `psql -f` în buclă e **pe jumătate aplicată** (`ON_ERROR_STOP` oprește la prima eroare din fișier), deci incoerentă: `zvd_collections` avea o coloană `ai_*` dar nu și celelalte, `zv_ai_chats` lipsea. Comparația a dat 245 de „nepotriviri" care spun ceva despre instalarea mea și nimic despre derivare — artefact, nu finding. Un pas 4 corect cere calea din `project_ext_contract_suite_recipe`. |
 | 2026-08-29 | 1–3 | **Derivabilă din cod: DA.** 384 tabele, 332 per firmă, 52 de instanță, **9 copii ai unor tabele per-firmă** — izolare fără a doua linie. Derivarea validată 10/10 pe adevăruri cunoscute și scrisă de două ori independent. Poarta `check-tenant-boundary` dovedită prin plantare; sonda i-a găsit un punct orb (CREATE pe o singură linie). Baseline: 30 motivate, 22 NEVERIFICAT. |
 | 2026-08-29 | setup | Branch `block-b/boundary` din `b2dabd27`. Document scris, criterii fixate ÎNAINTE de măsurare. Pasul 1 pune întrebarea care poate închide blocul devreme: e distincția derivabilă din cod, sau adevărul stă doar într-o bază vie? |
