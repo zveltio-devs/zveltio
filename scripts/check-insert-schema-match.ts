@@ -495,8 +495,29 @@ async function main(): Promise<void> {
     admin = new SQL(ADMIN_URL);
     await admin`SELECT 1`;
   } catch (err) {
-    console.log(`[insert-schema] SKIP — no database to build against (${(err as Error).message}).`);
-    return;
+    // Was a SKIP that returned green. This gate reads 474 INSERT sites across 54
+    // extensions and checks each against the real table shape — so with no
+    // database it checks none of them, and the one thing it must not then say is
+    // that it found nothing wrong.
+    //
+    // Measured 2026-08-29 by pointing it at a port with nothing listening: it
+    // printed the skip and exited 0. In CI that is a Postgres service that
+    // failed to come up, or a URL that changed, reporting green.
+    //
+    // Same narrow opt-out as the sibling check, for a developer with no local
+    // Postgres. CI never sets it.
+    const why = (err as Error).message;
+    if (process.env.ZVELTIO_ALLOW_MISSING_DB === '1') {
+      console.warn(`[insert-schema] WARNING — skipped, no database to build against (${why}).`);
+      return;
+    }
+    console.error(
+      `[insert-schema] FAIL — no database to build against (${why}).\n` +
+        '  This gate compares every extension INSERT against the real table it writes to.\n' +
+        '  Without a database it compares nothing, and green would mean "did not look".\n' +
+        '  Give it SEAM_DATABASE_URL, or set ZVELTIO_ALLOW_MISSING_DB=1 to skip on purpose.',
+    );
+    process.exit(1);
   }
 
   const dirs = extensionDirs(EXT_ROOT).filter((d) => !ONLY || d.includes(ONLY));
