@@ -155,6 +155,11 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
 export async function dropTestCollection(db: Database, name: string): Promise<void> {
   const table = name.startsWith('zvd_') ? name : `zvd_${name}`;
   const bare = table.slice('zvd_'.length);
+  // The interpolation below is quoted, so a name carrying a double quote would
+  // break out of it. Collection names are SAFE_NAME everywhere else in the
+  // engine; a test handing this anything else gets an error, not broken SQL.
+  const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
+  if (!SAFE_NAME.test(bare)) throw new Error(`Invalid test collection name: "${name}"`);
   await sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`).execute(db);
   await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
 }
