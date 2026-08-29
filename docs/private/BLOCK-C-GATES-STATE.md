@@ -66,7 +66,7 @@ plantare nu îmbunătățește nimic, iar blocul nu are ca scop să le înmulțe
 | 2 | Rulează meta-poarta: chiar pică fiecare caz pe violarea plantată? | ✅ **FĂCUT** | **11/11 prind** — cele acoperite chiar funcționează |
 | 2.5 | **Meta-poarta să ruleze automat** — descoperit la pasul 1, nu era în lista inițială | ✅ **FĂCUT** | `audit:gates` + `check:pooldb-txn` în lane-ul Lint |
 | 3 | Fiecare poartă neacoperită: caz nou, sau motiv scris de ce nu se poate | 🟡 **ÎN LUCRU** | **9 → 14 dovedite**; 23 rămase cu motiv |
-| 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | ✅ **FĂCUT** (sora) | **6 porți erau fail-open** — vezi §Pasul 4 |
+| 4 | Fail-closed: nicio poartă nu iese cu 0 când nu poate verifica | ✅ **FĂCUT** (toate dimensiunile) | **7 porți fail-open**, reparate — vezi §Pasul 4 |
 | 5 | Meta-poartă asupra meta-porții: o poartă nouă fără caz nu se comite | ✅ **FĂCUT** | `check-gate-coverage`, dovedită prin plantare |
 | 6 | `check-tenant-table-on-pool` extinsă la `lib/`, cu excepții motivate | DE FĂCUT | — |
 | 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
@@ -129,8 +129,38 @@ sora, iar unul care uită trebuie să devină roșu, nu tăcut.
 Verificat în ambele direcții: cu soră toate trec (și numărul crește — 32 în loc de 5, 384
 în loc de 73, care e chiar mărimea găurii); fără soră toate șase pică; cu opt-out, avertisment.
 
-**Ce rămâne la pasul 4:** fail-open-ul pe alte inputuri decât sora — bază de date
-absentă, baseline lipsă, Studio nebuildat. Măsurat doar dimensiunea „soră".
+#### Celelalte trei dimensiuni, măsurate (2026-08-29)
+
+**Bază de date.** Două condiții: fără nicio variabilă, și cu o adresă configurată dar
+inaccesibilă — port fără nimic în ascultare, adică exact un serviciu Postgres care n-a
+pornit în CI.
+
+| poartă | fără bază | inaccesibilă |
+|---|---|---|
+| `check-test-leftovers` | rc=1 | rc=1 |
+| `check-numeric-string-arithmetic` | rc=1 | rc=1 |
+| **`check-insert-schema-match` (`ext:seam`)** | rc=0 | **rc=0 — „SKIP"** |
+
+`ext:seam` compară **474 de instrucțiuni INSERT din 54 de extensii** cu forma reală a
+tabelelor. Fără bază nu compară niciuna — și tocmai atunci nu are voie să spună că n-a
+găsit nimic. Reparat cu același opt-out îngust (`ZVELTIO_ALLOW_MISSING_DB=1`), verificat
+pe toate trei căile.
+
+**Baseline lipsă — nicio poartă vinovată, și merită spus de ce.** Contează *direcția*,
+nu codul de ieșire: la toate ratchet-urile un baseline absent înseamnă **nu permit
+nimic** (`baseline = {}` sau `= 0`), deci poarta devine mai STRICTĂ, nu mai slabă. Trei
+ies non-zero explicit; `ambient-authority`, `fabricated-success` și `i18n-core` trec
+fiindcă repo-ul chiar e la zero. **Dacă mă uitam doar la `rc`, raportam trei porți bune
+drept fail-open.**
+
+**Artefacte de build — nici aici.** `check-studio-embed-freshness` sare verificarea
+markerului fără dist, dar numai când `REQUIRE_STUDIO_DIST` lipsește — iar `studio.yml:84`
+chiar îl setează. E exact tiparul cerut de pasul 3 din plan: *poarta declară de ce are
+nevoie, CI îi dă exact aia.* `check-worker-source-fresh` citește fișierul generat direct,
+deci absența lui aruncă.
+
+**Bilanț pasul 4: 7 porți erau fail-open** — 6 pe repo-ul soră, una pe bază de date.
+Toate reparate. Celelalte două dimensiuni: măsurate, curate.
 
 ### Pasul 3 — patru porți convertite, și ce a ieșit din plantare (2026-08-29)
 
@@ -243,6 +273,7 @@ engine-ului nu se schimbă.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-29 | 4 (rest) | Celelalte trei dimensiuni măsurate. **`ext:seam` ieșea cu 0 cu baza inaccesibilă** — 474 de INSERT-uri necomparate, raportate curat; reparat. Baseline lipsă: **nicio poartă vinovată**, fiindcă toate tratează absența ca „nu permit nimic" — uitându-mă doar la `rc`, aș fi raportat trei porți bune drept fail-open. Artefacte de build: curat, `studio.yml` chiar setează `REQUIRE_STUDIO_DIST`. |
 | 2026-08-29 | 4 | **6 porți raportau OK fără repo-ul soră**, între ele `check-raw-sql-identifiers`, care e scoped ANUME pe el. Corpusul tăcut: 5 handler-e în loc de 32, 73 tabele în loc de 384. Reparat cu `require-sibling.ts`, opt-out îngust pe care CI nu-l setează. Prima măsurătoare a fost falsă (`rc=$?` după pipe) și refăcută. |
 | 2026-08-29 | 3 | Patru porți convertite (`admin-gate-check`, `import-boundaries`, `any-ratchet`, `check-duplicate-table-creators`): **9 → 14 dovedite, 23 rămase**. **3 sonde din 5 greșite la prima încercare** — `git ls-files`, cheia pe proprietar, `git diff` — fiecare ar fi raportat o poartă bună drept decor. `check-migration-safety` trecută înapoi în baseline cu motivul măsurat. Ratchet-ul dovedit că se și STRÂNGE: pică dacă un rând rămâne după ce cazul lui există. |
 | 2026-08-29 | 5 | `check-gate-coverage` + baseline, legată de CI, **dovedită prin plantare** (12/12). Plantarea a găsit o slăbiciune pe care citirea n-o arătase: regexul prindea și comentariile din workflow. 40 de scripturi în CI: 10 dovedite, 27 cu motiv, 3 ne-porți. |
