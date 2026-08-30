@@ -359,7 +359,25 @@ metadatele ÎNAINTE de a deschide tranzacția — tiparul există deja în cod, 
 face exact asta, cu un comentariu care spune de ce — fie rolul `zveltio_rls` primește
 dreptul de citire pe tabelele de metadate, ca citirile să încapă în tranzacție.
 
-### Inventarul care contează, măsurat
+### Detectorul care mințea — și cum arată cel care nu minte
+
+Prima formă a verificării pornea motorul cu `DB_POOL_MAX=1` și declara vinovată
+orice rută care nu răspundea. A numit zece. **Aceleași zece au răspuns apoi 200,
+tot la pool 1, pe un motor pornit de mână cu același mediu** — fiindcă între
+sonde scrierile de fundal ale motorului țin singura conexiune, iar o cerere care
+n-are nevoie decât de tranzacția ei tot expiră așteptând-o.
+
+Verificarea măsura pălăvrăgeala motorului, nu proprietatea. Și, mai rău, **a
+continuat să numească rute după ce fuseseră reparate** — cel mai rău lucru pe
+care îl poate face o poartă. A fost aruncată.
+
+Ce a rămas numără proprietatea acolo unde se întâmplă: driverul pool-ului
+numără fiecare conexiune luată **cât timp cererea ține deja tranzacția**, iar
+middleware-ul de firmă raportează cifra în antetul `x-zveltio-extra-connections`.
+Nimic nu depinde de cronometraj, de saturație sau de ce face motorul în fundal.
+Trăiește în harness, în proces, ca test — `second-reservation.test.ts`.
+
+### Reparațiile, și ce le-a scos la iveală
 
 `scripts/check-second-reservation.ts` pornește motorul cu `DB_POOL_MAX=1` și întreabă
 fiecare rută singurul lucru care nu se poate contesta: **poți răspunde cu o singură

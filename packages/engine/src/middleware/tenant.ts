@@ -3,6 +3,7 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
+import { beginTracedTransaction, endTracedTransaction } from '../db/connection-trace.js';
 import {
   resolveTenantFromRequest,
   resolveEnvironment,
@@ -144,12 +145,20 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
+              // Traced only when ZVELTIO_TRACE_CONNECTIONS=1; a no-op otherwise.
+              beginTracedTransaction();
               c.set('tenantTrx', trx);
               // H-12: also expose the tenant transaction via the ALS store so an
               // extension's `ctx.db` (which has no Hono context inside a hook or
               // background job) is RLS-scoped to this tenant, not the global pool.
               setCurrentTenantTrx(trx);
               await next();
+              // How many pool connections this request wanted ON TOP of the one
+              // it is holding. Anything above zero is a route that cannot be
+              // served at `c = DB_POOL_MAX`. Reported as a header so a probe can
+              // read the property directly instead of inferring it from a hang.
+              const extra = endTracedTransaction();
+              if (extra > 0) c.res.headers.set('x-zveltio-extra-connections', String(extra));
             },
             { userId: actingUserId },
           );
