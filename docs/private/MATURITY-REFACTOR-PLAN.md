@@ -25,7 +25,7 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **C — porțile** | ⚠️ **3 criterii din 4**, rămâne deschis la pasul 3 | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
 | **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
 | **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
-| **A — contextul explicit** | ⬜ **NEÎNCEPUT** | — | — |
+| **A — contextul explicit** | ⏸️ **OPRIT la pasul 1** — cere o decizie de proprietar | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | — |
 | **D — condiții pe rânduri** | ⬜ observație, neatins | — | — |
 | **E — decizii de proprietar** | ⬜ neatins | — | — |
 
@@ -49,6 +49,14 @@ ia **46 ms și aruncă toate cele 300 000 de rânduri** ca să întoarcă 25 —
 de firme deopotrivă, fiindcă e o prăpastie de plan, nu o creștere. Egalitatea explicită era
 **stinsă pentru fiecare cerere autentificată**. Reparate amândouă: **12,5 ms → 0,065 ms**,
 fără regresie la o singură firmă.
+
+**A.** Plafonul de concurență **e real și e exact la `DB_POOL_MAX`** — la `c = pool`
+serviciul nu se degradează, se oprește, cu toate conexiunile `idle in transaction` și una
+singură activă. Verificat la pool 10 și la 25. **Dar planul promite prea mult:** doar 56%
+din timpul în care o conexiune e ținută e petrecut degeaba, deci tranzacțiile scurte ar da
+aproximativ **2,3×**, nu „plafonul dispare". Iar `DB_POOL_MAX` mută același plafon liniar,
+fără nicio schimbare de cod. Blocul s-a oprit la pasul 1: întrebarea a devenit una de
+proprietar, nu de inginerie.
 
 ### Ce a fost anulat, măsurat — și de ce contează lista asta
 
