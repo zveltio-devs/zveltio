@@ -82,7 +82,7 @@ d('capability approval + revocation (in-process)', () => {
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, category, version, is_installed, is_enabled)
       VALUES (${HELLO_EXT}, 'Hello', 'fixture', '1.0.0', true, false)
-      ON CONFLICT (name) DO UPDATE SET is_installed = true
+      ON CONFLICT (tenant_id, name) DO UPDATE SET is_installed = true
     `.execute(db);
   });
 
