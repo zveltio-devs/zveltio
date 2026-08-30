@@ -124,6 +124,40 @@ de proprietar, nu de inginerie, și blocul se oprește aici până când e luat�
 departe de promisiunea planului cât să nu deschid pașii 2–7 fără ca proprietarul să vadă
 comparația.
 
+## Varianta aleasă: 3 — configurația acum, refactorul când nu mai ajunge
+
+Proprietarul a ales să ridice plafonul prin `DB_POOL_MAX` întâi, și să lase Blocul A
+pentru când plafonul ridicat nu mai ajunge. Cele două nu se exclud, iar prima e gratuită.
+
+**Și nu era nimic de construit.** Pârghia e deja expusă, măsurată și păzită:
+`reportConcurrencyCeiling` tipărește la fiecare boot aritmetica — ce plafon ai, ce permite
+serverul, câte instanțe încap — sugerează o valoare care încă lasă loc pentru patru
+instanțe, și avertizează când sub două mai încap. Implicitul e **deliberat neridicat**, cu
+motivul scris: un implicit e moștenit de fiecare instalare, inclusiv de cele cu mai multe
+motoare pe un Postgres, unde 25 de fiecare l-au epuizat deja. Ridicarea e o decizie de
+operator luată împotriva unui `max_connections` pe care l-a verificat.
+
+Am verificat și că `scripts/bench-concurrency.ts`, la care trimite garda, **există** — o
+recomandare care arată spre un script inexistent e chiar clasa `dr-drill.sh`.
+
+### Ce am găsit totuși, și e real
+
+**Codul construiește un pool de 25. Documentația publică spunea 10.**
+
+`DEFAULT_DB_POOL_MAX = 25` în `db/index.ts`, dar `docs/site/CONFIGURATION.md` documenta
+implicitul ca `10`. Un operator care își dimensionează `max_connections` din documentație
+bugetează 10 pe instanță și primește 25 — de două ori și jumătate mai multe conexiuni
+decât a planificat. A doua instanță pică cu *„sorry, too many clients already"*, exact
+avertismentul pe care garda de boot îl tipărește.
+
+E **a treia ortografie a aceluiași număr**. Primele două au fost reconciliate deja, printr-un
+test scris tocmai pentru asta — `pool-max-single-source.test.ts`, care există fiindcă
+`initDatabase` construia cu `?? 25` în timp ce `startup-guards.ts` raționa cu `?? 10`.
+Testul păzea codul; copia pe care o citește **omul** a rămas pe dinafară.
+
+Reparat, și adăugat la același test — dovedit prin revenire: cu `10` în documentație pică,
+cu `25` trece.
+
 ## Ce NU se atinge
 
 - **Politica RLS, forma predicatului, clasificarea graniței.** B și F le-au închis.
@@ -136,6 +170,7 @@ comparația.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | decizie | Varianta 3 aleasă de proprietar: configurația acum, refactorul mai târziu. **Nimic de construit** — pârghia e deja expusă și păzită de `reportConcurrencyCeiling`, iar scriptul la care trimite există. **Dar documentația publică spunea `10` acolo unde codul construiește `25`** — a treia ortografie a unui număr ale cărui prime două fuseseră deja reconciliate printr-un test. Reparat și adăugat la acel test, dovedit prin revenire. |
 | 2026-08-30 | 1 | **Plafonul e real și exact la `DB_POOL_MAX`** — la c=pool serviciul se oprește, cu toate conexiunile `idle in transaction` și una activă; verificat la pool 10 și 25. **Dar doar 56% din timpul ținut e degeaba**, deci tranzacțiile scurte ar da ~2,3×, nu „plafonul dispare" cum spune planul. `DB_POOL_MAX` mută același plafon liniar, fără cod. **Blocul se oprește la pasul 1 până la decizia proprietarului.** |
 | 2026-08-30 | setup | Document scris, criterii fixate ÎNAINTE de măsurare. Pasul 1 are dreptul declarat să închidă blocul. |
 
