@@ -91,7 +91,11 @@ describe('createCollection', () => {
     expect(
       db.executed(/CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zvd_articles_status/),
     ).toHaveLength(1);
-    expect(db.executed(/CREATE INDEX CONCURRENTLY[\s\S]*"price"/)).toHaveLength(1);
+    // Two now: the bare index and the tenant-first
+    // `(tenant_id, <field>, created_at DESC)`, which is the one a tenant-scoped
+    // read can use. See `fieldTypeRegistry.getTenantIndexDDL` for the measurement.
+    expect(db.executed(/CREATE INDEX CONCURRENTLY[\s\S]*"price"/)).toHaveLength(2);
+    expect(db.executed(/CREATE INDEX[\s\S]*tenant_id, "price"/)).toHaveLength(1);
 
     // FTS: vector column + GIN, and (because there IS a text field) trgm + trigger
     expect(db.executed(/ADD COLUMN IF NOT EXISTS search_vector tsvector/)).toHaveLength(1);
@@ -313,7 +317,11 @@ describe('addField / removeField', () => {
     } as never);
 
     expect(db.executed(/alter table "zvd_articles" add column if not exists/i)).toHaveLength(1);
-    expect(db.executed(/CREATE INDEX CONCURRENTLY[\s\S]*subtitle/)).toHaveLength(1);
+    // Two now: the bare index and the tenant-first
+    // `(tenant_id, <field>, created_at DESC)`, which is the one a tenant-scoped
+    // read can use. See `fieldTypeRegistry.getTenantIndexDDL` for the measurement.
+    expect(db.executed(/CREATE INDEX CONCURRENTLY[\s\S]*subtitle/)).toHaveLength(2);
+    expect(db.executed(/CREATE INDEX[\s\S]*tenant_id, "subtitle"/)).toHaveLength(1);
     const metaUpdate = db.executed(/update "zvd_collections" set/)[0]!;
     expect(String(metaUpdate.parameters[0])).toContain('subtitle');
   });
