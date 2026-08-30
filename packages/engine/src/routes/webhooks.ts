@@ -1,3 +1,19 @@
+/**
+ * Every handler reads through `reqDb(c, db)`, never the bare pool.
+ *
+ * Two reasons, and the second is the one that was costing something. The pool
+ * escapes RLS: `zv_webhooks` carries `tenant_id` and a policy, but a query on
+ * the pool runs as the engine's own role, so the explicit `where tenant_id = …`
+ * was the ONLY thing standing between tenants here. And a pool query issued
+ * while the request already holds its tenant transaction is a SECOND connection
+ * — at `c = DB_POOL_MAX` every connection is held by such a transaction and the
+ * second can never arrive, so the instance stops rather than slows. This route
+ * asked for four.
+ *
+ * The `where tenant_id` clauses stay: belt AND braces now, and they still let
+ * the planner use the composite indexes.
+ */
+
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
@@ -10,21 +26,50 @@ import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
 
-/**
- * Every handler reads through `reqDb(c, db)`, never the bare pool.
- *
- * Two reasons, and the second is the one that was actually costing something.
- * The pool escapes RLS — `zv_webhooks` carries `tenant_id` and a policy, and a
- * query on the pool runs as the engine's own role, so the explicit
- * `where tenant_id = …` was the ONLY thing standing between tenants here.
- * And a pool query issued while the request holds its tenant transaction is a
- * SECOND connection: at `c = DB_POOL_MAX` every connection is held by a
- * transaction whose owner is waiting for one more, so the instance stops rather
- * than slows. Measured before this change: this route asked for four.
- *
- * The `where tenant_id` clauses stay. They are now belt AND braces rather than
- * the only layer, and they also let the planner use the composite indexes.
- */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+async function requireAdmin(c: any, auth: any): Promise<any | null> {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session) return null;
+  if (!(await isTenantAdmin(session.user.id))) return null;
+  return session.user;
+}
+
+const WebhookSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().url(),
+  method: z.enum(['POST', 'PUT', 'PATCH']).default('POST'),
+  headers: z.record(z.string(), z.string()).default({}),
+  events: z.array(z.string()).min(1),
+  collections: z.array(z.string()).default([]),
+  active: z.boolean().default(true),
+  secret: z.string().optional(),
+  retry_attempts: z.number().int().min(0).max(10).default(3),
+  timeout: z.number().int().min(1000).max(30000).default(5000),
+});
+
+function generateWebhookSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function signBody(body: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+  return `sha256=${Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function webhooksRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
