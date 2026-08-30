@@ -17,7 +17,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
-import { setTenantScopedTables } from './lib/tenancy/tenant-context.js';
+import { setTenantScopedTables } from './lib/tenancy/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
