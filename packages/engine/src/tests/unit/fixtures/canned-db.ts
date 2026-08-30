@@ -98,6 +98,22 @@ export class CannedDb {
     };
 
     this.kysely = new Kysely({ dialect });
+
+    // Extensions are gated on `zv_extension_registry` since per-firm activation
+    // landed: a route, hook or schedule belonging to an extension no firm has
+    // switched on does not run. A canned database answers zero rows to
+    // everything it was not told about, which would read as "off everywhere"
+    // and silently unmount every extension in every test that never mentioned
+    // the registry. Default to on; a test that is about activation overrides it
+    // with its own `when()`, which is matched first.
+    // Matched on the two activation lookups specifically, not on the table:
+    // other code reads this registry too (dependency resolution, for one), and
+    // a blanket default turned "this dependency is missing" into "it is here".
+    this.handlers.push({
+      match: /order by\s+tenant_id\s+nulls last/i,
+      rows: [{ is_enabled: true }],
+    });
+    this.handlers.push({ match: /select\s+true as ok\b/i, rows: [{ ok: true }] });
   }
 
   /** Register canned rows for queries whose compiled SQL matches. Returns `this` for chaining. */

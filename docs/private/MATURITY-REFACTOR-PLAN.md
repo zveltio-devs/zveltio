@@ -471,3 +471,16 @@ marcate ca observații. Lista „ce NU e în plan" e mai lungă decât lista de 
 pentru că săptămâna care a produs-o a fost în mare parte o listă de idei bune care
 n-au supraviețuit măsurării — inclusiv trei ale mele care ajunseseră deja în rapoarte
 scrise înainte să fie infirmate.
+
+### Blocul G — activarea extensiilor per firmă (2026-08-30) — **4/4**
+
+God instalează pe instanță; adminul firmei decide dacă acționează la el.
+A doua jumătate nu era doar nefăcută, era **imposibilă**: `UNIQUE (name)` pe
+`zv_extension_registry` dădea o extensie un singur rând, deci `tenant_id` putea
+reține doar cine a instalat ultimul. Migrația `007` o deschide cu
+`UNIQUE NULLS NOT DISTINCT (tenant_id, name)`.
+
+**Poarta nu stă pe cale, ci pe mâner.** `mountStrategy: 'global'` — implicitul —
+predă extensiei app-ul motorului; o poartă pe `/ext/*` n-ar fi păzit nimic.
+Detalii, limite și cele două lucruri pe care le acoperă doar parțial (cron,
+`app.route()`): `docs/private/BLOCK-G-PER-TENANT-ACTIVATION-STATE.md`.

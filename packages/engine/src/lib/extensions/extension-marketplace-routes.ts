@@ -13,7 +13,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
-import { checkPermission, isGodUser, requireInstanceAdmin } from '../tenancy/index.js';
+import {
+  checkPermission,
+  isGodUser,
+  isTenantAdmin,
+  requireInstanceAdmin,
+} from '../tenancy/index.js';
+import { invalidateActivationCache } from './activation.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -474,8 +480,6 @@ export function registerMarketplaceRoutes(
         );
       }
 
-      const tenantId = getTenantId(c);
-
       await db
         .insertInto('zv_extension_registry')
         .values({
@@ -488,7 +492,7 @@ export function registerMarketplaceRoutes(
           is_installed: true,
           is_enabled: false,
           installed_at: new Date(),
-          tenant_id: tenantId,
+          tenant_id: null,
           // Pin what we actually installed. Only set on a real download —
           // files already on disk (air-gapped / EXTENSIONS_DIR) were never
           // fetched, so there is no digest to attest to and inventing one
@@ -498,10 +502,10 @@ export function registerMarketplaceRoutes(
             : {}),
         })
         .onConflict((oc) =>
-          oc.column('name').doUpdateSet({
+          oc.columns(['tenant_id', 'name']).doUpdateSet({
             is_installed: true,
             installed_at: new Date(),
-            tenant_id: tenantId,
+            tenant_id: null,
             ...(downloadedSha
               ? { installed_sha256: downloadedSha, installed_version: entry.version }
               : {}),
@@ -584,8 +588,6 @@ export function registerMarketplaceRoutes(
         }
       }
 
-      const tenantId = getTenantId(c);
-
       await db
         .insertInto('zv_extension_registry')
         .values({
@@ -599,14 +601,14 @@ export function registerMarketplaceRoutes(
           is_enabled: true,
           installed_at: new Date(),
           enabled_at: new Date(),
-          tenant_id: tenantId,
+          tenant_id: null,
         })
         .onConflict((oc) =>
-          oc.column('name').doUpdateSet({
+          oc.columns(['tenant_id', 'name']).doUpdateSet({
             is_installed: true,
             is_enabled: true,
             enabled_at: new Date(),
-            tenant_id: tenantId,
+            tenant_id: null,
           }),
         )
         .execute();
@@ -707,7 +709,9 @@ export function registerMarketplaceRoutes(
         .insertInto('zv_extension_registry')
         .values({ name, display_name: name, is_installed: true, is_enabled: true })
         .onConflict((oc) =>
-          oc.column('name').doUpdateSet({ is_enabled: true, enabled_at: new Date() }),
+          oc
+            .columns(['tenant_id', 'name'])
+            .doUpdateSet({ is_enabled: true, enabled_at: new Date() }),
         )
         .execute()
         .catch(() => {});
@@ -761,7 +765,7 @@ export function registerMarketplaceRoutes(
           is_installed: true,
           is_enabled: false,
         })
-        .onConflict((oc) => oc.column('name').doUpdateSet({ is_enabled: false }))
+        .onConflict((oc) => oc.columns(['tenant_id', 'name']).doUpdateSet({ is_enabled: false }))
         .execute();
 
       // Remove from in-memory registry so buildHonoApp() won't re-register routes
@@ -804,7 +808,7 @@ export function registerMarketplaceRoutes(
         is_enabled: false,
         config,
       })
-      .onConflict((oc) => oc.column('name').doUpdateSet({ config }))
+      .onConflict((oc) => oc.columns(['tenant_id', 'name']).doUpdateSet({ config }))
       .execute();
 
     return c.json({ success: true });
@@ -981,6 +985,76 @@ export function registerMarketplaceRoutes(
     });
   };
 
+  // ── Per-firm activation ──────────────────────────────────────
+  //
+  // God installs; the admin of a firm decides whether it acts there. Everything
+  // above this point is a god decision and writes the global row (tenant_id
+  // NULL); these two write the firm's own row and nothing else.
+  //
+  // The firm is the one `tenantMiddleware` RESOLVED, never `x-tenant-id`. The
+  // header is what the caller asked for, and taking a tenant from what the
+  // caller sends is the shape of a defect this codebase has already had once:
+  // an admin of firm A could otherwise switch an extension off for firm B by
+  // changing one header.
+  //
+  // `isTenantAdmin` asks Casbin in the ambient domain, so it answers "admin of
+  // THIS firm" — a god user passes it everywhere, which is the intended order.
+  const resolveFirm = (c: Context): string | null => {
+    const t = c.get('tenant') as { id?: unknown } | null | undefined;
+    return typeof t?.id === 'string' ? t.id : null;
+  };
+
+  const setActivation = async (c: Context, name: string, enabled: boolean) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await isTenantAdmin(session.user.id).catch(() => false))) {
+      return c.json({ error: 'Unauthorized or admin required' }, 401);
+    }
+
+    const tenantId = resolveFirm(c);
+    if (!tenantId) return c.json({ error: 'No tenant resolved for this request' }, 400);
+
+    // A firm may only decide about what god put on the instance. Without this,
+    // "activate" on an uninstalled extension would write a row claiming an
+    // extension is on for a firm while no code exists to run.
+    const global = await db
+      .selectFrom('zv_extension_registry')
+      .select(['is_installed'])
+      .where('name', '=', name)
+      .where('tenant_id', 'is', null)
+      .executeTakeFirst();
+    if (!global?.is_installed) {
+      return c.json(
+        {
+          error: 'Not found',
+          detail: `"${name}" is not installed on this instance. Installing is a god decision.`,
+        },
+        404,
+      );
+    }
+
+    await db
+      .insertInto('zv_extension_registry')
+      .values({
+        name,
+        display_name: name,
+        tenant_id: tenantId,
+        is_installed: true,
+        is_enabled: enabled,
+        enabled_at: enabled ? new Date() : null,
+      })
+      .onConflict((oc) =>
+        oc.columns(['tenant_id', 'name']).doUpdateSet({
+          is_enabled: enabled,
+          enabled_at: enabled ? new Date() : null,
+        }),
+      )
+      .execute();
+
+    invalidateActivationCache(name);
+    return c.json({ success: true, name, tenant_id: tenantId, is_enabled: enabled });
+  };
+
   // ── POST/PUT dispatcher ──────────────────────────────────────────────────
   // Hono's RegExpRouter can't match `/api/marketplace/:name{.+}/<suffix>` when
   // the name spans 3+ path segments (e.g. `compliance/ro/saft`) AND there are
@@ -1009,15 +1083,27 @@ export function registerMarketplaceRoutes(
     const name = decodeName(rest.slice(0, i));
     switch (rest.slice(i + 1)) {
       case 'install':
-        return installExtension(c, name);
+        // After the write, never before: a concurrent read between a clear and
+        // the write would cache the old answer for the rest of the TTL.
+        return installExtension(c, name).finally(() => invalidateActivationCache(name));
       case 'enable':
-        return enableExtension(c, name);
+        // After the write, never before: a concurrent read between a clear and
+        // the write would cache the old answer for the rest of the TTL.
+        return enableExtension(c, name).finally(() => invalidateActivationCache(name));
       case 'disable':
-        return disableExtension(c, name);
+        // After the write, never before: a concurrent read between a clear and
+        // the write would cache the old answer for the rest of the TTL.
+        return disableExtension(c, name).finally(() => invalidateActivationCache(name));
       case 'uninstall':
-        return uninstallExtension(c, name);
+        // After the write, never before: a concurrent read between a clear and
+        // the write would cache the old answer for the rest of the TTL.
+        return uninstallExtension(c, name).finally(() => invalidateActivationCache(name));
       case 'approve-capabilities':
         return approveCapabilities(c, name);
+      case 'activate':
+        return setActivation(c, name, true);
+      case 'deactivate':
+        return setActivation(c, name, false);
       default:
         return c.json({ error: 'Unknown marketplace action' }, 404);
     }

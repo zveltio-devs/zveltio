@@ -18,6 +18,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -70,6 +71,7 @@ function ensureHelloExtOnDisk(): void {
 
 d('extension marketplace routes (in-process)', () => {
   let app: Hono;
+  let db: Awaited<ReturnType<typeof getTestApp>>['db'];
   let cookie: string;
 
   const post = (path: string, body: unknown = {}) => ({
@@ -82,7 +84,8 @@ d('extension marketplace routes (in-process)', () => {
     originalFetch = globalThis.fetch;
     const t = await getTestApp();
     app = t.app;
-    cookie = await createGodSession(app, t.db);
+    db = t.db;
+    cookie = await createGodSession(app, db);
     ensureHelloExtOnDisk();
   });
 
@@ -533,25 +536,32 @@ d('extension marketplace routes (in-process)', () => {
     expect(body.ok).toBe(true);
   }, 15_000);
 
-  it('installs hello-ext with tenant scoping header', async () => {
+  it("god's install is instance-wide, whatever tenant the caller names", async () => {
+    // This test used to assert the opposite: that `x-tenant-id` was written
+    // into the installed row, so an extension belonged to whichever firm the
+    // caller claimed. That model could not be completed — `zv_extension_registry`
+    // carried `UNIQUE (name)`, so a second firm's row was a duplicate key and
+    // the column only ever recorded who installed last. Installing is a god
+    // decision about the instance; a firm decides activation through
+    // /activate and /deactivate, which write the firm's own row.
+    //
+    // Taking the firm from a header would also be a defect on its own: it is
+    // what the caller asked for, not what the request resolved to.
     ensureHelloExtOnDisk();
-    const tenantId = `tenant-${Date.now()}`;
+    const claimed = `tenant-${Date.now()}`;
     const res = await app.request(`/api/marketplace/${HELLO_EXT}/install`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie, 'x-tenant-id': tenantId },
+      headers: { 'Content-Type': 'application/json', cookie, 'x-tenant-id': claimed },
       body: '{}',
     });
     expect(res.status).toBe(200);
-    const catalog = await app.request('/api/marketplace', {
-      headers: { cookie, 'x-tenant-id': tenantId },
-    });
-    expect(catalog.status).toBe(200);
-    const body = (await catalog.json()) as {
-      extensions: Array<{ name: string; tenant_id: string | null; is_installed: boolean }>;
-    };
-    const hello = body.extensions.find((e) => e.name === HELLO_EXT);
-    expect(hello?.is_installed).toBe(true);
-    expect(hello?.tenant_id).toBe(tenantId);
+
+    const row = await sql<{ tenant_id: string | null; n: string }>`
+      SELECT tenant_id, count(*) OVER ()::text AS n
+        FROM zv_extension_registry WHERE name = ${HELLO_EXT}
+    `.execute(db);
+    expect(row.rows).toHaveLength(1);
+    expect(row.rows[0]?.tenant_id).toBeNull();
   }, 30_000);
 
   it('returns stored config via catalog after PUT on hello-ext', async () => {
