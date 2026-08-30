@@ -209,6 +209,69 @@ răspunsul e derivabil din baza însăși, deci n-are ce se învechi.
 Deci Blocul B nu doar a clasificat granița — a făcut posibil instrumentul care o apără la
 rulare. Ordinea C → B → F → A s-a plătit aici.
 
+## Modelul de administrare — cerut de proprietar, 2026-08-30
+
+**Un singur superadmin pe instanță (`god`), care instalează extensiile. Administratori
+per firmă, care gestionează doar firma lor. Iar când god creează o firmă, trebuie să fie
+obligat să creeze și administratorul ei.**
+
+### Ce era, măsurat
+
+`requireInstanceAdmin` = god **SAU** admin al firmei implicite. Al doilea braț e potrivit
+pentru majoritatea operațiilor de instanță și greșit pentru instalare: pune **cod nou** pe
+instanță, iar migrațiile unei extensii pot altera tabelele engine-ului — extensia `ai`
+adaugă trei coloane la `zvd_collections`, măsurat azi. Într-un holding, firma implicită e
+compania-mamă, deci administratorul ei ar decide ce cod rulează la filiale.
+
+**Făcut:** zece operații care schimbă instanța — install, enable, enable-all, disable,
+config, uninstall, aprobarea capabilităților, plus cele trei de licență — trec de la
+`requireInstanceAdmin` la `isGodUser`. Cele două rute de **citire** rămân pe admin: a
+vedea ce s-ar putea instala nu strică nimic, iar retragerea lor ar goli pagina din Studio.
+
+Consecință, spusă nu descoperită: **o instanță fără god nu mai poate instala nimic** până
+la `zveltio create-god`. Aia e forma cerută, nu o scăpare.
+
+### Activarea per firmă: era IMPOSIBILĂ, nu doar neimplementată
+
+Migrația `070` a adăugat `zv_extension_registry.tenant_id` cu comentariul *„NULL =
+instanță, setat = doar acea firmă"*, plus două indexuri, iar listarea din marketplace îl
+respecta. **Dar `UNIQUE (name)` pe aceeași tabelă face ca o extensie să aibă exact un rând**
+— iar `onConflict` e chiar pe `name`, deci fiecare instalare suprascrie tenant-ul.
+Dovedit:
+
+```
+INSERT ai pentru firma-A  → ok
+INSERT ai pentru firma-B  → ERROR: duplicate key ... Key (name)=(ai) already exists
+```
+
+Deci `tenant_id` putea reține doar **cine a instalat ultimul**. Încărcătorul, care îl
+ignora, avea din întâmplare singurul comportament corect — iar listarea arăta unei firme o
+extensie ca absentă în timp ce codul ei rula pentru toată lumea.
+
+**Făcut:** listarea raportează acum ce face runtime-ul — activă dacă **orice** rând al ei e
+activ. Coloana și indexurile rămân, cu explicația lângă ele.
+
+**Ce ar cere activarea reală per firmă**, acum că se știe: cheia unică lărgită de la
+`(name)` la `(tenant_id, name)` — campania din `005_tenant_scoped_unique_keys` — **plus**
+gating per cerere, fiindcă extensiile își înregistrează rutele și hook-urile într-un singur
+proces. Nu e un filtru pe o interogare de încărcare.
+
+### O firmă nu se mai poate crea fără administratorul ei
+
+`admin_user_email` era validat ca **format de e-mail**, niciodată ca utilizator existent. O
+greșeală de tastare producea o firmă fără apartenență și fără rol Casbin — și un **201**
+care spunea că a mers. Comentariul rutei descria exact asta ca fiind eșecul de evitat:
+
+> *„A tenant row with no membership is a tenant NOBODY can reach… only an instance admin
+> querying the table directly would ever find out it exists."*
+
+Intenția era scrisă, codul făcea invers.
+
+**Reparat**, cu o capcană pe drum care merită păstrată: prima versiune întorcea o valoare
+din tranzacție, deci **firma rămânea scrisă** — `return` dintr-o tranzacție COMITE, exact
+lecția campaniei de scrieri atomice. Testul a prins-o fiindcă verifică tabela, nu doar
+codul de stare. Acum aruncă, deci se derulează înapoi.
+
 ## Ce NU se atinge
 
 - **Politica RLS, forma predicatului, clasificarea graniței.** B și F le-au închis.
@@ -221,6 +284,7 @@ rulare. Ordinea C → B → F → A s-a plătit aici.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | model | Instalarea extensiilor trece pe **god** (10 operații); citirea rămâne pe admin. **Activarea per firmă era IMPOSIBILĂ** — `UNIQUE (name)` pe registry, dovedit; listarea spune acum adevărul. **O firmă nu se mai poate crea fără administratorul ei** — `admin_user_email` era validat doar ca format. Prima versiune a reparației lăsa firma scrisă (`return` dintr-o tranzacție comite); reparat prin aruncare. |
 | 2026-08-30 | pas mic | Măsurat că **RLS nu protejează pe calea de cădere**: motorul e superuser, `rolbypassrls=true`; 2 rânduri pe pool-ul brut față de 1 în tranzacție. Contor + mod strict + test pe cereri reale. **Prima versiune a raportat 2 căderi care erau cod corect** pe tabele de instanță — reparat folosind granița din Blocul B, citită din `information_schema` la boot. |
 | 2026-08-30 | decizie | Varianta 3 aleasă de proprietar: configurația acum, refactorul mai târziu. **Nimic de construit** — pârghia e deja expusă și păzită de `reportConcurrencyCeiling`, iar scriptul la care trimite există. **Dar documentația publică spunea `10` acolo unde codul construiește `25`** — a treia ortografie a unui număr ale cărui prime două fuseseră deja reconciliate printr-un test. Reparat și adăugat la acel test, dovedit prin revenire. |
 | 2026-08-30 | 1 | **Plafonul e real și exact la `DB_POOL_MAX`** — la c=pool serviciul se oprește, cu toate conexiunile `idle in transaction` și una activă; verificat la pool 10 și 25. **Dar doar 56% din timpul ținut e degeaba**, deci tranzacțiile scurte ar da ~2,3×, nu „plafonul dispare" cum spune planul. `DB_POOL_MAX` mută același plafon liniar, fără cod. **Blocul se oprește la pasul 1 până la decizia proprietarului.** |

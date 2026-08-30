@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
-import { checkPermission, requireInstanceAdmin } from '../tenancy/index.js';
+import { checkPermission, isGodUser, requireInstanceAdmin } from '../tenancy/index.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -56,6 +56,31 @@ export function registerMarketplaceRoutes(
     return isAdmin;
   }
 
+  /**
+   * Installing, enabling or removing an extension is a GOD decision.
+   *
+   * `requireInstanceAdmin` is god OR an admin of the default tenant. That second
+   * arm is right for most instance operations and wrong for this one: installing
+   * puts NEW CODE on the instance, and an extension's migrations may alter the
+   * engine's own tables — the `ai` extension adds three columns to
+   * `zvd_collections`, measured. On a holding, the default tenant is the parent
+   * company, so its administrator would be deciding what code runs for every
+   * subsidiary.
+   *
+   * Reading the catalogue stays on `requireAdmin`: listing what COULD be
+   * installed harms nobody, and taking it away would blank the Studio page for
+   * an operator who has not been made god.
+   *
+   * Consequence, stated rather than discovered: an instance with no god user
+   * cannot install anything until `zveltio create-god` has been run. That is the
+   * intended shape — a single superadmin per instance — not an oversight.
+   */
+  async function requireGod(c: Context): Promise<boolean> {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) return false;
+    return isGodUser(session.user.id);
+  }
+
   // Resolve optional tenant scope from X-Tenant-Id header.
   // null = global (no tenant filter); string = scoped to that tenant.
   function getTenantId(c: Context): string | null {
@@ -69,7 +94,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/license/:name — store (and optionally verify) a license key
   const setLicense = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = body?.license_key as string | undefined;
@@ -127,7 +152,7 @@ export function registerMarketplaceRoutes(
 
   // DELETE /api/marketplace/license/:name — remove a stored license key
   app.delete('/api/marketplace/license/:name{.+}', async (c) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
 
     const name = c.req.param('name') ?? '';
     await db
@@ -161,7 +186,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/admin/license/rotate — mint a fresh marketplace token
   app.post('/api/admin/license/rotate', async (c) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
     // 32 bytes of high-entropy randomness, hex-encoded → 64 chars.
@@ -237,20 +262,35 @@ export function registerMarketplaceRoutes(
       db.selectFrom('zv_settings').select(['key']).where('key', 'like', 'ext_license:%').execute(),
     ]);
 
-    // When a tenant is specified: prefer tenant-scoped row, fall back to global (tenant_id IS NULL).
-    // When no tenant: return the global row (admin view).
+    // This listing reports what the RUNTIME will do, not what the schema allows.
+    //
+    // `zv_extension_registry.tenant_id` was added by migration 070 with the
+    // documented meaning "NULL = instance-wide, set = that tenant only", and
+    // this endpoint used to honour it: with a tenant, the tenant row overrode
+    // the global one; without, only global rows were returned.
+    //
+    // The loader does not honour it. `extension-loader.ts` selects
+    // `WHERE is_enabled = true` and nothing else, as do the boot path and the
+    // version checker. So a row marked enabled for one tenant loads for the
+    // whole instance — and the old listing would show that extension as absent
+    // to every other tenant while its code was running for them.
+    //
+    // A half-built feature that reports the opposite of what happens is worse
+    // than one that is missing, so the listing now says what is true: an
+    // extension is enabled if ANY registry row for it is enabled. Per-tenant
+    // activation stays a real thing to design — extensions register routes,
+    // hooks and migrations into one process, so honouring `tenant_id` means
+    // gating per request, not filtering a load query. The column and its indexes
+    // are left in place for that work rather than dropped.
     type RegRow = (typeof rows)[number];
-    const rowsFiltered: RegRow[] = tenantId
-      ? (() => {
-          const tenantRows = rows.filter((r) => r.tenant_id === tenantId);
-          const globalRows = rows.filter((r) => r.tenant_id === null || r.tenant_id === undefined);
-          // Merge: tenant row wins over global for the same extension name
-          const merged = new Map<string, RegRow>();
-          for (const r of globalRows) merged.set(r.name, r);
-          for (const r of tenantRows) merged.set(r.name, r); // override with tenant row
-          return [...merged.values()];
-        })()
-      : rows.filter((r) => r.tenant_id === null || r.tenant_id === undefined);
+    const merged = new Map<string, RegRow>();
+    for (const r of rows) {
+      const seen = merged.get(r.name);
+      // An enabled row wins, whichever tenant it names, because that is the one
+      // the loader will act on.
+      if (!seen || (!seen.is_enabled && r.is_enabled)) merged.set(r.name, r);
+    }
+    const rowsFiltered: RegRow[] = [...merged.values()];
 
     const dbMap = new Map(rowsFiltered.map((r) => [r.name, r]));
     const licenseSet = new Set(licenseRows.map((r) => r.key.replace('ext_license:', '')));
@@ -365,7 +405,7 @@ export function registerMarketplaceRoutes(
   };
 
   const installExtension = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     return withExtensionLock(db, name, async () => {
       const catalog = await fetchCatalog();
@@ -496,7 +536,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/enable (registered via the dispatcher below)
   const enableExtension = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     return withExtensionLock(db, name, async () => {
       // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
@@ -644,7 +684,7 @@ export function registerMarketplaceRoutes(
   // the extension is_enabled=true (it self-heals on the next boot) and records
   // last_load_error — never flips it off.
   const enableAllExtensions = async (c: Context) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     // No `.catch(() => [])`. This is "enable every installed extension": an empty
     // list means there is nothing to enable, so a failed read enabled nothing and
@@ -707,7 +747,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/disable
   const disableExtension = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     return withExtensionLock(db, name, async () => {
       await db
@@ -748,7 +788,7 @@ export function registerMarketplaceRoutes(
 
   // PUT /api/marketplace/:name/config (registered via the dispatcher below)
   const configExtension = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     const config = await c.req.json();
 
@@ -779,7 +819,7 @@ export function registerMarketplaceRoutes(
   // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
   // rows, remove files from disk, delete the registry row. Fully destructive.
   const uninstallExtension = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     const purgeData = c.req.query('purgeData') === 'true';
 
@@ -877,7 +917,7 @@ export function registerMarketplaceRoutes(
    * click has to mean the specific set the admin was shown.
    */
   const approveCapabilities = async (c: Context, name: string) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     const extBase = resolveExtensionsBase();
     const extDir = join(extBase, name);
