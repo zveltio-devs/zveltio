@@ -47,7 +47,7 @@ import type {
 } from './worker-extension-protocol.js';
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
-import { activationMiddlewareFor } from './extensions/activation.js';
+import { activationMiddlewareFor } from './extensions/index.js';
 import { assertWorkerSqlAllowed } from './extensions/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
