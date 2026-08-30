@@ -21,13 +21,14 @@
 
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
+import type { Hono as HonoApp } from 'hono';
 import { sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import { finalizeExtensionLoad } from '../../lib/extensions/register.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import type { Database } from '../../db/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -158,5 +159,76 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
     };
     const app = await appFor(ext, GLOB, FIRM_OFF);
     expect((await app.request('/chain/two')).status).toBe(404);
+  });
+});
+
+d('the route a firm admin uses (in-process)', () => {
+  // The function-level proof lives above; this is the same decision reached
+  // through HTTP, which is how anyone will actually make it.
+  let app: HonoApp;
+  let db: Database;
+  let cookie: string;
+  const NAME = `actroute-${STAMP}`;
+
+  const call = (action: string, name = NAME, auth = true) =>
+    app.request(`/api/marketplace/${name}/${action}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(auth ? { cookie } : {}),
+      },
+      body: '{}',
+    });
+
+  const rows = async () =>
+    (
+      await sql<{ tenant_id: string | null; is_enabled: boolean }>`
+        SELECT tenant_id, is_enabled FROM zv_extension_registry WHERE name = ${NAME}
+      `.execute(db)
+    ).rows;
+
+  beforeAll(async () => {
+    ({ app, db } = await getTestApp());
+    cookie = await createGodSession(app, db);
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
+    // god installed it for the instance.
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+      VALUES (${NAME}, ${NAME}, NULL, true, true)
+    `.execute(db);
+    invalidateActivationCache();
+  });
+
+  afterEach(async () => {
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME} AND tenant_id IS NOT NULL`.execute(
+      db,
+    );
+    invalidateActivationCache();
+  });
+
+  it("writes the firm's own row on deactivate, leaving god's install alone", async () => {
+    expect((await call('deactivate')).status).toBe(200);
+    const all = await rows();
+    expect(all).toHaveLength(2);
+    expect(all.find((r) => r.tenant_id === null)?.is_enabled).toBe(true);
+    expect(all.find((r) => r.tenant_id !== null)?.is_enabled).toBe(false);
+  });
+
+  it('flips the same row back on activate rather than adding another', async () => {
+    expect((await call('deactivate')).status).toBe(200);
+    expect((await call('activate')).status).toBe(200);
+    const all = await rows();
+    expect(all).toHaveLength(2);
+    expect(all.find((r) => r.tenant_id !== null)?.is_enabled).toBe(true);
+  });
+
+  it('refuses an extension god never installed on the instance', async () => {
+    const res = await call('activate', `${NAME}-absent`);
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses an anonymous caller, and writes nothing', async () => {
+    expect((await call('deactivate', NAME, false)).status).toBe(401);
+    expect(await rows()).toHaveLength(1);
   });
 });
