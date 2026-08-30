@@ -107,13 +107,23 @@ describe('listRecords (unit)', () => {
     expect(body.records.some((r) => r.title === 'old-value')).toBe(true);
   });
 
-  it('excludes records deleted before the as_of point', async () => {
+  it('asks the database to exclude records deleted before the as_of point', async () => {
+    // This used to assert the absence of the row, because the handler read the
+    // whole history and dropped deletes in JS. It reads one page now, and the
+    // exclusion travels in the query — which a canned database cannot evaluate,
+    // so asserting on rows here would only be asserting on the fixture. What is
+    // still checkable without a database is that the engine asks for it; that it
+    // is actually excluded is pinned against real Postgres in
+    // `timetravel-page-in-sql.test.ts`.
     db.when(/from zv_revisions/i, [
       { record_id: ID, action: 'delete', data: JSON.stringify({ id: ID, title: 'gone' }) },
     ]);
     const res = await makeApp(db).request('/things?as_of=2026-01-01T00:00:00.000Z');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { records: { title: string }[] };
-    expect(body.records.some((r) => r.title === 'gone')).toBe(false);
+    const asked = db.log.filter((q) => /from zv_revisions/i.test(q.sql));
+    expect(asked.length).toBeGreaterThan(0);
+    for (const q of asked) expect(q.sql).toMatch(/action <> 'delete'/);
+    // And it must ask for one page, not for the collection.
+    expect(asked.some((q) => /limit/i.test(q.sql))).toBe(true);
   });
 });
