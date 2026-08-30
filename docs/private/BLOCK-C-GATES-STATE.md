@@ -425,3 +425,23 @@ nu de strecurat într-un PR despre porți.
   și ignoră `argv`. `check-i18n-core` NU citește sora, deci eșecurile lui sunt reale.
 - **`audit-gates.ts` refuză să pornească dacă vreo cale de plantare există deja** —
   o probă nu poate fi confundată cu fișierul cuiva.
+
+
+---
+
+## Continuare, 2026-08-30 — 17 din 41 dovedite (de la 15)
+
+Două porți au trecut din „nedovedite" în „dovedite prin plantare":
+
+- **`route-collision-check`** — o cale statică înregistrată DUPĂ una cu parametru
+  e inaccesibilă: ruta cu parametru câștigă și înghite segmentul. Poarta există
+  fiindcă asta chiar s-a livrat o dată — `GET /api/flows/dlq` se potrivea cu
+  `/:id`, iar `WHERE id = 'dlq'` pe o coloană uuid răspundea 500.
+- **`check-pooldb-txn-skip`** — un router construit pe `poolDb` cere o A DOUA
+  conexiune cât timp cererea ține deja una. Poarta asta descria exact mecanismul
+  pe care blocul A l-a re-măsurat azi, cu patru routere deja mutate în
+  `TXN_SKIP_PREFIXES`. Ce a găsit blocul A sunt situri pe care ea nu le vede:
+  middleware-uri, `isGodUser`, și o rută care lua pool-ul direct.
+
+**Rămân 21.** Criteriul blocului C nu a fost rescris ca să încapă, și rămâne
+neîndeplinit: blocul stă deschis.
