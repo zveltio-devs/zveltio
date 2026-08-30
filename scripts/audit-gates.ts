@@ -245,6 +245,23 @@ const CASES: Case[] = [
       '(id uuid PRIMARY KEY, flow_id uuid REFERENCES zv_flows(id));\n',
   },
   {
+    // A NEW bare admin check in an extension. The 113 already there are frozen
+    // per file; this plants a 114th in a file that has one, so only the ratchet
+    // can catch it — a gate that merely counted the total would too, but one
+    // that had stopped scanning the sibling at all would not.
+    //
+    // `append` on a TRACKED file in the sibling: the gate walks the filesystem,
+    // but a created file would also shift the per-file baseline lookup to a name
+    // that is not in it, which is the OTHER failure and not the one under test.
+    gate: 'admin-gate-check (sibling ratchet)',
+    cmd: 'bun run scripts/admin-gate-check.ts',
+    file: '../zveltio-extensions/search/engine/routes.ts',
+    body:
+      '\nexport const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
+      "  checkPermission(uid, 'admin', '*');\n",
+    mode: 'append',
+  },
+  {
     // The gate that keeps the others honest, kept honest itself.
     //
     // The violation is a NEW gate joining CI without either a planted case or a
