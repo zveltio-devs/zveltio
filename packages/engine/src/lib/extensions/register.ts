@@ -33,6 +33,13 @@ import {
 } from '../tenancy/index.js';
 import { DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
+import {
+  activationMiddlewareFor,
+  guardListenerArgs,
+  guardExtensionApp,
+  guardPublicHandler,
+  guardScheduleHandler,
+} from './activation.js';
 import { serviceRegistry } from '../service-registry.js';
 import { clearExtensionHealthChecks, registerHealthCheck } from '../health-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
@@ -343,14 +350,14 @@ export function buildRestrictedContext(
         // inside one — it forwards the arguments untouched and only keeps the
         // unsubscribe function, so `Parameters<…>` says exactly that.
         on: (...args: Parameters<typeof ctx.events.on>) => {
-          const off = ctx.events.on(...args);
+          const off = ctx.events.on(...guardListenerArgs(args, extName, ctx.db));
           const list = extensionListeners.get(extName) ?? [];
           list.push(off);
           extensionListeners.set(extName, list);
           return off;
         },
         onBefore: (...args: Parameters<NonNullable<typeof ctx.events.onBefore>>) => {
-          const off = ctx.events.onBefore?.(...args);
+          const off = ctx.events.onBefore?.(...guardListenerArgs(args, extName, ctx.db));
           if (typeof off === 'function') {
             const list = extensionListeners.get(extName) ?? [];
             list.push(off);
@@ -441,7 +448,12 @@ export function buildRestrictedContext(
         // tenant can be resolved from the request. That is the extension's
         // question to answer; this is the engine no longer removing the context
         // when the request does carry one (per-tenant hostname, x-tenant-slug).
-        fn.call(app, spec.path, tenantMiddleware, spec.handler);
+        fn.call(
+          app,
+          spec.path,
+          tenantMiddleware,
+          guardPublicHandler(spec.handler, extName, ctx.db),
+        );
         if (logPublicRoute) {
           console.log(
             `🛣️  Extension "${extName}" registered public route: ${spec.method} ${spec.path}`,
@@ -546,6 +558,7 @@ async function registerExtensionRoutes(
   app: Hono,
   extName: string,
   isolation: { entry: string; extDir: string } | null,
+  db: Database,
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
   if (isolation) {
@@ -563,6 +576,9 @@ async function registerExtensionRoutes(
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
     subApp.onError(problemOnError);
+    // On the sub-app itself, not on `/ext/<name>` in the parent, so it holds
+    // wherever the sub-app ends up mounted.
+    subApp.use('*', activationMiddlewareFor(extName, db));
     const restore = propagateErrorHandler(subApp);
     try {
       await extension.register(subApp, restrictedCtx);
@@ -575,11 +591,31 @@ async function registerExtensionRoutes(
     // as this extension has registered — a later caller must not inherit it.
     const restore = propagateErrorHandler(app);
     try {
-      await extension.register(app, restrictedCtx);
+      // `mountStrategy: 'global'` hands over the ENGINE'S OWN app, and the
+      // extension picks its own paths — so the gate goes on the handle, not on
+      // a prefix. Every handler registered through it is wrapped.
+      await extension.register(guardExtensionApp(app, extName, db), restrictedCtx);
     } finally {
       restore();
     }
   }
+}
+
+/**
+ * Gate one extension schedule.
+ *
+ * `cron-runner.ts` calls `schedule.handler(ctx, runId)` once, with no firm in
+ * scope, so there is nobody to ask the per-firm question — see
+ * `isExtensionActiveAnywhere`. All this can enforce is that a schedule
+ * belonging to an extension no firm has turned on does not run.
+ */
+function guardedSchedule(s: ExtensionSchedule, extName: string, db: Database): ExtensionSchedule {
+  const handler = (s as { handler?: unknown }).handler;
+  if (typeof handler !== 'function') return s;
+  return {
+    ...s,
+    handler: guardScheduleHandler(handler as (...a: unknown[]) => unknown, extName, db),
+  } as ExtensionSchedule;
 }
 
 /**
@@ -690,6 +726,7 @@ export async function finalizeExtensionLoad(
       manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
         ? { entry: manifest.engine.entry, extDir }
         : null,
+      ctx.db,
     );
   } catch (regErr: unknown) {
     if ((regErr as Error)?.message?.includes('matcher is already built')) {
@@ -705,7 +742,7 @@ export async function finalizeExtensionLoad(
     try {
       const schedules = extension.schedules() ?? [];
       for (const s of schedules) {
-        cronRunner.register(extName, s as ExtensionSchedule);
+        cronRunner.register(extName, guardedSchedule(s as ExtensionSchedule, extName, ctx.db));
       }
       if (schedules.length > 0) {
         console.log(`⏰ Extension "${extName}" registered ${schedules.length} schedule(s)`);
@@ -794,6 +831,7 @@ export async function reRegisterExtension(
       app,
       name,
       loaded?.workerIsolation ?? null,
+      loader.ctx.db,
     );
 
     // Re-register schedules on hot-reload. unregisterAll is idempotent and
@@ -802,7 +840,7 @@ export async function reRegisterExtension(
     if (typeof extension.schedules === 'function') {
       try {
         for (const s of extension.schedules() ?? []) {
-          cronRunner.register(name, s as ExtensionSchedule);
+          cronRunner.register(name, guardedSchedule(s as ExtensionSchedule, name, loader.ctx.db));
         }
       } catch (err) {
         console.warn(
