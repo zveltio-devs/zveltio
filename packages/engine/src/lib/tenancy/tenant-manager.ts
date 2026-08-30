@@ -301,6 +301,29 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       await sql
         .raw(`CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_id" ON ${t}(tenant_id)`)
         .execute(db);
+      // And the composite, for the same reason `applyTenantRLS` creates one:
+      // the single-column index above satisfies the policy predicate and does
+      // nothing for `ORDER BY created_at DESC LIMIT n`, which is what a listing
+      // issues. Measured on 300 000 rows with the policy applied: a field filter
+      // with ORDER BY costs 46 ms and discards every row in the table to return
+      // 25 — at ten tenants and at a hundred alike, because the planner walks
+      // the `created_at` index to satisfy the ordering and throws away whatever
+      // the policy excludes.
+      //
+      // Guarded on the column, and this path needs the guard where the
+      // collection path does not: an extension table is any shape its author
+      // chose, and plenty have no `created_at`.
+      await sql
+        .raw(
+          `DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = '${tablename}' AND column_name = 'created_at') THEN
+               EXECUTE 'CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_created" ON ${t}(tenant_id, created_at DESC)';
+             END IF;
+           END $$`,
+        )
+        .execute(db);
       await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`DROP POLICY IF EXISTS ${`"${policyname}"`} ON ${t}`).execute(db);
@@ -864,10 +887,53 @@ export async function withTenantIsolation<T>(
     return runWithTenantTrx(trx, tenantId, () => {
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
-      setSingleTenantScope(scope === null);
+      setSingleTenantScope(isSingleUnitReach(scope, tenantId));
       return fn(trx);
     });
   });
+}
+
+/**
+ * Is the request's READ reach this tenant and nothing else?
+ *
+ * The answer decides whether a handler may add an explicit `tenant_id = <id>`
+ * beside the policy. That equality is what lets a read use `(tenant_id, …)` —
+ * the policy alone cannot, because `= ANY` over an array the planner does not
+ * see until execution is not an index condition. Measured on 300 000 rows: a
+ * field filter with `ORDER BY` costs 46 ms and discards every row in the table
+ * to return 25, at ten tenants and at a hundred.
+ *
+ * It used to be `scope === null`, and that was wrong in a way nothing caught.
+ * `resolveTenantScope` NEVER returns null — it returns an object on every
+ * branch, `{ visible: [tenantId] }` included, for the commonest case of all: a
+ * user whose assignment is `read_scope='self'` on a tenant with no hierarchy.
+ * And `userId` is passed for every request carrying a session. So the fast path
+ * was live for API keys and background work, and dead for every logged-in user.
+ * Measured with a probe before this was touched:
+ *
+ *     no userId  (API key / background):  equality on 0000…0001
+ *     with userId (authenticated request): NULL — no equality
+ *
+ * What makes the reach single, and why each case is safe:
+ *
+ *   - no scope at all — no user was named, so nothing published a visible set;
+ *     `zveltio_visible_tenants()` falls through to `[current_tenant]`.
+ *   - `visible === null` — the same, deliberately: the resolver publishes nothing
+ *     when there is no assignment (a god user, an API key, an install where
+ *     nobody was enrolled) and lets the predicate answer with the equality it
+ *     always used.
+ *   - `visible` naming exactly this tenant — the reach IS this tenant.
+ *
+ * Anything wider is not single, and the equality must not be added: it would
+ * hide rows the request is entitled to. Ancestors do not enter this decision —
+ * `zveltio_visible_tenants()` reads only `zveltio.visible_tenants`, so an
+ * ancestor is visible for reading only by being IN that set, where the length
+ * check above already sees it.
+ */
+function isSingleUnitReach(scope: TenantScope | null, tenantId: string): boolean {
+  if (scope === null) return true;
+  if (scope.visible === null) return true;
+  return scope.visible.length === 1 && scope.visible[0] === tenantId;
 }
 
 /**

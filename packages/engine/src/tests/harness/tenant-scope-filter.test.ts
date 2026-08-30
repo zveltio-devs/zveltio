@@ -21,7 +21,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getSingleTenantId } from '../../lib/tenancy/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -32,7 +32,13 @@ d('explicit tenant scope filter', () => {
   let db: Database;
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
+    const t = await getTestApp();
+    db = t.db;
+    // Two of the tests below need a real user row. Without this they depend on
+    // some OTHER file in the shared harness process having created one first,
+    // which is the order-dependence that makes a suite pass together and fail
+    // alone — and it did fail alone, on a fresh database.
+    await createGodSession(t.app, t.db);
     await sql`
       INSERT INTO zv_tenants (id, slug, name, parent_id) VALUES
         (${ROOT}::uuid,  'scope-root',  'Scope Root',  NULL),
@@ -72,10 +78,34 @@ d('explicit tenant scope filter', () => {
       const seen = await withTenantIsolation(ROOT, async () => getSingleTenantId(), {
         userId,
       });
-      // Either the scope resolved (hierarchy → null) or it did not (single →
-      // ROOT). Both are correct; what is never correct is claiming a DIFFERENT
-      // tenant than the one the request is scoped to.
-      expect(seen === null || seen === ROOT).toBe(true);
+      // A `self` assignment on this tenant IS a single-unit reach, so the
+      // equality must be offered. This assertion is the point of the test: the
+      // version that accepted `null || ROOT` passed both before and after the
+      // fix, and the behaviour it tolerated was the bug — `scope === null` was
+      // read as "single", but `resolveTenantScope` never returns null, so every
+      // authenticated request lost the equality.
+      expect(seen).toBe(ROOT);
+    } finally {
+      await sql`
+        DELETE FROM zv_tenant_users WHERE tenant_id = ${ROOT}::uuid AND user_id = ${userId}
+      `.execute(db);
+    }
+  });
+
+  it('offers nothing when the reach is genuinely wider than one tenant', async () => {
+    // The other half, and the one that would break isolation if it were wrong.
+    // A `subtree` assignment on ROOT reaches CHILD too, so an equality on ROOT
+    // would hide rows the request is entitled to read.
+    const rows = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
+    const userId = rows.rows[0]?.id ?? null;
+    await sql`
+      INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope)
+      VALUES (${ROOT}::uuid, ${userId}, 'admin', 'subtree')
+      ON CONFLICT (tenant_id, user_id) DO UPDATE SET read_scope = 'subtree'
+    `.execute(db);
+    try {
+      const seen = await withTenantIsolation(ROOT, async () => getSingleTenantId(), { userId });
+      expect(seen).toBeNull();
     } finally {
       await sql`
         DELETE FROM zv_tenant_users WHERE tenant_id = ${ROOT}::uuid AND user_id = ${userId}
