@@ -13,6 +13,13 @@
  *
  * Two spellings of one default cannot be kept honest by review, so there is one
  * spelling and this holds it there.
+ *
+ * A THIRD spelling survived that fix: `docs/site/CONFIGURATION.md` documented the
+ * default as 10 while the code built 25. That is the copy an operator actually
+ * reads when sizing `max_connections`, so budgeting from it gives two and a half
+ * times the connections planned — and the second instance fails with "sorry, too
+ * many clients already", which is the very warning the boot guard prints. Found
+ * while measuring the concurrency ceiling for Block A. Now held here too.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -23,6 +30,16 @@ import { DEFAULT_DB_POOL_MAX, resolvePoolMax } from '../../db/index.js';
 const ENGINE = join(import.meta.dir, '..', '..', '..');
 
 describe('DB_POOL_MAX has one source', () => {
+  it('is documented with the value the code actually uses', () => {
+    const doc = readFileSync(join(ENGINE, '..', '..', 'docs', 'site', 'CONFIGURATION.md'), 'utf8');
+    const row = doc.split('\n').find((l) => l.includes('`DB_POOL_MAX`') && l.startsWith('|'));
+    expect(row).toBeDefined();
+    // The table's second cell is the default. Read it rather than matching the
+    // whole row: the prose beside it changes, the number must not drift.
+    const documented = row!.split('|')[2]?.trim().replace(/`/g, '');
+    expect(documented).toBe(String(DEFAULT_DB_POOL_MAX));
+  });
+
   const saved = process.env.DB_POOL_MAX;
 
   afterEach(() => {
