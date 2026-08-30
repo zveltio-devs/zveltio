@@ -450,6 +450,9 @@ export class DDLManager {
       columns.push(colDDL);
       const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
       if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
+      // The tenant-first form beside it — the one a tenant-scoped read can use.
+      const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(tableName, field as FieldConfig);
+      if (tenantIndexDDL) indexes.push(toConcurrentIndex(tenantIndexDDL));
     }
 
     await sql.raw(`CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`).execute(db);
@@ -865,6 +868,13 @@ export class DDLManager {
     if (indexDDL) {
       await sql.raw(toConcurrentIndex(indexDDL)).execute(db);
     }
+    // A field added to an existing collection gets the same pair as one created
+    // with it. Both sites, because the repository has been bitten by a fix that
+    // landed on only one of two paths before.
+    const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(tableName, validated as FieldConfig);
+    if (tenantIndexDDL) {
+      await sql.raw(toConcurrentIndex(tenantIndexDDL)).execute(db);
+    }
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -984,6 +994,13 @@ export class DDLManager {
       if (field.indexed) {
         statements.push(
           `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`,
+        );
+        // The tenant-first form beside it, so a preview shows what a real
+        // create produces. Why it exists, and why not for `status`:
+        // `fieldTypeRegistry.getTenantIndexDDL`.
+        statements.push(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_${field.name} ` +
+            `ON ${tableName}(tenant_id, "${field.name}", created_at DESC);`,
         );
       }
       if (field.unique) {

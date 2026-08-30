@@ -15,6 +15,61 @@
 
 ---
 
+## STAREA LUCRĂRII — actualizat 2026-08-30
+
+Planul de mai jos e ce **era** de făcut. Asta e ce s-a făcut. Fiecare bloc executat are un
+document de stare propriu, cu măsurătorile și cu punctul lui de validare.
+
+| bloc | stare | unde | livrat prin |
+|---|---|---|---|
+| **C — porțile** | ⚠️ **3 criterii din 4**, rămâne deschis la pasul 3 | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
+| **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
+| **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
+| **A — contextul explicit** | ⬜ **NEÎNCEPUT** | — | — |
+| **D — condiții pe rânduri** | ⬜ observație, neatins | — | — |
+| **E — decizii de proprietar** | ⬜ neatins | — | — |
+
+### Ce a găsit fiecare bloc, pe scurt
+
+**C.** Meta-poarta `audit:gates` **nu rula nicăieri** — nici în CI, nici în `prepush`, iar
+`prepush` nu e legat de niciun hook. Acoperirea reală era **9 porți din 31**, nu „11/11":
+11 era numărul de *cazuri*. **Șapte porți erau fail-open** — raportau „curat" fără repo-ul
+soră sau fără bază de date, una dintre ele scanând o cincime din corpus. Rămâne deschis
+fiindcă 23 de porți din 41 încă nu sunt dovedite prin plantare, iar criteriul **nu a fost
+rescris** ca să încapă.
+
+**B.** Granița **e derivabilă din cod** — 384 de tabele, 333 per firmă, 51 de instanță,
+confruntat **362 din 362** cu o bază instalată complet. **Nouă tabele de instanță sunt
+copii ai unor tabele per-firmă**, izolate doar prin join, fără a doua linie. Un defect real
+reparat: `zv_prompt_templates`. Și `admin-gate-check` extinsă la sora, unde erau **113
+situri nepăzite** față de zero în engine.
+
+**F.** Tiparele costă **de la zece firme**, nu de la o mie: un filtru pe câmp cu `ORDER BY`
+ia **46 ms și aruncă toate cele 300 000 de rânduri** ca să întoarcă 25 — la 10 și la 100
+de firme deopotrivă, fiindcă e o prăpastie de plan, nu o creștere. Egalitatea explicită era
+**stinsă pentru fiecare cerere autentificată**. Reparate amândouă: **12,5 ms → 0,065 ms**,
+fără regresie la o singură firmă.
+
+### Ce a fost anulat, măsurat — și de ce contează lista asta
+
+- **C pasul 6**, extinderea lui `check-tenant-table-on-pool` la `lib/`: `lib/` conține
+  identificatorul `poolDb` **o dată, într-un comentariu**, față de 19 ori în `routes/`.
+  Poarta n-ar prinde nimic, niciodată.
+- **F pasul 6**, poarta pe indexuri: regula ar prinde **220 de situri**, majoritatea
+  indexuri de cheie străină legitime. Un ratchet fără motive scrise e decorațiune.
+
+Amândouă închise cu aceeași regulă: **o poartă a cărei listă de excepții e singurul lucru
+pe care-l produce e mai rea decât nicio poartă.**
+
+### Reparat pe drum, în afara blocurilor
+
+- **`0A000 cached plan must not change result type`** — pica lane-ul de integrare la ~2 din
+  3 rulări. Cauza, găsită cu un event trigger de DDL: **migrațiile extensiilor rulează după
+  ce motorul și-a deschis pool-ul**, iar extensia `ai` alterează `zvd_collections` la 1,3 s
+  după pornire. Reparat prin reciclarea pool-ului (#362).
+
+---
+
 ## Forma pieței — corectat de proprietar, 2026-08-29
 
 Documentul a fost scris presupunând că instalarea tipică e self-hosted **cu o

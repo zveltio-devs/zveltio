@@ -25,6 +25,7 @@ import {
   applyRlsFilters,
   getColumnAccess,
   getRlsFilters,
+  getSingleTenantId,
   isTenantAdmin,
   requireInstanceAdmin,
   resolveUserRole,
@@ -243,6 +244,33 @@ export interface ExtensionInternals {
     role: string,
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   resolveUserRole: typeof resolveUserRole;
+  /**
+   * The tenant to add as an explicit `tenant_id =` beside the policy, or `null`
+   * when one must not be added.
+   *
+   * The RLS policy reads `tenant_id = ANY (…)` over an array the planner does
+   * not see until execution, so it cannot drive an ordered index scan. A read
+   * that filters and orders therefore walks the `created_at` index and discards
+   * whatever the policy excludes. Measured on 300 000 rows with the policy
+   * applied: 46 ms, and every row in the table discarded to return 25 — at ten
+   * tenants and at a hundred alike.
+   *
+   * Adding the equality removes that. It is PERFORMANCE ONLY: the policy still
+   * decides what may be seen, and an equality can only narrow the set the policy
+   * already allows, never widen it.
+   *
+   * Returns `null` whenever the request's reach is wider than one tenant — a
+   * subtree or org assignment — because narrowing there would hide rows the
+   * caller is entitled to. So the safe shape is simply:
+   *
+   *     const t = ctx.internals.getSingleTenantId();
+   *     if (t) q = q.where('tenant_id', '=', t);
+   *
+   * There is no correct way to apply this automatically to an extension's own
+   * queries: `ctx.db` is a Kysely instance, not a rewriter, and it cannot know
+   * which column of an arbitrary query carries the tenant.
+   */
+  getSingleTenantId: typeof getSingleTenantId;
   isTenantAdmin: typeof isTenantAdmin;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
@@ -388,6 +416,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     getColumnAccess: (collection: string, role: string) =>
       getColumnAccess(getDb(), collection, role),
     resolveUserRole,
+    getSingleTenantId,
     isTenantAdmin,
     requireInstanceAdmin,
     enqueueDDLJob,

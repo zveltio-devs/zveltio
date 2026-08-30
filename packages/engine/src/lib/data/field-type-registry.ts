@@ -194,6 +194,41 @@ export class FieldTypeRegistry {
     return `CREATE INDEX IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName} ${method}("${field.name}")`;
   }
 
+  /**
+   * The tenant-first index for a field, or null when it does not apply.
+   *
+   * `getIndexDDL` above emits `(<field>)`, which a tenant-scoped read cannot
+   * use: a filtered listing is `WHERE <field> = x ORDER BY created_at DESC
+   * LIMIT n`, and to satisfy the ordering the planner walks `created_at`
+   * instead, discarding whatever the RLS policy excludes. Measured on 300 000
+   * rows with the policy applied — 39,6 ms at ten tenants and at a hundred
+   * alike, every row in the table thrown away to return twenty-five.
+   *
+   * The composite pays ONLY together with the explicit `tenant_id =` that
+   * `getSingleTenantId()` supplies; with the policy alone it changes nothing
+   * (41 ms either way), because `= ANY` over a runtime array is not an index
+   * condition. Measured at ten tenants: 12,5 ms with the equality alone,
+   * 0,065 ms with both. At one tenant it costs nothing measurable, which is the
+   * other half of the requirement — the market has both shapes.
+   *
+   * btree only. A GIN or GiST index has no leading column to put a tenant in,
+   * and a tenant-scoped search is a different question from this one.
+   *
+   * Not done for `status`, which the collection path indexes separately:
+   * measured at 0,293 → 0,138 ms across a hundred tenants, both sub-millisecond.
+   * An index saving a seventh of a millisecond is write cost on every insert.
+   */
+  getTenantIndexDDL(tableName: string, field: FieldConfig): string | null {
+    const typeDef = this.get(field.type);
+    if (!typeDef || typeDef.db.virtual) return null;
+    if (!field.indexed) return null;
+    if (typeDef.db.indexType && typeDef.db.indexType !== 'btree') return null;
+    return (
+      `CREATE INDEX IF NOT EXISTS idx_${tableName}_tenant_${field.name} ` +
+      `ON ${tableName} (tenant_id, "${field.name}", created_at DESC)`
+    );
+  }
+
   // Get required PostgreSQL extensions for a set of fields
   getRequiredExtensions(fields: FieldConfig[]): string[] {
     const extensions = new Set<string>();
