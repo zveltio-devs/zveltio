@@ -56,6 +56,9 @@ const CreateEnvironmentSchema = z.object({
   name: z.string().min(1).max(100),
 });
 
+/** Thrown inside the create transaction so the tenant insert rolls back. */
+class MissingTenantAdminError extends Error {}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function tenantsRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
@@ -154,19 +157,44 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
           .where('email', '=', data.admin_user_email)
           .executeTakeFirst();
 
-        if (adminUser) {
-          await trx
-            .insertInto('zv_tenant_users')
-            .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
-            .execute();
-        }
-        return { tenant, adminUserId: adminUser?.id ?? null };
+        // No owner, no tenant. The comment above says an unreachable tenant is
+        // the failure to avoid — and this used to create one: `admin_user_email`
+        // is validated as an email, never as a user that exists, so a typo
+        // produced a tenant with no membership, no Casbin role, and a 201 saying
+        // it had worked. Nobody could open it, and only somebody querying
+        // `zv_tenants` directly would ever learn it was there.
+        //
+        // Refusing is the whole fix: a company is created together with the
+        // person who administers it, or not at all.
+        // THROW, not return. A `return` out of `db.transaction().execute()`
+        // COMMITS — the insert above would stay, and the first version of this
+        // fix did exactly that: it answered 400 and left the unreachable tenant
+        // behind, which is the whole failure it was written to prevent. The test
+        // caught it because it checks the table, not just the status code.
+        if (!adminUser) throw new MissingTenantAdminError();
+
+        await trx
+          .insertInto('zv_tenant_users')
+          .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
+          .execute();
+
+        return { tenant, adminUserId: adminUser.id };
       });
 
     let created: Awaited<ReturnType<typeof createTenantWithOwner>>;
     try {
       created = await createTenantWithOwner();
     } catch (e) {
+      if (e instanceof MissingTenantAdminError) {
+        return c.json(
+          {
+            error:
+              `No user with email "${data.admin_user_email}". A company is created together with ` +
+              'the person who administers it — create that user first, then create the company.',
+          },
+          400,
+        );
+      }
       // Duplicate slug is a client error — Bun's SQL driver reports the
       // Postgres SQLSTATE in `errno` (23505 = unique_violation), not `code`.
       if (String((e as { errno?: string | number }).errno) === '23505') {
