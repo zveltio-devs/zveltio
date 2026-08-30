@@ -46,6 +46,8 @@ import type {
   InitResponse,
 } from './worker-extension-protocol.js';
 import { serviceRegistry } from './service-registry.js';
+import { getDb, type Database } from '../db/index.js';
+import { activationMiddlewareFor } from './extensions/index.js';
 import { assertWorkerSqlAllowed } from './extensions/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
@@ -668,6 +670,29 @@ export class WorkerExtensionHost {
         },
       );
     }
+    // Per-firm activation. A worker-isolated extension never passes through
+    // the guards `register.ts` puts on the handles it hands out — the host
+    // mounts these proxy routes itself — so without this, "off for firm B"
+    // would hold for every extension except the ones confined to a worker,
+    // which are precisely the least trusted ones.
+    //
+    // Mounted on the sub-app rather than as `app.use('/ext/*', …)` on the way
+    // in: that prefix runs before the pre-auth rate limits `routes/index.ts`
+    // registers for public surfaces, and answering 404 ahead of a limiter
+    // removes the throttle from an unauthenticated path.
+    // Resolved per request, not at mount time: `getDb()` throws before
+    // `initDatabase()`, and the proxy is mounted by callers that never open a
+    // pool. No database is no answer, so it falls open, like every other
+    // activation lookup that cannot be resolved.
+    sub.use('*', async (c, next) => {
+      let db: Database;
+      try {
+        db = getDb();
+      } catch {
+        return next();
+      }
+      return activationMiddlewareFor(managed.name, db)(c, next);
+    });
     this.app.route(`/ext/${managed.name}`, sub);
     return () => {
       // Hono v4 doesn't expose unmount; the proxy sub-app stays mounted
