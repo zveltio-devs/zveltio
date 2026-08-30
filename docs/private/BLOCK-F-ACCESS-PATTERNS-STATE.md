@@ -68,8 +68,8 @@ măsurat e cost de scriere plătit pentru nimic.
 | 1 | Măsoară fiecare tipar cu politica APLICATĂ, la 1 / 10 / 100 / 1000 de firme | ✅ **FĂCUT** | vezi §Măsurătoarea |
 | 2 | **Pragul** pentru fiecare tipar; sub prag, tiparul iese din bloc | ✅ **FĂCUT** | **de la 10 firme** — blocul NU se închide |
 | 3 | `singleTenant` = „raza e exact firma asta", cu test care distinge | ✅ **FĂCUT** | dovedit prin revenire: roșu fără reparație |
-| 4 | Egalitatea explicită pe calea extensiilor, sau motiv scris | DE FĂCUT | — |
-| 5 | Compusul lipsă din `reconcileExtensionTenantRLS` | DE FĂCUT | — |
+| 4 | Egalitatea explicită pe calea extensiilor, sau motiv scris | ✅ **FĂCUT** | unealtă expusă + motiv scris de ce nu automat |
+| 5 | Compusul lipsă din `reconcileExtensionTenantRLS` | ✅ **FĂCUT** | dovedit prin revenire |
 | 6 | Poartă: un index nou declară tiparul servit | DE FĂCUT | — |
 | 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
@@ -172,6 +172,41 @@ proaspătă, singur, pica. Acum își creează singur sesiunea.
 Suita completă după reparație: **harness 868 pass / 0 fail**, **unit 2548 pass / 0 fail**
 (rulat cu `env -u DATABASE_URL`, condiția din CI).
 
+### Pașii 4–5 (2026-08-30)
+
+**Pasul 5 — compusul.** `applyTenantRLS` crea `(tenant_id)` **și**
+`(tenant_id, created_at DESC)`; `reconcileExtensionTenantRLS` doar pe primul. Deci fiecare
+tabelă de extensie purta o politică fără index care să servească o citire ordonată.
+Adăugat, cu gardă pe existența lui `created_at` — și garda e necesară **aici** unde la
+colecții nu era: o tabelă de extensie are orice formă a ales autorul ei, iar multe n-au
+`created_at`.
+
+Test de regresie, `ext-rls-composite-index.test.ts`, **dovedit prin revenire**: fără
+compus, primul caz pică; cu el, ambele trec. Al doilea caz verifică tocmai că o tabelă
+fără `created_at` primește doar indexul simplu.
+
+*Prima versiune a testului măsura altceva:* asertase un index lipsă și primise o tabelă
+neprocesată. Reconcilierea lucrează din `pg_policies`, pe nume care se potrivesc cu
+`tenant_isolation_%` — repară tabele pe care migrația extensiei a pus deja o politică și
+**nu creează niciuna**. O sondă fără politică pur și simplu nu e văzută.
+
+**Pasul 4 — egalitatea pe calea extensiilor: unealtă, nu magie.**
+`getSingleTenantId` e expus acum pe `ctx.internals`, cu tip în SDK.
+
+**De ce nu automat, scris ca motiv:** nu există cale corectă de a aplica egalitatea
+singură asupra interogărilor unei extensii. `ctx.db` e o instanță Kysely, nu un rescriitor,
+și n-are cum să știe care coloană a unei interogări arbitrare poartă firma. Forma sigură e
+explicită și corectă prin construcție, fiindcă funcția întoarce `null` exact când raza e
+mai largă:
+
+```ts
+const t = ctx.internals.getSingleTenantId();
+if (t) q = q.where('tenant_id', '=', t);
+```
+
+Ambele definiții de tip actualizate — SDK **și** internals-ul gazdei — fiindcă repo-ul are
+notat că sunt două și că e ușor de atins doar una.
+
 ## Ce se știe deja, ca să nu se re-descopere
 
 **Constatarea măsurată care a deschis blocul (2026-08-29):** egalitatea explicită **nu se
@@ -224,6 +259,7 @@ făcute pe montaje diferite.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | 4–5 | Compusul adăugat în reconcilierea extensiilor, cu gardă pe `created_at` (tabelele de extensie au orice formă). Test dovedit prin revenire. **Prima versiune a testului măsura altceva** — reconcilierea lucrează din `pg_policies` pe `tenant_isolation_%` și nu vede o sondă fără politică. Pasul 4: `getSingleTenantId` expus pe `ctx.internals` + tip SDK, cu motivul scris de ce nu se poate aplica automat. Harness 876/0. |
 | 2026-08-30 | 3 | `isSingleUnitReach` înlocuiește `scope === null`. Strămoșii verificați în SQL că nu intră în predicatul de citire. **Testul distinge — dovedit prin revenire: roșu cu codul vechi.** Fișierul era și dependent de ordine (avea nevoie de un `user` creat de altcineva); acum e autonom. Harness 868/0, unit 2548/0. |
 | 2026-08-30 | 1–2 | **Măsurat.** Listarea și filtrul pe status cresc cu numărul de firme (3,9× la 100, 29–35× la 1000). Dar cel mai grav e filtrul pe câmp + ORDER BY: **46 ms la 10 ȘI la 100 de firme, aruncând toate cele 300 000 de rânduri ca să întoarcă 25** — o prăpastie de plan, nu o creștere; la 1000 planificatorul schimbă strategia și dispare. **Criteriul de oprire nu se activează:** costă de la 10 firme, nu de la o mie. La o singură firmă nimic nu regresează. |
 | 2026-08-30 | setup | Branch din `6c7e124b`. Criterii fixate ÎNAINTE de măsurare, inclusiv criteriul de oprire: sub o mie de firme fără cost ⇒ blocul se închide la pasul 2. |
