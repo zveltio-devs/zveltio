@@ -301,6 +301,29 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       await sql
         .raw(`CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_id" ON ${t}(tenant_id)`)
         .execute(db);
+      // And the composite, for the same reason `applyTenantRLS` creates one:
+      // the single-column index above satisfies the policy predicate and does
+      // nothing for `ORDER BY created_at DESC LIMIT n`, which is what a listing
+      // issues. Measured on 300 000 rows with the policy applied: a field filter
+      // with ORDER BY costs 46 ms and discards every row in the table to return
+      // 25 — at ten tenants and at a hundred alike, because the planner walks
+      // the `created_at` index to satisfy the ordering and throws away whatever
+      // the policy excludes.
+      //
+      // Guarded on the column, and this path needs the guard where the
+      // collection path does not: an extension table is any shape its author
+      // chose, and plenty have no `created_at`.
+      await sql
+        .raw(
+          `DO $$ BEGIN
+             IF EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = '${tablename}' AND column_name = 'created_at') THEN
+               EXECUTE 'CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_created" ON ${t}(tenant_id, created_at DESC)';
+             END IF;
+           END $$`,
+        )
+        .execute(db);
       await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`DROP POLICY IF EXISTS ${`"${policyname}"`} ON ${t}`).execute(db);

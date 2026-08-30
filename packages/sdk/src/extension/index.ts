@@ -425,6 +425,23 @@ export interface ExtensionInternals<DB = unknown> {
   /** The Casbin role behind a user — what `getColumnAccess` keys on. */
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
   /** Is this user an administrator of the current tenant? */
+  /**
+   * The tenant to add as an explicit `tenant_id =` beside the RLS policy, or
+   * `null` when one must not be added.
+   *
+   * The policy reads `tenant_id = ANY (…)` over an array the planner does not
+   * see until execution, so it cannot drive an ordered index scan: a read that
+   * filters and orders walks `created_at` and discards whatever the policy
+   * excludes. Measured on 300 000 rows: 46 ms, every row discarded to return 25.
+   *
+   * Performance only — the policy still decides what may be seen, and an
+   * equality can only narrow what it already allows. `null` whenever the reach
+   * is wider than one tenant, so the safe shape is:
+   *
+   *     const t = ctx.internals.getSingleTenantId();
+   *     if (t) q = q.where('tenant_id', '=', t);
+   */
+  getSingleTenantId: () => string | null;
   isTenantAdmin: (userId: string) => Promise<boolean>;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
