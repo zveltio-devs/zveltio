@@ -1481,8 +1481,8 @@ table zv_extension_registry
   col tenant_id                      text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col version                        text NOT NULL DEFAULT '1.0.0'::text
-  uq  zv_extension_registry_name_key UNIQUE (name)
   pk  zv_extension_registry_pkey PRIMARY KEY (id)
+  idx ux_zv_ext_registry_tenant_name UNIQUE (tenant_id, name) NULLS NOT DISTINCT
 
 table zv_extension_schedule_runs
   col attempt                        integer NOT NULL DEFAULT 1
