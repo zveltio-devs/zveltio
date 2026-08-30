@@ -158,6 +158,57 @@ Testul păzea codul; copia pe care o citește **omul** a rămas pe dinafară.
 Reparat, și adăugat la același test — dovedit prin revenire: cu `10` în documentație pică,
 cu `25` trece.
 
+## Pasul mic, făcut: căderea pe pool devine vizibilă
+
+Întrebarea proprietarului care a produs pasul ăsta: *„dacă scapă de engine și de PgDog, nu
+vine RLS-ul care protejează?"* Măsurat pe aceeași tabelă, cu `FORCE ROW LEVEL SECURITY` și
+politica de producție:
+
+```
+pool brut, rol postgres              : 2 rânduri — A+B    ← RLS NU protejează
+tranzacție de firmă, rol zveltio_rls : 1 rânduri — A      ← RLS protejează
+```
+
+**RLS-ul e real și funcționează, dar e ARMAT de tranzacție.** Motorul se conectează ca
+`postgres` — `rolsuper=true`, `rolbypassrls=true` — iar un superuser ocolește RLS
+întotdeauna. Protecția vine din `SET LOCAL ROLE zveltio_rls`, care coboară privilegiile, și
+acel `SET LOCAL` trăiește exact în tranzacția pe care `?? pool` o sare. Nu e o a doua linie
+de apărare acolo; **e aceeași linie.**
+
+De aceea „deschide tranzacția mai târziu" n-a fost niciodată o schimbare mică: greșeala nu
+se vede.
+
+### Ce s-a construit
+
+Un contor în `createRequestScopedDb`, cu `ZVELTIO_STRICT_TENANT_SCOPE=1` pentru cine îl
+vrea zgomotos. Implicit **nu schimbă niciun comportament de producție** — se livrează ca
+diagnostic, iar o aruncare aici pe un apel legitim de boot ar culca o instalare.
+
+Plus `unscoped-fallback.test.ts`: trece cereri reale prin aplicația reală și cere ca
+numărul să rămână zero. Al doilea caz produce o cădere **intenționat**, ca un zero să nu
+poată fi un contor care nu se mișcă niciodată.
+
+### Prima versiune era prea grosieră, și instrumentul a spus-o singur
+
+La prima rulare a raportat **două căderi** în trei cereri obișnuite. Nu erau scurgeri:
+
+| sit | tabela |
+|---|---|
+| `middleware/rate-limit.ts:23` | `zv_rate_limit_configs` |
+| `ddl-manager.getCollections` | `zvd_collections` |
+| `routes/tenants.ts:80` | `zv_tenants` |
+
+**Toate trei sunt de instanță** — chiar clasificarea pe care Blocul B a stabilit-o și a
+verificat-o 362/362. Un contor care nu deosebește o tabelă partajată de una de firmă
+raportează cod corect drept scurgere, și așa se ajunge ca o poartă să fie oprită.
+
+Reparat: contorul cunoaște acum granița, citită din `information_schema` la boot — după
+migrațiile extensiilor, unde tabelele își capătă `tenant_id`. **Nu o listă generată**:
+răspunsul e derivabil din baza însăși, deci n-are ce se învechi.
+
+Deci Blocul B nu doar a clasificat granița — a făcut posibil instrumentul care o apără la
+rulare. Ordinea C → B → F → A s-a plătit aici.
+
 ## Ce NU se atinge
 
 - **Politica RLS, forma predicatului, clasificarea graniței.** B și F le-au închis.
@@ -170,6 +221,7 @@ cu `25` trece.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | pas mic | Măsurat că **RLS nu protejează pe calea de cădere**: motorul e superuser, `rolbypassrls=true`; 2 rânduri pe pool-ul brut față de 1 în tranzacție. Contor + mod strict + test pe cereri reale. **Prima versiune a raportat 2 căderi care erau cod corect** pe tabele de instanță — reparat folosind granița din Blocul B, citită din `information_schema` la boot. |
 | 2026-08-30 | decizie | Varianta 3 aleasă de proprietar: configurația acum, refactorul mai târziu. **Nimic de construit** — pârghia e deja expusă și păzită de `reportConcurrencyCeiling`, iar scriptul la care trimite există. **Dar documentația publică spunea `10` acolo unde codul construiește `25`** — a treia ortografie a unui număr ale cărui prime două fuseseră deja reconciliate printr-un test. Reparat și adăugat la acel test, dovedit prin revenire. |
 | 2026-08-30 | 1 | **Plafonul e real și exact la `DB_POOL_MAX`** — la c=pool serviciul se oprește, cu toate conexiunile `idle in transaction` și una activă; verificat la pool 10 și 25. **Dar doar 56% din timpul ținut e degeaba**, deci tranzacțiile scurte ar da ~2,3×, nu „plafonul dispare" cum spune planul. `DB_POOL_MAX` mută același plafon liniar, fără cod. **Blocul se oprește la pasul 1 până la decizia proprietarului.** |
 | 2026-08-30 | setup | Document scris, criterii fixate ÎNAINTE de măsurare. Pasul 1 are dreptul declarat să închidă blocul. |

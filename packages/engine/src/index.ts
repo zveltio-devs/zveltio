@@ -17,6 +17,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
+import { setTenantScopedTables } from './lib/tenancy/tenant-context.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
@@ -1229,6 +1230,29 @@ async function bootstrap() {
   // and extension, has finished. `Bun.serve` has not started, so nothing is
   // mid-request.
   await recycleActivePool();
+
+  // Teach the request-scoped handle which tables carry a tenant.
+  //
+  // `createRequestScopedDb` resolves `getCurrentTenantTrx() ?? pool`, and that
+  // `??` is the quietest failure in the engine: with no transaction, a read runs
+  // on the raw pool as the engine's own role — a SUPERUSER, which bypasses
+  // row-level security entirely. Measured: the same table returns both tenants'
+  // rows on the pool and one tenant's inside the transaction. The policy is real;
+  // it is armed by the `SET LOCAL ROLE` that lives in that transaction.
+  //
+  // Counting those falls needs to know which tables have a tenant to protect,
+  // and here is the first point where every migration — engine and extension —
+  // has finished, so the answer is final.
+  try {
+    const rows = await sql<{ table_name: string }>`
+      SELECT table_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND column_name = 'tenant_id'
+    `.execute(db);
+    setTenantScopedTables(rows.rows.map((r) => r.table_name));
+  } catch {
+    // A diagnostic must never be the reason a boot fails. Left unpopulated, the
+    // counter simply stays silent.
+  }
 
   console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
 
