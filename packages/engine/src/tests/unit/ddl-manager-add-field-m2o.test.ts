@@ -51,7 +51,11 @@ describe('DDLManager.addField — m2o relation', () => {
     } as never);
 
     expect(db.executed(/ADD COLUMN IF NOT EXISTS "customer"/)).toHaveLength(1);
-    expect(db.executed(/CREATE INDEX CONCURRENTLY.*customer/)).toHaveLength(1);
+    // Two now: the bare index and the tenant-first
+    // `(tenant_id, <field>, created_at DESC)`, which is the one a tenant-scoped
+    // read can use. See `fieldTypeRegistry.getTenantIndexDDL` for the measurement.
+    expect(db.executed(/CREATE INDEX CONCURRENTLY.*customer/)).toHaveLength(2);
+    expect(db.executed(/CREATE INDEX[\s\S]*tenant_id, "customer"/)).toHaveLength(1);
     expect(db.executed(/update "zvd_collections" set/)).toHaveLength(1);
   });
 
