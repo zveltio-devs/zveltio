@@ -71,7 +71,7 @@ lucrător de fundal pe pool, fără GUC.
 | 3 | Poartă: o tabelă nouă declară partea | ✅ **FĂCUT** | dovedită prin plantare |
 | 4 | Confruntă derivarea cu o bază instalată complet | ✅ **FĂCUT** | **362 din 362 se potrivesc** |
 | 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | ✅ **FĂCUT** | **zero nedecise**; 8 marcate plauzibile-necitite |
-| 6 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
+| 6 | **PUNCT DE VALIDARE** | ✅ **TRECUT** | **4 criterii din 4** |
 
 ---
 
@@ -290,6 +290,42 @@ octeți la aceeași versiune.
 `zv_prompt_templates` să iasă din lista de instanță, fiindcă acum poartă `tenant_id`.
 Exact pentru asta a fost scrisă direcția a doua a porții.
 
+## PUNCT DE VALIDARE — verdict: 4 criterii din 4. Blocul se închide.
+
+Rulat 2026-08-30, împotriva criteriilor scrise la începutul documentului, înainte de
+orice măsurătoare.
+
+| # | criteriu | verdict |
+|---|---|---|
+| 1 | Fiecare tabelă clasificată, zero nedecise | ✅ **51 de rânduri, 0 nedecise** |
+| 2 | Derivabilă din cod, o singură sursă citibilă de mașină | ✅ `check-tenant-boundary.ts` |
+| 3 | O tabelă nouă nu poate intra fără să declare partea | ✅ dovedit prin plantare, 18/18 |
+| 4 | Derivarea se potrivește cu realitatea, pe bază instalată | ✅ **362 din 362** |
+
+**Rezerva onestă la criteriul 1:** opt rânduri sunt clasificate cu motivul *„plauzibil din
+natura operației, codul NU a fost citit"* — copii de siguranță, PITR, observabilitate.
+Sunt clasificate și motivul e scris, deci criteriul e îndeplinit; dar motivul spune ce
+este, nu pretinde o verificare care n-a avut loc. Cine vrea certitudine pe ele are lista.
+
+**Și trei tabele par moarte:** `zv_rag_documents`, `zv_doc_templates`,
+`zvd_branch_review_requests` n-au **nicio** interogare de rulare în ambele repo-uri. Le-am
+clasificat ca de instanță fiindcă acolo stau, dar adevărul mai probabil e că nu ar trebui
+să existe. E o observație pentru altă lucrare, nu o concluzie a acesteia.
+
+### Ce a produs blocul
+
+- **granița e derivabilă din cod** și e acum o sursă unică pe care o poartă o citește
+- **9 tabele identificate ca izolare fără a doua linie** — copii ai unor tabele per-firmă,
+  apărate doar de join-ul scris de mână
+- **un defect real reparat** (`zv_prompt_templates`), găsit tocmai fiindcă ambiguitatea
+  „fără `tenant_id`" a fost forțată să se declare
+- **`admin-gate-check` extinsă la sora**, unde erau 113 situri nepăzite față de 0 în engine
+- **o explicație greșită a mea, corectată prin măsurare** — secțiunile `-- DOWN`, nu
+  `ON_ERROR_STOP`
+
+Blocul C s-a închis cu 3 din 4 și n-a fost rescris niciun criteriu. Blocul B se închide cu
+4 din 4, măsurate la fel.
+
 ## Ce NU se atinge în blocul ăsta
 
 - **Politicile RLS existente și forma predicatului.** S-a schimbat de trei ori și e
@@ -316,6 +352,8 @@ Exact pentru asta a fost scrisă direcția a doua a porții.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | **6 VALIDARE** | **4 criterii din 4. Blocul se închide.** Rezervă onestă: 8 rânduri clasificate cu motiv marcat „codul nu a fost citit", și 3 tabele care par moarte. |
+| 2026-08-30 | 4+5 | Pasul 4 REUȘIT după corectarea unei explicații greșite a mele: cauza era secțiunea `-- DOWN`, nu `ON_ERROR_STOP`. 199 migrații UP, zero eșecuri, **362/362 potrivire**. Pasul 5: zero nedecise; `zv_prompt_templates` reparat în sora (#62, fuzionat), iar ratchet-ul a prins imediat propria mea schimbare. |
 | 2026-08-29 | 5 | Citit tabelă cu tabelă: 12 din 22 au primit motiv din cod, 8 plauzibile-necitite, 10 nedecise. **Găsit: `zv_prompt_templates`** — instanță, scrisă printr-o gardă care trece pentru `tenant_admin`, cu `name` UNIQUE global. **Colateral: `admin-gate-check` nu scanează sora — 0 situri de cod în engine, 111 în 46 de fișiere de extensie.** |
 | 2026-08-29 | 4 | **Încercat, neîncheiat.** Baza de referință construită cu `psql -f` în buclă e **pe jumătate aplicată** (`ON_ERROR_STOP` oprește la prima eroare din fișier), deci incoerentă: `zvd_collections` avea o coloană `ai_*` dar nu și celelalte, `zv_ai_chats` lipsea. Comparația a dat 245 de „nepotriviri" care spun ceva despre instalarea mea și nimic despre derivare — artefact, nu finding. Un pas 4 corect cere calea din `project_ext_contract_suite_recipe`. |
 | 2026-08-29 | 1–3 | **Derivabilă din cod: DA.** 384 tabele, 332 per firmă, 52 de instanță, **9 copii ai unor tabele per-firmă** — izolare fără a doua linie. Derivarea validată 10/10 pe adevăruri cunoscute și scrisă de două ori independent. Poarta `check-tenant-boundary` dovedită prin plantare; sonda i-a găsit un punct orb (CREATE pe o singură linie). Baseline: 30 motivate, 22 NEVERIFICAT. |
