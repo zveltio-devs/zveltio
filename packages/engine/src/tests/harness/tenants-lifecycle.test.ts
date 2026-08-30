@@ -16,6 +16,11 @@ const SLUG = `htenant${Date.now().toString().slice(-8)}`;
 d('tenants lifecycle (in-process)', () => {
   let app: Hono;
   let db: Database;
+  // A real user, because a company is now created together with its
+  // administrator. This test used to pass `admin-<slug>@test.local`, which
+  // matched nobody — so it created exactly the unreachable tenant the route was
+  // written to prevent, and asserted 201 on it.
+  let adminEmail = '';
   let cookie: string;
   let tenantId = '';
   let schemaName = '';
@@ -29,6 +34,8 @@ d('tenants lifecycle (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    const who = await sql<{ email: string }>`SELECT email FROM "user" LIMIT 1`.execute(db);
+    adminEmail = who.rows[0]?.email ?? '';
   });
 
   afterAll(async () => {
@@ -53,7 +60,7 @@ d('tenants lifecycle (in-process)', () => {
         slug: SLUG,
         name: 'Harness Tenant',
         plan: 'free',
-        admin_user_email: `admin-${SLUG}@test.local`,
+        admin_user_email: adminEmail,
       }),
     );
     expect(res.status).toBe(201);

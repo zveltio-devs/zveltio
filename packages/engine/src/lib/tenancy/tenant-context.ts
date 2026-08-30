@@ -183,6 +183,85 @@ export function getSingleTenantId(): string | null {
  * then makes has to find another free one. At a concurrency near the pool size
  * every request holds one and waits for one, and nothing can release.
  */
+/**
+ * How many times a request-scoped handle fell through to the raw pool.
+ *
+ * `createRequestScopedDb` resolves `getCurrentTenantTrx() ?? pool`. That `??` is
+ * the quietest failure in the engine: with no transaction open, every
+ * `db.selectFrom(...)` runs on the unscoped pool as the engine's own role, so a
+ * tenant-scoped read returns every tenant's rows — and nothing throws, warns, or
+ * logs. The caller gets data and believes it.
+ *
+ * The fallback is not itself a bug: boot code and extension load-time work
+ * legitimately hold this handle with no request around them. What was missing is
+ * any way to TELL the two apart, which is why "just open the transaction later"
+ * has never been a small change — getting it wrong is invisible.
+ *
+ * So: count it, and let a test assert the count. That turns a class of silent
+ * cross-tenant reads into a red test, and it is the precondition for Block A,
+ * where the transaction stops being held for the whole request.
+ *
+ * `ZVELTIO_STRICT_TENANT_SCOPE=1` turns the count into a throw, for anyone who
+ * wants the failure immediately rather than at the end of a test. Off by
+ * default, deliberately: this ships as a diagnostic, not as a behaviour change,
+ * and a throw here on a legitimate boot-time call would take a deployment down.
+ */
+let _unscopedFallbacks = 0;
+
+/** Number of unscoped fallbacks since the last reset. See `_unscopedFallbacks`. */
+export function getUnscopedFallbackCount(): number {
+  return _unscopedFallbacks;
+}
+
+/** Reset the counter — for a test that wants to measure one stretch of work. */
+export function resetUnscopedFallbackCount(): void {
+  _unscopedFallbacks = 0;
+}
+
+/**
+ * Kysely entry points that name a table. Only these are counted: reading
+ * `db.fn`, `db.dynamic` or an internal property resolves nothing about a tenant
+ * and would drown the signal in noise.
+ */
+const TABLE_ENTRY_POINTS = new Set([
+  'selectFrom',
+  'insertInto',
+  'updateTable',
+  'deleteFrom',
+  'with',
+]);
+
+/**
+ * Tables that carry `tenant_id`, learned from the live schema at boot.
+ *
+ * The counter needs this or it is useless. Its first run flagged three call
+ * sites — `middleware/rate-limit.ts` reading `zv_rate_limit_configs`,
+ * `ddl-manager.getCollections` reading `zvd_collections`, `routes/tenants.ts`
+ * reading `zv_tenants` — and all three are CORRECT: Block B classified every one
+ * of those as instance-level, shared across tenants by design. A counter that
+ * cannot tell a shared table from a tenant-scoped one reports working code as a
+ * leak, which is how a gate gets switched off.
+ *
+ * Read from `information_schema` rather than a generated list: the answer is
+ * derivable from the database itself, so there is nothing to keep in sync and
+ * nothing to go stale. Until it is populated the counter stays silent, which is
+ * the right answer for boot-time work anyway.
+ */
+let _tenantScopedTables: Set<string> | null = null;
+
+/** Publish the tenant-scoped table set. Called once at boot, after migrations. */
+export function setTenantScopedTables(tables: Iterable<string>): void {
+  _tenantScopedTables = new Set([...tables].map((t) => t.toLowerCase()));
+}
+
+/** `selectFrom('zvd_x as a')` and `selectFrom('public.zvd_x')` both name `zvd_x`. */
+function tableNameOf(arg: unknown): string | null {
+  if (typeof arg !== 'string') return null;
+  const first = arg.trim().split(/\s+/)[0] ?? '';
+  const bare = first.split('.').pop() ?? '';
+  return bare ? bare.replace(/"/g, '').toLowerCase() : null;
+}
+
 export function createRequestScopedDb(pool: Database): Database {
   return new Proxy({} as Database, {
     get(_dummy, prop: string | symbol) {
@@ -228,6 +307,31 @@ export function createRequestScopedDb(pool: Database): Database {
       // `unknown`, not `any`: a proxy reading an arbitrary key off Kysely knows
       // nothing about what comes back, and saying so keeps the narrowing below
       // honest rather than waving the checker through.
+      // The fallback, made visible — but only for a table that actually carries a
+      // tenant. See `_tenantScopedTables`: the first version counted every call
+      // and flagged three pieces of correct code reading shared tables.
+      if (!trx && typeof prop === 'string' && TABLE_ENTRY_POINTS.has(prop) && _tenantScopedTables) {
+        const inner = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[prop];
+        if (typeof inner === 'function') {
+          return (...args: unknown[]) => {
+            const table = tableNameOf(args[0]);
+            if (table && _tenantScopedTables?.has(table)) {
+              _unscopedFallbacks++;
+              if (process.env.ZVELTIO_STRICT_TENANT_SCOPE === '1') {
+                throw new Error(
+                  `[tenant-scope] \`db.${prop}('${table}')\` ran with no tenant transaction ` +
+                    'open, so it would have used the unscoped pool — and the engine connects as ' +
+                    'a superuser, which bypasses row-level security entirely. Open one with ' +
+                    'withTenantIsolation(), or reach for the raw pool deliberately. ' +
+                    '(ZVELTIO_STRICT_TENANT_SCOPE=1)',
+                );
+              }
+            }
+            return inner.apply(target, args);
+          };
+        }
+      }
+
       const value = (target as unknown as Record<string | symbol, unknown>)[prop];
       if (typeof value !== 'function') return value;
 
