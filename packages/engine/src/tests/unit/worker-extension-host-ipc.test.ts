@@ -323,7 +323,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(posted.some((m) => m.type === 'service:register:ok' && m.id === 'reg-1')).toBe(true);
     expect(managed.registeredServices.has('a.ping')).toBe(true);
-    const result = await serviceRegistry.get<{ (): Promise<string> }>('a.ping')?.();
+    const result = await serviceRegistry.get<() => Promise<string>>('a.ping')?.();
     expect(result).toBe('pong');
   });
 
@@ -347,7 +347,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     dispatchMessage(host, owner, { type: 'service:register', id: 'reg-2', name: 'a.secret' });
     await new Promise((r) => setTimeout(r, 0));
 
-    const call = serviceRegistry.get<{ (): Promise<string> }>('a.secret')!();
+    const call = serviceRegistry.get<() => Promise<string>>('a.secret')!();
     await new Promise((r) => setTimeout(r, 0));
     expect(capturedId).not.toBe('');
 
@@ -378,7 +378,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     });
     dispatchMessage(host, managed, { type: 'service:register', id: 'reg-3', name: 'a.ids' });
     await new Promise((r) => setTimeout(r, 0));
-    const svc = serviceRegistry.get<{ (): Promise<string> }>('a.ids')!;
+    const svc = serviceRegistry.get<() => Promise<string>>('a.ids')!;
     void svc();
     void svc();
     await new Promise((r) => setTimeout(r, 0));

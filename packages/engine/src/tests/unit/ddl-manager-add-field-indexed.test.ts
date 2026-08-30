@@ -37,7 +37,16 @@ describe('DDLManager.addField — indexes', () => {
       unique: true,
       indexed: true,
     } as never);
-    expect(db.executed(/CREATE INDEX CONCURRENTLY.*sku/)).toHaveLength(1);
+    // Two now, deliberately: the bare `(sku)` and the tenant-first
+    // `(tenant_id, sku, created_at DESC)`. The second is the one a tenant-scoped
+    // read can actually use — measured at 12,5 ms against 0,065 ms across ten
+    // tenants, because the bare index cannot satisfy `ORDER BY created_at` and
+    // the planner walks that index instead, discarding what the policy excludes.
+    // See `fieldTypeRegistry.getTenantIndexDDL`.
+    expect(db.executed(/CREATE INDEX CONCURRENTLY.*sku/)).toHaveLength(2);
+    expect(
+      db.executed(/CREATE INDEX CONCURRENTLY.*tenant_id, "sku", created_at DESC/),
+    ).toHaveLength(1);
     expect(db.executed(/UNIQUE/)).toHaveLength(1);
   });
 });
