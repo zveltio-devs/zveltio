@@ -2,6 +2,7 @@
 // sandbox, licensing, dependency + path resolution, and the H-04 load pipeline
 // (discovery, lifecycle, register, manifest-schema, migration-runner, …). Public
 // API; outside (non-test) code imports from `lib/extensions`, never deep files.
+export * from './activation.js';
 export * from './extension-catalog.js';
 export * from './extension-context.js';
 export * from './extension-deps.js';

@@ -19,6 +19,7 @@ import m002 from './sql/003_rls_parallel_safe.sql' with { type: 'text' };
 import m003 from './sql/004_tenancy_hierarchy.sql' with { type: 'text' };
 import m004 from './sql/005_rls_initplan_predicate.sql' with { type: 'text' };
 import m005 from './sql/006_better_auth_account_issuer.sql' with { type: 'text' };
+import m006 from './sql/007_ext_registry_tenant_unique.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -28,4 +29,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '004_tenancy_hierarchy.sql': m003,
   '005_rls_initplan_predicate.sql': m004,
   '006_better_auth_account_issuer.sql': m005,
+  '007_ext_registry_tenant_unique.sql': m006,
 };
