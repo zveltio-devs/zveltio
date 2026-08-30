@@ -70,8 +70,8 @@ măsurat e cost de scriere plătit pentru nimic.
 | 3 | `singleTenant` = „raza e exact firma asta", cu test care distinge | ✅ **FĂCUT** | dovedit prin revenire: roșu fără reparație |
 | 4 | Egalitatea explicită pe calea extensiilor, sau motiv scris | ✅ **FĂCUT** | unealtă expusă + motiv scris de ce nu automat |
 | 5 | Compusul lipsă din `reconcileExtensionTenantRLS` | ✅ **FĂCUT** | dovedit prin revenire |
-| 6 | Poartă: un index nou declară tiparul servit | DE FĂCUT | — |
-| 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
+| 6 | Poartă: un index nou declară tiparul servit | ⛔ **ANULAT ca poartă** | 220 de situri legitime; păzit în cod, cu test |
+| 7 | **PUNCT DE VALIDARE** | ✅ **TRECUT** | 4 criterii din 4 |
 
 ---
 
@@ -207,6 +207,63 @@ if (t) q = q.where('tenant_id', '=', t);
 Ambele definiții de tip actualizate — SDK **și** internals-ul gazdei — fiindcă repo-ul are
 notat că sunt două și că e ușor de atins doar una.
 
+### Pasul 6 — poarta la nivel de repo: ANULATĂ. Invariantul, păzit în cod.
+
+Regula evidentă — *un index pe o tabelă de firmă trebuie să înceapă cu `tenant_id`* — a
+fost măsurată înainte de a fi scrisă:
+
+| | situri |
+|---|---:|
+| indexuri pe tabele per-firmă declarate în SQL | 602 |
+| care nu încep cu `tenant_id` | **286**, în 60 de fișiere |
+| îngustat la forma măsurată ca patologică (o coloană, non-unic, non-GIN) | **220**, în 45 de fișiere |
+
+Iar exemplele arată de ce nici forma îngustă nu e o regulă: `zv_media_files(folder_id)`,
+`zv_media_folders(parent_id)` — indexuri de cheie străină care servesc join-uri, nu filtre
+pe firmă. **Un ratchet de 220 de rânduri fără motive scrise e decorațiune**, exact ce am
+refuzat la pasul 6 al Blocului C.
+
+Ce se păzește în schimb e invariantul îngust care contează: **calea de creare a indexurilor
+din engine**. `collection-field-index-composite.test.ts`, dovedit prin revenire — fără
+compus pică, cu el trec ambele cazuri, iar al doilea verifică tocmai că un câmp NEindexat
+nu primește niciun index.
+
+**Capcana pe drum, a doua oară în lucrarea asta:** prima reparație a aterizat în
+`previewCollection`, nu pe calea reală. Calea reală e `fieldTypeRegistry.getIndexDDL`, iar
+`createCollection` nu cheamă deloc `previewCollection`. Testul a arătat-o imediat —
+indexul simplu exista, compusul nu. Reparat în **ambele** situri care cheamă registrul,
+fiindcă repo-ul are notat că o reparație a aterizat deja o dată pe una din două căi.
+
+### Ce s-a schimbat, și ce NU
+
+**Da:** `(tenant_id, <câmp>, created_at DESC)` pentru câmpurile marcate `indexed`, btree.
+La zece firme: **12,5 ms → 0,065 ms**. La o firmă: fără regresie.
+
+**Nu:** pentru `status`. Măsurat 0,293 → 0,138 ms la o sută de firme, ambele sub o
+milisecundă. Un index care economisește a șaptea parte dintr-o milisecundă e cost de
+scriere la fiecare inserare, plătit pentru nimic — și criteriul blocului spune exact asta.
+
+**Nu:** pentru GIN/GiST. N-au coloană conducătoare în care să pui firma, iar o căutare pe
+firmă e altă întrebare decât asta.
+
+## PUNCT DE VALIDARE — verdict: 4 criterii din 4
+
+| # | criteriu | verdict |
+|---|---|---|
+| 1 | Fiecare tipar are un prag numeric scris | ✅ tabelele de mai sus |
+| 2 | Plafonul s-a mutat la **ambele** capete | ✅ 192× la 10 firme, **fără regresie la 1** |
+| 3 | `singleTenant` = raza exactă, cu test care distinge | ✅ dovedit prin revenire |
+| 4 | O poartă refuză un index nedeclarat | ⛔ **anulat măsurat** — vezi pasul 6 |
+
+**Criteriul 4 nu e îndeplinit, și nu îl declar altfel.** Poarta cerută n-a putut fi
+construită fără să producă o listă de 220 de excepții nescrise. În locul ei a rămas un
+test care păzește exact calea de cod care generează indexurile — mai îngust decât cerea
+criteriul, și spus ca atare.
+
+Deci: **3 criterii îndeplinite, unul anulat cu măsurătoare.** Blocul își atinge scopul —
+plafonul măsurat s-a mutat la ambele capete — fără să pretindă că a livrat o poartă care
+n-ar fi apărat nimic.
+
 ## Ce se știe deja, ca să nu se re-descopere
 
 **Constatarea măsurată care a deschis blocul (2026-08-29):** egalitatea explicită **nu se
@@ -259,6 +316,7 @@ făcute pe montaje diferite.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | 6–7 | Poarta la nivel de repo **anulată măsurat**: 220 de situri, majoritatea indexuri de FK legitime; un ratchet fără motive ar fi decor. Invariantul păzit în cod, cu test dovedit prin revenire. **A doua oară: prima reparație a aterizat pe calea greșită** (`previewCollection`, pe care `createCollection` n-o cheamă) — cea reală e `fieldTypeRegistry.getIndexDDL`, reparată în ambele situri. Compus DA pentru câmpuri indexate (12,5 ms → 0,065 ms la 10 firme, fără regresie la 1), NU pentru `status` (0,29 → 0,14 ms, ambele sub o milisecundă). **Validare: 3 criterii îndeplinite, criteriul 4 anulat cu măsurătoare.** |
 | 2026-08-30 | 4–5 | Compusul adăugat în reconcilierea extensiilor, cu gardă pe `created_at` (tabelele de extensie au orice formă). Test dovedit prin revenire. **Prima versiune a testului măsura altceva** — reconcilierea lucrează din `pg_policies` pe `tenant_isolation_%` și nu vede o sondă fără politică. Pasul 4: `getSingleTenantId` expus pe `ctx.internals` + tip SDK, cu motivul scris de ce nu se poate aplica automat. Harness 876/0. |
 | 2026-08-30 | 3 | `isSingleUnitReach` înlocuiește `scope === null`. Strămoșii verificați în SQL că nu intră în predicatul de citire. **Testul distinge — dovedit prin revenire: roșu cu codul vechi.** Fișierul era și dependent de ordine (avea nevoie de un `user` creat de altcineva); acum e autonom. Harness 868/0, unit 2548/0. |
 | 2026-08-30 | 1–2 | **Măsurat.** Listarea și filtrul pe status cresc cu numărul de firme (3,9× la 100, 29–35× la 1000). Dar cel mai grav e filtrul pe câmp + ORDER BY: **46 ms la 10 ȘI la 100 de firme, aruncând toate cele 300 000 de rânduri ca să întoarcă 25** — o prăpastie de plan, nu o creștere; la 1000 planificatorul schimbă strategia și dispare. **Criteriul de oprire nu se activează:** costă de la 10 firme, nu de la o mie. La o singură firmă nimic nu regresează. |
