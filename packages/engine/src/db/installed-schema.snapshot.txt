@@ -2489,11 +2489,12 @@ table zv_prompt_templates
   col provider                       text
   col system_prompt                  text NOT NULL
   col temperature                    numeric DEFAULT 0.7
+  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col user_template                  text
   col variables                      jsonb DEFAULT '[]'::jsonb
   fk  zv_prompt_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  uq  zv_prompt_templates_name_key UNIQUE (name)
+  uq  zv_prompt_templates_name_key UNIQUE (tenant_id, name)
   pk  zv_prompt_templates_pkey PRIMARY KEY (id)
 
 table zv_publish_schedule
