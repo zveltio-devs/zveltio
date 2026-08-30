@@ -67,7 +67,7 @@ măsurat e cost de scriere plătit pentru nimic.
 | 0 | Citește documentul ăsta | — | (la fiecare pas) |
 | 1 | Măsoară fiecare tipar cu politica APLICATĂ, la 1 / 10 / 100 / 1000 de firme | ✅ **FĂCUT** | vezi §Măsurătoarea |
 | 2 | **Pragul** pentru fiecare tipar; sub prag, tiparul iese din bloc | ✅ **FĂCUT** | **de la 10 firme** — blocul NU se închide |
-| 3 | `singleTenant` = „raza e exact firma asta", cu test care distinge | DE FĂCUT | — |
+| 3 | `singleTenant` = „raza e exact firma asta", cu test care distinge | ✅ **FĂCUT** | dovedit prin revenire: roșu fără reparație |
 | 4 | Egalitatea explicită pe calea extensiilor, sau motiv scris | DE FĂCUT | — |
 | 5 | Compusul lipsă din `reconcileExtensionTenantRLS` | DE FĂCUT | — |
 | 6 | Poartă: un index nou declară tiparul servit | DE FĂCUT | — |
@@ -141,6 +141,37 @@ de firme, blocul se închide la pasul 2.* Un tipar costă 46 ms **de la zece fir
 la o singură firmă niciun tipar nu regresează (0,07–0,15 ms, egalitatea nu strică nimic).
 Blocul continuă.
 
+### Pasul 3 — reparat (2026-08-30)
+
+`setSingleTenantScope(scope === null)` → `setSingleTenantScope(isSingleUnitReach(scope, tenantId))`.
+
+Raza e a unei singure firme când: nu există scope (nu s-a numit un utilizator — cheie API,
+fundal), sau `visible === null` (resolverul nu publică nimic și lasă predicatul să
+răspundă), sau `visible` numește **exact** firma curentă. Orice mai larg nu e single, și
+egalitatea nu se adaugă.
+
+**Strămoșii nu intră în decizie, verificat în SQL:** `zveltio_visible_tenants()` citește
+DOAR `zveltio.visible_tenants`, altfel cade pe `[current_tenant]`. Un strămoș e vizibil la
+citire numai fiind ÎN acea mulțime — unde verificarea de lungime îl vede deja. Am citit
+funcția înainte să ating codul, fiindcă e cod care decide izolarea.
+
+**Testul distinge, dovedit prin revenire:**
+
+| | rezultat |
+|---|---|
+| cu `scope === null` (codul vechi) | **1 fail** — „offers nothing while a hierarchy is in play" |
+| cu `isSingleUnitReach` | 6 pass |
+
+Testul dinainte accepta `null || ROOT`, deci trecea și înainte, și după — tolera exact
+comportamentul care era bug-ul.
+
+**Și fișierul de test era dependent de ordine:** două teste aveau nevoie de un rând în
+`user` și se bazau tăcut pe alt fișier din procesul partajat care crea unul. Pe bază
+proaspătă, singur, pica. Acum își creează singur sesiunea.
+
+Suita completă după reparație: **harness 868 pass / 0 fail**, **unit 2548 pass / 0 fail**
+(rulat cu `env -u DATABASE_URL`, condiția din CI).
+
 ## Ce se știe deja, ca să nu se re-descopere
 
 **Constatarea măsurată care a deschis blocul (2026-08-29):** egalitatea explicită **nu se
@@ -193,6 +224,7 @@ făcute pe montaje diferite.
 
 | Când | Pas | Ce s-a întâmplat |
 |---|---|---|
+| 2026-08-30 | 3 | `isSingleUnitReach` înlocuiește `scope === null`. Strămoșii verificați în SQL că nu intră în predicatul de citire. **Testul distinge — dovedit prin revenire: roșu cu codul vechi.** Fișierul era și dependent de ordine (avea nevoie de un `user` creat de altcineva); acum e autonom. Harness 868/0, unit 2548/0. |
 | 2026-08-30 | 1–2 | **Măsurat.** Listarea și filtrul pe status cresc cu numărul de firme (3,9× la 100, 29–35× la 1000). Dar cel mai grav e filtrul pe câmp + ORDER BY: **46 ms la 10 ȘI la 100 de firme, aruncând toate cele 300 000 de rânduri ca să întoarcă 25** — o prăpastie de plan, nu o creștere; la 1000 planificatorul schimbă strategia și dispare. **Criteriul de oprire nu se activează:** costă de la 10 firme, nu de la o mie. La o singură firmă nimic nu regresează. |
 | 2026-08-30 | setup | Branch din `6c7e124b`. Criterii fixate ÎNAINTE de măsurare, inclusiv criteriul de oprire: sub o mie de firme fără cost ⇒ blocul se închide la pasul 2. |
 
