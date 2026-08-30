@@ -69,8 +69,8 @@ lucrător de fundal pe pool, fără GUC.
 | 1 | **E derivabilă din cod?** Clasifică din SQL-ul ambelor repo-uri, fără bază vie | ✅ **FĂCUT** | **DA** — 384 tabele, 332/52 |
 | 2 | O singură sursă, citibilă de mașină | ✅ **FĂCUT** | `quality-gates/tenant-boundary.json` |
 | 3 | Poartă: o tabelă nouă declară partea | ✅ **FĂCUT** | dovedită prin plantare |
-| 4 | Confruntă derivarea cu o bază instalată complet | ⚠️ **ÎNCERCAT, NEÎNCHEIAT** | baza de referință naivă e inutilizabilă — vezi §Pasul 4 |
-| 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | 🟡 **AVANSAT** | 34 verificate, 8 plauzibile-necitite, **10 nedecise** |
+| 4 | Confruntă derivarea cu o bază instalată complet | ✅ **FĂCUT** | **362 din 362 se potrivesc** |
+| 5 | Cele fără RLS: decizie sau motiv scris pentru fiecare | ✅ **FĂCUT** | **zero nedecise**; 8 marcate plauzibile-necitite |
 | 6 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
 
 ---
@@ -132,7 +132,37 @@ citirea n-ar fi arătat.
 **22 sunt marcate NEVERIFICAT**. Un rând NEVERIFICAT nu e o justificare, e o sarcină —
 scris așa tocmai ca să nu devină „scuza care arată a revizie". Ăsta e restul pasului 5.
 
-### Pasul 4 — încercat, și eșecul e rezultatul (2026-08-29)
+### Pasul 4 — REUȘIT, după ce am corectat o explicație greșită a mea
+
+**CORECȚIE.** Am scris mai jos, cu convingere, că baza de referință eșua fiindcă
+`ON_ERROR_STOP=1` oprește la prima eroare și lasă migrația pe jumătate aplicată.
+**Explicația aia era greșită.**
+
+Cauza reală: **81 de migrații de extensii au o secțiune `-- DOWN`**, iar motorul taie
+fișierul pe marcajul ăla (`lib/extensions/extension-utils.ts:178`) și rulează doar
+jumătatea UP. `psql -f` rulează fișierul întreg — deci crea tabelele și apoi **le
+ștergea**. De aceea `zv_ai_chats` lipsea deși migrația raporta `rc=0`.
+
+Aplicând doar jumătatea UP (`awk '/^-- DOWN[[:space:]]*$/{exit}'`):
+
+```
+trecerea 1: UP aplicate=199 eșuate=0
+trecerea 2: UP aplicate=199 eșuate=0
+```
+
+**199 de migrații, zero eșecuri** — față de „160 aplicate, 38 eșuate" cu metoda greșită.
+363 de tabele.
+
+**Rezultatul confruntării: 362 din 362 se potrivesc. Zero nepotriviri.** (A 363-a e
+`spatial_ref_sys`, a PostGIS-ului, exclusă ca nefiind a noastră.)
+
+**Criteriul 4 e îndeplinit.** Iar cele 245 de „nepotriviri" de la prima încercare erau,
+cum bănuiam, artefact — doar că motivul pe care îl scrisesem era el însuși greșit.
+Lecția e mai ascuțită decât credeam: nu doar că **o bază construită prost dă cifre false**,
+ci și că **explicația plauzibilă a unui eșec poate fi greșită** dacă e scrisă fără s-o
+verifici. `rc=0` de la `psql` ar fi trebuit să mă oprească atunci.
+
+### Prima încercare, păstrată pentru pistele eliminate (2026-08-29)
 
 Criteriul cerea confruntarea derivării cu o bază instalată complet. Am construit una:
 bază virgină → migrațiile engine-ului (72 de tabele) → toate migrațiile de extensii
@@ -222,6 +252,43 @@ worktree detașat.
 
 *(Prima mea numărătoare a dat 112 și 5 „în engine". Erau comentarii — poarta le sare
 corect, `grep` nu. Fals pozitiv al meu, prins citind ce sare poarta.)*
+
+
+### Pasul 5 — încheiat, plus reparația care a ieșit din el
+
+**Zero nedecise.** Din cele 52 de rânduri: motiv verificat în cod pentru majoritatea, **8
+marcate explicit „plauzibile din natura operației, codul NU a fost citit"** (copii de
+siguranță, PITR, observabilitate) — un motiv onest, nu o verificare pretinsă — și **3
+tabele care par moarte**: `zv_rag_documents`, `zv_doc_templates`,
+`zvd_branch_review_requests` au **zero interogări de rulare** în ambele repo-uri. O tabelă
+moartă n-are graniță de apărat, dar are nevoie de o confirmare înainte să fie ștearsă.
+
+**`zv_prompt_templates` — reparat**, cu aprobarea proprietarului.
+`ai/engine/migrations/007_prompt_templates_tenant.sql`: `tenant_id` cu implicit din GUC,
+umplere la firma implicită, index compus `(tenant_id, created_at DESC)`, iar cheia unică
+lărgită de la `(name)` la `(tenant_id, name)`.
+
+Nu e un design nou: `004_tenant_rls.sql` a dat `tenant_id` la opt tabele ale extensiei și
+`005_tenant_scoped_unique_keys.sql` a lărgit cheile lor. **`zv_prompt_templates` n-a fost
+în niciuna.** Aceeași campanie, aceeași formă, o tabelă sărită.
+
+Nicio schimbare de rută: handlerele folosesc `ctx.db`, proxy-ul request-scoped, deci
+politica pusă de reconcilierul gazdei filtrează citirile singură, iar implicitul coloanei
+pune `tenant_id` la inserare.
+
+**Dovadă cu două capete, pe baza de referință:**
+
+| | rezultat |
+|---|---|
+| cu cheia veche `(name)` | `ERROR: duplicate key … Key (name)=(raport-lunar) already exists` — iar RLS i-ar fi ascuns firmei B rândul despre care primea eroarea |
+| cu cheia nouă `(tenant_id, name)` | ambele inserturi reușesc |
+
+Versiunea extensiei `ai` urcată 1.0.8 → 1.0.9: fără bump, instalările refuză aceiași
+octeți la aceeași versiune.
+
+**Iar ratchet-ul de graniță a prins propria mea schimbare** — a cerut ca
+`zv_prompt_templates` să iasă din lista de instanță, fiindcă acum poartă `tenant_id`.
+Exact pentru asta a fost scrisă direcția a doua a porții.
 
 ## Ce NU se atinge în blocul ăsta
 
