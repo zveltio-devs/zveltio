@@ -55,43 +55,23 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
  * name: the two namespaces are disjoint, so a materialization that only walked
  * `zvd_collections` would silently close all 28 of them.
  *
- * This list is a floor, not the mechanism. An extension declares its resources in
- * `manifest.resources`, `register.ts` materializes them as it loads, and
- * `listKnownResources` below reads the same declarations off disk for everything
- * installed — so the ecosystem grows without anyone editing this array. What stays
- * here covers installs that predate that wiring, where no manifest is available to
- * read. Nothing new needs adding.
+ * The declarations are on disk and authoritative: an extension names its
+ * resources in `manifest.resources`, `register.ts` materializes them as it
+ * loads, and `listKnownResources` below reads the same field for everything
+ * installed.
+ *
+ * There used to be a frozen array here as well, holding the 28 names that
+ * predate that wiring. It was removed on 2026-08-30 as an owner decision, with
+ * a minimum stated: **an extension must declare `manifest.resources`**, which
+ * has been the contract since 3.0.0-beta.63 (2026-08-28) and is enforced for new
+ * code by `scripts/check-extension-resources.ts`. An install carrying older
+ * bundles no longer gets those names for free.
+ *
+ * Deleting a safety net silently would have been the wrong half of that
+ * decision: a missing name means `materializeDefaultGrants` never opens the
+ * resource, and deny-by-default then refuses access with nothing to point at.
+ * So an installed extension that declares nothing is now NAMED at boot.
  */
-export const KNOWN_EXTENSION_RESOURCES: readonly string[] = [
-  'accounting',
-  'api-connector',
-  'assets',
-  'banking',
-  'checklists',
-  'crm',
-  'efactura',
-  'employees',
-  'etransport',
-  'expenses',
-  'export',
-  'helpdesk',
-  'import',
-  'inventory',
-  'invoices',
-  'leave',
-  'media',
-  'payroll',
-  'pos',
-  'postgis',
-  'procurement',
-  'projects',
-  'quotes',
-  'ro-documents',
-  'saft',
-  'store',
-  'subscriptions',
-  'time-tracking',
-];
 
 /**
  * Give the standard roles their default access to `resources`.
@@ -192,9 +172,7 @@ export async function listKnownResources(db: Database, extensionsBase?: string):
     SELECT name FROM zvd_collections
   `.execute(db);
   const declared = extensionsBase ? await resourcesDeclaredOnDisk(db, extensionsBase) : [];
-  return [
-    ...new Set([...collections.rows.map((r) => r.name), ...declared, ...KNOWN_EXTENSION_RESOURCES]),
-  ];
+  return [...new Set([...collections.rows.map((r) => r.name), ...declared])];
 }
 
 /**
@@ -216,32 +194,52 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
     `.execute(db);
     installed = rows.rows.map((r) => r.name);
   } catch (err) {
-    // Before the registry table exists there is nothing to read, and the frozen
-    // list still covers the reconcile. Saying so beats an empty catch.
+    // Before the registry table exists there is nothing to read. There is no
+    // longer a frozen list behind this, so the reconcile simply covers fewer
+    // resources on this boot — which is worth saying out loud rather than
+    // swallowing.
     console.warn(
-      '[resource-grants] could not read the extension registry; falling back to the ' +
-        'built-in resource list:',
+      '[resource-grants] could not read the extension registry; extension resources ' +
+        'are not in this reconcile:',
       (err as Error).message,
     );
     return [];
   }
 
   const out: string[] = [];
+  const silent: string[] = [];
   for (const name of installed) {
     const manifestPath = join(base, name, 'manifest.json');
-    if (!existsSync(manifestPath)) continue;
+    if (!existsSync(manifestPath)) {
+      silent.push(name);
+      continue;
+    }
     try {
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { resources?: unknown };
-      if (Array.isArray(manifest.resources)) {
-        for (const r of manifest.resources) if (typeof r === 'string' && r) out.push(r);
-      }
+      const declared = Array.isArray(manifest.resources)
+        ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
+        : [];
+      if (declared.length === 0) silent.push(name);
+      out.push(...declared);
     } catch (err) {
+      silent.push(name);
       console.warn(
         `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
           'not in this reconcile:',
         (err as Error).message,
       );
     }
+  }
+
+  // Named, not counted. Deny-by-default refuses access to a resource nobody
+  // granted, and the refusal carries no hint about why — so an operator whose
+  // extension stopped working after an upgrade needs to read the name here.
+  if (silent.length > 0) {
+    console.warn(
+      `[resource-grants] ${silent.length} installed extension(s) declare no ` +
+        `manifest.resources, so nothing was granted on them: ${silent.sort().join(', ')}. ` +
+        'Update them to a build that declares resources (required since 3.0.0-beta.63).',
+    );
   }
   return out;
 }
