@@ -151,9 +151,10 @@ non-obiectiv declarat, nu o gaură tăcută — criteriul 2.
 | 1 | O extensie oprită pentru B nu acționează pentru B, dovedit prin plantare | ✅ 5 aserțiuni plantate, ambele strategii de montare |
 | 2 | Fiecare graniță acoperită enumerată; fiecare neacoperită, scrisă | ✅ 5 acoperite, 2 scrise ca limite |
 | 3 | Calea de upgrade nu schimbă comportamentul | ✅ rândurile vechi au `tenant_id IS NULL` = rândul global |
-| 4 | Instalarea a lui god, activarea a firmei, dovedit prin plantare | ✅ + instalarea nu mai scrie firma cerută prin antet |
+| 4 | Instalarea a lui god, activarea a firmei, dovedit prin plantare | ✅ prin HTTP, nu doar la nivel de funcție; instalarea nu mai scrie firma cerută prin antet |
 
-**Măsurat:** unit 2549/0, harness 889/0, `audit:gates` 18/18, lint rc=0, typecheck rc=0.
+**Măsurat:** unit 2549/0, harness 906/0, `audit:gates` 18/18, lint rc=0, typecheck rc=0,
+acoperire `lib` 97,1% (poarta cere să nu scadă cu peste 0,5 puncte).
 
 ### Ce s-a dovedit că era greșit în planul propriu
 
@@ -230,3 +231,5 @@ bug-ul acela din nou.
 | 2026-08-30 | 4–6 | Poarta pe mâner. Prefixul, încercat ca al doilea strat, a scos un limitator pre-auth: retras. |
 | 2026-08-30 | 7 | Instalarea scria firma din **antet**; acum scrie rândul global. Testul care fixa vechiul comportament, rescris. |
 | 2026-08-30 | 8 | 4/4. `zveltio_test` avea lanț de migrații divergent — bază proprie per sesiune. |
+| 2026-08-30 | CI | Trei porți pe care rularea locală nu le atinge: migrația nu era în binar, importul sărea barrel-ul, snapshotul de schemă era vechi. |
+| 2026-08-30 | CI | Poarta de acoperire a arătat că **ruta prin care adminul firmei activează nu era atinsă de niciun test** — o gaură în criteriul 4, nu doar în procente. Acoperită prin HTTP. |
