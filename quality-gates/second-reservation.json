@@ -1,0 +1,15 @@
+{
+  "note": "Routes that cannot answer with DB_POOL_MAX=1, because they hold the tenant transaction and then ask the pool for a second connection. The list may SHRINK, never grow. See the header of scripts/check-second-reservation.ts for the measurement that produced it.",
+  "needsTwo": [
+    "/api/webhooks",
+    "/api/saved-queries",
+    "/api/notifications",
+    "/api/revisions",
+    "/api/flows",
+    "/api/settings",
+    "/api/users",
+    "/api/api-keys",
+    "/api/tenants",
+    "/api/audit"
+  ]
+}
