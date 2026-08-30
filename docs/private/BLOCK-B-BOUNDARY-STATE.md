@@ -197,9 +197,28 @@ Măsurat:
 | `packages/engine/src/routes` | **0** — cele 5 potriviri sunt comentarii care explică de ce să n-o faci |
 | `../zveltio-extensions` | **111**, în **46 de fișiere** |
 
-Poarta păzește locul unde nu se întâmplă și ignoră locul unde se întâmplă de 111 ori. E o
-constatare de Blocul C, ieșită la iveală în Blocul B — și e chiar mecanismul care face
-problema lui `zv_prompt_templates` posibilă.
+Poarta păzește locul unde nu se întâmplă și ignoră locul unde se întâmplă de o sută și
+ceva de ori. E o constatare de Blocul C, ieșită la iveală în Blocul B — și e chiar
+mecanismul care face problema lui `zv_prompt_templates` posibilă.
+
+**REPARAT:** poarta scanează acum și sora, **pe ratchet**, nu cu toleranță zero. Numărul
+ei propriu, mai riguros decât `grep`-ul meu: **113 situri în 47 de fișiere**, înghețate
+per fișier. Pot scădea, nu pot crește.
+
+De ce ratchet și nu interdicție: antetul porții spune singur că **nu există răspuns în
+masă** — fiecare sit e ori o operație de instanță, ori o suprascriere la nivel de firmă,
+și doar autorul lui știe care. O poartă care ar cere repararea tuturor celor 113 dintr-o
+dată ar fi oprită, nu respectată.
+
+**Și are ieșire, verificat înainte de a o construi:** `isTenantAdmin` și
+`requireInstanceAdmin` sunt pe contextul extensiei (`sdk/src/extension/index.ts:428,438`,
+`lib/extensions/internals.ts:28`), iar **patru extensii le folosesc deja**. Un ratchet
+fără cale de ieșire ar fi o fundătură.
+
+Dovedită prin plantare, cu etichetă proprie (`admin-gate-check (sibling ratchet)`), ca să
+se distingă de cazul care păzește calea engine-ului. Fail-closed fără soră — verificat cu
+scriptul NOU, după ce prima verificare rulase din greșeală versiunea veche dintr-un
+worktree detașat.
 
 *(Prima mea numărătoare a dat 112 și 5 „în engine". Erau comentarii — poarta le sare
 corect, `grep` nu. Fals pozitiv al meu, prins citind ce sare poarta.)*
