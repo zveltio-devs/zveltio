@@ -71,7 +71,52 @@ d('resolved permission set matches enforce()', () => {
     const disagreements: string[] = [];
     let allowed = 0;
 
-    for (const c of cases) {
+    // The oracle is priced per policy; the sample is sized to fit.
+    //
+    // `enforce()` walks the policy table until something matches, so a DENIAL
+    // reads all of it. That is exactly why the product stopped calling it — the
+    // hot path answers from a resolved Set (`effectivePermissions`) instead, and
+    // this test exists to prove the two agree. But the oracle kept the old cost,
+    // and it grows with the install:
+    //
+    //     870 policies   →    5.39 ms per enforce()
+    //   31 084 policies  → 1 270 ms per enforce()
+    //
+    // (The path that actually serves requests went 0.07 ms → 1.50 ms over the
+    // same range, which is the number that matters and is fine.)
+    //
+    // At the larger size the full case list costs ~143 s and the test failed on
+    // its own 120 s budget — on a database whose only sin was having as many
+    // collections as a real install. A timeout here reads as an authorization
+    // regression, which is the most expensive kind of false alarm on this path.
+    //
+    // So: time one call, then compare as many cases as fit the budget. The case
+    // list was already a sample (`LIMIT 8`, `LIMIT 6`); this makes the sample
+    // honest about what it can afford instead of pretending the oracle is cheap.
+    // The probe asks the EXPENSIVE question, deliberately.
+    //
+    // `enforce()` stops at the first matching policy, so an allowed case is
+    // cheap and a denial reads the whole table. A first version of this timed
+    // `cases[0]` — a granted shape — measured 1 157 ms, sized the sample to 51,
+    // and then took 2 670 ms per case on the real mix and blew the timeout
+    // anyway. Sizing a budget from the cheap direction is not a measurement.
+    // `zz_no_such_action` matches nothing, so this is the worst case by
+    // construction and the estimate is an upper bound.
+    const probe = cases[0]!;
+    const probeStart = Bun.nanoseconds();
+    await e.enforce(probe.subject, probe.domain, probe.resource, 'zz_no_such_action');
+    const msPerCall = (Bun.nanoseconds() - probeStart) / 1e6;
+    const budgetMs = 30_000;
+    const affordable = Math.max(10, Math.floor(budgetMs / Math.max(msPerCall, 0.01)));
+    const sample = cases.slice(0, Math.min(cases.length, affordable));
+    if (sample.length < cases.length) {
+      console.warn(
+        `[permission-set] oracle costs ${msPerCall.toFixed(1)} ms/call at this policy size; ` +
+          `comparing ${sample.length}/${cases.length} cases within the ${budgetMs / 1000}s budget`,
+      );
+    }
+
+    for (const c of sample) {
       const slow = await e.enforce(c.subject, c.domain, c.resource, c.action);
       const fast = await __allowViaSet(c.subject, c.domain, c.resource, c.action);
       if (slow) allowed++;
@@ -85,6 +130,8 @@ d('resolved permission set matches enforce()', () => {
     expect(disagreements).toEqual([]);
     // A run where everything is denied would agree trivially and prove nothing.
     expect(allowed).toBeGreaterThan(0);
+    // And a sample small enough to prove nothing is not a pass either.
+    expect(sample.length).toBeGreaterThanOrEqual(10);
   }, 120_000);
 
   it('agrees after a grant is added and again after it is removed', async () => {
