@@ -11,6 +11,7 @@
 // every domain, so authorization is unchanged until per-tenant policies exist.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
@@ -386,4 +387,29 @@ export function createRequestScopedDb(pool: Database): Database {
       return bound;
     },
   });
+}
+
+/**
+ * Publish an API key's identity to the row-rule policies.
+ *
+ * Sessions are published by `tenantMiddleware` before the transaction opens. A
+ * key is not known then — it is resolved inside the handler — so this writes the
+ * same settings onto the transaction already in hand. No new connection, one
+ * small statement, and only for key traffic.
+ *
+ * `role` is `api_key`, the same string the engine gives such a caller, so a rule
+ * written against `user_role` means the same thing on both sides. `user_email`
+ * stays empty: a key has none, and an empty setting makes a rule using it skip —
+ * which is what the engine does when it cannot resolve a value.
+ */
+export async function publishApiKeyActor(userId: string, bypass: boolean): Promise<void> {
+  const trx = getCurrentTenantTrx();
+  if (!trx) return;
+  await sql`
+    SELECT set_config('zveltio.user_id', ${userId}, true),
+           set_config('zveltio.user_email', '', true),
+           set_config('zveltio.user_role', 'api_key', true),
+           set_config('zveltio.user_roles', 'api_key', true),
+           set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true)
+  `.execute(trx);
 }
