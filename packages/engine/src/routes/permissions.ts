@@ -157,6 +157,20 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     // before any write in this transaction.
     const grantAndSpend = () =>
       db.transaction().execute(async (trx) => {
+        // Recovery TRANSFERS the role; it does not add a second holder.
+        //
+        // There is exactly one god on an instance, and since migration 008 the
+        // database refuses a second — so without this the recovery flow, which
+        // exists for the case where nobody can get in, would itself be refused
+        // by the invariant it is trying to restore. Standing the previous holder
+        // down is what recovery means: whoever holds a valid, unspent, rotated
+        // token takes the role over, and the audit row below records it.
+        await trx
+          .updateTable('user')
+          .set({ role: 'member' })
+          .where('role', '=', 'god')
+          .where('email', '!=', email)
+          .execute();
         const granted = await trx
           .updateTable('user')
           .set({ role: 'god' })

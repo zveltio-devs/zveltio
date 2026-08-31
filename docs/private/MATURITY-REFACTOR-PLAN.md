@@ -29,6 +29,7 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **G — activarea extensiilor per firmă** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-G-PER-TENANT-ACTIVATION-STATE.md` | #368 |
 | **D — condiții pe rânduri** | ✅ **ÎNCHIS cu „nu merită", 4 din 4** | `BLOCK-D-ROW-CONDITIONS-STATE.md` | — (zero cod de produs) |
 | **H — `?as_of=` citea tot** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-H-TIME-TRAVEL-PAGINATION-STATE.md` | din constatarea lui D |
+| **J — a doua linie în bază** | ⚠️ **3 din 4**, rămâne deschis la regulile de rând | `BLOCK-J-DB-SECOND-LINE-STATE.md` | — |
 | **E — decizii de proprietar** | ✅ **DECIS ȘI EXECUTAT** | `BLOCK-E-OWNER-DECISIONS-STATE.md` | — |
 
 ### Ce a găsit fiecare bloc, pe scurt
