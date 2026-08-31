@@ -41,6 +41,20 @@ interface TenantStore {
    * one there would hide the ancestors' rows the request is entitled to.
    */
   singleTenant?: boolean;
+  /**
+   * Work that must not start until the transaction has COMMITTED.
+   *
+   * Four places used `setTimeout(…, 0)` for this — the request log, the god
+   * audit, the slow-query log and the row-rule policy refresh — on the reasoning
+   * that the transaction would be closed by the next tick. An independent audit
+   * showed it is not: the timer fires with the transaction still open, so the
+   * write takes a SECOND pooled connection, which is the thing all four were
+   * changed to avoid.
+   *
+   * A queue drained after the commit says what was meant, instead of assuming
+   * it.
+   */
+  afterCommit?: Array<() => void | Promise<void>>;
 }
 
 const store = new AsyncLocalStorage<TenantStore>();
@@ -150,6 +164,30 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
   const s = store.getStore();
   if (!s?.trx) return fn();
   return store.run({ ...s, trx: undefined }, fn);
+}
+
+/**
+ * Run `fn` once the request's transaction has committed.
+ *
+ * Outside a transaction there is nothing to wait for, so it runs immediately —
+ * which is what a background job or a boot reconciler wants.
+ */
+export function onAfterCommit(fn: () => void | Promise<void>): void {
+  const current = store.getStore();
+  if (!current) {
+    void fn();
+    return;
+  }
+  (current.afterCommit ??= []).push(fn);
+}
+
+/** Take the queued work. Called by `withTenantIsolation` after the commit. */
+export function drainAfterCommit(): Array<() => void | Promise<void>> {
+  const current = store.getStore();
+  if (!current?.afterCommit) return [];
+  const queued = current.afterCommit;
+  current.afterCommit = [];
+  return queued;
 }
 
 export function getCurrentTenantTrx(): Database | undefined {
