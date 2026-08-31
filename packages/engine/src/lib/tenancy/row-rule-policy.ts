@@ -207,11 +207,38 @@ export function buildRowRulePredicate(
     const guards: string[] = [];
     const role = roleGuard(rule.role);
     if (role) guards.push(`NOT (${role})`);
-    // An unresolvable value skips the rule — fail-open for THAT rule, which is
-    // what the engine does. Without this a request with no session would be
-    // hidden from everything rather than falling back to the tenant predicate.
+    // A rule stands down exactly where `getRlsFilters` stands down — and that is
+    // PER SOURCE, which this used to get wrong.
+    //
+    // The engine skips a policy only when `resolveValue` returns null:
+    //
+    //     user_id     -> user.id            an empty string does NOT skip
+    //     user_email  -> user.email ?? null an absent email DOES skip
+    //     user_role   -> user.role          an empty string does NOT skip
+    //
+    // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
+    // a session whose role is unset — which is every session, because
+    // better-auth does not populate `session.user.role` — made the engine hide
+    // every row and the policy show all four. Measured: engine [], policy
+    // [1,2,3,4]. The policy was the more permissive of the two, which is the one
+    // direction that matters, because this policy exists for the request whose
+    // handler forgot its filters.
+    //
+    // It hid for a while behind the differential suite, which modelled the
+    // resolver instead of calling it — and the model skipped on empty, agreeing
+    // with the policy against the engine.
     if (value.guc) {
-      guards.push(`(SELECT nullif(current_setting(${lit(value.guc)}, true), '') IS NULL)`);
+      // No actor at all: background jobs and boot reconcilers, which publish no
+      // identity. They get today's behaviour, and they are the callers the old
+      // comment here was really about. `zveltio.actor` is its own setting
+      // because an unset GUC and an emptied one are indistinguishable after the
+      // first transaction on a pooled connection — see tenant-manager.
+      guards.push(`(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`);
+      // And for the one source the engine itself cannot resolve, empty means
+      // unresolved rather than "the empty value".
+      if (value.guc === 'zveltio.user_email') {
+        guards.push(`(SELECT nullif(current_setting(${lit(value.guc)}, true), '') IS NULL)`);
+      }
     }
 
     terms.push(guards.length > 0 ? `(${guards.join(' OR ')} OR ${condition})` : `(${condition})`);

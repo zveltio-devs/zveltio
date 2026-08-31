@@ -410,6 +410,7 @@ export async function publishApiKeyActor(userId: string, bypass: boolean): Promi
            set_config('zveltio.user_email', '', true),
            set_config('zveltio.user_role', 'api_key', true),
            set_config('zveltio.user_roles', 'api_key', true),
+           set_config('zveltio.actor', 'on', true),
            set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true)
   `.execute(trx);
 }
