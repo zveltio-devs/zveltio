@@ -115,6 +115,14 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
     throw new Error(`harness sign-up failed: ${signUp.status} ${await signUp.text()}`);
   }
 
+  // One god at a time, because that is what the product says and what the
+  // database now enforces (migration 008). Each suite makes its own god user,
+  // so the previous one is stood down first — without this, the second suite in
+  // a run is refused and 248 tests fail on an invariant they are not about.
+  //
+  // Demoting rather than reusing keeps every suite's session its own: they run
+  // in one process against one database, and a shared cookie would couple them.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god' AND email <> ${email}`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE email = ${email}`.execute(db);
 
   const signIn = await app.request('/api/auth/sign-in/email', {
