@@ -384,6 +384,20 @@ jobs:
         # quality-gates/gate-coverage.json saying why it cannot have one. The
         # recorded list may shrink, never grow.
         run: bun run scripts/check-gate-coverage.ts
+      - name: Install PostGIS into the Postgres service
+        # The pgvector image (needed for the engine's vector columns) does not
+        # ship postgis, which `geospatial/postgis` needs. Without it that
+        # extension's two migrations fail and the install is incomplete — which
+        # this job then refuses to snapshot, correctly: a schema recorded with
+        # five tables missing would be a baseline built around a broken install.
+        # Same step the extensions repo already runs for the same reason, and
+        # the same one the installed-schema job runs — `audit:gates` plants a
+        # violation for `schema-snapshot` here, and without postgis that gate
+        # refuses to look instead of finding it.
+        run: |
+          docker exec ${{ job.services.postgres.id }} bash -c \
+            "apt-get update -qq && apt-get install -y -qq postgresql-18-postgis-3 postgresql-18-postgis-3-scripts"
+
       - name: Do the gates above actually catch anything?
         # Every step before this one is a gate that runs in CI. That much is
         # verifiable by reading this file. What reading cannot tell you is
