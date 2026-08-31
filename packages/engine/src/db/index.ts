@@ -1,5 +1,6 @@
 import { Kysely, sql } from 'kysely';
 import { noteConnectionAcquired } from './connection-trace.js';
+import { autosizePool } from './pool-autosize.js';
 import { BunSqlDialect } from './bun-sql-dialect.js';
 
 // Re-exported so boot code reaches it through this module rather than the
@@ -150,7 +151,22 @@ export async function initDatabase(): Promise<Database> {
   //
   // Still not a throughput knob, and no default fixes the real problem: a
   // connection is pinned for the whole request. See report-slow-in-transaction.
-  const poolMax = resolvePoolMax();
+  // An explicit `DB_POOL_MAX` always wins. Without one, ask the database what
+  // it allows rather than shipping one number to every server — see
+  // `pool-autosize.ts` for why the engine host's own memory is the wrong thing
+  // to measure, and for the one input it cannot derive.
+  let poolMax = resolvePoolMax();
+  if (!process.env.DB_POOL_MAX && process.env.DB_POOL_AUTOSIZE !== '0') {
+    const sized = await autosizePool(databaseUrl);
+    if (sized) {
+      poolMax = sized.max;
+      console.log(`   Pool sized from the server: DB_POOL_MAX=${sized.max} (${sized.reason})`);
+    } else {
+      console.log(
+        `   Pool sizing could not read the server's limits — keeping the default ${poolMax}.`,
+      );
+    }
+  }
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
