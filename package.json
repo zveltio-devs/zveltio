@@ -20,6 +20,7 @@
     "check:shared-keys": "bun run scripts/sync-shared-message-keys.ts --check",
     "check:sdui-schemas": "bun run scripts/check-extension-sdui-schemas.ts",
     "check:table-owners": "bun run scripts/check-duplicate-table-creators.ts",
+    "check:rule-interpreters": "bun run scripts/check-rule-interpreters.ts",
     "check:schema-snapshot": "bun run scripts/schema-snapshot.ts",
     "check:ext-snapshot": "bun run scripts/check-ext-snapshot-fresh.ts",
     "check:atomic-writes": "bun run scripts/check-atomic-writes.ts",
