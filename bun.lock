@@ -21,7 +21,7 @@
         "@sveltejs/adapter-static": "^3.0.10",
         "@sveltejs/kit": "2.70.3",
         "bun-types": "latest",
-        "squawk-cli": "2.62.0",
+        "squawk-cli": "2.63.0",
         "svelte": "^5.56.10",
         "turbo": "^2.0.0",
         "typescript": "^5.4.0",
@@ -29,7 +29,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
@@ -76,7 +76,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.7.1",
         "@better-auth/passkey": "^1.7.1",
@@ -111,7 +111,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -135,7 +135,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -151,7 +151,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -165,7 +165,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.63",
+      "version": "3.0.0-beta.64",
       "dependencies": {
         "@inlang/paraglide-js": "^2.18.0",
         "@lucide/svelte": "^0.577.0",
@@ -659,15 +659,15 @@
 
     "@sqlite.org/sqlite-wasm": ["@sqlite.org/sqlite-wasm@3.48.0-build4", "", { "bin": { "sqlite-wasm": "bin/index.js" } }, "sha512-hI6twvUkzOmyGZhQMza1gpfqErZxXRw6JEsiVjUbo7tFanVD+8Oil0Ih3l2nGzHdxPI41zFmfUQG7GHqhciKZQ=="],
 
-    "@squawk-cli/darwin-arm64": ["@squawk-cli/darwin-arm64@2.62.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-5zF+PVLAEF5b3aaeNbj5+K4fj0OFMFISTr+Q7XGcRUmNZjjVY5/F/BE07LZYZxhy78JdOJWT3XuCak9l4Uxg2Q=="],
+    "@squawk-cli/darwin-arm64": ["@squawk-cli/darwin-arm64@2.63.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-YaSfsQ8c0bb93thcBmJWLOte/1MExUFn6mVWfSqjgaFHip0UGHa3X4oZJiCdk75f/Tw2GrGmAiLV2/eQqnYfUA=="],
 
-    "@squawk-cli/darwin-x64": ["@squawk-cli/darwin-x64@2.62.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-2h//RApsHPIQUcuOf8m44Vt9WTzeJzN0P6DNVXf7Je3lN3QNva9DrDmd3qBa84R/pL9/msaxdCbmbm3PyjDprw=="],
+    "@squawk-cli/darwin-x64": ["@squawk-cli/darwin-x64@2.63.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-y23BkUAzD5VtxjCr2JGZz3j+gMVueyad6t4f8AfXV/cNp2CEY+5EmO7QAjXD9z8ro8Oye4F9aId9A5gCNsbh9A=="],
 
-    "@squawk-cli/linux-arm64": ["@squawk-cli/linux-arm64@2.62.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-jhIKkuYRUVBM1F9qGnaSNcL0eUiYTfRwyRr5gnhEHQqZsTU0zx0nm6AMFc6uHS3uHr6/NZDPK/qSCO310j+VRg=="],
+    "@squawk-cli/linux-arm64": ["@squawk-cli/linux-arm64@2.63.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-ino85Bg5vL3XIHCBLadoQdaTIZlTg+oh9LriyejIGur7s15fhavDkwhCjqnEUKznGnqsx7x92yW2uDUbJM3fYw=="],
 
-    "@squawk-cli/linux-x64": ["@squawk-cli/linux-x64@2.62.0", "", { "os": "linux", "cpu": "x64" }, "sha512-6gySicmZvDS+qAKdZ9qAbGVc5GH7i8ZUaGDn3UzMUF/17jl2nzLbvPr/HHpdwLbOFRx4/Y8GzkORkgKtqj3oxw=="],
+    "@squawk-cli/linux-x64": ["@squawk-cli/linux-x64@2.63.0", "", { "os": "linux", "cpu": "x64" }, "sha512-dh1IiQGs/7M9cQEHaC2JkV6lYrLoR5ytAyznRLxcBAfzExSfqEz/gPwc11dewzFZDq3G6TmKKVbMNhcWIhAsww=="],
 
-    "@squawk-cli/win32-x64": ["@squawk-cli/win32-x64@2.62.0", "", { "os": "win32", "cpu": "x64" }, "sha512-JTETGqsOp5SLspLzwr9Xzo4Xbp1LM8TDrEGtFyfHcGISmcQLYkFH+EZLhOZRTIDkj8ngBraBQj9HX6hc4HP1bw=="],
+    "@squawk-cli/win32-x64": ["@squawk-cli/win32-x64@2.63.0", "", { "os": "win32", "cpu": "x64" }, "sha512-7939Y/zW6ni0X/Zp19Mml8wS35eOsszgFT+RuZH5zYZwWvQxjEa00pc3baPugb9VIAIdWVMnJTjBcmFA31sKfg=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
@@ -1781,7 +1781,7 @@
 
     "sqlite-wasm-kysely": ["sqlite-wasm-kysely@0.3.0", "", { "dependencies": { "@sqlite.org/sqlite-wasm": "^3.48.0-build2" }, "peerDependencies": { "kysely": "*" } }, "sha512-TzjBNv7KwRw6E3pdKdlRyZiTmUIE0UttT/Sl56MVwVARl/u5gp978KepazCJZewFUnlWHz9i3NQd4kOtP/Afdg=="],
 
-    "squawk-cli": ["squawk-cli@2.62.0", "", { "optionalDependencies": { "@squawk-cli/darwin-arm64": "2.62.0", "@squawk-cli/darwin-x64": "2.62.0", "@squawk-cli/linux-arm64": "2.62.0", "@squawk-cli/linux-x64": "2.62.0", "@squawk-cli/win32-x64": "2.62.0" }, "bin": { "squawk": "js/bin/squawk" } }, "sha512-gQlOseeJGM+qyP2zoreysQ17Ld9zgYBKA+H5Xyw7S0bJMCvX6Du/j0dTuQ6yqW2HElKKRvJ7Bm86nOMvroRBFQ=="],
+    "squawk-cli": ["squawk-cli@2.63.0", "", { "optionalDependencies": { "@squawk-cli/darwin-arm64": "2.63.0", "@squawk-cli/darwin-x64": "2.63.0", "@squawk-cli/linux-arm64": "2.63.0", "@squawk-cli/linux-x64": "2.63.0", "@squawk-cli/win32-x64": "2.63.0" }, "bin": { "squawk": "js/bin/squawk" } }, "sha512-OR9UHzY3kSLoZCB4qk3iSHeEm9pwVccHSWnRggfvRKo/QAddkWJEyoXlIsz0gPAPpzsyk60WcaY4SkswZTXPVA=="],
 
     "ssh-remote-port-forward": ["ssh-remote-port-forward@1.0.4", "", { "dependencies": { "@types/ssh2": "^0.5.48", "ssh2": "^1.4.0" } }, "sha512-x0LV1eVDwjf1gmG7TTnfqIzf+3VPRz7vrNIjX6oYLbeCrf/PeVY6hkT68Mg+q02qXxQhrLjB0jfgvhevoCRmLQ=="],
 
