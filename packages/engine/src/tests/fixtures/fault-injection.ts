@@ -80,6 +80,10 @@ export async function spawnEngine(opts: {
     body: JSON.stringify({ email: godEmail, password, name: 'Fault Admin' }),
   });
   const db = createDb(dbUrl);
+  // One god per instance since migration 008 — stand the previous holder down
+  // first. Each spawned engine makes its own admin, and without this the second
+  // one is refused by an invariant these tests are not about.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE email = ${godEmail}`.execute(db);
   await (db as { destroy?: () => Promise<void> }).destroy?.();
 
