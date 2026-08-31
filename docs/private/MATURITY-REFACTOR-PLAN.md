@@ -26,7 +26,9 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
 | **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
 | **A — contextul explicit** | ⏸️ **AMÂNAT deliberat** — se ridică întâi `DB_POOL_MAX` | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367 |
-| **D — condiții pe rânduri** | ⬜ observație, neatins | — | — |
+| **G — activarea extensiilor per firmă** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-G-PER-TENANT-ACTIVATION-STATE.md` | #368 |
+| **D — condiții pe rânduri** | ✅ **ÎNCHIS cu „nu merită", 4 din 4** | `BLOCK-D-ROW-CONDITIONS-STATE.md` | — (zero cod de produs) |
+| **H — `?as_of=` citea tot** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-H-TIME-TRAVEL-PAGINATION-STATE.md` | din constatarea lui D |
 | **E — decizii de proprietar** | ⬜ neatins | — | — |
 
 ### Ce a găsit fiecare bloc, pe scurt
@@ -49,6 +51,22 @@ ia **46 ms și aruncă toate cele 300 000 de rânduri** ca să întoarcă 25 —
 de firme deopotrivă, fiindcă e o prăpastie de plan, nu o creștere. Egalitatea explicită era
 **stinsă pentru fiecare cerere autentificată**. Reparate amândouă: **12,5 ms → 0,065 ms**,
 fără regresie la o singură firmă.
+
+**G.** `UNIQUE (name)` pe `zv_extension_registry` făcea activarea per firmă **imposibilă**,
+nu doar nefăcută — al doilea rând era cheie duplicată. Iar listarea respecta `tenant_id`,
+deci arăta unei firme o extensie ca absentă în timp ce codul ei răspundea. Poarta stă pe
+**mânerul predat extensiei**, nu pe cale: `mountStrategy: 'global'` (implicitul) îi dă
+app-ul motorului. Instalarea lua firma dintr-un **antet**.
+
+**D.** Închis **fără nicio linie de cod de produs**. Tot limbajul de politici de rând e
+**patru operatori pe un câmp**, combinate cu ȘI; filtrarea în memorie costă **2,2 ms din
+336** — 0,65%. CASL le-ar acoperi pe toate patru, dar ar adăuga o dependență și ar cere
+oricum aceeași traducere spre Kysely, scrisă de mână, ca să înlocuiască 70 de linii care nu
+pot devia.
+
+**H.** Ce a găsit D în schimb: `?as_of=` **citea tot istoricul colecției ca să întoarcă o
+pagină** — 400 000 de rânduri aduse în proces pentru 25. Acum citește **49**. Câștigul e
+memoria (~50 MB per cerere), nu timpul: `total` a rămas ~250 ms și e inerent.
 
 **A.** Plafonul de concurență **e real și e exact la `DB_POOL_MAX`** — la `c = pool`
 serviciul nu se degradează, se oprește, cu toate conexiunile `idle in transaction` și una
