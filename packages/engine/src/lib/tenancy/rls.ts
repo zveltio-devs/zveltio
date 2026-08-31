@@ -290,14 +290,37 @@ export function matchesRlsFilters(
   for (const { field, condition } of filters) {
     const value = record[field];
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
+    // Compared as text, because that is what the other two do.
+    //
+    // A rule's value is ALWAYS a string — the four sources are user_id,
+    // user_email, user_role and static:VAL. Against an integer column, the
+    // engine's WHERE sends the string and Postgres casts it, so `code = '5'`
+    // matches the row where code is 5. JavaScript's `5 === '5'` does not, so the
+    // same rule hid a row here and kept it there. Text comparison is the one
+    // that agrees with the database.
+    const same = (a: unknown, b: unknown): boolean => String(a) === String(b);
     if (condition.op === 'eq') {
-      if (value !== condition.value) return false;
+      if (value === null || value === undefined) return false;
+      if (!same(value, condition.value)) return false;
     } else if (condition.op === 'neq') {
-      if (value === condition.value) return false;
+      // A missing or NULL field is DROPPED, because that is what SQL does.
+      //
+      // `value === condition.value` alone kept such a row, while `applyRlsFilters`
+      // sends `<>` and Postgres answers NULL — which a WHERE discards. So the
+      // same rule hid a row on the REST path and showed it on the realtime one.
+      // Measured by an independent audit, on a row with a NULL bucket: absent
+      // from `/api/data`, delivered over SSE. A leak, and one the comment above
+      // these two functions claimed was impossible.
+      if (value === null || value === undefined) return false;
+      if (same(value, condition.value)) return false;
     } else if (condition.op === 'in') {
-      if (!asList(condition.value).includes(value)) return false;
+      if (value === null || value === undefined) return false;
+      if (!asList(condition.value).some((v) => same(value, v))) return false;
     } else if (condition.op === 'not_in') {
-      if (asList(condition.value).includes(value)) return false;
+      // Same as `neq`: SQL's `NOT IN` yields NULL for a NULL field, and a WHERE
+      // discards it. `includes(null)` is merely false, which kept it.
+      if (value === null || value === undefined) return false;
+      if (asList(condition.value).some((v) => same(value, v))) return false;
     } else {
       throw new Error(
         `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
@@ -402,6 +425,55 @@ export async function listRlsPolicies(): Promise<RlsPolicy[]> {
   return rows.rows;
 }
 
+/** Thrown when a rule cannot be expressed by every layer that has to apply it. */
+export class UnenforceableRuleError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'UnenforceableRuleError';
+  }
+}
+
+/**
+ * Refuse a rule no layer can agree on, at the door.
+ *
+ * `code eq user_id` — an integer column against a user id — makes the engine's
+ * query throw, the generated policy skip the rule (so it does nothing), and the
+ * in-process matcher filter in JavaScript. None is wrong alone; together they
+ * are one rule with three meanings. An independent audit found that class by
+ * hand; the door is the only place to close it once.
+ *
+ * A collection with no table yet, or `*`, cannot be checked and is allowed —
+ * refusing on absence would block a rule written before its collection exists.
+ */
+async function assertEnforceable(data: {
+  collection?: string;
+  role?: string;
+  filter_field?: string;
+  filter_op?: string;
+  filter_value_source?: string;
+}): Promise<void> {
+  const { collection, filter_field, filter_op, filter_value_source, role } = data;
+  if (!collection || collection === '*') return;
+  if (!filter_field || !filter_op || !filter_value_source) return;
+
+  const table = `zvd_${collection}`;
+  const cols = await sql<{ column_name: string; data_type: string }>`
+    SELECT column_name, data_type FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = ${table}
+  `.execute(rlsDb());
+  if (cols.rows.length === 0) return;
+
+  const types: Record<string, string> = {};
+  for (const col of cols.rows) types[col.column_name] = col.data_type;
+
+  const { describeRuleProblem } = await import('./row-rule-policy.js');
+  const problem = describeRuleProblem(
+    { role: role ?? '*', filter_field, filter_op, filter_value_source },
+    types,
+  );
+  if (problem) throw new UnenforceableRuleError(problem);
+}
+
 export async function createRlsPolicy(data: {
   collection: string;
   role: string;
@@ -411,6 +483,7 @@ export async function createRlsPolicy(data: {
   is_enabled?: boolean;
   description?: string;
 }): Promise<RlsPolicy> {
+  await assertEnforceable(data);
   const rows = await sql<RlsPolicy>`
     INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled, description)
     VALUES (

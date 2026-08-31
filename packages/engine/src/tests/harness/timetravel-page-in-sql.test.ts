@@ -77,6 +77,28 @@ d('time travel pages in SQL (in-process)', () => {
   let policyId = '';
   let asOf = '';
 
+  /**
+   * A rule the save route now refuses, written straight into the table.
+   *
+   * `nosuchfield` names a column that does not exist, which `createRlsPolicy`
+   * rejects since the audit — one rule must not mean three things. Installs that
+   * predate the refusal can still hold such a row, so what the predicate does
+   * with it stays pinned; only the door is closed.
+   */
+  const setPolicyDirect = async (field: string, op: string, source: string) => {
+    if (policyId) {
+      await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`.execute(db);
+      policyId = '';
+    }
+    const row = await sql<{ id: string }>`
+      INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
+      VALUES (${COLLECTION}, '*', ${field}, ${op}, ${source}, true)
+      RETURNING id
+    `.execute(db);
+    policyId = row.rows[0]!.id;
+    await invalidateRlsCache(COLLECTION);
+  };
+
   const setPolicy = async (field: string, op: string, source: string) => {
     if (policyId) {
       await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`.execute(db);
@@ -265,16 +287,16 @@ d('time travel pages in SQL (in-process)', () => {
       // A missing key is `undefined` in memory and SQL NULL here. `<>` and
       // `NOT IN` both yield NULL for it, and a WHERE drops what it cannot
       // confirm — so the two negative operators say so explicitly.
-      await setPolicy('nosuchfield', 'neq', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'neq', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toHaveLength(5);
-      await setPolicy('nosuchfield', 'not_in', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'not_in', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toHaveLength(5);
     });
 
     it('hides everything on the positive operators when the key is missing', async () => {
-      await setPolicy('nosuchfield', 'eq', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'eq', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toEqual([]);
-      await setPolicy('nosuchfield', 'in', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'in', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toEqual([]);
     });
   });
