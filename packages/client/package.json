@@ -25,7 +25,7 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "^2.18.0",
+    "@inlang/paraglide-js": "^2.25.0",
     "@sveltejs/adapter-auto": "^7.0.0",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
