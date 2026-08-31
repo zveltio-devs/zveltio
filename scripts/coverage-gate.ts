@@ -50,6 +50,11 @@ type CoverageBaseline = {
   note: string;
   /** Optional rationale for the target values; preserved across --update rewrites. */
   targetNote?: string;
+  /**
+   * Hard minimum per bucket. Unlike `measured` this is NOT rewritten by
+   * `--update`: it is a decision, not a measurement.
+   */
+  floor?: Record<string, number>;
   source: string;
   maxDropPct: number;
   target: Record<string, number>;
