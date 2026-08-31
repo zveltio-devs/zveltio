@@ -8,6 +8,7 @@
  * to the pre-split inline helpers — zero behaviour change.
  */
 
+import { publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
@@ -51,6 +52,20 @@ export async function authenticate(
         : null;
     const apiKey = await validateApiKey(db, rawKey, requestTenantId);
     if (apiKey) {
+      const bypass = (apiKey as { rls_bypass?: boolean }).rls_bypass === true;
+      // Tell the DATABASE who this is, too.
+      //
+      // The tenant middleware publishes the actor for sessions, before the
+      // transaction opens. An API key is not known then — it is resolved here,
+      // inside the handler — so until now API traffic reached the row-rule
+      // policies with no identity at all, and every rule read an empty setting
+      // and skipped itself. The engine still restricted such a request, so this
+      // was not a leak; it was the second layer switched off for a whole class
+      // of traffic, which is the thing the second layer exists for.
+      //
+      // Published on the request's own transaction: the connection is already
+      // held, so this asks for nothing new.
+      await publishApiKeyActor(`apikey:${apiKey.id}`, bypass);
       return {
         user: {
           id: `apikey:${apiKey.id}`,
@@ -68,7 +83,7 @@ export async function authenticate(
           // `!== false` each of those grants the key instance-wide reads.
           // Exempting a key from tenant isolation should require the database to
           // say so, not merely to fail to deny it.
-          rlsBypass: (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
+          rlsBypass: bypass,
         },
         authType: 'api_key',
       };

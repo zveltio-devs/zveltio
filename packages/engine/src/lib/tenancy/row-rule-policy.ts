@@ -369,8 +369,24 @@ export async function applyRowRulePolicy(
   // keep enforcing it.
   await sql.raw(`DROP POLICY IF EXISTS ${ROW_RULE_POLICY} ON ${safe}`).execute(db);
   if (predicate) {
+    // `WITH CHECK` written out, not inherited. This changes NOTHING at runtime.
+    //
+    // A policy with no `WITH CHECK` uses its `USING` predicate for writes too,
+    // so the rule already applied to INSERT and UPDATE. Measured rather than
+    // assumed, on the old form without the clause:
+    //
+    //   INSERT INTO probe (owner) VALUES ('somebody-else');
+    //   ERROR:  new row violates row-level security policy "p" for table "probe"
+    //
+    // So this is documentation written in code, not a repair — worth saying,
+    // because the diff looks like a repair. The write rule now sits where the
+    // read rule is, so the next reader can change one without discovering the
+    // other by accident.
     await sql
-      .raw(`CREATE POLICY ${ROW_RULE_POLICY} ON ${safe} AS RESTRICTIVE USING (${predicate})`)
+      .raw(
+        `CREATE POLICY ${ROW_RULE_POLICY} ON ${safe} AS RESTRICTIVE ` +
+          `USING (${predicate}) WITH CHECK (${predicate})`,
+      )
       .execute(db);
   }
 
