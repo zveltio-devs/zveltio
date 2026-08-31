@@ -4,6 +4,20 @@
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import { beginTracedTransaction, endTracedTransaction } from '../db/connection-trace.js';
+
+/**
+ * End the traced window and report what it saw.
+ *
+ * Anything above zero is a route that cannot be served at `c = DB_POOL_MAX`:
+ * every connection is held by a transaction whose owner is waiting for one more.
+ * Reported as a header so a probe reads the property directly instead of
+ * inferring it from a hang — the inference version named the wrong routes and
+ * kept naming them after they were fixed.
+ */
+function closeTracedWindow(c: { res: Response }): void {
+  const extra = endTracedTransaction();
+  if (extra > 0) c.res.headers.set('x-zveltio-extra-connections', String(extra));
+}
 import {
   resolveTenantFromRequest,
   resolveEnvironment,
@@ -186,13 +200,24 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               // extension's `ctx.db` (which has no Hono context inside a hook or
               // background job) is RLS-scoped to this tenant, not the global pool.
               setCurrentTenantTrx(trx);
-              await next();
+              try {
+                await next();
+              } finally {
+                // ALWAYS closed, even when the handler throws.
+                //
+                // Without the `finally` an error inside the transaction left the
+                // window open for the life of the process, and every connection
+                // taken afterwards — by any request, on any path — was charged
+                // to it. In CI that showed up as the data route "taking" a
+                // connection that `sessionPrefetch` had taken for someone else,
+                // BEFORE its transaction existed. A counter that can get stuck
+                // reports somebody else's work as yours.
+                closeTracedWindow(c);
+              }
               // How many pool connections this request wanted ON TOP of the one
               // it is holding. Anything above zero is a route that cannot be
               // served at `c = DB_POOL_MAX`. Reported as a header so a probe can
               // read the property directly instead of inferring it from a hang.
-              const extra = endTracedTransaction();
-              if (extra > 0) c.res.headers.set('x-zveltio-extra-connections', String(extra));
             },
             { userId: actingUserId, identity },
           );

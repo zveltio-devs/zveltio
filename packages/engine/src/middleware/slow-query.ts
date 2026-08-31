@@ -31,19 +31,29 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       }
 
       // Persist to DB (fire-and-forget, non-fatal)
-      poolDb
-        .insertInto('zv_slow_queries')
-        .values({
-          method: entry.method,
-          path: entry.path,
-          query_params: JSON.stringify(entry.query),
-          status_code: entry.status,
-          duration_ms: entry.duration_ms,
-        })
-        .execute()
-        .catch((err: Error) => {
-          console.warn('[slow-query] write failed:', err.message);
-        });
+      // Deferred a tick, like the request log and the god audit.
+      //
+      // This writes to the POOL while the request's tenant transaction is still
+      // open — the middleware sits inside it, so "after next()" is still "before
+      // commit" — and the connection is taken the moment the statement is
+      // issued, awaited or not. That is a second connection on `/api/data/*`,
+      // the hottest path there is, and at `c = DB_POOL_MAX` the second one can
+      // never arrive.
+      setTimeout(() => {
+        poolDb
+          .insertInto('zv_slow_queries')
+          .values({
+            method: entry.method,
+            path: entry.path,
+            query_params: JSON.stringify(entry.query),
+            status_code: entry.status,
+            duration_ms: entry.duration_ms,
+          })
+          .execute()
+          .catch((err: Error) => {
+            console.warn('[slow-query] write failed:', err.message);
+          });
+      }, 0);
     }
   };
 }
