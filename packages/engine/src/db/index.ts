@@ -21,8 +21,25 @@ export type Database = Kysely<DbSchema>;
  * database can carry, and finds out at the worst possible moment.
  *
  * Advice about a number has to come from the number.
+ *
+ * ── Why 40 and not 25 ─────────────────────────────────────────
+ *
+ * The concurrency ceiling of an instance is exactly this number, and it is not a
+ * slope: at `c = pool` the service does not get slower, it stops. Measured at
+ * pool 10 and again at 25 — every connection `idle in transaction`, one active,
+ * because a request holds its transaction for its whole duration (RLS lives in
+ * that transaction). At 25 the p95 at c=30 is seconds; at 40 it is 214 ms.
+ *
+ * Raising it does not remove the ceiling, it moves it, and it is spent from a
+ * shared budget: `max_connections` divided by this number is how many instances
+ * fit on one Postgres. At 200 that is 5 instances, down from 8.
+ *
+ * An owner decision, taken 2026-08-30, together with the decision to shorten the
+ * transactions themselves — the two compose, and neither replaces the other.
+ * `startup-guards.ts` prints the arithmetic at boot, so an operator sizing a
+ * deployment sees the trade rather than inferring it.
  */
-export const DEFAULT_DB_POOL_MAX = 25;
+export const DEFAULT_DB_POOL_MAX = 40;
 
 /** The effective pool ceiling: an explicit `DB_POOL_MAX`, or the default above. */
 export function resolvePoolMax(): number {

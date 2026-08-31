@@ -11,16 +11,13 @@
  * rather than the mechanism.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
-import {
-  KNOWN_EXTENSION_RESOURCES,
-  listKnownResources,
-} from '../../lib/tenancy/resource-grants.js';
+import { listKnownResources } from '../../lib/tenancy/resource-grants.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -59,8 +56,6 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
   });
 
   it('picks up a resource no engine source has ever heard of', async () => {
-    expect(KNOWN_EXTENSION_RESOURCES).not.toContain(NOVEL_RESOURCE);
-
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
       VALUES (${EXT_NAME}, 'Sweep Test', '1.0.0', true, false)
@@ -80,11 +75,45 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
     expect(known).not.toContain(NOVEL_RESOURCE);
   });
 
-  it('still returns the built-in floor when nothing is installed', async () => {
+  it('returns no extension resources at all when nothing is installed', async () => {
+    // There used to be a frozen array of 28 names underneath this, and this test
+    // asserted they always came back. It was removed on 2026-08-30 (owner
+    // decision), so the floor is now exactly the collections — an extension that
+    // declares nothing gets nothing, and says so at boot.
     const known = await listKnownResources(db, extRoot);
-    for (const resource of KNOWN_EXTENSION_RESOURCES) {
-      expect(known).toContain(resource);
+    expect(known).not.toContain(NOVEL_RESOURCE);
+    const collections = await sql<{ name: string }>`SELECT name FROM zvd_collections`.execute(db);
+    expect(known.sort()).toEqual([...new Set(collections.rows.map((r) => r.name))].sort());
+  });
+
+  it('names an installed extension that declares nothing', async () => {
+    // The frozen list used to cover these silently. Removing it without saying
+    // anything would turn "my extension stopped working after the upgrade" into
+    // a deny-by-default refusal with nothing to point at, so the reconcile names
+    // them at boot instead.
+    const mute = `audit/mute-${STAMP}`;
+    mkdirSync(join(extRoot, mute), { recursive: true });
+    writeFileSync(join(extRoot, mute, 'manifest.json'), JSON.stringify({ name: mute }));
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
+      VALUES (${mute}, 'Mute', '1.0.0', true, false)
+    `.execute(db);
+
+    const said: string[] = [];
+    const warn = spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+      said.push(a.map(String).join(' '));
+    });
+    try {
+      await listKnownResources(db, extRoot);
+    } finally {
+      warn.mockRestore();
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${mute}`.execute(db);
+      rmSync(join(extRoot, mute), { recursive: true, force: true });
     }
+    const line = said.find((l) => l.includes('declare no'));
+    expect(line).toBeDefined();
+    expect(line).toContain(mute);
+    expect(line).toContain('beta.63');
   });
 
   it('a manifest that is not valid JSON costs only its own resources', async () => {
@@ -105,8 +134,6 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       const known = await listKnownResources(db, extRoot);
       // The good neighbour is still there.
       expect(known).toContain(NOVEL_RESOURCE);
-      // And the built-in floor survived too.
-      expect(known).toContain(KNOWN_EXTENSION_RESOURCES[0]);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${brokenName}`.execute(db);
       rmSync(join(extRoot, brokenName), { recursive: true, force: true });
@@ -130,9 +157,11 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
 
       const known = await listKnownResources(partial, extRoot);
 
+      // A missing registry costs the extension resources and nothing else: the
+      // collections still come back, so deny-by-default does not close the whole
+      // instance because one table was absent.
       expect(known).toContain('widgets');
-      // The floor survived the missing registry.
-      expect(known).toContain(KNOWN_EXTENSION_RESOURCES[0]);
+      expect(known).not.toContain(NOVEL_RESOURCE);
     } finally {
       await partial.destroy();
       const cleanup = createDb('postgresql://postgres:postgres@localhost:5432/postgres');
@@ -149,8 +178,13 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
     try {
       // Reads must not throw: one unreadable extension cannot be allowed to take
       // down the reconcile for every other resource on the instance.
+      //
+      // This used to assert `length > 0`, which the frozen list guaranteed for
+      // free — so it proved nothing about the reading. With the list gone the
+      // honest assertion is the one the test was named for: it returns, and it
+      // returns a list.
       const known = await listKnownResources(db, extRoot);
-      expect(known.length).toBeGreaterThan(0);
+      expect(Array.isArray(known)).toBe(true);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${`audit/no-manifest-${STAMP}`}`.execute(
         db,
