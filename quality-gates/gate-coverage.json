@@ -6,29 +6,9 @@
   "not_a_gate": {
     "scripts/schema-codegen.ts": "Generates the Kysely types. It asserts nothing about the code; the assertion is schema-drift-check.ts, which compares its output against what is committed.",
     "scripts/merge-coverage.ts": "Unions lcov files so the two suites can be scored together. Its exit(1) is malformed input, not a code defect; the assertion is coverage-gate.ts.",
-    "scripts/sync-engine-version.ts": "Writes the engine version into the places that must agree. Produces an artifact; the release gate is what refuses a mismatch."
+    "scripts/sync-engine-version.ts": "Writes the engine version into the places that must agree. Produces an artifact; the release gate is what refuses a mismatch.",
+    "scripts/release-gate.ts": "MEASURED 2026-08-31, not assumed: it cannot fail in any invocation this project makes. With a real tag it bypasses outright for a prerelease — '[release-gate] prerelease (3.0.0-beta.64) — gate BYPASSED' — and the --dry-run form warns and RETURNS instead of exiting (scripts/release-gate.ts, the `if (dryRun) { warn; return; }` above the process.exit(1)). So today it is a report. It becomes a gate at the first STABLE cut, and a planted case is worth writing then: plant an `any` above the ratchet and run it with the stable tag. Until the version leaves prerelease there is nothing to plant against.",
+    "scripts/audit-inventory.ts": "MEASURED 2026-08-31: a generator, not a gate. Its only process.exit(1) is in the catch around its own run (scripts/audit-inventory.ts:207) — no content it inventories can make it fail. It writes audit-inventory.json and docs/AUDIT-COVERAGE.md, which audit-regression-check then reads; that reader IS a gate and IS planted (the case strips an auditLog call from a mandatory handler and runs both commands in order)."
   },
-  "uncovered": {
-    "scripts/audit-gates.ts": "The meta-gate itself. Plantable and worth doing: add a case whose gate command is a script that always exits 0, and audit-gates must report it as decoration. Until then its own correctness rests on reading it.",
-    "scripts/audit-inventory.ts": "Inventory behind the audit regression check. Classified as a gate rather than a report because it can exit non-zero; confirm which before writing a case.",
-    "scripts/audit-regression-check.ts": "Fails CI when a handler that should call auditLog stops calling it. Plant: strip an auditLog call from a listed handler.",
-    "scripts/check-ambient-authority.ts": "Extensions must not reach for ambient authority (process.env). Easy plant: one extension file reading process.env.",
-    "scripts/check-atomic-writes.ts": "A handler that writes twice must say so. Ratcheted. Plant: a second write in a handler not on the list.",
-    "scripts/check-duplicate-rules.ts": "A security rule is implemented once. Plant: a second implementation of a listed rule. Enumerates through `git ls-files` — the plant must append to a tracked file.",
-    "scripts/check-extension-i18n-ownership.ts": "Every key an extension's Studio page renders belongs to that extension. Reads the sibling repo — a case must plant there, which no existing case does.",
-    "scripts/check-extension-page-ownership.ts": "An extension's Studio page belongs to the extension. Same sibling-repo constraint as above.",
-    "scripts/check-extension-sdui-schemas.ts": "Extension SDUI schema files must declare sduiSchema + title. Sibling repo.",
-    "scripts/check-insert-schema-match.ts": "Does this INSERT match the table it writes to? (ext:seam). Needs a live database to know the table shape — a case must carry that, which is why it has none.",
-    "scripts/check-migration-safety.ts": "Lints NEW migrations for upgrade hazards (squawk). MEASURED, not guessed: it selects files with `git diff --name-only --diff-filter=AM ${BASE_REF:-origin/master}...HEAD`, so an unstaged plant is invisible — it answers 'No new or changed migrations to check' and exits 0. A case needs a plant the meta-gate stages, which it cannot do today. The same shape as import-boundaries, which was provable only because appending to a TRACKED file leaves it modified.",
-    "scripts/check-sdui-contract.ts": "An SDUI schema is a promise about an API; this checks the API keeps it. Needs the running API surface.",
-    "scripts/check-studio-embed-freshness.ts": "Studio build output must carry a version marker matching package.json. Plant: stale marker. Needs a built Studio, which the Lint lane does not have.",
-    "scripts/check-test-leftovers.ts": "A test run must not leave collections or ghost tables behind — the gate whose absence produced a 364 ms measurement that was really 0,93 ms. Needs TEST_DATABASE_URL, so the plant is a row inserted into a live database, not a file.",
-    "scripts/check-worker-source-fresh.ts": "The embedded worker runtime is the one in the repository. Plant: edit the source without rebuilding the embed.",
-    "scripts/coverage-gate.ts": "Coverage ratchet (H-02). Reads a baseline rather than re-measuring; a case would have to produce an lcov below it.",
-    "scripts/lint-warning-ratchet.ts": "Lint-warning ratchet. Plant: a new warning above the baseline. Enumerates through `git ls-files` — the plant must append to a tracked file.",
-    "scripts/release-gate.ts": "H-16 release gate. Runs --dry-run in CI; a case must plant whatever the dry run refuses.",
-    "scripts/schema-drift-check.ts": "The committed Kysely types match what codegen produces. MEASURED 2026-08-29, not guessed: two plausible plants both leave it GREEN — an orphan interface in schema.ts (reported, but as 'schema.ts drift only', exit 0) and a route querying a column no table has (not reported at all). The gate splits severity: it exits non-zero only on FATAL drift, the kind that crashes at runtime. A case needs that shape, and finding it is the work — start from the exit at scripts/schema-drift-check.ts:835.",
-    "scripts/schema-snapshot.ts": "What the database looks like after a real install, recorded so a change cannot pass unnoticed. Needs a live installed database.",
-    "scripts/sync-shared-message-keys.ts": "In --check mode: the SDK's copy of the shared Studio vocabulary is in sync. Easy plant: add a key to the source without regenerating. Enumerates through `git ls-files` — the plant must append to a tracked file."
-  }
+  "uncovered": {}
 }
