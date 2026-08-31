@@ -76,6 +76,9 @@ beforeAll(async () => {
   employeeUserId = await signUp(`emp-${ts}@test.local`, pass, 'Employee User');
 
   // Set roles
+  // One god per instance since migration 008 — the previous holder is
+  // stood down first, the same move the in-process harness makes.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${godUserId}`.execute(db);
   await sql`UPDATE "user" SET role = 'member' WHERE id = ${adminUserId}`.execute(db);
   await sql`UPDATE "user" SET role = 'member' WHERE id = ${employeeUserId}`.execute(db);
