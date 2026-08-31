@@ -25,7 +25,7 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **C — porțile** | ✅ **ÎNCHIS, 4 din 4** (2026-08-31) | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
 | **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
 | **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
-| **A — contextul explicit** | ⏸️ **AMÂNAT deliberat** — se ridică întâi `DB_POOL_MAX` | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367 |
+| **A — a doua rezervare** | ✅ **ÎNCHIS** — citirile ȘI scrierile la zero conexiuni în plus | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367 |
 | **G — activarea extensiilor per firmă** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-G-PER-TENANT-ACTIVATION-STATE.md` | #368 |
 | **D — condiții pe rânduri** | ✅ **ÎNCHIS cu „nu merită", 4 din 4** | `BLOCK-D-ROW-CONDITIONS-STATE.md` | — (zero cod de produs) |
 | **H — `?as_of=` citea tot** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-H-TIME-TRAVEL-PAGINATION-STATE.md` | din constatarea lui D |

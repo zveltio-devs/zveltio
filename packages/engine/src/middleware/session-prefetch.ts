@@ -82,8 +82,14 @@ export function sessionPrefetch(auth: SessionReader) {
       // `permissions.ts`, and the in-transaction call reads it from there.
       const userId = (session as { user?: { id?: unknown } } | null)?.user?.id;
       if (typeof userId === 'string' && userId !== '') {
-        const { isGodUser } = await import('../lib/tenancy/index.js');
-        await isGodUser(userId).catch(() => false);
+        const { isGodUser, resolveUserRole } = await import('../lib/tenancy/index.js');
+        await Promise.all([
+          isGodUser(userId).catch(() => false),
+          // The write path asks for the role after the transaction is open, and
+          // on an install without Valkey that read goes to the pool — a second
+          // connection per write. Filled here, where there is no transaction yet.
+          resolveUserRole({ id: userId }).catch(() => 'public'),
+        ]);
       }
     } catch {
       /* leave unset — callers fall back to their own lookup */
