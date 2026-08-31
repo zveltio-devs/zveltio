@@ -24,6 +24,14 @@
 let _tracing = process.env.ZVELTIO_TRACE_CONNECTIONS === '1';
 let _inTransaction = false;
 let _extra = 0;
+/**
+ * Where the first extra connection was taken.
+ *
+ * A count says a route is wrong; this says WHICH LINE, which is the difference
+ * between one CI round-trip and five. Captured only while tracing, and only for
+ * the first one — the rest are almost always the same call site.
+ */
+let _firstStack = '';
 
 /** Whether tracing is on. Read once per connection acquisition, so it is cheap. */
 export function connectionTracingEnabled(): boolean {
@@ -37,7 +45,22 @@ export function _setConnectionTracing(on: boolean): void {
 
 /** Called by the driver wrapper. Counts only what is taken while one is held. */
 export function noteConnectionAcquired(): void {
-  if (_tracing && _inTransaction) _extra++;
+  if (!_tracing || !_inTransaction) return;
+  _extra++;
+  if (!_firstStack) {
+    const raw = new Error('extra connection').stack ?? '';
+    _firstStack = raw
+      .split('\n')
+      .filter((l) => l.includes('/packages/engine/src/') && !l.includes('connection-trace'))
+      .slice(0, 4)
+      .map((l) => l.trim())
+      .join(' | ');
+  }
+}
+
+/** Where the first extra connection of the current window came from. */
+export function tracedAcquisitionSite(): string {
+  return _firstStack;
 }
 
 /** Called by the tenant middleware around the request transaction. */
@@ -45,6 +68,7 @@ export function beginTracedTransaction(): void {
   if (!_tracing) return;
   _inTransaction = true;
   _extra = 0;
+  _firstStack = '';
 }
 
 /** Extra connections this request asked for. Ends the traced window. */
