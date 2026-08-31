@@ -703,3 +703,25 @@ Wire as a required job in `release.yml` for any non-prerelease tag.
   is not the bar, *defensibility* is.
 - Go-to-market items (demo hosting, community, case studies) — tracked in
   `docs/private/TECHNICAL-GAPS.md`, not here. They gate the *other* score.
+
+## Acoperirea: cremalieră ȘI podea (2026-08-31)
+
+Poarta de acoperire avea până acum **doar** cremalieră: compară cu `measured` din
+`quality-gates/coverage-baseline.json` și refuză o scădere mai mare de 0,5 puncte.
+
+Problema cu asta, văzută de două ori chiar în notele acelui fișier: `measured` se
+**rescrie** ori de câte ori corpusul își schimbă forma — se șterge un fișier bine
+acoperit, ies date din sursă. Fiecare rescriere e apărabilă separat, dar toate se
+adună în jos, iar un număr care se mișcă numai față de el însuși poate ajunge
+oriunde într-un an.
+
+De la 2026-08-31 există și o **podea, aplicată**: `floor.lib = 95`. Nu e rescrisă
+de `--update` — e o decizie, nu o măsurătoare. `measured` rămâne ce măsoară CI
+(96,9 azi), deci cremaliera prinde în continuare derapajul de la o zi la alta, iar
+podeaua prinde suma derapajelor apărabile.
+
+**De ce 95 și nu 96,9:** podeaua nu e ținta, e limita sub care nu se coboară fără
+o decizie explicită. Lipită de măsurătoare ar transforma orice fluctuație de
+măsurare într-un build roșu; la 95 lasă ~2 puncte de mișcare reală și taie exact
+plimbarea în jos.
+
