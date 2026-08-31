@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-23",
+  "generated": "2026-08-30",
   "note": "Per-bucket noExplicitAny suppression counts. Ratchet: counts may only decrease. See docs/private/HARDENING-9-PLAN.md H-01.",
   "total": 1139,
   "counts": {
