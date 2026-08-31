@@ -12,7 +12,13 @@ import {
   type Tenant,
   type Environment,
 } from '../lib/tenancy/index.js';
-import { runWithDomain, setCurrentTenantTrx } from '../lib/tenancy/index.js';
+import {
+  checkPermission,
+  getUserRoles,
+  type RlsIdentity,
+  runWithDomain,
+  setCurrentTenantTrx,
+} from '../lib/tenancy/index.js';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -142,6 +148,34 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           const actingUserId =
             (c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined)?.user
               ?.id ?? null;
+          // The identity the row-rule policies read. Built from the session the
+          // prefetch already resolved, so it costs no extra lookup on the hot
+          // path — the roles and the bypass permission are both cached.
+          //
+          // `bypass` is the same question `getRlsFilters` asks before applying
+          // any rule, asked once here and published as an answer. Two enforcers
+          // of one rule must not disagree about who is exempt.
+          const prefetched = c.get('prefetchedSession') as
+            | { user?: { id?: string; email?: string; role?: string } }
+            | null
+            | undefined;
+          const sessionUser = prefetched?.user;
+          let identity: RlsIdentity | undefined;
+          if (sessionUser?.id) {
+            const [roles, bypass] = await Promise.all([
+              getUserRoles(sessionUser.id).catch(() => [] as string[]),
+              checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
+            ]);
+            const direct = sessionUser.role ?? '';
+            identity = {
+              userId: sessionUser.id,
+              email: sessionUser.email ?? '',
+              role: direct,
+              roles: direct && !roles.includes(direct) ? [...roles, direct] : roles,
+              bypass,
+            };
+          }
+
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
@@ -160,7 +194,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               const extra = endTracedTransaction();
               if (extra > 0) c.res.headers.set('x-zveltio-extra-connections', String(extra));
             },
-            { userId: actingUserId },
+            { userId: actingUserId, identity },
           );
         }
       });

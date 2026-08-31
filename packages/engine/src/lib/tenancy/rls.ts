@@ -91,6 +91,26 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
 
 /** Invalidate RLS policy cache for a collection (call after policy CRUD). */
 export async function invalidateRlsCache(collection: string): Promise<void> {
+  // Rebuild the database's copy of these rules first.
+  //
+  // This is the one place every rule change passes through — create, update and
+  // delete all call it — so it is where the generated policy is kept in step.
+  // Hooking the three routes instead would leave any other caller writing rules
+  // the database does not know about, which is the failure the policy exists to
+  // prevent, reintroduced one caller at a time.
+  //
+  // A `*` rule belongs to every collection, so every collection is rebuilt.
+  try {
+    const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
+    if (collection === '*') await reconcileRowRulePolicies(_db);
+    else await applyRowRulePolicy(_db, collection);
+  } catch (err) {
+    // Loud, and not fatal: the engine still applies the rule. Silence here would
+    // mean an instance quietly running with one enforcer where it believes it
+    // has two.
+    console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
+  }
+
   const cache = getCache();
   if (!cache) return;
   try {
