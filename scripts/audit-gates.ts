@@ -42,6 +42,17 @@ type Case = {
    * so the case says so out loud instead of the checker guessing.
    */
   proves?: string[];
+  /**
+   * A substring the gate's output must contain for the failure to count.
+   *
+   * Without this, "the command exited non-zero" is the whole test — and a gate
+   * that cannot RUN also exits non-zero. Three cases here need a database, and
+   * in the job where `audit:gates` runs there is none: two of them were passing
+   * because the gate said "no database to build against", which is a refusal to
+   * look, not a violation found. That is the exact false green this whole file
+   * exists to kill, so the file now has to be honest about it too.
+   */
+  expect?: string;
 };
 
 /**
@@ -144,6 +155,7 @@ const CASES: Case[] = [
     // schema and compares, so it needs a database; the probe hands it the same
     // one the rest of the run uses.
     gate: 'check-insert-schema-match',
+    expect: 'plant_missing_column',
     // `$TEST_DATABASE_URL` without braces on purpose: the braced form trips
     // `noTemplateCurlyInString`, and writing it as a template literal instead
     // hid the command from `check-gate-coverage`, which reads single-quoted
@@ -237,6 +249,7 @@ const CASES: Case[] = [
     // that seeds one and then runs the real gate, passing its exit code back.
     // The gate under test is the real one; only the leftover is manufactured.
     gate: 'check-test-leftovers',
+    expect: 'plantleft_',
     cmd: 'bun run scripts/plant-test-leftover.ts',
     proves: ['scripts/check-test-leftovers.ts'],
     file: 'scripts/plant-test-leftover.ts',
@@ -335,6 +348,7 @@ const CASES: Case[] = [
     // to it has to be deliberate. Touch the record and the comparison fails —
     // which is the whole mechanism.
     gate: 'schema-snapshot',
+    expect: 'no longer matches',
     cmd: 'bun run scripts/schema-snapshot.ts',
     file: 'packages/engine/src/db/installed-schema.snapshot.txt',
     mode: 'append',
@@ -747,16 +761,32 @@ for (const c of CASES) {
   mkdirSync(dirname(c.file), { recursive: true });
   writeFileSync(c.file, original === null ? c.body : original + c.body);
   let failed = false;
+  let output = '';
   try {
-    await $`sh -c ${c.cmd}`.quiet();
-  } catch {
+    const r = await $`sh -c ${c.cmd}`.quiet();
+    output = r.stdout.toString() + r.stderr.toString();
+  } catch (err) {
     failed = true;
+    const e = err as { stdout?: { toString(): string }; stderr?: { toString(): string } };
+    output = (e.stdout?.toString() ?? '') + (e.stderr?.toString() ?? '');
   }
   if (original === null) rmSync(c.file, { force: true });
   else writeFileSync(c.file, original);
-  if (failed) {
+
+  // A non-zero exit is not enough when the case says what the refusal must say.
+  // A gate that cannot run also exits non-zero — "no database to build against"
+  // is a refusal to look, not a violation found — and counting that as a catch
+  // is the false green this file exists to kill.
+  const wrongReason = failed && c.expect !== undefined && !output.includes(c.expect);
+
+  if (failed && !wrongReason) {
     caught++;
     console.log(`  ✅ ${c.gate.padEnd(34)} caught its violation`);
+  } else if (wrongReason) {
+    missed.push(c.gate);
+    console.log(
+      `  ❌ ${c.gate.padEnd(34)} FAILED FOR THE WRONG REASON (no ${JSON.stringify(c.expect)})`,
+    );
   } else {
     missed.push(c.gate);
     console.log(`  ❌ ${c.gate.padEnd(34)} STAYED GREEN on a planted violation`);
