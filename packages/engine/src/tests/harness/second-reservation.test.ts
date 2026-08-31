@@ -140,7 +140,10 @@ d('a request needs one connection (in-process)', () => {
     });
     expect(res.status).toBeGreaterThan(0);
     const extra = Number(res.headers.get('x-zveltio-extra-connections') ?? '0');
-    expect(extra).toBe(0);
+    // Say WHERE, not just how many. A count sends whoever reads this back
+    // through CI to find the line; the site is already in hand.
+    const { tracedAcquisitionSite } = await import('../../db/connection-trace.js');
+    expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
   });
 
   it('counts a second connection when one is genuinely taken', async () => {
