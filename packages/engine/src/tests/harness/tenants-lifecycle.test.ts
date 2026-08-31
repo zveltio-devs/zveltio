@@ -34,8 +34,20 @@ d('tenants lifecycle (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    const who = await sql<{ email: string }>`SELECT email FROM "user" LIMIT 1`.execute(db);
-    adminEmail = who.rows[0]?.email ?? '';
+    // Sign the administrator up rather than borrowing whichever row `LIMIT 1`
+    // returns. With no ORDER BY the row is arbitrary, and a database that has
+    // been used has rows whose "email" is not one — the route's schema then
+    // refuses the body with a 400 that looks exactly like the failure this test
+    // asserts against, so the test reads as a regression in the route.
+    adminEmail = `htenant-admin-${SLUG}@test.local`;
+    const signUp = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: 'HarnessAdmin123!', name: 'Tenant Admin' }),
+    });
+    if (!signUp.ok && signUp.status !== 200 && signUp.status !== 201) {
+      throw new Error(`admin sign-up failed: ${signUp.status} ${await signUp.text()}`);
+    }
   });
 
   afterAll(async () => {
