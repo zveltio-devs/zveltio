@@ -97,6 +97,22 @@ if (ciScripts.size === 0)
 // ── What the meta-gate proves ──────────────────────────────────────────────
 const auditSrc = readFileSync(AUDIT, 'utf8');
 const covered = new Set<string>();
+// A case may exercise a gate through a wrapper — seeding a row, or removing a
+// call and restoring it. The command then names the wrapper, not the gate, so
+// the case declares the gate in `proves` and it is read here. Declared, not
+// inferred: a checker that guessed at indirection would credit any wrapper.
+for (const m of auditSrc.matchAll(/proves: \[([^\]]+)\]/g)) {
+  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
+}
+
+// Backtick commands too. A case written as a template literal was invisible
+// here and read as "no case at all" — the checker said a proven gate was
+// unproven, which is the failure mode that wastes the most time.
+for (const m of auditSrc.matchAll(/cmd: `([^`]+)`/g)) {
+  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
+  for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) covered.add(r[1]!);
+}
+
 for (const m of auditSrc.matchAll(/cmd: '([^']+)'/g)) {
   for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
   for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) {
