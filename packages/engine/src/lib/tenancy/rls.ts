@@ -270,6 +270,75 @@ export function matchesRlsFilters(
   return true;
 }
 
+/**
+ * The same conditions again, as SQL over a JSONB snapshot.
+ *
+ * `?as_of=` rebuilds rows from `zv_revisions.data`, so until this existed the
+ * only way to apply a row policy there was to read the entire history into the
+ * process and filter the array. Measured on 200 000 records with two revisions
+ * each: 336 ms, of which the filtering was 2,2 ms — the reading was the cost.
+ * The same page asked of the database is 2 ms.
+ *
+ * ── Why `->` and to_jsonb, and never `->>` ────────────────────
+ *
+ * A policy value is ALWAYS a string: the four sources are `user_id`,
+ * `user_email`, `user_role` and `static:VAL`. `->>` renders any JSON scalar as
+ * text, so `data->>'code' = '5'` is TRUE for the number 5 — while the in-memory
+ * evaluator, comparing with `===`, says `5 !== '5'` and hides that row. The
+ * naive translation therefore SHOWS a row the policy withholds, which is the
+ * one direction a security filter must never fail in. Comparing jsonb to
+ * `to_jsonb(<value>::text)` is true only for the JSON *string*, which is what
+ * `===` means.
+ *
+ * ── Why `IS DISTINCT FROM` and the explicit NULL ──────────────
+ *
+ * A key missing from a snapshot is `undefined` in JS and SQL NULL here. In
+ * memory `undefined === v` is false, so `neq` and `not_in` KEEP such a row.
+ * Plain `<>` and `NOT IN` yield NULL for it, and a WHERE drops it. So the two
+ * negative operators say so explicitly. A JSON null needs no special case: it
+ * comes back as jsonb `null`, not SQL NULL, and compares like the JS `null` it
+ * came from.
+ *
+ * Third applier of the same four operators, kept in this file with the other
+ * two for the reason stated above them: they must not drift into disagreeing
+ * about what a policy means. Same fail-closed default, same message.
+ */
+export function rlsJsonConditions(
+  filters: Array<{ field: string; condition: FilterCondition }>,
+  column = 'data',
+): Array<ReturnType<typeof sql<boolean>>> {
+  const col = sql.ref(column);
+  const out: Array<ReturnType<typeof sql<boolean>>> = [];
+  for (const { field, condition } of filters) {
+    // `::text` is not decoration. Postgres has both `jsonb -> text` (object key)
+    // and `jsonb -> integer` (array element); with an untyped parameter it
+    // resolves to the integer form, which on an object returns NULL for every
+    // row. That is silent: the query succeeds and the page comes back empty,
+    // and a suite that only checks "these rows are hidden" passes for entirely
+    // the wrong reason.
+    const at = sql`${col} -> ${field}::text`;
+    const one = (v: unknown) => sql`to_jsonb(${String(v)}::text)`;
+    const list = (v: unknown) => sql.join((Array.isArray(v) ? v : [v]).map(one), sql`, `);
+
+    if (condition.op === 'eq') {
+      out.push(sql<boolean>`${at} = ${one(condition.value)}`);
+    } else if (condition.op === 'neq') {
+      out.push(sql<boolean>`${at} IS DISTINCT FROM ${one(condition.value)}`);
+    } else if (condition.op === 'in') {
+      out.push(sql<boolean>`${at} IN (${list(condition.value)})`);
+    } else if (condition.op === 'not_in') {
+      out.push(sql<boolean>`(${at} IS NULL OR ${at} NOT IN (${list(condition.value)}))`);
+    } else {
+      throw new Error(
+        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
+          `cannot apply. Refusing the query rather than returning rows the policy was ` +
+          `meant to hide. Fix or disable the policy.`,
+      );
+    }
+  }
+  return out;
+}
+
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────
 
 export async function listRlsPolicies(): Promise<RlsPolicy[]> {
