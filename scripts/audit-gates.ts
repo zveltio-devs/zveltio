@@ -33,6 +33,26 @@ type Case = {
    * memory and written back byte for byte, so the file is untouched either way.
    */
   mode?: 'create' | 'append';
+  /**
+   * Scripts this case exercises INDIRECTLY, when the command runs a wrapper
+   * rather than the gate itself. Two cases need a wrapper: one has to seed a
+   * row in the database and clean it up afterwards, the other has to remove a
+   * call from a tracked file and put it back. `check-gate-coverage` reads the
+   * commands to decide what is proved, and a wrapper hides the gate from it —
+   * so the case says so out loud instead of the checker guessing.
+   */
+  proves?: string[];
+  /**
+   * A substring the gate's output must contain for the failure to count.
+   *
+   * Without this, "the command exited non-zero" is the whole test — and a gate
+   * that cannot RUN also exits non-zero. Three cases here need a database, and
+   * in the job where `audit:gates` runs there is none: two of them were passing
+   * because the gate said "no database to build against", which is a refusal to
+   * look, not a violation found. That is the exact false green this whole file
+   * exists to kill, so the file now has to be honest about it too.
+   */
+  expect?: string;
 };
 
 /**
@@ -47,6 +67,16 @@ type Case = {
 const INTERP = '$' + '{t}';
 
 /**
+ * `${…}` for probe bodies that are themselves TypeScript.
+ *
+ * Same reason as `INTERP` directly above, and the same answer: written whole it
+ * trips `noTemplateCurlyInString`, and that rule is right — it exists to catch
+ * an interpolation somebody forgot to make a template. Here the text IS source
+ * being written to disk, so it is assembled rather than suppressed.
+ */
+const CURLY = (inner: string) => '$' + '{' + inner + '}';
+
+/**
  * The `noExplicitAny` suppression marker, in pieces.
  *
  * Same reason as `INTERP` above, one rule further: `any-ratchet` counts these
@@ -58,6 +88,365 @@ const INTERP = '$' + '{t}';
 const ANY_MARKER = 'biome-' + 'ignore lint/suspicious/noExplicitAny';
 
 const CASES: Case[] = [
+  {
+    // The meta-gate, on itself. Nothing proved that IT would notice a gate that
+    // stays green — its own correctness rested on reading it. It cannot plant
+    // into its own source, so it reads extra cases from a file, and this plants
+    // one whose command always succeeds. A run that does not call that
+    // decoration is a run that would have missed every dead gate.
+    gate: 'audit-gates',
+    cmd: 'AUDIT_GATES_ONLY=plant-decoration bun run scripts/audit-gates.ts',
+    file: 'quality-gates/audit-gates-extra-cases.json',
+    body: '[\n  {\n    "gate": "plant-decoration",\n    "cmd": "true",\n    "file": "quality-gates/plant-decoration-target.txt",\n    "body": "planted by audit-gates, for audit-gates\\n"\n  }\n]\n',
+  },
+  {
+    // Every message key an extension's Studio page renders must belong to that
+    // extension. A page borrowing another extension's namespace works only
+    // while both are installed; uninstall the owner and the label renders as a
+    // raw key. Ratcheted, so the plant is a NEW borrower.
+    gate: 'check-extension-i18n-ownership',
+    cmd: 'bun run scripts/check-extension-i18n-ownership.ts',
+    file: '../zveltio-extensions/search/studio/pages/plant-borrow.svelte',
+    body: [
+      '<script lang="ts">',
+      "  import { m } from '$lib/paraglide/messages';",
+      '</script>',
+      '',
+      "<h1>{m['communications.mail.subject']()}</h1>",
+      '',
+    ].join('\n'),
+  },
+  {
+    // An SDUI schema is a promise about an API. This one promises a resource
+    // the extension's engine never serves — the contradiction the gate is for.
+    // It reads the schema files and the extension source, so no running API is
+    // needed; the baseline said otherwise and the baseline was wrong.
+    gate: 'check-sdui-contract',
+    cmd: 'bun run scripts/check-sdui-contract.ts',
+    file: '../zveltio-extensions/search/studio/schemas/plant-contract.json',
+    body: '{\n  "sduiSchema": 1,\n  "title": "search.plant.title",\n  "resources": [\n    {\n      "id": "plant",\n      "label": "search.plant.label",\n      "dataSource": "/ext/search/plant-does-not-exist",\n      "dataPath": "items"\n    }\n  ]\n}',
+  },
+  {
+    // The gate splits severity: `schema.ts` drift alone is a warning, and it
+    // exits non-zero only on the kind that crashes at runtime — a `zv_*` table
+    // or a column the code queries and no migration creates. Two earlier plants
+    // (an orphan interface; a column no table has) both left it green, which is
+    // recorded in the baseline; this is the shape that does not.
+    gate: 'schema-drift-check',
+    cmd: 'bun run scripts/schema-drift-check.ts',
+    file: 'packages/engine/src/routes/plant-missing-table.ts',
+    body: [
+      "import { Hono } from 'hono';",
+      "import type { Database } from '../db/index.js';",
+      '',
+      'export function plantMissingTableRoutes(db: Database): Hono {',
+      '  const app = new Hono();',
+      "  app.get('/plant', async (c) => {",
+      "    const rows = await db.selectFrom('zv_plant_missing_table').selectAll().execute();",
+      '    return c.json(rows);',
+      '  });',
+      '  return app;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // Does this INSERT match the table it writes to? The gate builds the real
+    // schema and compares, so it needs a database; the probe hands it the same
+    // one the rest of the run uses.
+    gate: 'check-insert-schema-match',
+    expect: 'plant_missing_column',
+    // `$TEST_DATABASE_URL` without braces on purpose: the braced form trips
+    // `noTemplateCurlyInString`, and writing it as a template literal instead
+    // hid the command from `check-gate-coverage`, which reads single-quoted
+    // commands. Two rules pulling opposite ways; the plain variable satisfies
+    // both. With nothing set the gate exits 0 with a note and this case fails
+    // loudly as decoration, which is the right direction to fail in.
+    cmd: 'SEAM_DATABASE_URL="$TEST_DATABASE_URL" bun run scripts/check-insert-schema-match.ts',
+    file: '../zveltio-extensions/search/engine/plant-insert.ts',
+    body: [
+      "import { sql } from 'kysely';",
+      '',
+      '// A column `zv_settings` does not have.',
+      'export async function plantInsert(db: unknown) {',
+      '  await sql`',
+      '    INSERT INTO zv_settings (key, value, plant_missing_column)',
+      "    VALUES ('a', 'b', 'c')",
+      '  `.execute(db as never);',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // A Studio page in the engine that talks to `/ext/*` but that no extension
+    // declares is an orphan: the extension can be uninstalled and the page
+    // stays, pointing at routes that are gone.
+    gate: 'check-extension-page-ownership',
+    cmd: 'bun run scripts/check-extension-page-ownership.ts',
+    file: 'packages/studio/src/routes/(admin)/plant-orphan/+page.svelte',
+    body: [
+      '<script lang="ts">',
+      "  const res = fetch('/ext/plant-orphan/data');",
+      '</script>',
+      '',
+      '<p>{res}</p>',
+      '',
+    ].join('\n'),
+  },
+  {
+    // A privileged handler on the MANDATORY list must keep its `auditLog()`
+    // call. The violation is therefore a REMOVAL, not an addition — a new
+    // unaudited route is not on the list and changes nothing, which a first
+    // version of this case learned by staying green.
+    //
+    // So the plant is a script: it strips one `auditLog(` call from a mandatory
+    // handler, runs the two real commands CI runs, restores the file in a
+    // `finally`, and answers with the gate's own exit code.
+    gate: 'audit-regression-check',
+    cmd: 'bun run scripts/plant-audit-regression.ts',
+    proves: ['scripts/audit-regression-check.ts', 'scripts/audit-inventory.ts'],
+    file: 'scripts/plant-audit-regression.ts',
+    body: [
+      "import { readFileSync, writeFileSync } from 'node:fs';",
+      '',
+      "const TARGET = 'packages/engine/src/routes/admin/system-routes.ts';",
+      "const original = readFileSync(TARGET, 'utf8');",
+      '',
+      '// `audit-inventory.ts` rewrites this as a side effect, so it is held and',
+      '// put back too — a probe that leaves the tree dirty is a probe that will',
+      '// eventually be committed by accident.',
+      "const COVERAGE_DOC = 'docs/AUDIT-COVERAGE.md';",
+      "const coverageDoc = readFileSync(COVERAGE_DOC, 'utf8');",
+      '',
+      'let code = 1;',
+      'try {',
+      '  // Neutralise every audit call in the file without changing its shape.',
+      "  writeFileSync(TARGET, original.replaceAll('auditLog(', 'noAuditPlanted('));",
+      "  const inv = Bun.spawnSync(['bun', 'run', 'scripts/audit-inventory.ts'], {",
+      "    stdout: 'inherit',",
+      "    stderr: 'inherit',",
+      '  });',
+      '  if (inv.exitCode !== 0) {',
+      '    code = inv.exitCode ?? 1;',
+      '  } else {',
+      "    const res = Bun.spawnSync(['bun', 'run', 'scripts/audit-regression-check.ts'], {",
+      "      stdout: 'inherit',",
+      "      stderr: 'inherit',",
+      '    });',
+      '    code = res.exitCode ?? 1;',
+      '  }',
+      '} finally {',
+      '  writeFileSync(TARGET, original);',
+      '  writeFileSync(COVERAGE_DOC, coverageDoc);',
+      '}',
+      'process.exit(code);',
+      '',
+    ].join('\n'),
+  },
+  {
+    // A test run must not leave collections or ghost tables behind. The
+    // violation lives in the DATABASE, not in a file, so the plant is a script
+    // that seeds one and then runs the real gate, passing its exit code back.
+    // The gate under test is the real one; only the leftover is manufactured.
+    gate: 'check-test-leftovers',
+    expect: 'plantleft_',
+    cmd: 'bun run scripts/plant-test-leftover.ts',
+    proves: ['scripts/check-test-leftovers.ts'],
+    file: 'scripts/plant-test-leftover.ts',
+    body: [
+      "import { sql } from 'kysely';",
+      "import { createDb } from '../packages/engine/src/db/index.js';",
+      '',
+      'const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;',
+      'if (!url) process.exit(2);',
+      'const db = createDb(url);',
+      'const name = `plantleft_' + CURLY('Date.now()') + '`;',
+      'try {',
+      '  await sql`INSERT INTO zvd_collections (name, display_name) VALUES (' +
+        CURLY('name') +
+        ', ' +
+        CURLY('name') +
+        ')`.execute(db);',
+      '} finally {',
+      '  await db.destroy().catch(() => {});',
+      '}',
+      '',
+      "const proc = Bun.spawnSync(['bun', 'run', 'scripts/check-test-leftovers.ts'], {",
+      "  stdout: 'inherit',",
+      "  stderr: 'inherit',",
+      '});',
+      '',
+      '// Clean up before answering, so the plant does not outlive the probe.',
+      'const db2 = createDb(url);',
+      'try {',
+      '  await sql`DELETE FROM zvd_collections WHERE name = ' + CURLY('name') + '`.execute(db2);',
+      '} finally {',
+      '  await db2.destroy().catch(() => {});',
+      '}',
+      'process.exit(proc.exitCode ?? 0);',
+      '',
+    ].join('\n'),
+  },
+  {
+    // Lints NEW migrations for upgrade hazards. In CI it takes the file list
+    // from `git diff`, which a planted file cannot appear in — a plant that is
+    // never seen proves nothing — so the file is handed to it explicitly, which
+    // is the same code path with the same linter.
+    gate: 'check-migration-safety',
+    cmd: 'bun run scripts/check-migration-safety.ts packages/engine/src/db/migrations/sql/999_plant_hazard.sql',
+    file: 'packages/engine/src/db/migrations/sql/999_plant_hazard.sql',
+    body: [
+      '-- planted by audit-gates: a hazard squawk must refuse.',
+      '-- Adding a NOT NULL column with no default rewrites the whole table and',
+      '-- fails outright on any existing row.',
+      'ALTER TABLE zv_settings ADD COLUMN plant_hazard text NOT NULL;',
+      '',
+    ].join('\n'),
+  },
+  {
+    // Studio build output must carry a version marker matching the engine.
+    // A marker naming a different version is exactly the stale embed the gate
+    // exists to refuse.
+    gate: 'check-studio-embed-freshness',
+    cmd: 'REQUIRE_STUDIO_DIST=1 bun run scripts/check-studio-embed-freshness.ts',
+    file: 'packages/studio/dist/.zveltio-studio-version',
+    body: '0.0.0-planted\n',
+  },
+  {
+    // A security rule is implemented ONCE. Every hand-written dispatch over a
+    // filter operator so far has covered the comparisons and silently dropped
+    // `in`/`not_in` — which means a row policy written with `in` stopped
+    // applying, quietly, on that path.
+    gate: 'check-duplicate-rules',
+    cmd: 'bun run scripts/check-duplicate-rules.ts',
+    file: 'packages/engine/src/lib/plant-duplicate-rule.ts',
+    body: [
+      'export function plantDuplicateRule(cond: { op: string; value: unknown }): string {',
+      "  if (cond.op === 'eq') return '=';",
+      "  if (cond.op === 'neq') return '!=';",
+      "  return '?';",
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // The SDK carries a copy of the shared Studio vocabulary. A key added to
+    // the source without regenerating leaves the copy stale, and `--check` is
+    // the mode CI runs.
+    gate: 'sync-shared-message-keys',
+    cmd: 'bun run scripts/sync-shared-message-keys.ts --check',
+    // Planted on the generated COPY, not on the source. Appending to the source
+    // would be appending to JSON, and the gate would then fail on a parse error
+    // rather than on the drift it exists to catch — a plant that passes for the
+    // wrong reason proves nothing.
+    file: 'packages/sdk/src/validate/shared-message-keys.ts',
+    mode: 'append',
+    body: '\n// planted by audit-gates: the copy no longer matches its source\n',
+  },
+  {
+    // What the database looks like after a real install, recorded so a change
+    // to it has to be deliberate. Touch the record and the comparison fails —
+    // which is the whole mechanism.
+    gate: 'schema-snapshot',
+    expect: 'no longer matches',
+    cmd: 'bun run scripts/schema-snapshot.ts',
+    file: 'packages/engine/src/db/installed-schema.snapshot.txt',
+    mode: 'append',
+    body: '\n-- planted by audit-gates: a line the installed schema does not have\n',
+  },
+  {
+    // Coverage ratchet. It reads an lcov rather than measuring, so the plant is
+    // an lcov: one file, one line, uncovered. Nothing else in the run is
+    // touched, and the gate is pointed at it explicitly.
+    gate: 'coverage-gate',
+    cmd: 'bun run scripts/coverage-gate.ts packages/engine/plant-coverage.lcov',
+    file: 'packages/engine/plant-coverage.lcov',
+    body: [
+      'SF:packages/engine/src/lib/plant.ts',
+      'DA:1,0',
+      'LF:1',
+      'LH:0',
+      'end_of_record',
+      '',
+    ].join('\n'),
+  },
+  {
+    // An extension declares its Studio pages in its manifest; each page names a
+    // schema file that has to exist and to declare `sduiSchema` + `title`. A
+    // manifest promising a page it does not ship is the failure.
+    gate: 'check-extension-sdui-schemas',
+    cmd: 'bun run scripts/check-extension-sdui-schemas.ts',
+    file: '../zveltio-extensions/plant-sdui-ext/manifest.json',
+    body: JSON.stringify(
+      {
+        name: 'plant-sdui-ext',
+        version: '1.0.0',
+        studio: { pages: [{ path: 'plant', schema: 'plant-missing.json' }] },
+      },
+      null,
+      2,
+    ),
+  },
+  {
+    // An in-process extension reading `process.env` sees the ENGINE's whole
+    // environment — every secret it was ever given. The contract is
+    // `ctx.config.vars`, and the gate exists because four of twelve extensions
+    // reached for the environment anyway.
+    gate: 'check-ambient-authority',
+    cmd: 'bun run scripts/check-ambient-authority.ts',
+    file: '../zveltio-extensions/search/engine/plant-ambient.ts',
+    body: [
+      'export function plantAmbient(): string | undefined {',
+      '  return process.env.DATABASE_URL;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // The embedded worker runtime must be the one in the repository. It is
+    // generated from this source and carries its hash, so touching the source
+    // without regenerating is exactly the drift the gate exists for.
+    gate: 'check-worker-source-fresh',
+    cmd: 'bun run scripts/check-worker-source-fresh.ts',
+    file: 'packages/engine/src/lib/worker-extension-runtime.ts',
+    mode: 'append',
+    body: '\n// planted by audit-gates: source changed without regenerating the embedded copy\n',
+  },
+  {
+    // A handler that writes twice must say so. Ratcheted, so the plant has to
+    // be a NEW handler above the baseline, not an edit to a recorded one.
+    gate: 'check-atomic-writes',
+    cmd: 'bun run scripts/check-atomic-writes.ts',
+    file: 'packages/engine/src/routes/plant-atomic-routes.ts',
+    body: [
+      "import { Hono } from 'hono';",
+      "import type { Database } from '../db/index.js';",
+      '',
+      'export function plantAtomicRoutes(db: Database): Hono {',
+      '  const app = new Hono();',
+      "  app.post('/plant', async (c) => {",
+      "    await db.insertInto('zv_settings').values({ key: 'a', value: '1' }).execute();",
+      "    await db.insertInto('zv_settings').values({ key: 'b', value: '2' }).execute();",
+      '    return c.json({ ok: true });',
+      '  });',
+      '  return app;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // The lint-warning ratchet. `isNaN` is a warning (noGlobalIsNan), so a new
+    // file carrying two of them lands above the recorded count.
+    gate: 'lint-warning-ratchet',
+    cmd: 'bun run scripts/lint-warning-ratchet.ts',
+    file: 'packages/engine/src/lib/plant-lint-warning.ts',
+    body: [
+      'export function plantWarning(a: unknown, b: unknown): boolean {',
+      '  return isNaN(a as number) || isNaN(b as number);',
+      '}',
+      '',
+    ].join('\n'),
+  },
   {
     // A static path registered AFTER a same-method param path is unreachable:
     // the param route wins and captures the static segment. The gate exists
@@ -314,6 +703,40 @@ const CASES: Case[] = [
     mode: 'append',
   },
 ];
+/**
+ * Extra cases, read from disk.
+ *
+ * The meta-gate had no case of its own: nothing proved that IT would notice a
+ * gate that stays green. It cannot plant into its own source, so it accepts
+ * cases from a file instead, and the planted file carries a case whose command
+ * always succeeds — which this run must then report as decoration.
+ *
+ * `AUDIT_GATES_ONLY` narrows the run to named gates. Without it the probe would
+ * re-run every case inside the outer run, doubling a suite that already takes
+ * minutes to say one thing.
+ */
+const EXTRA_CASES_FILE = 'quality-gates/audit-gates-extra-cases.json';
+if (existsSync(EXTRA_CASES_FILE)) {
+  try {
+    const extra = JSON.parse(readFileSync(EXTRA_CASES_FILE, 'utf8')) as Case[];
+    if (Array.isArray(extra)) CASES.push(...extra);
+  } catch (err) {
+    console.error(`[audit-gates] ${EXTRA_CASES_FILE} is not readable:`, (err as Error).message);
+    process.exit(2);
+  }
+}
+
+const ONLY = (process.env.AUDIT_GATES_ONLY ?? '')
+  .split(',')
+  .map((x) => x.trim())
+  .filter(Boolean);
+if (ONLY.length > 0) {
+  const keep = new Set(ONLY);
+  for (let i = CASES.length - 1; i >= 0; i--) {
+    if (!keep.has(CASES[i]!.gate)) CASES.splice(i, 1);
+  }
+}
+
 // Refuse only if a plant path already exists — precise, where "the tree is
 // clean" was not. Blocking on any modification meant the audit could not run
 // alongside the very work it checks, and what actually matters is that no
@@ -338,16 +761,37 @@ for (const c of CASES) {
   mkdirSync(dirname(c.file), { recursive: true });
   writeFileSync(c.file, original === null ? c.body : original + c.body);
   let failed = false;
+  let output = '';
   try {
-    await $`sh -c ${c.cmd}`.quiet();
-  } catch {
+    const r = await $`sh -c ${c.cmd}`.quiet();
+    output = r.stdout.toString() + r.stderr.toString();
+  } catch (err) {
     failed = true;
+    const e = err as { stdout?: { toString(): string }; stderr?: { toString(): string } };
+    output = (e.stdout?.toString() ?? '') + (e.stderr?.toString() ?? '');
   }
   if (original === null) rmSync(c.file, { force: true });
   else writeFileSync(c.file, original);
-  if (failed) {
+
+  // A non-zero exit is not enough when the case says what the refusal must say.
+  // A gate that cannot run also exits non-zero — "no database to build against"
+  // is a refusal to look, not a violation found — and counting that as a catch
+  // is the false green this file exists to kill.
+  const wrongReason = failed && c.expect !== undefined && !output.includes(c.expect);
+
+  if (failed && !wrongReason) {
     caught++;
     console.log(`  ✅ ${c.gate.padEnd(34)} caught its violation`);
+  } else if (wrongReason) {
+    missed.push(c.gate);
+    console.log(
+      `  ❌ ${c.gate.padEnd(34)} FAILED FOR THE WRONG REASON (no ${JSON.stringify(c.expect)})`,
+    );
+    // Show what it DID say. Without this the report names a problem and hides
+    // the only sentence that explains it, which costs a round-trip through CI
+    // for every diagnosis.
+    const tail = output.trim().split('\n').slice(-6).join('\n     ');
+    if (tail) console.log(`     ${tail}`);
   } else {
     missed.push(c.gate);
     console.log(`  ❌ ${c.gate.padEnd(34)} STAYED GREEN on a planted violation`);
