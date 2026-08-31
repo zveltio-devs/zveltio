@@ -29,6 +29,7 @@ import {
 import {
   checkPermission,
   getUserRoles,
+  resolveUserRole,
   type RlsIdentity,
   runWithDomain,
   setCurrentTenantTrx,
@@ -180,7 +181,16 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               getUserRoles(sessionUser.id).catch(() => [] as string[]),
               checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
             ]);
-            const direct = sessionUser.role ?? '';
+            // The role is RESOLVED, not read off the session.
+            //
+            // better-auth does not populate `session.user.role`, so publishing
+            // it gave the database an empty string — which its guard reads as
+            // "cannot resolve" and skips the rule, while the engine bound
+            // `undefined` and returned nothing. One rule, three behaviours,
+            // found by an independent audit. `resolveUserRole` is what
+            // `getRlsFilters` would have used, and it is already primed by
+            // `sessionPrefetch`, so this costs no lookup.
+            const direct = sessionUser.role || (await resolveUserRole({ id: sessionUser.id }));
             identity = {
               userId: sessionUser.id,
               email: sessionUser.email ?? '',
