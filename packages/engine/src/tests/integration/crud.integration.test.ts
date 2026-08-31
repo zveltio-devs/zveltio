@@ -34,6 +34,9 @@ async function createGodUser(): Promise<{ email: string; password: string }> {
   });
 
   // Promote to god
+  // One god per instance since migration 008 — the previous holder is
+  // stood down first, the same move the in-process harness makes.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE email = ${email}`.execute(db);
 
   return { email, password };

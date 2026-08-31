@@ -6,6 +6,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
+import { isGodUser } from './permissions.js';
 import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
 
 export interface Tenant {
@@ -839,7 +840,33 @@ export async function withTenantIsolation<T>(
     // and is answered by the equality fallback inside the predicate, which is
     // exactly what it did before the hierarchy existed.
     let scope: TenantScope | null = null;
-    if (opts?.userId) {
+    if (opts?.userId && (await isGodUser(opts.userId).catch(() => false))) {
+      // God's reach is EVERY firm, and it is published to the database rather
+      // than taken by escaping it.
+      //
+      // Until now a god saw across firms only by running on `poolDb` — the pool
+      // connects as a superuser with `rolbypassrls`, so the policies were not
+      // consulted at all. The privilege was not expressed anywhere; it was a way
+      // around the thing that expresses privileges. A handler that forgot its
+      // check on that connection read every firm's rows and nothing downstream
+      // could tell.
+      //
+      // Published here, `zveltio.visible_tenants` is the first branch of the
+      // predicate every policy already evaluates, so god is enforced BY the
+      // database on the same code path as everyone else, and the ordinary
+      // request pays nothing: the GUC was always written, only its contents
+      // differ.
+      //
+      // Measured before choosing this shape. Two other forms were tried and
+      // rejected: teaching `zveltio_visible_tenants()` to expand to all firms
+      // itself costs 0,061 ms → 0,434 ms on EVERY ordinary request, because the
+      // subquery stops the function being inlined; adding `OR zveltio_is_god()`
+      // to 300+ policies costs 6 microseconds but has to rewrite all of them.
+      // This one costs nothing and touches no policy.
+      const all = await sql<{ id: string }>`SELECT id FROM zv_tenants`.execute(trx);
+      const visible = all.rows.map((r) => r.id);
+      scope = { visible, ancestors: [] } as TenantScope;
+    } else if (opts?.userId) {
       scope = await resolveTenantScope(trx, opts.userId, tenantId).catch((err: Error) => {
         // Deliberately NOT swallowed into "see everything". A reach that cannot
         // be resolved is not a reach of zero restrictions; the request falls
