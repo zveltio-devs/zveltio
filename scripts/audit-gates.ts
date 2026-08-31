@@ -655,6 +655,25 @@ const CASES: Case[] = [
     body: 'CREATE TABLE IF NOT EXISTS zv_schema_versions (id uuid PRIMARY KEY);\n',
   },
   {
+    // A FIFTH reader of the four operators, in a file of its own.
+    //
+    // Planted as a new exported function that branches on `not_in`, which is the
+    // shape a real one takes: nobody adds an interpreter by importing a marker
+    // interface, they add it by writing the switch. The gate must notice it is
+    // neither registered nor in the differential suite.
+    gate: 'check-rule-interpreters',
+    cmd: 'bun run scripts/check-rule-interpreters.ts',
+    file: 'packages/engine/src/lib/tenancy/gate-probe-interpreter.ts',
+    body:
+      "export function gateProbeInterpretRule(op: string): string {\n" +
+      "  if (op === 'eq') return '=';\n" +
+      "  if (op === 'neq') return '<>';\n" +
+      "  if (op === 'in') return 'IN';\n" +
+      "  if (op === 'not_in') return 'NOT IN';\n" +
+      "  throw new Error('unknown');\n" +
+      '}\n',
+  },
+  {
     // A new table that carries no `tenant_id` and declares nothing. It looks
     // identical to a deliberate instance-level table, which is the whole reason
     // the gate exists.
