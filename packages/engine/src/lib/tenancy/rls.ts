@@ -14,6 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
+import { getCurrentTenantTrx } from './tenant-context.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 
@@ -100,10 +101,28 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
   // prevent, reintroduced one caller at a time.
   //
   // A `*` rule belongs to every collection, so every collection is rebuilt.
+  //
+  // Deferred a tick, and issued on the POOL. `CREATE POLICY` is DDL, which the
+  // request's own role (`zveltio_rls`) may not run — so it has to be the
+  // engine's own connection. Taking that connection while the request still
+  // holds its transaction is the second reservation this codebase spent a block
+  // removing, so it waits for the commit instead.
+  //
+  // The window between the rule being written and the policy being rebuilt is
+  // covered by the engine, which applies the same rule itself. A failure here is
+  // loud rather than fatal for the same reason.
+  const refresh = async () => {
+    try {
+      const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
+      if (collection === '*') await reconcileRowRulePolicies(_db);
+      else await applyRowRulePolicy(_db, collection);
+    } catch (err) {
+      console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
+    }
+  };
   try {
-    const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
-    if (collection === '*') await reconcileRowRulePolicies(_db);
-    else await applyRowRulePolicy(_db, collection);
+    if (getCurrentTenantTrx()) setTimeout(() => void refresh(), 0);
+    else await refresh();
   } catch (err) {
     // Loud, and not fatal: the engine still applies the rule. Silence here would
     // mean an instance quietly running with one enforcer where it believes it
@@ -361,12 +380,25 @@ export function rlsJsonConditions(
 
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────
 
+/**
+ * The connection these helpers should use.
+ *
+ * The request's own transaction when there is one, the pool otherwise. Reading
+ * on the pool while the request holds a transaction is a SECOND connection, and
+ * at `c = DB_POOL_MAX` the second can never arrive — the instance stops rather
+ * than slows. `zvd_rls_policies` is instance-level and readable by the request's
+ * role, so there is nothing the pool gives that the transaction does not.
+ */
+function rlsDb(): Database {
+  return getCurrentTenantTrx() ?? _db;
+}
+
 export async function listRlsPolicies(): Promise<RlsPolicy[]> {
   const rows = await sql<RlsPolicy>`
     SELECT id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description, created_at, updated_at
     FROM zvd_rls_policies
     ORDER BY collection, role
-  `.execute(_db);
+  `.execute(rlsDb());
   return rows.rows;
 }
 
