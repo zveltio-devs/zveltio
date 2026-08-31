@@ -7,6 +7,24 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
 import { isGodUser } from './permissions.js';
+
+/**
+ * Who the request is, for the row-rule policies to read.
+ *
+ * `bypass` is a DECISION the engine has already taken — an API key carrying
+ * `rlsBypass`, or the `data:view_all` permission a god holds — not a role name
+ * for the database to compare. A role-name check is exactly what sat dead
+ * inside `getRlsFilters` for years without anyone noticing.
+ */
+export interface RlsIdentity {
+  userId: string;
+  email: string;
+  /** The direct role, as `getRlsFilters` uses it for a `user_role` source. */
+  role: string;
+  /** Casbin roles plus the direct one — what a rule's `role` is matched against. */
+  roles: string[];
+  bypass: boolean;
+}
 import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
 
 export interface Tenant {
@@ -811,7 +829,7 @@ export function getTenantDb(): Database {
 export async function withTenantIsolation<T>(
   tenantId: string,
   fn: (trx: Database) => Promise<T>,
-  opts?: { userId?: string | null },
+  opts?: { userId?: string | null; identity?: RlsIdentity },
 ): Promise<T> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   return (_db as any).transaction().execute(async (trx: Database) => {
@@ -876,6 +894,24 @@ export async function withTenantIsolation<T>(
       });
     }
 
+    // The caller's identity, published for the row-rule policies to read.
+    //
+    // Only what the caller HANDS US. Resolving an email, a role list and a
+    // bypass permission here would be three lookups on the hot path, and the
+    // caller that has them — the request middleware — already does. A caller
+    // that publishes nothing (background jobs, boot reconcilers) leaves the
+    // settings empty, and an empty setting makes a rule SKIP: the same
+    // fail-open-for-that-rule the engine applies when it cannot resolve a value,
+    // and the same outcome those callers have today, where `getRlsFilters` is
+    // never asked at all.
+    const identity = {
+      userId: opts?.identity?.userId ?? '',
+      email: opts?.identity?.email ?? '',
+      role: opts?.identity?.role ?? '',
+      roles: (opts?.identity?.roles ?? []).join(','),
+      bypass: opts?.identity?.bypass ?? false,
+    };
+
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
@@ -897,7 +933,12 @@ export async function withTenantIsolation<T>(
       SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true),
              set_config('zveltio.current_tenant', ${tenantId}, true),
              set_config('zveltio.visible_tenants', ${encodeTenantSet(scope?.visible ?? null)}, true),
-             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true)
+             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true),
+             set_config('zveltio.user_id', ${identity.userId}, true),
+             set_config('zveltio.user_email', ${identity.email}, true),
+             set_config('zveltio.user_role', ${identity.role}, true),
+             set_config('zveltio.user_roles', ${identity.roles}, true),
+             set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true)
     `.execute(trx);
     // Bind the transaction to the async context as well as handing it to `fn`.
     //
