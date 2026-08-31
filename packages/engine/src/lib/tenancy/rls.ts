@@ -14,7 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
-import { getCurrentTenantTrx } from './tenant-context.js';
+import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 
@@ -121,7 +121,10 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
     }
   };
   try {
-    if (getCurrentTenantTrx()) setTimeout(() => void refresh(), 0);
+    // After the COMMIT, not after a tick. `setTimeout(0)` fired with the
+    // transaction still open — measured by an independent audit — so the DDL
+    // took a second pooled connection, which is what deferring was for.
+    if (getCurrentTenantTrx()) onAfterCommit(refresh);
     else await refresh();
   } catch (err) {
     // Loud, and not fatal: the engine still applies the rule. Silence here would
