@@ -23,7 +23,7 @@ import {
   publishApiKeyActor,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
-import { authenticate } from '../../lib/data/auth.js';
+import { authenticate, validateApiKey } from '../../lib/data/auth.js';
 import { describeWriteRefusal, isRlsRefusal } from '../../lib/data/write-pipeline.js';
 import { hashApiKey } from '../../lib/security/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -147,6 +147,40 @@ d('API keys and writes meet the same rules (in-process)', () => {
     expect(said).toContain('row rule');
     expect(said).toContain('/api/admin/rls');
   });
+  it('validating a key publishes it, whoever is doing the validating', async () => {
+    // The guarantee lives in `validateApiKey`, not in its callers.
+    //
+    // There are two callers — the data API and `routes/edge-functions.ts` — and
+    // the second only uses the return value as a boolean. Asserting through
+    // `validateApiKey` directly is what pins the guarantee for BOTH, and for
+    // whatever third caller comes next.
+    const raw = `zvk_${STAMP}_shared`;
+    const keyId = (
+      await sql<{ id: string }>`
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
+        VALUES ('shared probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid)
+        RETURNING id
+      `.execute(db)
+    ).rows[0]!.id;
+
+    try {
+      const published = await withTenantIsolation(
+        tenant,
+        async (trx) => {
+          await validateApiKey(db, raw, tenant);
+          const r = await sql<{ v: string | null }>`
+            SELECT nullif(current_setting('zveltio.user_id', true), '') AS v
+          `.execute(trx);
+          return r.rows[0]?.v ?? null;
+        },
+        { userId: null },
+      );
+      expect(published).toBe(`apikey:${keyId}`);
+    } finally {
+      await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
+    }
+  });
+
   it('the real authentication path publishes it, not just this test', async () => {
     // The four cases above call `publishApiKeyActor` by hand, so they prove the
     // mechanism and nothing about whether anything uses it. This drives
