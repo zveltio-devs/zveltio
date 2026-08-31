@@ -349,6 +349,39 @@ export function mapPgError(
   return null;
 }
 
+/**
+ * Say WHICH boundary refused the write, as far as the database tells us.
+ *
+ * Two different rules answer with the same SQLSTATE. The tenant policy refuses a
+ * row belonging to another firm; a generated row rule refuses a row the caller
+ * would not be allowed to READ — because a RESTRICTIVE policy without its own
+ * `WITH CHECK` uses the read predicate for writes.
+ *
+ * The old message named only the first, so a developer whose insert was refused
+ * by a row rule went looking at tenancy. Postgres does not name the policy, so
+ * neither does this: it names both possibilities and where they are configured,
+ * which is the honest amount of help.
+ */
+export function describeWriteRefusal(message: string): string {
+  const table = /table "([^"]+)"/.exec(message)?.[1];
+  const on = table ? ` on ${table}` : '';
+  return (
+    `The database refused this row${on}. Either it belongs to another tenant, or a row ` +
+    `rule for this collection does not allow the caller to see a row in this shape — a ` +
+    `rule that restricts reading restricts writing into that shape too. Row rules are ` +
+    `managed at /api/admin/rls.`
+  );
+}
+
+/** Whether this error is the database refusing a row, whatever raised it. */
+export function isRlsRefusal(err: unknown): boolean {
+  const e = err as { errno?: string; code?: string; message?: string };
+  // SQLSTATE arrives in `errno` on this driver, not `code` — a distinction this
+  // codebase has had to learn more than once.
+  const sqlstate = e?.errno ?? e?.code;
+  return sqlstate === '42501' || /row-level security/i.test(e?.message ?? '');
+}
+
 /** Run an async handler and translate known Postgres errors into 4xx responses
  * before they escape as Hono's default 500. Anything we don't recognize is
  * re-thrown so the global error handler can log it. */
