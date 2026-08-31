@@ -23,7 +23,20 @@ const PolicySchema = z.object({
   role: z.string().min(1).max(128),
   filter_field: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid field name'),
   filter_op: z.enum(['eq', 'neq', 'in', 'not_in']).default('eq'),
-  filter_value_source: z.string().min(1).max(256),
+  // The four sources the resolvers actually know, spelled out.
+  //
+  // `z.string()` accepted anything, and `user.id` — a dot instead of an
+  // underscore — was stored happily and then resolved to nothing, so the rule
+  // existed, was listed as enabled, and hid no rows. A harness test posted
+  // exactly that and asserted 201 for as long as it has existed.
+  filter_value_source: z
+    .string()
+    .min(1)
+    .max(256)
+    .refine(
+      (v) => v === 'user_id' || v === 'user_email' || v === 'user_role' || v.startsWith('static:'),
+      { message: 'must be user_id, user_email, user_role, or static:<value>' },
+    ),
   is_enabled: z.boolean().default(true),
   description: z.string().max(512).optional(),
 });
@@ -47,8 +60,24 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
     if (!user) return c.json({ error: 'Forbidden' }, 403);
 
     const data = c.req.valid('json');
-    const policy = await createRlsPolicy(data);
-    return c.json({ policy }, 201);
+    try {
+      const policy = await createRlsPolicy(data);
+      return c.json({ policy }, 201);
+    } catch (err) {
+      // A rule the layers cannot agree on is refused with the reason, not
+      // stored and left to mean three different things.
+      if ((err as Error).name === 'UnenforceableRuleError') {
+        return c.json(
+          {
+            error: 'This rule cannot be enforced',
+            detail: (err as Error).message,
+            code: 'unenforceable_rls_rule',
+          },
+          400,
+        );
+      }
+      throw err;
+    }
   });
 
   // PATCH /api/admin/rls/:id — update policy
