@@ -35,6 +35,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setConnectionTracing } from '../../db/connection-trace.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -65,7 +66,18 @@ const ROUTES = [
   '/api/settings',
   '/api/users',
   '/api/dashboards',
+  '/api/saved-queries',
+  '/api/api-keys',
+  '/api/audit',
+  '/api/tenants',
+  '/api/invitations',
+  '/api/storage/files',
+  '/api/permissions/roles',
+  '/api/admin/rls',
 ];
+
+/** The hottest path of all, and the reason any of this matters. */
+const DATA_COLLECTION = `secondres_${Date.now()}`;
 
 d('a request needs one connection (in-process)', () => {
   let app: Hono;
@@ -75,11 +87,36 @@ d('a request needs one connection (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+
+    // A real collection, so `/api/data/...` is measured on the path a caller
+    // actually takes rather than on a 404 that returns before doing the work.
+    await sql
+      .raw(`
+      CREATE TABLE zvd_${DATA_COLLECTION} (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id uuid NOT NULL,
+        title text
+      )
+    `)
+      .execute(db);
+    await sql`
+      INSERT INTO zvd_collections (name, display_name) VALUES (${DATA_COLLECTION}, ${DATA_COLLECTION})
+      ON CONFLICT DO NOTHING
+    `
+      .execute(db)
+      .catch(() => {});
     _setConnectionTracing(true);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     _setConnectionTracing(false);
+    await sql
+      .raw(`DROP TABLE IF EXISTS zvd_${DATA_COLLECTION} CASCADE`)
+      .execute(db)
+      .catch(() => {});
+    await sql`DELETE FROM zvd_collections WHERE name = ${DATA_COLLECTION}`
+      .execute(db)
+      .catch(() => {});
   });
 
   for (const route of ROUTES) {
@@ -91,6 +128,23 @@ d('a request needs one connection (in-process)', () => {
       expect(extra).toBeLessThanOrEqual(EXPECTED[route] ?? 0);
     });
   }
+
+  it('/api/data/<collection> takes nothing beyond its transaction', async () => {
+    // The hottest path, and the reason any of this matters. It gets its own case
+    // rather than a line in the list: the list is walked when the suite is
+    // DEFINED, so a route pushed from `beforeAll` is never tested — which is
+    // exactly what the first version of this did, and it reported 17 green
+    // without ever asking about the one route that carries the traffic.
+    const res = await app.request(`/api/data/${DATA_COLLECTION}?limit=5`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBeGreaterThan(0);
+    const extra = Number(res.headers.get('x-zveltio-extra-connections') ?? '0');
+    // Say WHERE, not just how many. A count sends whoever reads this back
+    // through CI to find the line; the site is already in hand.
+    const { tracedAcquisitionSite } = await import('../../db/connection-trace.js');
+    expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
+  });
 
   it('counts a second connection when one is genuinely taken', async () => {
     // The ratchet is only worth having if a violation would be seen. Planted:

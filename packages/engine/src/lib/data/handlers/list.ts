@@ -39,7 +39,18 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   const collection = c.req.param('collection')!;
   const user = c.get('user');
 
-  if (!(await checkAccess(db, user, collection, 'read'))) {
+  // The metadata reads go on the REQUEST's connection, not the pool.
+  //
+  // Access, the collection definition, its virtual config and the column
+  // permissions are all read while the request already holds its tenant
+  // transaction — so reading them from the pool asks for a SECOND connection,
+  // and at `c = DB_POOL_MAX` the second one can never arrive. Measured: this
+  // path took one extra connection whenever the caches were cold, which in CI
+  // is most of the time and in production is every restart.
+  //
+  // All four tables are instance-level configuration the request's own role can
+  // read, so nothing is lost by asking on the connection already in hand.
+  if (!(await checkAccess(getDb(c, db), user, collection, 'read'))) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
@@ -157,7 +168,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
 
     // Time travel MUST hide columns the role can't read, same as the live list
     // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
-    const colAccessTT = await getColumnAccess(db, collection, await resolveUserRole(user));
+    const colAccessTT = await getColumnAccess(
+      getDb(c, db),
+      collection,
+      await resolveUserRole(user),
+    );
     const page = pageRows.rows
       .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data))
       .map((r) => applyColumnAccess(r as Record<string, unknown>, colAccessTT));
@@ -175,7 +190,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   // Virtual collection: proxy to external API
-  const virtualConfig = await getVirtualConfig(db, collection);
+  const virtualConfig = await getVirtualConfig(getDb(c, db), collection);
   if (virtualConfig) {
     try {
       // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
@@ -204,7 +219,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         search: query.search,
       });
       // Column permissions apply to virtual collections too.
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(
+        getDb(c, db),
+        collection,
+        await resolveUserRole(user),
+      );
       return c.json({
         records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
         pagination: {
@@ -219,7 +238,10 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     }
   }
 
-  const collectionDef = (await DDLManager.getCollection(db, collection)) as CollectionDef | null;
+  const collectionDef = (await DDLManager.getCollection(
+    getDb(c, db),
+    collection,
+  )) as CollectionDef | null;
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
   const tableName = DDLManager.getTableName(collection);
@@ -357,7 +379,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     result.records = result.records.filter((_, i) => decisions[i] === true);
   }
 
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(getDb(c, db), collection, await resolveUserRole(user));
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
   ).map((r) => applyColumnAccess(r, colAccess));
