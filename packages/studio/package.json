@@ -41,7 +41,7 @@
     "layerchart": "^1.0.13",
     "leaflet": "^1.9.4",
     "svelte": "^5.56.10",
-    "tailwindcss": "^4.0.0"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
