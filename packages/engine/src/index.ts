@@ -1350,6 +1350,18 @@ async function bootstrap() {
       db,
       await listKnownResources(db, resolveExtensionsBase()),
     );
+    // Row rules onto the tables, for an install that already has rules and no
+    // policies — which is every install upgrading into this. A feature that only
+    // protected collections created afterwards would protect the ones with no
+    // data in them.
+    try {
+      const { reconcileRowRulePolicies } = await import('./lib/tenancy/index.js');
+      const applied = await reconcileRowRulePolicies(db);
+      if (applied > 0)
+        console.log(`🔒 Row rules enforced in the database on ${applied} collection(s)`);
+    } catch (err) {
+      console.warn('⚠️ Row-rule policies not reconciled (non-fatal):', (err as Error).message);
+    }
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {
     console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);
