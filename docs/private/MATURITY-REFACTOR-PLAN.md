@@ -22,7 +22,7 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 
 | bloc | stare | unde | livrat prin |
 |---|---|---|---|
-| **C — porțile** | ⚠️ **3 criterii din 4**, rămâne deschis la pasul 3 | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
+| **C — porțile** | ✅ **ÎNCHIS, 4 din 4** (2026-08-31) | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
 | **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
 | **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
 | **A — contextul explicit** | ⏸️ **AMÂNAT deliberat** — se ridică întâi `DB_POOL_MAX` | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367 |

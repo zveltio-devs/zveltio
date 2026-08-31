@@ -445,3 +445,54 @@ Două porți au trecut din „nedovedite" în „dovedite prin plantare":
 
 **Rămân 21.** Criteriul blocului C nu a fost rescris ca să încapă, și rămâne
 neîndeplinit: blocul stă deschis.
+
+
+---
+
+## ÎNCHIS — 4 din 4 (2026-08-31)
+
+Criteriul 3 cerea ca fiecare poartă să fie dovedită prin plantare. Era neîndeplinit
+la 15 din 41. Acum: **37 dovedite prin plantare, 0 nedovedite, 5 declarate ca
+nefiind porți** — fiecare dintre cele cinci cu măsurătoarea care o spune, nu cu o
+presupunere.
+
+### Ce a ieșit la iveală în timpul plantării
+
+**`release-gate` nu poate eșua în nicio invocare pe care proiectul o face azi.**
+Cu tag real ocolește complet la prerelease — *„prerelease (3.0.0-beta.64) — gate
+BYPASSED"* — iar forma `--dry-run` avertizează și **se întoarce** în loc să iasă
+cu eroare. Devine poartă abia la prima tăiere stabilă. Consemnat, cu ce trebuie
+să se schimbe ca să devină plantabilă.
+
+**`audit-inventory` e un generator, nu o poartă.** Singurul ei `process.exit(1)`
+e în `catch`-ul propriei rulări; niciun conținut inventariat n-o poate face să
+pice. Cititorul ei — `audit-regression-check` — E poartă și E plantat.
+
+**`audit-gates` nu se verifica pe sine.** Meta-poarta care dovedește că toate
+celelalte prind o violare nu avea nicio dovadă că **ea** ar observa o poartă
+rămasă verde. Acum citește cazuri și dintr-un fișier, iar cazul plantat conține o
+poartă a cărei comandă reușește mereu: o rulare care n-o numește „decorativă" e o
+rulare care ar fi ratat orice poartă moartă.
+
+**`schema-drift-check`** avea consemnat că două plantări plauzibile o lăsaseră
+verde. Forma care o face să pice: o rută care interoghează o tabelă `zv_*` pe care
+nicio migrație n-o creează — ea desparte severitatea, și iese cu eroare doar la
+driftul care se prăbușește la rulare.
+
+**O plantare a mea a fost greșită, nu poarta.** `audit-regression-check` păzește o
+listă de handlere obligatorii, deci violarea e **scoaterea** unui `auditLog`, nu
+adăugarea unui handler nou. Prima versiune a cazului adăuga un handler și rămânea
+verde — și ar fi fost ușor de citit ca „poartă decorativă".
+
+### Două cazuri care lucrează printr-un ambalaj
+
+`check-test-leftovers` are nevoie de un rând în bază, iar `audit-regression-check`
+de scoaterea unui apel dintr-un fișier urmărit. Amândouă rulează printr-un script
+care seamănă violarea, cheamă poarta adevărată și **curăță după el** — inclusiv
+fișierele generate ca efect secundar, fiindcă o sondă care lasă arborele murdar
+ajunge într-o zi comisă din greșeală.
+
+Verificatorul de acoperire citea doar comanda, deci nu vedea poarta din spatele
+ambalajului. Cazul o **declară** acum (`proves:`), iar verificatorul citește
+declarația. Declarat, nu dedus: un verificator care ar ghici indirectarea ar
+credita orice ambalaj.
