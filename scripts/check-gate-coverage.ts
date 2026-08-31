@@ -105,6 +105,14 @@ for (const m of auditSrc.matchAll(/proves: \[([^\]]+)\]/g)) {
   for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
 }
 
+// Backtick commands too. A case written as a template literal was invisible
+// here and read as "no case at all" — the checker said a proven gate was
+// unproven, which is the failure mode that wastes the most time.
+for (const m of auditSrc.matchAll(/cmd: `([^`]+)`/g)) {
+  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
+  for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) covered.add(r[1]!);
+}
+
 for (const m of auditSrc.matchAll(/cmd: '([^']+)'/g)) {
   for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
   for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) {
