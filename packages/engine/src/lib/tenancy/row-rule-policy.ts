@@ -212,6 +212,99 @@ export function buildRowRulePredicate(
   return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped };
 }
 
+/**
+ * Why this rule cannot be enforced, or `null` when it can.
+ *
+ * Exported so the save route can refuse a rule instead of storing one that no
+ * layer can agree on. An administrator who writes `code eq user_id` — an integer
+ * column against a user id — gets three different behaviours today: the engine's
+ * query throws, the generated policy is skipped (so the rule does nothing), and
+ * the in-process matcher filters in JavaScript. None of them is wrong on its
+ * own; together they are a rule that means three things.
+ *
+ * Refusing it at the door is the only version where they agree.
+ */
+export function describeRuleProblem(
+  rule: RowRule,
+  columnTypes: Record<string, string>,
+): string | null {
+  if (!ident(rule.filter_field)) {
+    return `field ${JSON.stringify(rule.filter_field)} is not an identifier`;
+  }
+  const pgType = columnTypes[rule.filter_field];
+  if (!pgType) return `column ${rule.filter_field} does not exist on the table`;
+  if (!CASTABLE.has(pgType)) {
+    return `column ${rule.filter_field} is ${pgType}, which a setting cannot be cast into safely`;
+  }
+  if (!OPS.has(rule.filter_op)) {
+    return `operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`;
+  }
+
+  const source = rule.filter_value_source;
+  const known =
+    source === 'user_id' ||
+    source === 'user_email' ||
+    source === 'user_role' ||
+    source.startsWith('static:');
+  if (!known) return `value source ${JSON.stringify(source)} is not known`;
+
+  // An empty list is refused for EVERY column type, not just the strict ones.
+  // The engine turns it into `in ()`, which is a syntax error on every request
+  // to the collection; the generated policy skips the rule, which opens it. One
+  // saved mistake, two opposite failures.
+  if (
+    (rule.filter_op === 'in' || rule.filter_op === 'not_in') &&
+    source.startsWith('static:') &&
+    source
+      .slice('static:'.length)
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean).length === 0
+  ) {
+    return 'the list is empty, which the engine turns into `in ()` and the policy ignores';
+  }
+
+  const numeric = new Set(['integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real']);
+  const strictly = numeric.has(pgType) || pgType === 'uuid' || pgType === 'boolean';
+  if (!strictly) return null;
+
+  // A numeric, uuid or boolean column can only be compared with values that
+  // survive the cast. An id, an email and a role name are all text, and none of
+  // them will.
+  //
+  // `user_role` was briefly allowed here on the grounds that the guard in front
+  // of the predicate would skip the rule when the setting is empty. It does not
+  // help: SQL does not promise to short-circuit `OR`, so Postgres is free to
+  // evaluate the cast anyway and raise — while the engine, which short-circuits
+  // in JavaScript, skips the rule quietly. That is a divergence produced by the
+  // guard that was supposed to prevent one.
+  if (!source.startsWith('static:')) {
+    return `column ${rule.filter_field} is ${pgType}, and ${source} is text that will not cast into it`;
+  }
+  if (source.startsWith('static:')) {
+    const raw = source.slice('static:'.length);
+    const items =
+      rule.filter_op === 'in' || rule.filter_op === 'not_in'
+        ? raw
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : [raw];
+    if (items.length === 0) return 'the static list is empty';
+    for (const item of items) {
+      const ok = numeric.has(pgType)
+        ? /^-?\d+(\.\d+)?$/.test(item)
+        : pgType === 'boolean'
+          ? /^(true|false|t|f|1|0)$/i.test(item)
+          : /^[0-9a-fA-F-]{36}$/.test(item);
+      if (!ok) {
+        return `column ${rule.filter_field} is ${pgType}, and ${JSON.stringify(item)} will not cast into it`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Policy name for a collection's row rules. One per table, replaced wholesale. */
 export const ROW_RULE_POLICY = 'zv_row_rules';
 
