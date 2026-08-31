@@ -59,6 +59,42 @@ const ANY_MARKER = 'biome-' + 'ignore lint/suspicious/noExplicitAny';
 
 const CASES: Case[] = [
   {
+    // A static path registered AFTER a same-method param path is unreachable:
+    // the param route wins and captures the static segment. The gate exists
+    // because that shipped once — `GET /api/flows/dlq` matched `/:id`, and
+    // `WHERE id = 'dlq'` on a uuid column answered 500.
+    gate: 'route-collision-check',
+    cmd: 'bun run scripts/route-collision-check.ts',
+    file: 'packages/engine/src/routes/plant-collision-routes.ts',
+    body: [
+      "import { Hono } from 'hono';",
+      '',
+      'export function plantCollisionRoutes(): Hono {',
+      '  const app = new Hono();',
+      "  app.get('/:id', (c) => c.json({ id: c.req.param('id') }));",
+      "  app.get('/dlq', (c) => c.json({ ok: true }));",
+      '  return app;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
+    // A router built on `poolDb` needs a SECOND connection while the request is
+    // already holding one for its tenant transaction. At `c = DB_POOL_MAX` the
+    // second can never arrive, so the instance stops rather than slows — which
+    // is why the gate wants such a router listed in TXN_SKIP_PREFIXES.
+    gate: 'check-pooldb-txn-skip',
+    cmd: 'bun run scripts/check-pooldb-txn-skip.ts',
+    file: 'packages/engine/src/routes/index.ts',
+    mode: 'append',
+    body: [
+      '',
+      '// planted by audit-gates: a poolDb router with no TXN_SKIP_PREFIXES entry',
+      "// app.route('/api/plantpool', plantPoolRoutes(poolDb, auth));",
+      '',
+    ].join('\n'),
+  },
+  {
     // The `.catch` must swallow a QUERY — the gate looks for `.execute(` or a
     // `sql` template within four lines. A `.catch` on any other call is not the
     // thing it is hunting, and a first version of this probe planted exactly

@@ -56,7 +56,7 @@ pentru, nici împotriva.
 |---|---|---|---|
 | 0 | Citește documentul ăsta | — | (la fiecare pas) |
 | 1 | **Măsoară** cât e ținută efectiv o conexiune pe o cerere reală, față de cât ar fi cu tranzacții scurte | ✅ **FĂCUT** | plafonul e real; câștigul e ~2,3×, **nu „dispare”** |
-| 2 | Inventar: siturile `reqDb`, `?? db`, și codul de extensie pe `ctx.db` | DE FĂCUT | — |
+| 2 | Inventar | ✅ | **89 de situri — dar inventarul NU e reparația. Vezi mai jos.** |
 | 3 | Accesorul explicit, `async`, ca TypeScript să prindă siturile ratate | DE FĂCUT | — |
 | 4 | Poartă: nicio interogare pe date de firmă în afara tranzacției | DE FĂCUT | — |
 | 5 | Migrarea rutelor nucleu, bucăți de ~10, suita verde între ele | DE FĂCUT | — |
@@ -305,3 +305,108 @@ codul de stare. Acum aruncă, deci se derulează înapoi.
   fișierul întreg creează tabelele și apoi le șterge, cu `rc=0`.
 - **Env fără de care testele mint:** `ZVELTIO_REGISTRATION_ENABLED=1`,
   `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL`, pe linii separate.
+
+
+---
+
+## Pasul 2 — inventarul, și de ce planul măsura lucrul greșit (2026-08-30)
+
+Inventarul cerut de pas există: **89 de situri** — 46 `reqDb(`, 18 `c.get('tenantTrx')`,
+9 `getCurrentTenantTrx()`, 16 căderi `?? db`. Ăsta ar fi refactorul.
+
+Înainte de a-l începe, am măsurat **ce se întâmplă efectiv în timpul în care conexiunea e
+ținută**, fiindcă planul spune că tranzacția e ținută prea mult.
+
+### Nu e ținută mult
+
+Instrumentare temporară pe granița tranzacției, sarcină reală prin HTTP:
+
+| | total în tranzacție | până la prima interogare | după ultima | interogări |
+|---|---:|---:|---:|---:|
+| listare caldă | **1,59 ms** | 0,39 ms | 0,05 ms | 9 |
+| listare rece | 10,39 ms | 1,32 ms | 0,10 ms | 34 |
+
+**La margini nu e aproape nimic de tăiat.** O tranzacție de 1,6 ms nu explică un plafon.
+
+### Ce e, de fapt: **a doua rezervare**
+
+O singură cerere, fără nicio concurență:
+
+```
+DB_POOL_MAX=1   GET /api/data/spanrows?limit=25   → niciun răspuns, 8,85 s, tăiat
+DB_POOL_MAX=2   aceeași cerere                    → 200 în 62 ms
+```
+
+**O cerere are nevoie de două conexiuni deodată.** Ține una pentru tranzacția de firmă și
+cere pool-ului alta — `checkAccess`, `getColumnAccess`, `DDLManager.getCollection`,
+`getVirtualConfig`: șase situri numai în `list.ts`, toate pe `db`, adică pe pool. Sunt
+acolo dintr-un motiv real: în tranzacție sesiunea rulează ca `zveltio_rls`, care nu poate
+citi ce le trebuie.
+
+**Asta explică exact forma măsurătorii de la pasul 1**, care altfel e ciudată: prăbușirea
+e la `c = pool`, nu la `c = pool / 2`. Sub plafon rămâne mereu o conexiune liberă care
+poate servi a doua cerere; **la plafon fiecare conexiune e ținută de o tranzacție al cărei
+proprietar așteaptă o a doua care nu mai poate veni.** De-asta se vede
+`idle in transaction × 10, active × 1` — și de-asta serviciul se oprește în loc să
+încetinească.
+
+### Ce înseamnă pentru bloc
+
+Planul propunea un refactor de 89 de situri ca să scurteze tranzacțiile. **Măsurătoarea
+spune că tranzacțiile nu sunt problema.** Reparația e alta și e mai mică: **o cerere nu
+are voie să ceară pool-ului o a doua conexiune cât timp ține una.** Fie se citesc
+metadatele ÎNAINTE de a deschide tranzacția — tiparul există deja în cod, `sessionPrefetch`
+face exact asta, cu un comentariu care spune de ce — fie rolul `zveltio_rls` primește
+dreptul de citire pe tabelele de metadate, ca citirile să încapă în tranzacție.
+
+### Detectorul care mințea — și cum arată cel care nu minte
+
+Prima formă a verificării pornea motorul cu `DB_POOL_MAX=1` și declara vinovată
+orice rută care nu răspundea. A numit zece. **Aceleași zece au răspuns apoi 200,
+tot la pool 1, pe un motor pornit de mână cu același mediu** — fiindcă între
+sonde scrierile de fundal ale motorului țin singura conexiune, iar o cerere care
+n-are nevoie decât de tranzacția ei tot expiră așteptând-o.
+
+Verificarea măsura pălăvrăgeala motorului, nu proprietatea. Și, mai rău, **a
+continuat să numească rute după ce fuseseră reparate** — cel mai rău lucru pe
+care îl poate face o poartă. A fost aruncată.
+
+Ce a rămas numără proprietatea acolo unde se întâmplă: driverul pool-ului
+numără fiecare conexiune luată **cât timp cererea ține deja tranzacția**, iar
+middleware-ul de firmă raportează cifra în antetul `x-zveltio-extra-connections`.
+Nimic nu depinde de cronometraj, de saturație sau de ce face motorul în fundal.
+Trăiește în harness, în proces, ca test — `second-reservation.test.ts`.
+
+### Reparațiile, și ce le-a scos la iveală
+
+`scripts/check-second-reservation.ts` pornește motorul cu `DB_POOL_MAX=1` și întreabă
+fiecare rută singurul lucru care nu se poate contesta: **poți răspunde cu o singură
+conexiune?**
+
+| răspund | nu răspund |
+|---|---|
+| `/api/health`, `/api/collections`, `/api/me`, `/api/dashboards` | `/api/webhooks`, `/api/saved-queries`, `/api/notifications`, `/api/revisions`, `/api/flows`, `/api/settings`, `/api/users`, `/api/api-keys`, `/api/tenants`, `/api/audit` |
+
+**10 din 14.** Patru rute sunt deja pe partea bună, deci tiparul e realizabil — nu e o
+limită a arhitecturii.
+
+E **cremalieră, nu poartă**: lista are voie să scadă, niciodată să crească. Dovedită în
+ambele direcții prin plantare (scoaterea unei rute din prag ⇒ rc=1).
+
+---
+
+## Ce urmează în blocul A
+
+Pașii 3–6 din plan (accesor explicit, poartă, migrarea rutelor, contract SDK) **nu mai
+sunt forma corectă a lucrării.** Ce rămâne de făcut, în ordinea în care se poate verifica:
+
+1. Pentru fiecare din cele 10 rute, mută citirea de metadate înaintea tranzacției **sau**
+   în tranzacție — și scade pragul cu fiecare.
+2. `DB_POOL_MAX` ridicat la 40 (livrat în blocul E) **nu repară asta** — mută plafonul de
+   la 25 la 40 de cereri simultane, dar o cerere continuă să ceară două conexiuni.
+
+## Jurnal
+
+| Când | Pas | Ce s-a întâmplat |
+|---|---|---|
+| 2026-08-30 | 2 | Inventarul cerut există (89 de situri), dar măsurătoarea a arătat că nu el e reparația: tranzacția ține 1,59 ms, iar o cerere are nevoie de DOUĂ conexiuni. Cremalieră cu 10 rute, dovedită prin plantare. |
