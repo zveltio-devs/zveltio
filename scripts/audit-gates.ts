@@ -787,6 +787,11 @@ for (const c of CASES) {
     console.log(
       `  ❌ ${c.gate.padEnd(34)} FAILED FOR THE WRONG REASON (no ${JSON.stringify(c.expect)})`,
     );
+    // Show what it DID say. Without this the report names a problem and hides
+    // the only sentence that explains it, which costs a round-trip through CI
+    // for every diagnosis.
+    const tail = output.trim().split('\n').slice(-6).join('\n     ');
+    if (tail) console.log(`     ${tail}`);
   } else {
     missed.push(c.gate);
     console.log(`  ❌ ${c.gate.padEnd(34)} STAYED GREEN on a planted violation`);
