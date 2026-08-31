@@ -56,6 +56,16 @@ type Case = {
 const INTERP = '$' + '{t}';
 
 /**
+ * `${…}` for probe bodies that are themselves TypeScript.
+ *
+ * Same reason as `INTERP` directly above, and the same answer: written whole it
+ * trips `noTemplateCurlyInString`, and that rule is right — it exists to catch
+ * an interpolation somebody forgot to make a template. Here the text IS source
+ * being written to disk, so it is assembled rather than suppressed.
+ */
+const CURLY = (inner: string) => '$' + '{' + inner + '}';
+
+/**
  * The `noExplicitAny` suppression marker, in pieces.
  *
  * Same reason as `INTERP` above, one rule further: `any-ratchet` counts these
@@ -134,7 +144,13 @@ const CASES: Case[] = [
     // schema and compares, so it needs a database; the probe hands it the same
     // one the rest of the run uses.
     gate: 'check-insert-schema-match',
-    cmd: 'SEAM_DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}" bun run scripts/check-insert-schema-match.ts',
+    // `$TEST_DATABASE_URL` without braces on purpose: the braced form trips
+    // `noTemplateCurlyInString`, and writing it as a template literal instead
+    // hid the command from `check-gate-coverage`, which reads single-quoted
+    // commands. Two rules pulling opposite ways; the plain variable satisfies
+    // both. With nothing set the gate exits 0 with a note and this case fails
+    // loudly as decoration, which is the right direction to fail in.
+    cmd: 'SEAM_DATABASE_URL="$TEST_DATABASE_URL" bun run scripts/check-insert-schema-match.ts',
     file: '../zveltio-extensions/search/engine/plant-insert.ts',
     body: [
       "import { sql } from 'kysely';",
@@ -231,9 +247,13 @@ const CASES: Case[] = [
       'const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;',
       'if (!url) process.exit(2);',
       'const db = createDb(url);',
-      'const name = `plantleft_${Date.now()}`;',
+      'const name = `plantleft_' + CURLY('Date.now()') + '`;',
       'try {',
-      '  await sql`INSERT INTO zvd_collections (name, display_name) VALUES (${name}, ${name})`.execute(db);',
+      '  await sql`INSERT INTO zvd_collections (name, display_name) VALUES (' +
+        CURLY('name') +
+        ', ' +
+        CURLY('name') +
+        ')`.execute(db);',
       '} finally {',
       '  await db.destroy().catch(() => {});',
       '}',
@@ -246,7 +266,7 @@ const CASES: Case[] = [
       '// Clean up before answering, so the plant does not outlive the probe.',
       'const db2 = createDb(url);',
       'try {',
-      '  await sql`DELETE FROM zvd_collections WHERE name = ${name}`.execute(db2);',
+      '  await sql`DELETE FROM zvd_collections WHERE name = ' + CURLY('name') + '`.execute(db2);',
       '} finally {',
       '  await db2.destroy().catch(() => {});',
       '}',
