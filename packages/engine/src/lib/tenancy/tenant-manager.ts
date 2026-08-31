@@ -918,6 +918,26 @@ export async function withTenantIsolation<T>(
       bypass: opts?.identity?.bypass ?? false,
     };
 
+    // Whether there is an ACTOR at all — written as its own setting, because
+    // absence cannot be detected.
+    //
+    // A row rule needs to tell two things apart: a request whose identity has a
+    // field that is empty, and work that has no identity at all. Reading them
+    // off one setting does not work, and that is measured rather than assumed:
+    //
+    //     after SET LOCAL + COMMIT  ->  ''    (the setting survives, emptied)
+    //     on a connection never set ->  NULL
+    //
+    // So `current_setting(x, true) IS NULL` means "first request on a fresh
+    // pooled connection", not "no identity" — a security predicate that would
+    // depend on pool luck and pass every test run against a cold pool.
+    // `set_config(x, NULL, true)` does not unset either; it also leaves ''.
+    //
+    // Hence a separate flag, ALWAYS written like the rest, saying what the empty
+    // spellings cannot: background jobs and boot reconcilers publish no identity
+    // and get `off`, and a rule stands down for them exactly as it does today.
+    const hasActor = (opts?.identity?.userId ?? '') !== '';
+
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
@@ -944,6 +964,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_email', ${identity.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
+             set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true)
     `.execute(trx);
     // Bind the transaction to the async context as well as handing it to `fn`.

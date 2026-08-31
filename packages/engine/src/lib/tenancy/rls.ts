@@ -344,29 +344,44 @@ export function matchesRlsFilters(
  * each: 336 ms, of which the filtering was 2,2 ms — the reading was the cost.
  * The same page asked of the database is 2 ms.
  *
- * ── Why `->` and to_jsonb, and never `->>` ────────────────────
+ * ── Why `->>` and text, and no longer `->` + to_jsonb ─────────
  *
  * A policy value is ALWAYS a string: the four sources are `user_id`,
- * `user_email`, `user_role` and `static:VAL`. `->>` renders any JSON scalar as
- * text, so `data->>'code' = '5'` is TRUE for the number 5 — while the in-memory
- * evaluator, comparing with `===`, says `5 !== '5'` and hides that row. The
- * naive translation therefore SHOWS a row the policy withholds, which is the
- * one direction a security filter must never fail in. Comparing jsonb to
- * `to_jsonb(<value>::text)` is true only for the JSON *string*, which is what
- * `===` means.
+ * `user_email`, `user_role` and `static:VAL`. Both other appliers compare it as
+ * TEXT — the engine sends the string and Postgres casts it against the typed
+ * column, so `code = '5'` matches the row where code is 5; the in-memory
+ * evaluator compares `String(a) === String(b)` for exactly that reason. `->>`
+ * renders a JSON scalar as text and agrees with both.
  *
- * ── Why `IS DISTINCT FROM` and the explicit NULL ──────────────
+ * This used to read `-> ` compared against `to_jsonb(<value>::text)`, matching
+ * only the JSON *string* "5" and never the number 5. That was aligned to an
+ * in-memory evaluator which then compared with `===`. It no longer does: an
+ * independent audit found `===` wrong and it became a text comparison, and this
+ * applier — in another file, uncompared — kept the old meaning. `code eq
+ * static:5` then showed the row on `/api/data` and hid it under `?as_of=`.
  *
- * A key missing from a snapshot is `undefined` in JS and SQL NULL here. In
- * memory `undefined === v` is false, so `neq` and `not_in` KEEP such a row.
- * Plain `<>` and `NOT IN` yield NULL for it, and a WHERE drops it. So the two
- * negative operators say so explicitly. A JSON null needs no special case: it
- * comes back as jsonb `null`, not SQL NULL, and compares like the JS `null` it
- * came from.
+ * ── Why the negative operators drop a missing key ─────────────
  *
- * Third applier of the same four operators, kept in this file with the other
- * two for the reason stated above them: they must not drift into disagreeing
- * about what a policy means. Same fail-closed default, same message.
+ * A key missing from a snapshot is `undefined` in JS and SQL NULL here, and
+ * SQL DROPS such a row from `<>` and `NOT IN`: the comparison is NULL and a
+ * WHERE discards it. `IS DISTINCT FROM` and an explicit `IS NULL OR` used to be
+ * here to KEEP it, because that is what the in-memory evaluator did.
+ *
+ * That evaluator was WRONG, and it is the finding the audit opened with: a row
+ * with a NULL field was absent from `/api/data` and delivered over SSE. Three
+ * appliers were corrected; this fourth one was not, so the same leak survived
+ * on the `?as_of=` path — the one that exists for auditing. Measured across the
+ * full operator x source x column-type x NULL matrix: 18 of 56 cases disagreed,
+ * twelve of them this way.
+ *
+ * So the negatives now say nothing special, and SQL's own semantics — the ones
+ * the other three follow — apply.
+ *
+ * FOURTH applier of the same four operators. The comment here used to say
+ * "third", written before the policy generator existed in `row-rule-policy.ts`.
+ * Adjacency was supposed to stop them drifting; it did not, because the fourth
+ * was not adjacent and nothing compared them. `row-rules-three-interpreters`
+ * now walks all four over the whole matrix, which is what actually stops it.
  */
 export function rlsJsonConditions(
   filters: Array<{ field: string; condition: FilterCondition }>,
@@ -381,18 +396,21 @@ export function rlsJsonConditions(
     // row. That is silent: the query succeeds and the page comes back empty,
     // and a suite that only checks "these rows are hidden" passes for entirely
     // the wrong reason.
-    const at = sql`${col} -> ${field}::text`;
-    const one = (v: unknown) => sql`to_jsonb(${String(v)}::text)`;
+    const at = sql`${col} ->> ${field}::text`;
+    const one = (v: unknown) => sql`${String(v)}::text`;
     const list = (v: unknown) => sql.join((Array.isArray(v) ? v : [v]).map(one), sql`, `);
 
+    // No special case for a missing key on any of the four: `->>` gives NULL,
+    // and SQL drops a NULL comparison from a WHERE. That is what the live-table
+    // path does, so it is what this must do.
     if (condition.op === 'eq') {
       out.push(sql<boolean>`${at} = ${one(condition.value)}`);
     } else if (condition.op === 'neq') {
-      out.push(sql<boolean>`${at} IS DISTINCT FROM ${one(condition.value)}`);
+      out.push(sql<boolean>`${at} <> ${one(condition.value)}`);
     } else if (condition.op === 'in') {
       out.push(sql<boolean>`${at} IN (${list(condition.value)})`);
     } else if (condition.op === 'not_in') {
-      out.push(sql<boolean>`(${at} IS NULL OR ${at} NOT IN (${list(condition.value)}))`);
+      out.push(sql<boolean>`${at} NOT IN (${list(condition.value)})`);
     } else {
       throw new Error(
         `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
