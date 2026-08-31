@@ -1,3 +1,4 @@
+import { onAfterCommit } from '../lib/tenancy/index.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 
@@ -54,7 +55,7 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
-    // Deferred by a tick, not merely un-awaited.
+    // Deferred until the COMMIT, not merely un-awaited.
     //
     // This write goes to the POOL while the request's tenant transaction is
     // still open: the middleware sits inside it, so "after next()" is still
@@ -65,9 +66,9 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // for exactly that. Measured: with DB_POOL_MAX=1 a single request to a
     // logged route never answers at all.
     //
-    // A later tick puts the INSERT after the commit, which the comment above
-    // already describes as the race this was living with.
-    setTimeout(() => {
+    // An audit showed a later TICK does not: the timer fires with the transaction
+    // still open. `onAfterCommit` waits for the commit itself.
+    onAfterCommit(() => {
       poolDb
         .insertInto('zv_request_logs')
         .values({
@@ -85,6 +86,6 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
           // pipeline doesn't go unnoticed (every request loses traceability).
           console.warn('[request-log] write failed:', err.message);
         });
-    }, 0);
+    });
   };
 }
