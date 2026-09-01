@@ -12,12 +12,19 @@ that means*.
 > subsystem-by-subsystem effort. This document is the **matrix + verification of
 > the fallbacks that already exist today**; the "planned" rows are tracked there.
 
+> **Configured vs reachable.** This matrix is about a dependency being
+> UNREACHABLE at runtime. It is not a statement that the dependency is optional
+> to configure. Valkey is the case where the two differ: `VALKEY_URL` is required
+> in production and the engine refuses to start without it, *and* a Valkey that
+> is configured but temporarily down still degrades rather than crashing. Both
+> are true, and the row below describes the second.
+
 ## Matrix
 
 | Dependency | Critical? | When it's down | Behaviour today | Health check |
 |---|---|---|---|---|
 | **Postgres** | 🔴 critical | — | Engine can't serve. `/api/health/ready` → 503, pod pulled from the LB. A write killed mid-flight rolls back cleanly (no partial rows — see failure-injection tests). | `database`, `migrations` |
-| **Valkey / cache** | 🟢 optional | Query cache + DB-driven rate-limit tiers | **Degrades, keeps serving.** `getCache()` returns `null` and every caller null-checks it → queries hit Postgres directly, rate-limiting falls back to defaults. `/ready` stays **200**; `/deep` shows `cache` ok with `configured:false` or an error but `criticalOk:true`. | `cache` |
+| **Valkey / cache** | 🟡 required to CONFIGURE, tolerated when DOWN | Query cache + DB-driven rate-limit tiers | **Degrades, keeps serving.** `getCache()` returns `null` and every caller null-checks it → queries hit Postgres directly, rate-limiting falls back to defaults. `/ready` stays **200**; `/deep` shows `cache` ok with `configured:false` or an error but `criticalOk:true`. | `cache` |
 | **Realtime bus** | 🟢 optional | Cross-instance broadcast / presence fan-out | **Degrades.** With no `VALKEY_URL` the bus is `pg-notify` (the default) or `none`; single-instance realtime still works in-process. A configured **Valkey** bus that's down is the only case flagged unhealthy. | `realtime` |
 | **pg-boss queue** | 🟢 optional | Async DDL jobs (collection create/alter) | **Degrades.** Reads/writes to existing collections keep working; schema changes fail loudly until the worker is back. `/deep` → `degraded`. | `queue` |
 | **Object storage (S3)** | 🟢 optional | File uploads/downloads | Uploads fail with a typed 5xx and **leave no orphan metadata row** (the row is written only after a successful PUT — see failure-injection S3). Existing local-served files unaffected. | `storage` |
@@ -29,10 +36,18 @@ routing). 🟢 optional = failing **degrades** a feature but the engine stays re
 
 ## Verified fallbacks (today)
 
-- **Cache is optional** — `getCache()` returns `null` when `VALKEY_URL` is unset
-  or the client failed; callers null-check, so a Valkey outage never fails a
-  request. Confirmed by `/api/health/ready` staying 200 with no Valkey while
-  `/api/health/deep` reports the cache state.
+- **A cache OUTAGE never fails a request** — `getCache()` returns `null` when the
+  client failed, and callers null-check, so requests keep being served.
+  Confirmed by `/api/health/ready` staying 200 while `/api/health/deep` reports
+  the cache state.
+
+  This is not a licence to run without one. `VALKEY_URL` is **required in
+  production** and the engine refuses to start without it: permission
+  invalidation is published through the cache, so an unconfigured fleet has each
+  replica serving its own stale answer after a revoke — and unlike an outage,
+  nothing reports that. The null-checks exist so a cache that *goes down* does
+  not take the instance with it, which is a different situation from one that was
+  never there.
 - **Realtime falls back to `pg-notify`** — `pickBus()` selects `PgNotifyRealtimeBus`
   when no `VALKEY_URL` is present and `NoopRealtimeBus` when there's no DB either,
   so realtime never hard-fails a deployment that simply hasn't configured Valkey.

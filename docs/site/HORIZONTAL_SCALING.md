@@ -8,7 +8,7 @@ The default Zveltio deployment includes all the necessary components for horizon
 
 1. **Application State (Stateless Engine):** The Zveltio engine holds no localized state. You can spin up as many instances of the engine as you need.
 2. **Database & Connection Pooling:** PostgreSQL (with pgvector) handles all relational data. Crucially, Zveltio includes **PgDog** by default — a multi-threaded connection pooler with native SCRAM-SHA-256 support — allowing hundreds of engine instances to connect without overwhelming the database with connection limits.
-3. **Session, Caching & Realtime:** **Valkey** acts as the central session store, caching layer, and Pub/Sub message broker. When a database event occurs on Engine A, it broadcasts via Valkey so Engine B and C can sync their connected WebSocket clients in realtime.
+3. **Session, Caching & Realtime:** **Valkey** acts as the central session store, caching layer, and Pub/Sub message broker. It is **required** — not a scaling nicety. Permission invalidation is published through it, so a fleet without one has each replica serving its own stale answer after a revoke, with nothing reporting the divergence. The engine refuses to start in production when `VALKEY_URL` is unset. When a database event occurs on Engine A, it broadcasts via Valkey so Engine B and C can sync their connected WebSocket clients in realtime.
 4. **File Storage:** Zveltio uses **SeaweedFS** (S3-compatible) to ensure all scaled engine instances serve and store the exact same assets, bypassing localized disk constraints.
 
 ---

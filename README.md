@@ -208,7 +208,7 @@ No hidden dependencies. No surprises.
 | Database | [PostgreSQL](https://www.postgresql.org/) 17+ with pgvector | Full RDBMS + AI vector search, no NoSQL chaos |
 | Query builder | [Kysely](https://kysely.dev) 0.27+ | Type-safe SQL, no ORM tax |
 | Connection pool | [PgDog](https://github.com/pgdogdev/pgdog) | Multi-threaded, scram-sha-256 native |
-| Cache & realtime | [Valkey](https://valkey.io) 8+ | Redis-compatible, fully open |
+| Cache & realtime | [Valkey](https://valkey.io) 8+ | **Required.** Redis-compatible, fully open. Permission invalidation travels through it, so an engine without one serves revoked grants on every replica but the one that revoked them — the engine refuses to start in production without `VALKEY_URL`. Every install path provisions it. |
 | Auth | [Better-Auth](https://better-auth.com) 1.6+ | Sessions, OAuth, passkeys, 2FA, magic links |
 | Authorization | [Casbin](https://casbin.org) 5.30+ | RBAC + ABAC policy engine |
 | File storage | Local filesystem (default) · optional S3-compatible backend, e.g. [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 3.68 | `STORAGE_DRIVER=local` needs nothing installed; `s3` talks to any S3 API |
