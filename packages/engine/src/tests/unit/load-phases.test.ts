@@ -18,7 +18,6 @@ import {
 import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import type { Database } from '../../db/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
-// biome-ignore lint/suspicious/noExplicitAny: manifest/db fixtures in tests
 type Any = any;
 
 const db = {} as Database; // never queried on the minimal-manifest paths

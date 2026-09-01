@@ -38,7 +38,6 @@ function ctx(opts: { header?: string; query?: string }) {
     set: (k: string, v: unknown) => vars.set(k, v),
     get: (k: string) => vars.get(k),
     _vars: vars,
-    // biome-ignore lint/suspicious/noExplicitAny: minimal context stand-in
   } as any;
 }
 

@@ -29,7 +29,6 @@ function hostWorkers(h: WorkerExtensionHost): Map<string, unknown> {
 }
 import { CannedDb } from './fixtures/canned-db.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: fake ExtensionLoader for the fns under test
 function fakeLoader(over: Record<string, unknown> = {}): any {
   const db = new CannedDb();
   return {

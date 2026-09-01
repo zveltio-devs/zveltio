@@ -45,7 +45,7 @@ interface Baseline {
  * advisory, and folding them in would make the gate fire on changes nobody
  * asked for.
  */
-async function countWarnings(): Promise<Record<string, number>> {
+async function countWarnings(): Promise<{ rules: Record<string, number>; ran: boolean }> {
   const proc = Bun.spawn(['bun', 'x', 'biome', 'lint', '--reporter=summary'], {
     cwd: ROOT,
     stdout: 'pipe',
@@ -59,17 +59,32 @@ async function countWarnings(): Promise<Record<string, number>> {
     const m = /^\s*(\S+)\s+(\d+)\s+\((\d+)\s+warnings?\)/.exec(line);
     if (m) rules[m[1]!] = Number(m[3]);
   }
-  return rules;
+  // Did biome run at all, and produce output this script recognises?
+  //
+  // Separate question from "how many warnings". Without it, zero rules means two
+  // different things — a format change, and a clean tree — and the guard below
+  // could only assume the pessimistic one. That assumption made the gate FAIL on
+  // 2026-09-01 the moment the debt reached zero: the reward for paying it off was
+  // a red build saying "the format changed", which it had not.
+  const ran = /Checked \d+ file/.test(out) || /^Found \d+/m.test(out);
+  return { rules, ran };
 }
 
-const rules = await countWarnings();
+const { rules, ran } = await countWarnings();
 const total = Object.values(rules).reduce((a, b) => a + b, 0);
 
-if (Object.keys(rules).length === 0) {
-  // Biome changing its summary format would otherwise read as "zero warnings,
-  // everything improved" and quietly disable this gate.
-  console.error('[lint-ratchet] parsed no rules from biome output — the format changed.');
+if (!ran) {
+  // Biome changing its summary format, or failing to start, would otherwise read
+  // as "zero warnings, everything improved" and quietly disable this gate.
+  console.error(
+    '[lint-ratchet] biome produced no output this script recognises — it did not ' +
+      'run, or its summary format changed.',
+  );
   process.exit(1);
+}
+
+if (Object.keys(rules).length === 0) {
+  console.log('[lint-ratchet] OK — biome reports no warnings at all.');
 }
 
 if (process.argv.includes('--update')) {

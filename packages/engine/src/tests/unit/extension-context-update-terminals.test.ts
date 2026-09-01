@@ -12,7 +12,6 @@ describe('createRestrictedDb — update terminal methods', () => {
 
   const stubDb = (terminal: 'executeTakeFirst' | 'executeTakeFirstOrThrow') => {
     const calls: string[] = [];
-    // biome-ignore lint/suspicious/noExplicitAny: test stub builder
     const builder: any = {
       set: () => builder,
       where: () => builder,
