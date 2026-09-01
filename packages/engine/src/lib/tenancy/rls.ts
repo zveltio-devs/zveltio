@@ -17,6 +17,12 @@ import { decodeSigned, encodeSigned } from './signed-cache.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
+import {
+  droppedForMissingValue,
+  isRuleOperator,
+  RULE_OPERATORS,
+  unsupportedOperator,
+} from './rule-operators.js';
 
 const RLS_CACHE_TTL = 30; // seconds — short TTL so policy changes apply quickly
 
@@ -252,22 +258,11 @@ export function applyRlsFilters<Q>(
   let out = query as unknown as WhereChain;
   for (const { field, condition } of filters) {
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
-    if (condition.op === 'eq') out = out.where(field, '=', condition.value);
-    else if (condition.op === 'neq') out = out.where(field, '!=', condition.value);
-    else if (condition.op === 'in') out = out.where(field, 'in', asList(condition.value));
-    else if (condition.op === 'not_in') out = out.where(field, 'not in', asList(condition.value));
-    else {
-      // Fail CLOSED. `in` and `not_in` were accepted by the policy route
-      // (routes/rls.ts validates against a four-value enum) and silently
-      // dropped here, so a policy an administrator saved, saw listed as
-      // enabled, and believed was hiding rows did nothing at all. A security
-      // filter that cannot be applied must not let the rows through — an
-      // operator can act on an error, not on a leak they cannot see.
-      throw new Error(
-        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
-          `cannot apply. Refusing the query rather than returning rows the policy was ` +
-          `meant to hide. Fix or disable the policy.`,
-      );
+    if (isRuleOperator(condition.op)) {
+      const op = RULE_OPERATORS[condition.op];
+      out = out.where(field, op.kysely, op.list ? asList(condition.value) : condition.value);
+    } else {
+      throw unsupportedOperator(field, condition.op);
     }
   }
   return out as unknown as Q;
@@ -291,46 +286,13 @@ export function matchesRlsFilters(
   filters: Array<{ field: string; condition: FilterCondition }>,
 ): boolean {
   for (const { field, condition } of filters) {
+    if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
     const value = record[field];
-    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
-    // Compared as text, because that is what the other two do.
-    //
-    // A rule's value is ALWAYS a string — the four sources are user_id,
-    // user_email, user_role and static:VAL. Against an integer column, the
-    // engine's WHERE sends the string and Postgres casts it, so `code = '5'`
-    // matches the row where code is 5. JavaScript's `5 === '5'` does not, so the
-    // same rule hid a row here and kept it there. Text comparison is the one
-    // that agrees with the database.
-    const same = (a: unknown, b: unknown): boolean => String(a) === String(b);
-    if (condition.op === 'eq') {
-      if (value === null || value === undefined) return false;
-      if (!same(value, condition.value)) return false;
-    } else if (condition.op === 'neq') {
-      // A missing or NULL field is DROPPED, because that is what SQL does.
-      //
-      // `value === condition.value` alone kept such a row, while `applyRlsFilters`
-      // sends `<>` and Postgres answers NULL — which a WHERE discards. So the
-      // same rule hid a row on the REST path and showed it on the realtime one.
-      // Measured by an independent audit, on a row with a NULL bucket: absent
-      // from `/api/data`, delivered over SSE. A leak, and one the comment above
-      // these two functions claimed was impossible.
-      if (value === null || value === undefined) return false;
-      if (same(value, condition.value)) return false;
-    } else if (condition.op === 'in') {
-      if (value === null || value === undefined) return false;
-      if (!asList(condition.value).some((v) => same(value, v))) return false;
-    } else if (condition.op === 'not_in') {
-      // Same as `neq`: SQL's `NOT IN` yields NULL for a NULL field, and a WHERE
-      // discards it. `includes(null)` is merely false, which kept it.
-      if (value === null || value === undefined) return false;
-      if (asList(condition.value).some((v) => same(value, v))) return false;
-    } else {
-      throw new Error(
-        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
-          `cannot apply. Refusing the query rather than returning rows the policy was ` +
-          `meant to hide. Fix or disable the policy.`,
-      );
-    }
+    // A missing or NULL field drops the row, on EVERY operator including the
+    // negatives — the rule that had to be written by hand here and was written
+    // wrong. See rule-operators.ts.
+    if (droppedForMissingValue(value)) return false;
+    if (!RULE_OPERATORS[condition.op].keep(value, condition.value)) return false;
   }
   return true;
 }
@@ -390,6 +352,8 @@ export function rlsJsonConditions(
   const col = sql.ref(column);
   const out: Array<ReturnType<typeof sql<boolean>>> = [];
   for (const { field, condition } of filters) {
+    if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
+    const op = RULE_OPERATORS[condition.op];
     // `::text` is not decoration. Postgres has both `jsonb -> text` (object key)
     // and `jsonb -> integer` (array element); with an untyped parameter it
     // resolves to the integer form, which on an object returns NULL for every
@@ -398,25 +362,15 @@ export function rlsJsonConditions(
     // the wrong reason.
     const at = sql`${col} ->> ${field}::text`;
     const one = (v: unknown) => sql`${String(v)}::text`;
-    const list = (v: unknown) => sql.join((Array.isArray(v) ? v : [v]).map(one), sql`, `);
-
+    const rendered = sql.raw(op.sql);
     // No special case for a missing key on any of the four: `->>` gives NULL,
     // and SQL drops a NULL comparison from a WHERE. That is what the live-table
     // path does, so it is what this must do.
-    if (condition.op === 'eq') {
-      out.push(sql<boolean>`${at} = ${one(condition.value)}`);
-    } else if (condition.op === 'neq') {
-      out.push(sql<boolean>`${at} <> ${one(condition.value)}`);
-    } else if (condition.op === 'in') {
-      out.push(sql<boolean>`${at} IN (${list(condition.value)})`);
-    } else if (condition.op === 'not_in') {
-      out.push(sql<boolean>`${at} NOT IN (${list(condition.value)})`);
+    if (op.list) {
+      const items = (Array.isArray(condition.value) ? condition.value : [condition.value]).map(one);
+      out.push(sql<boolean>`${at} ${rendered} (${sql.join(items, sql`, `)})`);
     } else {
-      throw new Error(
-        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
-          `cannot apply. Refusing the query rather than returning rows the policy was ` +
-          `meant to hide. Fix or disable the policy.`,
-      );
+      out.push(sql<boolean>`${at} ${rendered} ${one(condition.value)}`);
     }
   }
   return out;
