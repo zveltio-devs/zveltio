@@ -82,8 +82,7 @@ type FnInfo = {
 function findInnermostFunction(src: string, pos: number): FnInfo | null {
   const re = /\b(async\s+)?function\s+(\w+)\s*\(/g;
   const candidates: FnInfo[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
+  for (const m of src.matchAll(re)) {
     const paramOpen = m.index + m[0].length - 1;
     let i = paramOpen + 1;
     let depth = 1;
@@ -166,10 +165,10 @@ function transform(script: string): { script: string; changed: boolean } {
   let s = ensureSetup(script);
   let changed = false;
   const indices: number[] = [];
-  let search = 0;
-  while ((search = s.indexOf('if (!confirm(', search)) !== -1) {
+  let search = s.indexOf('if (!confirm(');
+  while (search !== -1) {
     indices.push(search);
-    search += 1;
+    search = s.indexOf('if (!confirm(', search + 1);
   }
 
   for (let i = indices.length - 1; i >= 0; i--) {

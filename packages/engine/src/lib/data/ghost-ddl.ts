@@ -52,16 +52,23 @@ export interface GhostMigration {
  * its own copy of the regex would have agreed with it.
  */
 export function isAllowedGhostDdl(statement: string): boolean {
-  const IDENT = String.raw`(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)`;
-  const STRING_LIT = String.raw`'(?:[^']|'')*'`;
+  // Plain strings where there is no backslash, `String.raw` where there is.
+  //
+  // Not cosmetic, and worth the care: this regex is what decides which DDL an
+  // extension may run, so a fragment that silently loses a `\` is a hole. The
+  // two spellings are mixed ON PURPOSE — biome's `noUselessStringRaw` flags a
+  // raw literal with nothing to escape — so anyone ADDING a backslash to one of
+  // the plain ones below must switch it to `String.raw` in the same edit.
+  const IDENT = '(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)';
+  const STRING_LIT = "'(?:[^']|'')*'";
   const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\].:]|${STRING_LIT})*`;
   const ALLOWED_DDL_RE = new RegExp(
-    String.raw`^(?:` +
+    '^(?:' +
       String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
       String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
       String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
       String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
-      String.raw`)$`,
+      ')$',
     'i',
   );
   return ALLOWED_DDL_RE.test(statement.trim());

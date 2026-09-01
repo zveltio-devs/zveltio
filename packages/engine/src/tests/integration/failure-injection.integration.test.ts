@@ -32,7 +32,6 @@ beforeAll(async () => {
 afterAll(async () => {
   if (skipAll || !db) return;
   await sql.raw(`DROP TABLE IF EXISTS ${S1_TABLE}`).execute(db);
-  // biome-ignore lint/suspicious/noExplicitAny: Kysely destroy untyped on the alias
   await (db as any).destroy?.();
 });
 
@@ -43,7 +42,6 @@ describe.skipIf(skipAll)('H-14 — failure injection', () => {
     // the server aborts the transaction on disconnect, which is exactly the fault.
     // max:1 pins ONE connection so BEGIN…pg_sleep…COMMIT all run on the same
     // backend and pg_backend_pid() is the one we kill (a pool would round-robin).
-    // biome-ignore lint/suspicious/noExplicitAny: Bun.SQL raw client, driven via .unsafe()
     const victim = new Bun.SQL(TEST_DB_URL!, { max: 1 }) as any;
     const killer = createDb(TEST_DB_URL!);
     const sentinel = `fault-s1-${Date.now()}`; // own value — safe to inline
@@ -89,9 +87,7 @@ describe.skipIf(skipAll)('H-14 — failure injection', () => {
     } catch {
       /* the killed victim connection may throw on close — expected */
     }
-    // biome-ignore lint/suspicious/noExplicitAny: destroy untyped
     await (killer as any).destroy?.();
-    // biome-ignore lint/suspicious/noExplicitAny: destroy untyped
     await (check as any).destroy?.();
   }, 20000);
 

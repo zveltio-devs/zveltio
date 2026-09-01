@@ -116,13 +116,25 @@ export function lockdownGlobals(): void {
     }
   };
 
+  // Arrow functions here, and the equivalence is MEASURED, not assumed.
+  //
+  // `biome`'s `useArrowFunction` rewrote these from function expressions. In
+  // code whose whole job is locking down prototypes inside a sandbox, an
+  // "equivalent" refactor is exactly where a hole would hide, so both were
+  // checked at runtime rather than reasoned about:
+  //
+  //     function(){}.constructor.prototype === (() => {}).constructor.prototype   true
+  //     getPrototypeOf(async function(){}) === getPrototypeOf(async () => {})     true  (AsyncFunction)
+  //
+  // Arrow functions have no own `prototype`, but `.constructor` still resolves
+  // to `Function`, which is what these two lines are reaching for.
   lockProto(
-    function () {
+    (() => {
       /* noop */
-    }.constructor.prototype,
+    }).constructor.prototype,
   ); // Function.prototype
   lockProto(
-    Object.getPrototypeOf(async function () {
+    Object.getPrototypeOf(async () => {
       /* noop */
     }),
   ); // AsyncFunction

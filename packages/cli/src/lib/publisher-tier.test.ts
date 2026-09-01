@@ -43,7 +43,9 @@ describe('resolvePublisherTier', () => {
   it('reads the tier from the registry when a token is present', async () => {
     mockFetch((url, init) => {
       expect(url).toContain('/api/dev/publisher/self');
-      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer zvt_abc');
+      expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBe(
+        'Bearer zvt_abc',
+      );
       return new Response(JSON.stringify({ tier: 'verified' }), { status: 200 });
     });
     const r = await resolvePublisherTier({ token: 'zvt_abc' });
@@ -82,7 +84,9 @@ describe('resolvePublisherTier', () => {
   it('uses ZVELTIO_REGISTRY_TOKEN from the environment', async () => {
     process.env.ZVELTIO_REGISTRY_TOKEN = 'zvt_env';
     mockFetch((_url, init) => {
-      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer zvt_env');
+      expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBe(
+        'Bearer zvt_env',
+      );
       return new Response(JSON.stringify({ tier: 'verified' }), { status: 200 });
     });
     const r = await resolvePublisherTier({});
