@@ -62,6 +62,53 @@ ieșirea bundler-ului nu e stabilă între versiuni de Bun.
 între motor și extensii. Ce costă: 57 de repack-uri și 57 de bump-uri de versiune,
 fiindcă registry-ul refuză aceiași octeți la aceeași versiune.
 
+## PASUL 1, FĂCUT — și răstoarnă calculul: 4.13.5 e o versiune de SECURITATE
+
+Criteriul de oprire spunea „dacă 4.13.5 nu aduce nimic necesar, închide cu «nu
+merită»". Nu se activează. `v4.13.5` conține trei avize:
+
+| aviz | ne atinge? |
+|---|---|
+| parserul de query citește parametri DUPĂ fragmentul URL — diferențe de interpretare între aplicație și proxy/WAF (GHSA-crvj-82cr-hjcx) | **DA, prin forma de instalare** |
+| `toSSG()` scrie în afara directorului de ieșire (GHSA-gqvv-2mrq-wpjv) | nu — `toSSG` nefolosit |
+| `parseBody()` cu notație cu puncte → epuizare de memorie (GHSA-g6gw-c38x-mqfc) | nu — `parseBody` nefolosit |
+
+Verificat prin grep în cod scris de noi: **niciun `hono/cache`, niciun `toSSG`,
+niciun `parseBody`**. Dar primul aviz spune „*și aplicații în spatele unui proxy,
+WAF sau strat de jurnalizare care inspectează query-ul*" — care e exact forma
+self-hosted a Zveltio, iar `?filter=` și `?as_of=` sunt parametri pe care se iau
+decizii de acces.
+
+**Deci blocul se face.**
+
+## CONSTATARE DE SISTEM — mai mare decât blocul
+
+O reparație de securitate într-o dependență INCLUSĂ nu ajunge nicăieri unde e
+inclusă, și **nicio poartă nu observă**.
+
+`hono` e încorporat în trei locuri:
+
+```
+node_modules                                        se ridică la bump          ✅
+packages/engine/src/lib/worker-extension-runtime-source.generated.ts   inline   ❌
+57 × <ext>/engine/index.js                                             inline   ❌
+```
+
+Ambele porți de prospețime — `check-worker-source-fresh.ts` și
+`check-bundle-sources.ts` — hașuiează **SURSA**, nu dependențele, și spun asta în
+propriile comentarii. Sunt corecte pentru ce au fost scrise (o editare de sursă
+care n-a fost repachetată), dar oarbe la un bump de dependență.
+
+Consecința: după merge pe #373, motorul rulează hono 4.13.5, iar runtime-ul de
+worker și cele 57 de extensii rulează 4.13.3 — **cu problema de parsare a
+query-ului** — până când cineva regenerează și repachetează. Fără niciun semnal.
+
+Asta ridică repack-ul din „decizie de igienă" în „parte din reparația de
+securitate", și e argumentul care lipsea când documentul a fost scris prima dată.
+
+**Candidat de poartă nouă:** ceva care compară versiunea dependenței INCLUSE în
+artefactele generate cu cea din `bun.lock`. Nu există azi.
+
 ## Criteriile punctului de validare — SCRISE ÎNAINTE
 
 1. `bun run scripts/check-dep-lockstep.ts` verde în extensii, cu noul pin.
@@ -81,10 +128,11 @@ pasul 3.
 | # | pas | stare |
 |---|---|---|
 | 0 | Citește documentul ăsta | — |
-| 1 | Citește ce e între 4.13.3 și 4.13.5 — decide dacă merită | DE FĂCUT |
+| 1 | Citește ce e între 4.13.3 și 4.13.5 — decide dacă merită | ✅ **FĂCUT** — versiune de SECURITATE, se face |
 | 2 | Merge #373 în motor (CI deja verde) | DE FĂCUT |
 | 3 | Ridică pin-ul la `"hono": "4.13.5"` în extensii, verifică poarta + typecheck | DE FĂCUT |
-| 4 | **Decizie de proprietar:** repack sau nu | DE FĂCUT |
+| 3b | **Regenerează runtime-ul de worker** — include hono inline | DE FĂCUT |
+| 4 | **Decizie de proprietar:** repack — acum cu argument de securitate, nu de igienă | DE FĂCUT |
 | 5 | Dacă da: repack + bump de versiuni, câte un tur de CI | DE FĂCUT |
 | 6 | **PUNCT DE VALIDARE** | DE FĂCUT |
 
