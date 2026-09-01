@@ -480,7 +480,7 @@ wrapSimple('search/studio/pages/+page.svelte', 'search.title', 'search.subtitle'
 {
   const p = join(EXT, 'search/studio/pages/+page.svelte');
   if (existsSync(p)) {
-    let c = readFileSync(p, 'utf8');
+    const c = readFileSync(p, 'utf8');
     const n = c.replace(
       /\s*<div class="flex items-center justify-between">\s*<div>\s*<h1[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*/,
       '\n',

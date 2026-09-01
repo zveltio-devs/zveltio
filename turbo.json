@@ -1,5 +1,51 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  // Environment variables this repo READS, declared so the caching story is
+  // honest and so `noUndeclaredEnvVars` has something true to check against.
+  //
+  // `globalPassThroughEnv` and not `globalEnv`, deliberately: `globalEnv` makes
+  // a variable part of the cache KEY, so changing any of these would invalidate
+  // every task's cache. None of them do that — they are read by `e2e/` and
+  // `scripts/`, which run directly rather than as turbo tasks, so they are
+  // inputs to those programs and not to any cached output.
+  //
+  // Undeclared is the state that actually bites: turbo filters the environment
+  // by default, which is how an exported TEST_DATABASE_URL once failed to reach
+  // the tests and `bun run test` reported 286 failures on a healthy tree.
+  "globalPassThroughEnv": [
+    // e2e harness
+    "E2E_BASE_URL",
+    "E2E_DB",
+    "E2E_PG_ADMIN",
+    "E2E_PORT",
+    "BASE_URL",
+    "TEST_EMAIL",
+    "TEST_PASS",
+    "CHROMIUM_PATH",
+    "CAPTURE",
+    "SHOT_DIR",
+    // gates and release tooling
+    "AUDIT_GATES_ONLY",
+    "BASE_REF",
+    "RELEASE_GATE_SKIP_NETWORK",
+    "REQUIRE_STUDIO_DIST",
+    "SEAM_DATABASE_URL",
+    "ZVELTIO_ALLOW_MISSING_DB",
+    "ZVELTIO_ALLOW_MISSING_SIBLING",
+    "EXTENSIONS_DIR",
+    "EXTENSIONS_ROOT",
+    // seeding
+    "DEMO_ADMIN_EMAIL",
+    "DEMO_ADMIN_PASSWORD",
+    // supplied by the runner, not by us
+    "GITHUB_REF_NAME",
+    "GITHUB_SHA",
+    "PGHOST",
+    "PGPASSWORD",
+    "PGPORT",
+    "PGUSER",
+    "TMPDIR"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

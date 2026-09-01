@@ -100,7 +100,6 @@ afterAll(async () => {
   if (skipAll || !db) return;
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
   await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
-  // biome-ignore lint/suspicious/noExplicitAny: test teardown
   await (db as any).destroy?.();
 });
 
