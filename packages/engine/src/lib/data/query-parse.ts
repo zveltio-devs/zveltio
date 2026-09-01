@@ -110,7 +110,7 @@ export function parseFilters(
     if (!mappedOp) continue;
     // Coerce numeric-looking values to numbers for comparison operators
     const value =
-      NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !isNaN(Number(paramVal))
+      NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !Number.isNaN(Number(paramVal))
         ? Number(paramVal)
         : paramVal;
     filters[field] = { op: mappedOp, value };

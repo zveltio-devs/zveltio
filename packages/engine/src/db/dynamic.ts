@@ -170,7 +170,6 @@ export interface QueryResult {
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 /**
  * One filter condition → SQL. Exported because the cursor-pagination branch in
  * the list handler used to re-implement a SUBSET of this switch — it covered
