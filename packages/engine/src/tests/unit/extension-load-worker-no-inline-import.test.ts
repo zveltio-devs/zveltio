@@ -34,7 +34,6 @@ function tmpExt(files: Record<string, string>): string {
   return dir;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: minimal loader stub
 function fakeLoader(): any {
   const db = new CannedDb();
   return {
@@ -132,7 +131,6 @@ describe('loadExtensionFromDir — worker isolation does not import in-process',
     const seen: string[][] = [];
     const migRunner = await import('../../lib/extensions/migration-runner.js');
     const runSpy = spyOn(migRunner, 'runExtensionMigrations').mockImplementation(
-      // biome-ignore lint/suspicious/noExplicitAny: stubbed runner
       async (ext: any) => {
         seen.push(ext.getMigrations?.() ?? []);
       },

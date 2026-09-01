@@ -23,7 +23,7 @@ describe('readMultipart', () => {
 
     const form = await readMultipart(ctxWith(fd));
     expect(form).not.toBeNull();
-    expect((form?.get('file') as File).name).toBe('a.txt');
+    expect((form?.get('file') as File | undefined)?.name).toBe('a.txt');
     expect(form?.get('path')).toBe('/docs');
   });
 

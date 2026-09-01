@@ -13,6 +13,7 @@ type WorkHandler = (jobs: Array<{ id: string; data: unknown }>) => Promise<void>
 const workHandlers = new Map<string, WorkHandler>();
 
 class FakePgBoss {
+  // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
   constructor(_opts: { connectionString: string }) {}
   on() {}
   async start() {}

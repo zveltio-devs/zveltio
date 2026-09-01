@@ -36,7 +36,6 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: test double for ZveltioExtension
 function fakeExt(migrations: string[]): any {
   return { name: 'demo', getMigrations: () => migrations };
 }

@@ -18,6 +18,6 @@ describe('runEdgeFunctionInSubprocess — invalid JSON prefix line', () => {
     const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 5000);
     expect(res.ok).toBe(true);
     expect(res.logs).toContain('{not valid json');
-    expect((res.response?.body as { ok: boolean }).ok).toBe(true);
+    expect((res.response?.body as { ok: boolean } | undefined)?.ok).toBe(true);
   }, 15_000);
 });

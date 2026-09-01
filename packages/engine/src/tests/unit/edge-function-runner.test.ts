@@ -28,7 +28,7 @@ describe('runEdgeFunction', () => {
     const res = await runEdgeFunction(code, REQ, { NAME: 'ada' }, 2000);
     expect(res.ok).toBe(true);
     expect(res.response?.status).toBe(201);
-    expect((res.response?.body as { hello: string }).hello).toBe('ada');
+    expect((res.response?.body as { hello: string } | undefined)?.hello).toBe('ada');
     expect(res.response?.headers['x-a']).toBe('1');
     expect(res.duration_ms).toBeGreaterThanOrEqual(0);
   });
@@ -58,8 +58,8 @@ describe('runEdgeFunction', () => {
       return { status: 200, body: { m: request.method, p: request.path } };
     }`;
     const res = await runEdgeFunction(code, { ...REQ, method: 'POST', path: '/x' }, {}, 2000);
-    expect((res.response?.body as { m: string; p: string }).m).toBe('POST');
-    expect((res.response?.body as { m: string; p: string }).p).toBe('/x');
+    expect((res.response?.body as { m: string; p: string } | undefined)?.m).toBe('POST');
+    expect((res.response?.body as { m: string; p: string } | undefined)?.p).toBe('/x');
   });
 
   it('returns a transpile error for invalid source', async () => {

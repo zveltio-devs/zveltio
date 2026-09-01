@@ -27,7 +27,7 @@ describe('runEdgeFunctionInSubprocess', () => {
     const res = await runEdgeFunctionInSubprocess(code, REQ, { WHO: 'sub' }, 5000);
     expect(res.ok).toBe(true);
     expect(res.response?.status).toBe(201);
-    expect((res.response?.body as { hi: string }).hi).toBe('sub');
+    expect((res.response?.body as { hi: string } | undefined)?.hi).toBe('sub');
   });
 
   it('captures console logs from the subprocess', async () => {
@@ -100,6 +100,8 @@ describe('runEdgeFunctionInSubprocess', () => {
     }`;
     const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 15000);
     expect(res.ok).toBe(true);
-    expect((res.response?.body as { status: number }).status).toBeGreaterThanOrEqual(200);
+    expect((res.response?.body as { status: number } | undefined)?.status).toBeGreaterThanOrEqual(
+      200,
+    );
   });
 });

@@ -22,7 +22,6 @@ process.env.BETTER_AUTH_SECRET ??= 'test-secret-for-signing';
 
 import type { Database } from '../../db/index.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: fake Redis for cache under test
 type Args = any[];
 
 class ColPermFakeRedis {

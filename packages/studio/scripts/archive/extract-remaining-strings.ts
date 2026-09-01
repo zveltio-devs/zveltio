@@ -58,7 +58,7 @@ for (const ext of walk(EXT_ROOT)) {
     re.lastIndex = 0;
     let m;
     const src = c.replace(/\{m\[[^\]]+\]\(\)\}/g, '').replace(/\{[^}]+\}/g, '');
-    while ((m = re.exec(src))) {
+    for (const m of src.matchAll(re)) {
       const s = m[1].trim();
       if (s.length < 3 || /^\d+$/.test(s) || skip.has(s)) continue;
       if (s.includes('btn-') || s.includes('class=')) continue;
