@@ -121,19 +121,22 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** `export function NAME` / `export async function NAME` above a match. */
+/**
+ * `export function NAME` / `export async function NAME` above a match.
+ *
+ * `matchAll` rather than a `while ((m = re.exec(…)))` loop: the assignment-in-
+ * expression form is a lint warning this repo ratchets, and a gate that adds
+ * warnings while enforcing a rule is a poor argument for itself.
+ */
 function enclosingExports(text: string): string[] {
   const names: string[] = [];
-  const fn = /export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g;
-  let m: RegExpExecArray | null;
-  const marks: Array<{ at: number; name: string }> = [];
-  while ((m = fn.exec(text)) !== null) marks.push({ at: m.index, name: m[1]! });
+  const marks = [...text.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g)].map(
+    (m) => ({ at: m.index ?? 0, name: m[1]! }),
+  );
 
-  const op = /'not_in'/g;
-  let o: RegExpExecArray | null;
-  while ((o = op.exec(text)) !== null) {
+  for (const o of text.matchAll(/'not_in'/g)) {
     let owner = '';
-    for (const mark of marks) if (mark.at < o.index) owner = mark.name;
+    for (const mark of marks) if (mark.at < (o.index ?? 0)) owner = mark.name;
     if (owner && !names.includes(owner)) names.push(owner);
   }
   return names;
