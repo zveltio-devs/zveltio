@@ -231,6 +231,20 @@ export function __localPermissionCacheSize(): number {
 const LOCAL_GOD_TTL_MS = 5_000;
 const _localGod = new Map<string, { value: boolean; at: number }>();
 
+/**
+ * The same, for a user's role.
+ *
+ * `resolveUserRole` has the identical shape and the identical problem:
+ * Valkey-backed, and on an install without Valkey — which is the target
+ * deployment — it reads the POOL. On the WRITE path that is a second connection
+ * per write, measured, because the write pipeline asks for the role after the
+ * request already holds its transaction.
+ *
+ * Same five seconds as the god flag, for the same reason: a `DEL` reaches every
+ * instance, this map only the one that ran the change.
+ */
+const _localRole = new Map<string, { value: string; at: number }>();
+
 /** Test seam — how many god flags are held in process. */
 export function __localGodCacheSize(): number {
   return _localGod.size;
@@ -241,10 +255,12 @@ export function clearLocalPermissionCache(userId?: string): void {
     _localPerm.clear();
     _effective.clear();
     _localGod.clear();
+    _localRole.clear();
     invalidatePolicyObjectIndex();
     return;
   }
   _localGod.delete(userId);
+  _localRole.delete(userId);
   // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
   const needle = `:${userId}:`;
   for (const key of _localPerm.keys()) {
@@ -601,6 +617,9 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   const userId = user.id;
   if (!userId || userId.startsWith('apikey:')) return 'public';
 
+  const local = _localRole.get(userId);
+  if (local && Date.now() - local.at < LOCAL_GOD_TTL_MS) return local.value;
+
   const cache = getCache();
   const cacheKey = `urole:${userId}`;
   if (cache) {
@@ -627,6 +646,7 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
     const role = result.rows[0]?.role || 'public';
+    _localRole.set(userId, { value: role, at: Date.now() });
     if (cache) {
       try {
         await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
