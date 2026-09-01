@@ -71,9 +71,7 @@ function main(): void {
     const abs = resolve(file).replace(/\\/g, '/');
     const dir = dirname(abs);
     const content = readFileSync(file, 'utf8');
-    let m: RegExpExecArray | null;
-    IMPORT_RE.lastIndex = 0;
-    while ((m = IMPORT_RE.exec(content)) !== null) {
+    for (const m of content.matchAll(IMPORT_RE)) {
       const spec = m[1];
       const resolved = resolve(dir, spec).replace(/\\/g, '/');
       // Is the import target a deep file inside some subsystem?

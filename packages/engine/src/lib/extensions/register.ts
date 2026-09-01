@@ -163,8 +163,7 @@ export async function engineOwnedTables(): Promise<Set<string>> {
 
   const collect = (content: string): void => {
     re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content)) !== null) tables.add(m[1].toLowerCase());
+    for (const m of content.matchAll(re)) tables.add(m[1].toLowerCase());
   };
 
   // Source mode reads the .sql files; a compiled binary has no filesystem to
@@ -247,9 +246,7 @@ export async function buildAllowedTables(
       // called IF. Harmless there, but the same misparse in the other direction
       // would grant on the strength of a sentence.
       const content = (await Bun.file(p).text()).replace(/--[^\n]*/g, '');
-      let m: RegExpExecArray | null;
-      re.lastIndex = 0;
-      while ((m = re.exec(content)) !== null) {
+      for (const m of content.matchAll(re)) {
         const name = m[1];
         const lower = name.toLowerCase();
         if (engineTables.has(lower) && !granted.has(lower)) {

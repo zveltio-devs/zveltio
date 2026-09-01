@@ -60,7 +60,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       ],
       deserialize: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
       validate: (v) => {
-        if (v !== null && v !== undefined && v !== '' && isNaN(Number(v)))
+        if (v !== null && v !== undefined && v !== '' && Number.isNaN(Number(v)))
           return 'Must be a number';
         return null;
       },
@@ -291,7 +291,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
           v !== null &&
           v !== undefined &&
           v !== '' &&
-          (!Number.isInteger(Number(v)) || isNaN(Number(v)))
+          (!Number.isInteger(Number(v)) || Number.isNaN(Number(v)))
         ) {
           return 'Must be an integer';
         }
@@ -310,7 +310,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
       deserialize: (v) => (v === '' || v === null || v === undefined ? null : parseFloat(v)),
       validate: (v) => {
-        if (v !== null && v !== undefined && v !== '' && isNaN(parseFloat(v)))
+        if (v !== null && v !== undefined && v !== '' && Number.isNaN(parseFloat(v)))
           return 'Must be a number';
         return null;
       },

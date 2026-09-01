@@ -258,7 +258,7 @@ async function makeElectricProvider(config: OfflineProviderConfig): Promise<Offl
   }
 
   let auth = await mintToken();
-  let electricUrl = config.electricUrl ?? auth.electricUrl;
+  const electricUrl = config.electricUrl ?? auth.electricUrl;
 
   // Per-table subscription registry.
   const subscribers = new Map<string, Set<(rows: unknown[]) => void>>();
