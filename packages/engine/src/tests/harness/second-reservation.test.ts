@@ -146,6 +146,22 @@ d('a request needs one connection (in-process)', () => {
     expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
   });
 
+  it('a WRITE takes nothing beyond its transaction', async () => {
+    // Reads were probed from the start; writes were not, and the write pipeline
+    // says in its own comment that the revision log "runs on the pool, not the
+    // request transaction". If that is still true it is a second connection on
+    // every write in the product.
+    const res = await app.request(`/api/data/${DATA_COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'probe' }),
+    });
+    expect(res.status).toBeGreaterThan(0);
+    const extra = Number(res.headers.get('x-zveltio-extra-connections') ?? '0');
+    const { tracedAcquisitionSite } = await import('../../db/connection-trace.js');
+    expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
+  });
+
   it('counts a second connection when one is genuinely taken', async () => {
     // The ratchet is only worth having if a violation would be seen. Planted:
     // a query issued on the pool while the request's transaction is open is
