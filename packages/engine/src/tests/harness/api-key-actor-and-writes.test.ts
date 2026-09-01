@@ -43,14 +43,16 @@ d('API keys and writes meet the same rules (in-process)', () => {
       await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
     ).rows[0]!.id;
 
-    await sql.raw(`
+    await sql
+      .raw(`
       CREATE TABLE ${TABLE} (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id uuid NOT NULL,
         title text NOT NULL,
         created_by text
       )
-    `).execute(db);
+    `)
+      .execute(db);
     await sql.raw(`ALTER TABLE ${TABLE} ENABLE ROW LEVEL SECURITY`).execute(db);
     await sql.raw(`ALTER TABLE ${TABLE} FORCE ROW LEVEL SECURITY`).execute(db);
     await sql
@@ -60,16 +62,20 @@ d('API keys and writes meet the same rules (in-process)', () => {
       )
       .execute(db);
     await sql.raw(`GRANT SELECT, INSERT, UPDATE ON ${TABLE} TO zveltio_rls`).execute(db);
-    await sql.raw(`
+    await sql
+      .raw(`
       INSERT INTO ${TABLE} (tenant_id, title, created_by) VALUES
         ('${tenant}', 'mine',    'apikey:k1'),
         ('${tenant}', 'someone', 'user-9')
-    `).execute(db);
+    `)
+      .execute(db);
 
     await sql`
       INSERT INTO zvd_collections (name, display_name) VALUES (${COLL}, ${COLL})
       ON CONFLICT DO NOTHING
-    `.execute(db).catch(() => {});
+    `
+      .execute(db)
+      .catch(() => {});
     await sql`
       INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
       VALUES (${COLL}, '*', 'created_by', 'eq', 'user_id', true)
@@ -80,7 +86,10 @@ d('API keys and writes meet the same rules (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLL}`.execute(db).catch(() => {});
-    await sql.raw(`DROP TABLE IF EXISTS ${TABLE} CASCADE`).execute(db).catch(() => {});
+    await sql
+      .raw(`DROP TABLE IF EXISTS ${TABLE} CASCADE`)
+      .execute(db)
+      .catch(() => {});
     await sql`DELETE FROM zvd_collections WHERE name = ${COLL}`.execute(db).catch(() => {});
   });
 
@@ -89,7 +98,8 @@ d('API keys and writes meet the same rules (in-process)', () => {
       tenant,
       async (trx) => {
         await publishApiKeyActor('apikey:k1', false);
-        const r = await sql.raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
+        const r = await sql
+          .raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
           .execute(trx);
         return r.rows.map((x) => x.title);
       },
@@ -105,7 +115,8 @@ d('API keys and writes meet the same rules (in-process)', () => {
       tenant,
       async (trx) => {
         await publishApiKeyActor('apikey:k1', true);
-        const r = await sql.raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
+        const r = await sql
+          .raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
           .execute(trx);
         return r.rows.map((x) => x.title);
       },
@@ -199,7 +210,10 @@ d('API keys and writes meet the same rules (in-process)', () => {
     // Enough of a Hono context for this path: no session, the key in the header.
     const ctx = {
       get: (k: string) => (k === 'prefetchedSession' ? null : null),
-      req: { header: (h: string) => (h === 'X-API-Key' ? raw : undefined), raw: { headers: new Headers() } },
+      req: {
+        header: (h: string) => (h === 'X-API-Key' ? raw : undefined),
+        raw: { headers: new Headers() },
+      },
     };
 
     try {
@@ -209,7 +223,8 @@ d('API keys and writes meet the same rules (in-process)', () => {
           const who = await authenticate(ctx as never, {} as never, db);
           expect(who?.authType).toBe('api_key');
           expect(who?.user.id).toBe(`apikey:${keyId}`);
-          const r = await sql.raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
+          const r = await sql
+            .raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
             .execute(trx);
           return r.rows.map((x) => x.title);
         },

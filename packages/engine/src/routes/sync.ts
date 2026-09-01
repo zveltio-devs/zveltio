@@ -5,7 +5,7 @@
  * POST /api/sync/pull — client requests changes from a timestamp
  */
 
-import { describeWriteRefusal, isRlsRefusal } from '../lib/data/write-pipeline.js';
+import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
