@@ -24,7 +24,7 @@ Zveltio uses **Better-Auth** (v1.x) for all authentication. It provides:
 - Email/password with bcrypt hashing
 - OAuth 2.0 social login (Google, GitHub, Microsoft)
 - TOTP-based two-factor authentication
-- Session cookies with optional Valkey/Redis secondary storage
+- Session cookies with Valkey/Redis secondary storage (required in production)
 - JWT-less — sessions stored server-side
 
 > **Self-hosted vs Zveltio cloud:** this guide covers your **self-hosted** engine, where all three OAuth providers can be enabled. The Zveltio cloud login on [zveltio.com/login](https://zveltio.com/login) (used for marketplace + dev portal accounts) currently exposes only Google and GitHub — Microsoft will be added when there's enough demand from cloud users.
@@ -248,7 +248,7 @@ Sessions are stored server-side. By default they're in the database; with Valkey
 
 ### Session cookie with Valkey cache
 
-When `VALKEY_URL` is set, sessions are stored in Valkey (fast reads) and synced to the database. This is recommended for production.
+Sessions are stored in Valkey (fast reads) and synced to the database. `VALKEY_URL` is **required in production** — the engine refuses to start without it (see `CONFIGURATION.md`).
 
 ```env
 VALKEY_URL=redis://valkey:6379
