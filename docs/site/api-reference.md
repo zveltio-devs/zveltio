@@ -576,7 +576,7 @@ es.addEventListener('data', (e) => {
 
 ### Presence Channels
 
-Track which users are currently active in a channel. Backed by Valkey sorted sets with 60-second TTL; falls back to in-memory when Valkey is unavailable.
+Track which users are currently active in a channel. Backed by Valkey sorted sets with 60-second TTL; falls back to in-memory when a configured Valkey is temporarily unreachable. That fallback is per-process — presence is then local to one replica — and it is an outage path, not a supported configuration: `VALKEY_URL` is required in production.
 
 ```bash
 # Join a presence channel (or send heartbeat — repeat every ~30s)

@@ -51,6 +51,55 @@ export function productionGuardViolations(
     });
   }
 
+  // VALKEY_URL absent is not a lighter configuration — it is a set of security
+  // controls degrading in silence.
+  //
+  // Twelve modules call `getCache()` and sixteen have an `if (!cache)` branch.
+  //
+  // NOT all of those are silent degradation, and the difference matters. The
+  // realtime bus has a real second backend — `PgNotifyRealtimeBus` uses
+  // LISTEN/NOTIFY through `Bun.SQL.subscribe()`, crosses instances, and applies
+  // the same self-echo filter. It is documented, with its limits stated (8 KB
+  // payloads, suited to ≤2 replicas). That one is a choice, not a loss.
+  //
+  // What IS silent: the permission and identity caches. Without Valkey,
+  // `isGodUser` and `resolveUserRole` go to the database on every request, and
+  // an invalidation — a demoted god, a revoked grant — reaches only the process
+  // that performed it. `invalidateUserPermCache` sends its DEL to a cache that
+  // is not there, so every other replica keeps serving the old answer until its
+  // own in-process entry expires. Nothing reports that.
+  //
+  // The product already treats Valkey as required, everywhere except here:
+  //
+  //   docker-compose.yml   depends_on: cache: { condition: service_healthy }
+  //   .env.example         VALKEY_PASSWORD=   # REQUIRED
+  //   install/install.sh   apt/dnf/yum/pacman, then a prebuilt binary, then a
+  //                        build from source — three tiers rather than give up
+  //   scripts/install.sh   every mode starts it and waits for `valkey-cli ping`
+  //
+  // So the fallbacks describe a deployment the product does not ship, and the
+  // engine was the only place that accepted it. The two were never put side by
+  // side; this is that.
+  //
+  // Fatal in production only, like the RLS role guard, with the same escape
+  // hatch shape: an operator who genuinely runs without it must say so.
+  if (!env.VALKEY_URL && env.ZVELTIO_ALLOW_NO_CACHE !== '1') {
+    violations.push({
+      variable: 'VALKEY_URL',
+      message:
+        'unset, so the engine runs with no cache. That is not a smaller install: god and ' +
+        'role checks hit the database on every request, and a revoked permission reaches ' +
+        'only the replica that revoked it — the invalidation is sent to a cache that is ' +
+        'not there, and every other replica serves the old answer until its own in-process ' +
+        'entry expires. (Realtime is fine either way: it falls back to Postgres ' +
+        'LISTEN/NOTIFY, which is a documented backend, not a degradation.) ' +
+        'Every shipped install path provisions Valkey — docker-compose depends on it being ' +
+        'healthy, and both installers build it from source rather than skip it. ' +
+        'Set VALKEY_URL. If this instance genuinely has no cache and you accept the above, ' +
+        'set ZVELTIO_ALLOW_NO_CACHE=1 deliberately.',
+    });
+  }
+
   // CORS_ORIGINS=* is not a loose setting, it is the absence of one. The
   // WebSocket origin check honours `*` explicitly (lib/security/ws-origin.ts),
   // and Better Auth's trustedOrigins is built from the same list — so a single
@@ -94,9 +143,12 @@ export function assertProductionConfig(
   for (const v of violations) {
     console.error(`❌ [startup] ${v.variable} is ${v.message}`);
   }
+  // Neutral wording, because not every violation is a setting that was TURNED
+  // ON: `VALKEY_URL` is fatal when it is ABSENT, and "VALKEY_URL disables a
+  // security control" reads as though someone set it to something harmful.
   throw new Error(
-    `Refusing to start in production: ${violations.map((v) => v.variable).join(', ')} ` +
-      `${violations.length === 1 ? 'disables a security control' : 'disable security controls'}.`,
+    `Refusing to start in production — ${violations.length === 1 ? 'this must' : 'these must'} ` +
+      `be resolved first: ${violations.map((v) => v.variable).join(', ')}.`,
   );
 }
 
