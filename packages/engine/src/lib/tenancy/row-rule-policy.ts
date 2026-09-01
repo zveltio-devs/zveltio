@@ -37,6 +37,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { isRuleOperator, RULE_OPERATORS } from './rule-operators.js';
 
 export interface RowRule {
   role: string;
@@ -179,7 +180,12 @@ export function buildRowRulePredicate(
       continue;
     }
 
-    const isList = rule.filter_op === 'in' || rule.filter_op === 'not_in';
+    if (!isRuleOperator(rule.filter_op)) {
+      skipped.push({ rule, reason: `operator ${JSON.stringify(rule.filter_op)} is not known` });
+      continue;
+    }
+    const opSem = RULE_OPERATORS[rule.filter_op];
+    const isList = opSem.list;
     let condition: string;
     if (isList) {
       // Only a `static:` source can be a list; the user_* ones are scalars, and
@@ -198,9 +204,9 @@ export function buildRowRulePredicate(
         skipped.push({ rule, reason: 'the static list is empty' });
         continue;
       }
-      condition = `${col} ${rule.filter_op === 'in' ? 'IN' : 'NOT IN'} (${list})`;
+      condition = `${col} ${opSem.sql} (${list})`;
     } else {
-      condition = `${col} ${rule.filter_op === 'eq' ? '=' : '<>'} ${value.sql}`;
+      condition = `${col} ${opSem.sql} ${value.sql}`;
     }
 
     // A rule the caller's roles do not match does not apply.
