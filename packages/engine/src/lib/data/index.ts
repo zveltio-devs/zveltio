@@ -27,6 +27,9 @@ export { processInput } from './write-pipeline.js';
 //   - `afterWrite` so sync push produces the same revisions, webhooks and
 //     realtime events a bulk write does, instead of landing rows silently.
 export { afterWrite } from './write-pipeline.js';
+// Why a write was refused, for the routes that have to explain it. `/api/sync`
+// used to hand back the raw Postgres string; both paths now say the same thing.
+export { describeWriteRefusal, isRlsRefusal } from './write-pipeline.js';
 //   - `normalizeFields` so the extension write proxy can tell a collection's
 //     declared fields from the system columns an extension passes alongside
 //     them (`id`, `created_by`); `processInput` returns only the former.
