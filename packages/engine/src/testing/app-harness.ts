@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { invalidateGodCache } from '../lib/tenancy/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -122,8 +123,36 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
   //
   // Demoting rather than reusing keeps every suite's session its own: they run
   // in one process against one database, and a shared cookie would couple them.
-  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god' AND email <> ${email}`.execute(db);
-  await sql`UPDATE "user" SET role = 'god' WHERE email = ${email}`.execute(db);
+  const demoted = await sql<{ id: string }>`
+    UPDATE "user" SET role = 'member' WHERE role = 'god' AND email <> ${email} RETURNING id
+  `.execute(db);
+  const granted = await sql<{ id: string }>`
+    UPDATE "user" SET role = 'god' WHERE email = ${email} RETURNING id
+  `.execute(db);
+
+  // Clear the god caches, exactly as the product's own transfer route does.
+  //
+  // `isGodUser` answers from a 5-second in-process cache, so a role changed
+  // behind its back is invisible for that long. The product never changes a role
+  // behind its back — `routes/permissions.ts` returns the affected ids precisely
+  // so it can invalidate them — but this helper writes the role in raw SQL, and
+  // so used to leave the cache saying the opposite of the database.
+  //
+  // That is not a theoretical staleness. `POST /api/auth/sign-up/email` runs the
+  // full middleware chain, and `tenantMembershipMiddleware` calls `isGodUser` on
+  // the way through — caching FALSE for the brand-new account a line before this
+  // promotes it. Every subsequent request in the suite was then refused 403 by a
+  // membership check the real god is exempt from.
+  //
+  // It stayed hidden because that middleware returns early when the resolved
+  // tenant is the default one, which is the only tenant a virgin database has.
+  // So the suite passed on a fresh database and failed on any database with real
+  // tenants in it — i.e. it was blind on precisely the multi-tenant path the
+  // product is for. Measured on one 63-tenant database: 108 failures, all of
+  // them this, none of them the code under test.
+  for (const row of [...demoted.rows, ...granted.rows]) {
+    await invalidateGodCache(row.id);
+  }
 
   const signIn = await app.request('/api/auth/sign-in/email', {
     method: 'POST',

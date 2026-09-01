@@ -165,11 +165,18 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         // by the invariant it is trying to restore. Standing the previous holder
         // down is what recovery means: whoever holds a valid, unspent, rotated
         // token takes the role over, and the audit row below records it.
-        await trx
+        // The ids are RETURNED because their caches have to be cleared too.
+        //
+        // Without that, a demoted god keeps full power for as long as the cache
+        // says so — up to five minutes in Valkey, five seconds in process. The
+        // whole point of recovery is that the previous holder has lost control;
+        // leaving their `god:<id> = true` behind hands it back for the window.
+        const demoted = await trx
           .updateTable('user')
           .set({ role: 'member' })
           .where('role', '=', 'god')
           .where('email', '!=', email)
+          .returning(['id'])
           .execute();
         const granted = await trx
           .updateTable('user')
@@ -211,12 +218,21 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
           resourceType: 'recovery_bootstrap',
           metadata: { outcome: 'granted', role: 'god', email: granted.email, ip },
         });
-        return granted;
+        return { granted, demotedIds: demoted.map((d) => d.id) };
       });
-    const result = await grantAndSpend();
+    const outcome = await grantAndSpend();
+    const result = outcome?.granted ?? null;
     if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
 
     const { invalidateGodCache } = await import('../lib/tenancy/index.js');
+    // The demoted holders first: leaving their cached `god = true` behind hands
+    // the role back for the length of the TTL, which is the opposite of what a
+    // recovery is for.
+    for (const id of outcome?.demotedIds ?? []) {
+      await invalidateGodCache(id).catch((err: Error) => {
+        console.error('[permissions] invalidateGodCache failed for a demoted god:', err.message);
+      });
+    }
     await invalidateGodCache(result.id).catch((err: Error) => {
       // Cache invalidation failure on a privilege grant is HIGH-IMPACT:
       // the new god role won't be visible until the cache TTL expires.

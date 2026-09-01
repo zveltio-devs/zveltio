@@ -5,7 +5,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
+import { drainAfterCommit, runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
 import { isGodUser } from './permissions.js';
 
 /**
@@ -831,8 +831,14 @@ export async function withTenantIsolation<T>(
   fn: (trx: Database) => Promise<T>,
   opts?: { userId?: string | null; identity?: RlsIdentity },
 ): Promise<T> {
+  // Work queued for after the COMMIT, captured inside the store and run outside
+  // it. Four callers used `setTimeout(…, 0)` for this, and an audit showed the
+  // timer fires with the transaction still open — so the write they were trying
+  // to keep off the request's connection took a second one anyway.
+  let queuedAfterCommit: Array<() => void | Promise<void>> = [];
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  return (_db as any).transaction().execute(async (trx: Database) => {
+  const result = await (_db as any).transaction().execute(async (trx: Database) => {
     // Drop to a role Postgres will actually apply RLS to.
     //
     // `docker-compose.yml` passes POSTGRES_USER to the official Postgres image,
@@ -912,6 +918,26 @@ export async function withTenantIsolation<T>(
       bypass: opts?.identity?.bypass ?? false,
     };
 
+    // Whether there is an ACTOR at all — written as its own setting, because
+    // absence cannot be detected.
+    //
+    // A row rule needs to tell two things apart: a request whose identity has a
+    // field that is empty, and work that has no identity at all. Reading them
+    // off one setting does not work, and that is measured rather than assumed:
+    //
+    //     after SET LOCAL + COMMIT  ->  ''    (the setting survives, emptied)
+    //     on a connection never set ->  NULL
+    //
+    // So `current_setting(x, true) IS NULL` means "first request on a fresh
+    // pooled connection", not "no identity" — a security predicate that would
+    // depend on pool luck and pass every test run against a cold pool.
+    // `set_config(x, NULL, true)` does not unset either; it also leaves ''.
+    //
+    // Hence a separate flag, ALWAYS written like the rest, saying what the empty
+    // spellings cannot: background jobs and boot reconcilers publish no identity
+    // and get `off`, and a rule stands down for them exactly as it does today.
+    const hasActor = (opts?.identity?.userId ?? '') !== '';
+
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
     // syntax error.
@@ -938,6 +964,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_email', ${identity.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
+             set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true)
     `.execute(trx);
     // Bind the transaction to the async context as well as handing it to `fn`.
@@ -952,13 +979,29 @@ export async function withTenantIsolation<T>(
     //
     // Setting it here means there is ONE spelling that is correct everywhere:
     // in a handler, in a helper called from one, and in a job.
-    return runWithTenantTrx(trx, tenantId, () => {
+    return runWithTenantTrx(trx, tenantId, async () => {
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
-      return fn(trx);
+      try {
+        return await fn(trx);
+      } finally {
+        // Captured while the store is still alive; run below, after the commit.
+        queuedAfterCommit = drainAfterCommit();
+      }
     });
   });
+
+  for (const job of queuedAfterCommit) {
+    // One failed follow-up must not take the request's answer with it: the
+    // transaction is already committed and the caller already has its result.
+    await Promise.resolve()
+      .then(job)
+      .catch((err: Error) => {
+        console.warn('[after-commit] queued work failed:', err.message);
+      });
+  }
+  return result as T;
 }
 
 /**

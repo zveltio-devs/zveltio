@@ -53,9 +53,21 @@ d('creating a company requires its administrator', () => {
   }, 60_000);
 
   it('creates the company and its membership when the user exists', async () => {
-    const who = await sql<{ email: string }>`SELECT email FROM "user" LIMIT 1`.execute(db);
-    const email = who.rows[0]?.email;
-    expect(email).toBeDefined();
+    // Sign a user up rather than borrowing whichever row `LIMIT 1` returns.
+    //
+    // The borrowed version passed on a clean database and failed on a used one:
+    // with no ORDER BY the row is arbitrary, and some fixtures write emails that
+    // are not emails — one had a space in it, so zod refused the request body
+    // and the route never ran the lookup this test is about. A generic 400 that
+    // looks exactly like the failure being asserted is the worst kind, because
+    // it reads as a regression in the code under test.
+    const email = `tenant-admin-${STAMP}-${Math.floor(Math.random() * 1e6)}@test.local`;
+    const signUp = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: 'HarnessAdmin123!', name: 'Tenant Admin' }),
+    });
+    expect([200, 201]).toContain(signUp.status);
 
     const slug = `real-${STAMP}`;
     const res = await app.request('/api/tenants', {

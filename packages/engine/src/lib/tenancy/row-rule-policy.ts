@@ -37,6 +37,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { isRuleOperator, RULE_OPERATORS } from './rule-operators.js';
 
 export interface RowRule {
   role: string;
@@ -86,6 +87,17 @@ function ident(name: string): string | null {
  * the session's single role; the same value is published, so the two agree.
  */
 function valueExpr(source: string, pgType: string): { sql: string; guc?: string } | null {
+  // `(SELECT …)` is not decoration — it is worth three times the query.
+  //
+  // A bare `current_setting()` in a policy is evaluated PER ROW. Wrapped in a
+  // scalar subquery it becomes an InitPlan: computed once, then compared like a
+  // constant, which also lets the planner use an index on the column. Measured
+  // on 300 000 rows, one rule, median of nine: 0,769 ms bare against 0,257 ms
+  // marked.
+  //
+  // The tenant policy has used this shape since migration 005 for exactly this
+  // reason. The row-rule generator was written without it.
+  const guc = (name: string) => `(SELECT current_setting('${name}', true))`;
   const cast = (inner: string) => (pgType === 'text' ? inner : `CAST(${inner} AS ${pgType})`);
   if (source === 'user_id')
     return { sql: cast(`current_setting('zveltio.user_id', true)`), guc: 'zveltio.user_id' };
@@ -106,7 +118,10 @@ function valueExpr(source: string, pgType: string): { sql: string; guc?: string 
  */
 function roleGuard(role: string): string | null {
   if (role === '*') return null;
-  return `${lit(role)} = ANY (string_to_array(coalesce(current_setting('zveltio.user_roles', true), ''), ','))`;
+  return (
+    `(SELECT ${lit(role)} = ANY ` +
+    `(string_to_array(coalesce(current_setting('zveltio.user_roles', true), ''), ',')))`
+  );
 }
 
 /**
@@ -165,7 +180,12 @@ export function buildRowRulePredicate(
       continue;
     }
 
-    const isList = rule.filter_op === 'in' || rule.filter_op === 'not_in';
+    if (!isRuleOperator(rule.filter_op)) {
+      skipped.push({ rule, reason: `operator ${JSON.stringify(rule.filter_op)} is not known` });
+      continue;
+    }
+    const opSem = RULE_OPERATORS[rule.filter_op];
+    const isList = opSem.list;
     let condition: string;
     if (isList) {
       // Only a `static:` source can be a list; the user_* ones are scalars, and
@@ -184,19 +204,48 @@ export function buildRowRulePredicate(
         skipped.push({ rule, reason: 'the static list is empty' });
         continue;
       }
-      condition = `${col} ${rule.filter_op === 'in' ? 'IN' : 'NOT IN'} (${list})`;
+      condition = `${col} ${opSem.sql} (${list})`;
     } else {
-      condition = `${col} ${rule.filter_op === 'eq' ? '=' : '<>'} ${value.sql}`;
+      condition = `${col} ${opSem.sql} ${value.sql}`;
     }
 
     // A rule the caller's roles do not match does not apply.
     const guards: string[] = [];
     const role = roleGuard(rule.role);
     if (role) guards.push(`NOT (${role})`);
-    // An unresolvable value skips the rule — fail-open for THAT rule, which is
-    // what the engine does. Without this a request with no session would be
-    // hidden from everything rather than falling back to the tenant predicate.
-    if (value.guc) guards.push(`nullif(current_setting(${lit(value.guc)}, true), '') IS NULL`);
+    // A rule stands down exactly where `getRlsFilters` stands down — and that is
+    // PER SOURCE, which this used to get wrong.
+    //
+    // The engine skips a policy only when `resolveValue` returns null:
+    //
+    //     user_id     -> user.id            an empty string does NOT skip
+    //     user_email  -> user.email ?? null an absent email DOES skip
+    //     user_role   -> user.role          an empty string does NOT skip
+    //
+    // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
+    // a session whose role is unset — which is every session, because
+    // better-auth does not populate `session.user.role` — made the engine hide
+    // every row and the policy show all four. Measured: engine [], policy
+    // [1,2,3,4]. The policy was the more permissive of the two, which is the one
+    // direction that matters, because this policy exists for the request whose
+    // handler forgot its filters.
+    //
+    // It hid for a while behind the differential suite, which modelled the
+    // resolver instead of calling it — and the model skipped on empty, agreeing
+    // with the policy against the engine.
+    if (value.guc) {
+      // No actor at all: background jobs and boot reconcilers, which publish no
+      // identity. They get today's behaviour, and they are the callers the old
+      // comment here was really about. `zveltio.actor` is its own setting
+      // because an unset GUC and an emptied one are indistinguishable after the
+      // first transaction on a pooled connection — see tenant-manager.
+      guards.push(`(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`);
+      // And for the one source the engine itself cannot resolve, empty means
+      // unresolved rather than "the empty value".
+      if (value.guc === 'zveltio.user_email') {
+        guards.push(`(SELECT nullif(current_setting(${lit(value.guc)}, true), '') IS NULL)`);
+      }
+    }
 
     terms.push(guards.length > 0 ? `(${guards.join(' OR ')} OR ${condition})` : `(${condition})`);
   }
@@ -208,8 +257,103 @@ export function buildRowRulePredicate(
   // an API key with rlsBypass, or the `data:view_all` permission a god holds —
   // and says so. A role name compared here would be the unauditable check that
   // was dead in `getRlsFilters` for years before anyone noticed.
-  const exempt = `lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) IN ('on', 'true', '1')`;
+  const exempt =
+    `(SELECT lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) ` +
+    `IN ('on', 'true', '1'))`;
   return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped };
+}
+
+/**
+ * Why this rule cannot be enforced, or `null` when it can.
+ *
+ * Exported so the save route can refuse a rule instead of storing one that no
+ * layer can agree on. An administrator who writes `code eq user_id` — an integer
+ * column against a user id — gets three different behaviours today: the engine's
+ * query throws, the generated policy is skipped (so the rule does nothing), and
+ * the in-process matcher filters in JavaScript. None of them is wrong on its
+ * own; together they are a rule that means three things.
+ *
+ * Refusing it at the door is the only version where they agree.
+ */
+export function describeRuleProblem(
+  rule: RowRule,
+  columnTypes: Record<string, string>,
+): string | null {
+  if (!ident(rule.filter_field)) {
+    return `field ${JSON.stringify(rule.filter_field)} is not an identifier`;
+  }
+  const pgType = columnTypes[rule.filter_field];
+  if (!pgType) return `column ${rule.filter_field} does not exist on the table`;
+  if (!CASTABLE.has(pgType)) {
+    return `column ${rule.filter_field} is ${pgType}, which a setting cannot be cast into safely`;
+  }
+  if (!OPS.has(rule.filter_op)) {
+    return `operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`;
+  }
+
+  const source = rule.filter_value_source;
+  const known =
+    source === 'user_id' ||
+    source === 'user_email' ||
+    source === 'user_role' ||
+    source.startsWith('static:');
+  if (!known) return `value source ${JSON.stringify(source)} is not known`;
+
+  // An empty list is refused for EVERY column type, not just the strict ones.
+  // The engine turns it into `in ()`, which is a syntax error on every request
+  // to the collection; the generated policy skips the rule, which opens it. One
+  // saved mistake, two opposite failures.
+  if (
+    (rule.filter_op === 'in' || rule.filter_op === 'not_in') &&
+    source.startsWith('static:') &&
+    source
+      .slice('static:'.length)
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean).length === 0
+  ) {
+    return 'the list is empty, which the engine turns into `in ()` and the policy ignores';
+  }
+
+  const numeric = new Set(['integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real']);
+  const strictly = numeric.has(pgType) || pgType === 'uuid' || pgType === 'boolean';
+  if (!strictly) return null;
+
+  // A numeric, uuid or boolean column can only be compared with values that
+  // survive the cast. An id, an email and a role name are all text, and none of
+  // them will.
+  //
+  // `user_role` was briefly allowed here on the grounds that the guard in front
+  // of the predicate would skip the rule when the setting is empty. It does not
+  // help: SQL does not promise to short-circuit `OR`, so Postgres is free to
+  // evaluate the cast anyway and raise — while the engine, which short-circuits
+  // in JavaScript, skips the rule quietly. That is a divergence produced by the
+  // guard that was supposed to prevent one.
+  if (!source.startsWith('static:')) {
+    return `column ${rule.filter_field} is ${pgType}, and ${source} is text that will not cast into it`;
+  }
+  if (source.startsWith('static:')) {
+    const raw = source.slice('static:'.length);
+    const items =
+      rule.filter_op === 'in' || rule.filter_op === 'not_in'
+        ? raw
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : [raw];
+    if (items.length === 0) return 'the static list is empty';
+    for (const item of items) {
+      const ok = numeric.has(pgType)
+        ? /^-?\d+(\.\d+)?$/.test(item)
+        : pgType === 'boolean'
+          ? /^(true|false|t|f|1|0)$/i.test(item)
+          : /^[0-9a-fA-F-]{36}$/.test(item);
+      if (!ok) {
+        return `column ${rule.filter_field} is ${pgType}, and ${JSON.stringify(item)} will not cast into it`;
+      }
+    }
+  }
+  return null;
 }
 
 /** Policy name for a collection's row rules. One per table, replaced wholesale. */
@@ -258,8 +402,24 @@ export async function applyRowRulePolicy(
   // keep enforcing it.
   await sql.raw(`DROP POLICY IF EXISTS ${ROW_RULE_POLICY} ON ${safe}`).execute(db);
   if (predicate) {
+    // `WITH CHECK` written out, not inherited. This changes NOTHING at runtime.
+    //
+    // A policy with no `WITH CHECK` uses its `USING` predicate for writes too,
+    // so the rule already applied to INSERT and UPDATE. Measured rather than
+    // assumed, on the old form without the clause:
+    //
+    //   INSERT INTO probe (owner) VALUES ('somebody-else');
+    //   ERROR:  new row violates row-level security policy "p" for table "probe"
+    //
+    // So this is documentation written in code, not a repair — worth saying,
+    // because the diff looks like a repair. The write rule now sits where the
+    // read rule is, so the next reader can change one without discovering the
+    // other by accident.
     await sql
-      .raw(`CREATE POLICY ${ROW_RULE_POLICY} ON ${safe} AS RESTRICTIVE USING (${predicate})`)
+      .raw(
+        `CREATE POLICY ${ROW_RULE_POLICY} ON ${safe} AS RESTRICTIVE ` +
+          `USING (${predicate}) WITH CHECK (${predicate})`,
+      )
       .execute(db);
   }
 
