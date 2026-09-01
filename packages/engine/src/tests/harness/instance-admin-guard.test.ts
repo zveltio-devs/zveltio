@@ -64,6 +64,10 @@ d('requireInstanceAdmin (in-process)', () => {
   });
 
   it('a god user passes requireInstanceAdmin from inside a tenant domain', async () => {
+    // One god per instance, enforced by the database since migration 008. The
+    // harness has already made one for this suite, so it is stood down before
+    // this test makes its own — the same move `createGodSession` makes.
+    await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
     const godId = crypto.randomUUID();
     await sql`
       INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")

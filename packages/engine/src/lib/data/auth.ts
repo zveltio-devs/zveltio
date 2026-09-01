@@ -8,6 +8,7 @@
  * to the pre-split inline helpers — zero behaviour change.
  */
 
+import { publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
@@ -51,6 +52,8 @@ export async function authenticate(
         : null;
     const apiKey = await validateApiKey(db, rawKey, requestTenantId);
     if (apiKey) {
+      // `validateApiKey` has already published this actor to the database.
+      const bypass = (apiKey as { rls_bypass?: boolean }).rls_bypass === true;
       return {
         user: {
           id: `apikey:${apiKey.id}`,
@@ -68,7 +71,7 @@ export async function authenticate(
           // `!== false` each of those grants the key instance-wide reads.
           // Exempting a key from tenant isolation should require the database to
           // say so, not merely to fail to deny it.
-          rlsBypass: (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
+          rlsBypass: bypass,
         },
         authType: 'api_key',
       };
@@ -127,6 +130,33 @@ export async function validateApiKey(
     );
     return null;
   }
+
+  // Tell the DATABASE who this is, HERE — not in the callers.
+  //
+  // The row-rule policies read `zveltio.user_id`; a rule whose value does not
+  // resolve skips itself. `tenantMiddleware` publishes the actor for sessions,
+  // before the transaction opens, but a key is not known then — it is resolved
+  // right here, inside the handler. Until this call existed, all key traffic
+  // reached the policies with no identity and every rule stood down. The engine
+  // still restricted such a request, so it was never a leak; it was the second
+  // layer switched off for a whole class of traffic.
+  //
+  // It lives in this function rather than in `authenticate()` because there are
+  // TWO callers — the data API and `routes/edge-functions.ts` — and the second
+  // one only ever used the return value as a boolean. Nothing is open today:
+  // that route's queries are engine metadata, and its sandbox gets no database
+  // handle at all. But the comment forty lines above this one says exactly why
+  // that is not good enough: a second implementation of an auth check is a
+  // second place for one to go missing. A caller cannot forget what it does not
+  // have to remember.
+  //
+  // Published on the transaction the request already holds, so it asks for no
+  // new connection; `publishApiKeyActor` is a no-op where there is no
+  // transaction, which is what makes it safe on every path.
+  await publishApiKeyActor(
+    `apikey:${apiKey.id}`,
+    (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
+  );
 
   // Update last_used_at — fire-and-forget; non-blocking on hot path
   db.updateTable('zv_api_keys')

@@ -106,6 +106,9 @@ beforeAll(async () => {
   // B is promoted to god ONLY so it can seed its own tenant + re-read the
   // sentinel (a plain owner lacks data-write RBAC). A stays a non-god owner —
   // a god A would bypass tenant isolation by design and defeat the test.
+  // One god per instance since migration 008 — the previous holder is
+  // stood down first, the same move the in-process harness makes.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${userBId}`.execute(db);
 
   // Two real tenants; each user a member of their own.

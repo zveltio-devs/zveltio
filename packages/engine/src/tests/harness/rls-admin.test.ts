@@ -61,7 +61,9 @@ d('admin RLS routes (in-process)', () => {
         role: 'member',
         filter_field: 'created_by',
         filter_op: 'eq',
-        filter_value_source: 'user.id',
+        // `user_id`, not `user.id`. The dotted spelling is not a source the
+        // resolvers know: it was stored, listed as enabled, and hid nothing.
+        filter_value_source: 'user_id',
         description: 'harness rls',
       }),
     });

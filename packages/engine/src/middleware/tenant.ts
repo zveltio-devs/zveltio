@@ -3,6 +3,21 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
+import { beginTracedTransaction, endTracedTransaction } from '../db/connection-trace.js';
+
+/**
+ * End the traced window and report what it saw.
+ *
+ * Anything above zero is a route that cannot be served at `c = DB_POOL_MAX`:
+ * every connection is held by a transaction whose owner is waiting for one more.
+ * Reported as a header so a probe reads the property directly instead of
+ * inferring it from a hang — the inference version named the wrong routes and
+ * kept naming them after they were fixed.
+ */
+function closeTracedWindow(c: { res: Response }): void {
+  const extra = endTracedTransaction();
+  if (extra > 0) c.res.headers.set('x-zveltio-extra-connections', String(extra));
+}
 import {
   resolveTenantFromRequest,
   resolveEnvironment,
@@ -11,7 +26,14 @@ import {
   type Tenant,
   type Environment,
 } from '../lib/tenancy/index.js';
-import { runWithDomain, setCurrentTenantTrx } from '../lib/tenancy/index.js';
+import {
+  checkPermission,
+  getUserRoles,
+  resolveUserRole,
+  type RlsIdentity,
+  runWithDomain,
+  setCurrentTenantTrx,
+} from '../lib/tenancy/index.js';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -141,17 +163,73 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           const actingUserId =
             (c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined)?.user
               ?.id ?? null;
+          // The identity the row-rule policies read. Built from the session the
+          // prefetch already resolved, so it costs no extra lookup on the hot
+          // path — the roles and the bypass permission are both cached.
+          //
+          // `bypass` is the same question `getRlsFilters` asks before applying
+          // any rule, asked once here and published as an answer. Two enforcers
+          // of one rule must not disagree about who is exempt.
+          const prefetched = c.get('prefetchedSession') as
+            | { user?: { id?: string; email?: string; role?: string } }
+            | null
+            | undefined;
+          const sessionUser = prefetched?.user;
+          let identity: RlsIdentity | undefined;
+          if (sessionUser?.id) {
+            const [roles, bypass] = await Promise.all([
+              getUserRoles(sessionUser.id).catch(() => [] as string[]),
+              checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
+            ]);
+            // The role is RESOLVED, not read off the session.
+            //
+            // better-auth does not populate `session.user.role`, so publishing
+            // it gave the database an empty string — which its guard reads as
+            // "cannot resolve" and skips the rule, while the engine bound
+            // `undefined` and returned nothing. One rule, three behaviours,
+            // found by an independent audit. `resolveUserRole` is what
+            // `getRlsFilters` would have used, and it is already primed by
+            // `sessionPrefetch`, so this costs no lookup.
+            const direct = sessionUser.role || (await resolveUserRole({ id: sessionUser.id }));
+            identity = {
+              userId: sessionUser.id,
+              email: sessionUser.email ?? '',
+              role: direct,
+              roles: direct && !roles.includes(direct) ? [...roles, direct] : roles,
+              bypass,
+            };
+          }
+
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
+              // Traced only when ZVELTIO_TRACE_CONNECTIONS=1; a no-op otherwise.
+              beginTracedTransaction();
               c.set('tenantTrx', trx);
               // H-12: also expose the tenant transaction via the ALS store so an
               // extension's `ctx.db` (which has no Hono context inside a hook or
               // background job) is RLS-scoped to this tenant, not the global pool.
               setCurrentTenantTrx(trx);
-              await next();
+              try {
+                await next();
+              } finally {
+                // ALWAYS closed, even when the handler throws.
+                //
+                // Without the `finally` an error inside the transaction left the
+                // window open for the life of the process, and every connection
+                // taken afterwards — by any request, on any path — was charged
+                // to it. In CI that showed up as the data route "taking" a
+                // connection that `sessionPrefetch` had taken for someone else,
+                // BEFORE its transaction existed. A counter that can get stuck
+                // reports somebody else's work as yours.
+                closeTracedWindow(c);
+              }
+              // How many pool connections this request wanted ON TOP of the one
+              // it is holding. Anything above zero is a route that cannot be
+              // served at `c = DB_POOL_MAX`. Reported as a header so a probe can
+              // read the property directly instead of inferring it from a hang.
             },
-            { userId: actingUserId },
+            { userId: actingUserId, identity },
           );
         }
       });

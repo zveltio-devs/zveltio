@@ -44,7 +44,10 @@ These must be set for the engine to start:
 | `DATABASE_PASSWORD` | — | DB password |
 | `DATABASE_HOST_DIRECT` | — | Direct host (bypasses PgDog for DDL migrations) |
 | `DATABASE_PORT_DIRECT` | `5432` | Direct port |
-| `DB_POOL_MAX` | `25` | **Ceiling on concurrent in-flight requests**, not a throughput knob — the tenant transaction pins one pooled connection per request. Must satisfy `DB_POOL_MAX × engine instances ≤ pooler pool size ≤ max_connections − 10`. The engine prints the arithmetic at boot. Verify a change with `scripts/bench-concurrency.ts`. |
+| `DB_POOL_MAX` | `40` | **Ceiling on concurrent in-flight requests**, not a throughput knob — the tenant transaction pins one pooled connection per request. Must satisfy `DB_POOL_MAX × engine instances ≤ pooler pool size ≤ max_connections − 10`. The engine prints the arithmetic at boot. Verify a change with `scripts/bench-concurrency.ts`. | Unset, the engine asks the server for `max_connections` at boot and derives a size; this number is the fallback when it cannot ask or `DB_POOL_AUTOSIZE=0`. |
+| `ZVELTIO_INSTANCES` | `1` | How many engine instances share this database. The one number autosizing cannot derive — every replica sizing to "what fits" collectively exhausts the server, under exactly the load that started the extra replicas. |
+| `DB_POOL_SHARE` | `0.5` | Fraction of the server's usable connections this deployment may take. The database is rarely the engine's alone: migrations, backups, a psql session, another application. |
+| `DB_POOL_AUTOSIZE` | `1` | `0` keeps the flat default instead of asking the server. |
 | `DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection timeout (ms) |
 | `TEST_DATABASE_URL` | — | Separate DB for integration tests |
 

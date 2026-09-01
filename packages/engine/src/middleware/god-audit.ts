@@ -9,6 +9,7 @@
  *   app.use('/api/*', godAuditMiddleware(db));
  */
 
+import { onAfterCommit } from '../lib/tenancy/index.js';
 import { createMiddleware } from 'hono/factory';
 import { isGodUser } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
@@ -94,16 +95,24 @@ export function godAuditMiddleware(poolDb: Database) {
           c.req.header('x-real-ip') ??
           null;
 
-        // Fire-and-forget — intentionally not awaited
-        logGodAction(poolDb, {
-          userId: user.id,
-          method: c.req.method,
-          path: c.req.path,
-          status: c.res.status,
-          durationMs,
-          ip,
-        }).catch(() => {
-          /* already logged inside logGodAction */
+        // Fire-and-forget AND deferred until the COMMIT.
+        //
+        // Un-awaited was not enough: the write goes to the pool and the
+        // connection is taken the moment the statement is issued, which here is
+        // still inside the request's tenant transaction. That is a second
+        // connection, and at `c = DB_POOL_MAX` it can never be granted. A later
+        // wait for the commit puts it after the commit — a tick, measured, does not.
+        onAfterCommit(() => {
+          logGodAction(poolDb, {
+            userId: user.id,
+            method: c.req.method,
+            path: c.req.path,
+            status: c.res.status,
+            durationMs,
+            ip,
+          }).catch(() => {
+            /* already logged inside logGodAction */
+          });
         });
       }
     } catch {

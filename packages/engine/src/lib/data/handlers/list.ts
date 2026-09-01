@@ -17,7 +17,12 @@ import { DDLManager } from '../ddl-manager.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters, matchesRlsFilters, getSingleTenantId } from '../../tenancy/index.js';
+import {
+  getRlsFilters,
+  getSingleTenantId,
+  matchesRlsFilters,
+  rlsJsonConditions,
+} from '../../tenancy/index.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
@@ -34,7 +39,18 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   const collection = c.req.param('collection')!;
   const user = c.get('user');
 
-  if (!(await checkAccess(db, user, collection, 'read'))) {
+  // The metadata reads go on the REQUEST's connection, not the pool.
+  //
+  // Access, the collection definition, its virtual config and the column
+  // permissions are all read while the request already holds its tenant
+  // transaction — so reading them from the pool asks for a SECOND connection,
+  // and at `c = DB_POOL_MAX` the second one can never arrive. Measured: this
+  // path took one extra connection whenever the caches were cold, which in CI
+  // is most of the time and in production is every restart.
+  //
+  // All four tables are instance-level configuration the request's own role can
+  // read, so nothing is lost by asking on the connection already in hand.
+  if (!(await checkAccess(getDb(c, db), user, collection, 'read'))) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
@@ -62,44 +78,104 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     const asOf = new Date(query.as_of);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
-    // Get the latest revision per record_id up to as_of
-    // P0: use effectiveDb (tenant-isolated transaction) to prevent cross-tenant reads
+    // One page, from the database.
+    //
+    // This used to be `SELECT DISTINCT ON (record_id) …` with no LIMIT: every
+    // revision of every record in the collection came back, each snapshot was
+    // JSON-parsed in this process, the row policies were applied to the array,
+    // and only then was a page sliced out of it. Measured on 200 000 records
+    // with two revisions each, 336 ms — of which the policy filtering was
+    // 2,2 ms. The reading was the cost, and it grew with the collection while
+    // the answer stayed 25 rows. It also materialised the whole set (~50 MB
+    // there) inside the process serving every other request.
+    //
+    // `rlsJsonConditions` is the same four operators against the JSONB
+    // snapshot; see it for why `->` and `to_jsonb` rather than `->>`, which
+    // would show rows a policy hides.
     const effectiveDbTT = getDb(c, db);
-    const revs = await sql<{ record_id: string; action: string; data: JsonValue }>`
-        SELECT DISTINCT ON (record_id)
-          record_id, action, data
-        FROM zv_revisions
-        WHERE collection = ${collection}
-          AND tenant_id = ${tenantId(c)}::uuid
-          AND created_at <= ${asOf.toISOString()}
-        ORDER BY record_id, created_at DESC
+    const rlsTT = await getRlsFilters(collection, user, c.get('authType'));
+    const conds = rlsJsonConditions(rlsTT);
+    const where =
+      conds.length === 0
+        ? sql`action <> 'delete'`
+        : sql`action <> 'delete' AND ${sql.join(conds, sql` AND `)}`;
+    // Snapshots are not all shaped alike: `zv_revisions.data` is jsonb, but some
+    // rows hold a jsonb STRING containing serialised JSON rather than the object
+    // itself — which is why the code that read them did
+    // `typeof r.data === 'string' ? JSON.parse(r.data) : r.data`, and why there
+    // is a suite called "time-travel string JSON". A key lookup against the
+    // string form finds nothing, silently, so the shape is normalised once here
+    // and everything downstream sees an object.
+    //
+    // The `{` guard keeps a string that is not an object from reaching the cast:
+    // a failed cast aborts the statement, and this one runs inside the request's
+    // transaction.
+    const latest = sql`
+        SELECT DISTINCT ON (record_id) record_id, action,
+               CASE
+                 WHEN jsonb_typeof(data) = 'string' AND left(data #>> '{}', 1) = '{'
+                   THEN (data #>> '{}')::jsonb
+                 ELSE data
+               END AS data
+          FROM zv_revisions
+         WHERE collection = ${collection}
+           AND tenant_id = ${tenantId(c)}::uuid
+           AND created_at <= ${asOf.toISOString()}
+         ORDER BY record_id, created_at DESC
+      `;
+
+    // The same set, without the snapshot column: the count never looks inside a
+    // document, and carrying 200 000 JSON values through the sort to throw them
+    // away is pure cost. The row policies DO look inside, so this second form is
+    // only used when there is nothing to look for.
+    const latestKeys =
+      conds.length === 0
+        ? sql`
+        SELECT DISTINCT ON (record_id) record_id, action
+          FROM zv_revisions
+         WHERE collection = ${collection}
+           AND tenant_id = ${tenantId(c)}::uuid
+           AND created_at <= ${asOf.toISOString()}
+         ORDER BY record_id, created_at DESC
+      `
+        : latest;
+
+    const offset = (query.page - 1) * query.limit;
+    const pageRows = await sql<{ data: JsonValue }>`
+        WITH latest AS (${latest})
+        SELECT data FROM latest
+         WHERE ${where}
+         ORDER BY record_id
+         LIMIT ${query.limit} OFFSET ${offset}
       `.execute(effectiveDbTT);
 
-    // Exclude deleted records; data column holds the snapshot
-    const snapshots: Record<string, unknown>[] = revs.rows
-      .filter((r) => r.action !== 'delete')
-      .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
-
-    // Row policies, evaluated in memory.
+    // `total` is the part that still costs, and it is inherent: knowing how many
+    // records existed at a point in time needs the DISTINCT ON over the whole
+    // history, however small the page is. Measured on the same 200 000 records:
+    // the page is 0,25 ms and reads 49 rows; the count is ~250 ms and reads all
+    // 400 000. Dropping the JSON from it saves ~18 ms of that and nothing more,
+    // so `data` is left out here — the count only needs to know which revision
+    // is the latest and whether it was a delete.
     //
-    // This path reconstructs rows from JSON snapshots instead of selecting from
-    // the table, so the RLS injection further down never touched it: `?as_of=`
-    // returned every row the caller's policy exists to withhold, and asking for
-    // a snapshot as of a second ago was enough. Tenant scoping and column
-    // permissions were already applied here, which is what made the gap easy to
-    // miss — the answer looked filtered.
-    const rlsTT = await getRlsFilters(collection, user, c.get('authType'));
-    const records =
-      rlsTT.length === 0 ? snapshots : snapshots.filter((r) => matchesRlsFilters(r, rlsTT));
+    // Kept because the response has always carried `total` and `pages`, and
+    // paging clients rely on them. Making it optional is an API change, not a
+    // performance fix, so it is not made here.
+    const counted = await sql<{ n: string }>`
+        WITH latest AS (${latestKeys})
+        SELECT count(*)::text AS n FROM latest WHERE ${where}
+      `.execute(effectiveDbTT);
+    const total = Number(counted.rows[0]?.n ?? 0);
 
-    const total = records.length;
-    const offset = (query.page - 1) * query.limit;
     // Time travel MUST hide columns the role can't read, same as the live list
     // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
-    const colAccessTT = await getColumnAccess(db, collection, await resolveUserRole(user));
-    const page = records
-      .slice(offset, offset + query.limit)
-      .map((r) => applyColumnAccess(r, colAccessTT));
+    const colAccessTT = await getColumnAccess(
+      getDb(c, db),
+      collection,
+      await resolveUserRole(user),
+    );
+    const page = pageRows.rows
+      .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data))
+      .map((r) => applyColumnAccess(r as Record<string, unknown>, colAccessTT));
 
     return c.json({
       records: page,
@@ -114,7 +190,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   // Virtual collection: proxy to external API
-  const virtualConfig = await getVirtualConfig(db, collection);
+  const virtualConfig = await getVirtualConfig(getDb(c, db), collection);
   if (virtualConfig) {
     try {
       // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
@@ -143,7 +219,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         search: query.search,
       });
       // Column permissions apply to virtual collections too.
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(
+        getDb(c, db),
+        collection,
+        await resolveUserRole(user),
+      );
       return c.json({
         records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
         pagination: {
@@ -158,7 +238,10 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     }
   }
 
-  const collectionDef = (await DDLManager.getCollection(db, collection)) as CollectionDef | null;
+  const collectionDef = (await DDLManager.getCollection(
+    getDb(c, db),
+    collection,
+  )) as CollectionDef | null;
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
   const tableName = DDLManager.getTableName(collection);
@@ -296,7 +379,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     result.records = result.records.filter((_, i) => decisions[i] === true);
   }
 
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(getDb(c, db), collection, await resolveUserRole(user));
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
   ).map((r) => applyColumnAccess(r, colAccess));
