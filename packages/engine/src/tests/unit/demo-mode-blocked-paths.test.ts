@@ -25,7 +25,6 @@ async function blocked(method: string, path: string): Promise<boolean> {
   const c = {
     req: { url: `http://demo.zveltio.com${path}`, method },
     json: (body: unknown, status?: number) => ({ body, status }),
-    // biome-ignore lint/suspicious/noExplicitAny: minimal Hono context stand-in
   } as any;
   const res = await mw(c, async () => {
     reachedHandler = true;
@@ -74,7 +73,6 @@ describe('demo mode', () => {
     delete process.env.DEMO_MODE;
     const mw = demoModeMiddleware();
     let reached = false;
-    // biome-ignore lint/suspicious/noExplicitAny: minimal Hono context stand-in
     const c = { req: { url: 'http://x/api/backup', method: 'POST' } } as any;
     await mw(c, async () => {
       reached = true;

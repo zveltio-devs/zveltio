@@ -21,7 +21,6 @@ function tmpExt(files: Record<string, string>): string {
   return dir;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: minimal loader stub
 function fakeLoader(): any {
   const registered: string[] = [];
   const db = new CannedDb();

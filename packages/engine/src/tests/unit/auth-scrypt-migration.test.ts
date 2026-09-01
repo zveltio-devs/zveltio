@@ -27,7 +27,7 @@ function isLegacyScryptDeadlinePassed(): boolean {
   const deadline = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
   if (!deadline) return false;
   const d = new Date(deadline);
-  if (isNaN(d.getTime())) return false;
+  if (Number.isNaN(d.getTime())) return false;
   return Date.now() > d.getTime();
 }
 

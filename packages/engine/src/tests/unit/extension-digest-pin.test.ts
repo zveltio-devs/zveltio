@@ -24,7 +24,6 @@ const entry = {
   category: 'crm',
   author: 'zveltio',
   download_url: 'https://registry.example/api/extensions/by-name/crm%2Fcore/download',
-  // biome-ignore lint/suspicious/noExplicitAny: catalog entry shape is wider than this test needs
 } as any;
 
 const originalFetch = globalThis.fetch;

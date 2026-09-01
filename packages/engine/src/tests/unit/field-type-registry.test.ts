@@ -6,7 +6,6 @@
 
 import { describe, it, expect } from 'bun:test';
 import { FieldTypeRegistry, type FieldTypeDefinition } from '../../lib/data/field-type-registry.js';
-// biome-ignore lint/suspicious/noExplicitAny: dynamic field configs in tests
 type Any = any;
 
 function makeRegistry(): FieldTypeRegistry {

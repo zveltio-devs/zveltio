@@ -42,7 +42,6 @@ function asDb(db: CannedDb): Database {
 /** Mount listRecords on a real Hono context; query is parsed from the URL. */
 function makeApp(db: CannedDb, user: unknown = USER): Hono {
   const app = new Hono();
-  // biome-ignore lint/suspicious/noExplicitAny: minimal test context wiring
   app.get('/:collection', (c: any) => {
     c.set('user', user as never);
     const raw = Object.fromEntries(new URL(c.req.url).searchParams);

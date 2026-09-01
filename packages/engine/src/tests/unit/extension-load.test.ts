@@ -19,7 +19,6 @@ const WASM_EXPORTS_REGISTER = new Uint8Array([
   116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
 ]);
 
-// biome-ignore lint/suspicious/noExplicitAny: minimal loader stub
 function fakeLoader(): any {
   const db = new CannedDb();
   return {
