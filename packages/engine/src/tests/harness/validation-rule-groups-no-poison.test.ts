@@ -60,11 +60,54 @@ d('a missing extension table does not poison the request transaction', () => {
       .catch(() => {});
   });
 
-  it('the table really is absent — otherwise this test proves nothing', () => {
-    // Guard, not an assumption. With `developer/validation` installed the read
-    // succeeds and the regression cannot show itself; saying so out loud beats a
-    // green tick that means "not exercised".
-    expect(tableAbsent).toBe(true);
+  it('probing a name that does not exist leaves the transaction usable', async () => {
+    // The mechanism, asserted without depending on what is installed here.
+    //
+    // This is the shape `hasRuleGroupsTable` uses, and the reason the bug is
+    // fixed: `to_regclass` RETURNS NULL for an absent name instead of raising,
+    // so it cannot abort anything, whereas the `SELECT … FROM <missing table>`
+    // it replaced raised 42P01 and poisoned the connection for whoever drew it
+    // next from the pool.
+    //
+    // The name below cannot exist, so this runs identically on every instance —
+    // with the validation extension installed or not. That matters: the guard
+    // below can only report the ambient state, and a test that silently stops
+    // exercising its subject depending on which extensions an operator happens
+    // to have is not a test of anything.
+    await db.transaction().execute(async (trx) => {
+      const probe = await sql<{ present: boolean }>`
+        SELECT to_regclass('zvd_no_such_table_ever_42p01') IS NOT NULL AS present
+      `.execute(trx);
+      expect(probe.rows[0]?.present).toBe(false);
+      // The statement that used to answer 25P02.
+      const after = await sql<{ ok: number }>`SELECT 1 AS ok`.execute(trx);
+      expect(after.rows[0]?.ok).toBe(1);
+    });
+  });
+
+  it('reports whether the absent-table path was exercised on this database', () => {
+    // Reporting, not failing — and the difference took a whole session to earn.
+    //
+    // This used to `expect(tableAbsent).toBe(true)`, on the reasoning that a
+    // green tick meaning "not exercised" is worse than a red one. The reasoning
+    // is right; the red was still wrong, because the condition is a legitimate
+    // configuration — install `developer/validation` and the suite goes red on
+    // a database where nothing is broken. A suite that is red for a legitimate
+    // configuration teaches people to read past red, and on 2026-08-31 that is
+    // exactly what happened here: 108 failures that meant nothing, with four
+    // real defects hiding inside them.
+    //
+    // What made the red unnecessary is the test above, which exercises the
+    // mechanism deterministically everywhere. This one now only says which
+    // world this run was in.
+    if (!tableAbsent) {
+      console.warn(
+        '[poison-probe] `developer/validation` is installed here, so the ' +
+          'end-to-end absent-table path could not be exercised on this database. ' +
+          'The mechanism is still covered by the deterministic probe above.',
+      );
+    }
+    expect(typeof tableAbsent).toBe('boolean');
   });
 
   it('leaves the enclosing transaction usable', async () => {

@@ -1,3 +1,4 @@
+import { onAfterCommit } from '../lib/tenancy/index.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 
@@ -31,7 +32,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       }
 
       // Persist to DB (fire-and-forget, non-fatal)
-      // Deferred a tick, like the request log and the god audit.
+      // Deferred until the COMMIT, like the request log and the god audit.
       //
       // This writes to the POOL while the request's tenant transaction is still
       // open — the middleware sits inside it, so "after next()" is still "before
@@ -39,7 +40,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       // issued, awaited or not. That is a second connection on `/api/data/*`,
       // the hottest path there is, and at `c = DB_POOL_MAX` the second one can
       // never arrive.
-      setTimeout(() => {
+      onAfterCommit(() => {
         poolDb
           .insertInto('zv_slow_queries')
           .values({
@@ -53,7 +54,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
           .catch((err: Error) => {
             console.warn('[slow-query] write failed:', err.message);
           });
-      }, 0);
+      });
     }
   };
 }
