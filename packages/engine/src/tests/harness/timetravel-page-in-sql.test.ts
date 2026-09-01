@@ -77,6 +77,28 @@ d('time travel pages in SQL (in-process)', () => {
   let policyId = '';
   let asOf = '';
 
+  /**
+   * A rule the save route now refuses, written straight into the table.
+   *
+   * `nosuchfield` names a column that does not exist, which `createRlsPolicy`
+   * rejects since the audit — one rule must not mean three things. Installs that
+   * predate the refusal can still hold such a row, so what the predicate does
+   * with it stays pinned; only the door is closed.
+   */
+  const setPolicyDirect = async (field: string, op: string, source: string) => {
+    if (policyId) {
+      await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`.execute(db);
+      policyId = '';
+    }
+    const row = await sql<{ id: string }>`
+      INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
+      VALUES (${COLLECTION}, '*', ${field}, ${op}, ${source}, true)
+      RETURNING id
+    `.execute(db);
+    policyId = row.rows[0]!.id;
+    await invalidateRlsCache(COLLECTION);
+  };
+
   const setPolicy = async (field: string, op: string, source: string) => {
     if (policyId) {
       await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`.execute(db);
@@ -207,18 +229,32 @@ d('time travel pages in SQL (in-process)', () => {
     });
   });
 
-  describe('the number that is not its own text', () => {
-    // A policy value is always a string — the four sources are user_id,
-    // user_email, user_role and static:VAL. Against a JSON number, `===` says
-    // no, so the SQL must say no too. `->>` would say yes.
+  describe('the number that IS its own text, now', () => {
+    // This block used to pin the opposite, and the reversal is deliberate.
     //
-    // The engine's own revision writer does not currently produce JSON numbers:
-    // an `integer` collection field arrives in the snapshot as the string "5"
-    // (scalars are rendered as text on the way in, and the whole document is
-    // then stored double-encoded). Both facts are pinned below — the second
-    // because it is what callers see today, the first because the writer is not
-    // the only thing that can put a row in `zv_revisions`, and a translation
-    // that is only correct for the shapes we happen to write is not correct.
+    // It read: "a policy value is always a string, and against a JSON number
+    // `===` says no, so the SQL must say no too." True when written — the
+    // in-memory evaluator did compare with `===`. An independent audit found
+    // that wrong (it hid a row on `/api/data` that it delivered over SSE) and it
+    // became `String(a) === String(b)`. The live-table path never used `===` at
+    // all: it sends the string and Postgres casts it, so `code = '5'` matches
+    // the row where code is 5.
+    //
+    // So three appliers agree that the rule means "code equals 5", and this one
+    // — comparing `to_jsonb('5'::text)`, the JSON *string* — was the only one
+    // saying otherwise. Measured across the operator x source x column-type x
+    // NULL matrix: 18 of 56 cases disagreed. See row-rules-four-interpreters.
+    //
+    // `->>` is what aligns, and it aligns in BOTH shapes, which is the point the
+    // old comment was reaching for and missed:
+    //
+    //     '{"code": 5}'   ->> 'code' = '5'   →  true
+    //     '{"code": "5"}' ->> 'code' = '5'   →  true
+    //
+    // The writer renders scalars as text today, so only the second shape occurs
+    // in practice. The first is pinned anyway, for the reason the old comment
+    // gave and which still holds: the writer is not the only thing that can put
+    // a row in `zv_revisions`.
     const NUMERIC = `numeric-${STAMP}`;
 
     beforeAll(async () => {
@@ -237,44 +273,52 @@ d('time travel pages in SQL (in-process)', () => {
       await sql`DELETE FROM zv_revisions WHERE record_id = ${NUMERIC}`.execute(db).catch(() => {});
     });
 
-    it('eq hides a row whose value is the NUMBER 5 when the policy says "5"', async () => {
+    it('eq matches a row whose value is the NUMBER 5 when the policy says "5"', async () => {
       await setPolicy('code', 'eq', 'static:5');
       const labels = (await seen(memberCookie, true)).labels;
-      // a1 and b1 carry the STRING "5" — the writer renders scalars as text —
-      // so they match. `num` carries the number and must not.
-      expect(labels).toEqual(['a1', 'b1']);
-      expect(labels).not.toContain('num');
+      // a1 and b1 carry the STRING "5"; `num` carries the number. All three are
+      // "code equals 5", which is what the live table answers, so all three show.
+      expect(labels).toEqual(['a1', 'b1', 'num']);
     });
 
-    it('in hides it as well', async () => {
+    it('in matches it as well', async () => {
       await setPolicy('code', 'in', 'static:5,7');
+      expect((await seen(memberCookie, true)).labels).toContain('num');
+    });
+
+    it('neq drops it, because the number IS the text once rendered', async () => {
+      await setPolicy('code', 'neq', 'static:5');
       expect((await seen(memberCookie, true)).labels).not.toContain('num');
     });
 
-    it('neq keeps it, because a number never equals the text', async () => {
-      await setPolicy('code', 'neq', 'static:5');
-      expect((await seen(memberCookie, true)).labels).toContain('num');
-    });
-
-    it('not_in keeps it too', async () => {
+    it('not_in drops it too', async () => {
       await setPolicy('code', 'not_in', 'static:5');
-      expect((await seen(memberCookie, true)).labels).toContain('num');
+      expect((await seen(memberCookie, true)).labels).not.toContain('num');
     });
 
-    it('keeps a row that has no such key at all, on the negative operators', async () => {
-      // A missing key is `undefined` in memory and SQL NULL here. `<>` and
-      // `NOT IN` both yield NULL for it, and a WHERE drops what it cannot
-      // confirm — so the two negative operators say so explicitly.
-      await setPolicy('nosuchfield', 'neq', 'static:whatever');
-      expect((await seen(memberCookie, true)).labels).toHaveLength(5);
-      await setPolicy('nosuchfield', 'not_in', 'static:whatever');
-      expect((await seen(memberCookie, true)).labels).toHaveLength(5);
+    it('drops a row that has no such key at all, on the negative operators', async () => {
+      // The other half of the same reversal, and the half that was a LEAK.
+      //
+      // A missing key is SQL NULL here, exactly as a NULL column is on the live
+      // table, and SQL drops such a row from `<>` and `NOT IN`: the comparison
+      // is NULL and a WHERE discards what it cannot confirm. This applier used
+      // to add an explicit `IS NULL OR` to KEEP it, because the in-memory
+      // evaluator kept it — which is the audit's opening finding, surviving in
+      // the one applier nobody had corrected. `?as_of=`, the parameter that
+      // exists for auditing, showed rows `/api/data` withholds.
+      //
+      //     '{}'::jsonb ->> 'code' <> '5'   →  NULL, row dropped
+      //     (NULL::text)           <> '5'   →  NULL, row dropped
+      await setPolicyDirect('nosuchfield', 'neq', 'static:whatever');
+      expect((await seen(memberCookie, true)).labels).toHaveLength(0);
+      await setPolicyDirect('nosuchfield', 'not_in', 'static:whatever');
+      expect((await seen(memberCookie, true)).labels).toHaveLength(0);
     });
 
     it('hides everything on the positive operators when the key is missing', async () => {
-      await setPolicy('nosuchfield', 'eq', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'eq', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toEqual([]);
-      await setPolicy('nosuchfield', 'in', 'static:whatever');
+      await setPolicyDirect('nosuchfield', 'in', 'static:whatever');
       expect((await seen(memberCookie, true)).labels).toEqual([]);
     });
   });

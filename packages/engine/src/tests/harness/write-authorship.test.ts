@@ -152,9 +152,20 @@ d('dynamic write authorship (in-process)', () => {
   // not win. This is the half the RESERVED filter was always right about, and
   // it has to keep holding now that the trusted values arrive by another route.
   it('ignores a created_by supplied in the payload', async () => {
+    // A session of its own, because the test above minted a second god.
+    //
+    // `createGodSession` stands the previous god down — one god per instance is
+    // the product's rule and the database enforces it — so the `cookie` from
+    // `beforeAll` belongs to a demoted member by the time this runs. This used
+    // to pass anyway: the helper changed the role behind `isGodUser`'s cache,
+    // which kept answering "god" for five seconds, so the stale cache was doing
+    // the work the session should have. With the cache invalidated properly the
+    // demotion is immediate and this test failed — correctly, and for the first
+    // time honestly.
+    const freshCookie = await createGodSession(app, db);
     const res = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
-      headers: { cookie, 'Content-Type': 'application/json' },
+      headers: { cookie: freshCookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'forged-author', created_by: 'someone-else' }),
     });
     expect(res.status).toBe(201);

@@ -43,7 +43,23 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 const d = harnessAvailable() ? describe : describe.skip;
 
 /** Widening these is tracked separately — see the note above. */
-const ALLOWED = new Set(['zv_extension_registry_name_key']);
+const ALLOWED = new Set([
+  'zv_extension_registry_name_key',
+  // An OAuth CSRF nonce, not a natural key.
+  //
+  // The invariant this suite enforces is about values two companies might both
+  // want — a name, a code, a slug — where a global unique key means whoever
+  // registers first takes it from everyone else. `state` is none of those: the
+  // engine generates it randomly, and the provider redirects back carrying ONLY
+  // that value, with no idea which tenant it belongs to. A key of
+  // (tenant_id, state) could not be looked up from the callback at all.
+  //
+  // The row still carries `tenant_id`, and migration 004 of the mail extension
+  // puts FORCE ROW LEVEL SECURITY and a tenant policy on the table, so the
+  // isolation this suite protects is enforced — by RLS, which is where it
+  // belongs, rather than by the shape of the primary key.
+  'zv_mail_oauth_states_pkey',
+]);
 
 d('unique keys are scoped to the tenant (in-process)', () => {
   let db: Database;

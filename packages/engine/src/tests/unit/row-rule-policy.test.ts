@@ -40,20 +40,52 @@ describe('row rules as a Postgres predicate', () => {
     expect(predicate).not.toContain("'god'");
   });
 
-  it('uses <> for neq, not IS DISTINCT FROM', () => {
+  it('uses <> for neq on the COLUMN, not IS DISTINCT FROM', () => {
     // On a NULL column the engine's `!=` drops the row. `IS DISTINCT FROM`
     // would keep it, and the two enforcements would disagree about a NULL.
+    //
+    // Asserted against the column comparison specifically. The whole-predicate
+    // spelling used to be `not.toContain('IS DISTINCT FROM')`, which also
+    // forbade it anywhere else — and the actor guard legitimately uses it, on a
+    // setting rather than on a row. A test that pins a substring of the output
+    // pins more than it means to.
     const { predicate } = buildRowRulePredicate([rule({ filter_op: 'neq' })], TYPES);
     expect(predicate).toContain('"created_by" <>');
-    expect(predicate).not.toContain('IS DISTINCT FROM');
+    expect(predicate).not.toContain('"created_by" IS DISTINCT FROM');
   });
 
-  it('skips a rule whose value cannot be resolved, rather than hiding everything', () => {
-    // `getRlsFilters` skips such a policy — fail-open for THAT rule. Without
-    // this, a request with no session would be hidden from every row instead of
-    // falling back to the tenant predicate.
+  it('stands down where there is no actor, not merely where a value is empty', () => {
+    // This used to assert the opposite, and the reversal is the point.
+    //
+    // The guard was `nullif(current_setting('zveltio.user_id'), '') IS NULL` —
+    // skip on any EMPTY setting. But `getRlsFilters` skips only where
+    // `resolveValue` returns null, and that is per source: `user_id` and
+    // `user_role` return the value even when it is the empty string, while
+    // `user_email` returns null when there is no email.
+    //
+    // So `bucket eq user_role` against a session whose role is unset — every
+    // session, since better-auth does not populate it — had the engine hiding
+    // every row and the policy showing all of them. The policy was the more
+    // permissive of the two, on the layer that exists for the handler that
+    // forgot its filters.
+    //
+    // `zveltio.actor` is a setting of its own because absence cannot be
+    // detected: after one SET LOCAL and COMMIT a custom GUC survives as '', so
+    // `IS NULL` means "first request on a fresh pooled connection".
     const { predicate } = buildRowRulePredicate([rule()], TYPES);
-    expect(predicate).toContain("nullif(current_setting('zveltio.user_id', true), '') IS NULL");
+    expect(predicate).toContain("current_setting('zveltio.actor', true) IS DISTINCT FROM 'on'");
+    expect(predicate).not.toContain("nullif(current_setting('zveltio.user_id', true), '')");
+  });
+
+  it('still treats an absent email as unresolved, because the engine does', () => {
+    // The one source where empty genuinely means "cannot resolve":
+    // `resolveValue` returns `user.email ?? null`, so a caller with no email
+    // skips the rule. An API key is the case that matters.
+    const { predicate } = buildRowRulePredicate(
+      [rule({ filter_value_source: 'user_email' })],
+      TYPES,
+    );
+    expect(predicate).toContain("nullif(current_setting('zveltio.user_email', true), '') IS NULL");
   });
 
   it("does not apply a rule the caller's roles do not match", () => {

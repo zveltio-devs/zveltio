@@ -57,11 +57,23 @@ d('query_db cannot reach the auth tables', () => {
       SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_flow_reader') AS ok
     `.execute(db);
     roleExists = r.rows[0]?.ok === true;
+    // A real COLLECTION, not merely a table whose name starts with `zvd_`.
+    //
+    // The old form took whichever `zvd\_%` table `LIMIT 1` happened to return.
+    // Extensions put their own internal tables in that namespace — on one
+    // database it picked `zvd_ldap_group_mappings`, which `zveltio_flow_reader`
+    // is quite correctly not granted on, and the step this test says should
+    // SUCCEED failed with `permission denied`. The test then reported the
+    // boundary as broken when the boundary was doing its job.
+    //
+    // Joining `zvd_collections` picks a table that is a collection by
+    // definition, which is what the assertion is about.
     const t = await sql<{ tablename: string }>`
-      SELECT tablename FROM pg_tables
-      WHERE schemaname = 'public' AND tablename LIKE 'zvd\\_%' LIMIT 1
+      SELECT c.name AS tablename FROM zvd_collections c
+      WHERE to_regclass('public.zvd_' || c.name) IS NOT NULL
+      ORDER BY c.name LIMIT 1
     `.execute(db);
-    collectionTable = t.rows[0]?.tablename ?? '';
+    collectionTable = t.rows[0]?.tablename ? `zvd_${t.rows[0].tablename}` : '';
   });
 
   it('created the role (migration 024 applied)', () => {

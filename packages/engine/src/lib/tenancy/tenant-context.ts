@@ -11,6 +11,7 @@
 // every domain, so authorization is unchanged until per-tenant policies exist.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
@@ -41,6 +42,20 @@ interface TenantStore {
    * one there would hide the ancestors' rows the request is entitled to.
    */
   singleTenant?: boolean;
+  /**
+   * Work that must not start until the transaction has COMMITTED.
+   *
+   * Four places used `setTimeout(…, 0)` for this — the request log, the god
+   * audit, the slow-query log and the row-rule policy refresh — on the reasoning
+   * that the transaction would be closed by the next tick. An independent audit
+   * showed it is not: the timer fires with the transaction still open, so the
+   * write takes a SECOND pooled connection, which is the thing all four were
+   * changed to avoid.
+   *
+   * A queue drained after the commit says what was meant, instead of assuming
+   * it.
+   */
+  afterCommit?: Array<() => void | Promise<void>>;
 }
 
 const store = new AsyncLocalStorage<TenantStore>();
@@ -150,6 +165,31 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
   const s = store.getStore();
   if (!s?.trx) return fn();
   return store.run({ ...s, trx: undefined }, fn);
+}
+
+/**
+ * Run `fn` once the request's transaction has committed.
+ *
+ * Outside a transaction there is nothing to wait for, so it runs immediately —
+ * which is what a background job or a boot reconciler wants.
+ */
+export function onAfterCommit(fn: () => void | Promise<void>): void {
+  const current = store.getStore();
+  if (!current) {
+    void fn();
+    return;
+  }
+  current.afterCommit ??= [];
+  current.afterCommit.push(fn);
+}
+
+/** Take the queued work. Called by `withTenantIsolation` after the commit. */
+export function drainAfterCommit(): Array<() => void | Promise<void>> {
+  const current = store.getStore();
+  if (!current?.afterCommit) return [];
+  const queued = current.afterCommit;
+  current.afterCommit = [];
+  return queued;
 }
 
 export function getCurrentTenantTrx(): Database | undefined {
@@ -348,4 +388,30 @@ export function createRequestScopedDb(pool: Database): Database {
       return bound;
     },
   });
+}
+
+/**
+ * Publish an API key's identity to the row-rule policies.
+ *
+ * Sessions are published by `tenantMiddleware` before the transaction opens. A
+ * key is not known then — it is resolved inside the handler — so this writes the
+ * same settings onto the transaction already in hand. No new connection, one
+ * small statement, and only for key traffic.
+ *
+ * `role` is `api_key`, the same string the engine gives such a caller, so a rule
+ * written against `user_role` means the same thing on both sides. `user_email`
+ * stays empty: a key has none, and an empty setting makes a rule using it skip —
+ * which is what the engine does when it cannot resolve a value.
+ */
+export async function publishApiKeyActor(userId: string, bypass: boolean): Promise<void> {
+  const trx = getCurrentTenantTrx();
+  if (!trx) return;
+  await sql`
+    SELECT set_config('zveltio.user_id', ${userId}, true),
+           set_config('zveltio.user_email', '', true),
+           set_config('zveltio.user_role', 'api_key', true),
+           set_config('zveltio.user_roles', 'api_key', true),
+           set_config('zveltio.actor', 'on', true),
+           set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true)
+  `.execute(trx);
 }
