@@ -6,9 +6,12 @@ Complete guide to all documentation for Zveltio (Bun version).
 
 ## DOCUMENTATION OVERVIEW
 
-**Total Documents:** 15
-**Coverage:** 100% of stack
-**Status:** ✅ Production Ready
+**Total Documents:** 42
+**Scope:** files in `docs/site/`. Add one, add it here.
+
+> This index once had 12 of its 16 links broken: the files were renamed to
+> lowercase and nothing checked. Nothing checks yet, so the discipline is
+> manual — if you move or rename a doc, grep for its old name.
 
 This index provides a complete map of Zveltio documentation.
 
@@ -20,10 +23,10 @@ This index provides a complete map of Zveltio documentation.
 
 | Document                             | Purpose                         | Location |
 | ------------------------------------ | ------------------------------- | -------- |
-| [README.md](../README.md)            | Getting started, features, APIs | Root     |
-| [ARCHITECTURE.md](ARCHITECTURE.md)   | System architecture & tech stack | docs/   |
-| [AUTHORIZATION.md](AUTHORIZATION.md) | Auth & RBAC + God bypass        | docs/    |
-| [COLLECTIONS.md](COLLECTIONS.md)     | Dynamic collections system      | docs/    |
+| [README.md](../../README.md)            | Getting started, features, APIs | Root     |
+| [ARCHITECTURE.md](architecture.md)   | System architecture & tech stack | docs/   |
+| [AUTHORIZATION.md](authorization.md) | Auth & RBAC + God bypass        | docs/    |
+| [COLLECTIONS.md](collections.md)     | Dynamic collections system      | docs/    |
 | [GHOST-DDL.md](GHOST-DDL.md)         | Zero-downtime DDL algorithm     | docs/    |
 | [GRAPHQL.md](GRAPHQL.md)             | Auto-generated GraphQL API      | docs/    |
 
@@ -31,7 +34,7 @@ This index provides a complete map of Zveltio documentation.
 
 | Document                           | Purpose                    | Location         |
 | ---------------------------------- | -------------------------- | ---------------- |
-| [EXTENSIONS.md](EXTENSIONS.md)     | Plugin system & Studio UI  | docs/            |
+| [EXTENSIONS.md](extensions.md)     | Plugin system & Studio UI  | docs/            |
 
 ### 3. 🛠️ **ZVELTIO CLI** (Command Line)
 
@@ -49,12 +52,12 @@ This index provides a complete map of Zveltio documentation.
 
 | Document                                     | Purpose                        | Location |
 | -------------------------------------------- | ------------------------------ | -------- |
-| [INSTALLATION.md](INSTALLATION.md)           | Detailed setup instructions    | docs/    |
-| [DEPLOYMENT.md](DEPLOYMENT.md)               | Production deployment (Docker) | docs/    |
-| [MONITORING.md](MONITORING.md)               | Prometheus & Grafana setup     | docs/    |
+| [INSTALLATION.md](installation.md)           | Detailed setup instructions    | docs/    |
+| [DEPLOYMENT.md](deployment.md)               | Production deployment (Docker) | docs/    |
+| [MONITORING.md](monitoring.md)               | Prometheus & Grafana setup     | docs/    |
 | [HORIZONTAL_SCALING.md](HORIZONTAL_SCALING.md) | HA & enterprise scaling      | docs/    |
-| [SECURITY.md](SECURITY.md)                   | Security hardening             | docs/    |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md)     | Common issues & solutions      | docs/    |
+| [SECURITY.md](security.md)                   | Security hardening             | docs/    |
+| [TROUBLESHOOTING.md](troubleshooting.md)     | Common issues & solutions      | docs/    |
 | [ECOSYSTEM.md](ECOSYSTEM.md)                 | Platform overview              | docs/    |
 
 ---
@@ -63,33 +66,33 @@ This index provides a complete map of Zveltio documentation.
 
 ### Getting Started
 
-- ✅ [Quick Start](../README.md#-quick-start) - Fastest way to get running
-- ✅ [Installation Guide](INSTALLATION.md) - Detailed setup
-- ✅ [Configuration](INSTALLATION.md#step-4-configure-environment) - Environment setup
-- ✅ [Alpha Track EOL](../ALPHA-TRACK-EOL.md) - Policy for the closed `1.0.0-alpha.*` line
-- ✅ [Migration Alpha → Beta](../MIGRATION-ALPHA-TO-BETA.md) - Upgrade path from alpha installs
+- ✅ [Quick Start](../../README.md#-quick-start) - Fastest way to get running
+- ✅ [Installation Guide](installation.md) - Detailed setup
+- ✅ [Configuration](installation.md#step-4-configure-environment) - Environment setup
+- ✅ [Alpha Track EOL](../private/ALPHA-TRACK-EOL.md) - Policy for the closed `1.0.0-alpha.*` line
+- ✅ [Migration Alpha → Beta](MIGRATION-ALPHA-TO-BETA.md) - Upgrade path from alpha installs
 
 ### Core Concepts
 
-- ✅ [Architecture](ARCHITECTURE.md) - System design, components, data flow
-- ✅ [Authorization](AUTHORIZATION.md) - RBAC & God bypass
-- ✅ [Collections](COLLECTIONS.md) - Dynamic schema-less tables
+- ✅ [Architecture](architecture.md) - System design, components, data flow
+- ✅ [Authorization](authorization.md) - RBAC & God bypass
+- ✅ [Collections](collections.md) - Dynamic schema-less tables
 - ✅ [Ghost DDL](GHOST-DDL.md) - Zero-downtime migrations for 100k+ row tables
 - ✅ [Ecosystem](ECOSYSTEM.md) - Platform overview
 
 ### Features
 
-- ✅ [Extensions](EXTENSIONS.md) - Plugin system (AI, Flows, Edge Functions, PostGIS, etc.)
+- ✅ [Extensions](extensions.md) - Plugin system (AI, Flows, Edge Functions, PostGIS, etc.)
 - ✅ [GraphQL](GRAPHQL.md) - Auto-generated read-only GraphQL API
-- ✅ [AI Integration](../README.md#-ai-integration) - Universal AI providers + tool-calling
+- ✅ [AI Integration](../../README.md#-ai-integration) - Universal AI providers + tool-calling
 
 ### Operations
 
-- ✅ [Deployment](DEPLOYMENT.md) - Production deployment
-- ✅ [Security](SECURITY.md) - Security hardening
-- ✅ [Monitoring](MONITORING.md) - Prometheus & Grafana
+- ✅ [Deployment](deployment.md) - Production deployment
+- ✅ [Security](security.md) - Security hardening
+- ✅ [Monitoring](monitoring.md) - Prometheus & Grafana
 - ✅ [Horizontal Scaling](HORIZONTAL_SCALING.md) - HA & enterprise deployment
-- ✅ [Troubleshooting](TROUBLESHOOTING.md) - Common issues
+- ✅ [Troubleshooting](troubleshooting.md) - Common issues
 
 ---
 
@@ -128,21 +131,21 @@ bun --watch packages/engine/src/index.ts
 
 **Week 1: Setup & Basics**
 
-1. Read [README.md](../README.md)
-2. Follow [Installation Guide](INSTALLATION.md)
-3. Learn [Architecture](ARCHITECTURE.md)
+1. Read [README.md](../../README.md)
+2. Follow [Installation Guide](installation.md)
+3. Learn [Architecture](architecture.md)
 
 **Week 2: Build First App**
 
-4. Configure [Authorization](AUTHORIZATION.md)
-5. Understand [Collections](COLLECTIONS.md)
-6. Set up [Extensions](EXTENSIONS.md)
+4. Configure [Authorization](authorization.md)
+5. Understand [Collections](collections.md)
+6. Set up [Extensions](extensions.md)
 
 **Week 3: Deploy**
 
-7. Follow [Deployment Guide](DEPLOYMENT.md)
-8. Apply [Security Guide](SECURITY.md)
-9. Set up [Monitoring](MONITORING.md)
+7. Follow [Deployment Guide](deployment.md)
+8. Apply [Security Guide](security.md)
+9. Set up [Monitoring](monitoring.md)
 
 ---
 
@@ -150,22 +153,24 @@ bun --watch packages/engine/src/index.ts
 
 ```
 zveltio/
-├── README.md                      # Main documentation
+├── README.md                      # Positioning, features, quick start
+├── AGENTS.md                      # Map of the repo for anyone (or anything)
+│                                  #   about to change code. Start here.
+├── CONTRIBUTING.md                # Dev setup, code rules, PR conventions
 ├── docs/
-│   ├── DOCUMENTATION_INDEX.md    # This index
-│   ├── ARCHITECTURE.md           # System architecture
-│   ├── AUTHORIZATION.md          # Auth & RBAC
-│   ├── COLLECTIONS.md            # Dynamic collections
-│   ├── ECOSYSTEM.md              # Platform overview
-│   ├── EXTENSIONS.md             # Plugin system
-│   ├── GHOST-DDL.md              # Zero-downtime DDL
-│   ├── GRAPHQL.md                # GraphQL API
-│   ├── HORIZONTAL_SCALING.md     # HA & scaling
-│   ├── INSTALLATION.md           # Setup guide
-│   ├── DEPLOYMENT.md             # Production deployment
-│   ├── MONITORING.md             # Prometheus & Grafana
-│   ├── SECURITY.md               # Security hardening
-│   └── TROUBLESHOOTING.md        # Common issues
+│   ├── MULTI-TENANCY.md          # How tenant isolation actually works
+│   ├── AUDIT-COVERAGE.md         # What the gates do and do not cover
+│   ├── adr/                      # Architecture decision records
+│   ├── private/                  # Internal plans, handoffs, known gaps
+│   │   ├── PROJECT-CONTEXT.md    #   What Zveltio is + the chronology
+│   │   └── TECHNICAL-GAPS.md     #   What is knowingly unfinished
+│   └── site/                     # Public documentation (this index lives here)
+│       ├── architecture.md       #   System design, components, data flow
+│       ├── installation.md       #   Setup guide
+│       ├── CONFIGURATION.md      #   Every environment variable
+│       ├── deployment.md         #   Production deployment
+│       ├── security.md           #   Security hardening
+│       └── …                     #   see the tables above for the rest
 ├── packages/
 │   ├── engine/                   # API server
 │   ├── cli/                      # Command line
