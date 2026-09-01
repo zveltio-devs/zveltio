@@ -81,7 +81,8 @@ function parseLcov(lcovPath: string): Record<string, Bucket> {
       const comma = line.lastIndexOf(',');
       const hits = Number(line.slice(comma + 1));
       const b = bucketFor(cur);
-      (buckets[b] ??= { found: 0, hit: 0, files: 0 }).found++;
+      buckets[b] ??= { found: 0, hit: 0, files: 0 };
+      buckets[b].found++;
       if (hits > 0) buckets[b].hit++;
     }
   }
@@ -92,7 +93,8 @@ function parseLcov(lcovPath: string): Record<string, Bucket> {
     if (line.startsWith('SF:')) {
       cur = line.slice(3).split('\\').join('/');
       const b = bucketFor(cur);
-      (seen[b] ??= new Set()).add(cur);
+      seen[b] ??= new Set();
+      seen[b].add(cur);
     }
   }
   for (const b of Object.keys(buckets)) buckets[b].files = seen[b]?.size ?? 0;

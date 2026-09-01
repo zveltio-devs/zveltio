@@ -18,7 +18,7 @@ const files: { path: string; truncateAfter: string }[] = [
 
 for (const { path, truncateAfter } of files) {
   const full = join(EXT, path);
-  let c = readFileSync(full, 'utf8');
+  const c = readFileSync(full, 'utf8');
   const idx = c.indexOf(truncateAfter);
   if (idx < 0) {
     console.log(`[skip] ${path} — marker not found`);

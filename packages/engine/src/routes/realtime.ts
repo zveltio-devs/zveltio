@@ -323,7 +323,6 @@ export function broadcastDataEvent(
  * `tenantId` scopes delivery the way `broadcastDataEvent` does. Equality is
  * required in both directions: null does not match a tenant.
  */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function broadcastSSE(
   channel: string,
   event: string,

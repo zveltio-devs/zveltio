@@ -63,9 +63,7 @@ async function scanFile(file: string): Promise<RouteHandler[]> {
   // First, find all handler start offsets along with line numbers.
   type Match = { method: string; path: string; offset: number; line: number };
   const matches: Match[] = [];
-  let m: RegExpExecArray | null;
-  HANDLER_RE.lastIndex = 0;
-  while ((m = HANDLER_RE.exec(src)) !== null) {
+  for (const m of src.matchAll(HANDLER_RE)) {
     const offset = m.index;
     const line = src.slice(0, offset).split('\n').length;
     matches.push({ method: m[1].toUpperCase(), path: m[3], offset, line });

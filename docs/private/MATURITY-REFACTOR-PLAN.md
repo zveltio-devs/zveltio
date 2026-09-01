@@ -25,13 +25,15 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **C — porțile** | ✅ **ÎNCHIS, 4 din 4** (2026-08-31) | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
 | **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
 | **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
-| **A — a doua rezervare** | ✅ **ÎNCHIS** — citirile ȘI scrierile la zero conexiuni în plus | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367 |
+| **A — a doua rezervare** | ✅ **ÎNCHIS** — citirile ȘI scrierile la zero conexiuni în plus | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367, #387 |
 | **G — activarea extensiilor per firmă** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-G-PER-TENANT-ACTIVATION-STATE.md` | #368 |
 | **D — condiții pe rânduri** | ✅ **ÎNCHIS cu „nu merită", 4 din 4** | `BLOCK-D-ROW-CONDITIONS-STATE.md` | — (zero cod de produs) |
 | **H — `?as_of=` citea tot** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-H-TIME-TRAVEL-PAGINATION-STATE.md` | din constatarea lui D |
 | **J — a doua linie în bază** | ✅ **ÎNCHIS, 4 din 4** (prin blocul K) | `BLOCK-J-DB-SECOND-LINE-STATE.md` | — |
 | **K — regulile de rând în bază** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-K-ROW-RULES-IN-DB-STATE.md` | — |
 | **E — decizii de proprietar** | ✅ **DECIS ȘI EXECUTAT** | `BLOCK-E-OWNER-DECISIONS-STATE.md` | — |
+| **L — ridicarea biome la 2.5.11** | 🔜 **DESCHIS, scop MĂSURAT** — 77 de situri, 74 în teste/arhivă | `BLOCK-L-BIOME-UPGRADE-STATE.md` | #381 |
+| **M — `hono` în lockstep cu extensiile** | 🔜 **DESCHIS, scop MĂSURAT** — pin obligatoriu, repack e decizie | `BLOCK-M-HONO-LOCKSTEP-STATE.md` | #373 |
 
 ### Ce a găsit fiecare bloc, pe scurt
 

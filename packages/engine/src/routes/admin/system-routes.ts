@@ -704,7 +704,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const rows = await db
       .selectFrom('zv_slow_queries')
       .selectAll()
-      .where('duration_ms', '>=', isNaN(parseInt(min_ms, 10)) ? 200 : parseInt(min_ms, 10))
+      .where('duration_ms', '>=', Number.isNaN(parseInt(min_ms, 10)) ? 200 : parseInt(min_ms, 10))
       .orderBy('created_at', 'desc')
       .limit(Math.min(parseInt(limit) || 50, 500))
       .execute();

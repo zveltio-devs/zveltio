@@ -14,7 +14,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import BlockRenderer from './BlockRenderer.svelte';
 
-// biome-ignore lint/suspicious/noExplicitAny: contract blocks are untyped JSON
 const blocks = (b: any[]) => ({ props: { blocks: b } });
 
 describe('BlockRenderer', () => {

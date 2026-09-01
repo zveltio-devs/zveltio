@@ -55,8 +55,7 @@ async function assertMigrationTablesAllowed(extName: string, sqlText: string): P
 
   const re = /\b(ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   const offenders = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(sqlText)) !== null) {
+  for (const m of sqlText.matchAll(re)) {
     const table = m[2].toLowerCase();
     if (table.startsWith('zvd_') || table.startsWith(owned)) continue;
     if (granted.has(table)) continue;

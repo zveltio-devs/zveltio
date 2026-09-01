@@ -344,7 +344,7 @@ function walkSvelte(dir: string, out: string[] = []) {
 }
 let fixedOpts = 0;
 for (const p of walkSvelte(EXT)) {
-  let c = readFileSync(p, 'utf8');
+  const c = readFileSync(p, 'utf8');
   if (!c.includes("{m['") || !c.includes('{m[')) continue;
   const n = fixCorruptOptions(c);
   if (n !== c) {

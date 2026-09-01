@@ -68,7 +68,7 @@ function patch(path: string, reps: [string, string][]) {
 
 function dedupe(path: string, marker: string) {
   const p = join(EXT, path);
-  let c = readFileSync(p, 'utf8');
+  const c = readFileSync(p, 'utf8');
   const i = c.indexOf(marker);
   if (i < 0) return;
   const j = c.indexOf(marker, i + marker.length);
