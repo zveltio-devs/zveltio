@@ -147,9 +147,7 @@ d('one rule, four interpreters (in-process)', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     await sql
-      .raw(
-        `CREATE TABLE ${TABLE} (id integer PRIMARY KEY, bucket text, code integer, data jsonb)`,
-      )
+      .raw(`CREATE TABLE ${TABLE} (id integer PRIMARY KEY, bucket text, code integer, data jsonb)`)
       .execute(db);
     for (const r of ROWS) {
       await sql
