@@ -43,7 +43,11 @@ d('tenants lifecycle (in-process)', () => {
     const signUp = await app.request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: adminEmail, password: 'HarnessAdmin123!', name: 'Tenant Admin' }),
+      body: JSON.stringify({
+        email: adminEmail,
+        password: 'HarnessAdmin123!',
+        name: 'Tenant Admin',
+      }),
     });
     if (!signUp.ok && signUp.status !== 200 && signUp.status !== 201) {
       throw new Error(`admin sign-up failed: ${signUp.status} ${await signUp.text()}`);
