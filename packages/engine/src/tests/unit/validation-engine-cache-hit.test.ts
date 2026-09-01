@@ -9,7 +9,6 @@ import {
   type ValidationRule,
 } from '../../lib/validation-engine.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: test double
 function fakeDb(rows: ValidationRule[], calls: { n: number }): any {
   const qb: Record<string, unknown> = {
     select: () => qb,

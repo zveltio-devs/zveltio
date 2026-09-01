@@ -320,10 +320,15 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
   // CREATE TABLE [IF NOT EXISTS] <name> ( <body> )
   const createRe =
     /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s*\(/gi;
-  let m: RegExpExecArray | null;
-  while ((m = createRe.exec(allSql)) !== null) {
+  for (const m of allSql.matchAll(createRe)) {
     const tableName = m[1] ?? m[2];
-    const openIdx = createRe.lastIndex - 1; // position of '('
+    // From the MATCH, not from the regex's `lastIndex`.
+    //
+    // `matchAll` clones the regex internally, so `createRe.lastIndex` stays 0
+    // here — it is only advanced by `exec`. Converting this loop from
+    // `while ((m = createRe.exec(...)))` and keeping `lastIndex` silently made
+    // every table body start at the top of the file; five tests caught it.
+    const openIdx = m.index + m[0].length - 1; // position of '('
     const closeIdx = findMatchingParen(allSql, openIdx);
     if (closeIdx < 0) continue; // unbalanced — skip
     const body = allSql.substring(openIdx + 1, closeIdx);
@@ -336,7 +341,7 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
   // ALTER TABLE <name> ADD COLUMN [IF NOT EXISTS] <col> <type> <rest>
   const alterRe =
     /ALTER\s+TABLE\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([^;]+?)(?=;|$)/gi;
-  while ((m = alterRe.exec(allSql)) !== null) {
+  for (const m of allSql.matchAll(alterRe)) {
     const tableName = m[1] ?? m[2];
     const colName = m[3] ?? m[4];
     const tail = m[5];

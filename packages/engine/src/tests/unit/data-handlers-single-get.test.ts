@@ -46,13 +46,10 @@ function asDb(db: CannedDb): Database {
 /** Mount the single-record handlers on a real Hono context (no app boot). */
 function makeApp(db: CannedDb, user: unknown = USER): Hono {
   const app = new Hono();
-  const withUser =
-    (fn: (c: never, d: Database) => Promise<Response>) =>
-    // biome-ignore lint/suspicious/noExplicitAny: minimal test context wiring
-    (c: any) => {
-      c.set('user', user as never);
-      return fn(c as never, asDb(db));
-    };
+  const withUser = (fn: (c: never, d: Database) => Promise<Response>) => (c: any) => {
+    c.set('user', user as never);
+    return fn(c as never, asDb(db));
+  };
   app.get('/:collection/:id', withUser(getRecord));
   app.post('/:collection', withUser(createRecord));
   app.put('/:collection/:id', withUser(replaceRecord));

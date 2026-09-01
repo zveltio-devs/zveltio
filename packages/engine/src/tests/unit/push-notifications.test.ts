@@ -108,7 +108,7 @@ describe('sendPushToUser', () => {
     });
     expect(res).toEqual({ sent: 1, failed: 0 });
     expect(fetchCalls[0].url).toBe('https://fcm.googleapis.com/fcm/send');
-    expect((fetchCalls[0].init?.headers as Record<string, string>).Authorization).toBe(
+    expect((fetchCalls[0].init?.headers as Record<string, string> | undefined)?.Authorization).toBe(
       'key=srv-key',
     );
   });

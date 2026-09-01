@@ -66,6 +66,7 @@ describe('generatePDFAsync — pool + queue', () => {
     globalThis.Worker = class ExitWorker {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
       constructor(_url: URL | string) {}
       postMessage(_msg: unknown) {
         queueMicrotask(() => {
