@@ -158,9 +158,19 @@ S3_PUBLIC_URL=https://my-zveltio-bucket.s3.eu-west-1.amazonaws.com
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VALKEY_URL` | `redis://localhost:6379` | Valkey or Redis connection URL |
+| `VALKEY_URL` | `redis://localhost:6379` | **Required in production.** Valkey or Redis connection URL. The engine refuses to start without it — see the note below. |
 
 > Zveltio uses `ioredis` which is fully compatible with both Valkey and Redis.
+
+> **Required, not recommended.** Every shipped install path provisions Valkey:
+> `docker-compose.yml` will not start the engine until the cache is healthy, and
+> both installers fall back apt → prebuilt binary → build from source rather than
+> skip it. The engine refuses to start in production when `VALKEY_URL` is unset.
+>
+> The reason is correctness, not latency: permission invalidation is published
+> through the cache, so without one a revoked grant reaches only the replica that
+> revoked it. Escape hatch, for an operator who accepts that:
+> `ZVELTIO_ALLOW_NO_CACHE=1`.
 
 ```env
 VALKEY_URL=redis://valkey:6379
