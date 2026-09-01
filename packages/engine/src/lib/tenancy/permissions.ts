@@ -207,13 +207,60 @@ export function __localPermissionCacheSize(): number {
   return _localPerm.size;
 }
 
+/**
+ * In-process god flag, and the reason it exists is a connection, not a query.
+ *
+ * `isGodUser` is called from inside `checkPermission`, which runs on nearly every
+ * authenticated request — and it reads `_db`, the POOL, while the request is
+ * already holding its tenant transaction. That is a second connection per
+ * request. At `c = DB_POOL_MAX` every connection is held by a transaction whose
+ * owner is waiting for a second that can never arrive, which is why the instance
+ * stops rather than slows at exactly that number. Measured: with DB_POOL_MAX=1 a
+ * single `/api/webhooks` request never answers; with 2 it answers in 62 ms.
+ *
+ * The Valkey cache above already prevented this — for installs that run Valkey.
+ * Self-hosted installs mostly do not, and they are the target deployment, so the
+ * hot path went to the database every time.
+ *
+ * TTL is deliberately much shorter than the 300 s remote one: `invalidateGodCache`
+ * DELs a shared key for every instance at once, while this map can only be
+ * cleared on the instance that ran the change. Five seconds bounds how long a
+ * demoted god keeps power on a sibling instance; the remote cache keeps its own
+ * five minutes because DEL reaches it.
+ */
+const LOCAL_GOD_TTL_MS = 5_000;
+const _localGod = new Map<string, { value: boolean; at: number }>();
+
+/**
+ * The same, for a user's role.
+ *
+ * `resolveUserRole` has the identical shape and the identical problem:
+ * Valkey-backed, and on an install without Valkey — which is the target
+ * deployment — it reads the POOL. On the WRITE path that is a second connection
+ * per write, measured, because the write pipeline asks for the role after the
+ * request already holds its transaction.
+ *
+ * Same five seconds as the god flag, for the same reason: a `DEL` reaches every
+ * instance, this map only the one that ran the change.
+ */
+const _localRole = new Map<string, { value: string; at: number }>();
+
+/** Test seam — how many god flags are held in process. */
+export function __localGodCacheSize(): number {
+  return _localGod.size;
+}
+
 export function clearLocalPermissionCache(userId?: string): void {
   if (!userId) {
     _localPerm.clear();
     _effective.clear();
+    _localGod.clear();
+    _localRole.clear();
     invalidatePolicyObjectIndex();
     return;
   }
+  _localGod.delete(userId);
+  _localRole.delete(userId);
   // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
   const needle = `:${userId}:`;
   for (const key of _localPerm.keys()) {
@@ -570,6 +617,9 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   const userId = user.id;
   if (!userId || userId.startsWith('apikey:')) return 'public';
 
+  const local = _localRole.get(userId);
+  if (local && Date.now() - local.at < LOCAL_GOD_TTL_MS) return local.value;
+
   const cache = getCache();
   const cacheKey = `urole:${userId}`;
   if (cache) {
@@ -596,6 +646,7 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
       SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
     `.execute(_db);
     const role = result.rows[0]?.role || 'public';
+    _localRole.set(userId, { value: role, at: Date.now() });
     if (cache) {
       try {
         await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
@@ -610,6 +661,11 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {
+  // Checked before the remote cache: the point is to touch neither the pool nor
+  // the network while a request holds its tenant transaction.
+  const local = _localGod.get(userId);
+  if (local && Date.now() - local.at < LOCAL_GOD_TTL_MS) return local.value;
+
   const cache = getCache();
   const cacheKey = `god:${userId}`;
 
@@ -620,7 +676,10 @@ export async function isGodUser(userId: string): Promise<boolean> {
       if (raw !== null) {
         const decoded = _decodeGodCache(userId, raw);
         // null = HMAC mismatch → fall through to DB (do not trust cached value)
-        if (decoded !== null) return decoded;
+        if (decoded !== null) {
+          _localGod.set(userId, { value: decoded, at: Date.now() });
+          return decoded;
+        }
       }
     } catch {
       /* cache unavailable */
@@ -640,6 +699,7 @@ export async function isGodUser(userId: string): Promise<boolean> {
     `.execute(_db);
 
     const isGod = result.rows[0]?.role === 'god';
+    _localGod.set(userId, { value: isGod, at: Date.now() });
 
     if (cache) {
       try {

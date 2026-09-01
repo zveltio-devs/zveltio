@@ -1,4 +1,6 @@
 import { Kysely, sql } from 'kysely';
+import { noteConnectionAcquired } from './connection-trace.js';
+import { autosizePool } from './pool-autosize.js';
 import { BunSqlDialect } from './bun-sql-dialect.js';
 
 // Re-exported so boot code reaches it through this module rather than the
@@ -20,8 +22,25 @@ export type Database = Kysely<DbSchema>;
  * database can carry, and finds out at the worst possible moment.
  *
  * Advice about a number has to come from the number.
+ *
+ * ── Why 40 and not 25 ─────────────────────────────────────────
+ *
+ * The concurrency ceiling of an instance is exactly this number, and it is not a
+ * slope: at `c = pool` the service does not get slower, it stops. Measured at
+ * pool 10 and again at 25 — every connection `idle in transaction`, one active,
+ * because a request holds its transaction for its whole duration (RLS lives in
+ * that transaction). At 25 the p95 at c=30 is seconds; at 40 it is 214 ms.
+ *
+ * Raising it does not remove the ceiling, it moves it, and it is spent from a
+ * shared budget: `max_connections` divided by this number is how many instances
+ * fit on one Postgres. At 200 that is 5 instances, down from 8.
+ *
+ * An owner decision, taken 2026-08-30, together with the decision to shorten the
+ * transactions themselves — the two compose, and neither replaces the other.
+ * `startup-guards.ts` prints the arithmetic at boot, so an operator sizing a
+ * deployment sees the trade rather than inferring it.
  */
-export const DEFAULT_DB_POOL_MAX = 25;
+export const DEFAULT_DB_POOL_MAX = 40;
 
 /** The effective pool ceiling: an explicit `DB_POOL_MAX`, or the default above. */
 export function resolvePoolMax(): number {
@@ -132,54 +151,82 @@ export async function initDatabase(): Promise<Database> {
   //
   // Still not a throughput knob, and no default fixes the real problem: a
   // connection is pinned for the whole request. See report-slow-in-transaction.
-  const poolMax = resolvePoolMax();
+  // An explicit `DB_POOL_MAX` always wins. Without one, ask the database what
+  // it allows rather than shipping one number to every server — see
+  // `pool-autosize.ts` for why the engine host's own memory is the wrong thing
+  // to measure, and for the one input it cannot derive.
+  let poolMax = resolvePoolMax();
+  if (!process.env.DB_POOL_MAX && process.env.DB_POOL_AUTOSIZE !== '0') {
+    const sized = await autosizePool(databaseUrl);
+    if (sized) {
+      poolMax = sized.max;
+      console.log(`   Pool sized from the server: DB_POOL_MAX=${sized.max} (${sized.reason})`);
+    } else {
+      console.log(
+        `   Pool sizing could not read the server's limits — keeping the default ${poolMax}.`,
+      );
+    }
+  }
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
+  const baseDialect = new BunSqlDialect({
+    connectionString: databaseUrl,
+    // Not a throughput knob — a ceiling on concurrent requests.
+    //
+    // Every `/api/*` request outside TXN_SKIP_PREFIXES pins one connection for
+    // its whole life, because that is how the tenant transaction enforces RLS.
+    // Several routes then query the pool AGAIN while holding it, so a request
+    // can want two. Ten was below what the admin dashboard asks for on a
+    // single load: it fires fourteen requests, and measured against a cold
+    // engine the first bursts took 10.6s, 12.0s and 12.0s before settling to
+    // ~70ms. Twelve seconds is Bun.serve abandoning the handler at its 10s
+    // idleTimeout, which leaves the tenant transaction open and the connection
+    // leaked — see `withIdleInTransactionTimeout`, which mitigates the leak
+    // from the Postgres side.
+    //
+    // The second checkout is gone: `createRequestScopedDb` hands core routes a
+    // proxy that resolves the current tenant transaction through
+    // AsyncLocalStorage and only reaches for the pool when there is none, so a
+    // request pins one connection rather than two. The routes that genuinely
+    // must escape RLS — tenant provisioning, invitation accept, the SQL editor,
+    // backup, saved queries — take `poolDb` explicitly and are the only ones
+    // that do.
+    //
+    // Ten was briefly raised to 25 while that defect stood. It is back down,
+    // because a ceiling sized around a bug outlives the bug and then quietly
+    // becomes a connection budget nobody agreed to: CI runs several engines
+    // against one Postgres and 25 apiece exhausted it, which is exactly what a
+    // multi-replica deployment would hit. With one connection per request the
+    // same dashboard burst settles at ~425ms; 25 buys ~76ms, which is a real
+    // gain and the reason this is an env var rather than a constant. Raise it
+    // deliberately, against a `max_connections` you have checked.
+    max: poolMax,
+    idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
+  });
+
+  // Connection tracing. See db/connection-trace.ts for what it counts and why
+  // the obvious probe — run with DB_POOL_MAX=1 and see what hangs — names the
+  // wrong routes. The counter itself is off unless asked for; the wrapper is
+  // always installed, because deciding at pool-construction time made every
+  // measurement depend on when the pool happened to be built.
+  const dialect = {
+    createAdapter: () => baseDialect.createAdapter(),
+    createIntrospector: (d: never) => baseDialect.createIntrospector(d),
+    createQueryCompiler: () => baseDialect.createQueryCompiler(),
+    createDriver: () => {
+      const driver = baseDialect.createDriver();
+      const acquire = driver.acquireConnection.bind(driver);
+      driver.acquireConnection = async () => {
+        noteConnectionAcquired();
+        return acquire();
+      };
+      return driver;
+    },
+  };
+
   _db = new Kysely({
-    log: traceSqlErrors
-      ? (event) => {
-          if (event.level !== 'error') return;
-          const err = event.error as { errno?: string; message?: string };
-          console.error(
-            `[sql-error] errno=${err?.errno ?? '?'} ${err?.message ?? ''}\n           SQL: ${event.query.sql}`,
-          );
-        }
-      : undefined,
-    dialect: new BunSqlDialect({
-      connectionString: databaseUrl,
-      // Not a throughput knob — a ceiling on concurrent requests.
-      //
-      // Every `/api/*` request outside TXN_SKIP_PREFIXES pins one connection for
-      // its whole life, because that is how the tenant transaction enforces RLS.
-      // Several routes then query the pool AGAIN while holding it, so a request
-      // can want two. Ten was below what the admin dashboard asks for on a
-      // single load: it fires fourteen requests, and measured against a cold
-      // engine the first bursts took 10.6s, 12.0s and 12.0s before settling to
-      // ~70ms. Twelve seconds is Bun.serve abandoning the handler at its 10s
-      // idleTimeout, which leaves the tenant transaction open and the connection
-      // leaked — see `withIdleInTransactionTimeout`, which mitigates the leak
-      // from the Postgres side.
-      //
-      // The second checkout is gone: `createRequestScopedDb` hands core routes a
-      // proxy that resolves the current tenant transaction through
-      // AsyncLocalStorage and only reaches for the pool when there is none, so a
-      // request pins one connection rather than two. The routes that genuinely
-      // must escape RLS — tenant provisioning, invitation accept, the SQL editor,
-      // backup, saved queries — take `poolDb` explicitly and are the only ones
-      // that do.
-      //
-      // Ten was briefly raised to 25 while that defect stood. It is back down,
-      // because a ceiling sized around a bug outlives the bug and then quietly
-      // becomes a connection budget nobody agreed to: CI runs several engines
-      // against one Postgres and 25 apiece exhausted it, which is exactly what a
-      // multi-replica deployment would hit. With one connection per request the
-      // same dashboard burst settles at ~425ms; 25 buys ~76ms, which is a real
-      // gain and the reason this is an env var rather than a constant. Raise it
-      // deliberately, against a `max_connections` you have checked.
-      max: poolMax,
-      idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
-    }),
+    dialect: dialect as never,
   });
 
   // Test connection with retry — PgDog/pooler may need up to ~60s to initialize its backend pool

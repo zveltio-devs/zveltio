@@ -20,7 +20,7 @@
     "typecheck": "svelte-kit sync && tsc --noEmit"
   },
   "dependencies": {
-    "@inlang/paraglide-js": "^2.18.0",
+    "@inlang/paraglide-js": "^2.25.0",
     "@lucide/svelte": "^0.577.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@sveltejs/adapter-static": "^3.0.0",
@@ -44,10 +44,10 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "@vitest/ui": "^4.1.11",
     "jsdom": "^29.1.1",
     "typescript": "^5.4.0",

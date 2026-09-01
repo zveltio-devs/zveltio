@@ -1,10 +1,26 @@
+/**
+ * Every handler reads through `reqDb(c, db)`, never the bare pool.
+ *
+ * Two reasons, and the second is the one that was costing something. The pool
+ * escapes RLS: `zv_webhooks` carries `tenant_id` and a policy, but a query on
+ * the pool runs as the engine's own role, so the explicit `where tenant_id = …`
+ * was the ONLY thing standing between tenants here. And a pool query issued
+ * while the request already holds its tenant transaction is a SECOND connection
+ * — at `c = DB_POOL_MAX` every connection is held by such a transaction and the
+ * second can never arrive, so the instance stops rather than slows. This route
+ * asked for four.
+ *
+ * The `where tenant_id` clauses stay: belt AND braces now, and they still let
+ * the planner use the composite indexes.
+ */
+
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
-import { tenantId } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
@@ -85,7 +101,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   /** The URLs this tenant owns — the DLQ is a flat Redis list, not a table. */
   async function ownUrls(c: Context): Promise<Set<string>> {
-    const rows = await db
+    const rows = await reqDb(c, db)
       .selectFrom('zvd_webhooks')
       .select('url')
       .where('tenant_id', '=', tenantId(c))
@@ -140,7 +156,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // GET / — List all webhooks
   app.get('/', async (c) => {
-    const webhooks = await db
+    const webhooks = await reqDb(c, db)
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('tenant_id', '=', tenantId(c))
@@ -151,7 +167,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get webhook
   app.get('/:id', async (c) => {
-    const webhook = await db
+    const webhook = await reqDb(c, db)
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -184,7 +200,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // decrypts in memory just before each delivery.
     const encryptedSecret = (await maybeEncrypt(secret, true)) as string;
 
-    const webhook = await db
+    const webhook = await reqDb(c, db)
       .insertInto('zvd_webhooks')
       .values({ ...data, secret: encryptedSecret, created_by: user.id, tenant_id: tenantId(c) })
       .returningAll()
@@ -216,7 +232,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (typeof data.secret === 'string' && data.secret.length > 0) {
       toSet.secret = (await maybeEncrypt(data.secret, true)) as string;
     }
-    const webhook = await db
+    const webhook = await reqDb(c, db)
       .updateTable('zvd_webhooks')
       .set(toSet)
       .where('id', '=', c.req.param('id'))
@@ -233,7 +249,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // DELETE ... RETURNING so a missing/cross-tenant id yields `undefined`
     // (→ 404) instead of a truthy DeleteResult. numDeletedRows is unreliable on
     // the Bun SQL dialect, so gate on the returned row like the other handlers.
-    const deleted = await db
+    const deleted = await reqDb(c, db)
       .deleteFrom('zvd_webhooks')
       .where('id', '=', c.req.param('id'))
       .where('tenant_id', '=', tenantId(c))
@@ -246,7 +262,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // GET /:id/deliveries — Delivery logs
   app.get('/:id/deliveries', async (c) => {
     const { limit = '50' } = c.req.query();
-    const deliveries = await db
+    const deliveries = await reqDb(c, db)
       .selectFrom('zvd_webhook_deliveries')
       .selectAll()
       .where('webhook_id', '=', c.req.param('id'))
@@ -261,7 +277,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   app.post('/:id/rotate-secret', async (c) => {
     const newSecret = generateWebhookSecret();
     const encryptedNew = (await maybeEncrypt(newSecret, true)) as string;
-    const webhook = await db
+    const webhook = await reqDb(c, db)
       .updateTable('zvd_webhooks')
       .set({ secret: encryptedNew, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
@@ -274,7 +290,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/test — Test webhook
   app.post('/:id/test', async (c) => {
-    const webhook = await db
+    const webhook = await reqDb(c, db)
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))

@@ -56,694 +56,138 @@ export function tierAllowsInline(tier: 'first-party' | 'verified' | 'community')
   return tier === 'first-party' || tier === 'verified';
 }
 
-export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
-  // ── Smoke fixture ─────────────────────────────────────────────
-  // Used by the release-binary smoke job. Not surfaced in Studio (the
-  // marketplace UI filters category 'fixture'); install/enable from
-  // the API works because the catalog is the source of truth.
-  {
-    name: 'hello-ext',
-    displayName: 'Hello Smoke Fixture',
-    description:
-      'Minimal Hono router used by release.yml to prove marketplace install + enable on a freshly-compiled binary. Skip in Studio.',
-    category: 'fixture',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['internal', 'smoke'],
-    permissions: [],
-  },
-  {
-    name: 'hello-ext-worker',
-    displayName: 'Hello Worker Smoke Fixture',
-    description:
-      'Same as hello-ext but with engine.isolation=worker to exercise the C-minimal Bun.Worker isolation path. Used by release.yml.',
-    category: 'fixture',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['internal', 'smoke', 'worker-isolation'],
-    permissions: [],
-  },
-  {
-    name: 'hello-ext-global',
-    displayName: 'Hello Global Mount Fixture',
-    description:
-      "Fixture for mountStrategy='global' — route at /hello-global/health (not /ext/<name>/). Used by release.yml to cover both mount strategies.",
-    category: 'fixture',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['internal', 'smoke', 'mount-strategy'],
-    permissions: [],
-  },
-  {
-    name: 'hello-ext-uionly',
-    displayName: 'Hello UI-Only Fixture',
-    description:
-      'UI-only fixture (contributes.engine=false, no engine entry). Guards the beta.14 fix: install/enable must succeed for engine-less extensions instead of failing with "no files found". Used by release.yml.',
-    category: 'fixture',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['internal', 'smoke', 'ui-only'],
-    permissions: [],
-  },
+/**
+ * The catalog is delivered data, not source.
+ *
+ * The 60 entries below used to be a TypeScript array in this file, 749 lines of
+ * it, compiled into the engine binary. That made adding one extension to the
+ * catalogue a new engine release — for a list whose whole job is to change more
+ * often than the engine does.
+ *
+ * Owner decision, 2026-08-30: keep the catalogue (isolated installs must be able
+ * to see what they can install, with no registry reachable — that is the target
+ * market), but ship it as versioned data.
+ *
+ * ── Where it comes from, in order ─────────────────────────────
+ *
+ *   1. `ZVELTIO_CATALOG_PATH`, if set — an operator pointing at their own file
+ *   2. `<extensions dir>/catalog.json`, if present — the delivered copy, which
+ *      can be replaced without recompiling anything
+ *   3. the bundled `catalog.json`, imported here
+ *
+ * The bundled copy is imported rather than read, so the compiled binary carries
+ * it and an install with no file and no registry still has a catalogue. That is
+ * not the same as compiling the list into source: replacing the file overrides
+ * it, and nothing needs rebuilding.
+ *
+ * A malformed override does NOT silently fall back to a stale catalogue and
+ * pretend all is well — it says so and then falls back, because an operator who
+ * edited a file and saw no effect has no way to find out otherwise.
+ *
+ * Two notes that lived as comments inside the old array, kept because they are
+ * not obvious from the data:
+ *   - `hello-ext` and `hello-ext-worker` are smoke fixtures used by the release
+ *     binary job. Studio filters category `fixture` out of the marketplace UI;
+ *     install/enable through the API works because the catalog decides.
+ *   - Entries carry no `publisher_tier`, so `resolvePublisherTier` falls back to
+ *     `is_official`, and a local entry with neither is treated as community —
+ *     which means worker isolation is required for it.
+ */
 
-  // ── AI ────────────────────────────────────────────────────────
-  {
-    name: 'ai',
-    displayName: 'AI',
-    description:
-      'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
-    category: 'intelligence',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['ai', 'llm', 'embeddings', 'semantic-search', 'chat'],
-    permissions: ['database', 'settings', 'network'],
-  },
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import bundled from './catalog.json' with { type: 'json' };
 
-  // ── Analytics ─────────────────────────────────────────────────
-  // analytics/insights — promoted to engine core, no longer a separate extension
-  {
-    name: 'analytics/dashboard',
-    displayName: 'Dashboards',
-    description:
-      'Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions',
-    category: 'analytics',
-    version: '1.0.1',
-    author: 'Zveltio',
-    tags: ['analytics', 'dashboard', 'widgets'],
-    permissions: ['database'],
-  },
-  {
-    name: 'analytics/quality',
-    displayName: 'Data Quality',
-    description: 'Automated data quality scans, anomaly detection and issue management',
-    category: 'analytics',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['analytics', 'quality', 'anomalies'],
-    permissions: ['database'],
-  },
+interface CatalogFile {
+  catalog_version?: string;
+  entries: ExtensionCatalogEntry[];
+}
 
-  // ── Auth ──────────────────────────────────────────────────────
-  {
-    name: 'auth/ldap',
-    displayName: 'LDAP / Active Directory',
-    description: 'Authenticate users via LDAP or Active Directory',
-    category: 'auth',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['auth', 'ldap', 'active-directory', 'sso'],
-    permissions: ['database'],
-  },
-  {
-    name: 'auth/saml',
-    displayName: 'SAML 2.0 SSO',
-    description:
-      'SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)',
-    category: 'auth',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['auth', 'saml', 'sso', 'okta', 'azure'],
-    permissions: ['database'],
-  },
-  {
-    name: 'auth/scim',
-    displayName: 'SCIM Provisioning',
-    description:
-      'SCIM 2.0 user provisioning for Azure AD / Entra, Okta and other identity providers — bearer tokens, Users CRUD, active-flag offboarding',
-    category: 'auth',
-    version: '1.0.3',
-    author: 'Zveltio',
-    tags: ['auth', 'scim', 'provisioning', 'entra', 'okta'],
-    permissions: ['database', 'secrets'],
-  },
+function isEntry(v: unknown): v is ExtensionCatalogEntry {
+  const e = v as Partial<ExtensionCatalogEntry> | null;
+  return (
+    !!e &&
+    typeof e.name === 'string' &&
+    e.name !== '' &&
+    typeof e.displayName === 'string' &&
+    typeof e.category === 'string' &&
+    typeof e.version === 'string'
+  );
+}
 
-  // ── Communications ────────────────────────────────────────────
-  {
-    name: 'communications/mail',
-    displayName: 'Mail Client',
-    description: 'Full IMAP/SMTP email client with AI features, Sieve filtering, and contacts',
-    category: 'communications',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['mail', 'email', 'imap', 'smtp'],
-    permissions: ['database', 'settings'],
-  },
-  {
-    name: 'sms',
-    displayName: 'SMS / Push Notifications',
-    description: 'Send SMS via Twilio or Vonage with templates and delivery tracking',
-    category: 'communications',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['sms', 'notifications', 'twilio', 'vonage'],
-    permissions: ['database'],
-  },
+function readOverride(path: string): ExtensionCatalogEntry[] | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as CatalogFile;
+    const entries = parsed?.entries;
+    if (!Array.isArray(entries) || !entries.every(isEntry)) {
+      console.warn(
+        `[extension-catalog] ${path} is not a catalog file (expected { entries: [...] } ` +
+          'with name/displayName/category/version on each) — using the bundled catalog.',
+      );
+      return null;
+    }
+    return entries;
+  } catch (err) {
+    console.warn(
+      `[extension-catalog] ${path} could not be read — using the bundled catalog:`,
+      (err as Error).message,
+    );
+    return null;
+  }
+}
 
-  // ── Compliance ────────────────────────────────────────────────
-  {
-    name: 'compliance/gdpr',
-    displayName: 'GDPR Compliance',
-    description: 'Data export and right to erasure (GDPR Art. 15, 17)',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['compliance', 'gdpr', 'privacy'],
-    permissions: ['database'],
-  },
-  {
-    name: 'compliance/ro/documents',
-    displayName: 'Documents RO',
-    description:
-      'Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['documents', 'contracts', 'romania'],
-    permissions: ['database'],
-  },
-  {
-    name: 'compliance/ro/efactura',
-    displayName: 'e-Factura RO',
-    description:
-      'Romanian e-Invoice (e-Factura) integration with ANAF — generate, validate, and submit UBL XML invoices',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['invoicing', 'anaf', 'romania', 'ubl'],
-    permissions: ['database'],
-  },
-  {
-    name: 'compliance/ro/etransport',
-    displayName: 'e-Transport RO',
-    description:
-      'Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['transport', 'anaf', 'romania', 'logistics'],
-    permissions: ['database'],
-  },
-  {
-    name: 'compliance/ro/procurement',
-    displayName: 'Achizitii Publice RO',
-    description:
-      'Romanian public procurement management — purchase orders, supplier registry, budget tracking',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['procurement', 'suppliers', 'budget', 'romania'],
-    permissions: ['database'],
-  },
-  {
-    name: 'compliance/ro/saft',
-    displayName: 'SAF-T RO',
-    description:
-      'Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF',
-    category: 'compliance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['saft', 'tax', 'anaf', 'romania'],
-    permissions: ['database'],
-  },
+let _cached: ExtensionCatalogEntry[] | null = null;
 
-  // ── Content ───────────────────────────────────────────────────
-  {
-    name: 'content/document-templates',
-    displayName: 'Document Templates',
-    description:
-      'Admin-managed HTML/PDF templates with variable interpolation and async generation',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['documents', 'templates', 'pdf'],
-    permissions: ['database'],
-  },
-  {
-    name: 'content/documents',
-    displayName: 'Document Generator',
-    description: 'Generate PDF documents from templates with data binding',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['documents', 'pdf', 'templates'],
-    permissions: ['database'],
-  },
-  {
-    name: 'content/drafts',
-    displayName: 'Content Drafts',
-    description: 'Draft/publish workflow for content collections',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['cms', 'drafts', 'publishing'],
-    permissions: ['database'],
-  },
-  {
-    name: 'content/media',
-    displayName: 'Media Library',
-    description: 'Media folders, files, and tags management',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['media', 'files', 'images'],
-    permissions: ['database', 'storage'],
-  },
-  {
-    // `content/page-builder` and `content/portals` merged into this. They were
-    // two halves of one product: the CMS had blocks, SEO, redirects, revisions
-    // and A/B but no access control and no branding; portals had access roles,
-    // per-site branding and several sites but its pages could hold nothing but
-    // views. Their only real overlap was one block type — `collection_list` and
-    // a saved view are the same idea — and views are that block type now.
-    name: 'content/pages',
-    displayName: 'Pages',
-    description:
-      'Pages built from blocks — content or live collection data — grouped into sites. A site can be public with SEO, sitemap and redirects, or authenticated with access by role and its own branding',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['cms', 'pages', 'sites', 'portals', 'content'],
-    permissions: ['database', 'storage'],
-  },
-  {
-    name: 'content/pdf-viewer',
-    displayName: 'PDF Viewer',
-    description: 'Inline PDF viewer for Studio asset manager, client apps, and page builder blocks',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['pdf', 'viewer', 'documents'],
-    permissions: [],
-  },
-  {
-    name: 'forms',
-    displayName: 'Form Builder',
-    description: 'Drag-and-drop form builder with public submission endpoints',
-    category: 'content',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['forms', 'submissions', 'builder'],
-    permissions: ['database'],
-  },
+/** Reset the resolved catalog. Tests use it; nothing else should need to. */
+export function _resetCatalogForTests(): void {
+  _cached = null;
+}
 
-  // ── CRM ───────────────────────────────────────────────────────
-  {
-    name: 'crm',
-    displayName: 'CRM',
-    description: 'Contacts, Organizations, and Transactions — optional CRM extension',
-    category: 'business',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['crm', 'contacts', 'sales'],
-    permissions: ['database'],
-  },
+/**
+ * The catalogue this instance offers. Resolved once, from the first source that
+ * yields a usable file.
+ */
+export function getExtensionCatalog(): ExtensionCatalogEntry[] {
+  if (_cached) return _cached;
 
-  // ── Data ──────────────────────────────────────────────────────
-  {
-    name: 'data/export',
-    displayName: 'Data Export',
-    description: 'Export collection data as JSON, CSV or NDJSON with filtering support',
-    category: 'data',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['export', 'csv', 'json', 'data'],
-    permissions: ['database'],
-  },
-  {
-    name: 'data/import',
-    displayName: 'Data Import',
-    description:
-      'Import collection data from CSV or JSON files with column mapping and background processing',
-    category: 'data',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['import', 'csv', 'json', 'data'],
-    permissions: ['database'],
-  },
+  const candidates: string[] = [];
+  const fromEnv = process.env.ZVELTIO_CATALOG_PATH;
+  if (fromEnv) candidates.push(fromEnv);
+  const extDir = process.env.EXTENSIONS_DIR;
+  if (extDir) candidates.push(join(extDir, 'catalog.json'));
 
-  // ── Developer ─────────────────────────────────────────────────
-  {
-    name: 'developer/api-docs',
-    displayName: 'API Documentation',
-    description: 'Swagger UI + OpenAPI spec auto-generated from collections',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['api', 'swagger', 'openapi', 'docs'],
-    permissions: ['database'],
-  },
-  {
-    name: 'developer/byod',
-    displayName: 'BYOD Import',
-    description: 'External database schema introspection and import',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['byod', 'introspection', 'migration'],
-    permissions: ['database'],
-  },
-  {
-    name: 'developer/database',
-    displayName: 'Database Management',
-    description: 'PostgreSQL functions, triggers, enums, roles, RLS',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['database', 'postgresql', 'triggers', 'rls'],
-    permissions: ['database'],
-  },
-  {
-    name: 'developer/edge-functions',
-    displayName: 'Edge Functions',
-    description:
-      'Write and deploy TypeScript serverless functions directly inside the engine with a sandboxed runtime',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['functions', 'serverless', 'typescript'],
-    permissions: ['database'],
-  },
-  {
-    name: 'developer/graphql',
-    displayName: 'GraphQL API',
-    description: 'Auto-generated GraphQL API with playground for all collections',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['graphql', 'api', 'playground'],
-    permissions: ['database'],
-  },
-  // developer/saved-queries — promoted to engine core
-  // developer/schema-branches — promoted to engine core
-  {
-    name: 'developer/validation',
-    displayName: 'Data Validation',
-    description: 'Field-level validation rules with AI-assisted natural language rule generation',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['validation', 'rules', 'ai'],
-    permissions: ['database'],
-  },
-  {
-    name: 'search',
-    displayName: 'Search Adapter',
-    description: 'Full-text search via MeiliSearch or Typesense with automatic record sync',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['search', 'fulltext', 'meilisearch', 'typesense'],
-    permissions: ['database'],
-  },
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    const entries = readOverride(path);
+    if (entries) {
+      _cached = entries;
+      return _cached;
+    }
+  }
 
-  // ── Billing ───────────────────────────────────────────────────
-  {
-    name: 'billing',
-    displayName: 'Billing & Usage',
-    description: 'Usage metering and Stripe billing integration',
-    category: 'billing',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['billing', 'stripe', 'usage', 'metering'],
-    permissions: ['database'],
-  },
+  _cached = (bundled as CatalogFile).entries;
+  return _cached;
+}
 
-  // ── eCommerce ─────────────────────────────────────────────────
-  {
-    name: 'ecommerce/store',
-    displayName: 'eCommerce',
-    description: 'Product catalog, orders, customer management, coupons and public storefront API',
-    category: 'ecommerce',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['ecommerce', 'store', 'orders', 'products'],
-    permissions: ['database'],
-  },
+/** Which catalogue the bundled copy is. Shown at boot so an operator can tell
+ *  whether an override took effect. */
+export const BUNDLED_CATALOG_VERSION = (bundled as CatalogFile).catalog_version ?? 'unknown';
 
-  // ── Finance ───────────────────────────────────────────────────
-  {
-    name: 'finance/accounting',
-    displayName: 'Accounting',
-    description:
-      'Double-entry bookkeeping, chart of accounts, journal entries, P&L and balance sheet reports',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['accounting', 'bookkeeping', 'finance'],
-    permissions: ['database'],
+/**
+ * Back-compatible view. Kept as a getter rather than an array so an override is
+ * picked up by every existing reader without touching it.
+ */
+export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = new Proxy([] as ExtensionCatalogEntry[], {
+  get(_t, prop, recv) {
+    return Reflect.get(getExtensionCatalog(), prop, recv);
   },
-  {
-    name: 'finance/banking',
-    displayName: 'Banking Sync',
-    description:
-      'Import bank statements, auto-reconcile transactions with invoices and track cash flow',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['banking', 'reconciliation', 'cashflow'],
-    permissions: ['database'],
+  has(_t, prop) {
+    return Reflect.has(getExtensionCatalog(), prop);
   },
-  {
-    name: 'finance/expenses',
-    displayName: 'Expenses',
-    description:
-      'Employee expense reports with receipt management, categorization and approval flow',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['expenses', 'receipts', 'approvals'],
-    permissions: ['database'],
+  ownKeys() {
+    return Reflect.ownKeys(getExtensionCatalog());
   },
-  {
-    name: 'finance/invoicing',
-    displayName: 'Invoicing',
-    description: 'Recurring invoices, payment tracking and overdue management',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['invoicing', 'payments', 'billing'],
-    permissions: ['database'],
+  getOwnPropertyDescriptor(_t, prop) {
+    return Reflect.getOwnPropertyDescriptor(getExtensionCatalog(), prop);
   },
-  {
-    name: 'finance/quotes',
-    displayName: 'Quotes & Proposals',
-    description:
-      'Generate branded PDF quotes and proposals linked to CRM contacts, with convert-to-invoice action',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['quotes', 'proposals', 'pdf', 'crm'],
-    permissions: ['database'],
-  },
-  {
-    name: 'finance/subscriptions',
-    displayName: 'Subscriptions',
-    description:
-      'Recurring billing plans, subscriber management, MRR/ARR tracking and Stripe integration',
-    category: 'finance',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['subscriptions', 'billing', 'stripe', 'mrr'],
-    permissions: ['database'],
-  },
-
-  // ── Geospatial ────────────────────────────────────────────────
-  {
-    name: 'geospatial/postgis',
-    displayName: 'Geospatial',
-    description:
-      'Location field type, map views in Studio, proximity search, bbox queries, clustering, and geofences',
-    category: 'geospatial',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['maps', 'location', 'geospatial', 'postgis'],
-    permissions: ['database'],
-  },
-
-  // ── HR ────────────────────────────────────────────────────────
-  {
-    name: 'hr/employees',
-    displayName: 'HR',
-    description:
-      'Employee records, departments, job positions, contracts and onboarding checklists',
-    category: 'hr',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['hr', 'employees', 'departments'],
-    permissions: ['database'],
-  },
-  {
-    name: 'hr/leave',
-    displayName: 'Leave Management',
-    description:
-      'Vacation and leave requests with balance tracking, approval workflow and calendar view',
-    category: 'hr',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['hr', 'leave', 'vacation', 'approvals'],
-    permissions: ['database'],
-  },
-  {
-    name: 'hr/payroll',
-    displayName: 'Payroll RO',
-    description:
-      'Romanian payroll: CAS, CASS, income tax calculations, meal vouchers and Revisal XML export',
-    category: 'hr',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['payroll', 'hr', 'romania', 'revisal'],
-    permissions: ['database'],
-  },
-  {
-    name: 'hr/time-tracking',
-    displayName: 'Time Tracking',
-    description: 'Timesheets, project-based time logging, billable hours and client reports',
-    category: 'hr',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['timesheets', 'billing', 'projects', 'hr'],
-    permissions: ['database'],
-  },
-
-  // ── i18n ──────────────────────────────────────────────────────
-  {
-    name: 'i18n/translations',
-    displayName: 'Translations',
-    description:
-      'Internationalization: manage locales, translation keys and per-locale string values',
-    category: 'i18n',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['i18n', 'translations', 'locales'],
-    permissions: ['database'],
-  },
-
-  // ── Integrations ──────────────────────────────────────────────
-  {
-    name: 'integrations/api-connector',
-    displayName: 'API Connector',
-    description:
-      'No-code HTTP integrations — connect external REST APIs with field mapping, retry logic and execution logs',
-    category: 'integrations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['integrations', 'api', 'http', 'webhooks'],
-    permissions: ['database'],
-  },
-  {
-    name: 'integrations/migrators',
-    displayName: 'Data Migrators',
-    description:
-      'Import your data from HubSpot, Notion and Airtable into Zveltio collections — encrypted connections, field mapping preview, audited runs',
-    category: 'integrations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['integrations', 'migration', 'hubspot', 'notion', 'airtable'],
-    permissions: ['database', 'network', 'secrets'],
-  },
-
-  // ── Operations ────────────────────────────────────────────────
-  {
-    name: 'operations/assets',
-    displayName: 'Fixed Assets',
-    description:
-      'Fixed asset register, straight-line and declining balance depreciation, maintenance schedules',
-    category: 'operations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['assets', 'depreciation', 'maintenance'],
-    permissions: ['database'],
-  },
-  // operations/backup — promoted to engine core
-  {
-    name: 'operations/inventory',
-    displayName: 'Inventory',
-    description: 'Warehouses, SKUs, stock movements, reorder alerts and barcode support',
-    category: 'operations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['inventory', 'warehouse', 'stock', 'barcode'],
-    permissions: ['database'],
-  },
-  {
-    name: 'operations/pos',
-    displayName: 'Point of Sale',
-    description: 'Cash register, receipt generation, end-of-day reports and inventory integration',
-    category: 'operations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['pos', 'retail', 'receipts', 'inventory'],
-    permissions: ['database'],
-  },
-  {
-    name: 'operations/traceability',
-    displayName: 'Food Traceability',
-    description:
-      'Food traceability conforming to Regulation (EC) 178/2002 Art. 18 — lot reception, QR scanning, bidirectional tree, recall simulator',
-    category: 'operations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['traceability', 'food-safety', 'lots', 'recall', 'ansvsa'],
-    permissions: ['database'],
-  },
-
-  // ── Projects ──────────────────────────────────────────────────
-  {
-    name: 'projects/helpdesk',
-    displayName: 'Helpdesk',
-    description:
-      'Support ticket management with SLA timers, priorities, assignments and message threads',
-    category: 'projects',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['helpdesk', 'tickets', 'support', 'sla'],
-    permissions: ['database'],
-  },
-  {
-    name: 'projects/management',
-    displayName: 'Project Management',
-    description:
-      'Projects, milestones, tasks, kanban board, team assignments and progress tracking',
-    category: 'projects',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['projects', 'tasks', 'kanban', 'milestones'],
-    permissions: ['database'],
-  },
-
-  // ── Storage ───────────────────────────────────────────────────
-  {
-    name: 'storage/cloud',
-    displayName: 'Cloud Storage',
-    description: 'File versioning, trash bin, public share links, and storage quotas',
-    category: 'storage',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['storage', 'files', 'cloud', 'sharing'],
-    permissions: ['database', 'storage'],
-  },
-
-  // ── Workflow ──────────────────────────────────────────────────
-  {
-    name: 'workflow/approvals',
-    displayName: 'Approval Workflows',
-    description:
-      'Multi-step approval workflows with email notifications, SLA tracking, and full audit trail',
-    category: 'workflow',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['workflow', 'approvals', 'notifications'],
-    permissions: ['database', 'email'],
-  },
-  {
-    name: 'workflow/checklists',
-    displayName: 'Checklists',
-    description:
-      'Dynamic checklists and forms with scoring, conditional logic, and response analytics',
-    category: 'workflow',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['forms', 'checklists', 'scoring'],
-    permissions: ['database'],
-  },
-];
+});

@@ -5,7 +5,26 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
+import { drainAfterCommit, runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
+import { isGodUser } from './permissions.js';
+
+/**
+ * Who the request is, for the row-rule policies to read.
+ *
+ * `bypass` is a DECISION the engine has already taken — an API key carrying
+ * `rlsBypass`, or the `data:view_all` permission a god holds — not a role name
+ * for the database to compare. A role-name check is exactly what sat dead
+ * inside `getRlsFilters` for years without anyone noticing.
+ */
+export interface RlsIdentity {
+  userId: string;
+  email: string;
+  /** The direct role, as `getRlsFilters` uses it for a `user_role` source. */
+  role: string;
+  /** Casbin roles plus the direct one — what a rule's `role` is matched against. */
+  roles: string[];
+  bypass: boolean;
+}
 import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
 
 export interface Tenant {
@@ -810,10 +829,16 @@ export function getTenantDb(): Database {
 export async function withTenantIsolation<T>(
   tenantId: string,
   fn: (trx: Database) => Promise<T>,
-  opts?: { userId?: string | null },
+  opts?: { userId?: string | null; identity?: RlsIdentity },
 ): Promise<T> {
+  // Work queued for after the COMMIT, captured inside the store and run outside
+  // it. Four callers used `setTimeout(…, 0)` for this, and an audit showed the
+  // timer fires with the transaction still open — so the write they were trying
+  // to keep off the request's connection took a second one anyway.
+  let queuedAfterCommit: Array<() => void | Promise<void>> = [];
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-  return (_db as any).transaction().execute(async (trx: Database) => {
+  const result = await (_db as any).transaction().execute(async (trx: Database) => {
     // Drop to a role Postgres will actually apply RLS to.
     //
     // `docker-compose.yml` passes POSTGRES_USER to the official Postgres image,
@@ -839,7 +864,33 @@ export async function withTenantIsolation<T>(
     // and is answered by the equality fallback inside the predicate, which is
     // exactly what it did before the hierarchy existed.
     let scope: TenantScope | null = null;
-    if (opts?.userId) {
+    if (opts?.userId && (await isGodUser(opts.userId).catch(() => false))) {
+      // God's reach is EVERY firm, and it is published to the database rather
+      // than taken by escaping it.
+      //
+      // Until now a god saw across firms only by running on `poolDb` — the pool
+      // connects as a superuser with `rolbypassrls`, so the policies were not
+      // consulted at all. The privilege was not expressed anywhere; it was a way
+      // around the thing that expresses privileges. A handler that forgot its
+      // check on that connection read every firm's rows and nothing downstream
+      // could tell.
+      //
+      // Published here, `zveltio.visible_tenants` is the first branch of the
+      // predicate every policy already evaluates, so god is enforced BY the
+      // database on the same code path as everyone else, and the ordinary
+      // request pays nothing: the GUC was always written, only its contents
+      // differ.
+      //
+      // Measured before choosing this shape. Two other forms were tried and
+      // rejected: teaching `zveltio_visible_tenants()` to expand to all firms
+      // itself costs 0,061 ms → 0,434 ms on EVERY ordinary request, because the
+      // subquery stops the function being inlined; adding `OR zveltio_is_god()`
+      // to 300+ policies costs 6 microseconds but has to rewrite all of them.
+      // This one costs nothing and touches no policy.
+      const all = await sql<{ id: string }>`SELECT id FROM zv_tenants`.execute(trx);
+      const visible = all.rows.map((r) => r.id);
+      scope = { visible, ancestors: [] } as TenantScope;
+    } else if (opts?.userId) {
       scope = await resolveTenantScope(trx, opts.userId, tenantId).catch((err: Error) => {
         // Deliberately NOT swallowed into "see everything". A reach that cannot
         // be resolved is not a reach of zero restrictions; the request falls
@@ -848,6 +899,44 @@ export async function withTenantIsolation<T>(
         return null;
       });
     }
+
+    // The caller's identity, published for the row-rule policies to read.
+    //
+    // Only what the caller HANDS US. Resolving an email, a role list and a
+    // bypass permission here would be three lookups on the hot path, and the
+    // caller that has them — the request middleware — already does. A caller
+    // that publishes nothing (background jobs, boot reconcilers) leaves the
+    // settings empty, and an empty setting makes a rule SKIP: the same
+    // fail-open-for-that-rule the engine applies when it cannot resolve a value,
+    // and the same outcome those callers have today, where `getRlsFilters` is
+    // never asked at all.
+    const identity = {
+      userId: opts?.identity?.userId ?? '',
+      email: opts?.identity?.email ?? '',
+      role: opts?.identity?.role ?? '',
+      roles: (opts?.identity?.roles ?? []).join(','),
+      bypass: opts?.identity?.bypass ?? false,
+    };
+
+    // Whether there is an ACTOR at all — written as its own setting, because
+    // absence cannot be detected.
+    //
+    // A row rule needs to tell two things apart: a request whose identity has a
+    // field that is empty, and work that has no identity at all. Reading them
+    // off one setting does not work, and that is measured rather than assumed:
+    //
+    //     after SET LOCAL + COMMIT  ->  ''    (the setting survives, emptied)
+    //     on a connection never set ->  NULL
+    //
+    // So `current_setting(x, true) IS NULL` means "first request on a fresh
+    // pooled connection", not "no identity" — a security predicate that would
+    // depend on pool luck and pass every test run against a cold pool.
+    // `set_config(x, NULL, true)` does not unset either; it also leaves ''.
+    //
+    // Hence a separate flag, ALWAYS written like the rest, saying what the empty
+    // spellings cannot: background jobs and boot reconcilers publish no identity
+    // and get `off`, and a rule stands down for them exactly as it does today.
+    const hasActor = (opts?.identity?.userId ?? '') !== '';
 
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
@@ -870,7 +959,13 @@ export async function withTenantIsolation<T>(
       SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true),
              set_config('zveltio.current_tenant', ${tenantId}, true),
              set_config('zveltio.visible_tenants', ${encodeTenantSet(scope?.visible ?? null)}, true),
-             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true)
+             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true),
+             set_config('zveltio.user_id', ${identity.userId}, true),
+             set_config('zveltio.user_email', ${identity.email}, true),
+             set_config('zveltio.user_role', ${identity.role}, true),
+             set_config('zveltio.user_roles', ${identity.roles}, true),
+             set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
+             set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true)
     `.execute(trx);
     // Bind the transaction to the async context as well as handing it to `fn`.
     //
@@ -884,13 +979,29 @@ export async function withTenantIsolation<T>(
     //
     // Setting it here means there is ONE spelling that is correct everywhere:
     // in a handler, in a helper called from one, and in a job.
-    return runWithTenantTrx(trx, tenantId, () => {
+    return runWithTenantTrx(trx, tenantId, async () => {
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
-      return fn(trx);
+      try {
+        return await fn(trx);
+      } finally {
+        // Captured while the store is still alive; run below, after the commit.
+        queuedAfterCommit = drainAfterCommit();
+      }
     });
   });
+
+  for (const job of queuedAfterCommit) {
+    // One failed follow-up must not take the request's answer with it: the
+    // transaction is already committed and the caller already has its result.
+    await Promise.resolve()
+      .then(job)
+      .catch((err: Error) => {
+        console.warn('[after-commit] queued work failed:', err.message);
+      });
+  }
+  return result as T;
 }
 
 /**

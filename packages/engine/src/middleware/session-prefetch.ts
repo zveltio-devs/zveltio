@@ -67,6 +67,30 @@ export function sessionPrefetch(auth: SessionReader) {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       c.set('prefetchedSession', (session ?? null) as PrefetchedSession);
+
+      // Resolve the god flag HERE, where there is no transaction open yet.
+      //
+      // `checkPermission` asks `isGodUser` on nearly every authenticated
+      // request, and it reads the pool. Asked from inside the request's tenant
+      // transaction that is a SECOND connection, which is what makes the
+      // instance stop rather than slow at `c = DB_POOL_MAX`. This middleware
+      // already exists for exactly this reason — it resolves the session before
+      // the transaction so the lookup does not happen inside it — so the god
+      // flag belongs in the same place.
+      //
+      // Nothing is threaded through: the call fills the in-process cache in
+      // `permissions.ts`, and the in-transaction call reads it from there.
+      const userId = (session as { user?: { id?: unknown } } | null)?.user?.id;
+      if (typeof userId === 'string' && userId !== '') {
+        const { isGodUser, resolveUserRole } = await import('../lib/tenancy/index.js');
+        await Promise.all([
+          isGodUser(userId).catch(() => false),
+          // The write path asks for the role after the transaction is open, and
+          // on an install without Valkey that read goes to the pool — a second
+          // connection per write. Filled here, where there is no transaction yet.
+          resolveUserRole({ id: userId }).catch(() => 'public'),
+        ]);
+      }
     } catch {
       /* leave unset — callers fall back to their own lookup */
     }

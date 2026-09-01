@@ -110,10 +110,11 @@ export function assertProductionConfig(
  * curve breaks at about 20 concurrent requests and throughput falls from
  * ~690 req/s to 22 req/s; at 40 it stays flat past 80 with no errors.
  *
- * The default is deliberately NOT raised — see the note in `db/index.ts`. A
- * default is inherited by every install, including ones running several engines
- * against one Postgres, where 25 apiece already exhausted it. Raising it is an
- * operator decision taken against a `max_connections` they have checked.
+ * The default WAS raised to 40, as an owner decision on 2026-08-30 — see the
+ * note in `db/index.ts`. It is not free: a default is inherited by every
+ * install, including ones running several engines against one Postgres, so the
+ * same `max_connections` now carries fewer of them (5 instead of 8, at 200).
+ * That trade was made knowingly, against the measurement above.
  *
  * So this prints the arithmetic instead of hiding it: what the ceiling is, what
  * the server allows, and how much room is left. Advisory only — it never

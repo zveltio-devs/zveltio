@@ -14,8 +14,15 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
+import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
+import {
+  droppedForMissingValue,
+  isRuleOperator,
+  RULE_OPERATORS,
+  unsupportedOperator,
+} from './rule-operators.js';
 
 const RLS_CACHE_TTL = 30; // seconds — short TTL so policy changes apply quickly
 
@@ -91,6 +98,47 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
 
 /** Invalidate RLS policy cache for a collection (call after policy CRUD). */
 export async function invalidateRlsCache(collection: string): Promise<void> {
+  // Rebuild the database's copy of these rules first.
+  //
+  // This is the one place every rule change passes through — create, update and
+  // delete all call it — so it is where the generated policy is kept in step.
+  // Hooking the three routes instead would leave any other caller writing rules
+  // the database does not know about, which is the failure the policy exists to
+  // prevent, reintroduced one caller at a time.
+  //
+  // A `*` rule belongs to every collection, so every collection is rebuilt.
+  //
+  // Deferred a tick, and issued on the POOL. `CREATE POLICY` is DDL, which the
+  // request's own role (`zveltio_rls`) may not run — so it has to be the
+  // engine's own connection. Taking that connection while the request still
+  // holds its transaction is the second reservation this codebase spent a block
+  // removing, so it waits for the commit instead.
+  //
+  // The window between the rule being written and the policy being rebuilt is
+  // covered by the engine, which applies the same rule itself. A failure here is
+  // loud rather than fatal for the same reason.
+  const refresh = async () => {
+    try {
+      const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
+      if (collection === '*') await reconcileRowRulePolicies(_db);
+      else await applyRowRulePolicy(_db, collection);
+    } catch (err) {
+      console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
+    }
+  };
+  try {
+    // After the COMMIT, not after a tick. `setTimeout(0)` fired with the
+    // transaction still open — measured by an independent audit — so the DDL
+    // took a second pooled connection, which is what deferring was for.
+    if (getCurrentTenantTrx()) onAfterCommit(refresh);
+    else await refresh();
+  } catch (err) {
+    // Loud, and not fatal: the engine still applies the rule. Silence here would
+    // mean an instance quietly running with one enforcer where it believes it
+    // has two.
+    console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
+  }
+
   const cache = getCache();
   if (!cache) return;
   try {
@@ -210,22 +258,11 @@ export function applyRlsFilters<Q>(
   let out = query as unknown as WhereChain;
   for (const { field, condition } of filters) {
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
-    if (condition.op === 'eq') out = out.where(field, '=', condition.value);
-    else if (condition.op === 'neq') out = out.where(field, '!=', condition.value);
-    else if (condition.op === 'in') out = out.where(field, 'in', asList(condition.value));
-    else if (condition.op === 'not_in') out = out.where(field, 'not in', asList(condition.value));
-    else {
-      // Fail CLOSED. `in` and `not_in` were accepted by the policy route
-      // (routes/rls.ts validates against a four-value enum) and silently
-      // dropped here, so a policy an administrator saved, saw listed as
-      // enabled, and believed was hiding rows did nothing at all. A security
-      // filter that cannot be applied must not let the rows through — an
-      // operator can act on an error, not on a leak they cannot see.
-      throw new Error(
-        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
-          `cannot apply. Refusing the query rather than returning rows the policy was ` +
-          `meant to hide. Fix or disable the policy.`,
-      );
+    if (isRuleOperator(condition.op)) {
+      const op = RULE_OPERATORS[condition.op];
+      out = out.where(field, op.kysely, op.list ? asList(condition.value) : condition.value);
+    } else {
+      throw unsupportedOperator(field, condition.op);
     }
   }
   return out as unknown as Q;
@@ -249,36 +286,167 @@ export function matchesRlsFilters(
   filters: Array<{ field: string; condition: FilterCondition }>,
 ): boolean {
   for (const { field, condition } of filters) {
+    if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
     const value = record[field];
-    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
-    if (condition.op === 'eq') {
-      if (value !== condition.value) return false;
-    } else if (condition.op === 'neq') {
-      if (value === condition.value) return false;
-    } else if (condition.op === 'in') {
-      if (!asList(condition.value).includes(value)) return false;
-    } else if (condition.op === 'not_in') {
-      if (asList(condition.value).includes(value)) return false;
-    } else {
-      throw new Error(
-        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
-          `cannot apply. Refusing the query rather than returning rows the policy was ` +
-          `meant to hide. Fix or disable the policy.`,
-      );
-    }
+    // A missing or NULL field drops the row, on EVERY operator including the
+    // negatives — the rule that had to be written by hand here and was written
+    // wrong. See rule-operators.ts.
+    if (droppedForMissingValue(value)) return false;
+    if (!RULE_OPERATORS[condition.op].keep(value, condition.value)) return false;
   }
   return true;
 }
 
+/**
+ * The same conditions again, as SQL over a JSONB snapshot.
+ *
+ * `?as_of=` rebuilds rows from `zv_revisions.data`, so until this existed the
+ * only way to apply a row policy there was to read the entire history into the
+ * process and filter the array. Measured on 200 000 records with two revisions
+ * each: 336 ms, of which the filtering was 2,2 ms — the reading was the cost.
+ * The same page asked of the database is 2 ms.
+ *
+ * ── Why `->>` and text, and no longer `->` + to_jsonb ─────────
+ *
+ * A policy value is ALWAYS a string: the four sources are `user_id`,
+ * `user_email`, `user_role` and `static:VAL`. Both other appliers compare it as
+ * TEXT — the engine sends the string and Postgres casts it against the typed
+ * column, so `code = '5'` matches the row where code is 5; the in-memory
+ * evaluator compares `String(a) === String(b)` for exactly that reason. `->>`
+ * renders a JSON scalar as text and agrees with both.
+ *
+ * This used to read `-> ` compared against `to_jsonb(<value>::text)`, matching
+ * only the JSON *string* "5" and never the number 5. That was aligned to an
+ * in-memory evaluator which then compared with `===`. It no longer does: an
+ * independent audit found `===` wrong and it became a text comparison, and this
+ * applier — in another file, uncompared — kept the old meaning. `code eq
+ * static:5` then showed the row on `/api/data` and hid it under `?as_of=`.
+ *
+ * ── Why the negative operators drop a missing key ─────────────
+ *
+ * A key missing from a snapshot is `undefined` in JS and SQL NULL here, and
+ * SQL DROPS such a row from `<>` and `NOT IN`: the comparison is NULL and a
+ * WHERE discards it. `IS DISTINCT FROM` and an explicit `IS NULL OR` used to be
+ * here to KEEP it, because that is what the in-memory evaluator did.
+ *
+ * That evaluator was WRONG, and it is the finding the audit opened with: a row
+ * with a NULL field was absent from `/api/data` and delivered over SSE. Three
+ * appliers were corrected; this fourth one was not, so the same leak survived
+ * on the `?as_of=` path — the one that exists for auditing. Measured across the
+ * full operator x source x column-type x NULL matrix: 18 of 56 cases disagreed,
+ * twelve of them this way.
+ *
+ * So the negatives now say nothing special, and SQL's own semantics — the ones
+ * the other three follow — apply.
+ *
+ * FOURTH applier of the same four operators. The comment here used to say
+ * "third", written before the policy generator existed in `row-rule-policy.ts`.
+ * Adjacency was supposed to stop them drifting; it did not, because the fourth
+ * was not adjacent and nothing compared them. `row-rules-three-interpreters`
+ * now walks all four over the whole matrix, which is what actually stops it.
+ */
+export function rlsJsonConditions(
+  filters: Array<{ field: string; condition: FilterCondition }>,
+  column = 'data',
+): Array<ReturnType<typeof sql<boolean>>> {
+  const col = sql.ref(column);
+  const out: Array<ReturnType<typeof sql<boolean>>> = [];
+  for (const { field, condition } of filters) {
+    if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
+    const op = RULE_OPERATORS[condition.op];
+    // `::text` is not decoration. Postgres has both `jsonb -> text` (object key)
+    // and `jsonb -> integer` (array element); with an untyped parameter it
+    // resolves to the integer form, which on an object returns NULL for every
+    // row. That is silent: the query succeeds and the page comes back empty,
+    // and a suite that only checks "these rows are hidden" passes for entirely
+    // the wrong reason.
+    const at = sql`${col} ->> ${field}::text`;
+    const one = (v: unknown) => sql`${String(v)}::text`;
+    const rendered = sql.raw(op.sql);
+    // No special case for a missing key on any of the four: `->>` gives NULL,
+    // and SQL drops a NULL comparison from a WHERE. That is what the live-table
+    // path does, so it is what this must do.
+    if (op.list) {
+      const items = (Array.isArray(condition.value) ? condition.value : [condition.value]).map(one);
+      out.push(sql<boolean>`${at} ${rendered} (${sql.join(items, sql`, `)})`);
+    } else {
+      out.push(sql<boolean>`${at} ${rendered} ${one(condition.value)}`);
+    }
+  }
+  return out;
+}
+
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────
+
+/**
+ * The connection these helpers should use.
+ *
+ * The request's own transaction when there is one, the pool otherwise. Reading
+ * on the pool while the request holds a transaction is a SECOND connection, and
+ * at `c = DB_POOL_MAX` the second can never arrive — the instance stops rather
+ * than slows. `zvd_rls_policies` is instance-level and readable by the request's
+ * role, so there is nothing the pool gives that the transaction does not.
+ */
+function rlsDb(): Database {
+  return getCurrentTenantTrx() ?? _db;
+}
 
 export async function listRlsPolicies(): Promise<RlsPolicy[]> {
   const rows = await sql<RlsPolicy>`
     SELECT id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description, created_at, updated_at
     FROM zvd_rls_policies
     ORDER BY collection, role
-  `.execute(_db);
+  `.execute(rlsDb());
   return rows.rows;
+}
+
+/** Thrown when a rule cannot be expressed by every layer that has to apply it. */
+export class UnenforceableRuleError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'UnenforceableRuleError';
+  }
+}
+
+/**
+ * Refuse a rule no layer can agree on, at the door.
+ *
+ * `code eq user_id` — an integer column against a user id — makes the engine's
+ * query throw, the generated policy skip the rule (so it does nothing), and the
+ * in-process matcher filter in JavaScript. None is wrong alone; together they
+ * are one rule with three meanings. An independent audit found that class by
+ * hand; the door is the only place to close it once.
+ *
+ * A collection with no table yet, or `*`, cannot be checked and is allowed —
+ * refusing on absence would block a rule written before its collection exists.
+ */
+async function assertEnforceable(data: {
+  collection?: string;
+  role?: string;
+  filter_field?: string;
+  filter_op?: string;
+  filter_value_source?: string;
+}): Promise<void> {
+  const { collection, filter_field, filter_op, filter_value_source, role } = data;
+  if (!collection || collection === '*') return;
+  if (!filter_field || !filter_op || !filter_value_source) return;
+
+  const table = `zvd_${collection}`;
+  const cols = await sql<{ column_name: string; data_type: string }>`
+    SELECT column_name, data_type FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = ${table}
+  `.execute(rlsDb());
+  if (cols.rows.length === 0) return;
+
+  const types: Record<string, string> = {};
+  for (const col of cols.rows) types[col.column_name] = col.data_type;
+
+  const { describeRuleProblem } = await import('./row-rule-policy.js');
+  const problem = describeRuleProblem(
+    { role: role ?? '*', filter_field, filter_op, filter_value_source },
+    types,
+  );
+  if (problem) throw new UnenforceableRuleError(problem);
 }
 
 export async function createRlsPolicy(data: {
@@ -290,6 +458,7 @@ export async function createRlsPolicy(data: {
   is_enabled?: boolean;
   description?: string;
 }): Promise<RlsPolicy> {
+  await assertEnforceable(data);
   const rows = await sql<RlsPolicy>`
     INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled, description)
     VALUES (

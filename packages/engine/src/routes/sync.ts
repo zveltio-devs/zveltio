@@ -5,6 +5,7 @@
  * POST /api/sync/pull — client requests changes from a timestamp
  */
 
+import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
@@ -281,11 +282,15 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
+        // The same explanation `/api/data` gives. Sync used to hand back the raw
+        // Postgres string, so a row refused by a row rule read as an internal
+        // error — the two paths disagreed about what had just happened.
+        const explained = isRlsRefusal(err) ? describeWriteRefusal(String(err.message)) : null;
         for (const { recordId } of creates) {
           results.push({
             recordId,
             status: 'error',
-            error: err.message || 'Database error',
+            error: explained ?? err.message ?? 'Database error',
           });
         }
       }
@@ -352,10 +357,11 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
+        const explained = isRlsRefusal(err) ? describeWriteRefusal(String(err.message)) : null;
         results.push({
           recordId,
           status: 'error',
-          error: err.message || 'Database error',
+          error: explained ?? err.message ?? 'Database error',
         });
       }
     }
