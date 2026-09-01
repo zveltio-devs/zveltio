@@ -15,23 +15,72 @@ O instalare servește **mai multe firme**, ierarhic (corporații cu societăți,
 instituții cu unități subordonate). Izolarea NU e la nivel de schemă și nici de
 bază: e **shared schema + coloană `tenant_id`**, aplicată de **Postgres RLS**.
 
-Faptul central, din care decurge tot restul:
+Faptul de care depinde cum citești tot restul:
 
-> **Motorul se conectează la Postgres ca superutilizator.** Un superuser
-> **ocolește RLS întotdeauna**. Politicile NU protejează nimic pe conexiunea de
-> pool. Ele se aplică doar înăuntrul tranzacției cererii, unde motorul face
-> `SET LOCAL ROLE zveltio_rls` și coboară privilegiile.
+> **Rolul cu care se conectează motorul decide dacă politicile se aplică.**
+> Postgres nu aplică RLS unui rol `SUPERUSER` sau `BYPASSRLS` — **nici măcar cu
+> `FORCE ROW LEVEL SECURITY`.** Instalarea corectă conectează motorul ca **rol
+> simplu**, și atunci politicile leagă conexiunea direct.
 
-Deci întrebarea centrală a oricărui audit al acestui sistem este:
+---
 
-> **Ce cod atinge date de firmă în afara acelei tranzacții?**
+## 0.1 Rolul de conectare — citește asta ÎNAINTE de a judeca orice altceva
 
-Măsurat pe o bază reală, ca să nu fie o afirmație teoretică:
+Aici se greșește cel mai ușor, în ambele direcții. Motorul raportează la fiecare
+boot în care dintre trei stări se află (`initRlsEnforcementRole`, `index.ts`):
+
+| stare | ce înseamnă | jurnal |
+|---|---|---|
+| `enforced` | rolul `zveltio_rls` există; fiecare tranzacție de firmă coboară în el | `🔒 Tenant RLS enforced via the zveltio_rls role` |
+| `native` | nu există rol de coborâre, dar conexiunea e rol simplu: RLS o leagă direct | `🔒 Tenant RLS enforced natively — the engine role is bound by RLS` |
+| `unavailable` | nici rol de coborâre, **și** conexiunea ocolește RLS | `❌ … Tenant isolation is NOT enforced` |
+
+A treia stare e **fatală în producție** — `rlsBootFailure()` oprește pornirea
+când `NODE_ENV=production`, iar singura ieșire e `ZVELTIO_ALLOW_UNENFORCED_RLS=1`,
+pusă deliberat de un operator. În afara producției rămâne avertisment, fiindcă o
+mașină de dezvoltare pe superuserul din imaginea stock e un lucru normal.
+
+**Instalarea de producție documentată nu folosește superuser.**
+`docs/site/DEPLOYMENT-K8S.md` o descrie, iar `scripts/bootstrap-db-role.sh` o
+face: se rulează **o singură dată**, ca superutilizator, creează baza, creează
+`zveltio_app` ca `NOSUPERUSER NOBYPASSRLS`, instalează extensiile netrusted
+(`vector`, `postgis` — doar un superuser le poate crea) și pre-creează rolul
+`zveltio_rls`. **După aceea motorul nu mai are nevoie de superuser niciodată** —
+migrațiile, instalarea extensiilor și DDL-ul rulează ca rolul proprietar.
+
+`docker-compose.yml` pornește deja Postgres cu `POSTGRES_USER=zveltio`, nu
+`postgres`.
+
+### Ce NU cere superuser, contrar aparenței
+
+Verificat în cod, fiindcă e exact lista de care depinde judecata:
+
+| operațiune | privilegiu real |
+|---|---|
+| `SET LOCAL ROLE zveltio_rls` | **apartenență la rol**, nu superuser — migrațiile fac `GRANT zveltio_rls TO current_user` |
+| `CREATE ROLE` (cele trei roluri) | `CREATEROLE`; și e înfășurat în `DO $$` cu degradare grațioasă, ca să nu blocheze un upgrade |
+| `CREATE EXTENSION` cerută de o extensie | motorul **detectează** ce lipsește și cere operatorului s-o instaleze din psql |
+| `ALTER SYSTEM` | **nu se execută nicăieri** — apare doar într-un comentariu, descriind o listă de interdicții eliminată |
+
+### Deci cum se citește „a doua linie de apărare"
+
+- **Instalare corectă (rol simplu).** RLS leagă conexiunea **direct**. Coborârea
+  `SET LOCAL ROLE` din tranzacție rămâne, dar e centură peste bretele.
+- **Superuser (stock/dev, sau producție cu derogare).** Politicile sunt inerte pe
+  conexiune, iar singurul lucru care aplică izolarea e coborârea din tranzacție.
+  **Doar în acest caz** întrebarea „ce cod atinge date de firmă în afara
+  tranzacției" e o întrebare de securitate; altfel e o întrebare de performanță.
+
+Măsurat pe o bază conectată ca `postgres`, ca să fie limpede ce se pierde:
 
 ```
-pool brut, rol postgres              : 2 rânduri — firma A + firma B   ← RLS NU protejează
-tranzacție de firmă, rol zveltio_rls : 1 rând    — firma A             ← RLS protejează
+pool brut, rol postgres              : 2 rânduri — firma A + firma B   ← RLS inert
+tranzacție de firmă, rol zveltio_rls : 1 rând    — firma A             ← RLS aplicat
 ```
+
+**Prima întrebare a oricărui audit** trebuie deci să fie: *ca ce rol rulează
+instanța pe care mă uit?* Un raport scris pe o instalare de dezvoltare pe
+superuser descrie alt sistem decât unul scris pe o instalare de producție.
 
 ---
 
@@ -90,6 +139,10 @@ așteaptă una, și nimic nu se mai eliberează:
 | 10 | 5 | 0 | 19,6 ms | `idle in transaction × 4` |
 | 10 | **10** | **10 din 10** | **9 724 ms** | `idle in transaction × 10`, `active × 1` |
 
+<sub>Măsurat cu motor viu pe `:3400`, colecție de 50 000 de rânduri, sarcină prin
+HTTP; probe din `pg_stat_activity` în timpul sarcinii. Detaliile și celelalte
+puncte: `docs/private/BLOCK-A-EXPLICIT-CONTEXT-STATE.md`.</sub>
+
 Nu e degradare, e oprire. Cele patru filtrează explicit prin `tenantOf(c)` —
 trebuie, fiind pe pool — iar `backup` și `sql-editor` sunt unelte de instanță,
 fără scop de firmă. Poarta `check:pooldb-txn` păzește lista.
@@ -122,7 +175,8 @@ set_config('zveltio.rls_bypass',        'on' | 'off',  true)
 
 `role` călătorește ca variabilă, nu ca `SET LOCAL ROLE` separat — e un GUC ca
 oricare altul, iar unirea taie un round-trip: **0,230 ms → 0,175 ms** pentru
-pregătirea per cerere.
+pregătirea per cerere — cifra e în comentariul de deasupra instrucțiunii, în
+`lib/tenancy/tenant-manager.ts`.
 
 ### De ce `zveltio.actor` e un steag propriu
 
@@ -166,7 +220,8 @@ politici.
 
 **Marcajul `(SELECT …)` nu e stil.** Un `current_setting()` gol în predicat se
 evaluează **per rând**; înfășurat, devine InitPlan, evaluat o dată. Măsurat: de
-trei ori diferență. Dacă vezi un predicat fără el, aia e o regresie reală.
+trei ori diferență (`docs/private/BLOCK-K-ROW-RULES-IN-DB-STATE.md`). Dacă vezi
+un predicat fără el, aia e o regresie reală.
 
 ### Citirea și scrierea sunt DELIBERAT diferite
 
@@ -212,7 +267,7 @@ Reach-ul unei persoane e pe `zv_tenant_users.read_scope`, cu patru valori:
 | `org` | toată organizația |
 
 Sunt **granturi, nu filtre**: cine are și `self`, și `subtree`, are `subtree`.
-Ordinea e în `REACH_ORDER` (`tenant-scope.ts`). Se rezolvă **o dată pe cerere**,
+Ordinea e în `REACH_ORDER` (`lib/tenancy/tenant-scope.ts`). Se rezolvă **o dată pe cerere**,
 ca rolul motorului, înainte de coborârea de privilegii — pentru că
 `zv_tenant_users` trebuie citit ca să se afle ce are voie să citească.
 
@@ -257,6 +312,9 @@ de cele mai multe ori aici:
 - al patrulea n-a fost comparat cu nimic până în 31 august 2026. Adăugat la suita
   diferențială, a dat **18 eșecuri din 56 pe cod neschimbat**, dintre care
   douăsprezece erau ACEEAȘI scurgere, încă vie pe `?as_of=`.
+
+Ambele sunt re-verificabile: `bun test packages/engine/src/tests/harness/row-rules-four-interpreters.test.ts`
+rulează matricea, iar istoria e în mesajele commit-urilor pe care le referă.
 
 **De aceea cei patru nu mai decid nimic.** Semantica stă într-un singur loc,
 `lib/tenancy/rule-operators.ts`, și fiecare o randează. Poarta
@@ -348,13 +406,20 @@ Fiecare a costat deja timp cuiva.
 
 - **„Politicile RLS nu pot folosi indexul"** — FALS. S-a greșit de două ori, în
   direcții opuse. Forma predicatului decide: `= ANY(array)` nu conduce o
-  parcurgere ordonată, egalitatea explicită da. **415 → 204 → 129 ms**, măsurat.
+  parcurgere ordonată, egalitatea explicită da. **415 → 204 → 129 ms**, măsurat —
+`docs/private/BLOCK-J-DB-SECOND-LINE-STATE.md`.
 - **`broadcastSSE` e cod mort** — nu e. **„mail iframe XSS"** — fals.
 - **`session.user.role` e gol** — adevărat, nu e declarat în better-auth. Codul
   care se bazează pe el e mort, nu periculos. **Dar** vezi §6: o regulă pe
   `user_role` cade în cazul ăla, ceea ce a fost un defect real.
 - **Twilio, postgis authz** — reparate. **Sesiuni la ștergerea userului, Valkey,
   DLQ webhooks** — închise.
+- **„Motorul TREBUIE să fie superuser"** — FALS, și e greșeala pe care a făcut-o
+  prima versiune a acestui document. Vezi §0.1: coborârea de rol merge prin
+  apartenență, iar producția documentată rulează ca rol simplu. Ce e adevărat e
+  că imaginea stock de Postgres se conectează ca superuser, deci o instalare
+  neconfigurată chiar e în starea aia — și motorul refuză să pornească așa în
+  producție.
 
 ---
 
