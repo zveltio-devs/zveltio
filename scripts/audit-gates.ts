@@ -665,7 +665,7 @@ const CASES: Case[] = [
     cmd: 'bun run scripts/check-rule-interpreters.ts',
     file: 'packages/engine/src/lib/tenancy/gate-probe-interpreter.ts',
     body:
-      "export function gateProbeInterpretRule(op: string): string {\n" +
+      'export function gateProbeInterpretRule(op: string): string {\n' +
       "  if (op === 'eq') return '=';\n" +
       "  if (op === 'neq') return '<>';\n" +
       "  if (op === 'in') return 'IN';\n" +
