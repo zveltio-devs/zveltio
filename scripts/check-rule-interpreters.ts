@@ -75,10 +75,7 @@ const NOT_RULE_READERS = new Map<string, string>([
       'reading of them. It advertises is_null/is_not_null, which no rule applier ' +
       'implements — those fail closed, loudly, by design.',
   ],
-  [
-    'lib/data/field-type-registry.ts',
-    'the same declaration, on the registry side.',
-  ],
+  ['lib/data/field-type-registry.ts', 'the same declaration, on the registry side.'],
   [
     'db/dynamic.ts',
     'the user-facing `?filter=` query builder. Same operator names, different ' +
@@ -170,9 +167,12 @@ if (handWritten.length > 0) {
 }
 
 // The table is only a single source if the renderings are actually compared.
-const missingFromSuite = ['applyRlsFilters', 'buildRowRulePredicate', 'matchesRlsFilters', 'rlsJsonConditions'].filter(
-  (n) => !suite.includes(n),
-);
+const missingFromSuite = [
+  'applyRlsFilters',
+  'buildRowRulePredicate',
+  'matchesRlsFilters',
+  'rlsJsonConditions',
+].filter((n) => !suite.includes(n));
 if (missingFromSuite.length > 0) {
   console.error(
     `\n❌ ${missingFromSuite.length} applier(s) are not named by the differential suite.\n`,
