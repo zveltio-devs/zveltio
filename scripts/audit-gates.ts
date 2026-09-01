@@ -655,6 +655,17 @@ const CASES: Case[] = [
     body: 'CREATE TABLE IF NOT EXISTS zv_schema_versions (id uuid PRIMARY KEY);\n',
   },
   {
+    // A bundle carrying a hono older than the lockfile.
+    //
+    // Planted as the bundler's own resolved-path comment, because that is what
+    // the gate reads — the version that actually went INTO the artifact, not
+    // what a manifest claims about it.
+    gate: 'check-embedded-deps-fresh',
+    cmd: 'bun run scripts/check-embedded-deps-fresh.ts',
+    file: '../zveltio-extensions/analytics/dashboard/engine/gate-probe-stale.js',
+    body: '// ../../node_modules/.bun/hono@4.0.0/node_modules/hono/dist/index.js\nexport {};\n',
+  },
+  {
     // A FIFTH reader of the four operators, in a file of its own.
     //
     // Planted as a new exported function that branches on `not_in`, which is the

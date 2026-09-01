@@ -125,6 +125,16 @@ jobs:
         # Runnable locally: `bun run check:rule-interpreters` (`--report` to list).
         run: bun run check:rule-interpreters
 
+      - name: Bundled dependencies match the lockfile
+        # The worker runtime and every packed extension INLINE their deps, so a
+        # bump in package.json does not reach them — the artifact keeps whatever
+        # it was built with. hono 4.13.5 (a security release) landed in the
+        # engine while 44 extension bundles stayed on 4.13.3 and three on
+        # 4.12.28, with every freshness gate green: those hash SOURCE, and a
+        # dependency bump changes no source.
+        # Runnable locally: `bun run check:embedded-deps` (`--report` to list).
+        run: bun run check:embedded-deps
+
       - name: Schema drift check
         # Walks all migrations + DbSchema.ts + every route/lib file and
         # reports three classes of drift:
