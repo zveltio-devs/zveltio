@@ -70,7 +70,8 @@ class FakeWebSocket {
     });
   }
   addEventListener(name: string, fn: (ev: unknown) => void) {
-    (this.handlers[name] ||= []).push(fn);
+    this.handlers[name] ||= [];
+    this.handlers[name].push(fn);
   }
   send(data: string) {
     this.sent.push(data);

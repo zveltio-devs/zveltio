@@ -32,7 +32,6 @@ function makeCallableWithMethods() {
   return f;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: hand-built stand-in for a Kysely handle
 function fakeDb(): any {
   return {
     fn: makeCallableWithMethods(),
@@ -46,7 +45,6 @@ function fakeDb(): any {
 
 describe('extension db proxy — callable properties', () => {
   it('keeps the methods hanging off a callable property', () => {
-    // biome-ignore lint/suspicious/noExplicitAny: proxy is typed against Database
     const db = createRestrictedDb(fakeDb() as any, 'probe') as any;
 
     expect(typeof db.fn).toBe('function');
@@ -58,13 +56,11 @@ describe('extension db proxy — callable properties', () => {
   });
 
   it('still calls the callable itself', () => {
-    // biome-ignore lint/suspicious/noExplicitAny: proxy is typed against Database
     const db = createRestrictedDb(fakeDb() as any, 'probe') as any;
     expect(db.fn()).toBe('called');
   });
 
   it('still binds `this` for an ordinary method — the reason bind is there', () => {
-    // biome-ignore lint/suspicious/noExplicitAny: proxy is typed against Database
     const db = createRestrictedDb(fakeDb() as any, 'probe') as any;
     const detached = db.plainMethod;
     // Detached from the object and still resolving `this` to the real handle.
@@ -72,7 +68,6 @@ describe('extension db proxy — callable properties', () => {
   });
 
   it('passes non-function properties through untouched', () => {
-    // biome-ignore lint/suspicious/noExplicitAny: proxy is typed against Database
     const db = createRestrictedDb(fakeDb() as any, 'probe') as any;
     expect(db.notAFunction).toEqual({ a: 1 });
   });

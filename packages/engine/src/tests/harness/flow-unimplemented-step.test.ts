@@ -76,20 +76,19 @@ d('unimplemented flow step (in-process)', () => {
     }
   });
 
-  it.each([
-    'condition',
-    'transform',
-    'delay',
-  ])('fails the run on a %s step instead of reporting success', async (stepType) => {
-    const flowId = await makeFlow(stepType);
-    const result = await executeFlow(db, flowId, {});
+  it.each(['condition', 'transform', 'delay'])(
+    'fails the run on a %s step instead of reporting success',
+    async (stepType) => {
+      const flowId = await makeFlow(stepType);
+      const result = await executeFlow(db, flowId, {});
 
-    expect(result.status).toBe('failed');
-    // Naming the type matters: the operator has to know WHICH step is the
-    // problem, and "not implemented" is the fact they need to act on.
-    expect(result.error ?? '').toContain(stepType);
-    expect(result.error ?? '').toMatch(/not implemented/i);
-  });
+      expect(result.status).toBe('failed');
+      // Naming the type matters: the operator has to know WHICH step is the
+      // problem, and "not implemented" is the fact they need to act on.
+      expect(result.error ?? '').toContain(stepType);
+      expect(result.error ?? '').toMatch(/not implemented/i);
+    },
+  );
 
   it('records the failure in the run history', async () => {
     const flowId = await makeFlow('condition');

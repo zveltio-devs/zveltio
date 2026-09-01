@@ -38,7 +38,7 @@ describe('runEdgeFunction — subprocess mode', () => {
       expect(spy).toHaveBeenCalled();
       expect(res.ok).toBe(true);
       expect(res.response?.status).toBe(202);
-      expect((res.response?.body as { via: string }).via).toBe('subprocess');
+      expect((res.response?.body as { via: string } | undefined)?.via).toBe('subprocess');
     } finally {
       spy.mockRestore();
     }

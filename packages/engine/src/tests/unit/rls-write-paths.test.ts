@@ -81,7 +81,6 @@ describe('applyRlsFilters', () => {
     const q = makeQuery();
     expect(() =>
       applyRlsFilters(q, [
-        // biome-ignore lint/suspicious/noExplicitAny: deliberately exercising an unmapped op
         { field: 'weird', condition: { op: 'contains' as any, value: 'x' } },
         { field: 'owner_id', condition: { op: 'eq', value: 'user-1' } },
       ]),

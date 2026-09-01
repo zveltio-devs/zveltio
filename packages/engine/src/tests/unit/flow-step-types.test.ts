@@ -37,13 +37,12 @@ describe('flow step types', () => {
   // The three the Studio offered and the executor never had. If one of these
   // ever appears in the switch, this test should be updated in the same commit
   // that implements it — not before.
-  it.each([
-    'condition',
-    'create_record',
-    'update_record',
-  ])('does not claim to implement %s', (type) => {
-    expect(EXECUTABLE_STEP_TYPES as readonly string[]).not.toContain(type);
-  });
+  it.each(['condition', 'create_record', 'update_record'])(
+    'does not claim to implement %s',
+    (type) => {
+      expect(EXECUTABLE_STEP_TYPES as readonly string[]).not.toContain(type);
+    },
+  );
 
   it('still implements the ones flows depend on', () => {
     for (const type of ['query_db', 'run_script', 'send_email', 'webhook']) {

@@ -16,7 +16,6 @@ const { executeStep } = _internalForTests;
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `fex_${Date.now()}`;
 
-// biome-ignore lint/suspicious/noExplicitAny: minimal step stub for executeStep
 function step(type: string, config: Record<string, unknown>): any {
   return { id: type, name: type, type, config };
 }

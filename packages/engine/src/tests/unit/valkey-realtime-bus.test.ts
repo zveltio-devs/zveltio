@@ -11,6 +11,7 @@ let messageHandler: MessageHandler | undefined;
 const publishLog: Array<{ channel: string; payload: string }> = [];
 
 class FakeRedis {
+  // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
   constructor(_url: string, _opts?: unknown) {}
   async connect(): Promise<void> {}
   async quit(): Promise<void> {}

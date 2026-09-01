@@ -47,7 +47,6 @@ function makeManaged(name = 'probe') {
     inFlightRequests: 0,
     totalRequests: 0,
     stopped: false,
-    // biome-ignore lint/suspicious/noExplicitAny: partial ManagedWorker for a unit test
   } as any;
 }
 

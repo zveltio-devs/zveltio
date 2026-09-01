@@ -12,6 +12,7 @@ function installSuccessWorker(): void {
   globalThis.Worker = class MockPdfWorker {
     onmessage: ((e: MessageEvent) => void) | null = null;
     onerror: ((e: ErrorEvent) => void) | null = null;
+    // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
     constructor(_url: URL | string) {}
     postMessage(msg: unknown) {
       posted.push(msg);
@@ -49,6 +50,7 @@ describe('generatePDFAsync', () => {
     globalThis.Worker = class ErrorWorker {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
       constructor(_url: URL | string) {}
       postMessage(_msg: unknown) {
         queueMicrotask(() => {
@@ -66,6 +68,7 @@ describe('generatePDFAsync', () => {
     globalThis.Worker = class BareErrorWorker {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
       constructor(_url: URL | string) {}
       postMessage(_msg: unknown) {
         queueMicrotask(() => {
@@ -83,6 +86,7 @@ describe('generatePDFAsync', () => {
     globalThis.Worker = class CrashWorker {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
       constructor(_url: URL | string) {}
       postMessage(_msg: unknown) {
         queueMicrotask(() => {

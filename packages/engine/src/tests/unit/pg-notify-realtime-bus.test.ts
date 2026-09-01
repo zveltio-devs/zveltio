@@ -15,6 +15,7 @@ beforeEach(() => {
   listenCallback = undefined;
   // @ts-expect-error — replace Bun.SQL for the duration of the suite
   Bun.SQL = class MockBunSQL {
+    // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
     constructor(_url: string) {}
     async subscribe(_channel: string, cb: ListenCallback) {
       listenCallback = cb;
@@ -78,6 +79,7 @@ describe('PgNotifyRealtimeBus start/stop (mocked Bun.SQL)', () => {
   it('treats missing subscribe as single-instance mode without throwing', async () => {
     // @ts-expect-error — simulate older Bun without subscribe()
     Bun.SQL = class NoSubscribeSQL {
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
       constructor(_url: string) {}
     };
     const bus = new PgNotifyRealtimeBus('postgres://localhost/zveltio_test');

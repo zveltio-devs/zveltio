@@ -9,7 +9,6 @@ import {
   validateFieldValue,
 } from '../../lib/validation-engine.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: test double
 function fakeDb(rowsByField: Record<string, any[]>): any {
   let captured = '*';
   const qb: Record<string, unknown> = {

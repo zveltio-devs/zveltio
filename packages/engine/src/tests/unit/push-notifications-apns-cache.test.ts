@@ -82,8 +82,10 @@ describe('sendPushToUser — APNS JWT cache', () => {
     await sendPushToUser(db.kysely as unknown as Database, 'u1', { title: 'two', body: 'b' });
 
     expect(fetchCalls.length).toBe(2);
-    const auth1 = (fetchCalls[0].init?.headers as Record<string, string>).Authorization;
-    const auth2 = (fetchCalls[1].init?.headers as Record<string, string>).Authorization;
+    const auth1 = (fetchCalls[0].init?.headers as Record<string, string> | undefined)
+      ?.Authorization;
+    const auth2 = (fetchCalls[1].init?.headers as Record<string, string> | undefined)
+      ?.Authorization;
     expect(auth1).toBe(auth2);
     expect(auth1).toMatch(/^bearer /);
   });

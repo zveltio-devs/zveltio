@@ -13,7 +13,6 @@ import {
   resolveExpand,
   serializeRecord,
 } from '../../lib/data/shape.js';
-// biome-ignore lint/suspicious/noExplicitAny: dynamic collection shapes in tests
 type Any = any;
 
 const def = (fields: Any[]): Any => ({ fields });
