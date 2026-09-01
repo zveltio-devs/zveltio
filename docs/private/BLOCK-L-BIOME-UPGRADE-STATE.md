@@ -86,13 +86,56 @@ de linter nu e un motiv să schimbi o aserțiune.
 | # | pas | stare |
 |---|---|---|
 | 0 | Citește documentul ăsta | — |
-| 1 | Desprinde reparațiile independente de versiune | ✅ **FĂCUT** |
-| 2 | `biome.json`: schema + `preset` | ✅ **FĂCUT** (pe ramura #381) |
-| 3 | `suppressions/unused` × 35 — scoase, nu rescrise | DE FĂCUT |
-| 4 | `noExplicitAny` × 35 — tipuri reale unde se poate, altfel motivate | DE FĂCUT |
-| 5 | `noUselessConstructor` × 15 — auto-reparabile, în teste | DE FĂCUT |
-| 6 | `noUnsafeOptionalChaining` × 11 + restul | DE FĂCUT |
-| 7 | **PUNCT DE VALIDARE** | DE FĂCUT |
+| 1 | Desprinde reparațiile independente de versiune | ✅ **FĂCUT** (#397) |
+| 2 | `biome.json`: schema + `preset` | ✅ **FĂCUT** |
+| 3 | `suppressions/unused` × 35 — scoase | ✅ **FĂCUT** |
+| 4 | ~~`noExplicitAny` × 35~~ | ✅ **NU EXISTAU** — vezi mai jos |
+| 5 | `noUselessConstructor` × 15 | ✅ **suprimate — regula GREȘEȘTE aici** |
+| 6 | `noUnsafeOptionalChaining` × 11 + restul | ✅ **FĂCUT** |
+| 7 | **PUNCT DE VALIDARE** | ✅ **TRECUT** — PR #400 |
+
+## Punct de validare — trecut
+
+1. `bun run lint` iese 0 **cu ZERO avertismente**, de la 51 ✅
+2. Zero suprimări noi… **cu o excepție motivată**: cele 15 de la
+   `noUselessConstructor`, unde regula greșește — vezi mai jos ✅
+3. Cremalieră coborâtă la zero, nu ridicată ✅
+4. `prepush` curat, harness 1036/0 și unitare 2582/0 pe bază virgină ✅
+5. Diff-ul pe `.svelte` citit manual ✅
+
+## Ce s-a dovedit ALTFEL decât spunea documentul la început
+
+**Nu erau 77 de situri distincte.** Cele „35 de `noExplicitAny`" erau ACELEAȘI
+situri cu suprimările moarte — biome raportează și regula, și suprimarea, iar
+numărătoarea mea pe nume de regulă le-a numărat de două ori. Scoaterea celor 35
+de suprimări le-a rezolvat pe amândouă.
+
+**Regula greșește la `noUselessConstructor`.** `constructor(_opts: {...}) {}`
+tipizează argumentul; o clasă fără constructor declarat acceptă ZERO argumente.
+Măsurat înainte de a o crede: `error TS2554: Expected 0 arguments, but got 1`.
+Reparația recomandată ar fi rupt typecheck-ul în zece fișiere.
+
+**Sintaxa de excludere a folderelor s-a schimbat în 2.2.0** — `!path`, nu
+`!path/**`. Tiparele vechi nu mai excludeau nimic: 127 × `noUnusedVariables` plus
+încă 148, în fișiere care erau ignorate. Nu era în lista de scop, fiindcă nu se
+vedea până la corectarea configurației.
+
+**`sync-extensions.ts` era a DOUA consumatoare a acelorași tipare**, comparate
+șir cu șir. După migrare a raportat toate cele opt rute sincronizate ca
+neexcluse. Compară acum calea normalizată.
+
+**`lint:ratchet` se rupea când datoria ajungea la ZERO** — „parsed no rules, the
+format changed", când formatul nu se schimbase. Recompensa pentru plata datoriei
+era un build roșu. Separat acum: a rulat biome ȘI a produs ieșire recunoscută.
+
+## Greșelile mele, ca să nu fie căutate
+
+1. **Comentariu în `biome.json`**, care e JSON STRICT. Biome a căzut pe reguli
+   implicite și am crezut o clipă că migrarea produce o cascadă de 275 de situri.
+2. **A patra oară** am pus text între un `biome-ignore` și linia suprimată.
+3. **Conversia la `matchAll` a rupt `schema-codegen`**: bucla folosea
+   `createRe.lastIndex` pentru poziția parantezei, iar `matchAll` clonează
+   regexul, deci `lastIndex` rămâne 0. Cinci teste au prins-o.
 
 ## Cum se reia
 
