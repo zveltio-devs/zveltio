@@ -55,6 +55,9 @@ beforeAll(async () => {
   const pass = 'TestPass123!';
 
   const userId = await signUp(email, pass);
+  // One god per instance since migration 008 — the previous holder is
+  // stood down first, the same move the in-process harness makes.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${userId}`.execute(db);
   godCookie = await signIn(email, pass);
 

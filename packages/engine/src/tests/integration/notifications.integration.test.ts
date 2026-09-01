@@ -36,6 +36,9 @@ beforeAll(async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: godEmail, password: 'GodPass123!', name: 'Notif God' }),
   });
+  // One god per instance since migration 008 — the previous holder is
+  // stood down first, the same move the in-process harness makes.
+  await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE email = ${godEmail}`.execute(db);
   const godRes = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
     method: 'POST',

@@ -1,3 +1,4 @@
+import { onAfterCommit } from '../lib/tenancy/index.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 
@@ -54,22 +55,37 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
-    poolDb
-      .insertInto('zv_request_logs')
-      .values({
-        method: c.req.method,
-        path,
-        status: c.res.status,
-        duration_ms: duration,
-        user_id: user?.id ?? null,
-        ip: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null,
-        user_agent: c.req.header('user-agent') ?? null,
-      })
-      .execute()
-      .catch((err: Error) => {
-        // Request log is best-effort — log loudly so a wedged audit
-        // pipeline doesn't go unnoticed (every request loses traceability).
-        console.warn('[request-log] write failed:', err.message);
-      });
+    // Deferred until the COMMIT, not merely un-awaited.
+    //
+    // This write goes to the POOL while the request's tenant transaction is
+    // still open: the middleware sits inside it, so "after next()" is still
+    // "before commit". Not awaiting the promise does not help — the connection
+    // is taken the moment the statement is issued. That is a second connection
+    // per logged request, and at `c = DB_POOL_MAX` the second can never arrive,
+    // because every connection is held by a transaction whose owner is waiting
+    // for exactly that. Measured: with DB_POOL_MAX=1 a single request to a
+    // logged route never answers at all.
+    //
+    // An audit showed a later TICK does not: the timer fires with the transaction
+    // still open. `onAfterCommit` waits for the commit itself.
+    onAfterCommit(() => {
+      poolDb
+        .insertInto('zv_request_logs')
+        .values({
+          method: c.req.method,
+          path,
+          status: c.res.status,
+          duration_ms: duration,
+          user_id: user?.id ?? null,
+          ip: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null,
+          user_agent: c.req.header('user-agent') ?? null,
+        })
+        .execute()
+        .catch((err: Error) => {
+          // Request log is best-effort — log loudly so a wedged audit
+          // pipeline doesn't go unnoticed (every request loses traceability).
+          console.warn('[request-log] write failed:', err.message);
+        });
+    });
   };
 }
