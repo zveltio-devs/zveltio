@@ -151,7 +151,7 @@ Expected keys in the existing Secret:
 |---|---|---|
 | `DATABASE_URL` | yes | `postgres://...` — **must not be a superuser**, see below |
 | `NATIVE_DATABASE_URL` | when behind PgBouncer | Bypasses pooler for LISTEN/NOTIFY |
-| `VALKEY_URL` | recommended when replicas ≥ 3 | `redis://...` |
+| `VALKEY_URL` | **yes** | `redis://...` — the engine refuses to start in production without it; see below |
 | `BETTER_AUTH_SECRET` | yes | 32+ random chars |
 | `BETTER_AUTH_URL` | yes | Public base URL |
 | `ENCRYPTION_KEY` | yes | AES-256-GCM master key |
@@ -163,6 +163,22 @@ Expected keys in the existing Secret:
 | `REGISTRY_PUBLIC_KEYS_JSON` | when verifying signed extensions | See `docs/site/EXTENSION-DEVELOPER-GUIDE.md` |
 
 **External Secrets Operator** + Vault / AWS Secrets Manager / GCP Secret Manager is the recommended pattern. Sealed-secrets works too if you prefer GitOps.
+
+## Valkey is required
+
+Not for speed. Without a shared cache, `invalidateUserPermCache` sends its `DEL`
+to nothing: a demoted god or a revoked grant reaches only the replica that made
+the change, and every other one serves the old answer until its own in-process
+entry expires. Nothing reports that, which is what makes it worse than an
+outright failure.
+
+The engine refuses to start in production when `VALKEY_URL` is unset. An operator
+who genuinely runs without one — a single replica, accepting the above — can set
+`ZVELTIO_ALLOW_NO_CACHE=1` deliberately.
+
+This is about CONFIGURATION, not uptime. Valkey being configured and temporarily
+unreachable still degrades rather than crashing, exactly as
+`OPERATIONS-DEGRADATION.md` describes; that contract is unchanged.
 
 ## Realtime + horizontal scaling
 

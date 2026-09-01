@@ -27,7 +27,7 @@ Webhooks allow Zveltio to notify external systems when data changes. When an eve
 3. A background worker delivers them with HMAC-SHA256 signatures
 4. Failed deliveries retry with exponential backoff
 
-Without Valkey configured, webhooks fire-and-forget directly (no retry).
+Retries need Valkey, which is **required in production** — the engine refuses to start without it. On a development box without one, webhooks fire-and-forget with no retry.
 
 ---
 
@@ -221,7 +221,14 @@ After all retry attempts are exhausted, the delivery is marked `failed` in the d
 
 ### Without Valkey
 
-Without `VALKEY_URL` configured, webhooks are fire-and-forget with no retry. Configure Valkey for production reliability.
+Only reachable outside production, or behind the deliberate
+`ZVELTIO_ALLOW_NO_CACHE=1` hatch: the engine refuses to start in production with
+`VALKEY_URL` unset. In that state webhooks are fire-and-forget with no retry and
+no dead-letter queue — a delivery that fails once is simply lost.
+
+This is one of several reasons the cache is a requirement rather than a
+recommendation; the sharper one is that permission invalidation travels through
+it. See `CONFIGURATION.md`.
 
 ---
 
