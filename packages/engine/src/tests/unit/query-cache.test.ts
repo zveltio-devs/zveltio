@@ -17,7 +17,6 @@ import {
 } from '../../lib/data/query-cache.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: fake Redis for cache under test
 type Args = any[];
 
 class QueryCacheFakeRedis {

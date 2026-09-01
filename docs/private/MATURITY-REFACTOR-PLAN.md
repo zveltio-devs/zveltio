@@ -32,8 +32,8 @@ document de stare propriu, cu măsurătorile și cu punctul lui de validare.
 | **J — a doua linie în bază** | ✅ **ÎNCHIS, 4 din 4** (prin blocul K) | `BLOCK-J-DB-SECOND-LINE-STATE.md` | — |
 | **K — regulile de rând în bază** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-K-ROW-RULES-IN-DB-STATE.md` | — |
 | **E — decizii de proprietar** | ✅ **DECIS ȘI EXECUTAT** | `BLOCK-E-OWNER-DECISIONS-STATE.md` | — |
-| **L — ridicarea biome la 2.5.11** | 🔜 **DESCHIS, scop MĂSURAT** — 77 de situri, 74 în teste/arhivă | `BLOCK-L-BIOME-UPGRADE-STATE.md` | #381 |
-| **M — `hono` în lockstep cu extensiile** | 🔜 **DESCHIS, scop MĂSURAT** — pin obligatoriu, repack e decizie | `BLOCK-M-HONO-LOCKSTEP-STATE.md` | #373 |
+| **L — ridicarea biome la 2.5.11** | ✅ **ÎNCHIS** — lint la ZERO avertismente, de la 51 | `BLOCK-L-BIOME-UPGRADE-STATE.md` | #397, #400 |
+| **M — `hono` în lockstep cu extensiile** | ✅ **ÎNCHIS, 7 din 7** — versiune de securitate, 44 de bundle-uri repachetate + poartă nouă | `BLOCK-M-HONO-LOCKSTEP-STATE.md` | #373, #398, #399, ext#73 |
 
 ### Ce a găsit fiecare bloc, pe scurt
 

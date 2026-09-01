@@ -18,7 +18,6 @@ function rule(
 // A minimal Kysely stand-in: records the field_name filter and returns the
 // rows registered for it. Enough to exercise getValidationRules + validateRecord
 // without a live Postgres.
-// biome-ignore lint/suspicious/noExplicitAny: test double for the query builder
 function fakeDb(rowsByField: Record<string, any[]>): any {
   let captured = '*';
   const qb: Record<string, unknown> = {

@@ -96,21 +96,43 @@ function artifacts(): Array<{ label: string; file: string }> {
   const found: Array<{ label: string; file: string }> = [];
   if (existsSync(WORKER_GEN)) found.push({ label: 'worker runtime', file: WORKER_GEN });
   if (!existsSync(EXT_ROOT)) return found;
-  for (const group of readdirSync(EXT_ROOT)) {
-    const gdir = join(EXT_ROOT, group);
-    if (!statSync(gdir).isDirectory() || group.startsWith('.')) continue;
-    for (const name of readdirSync(gdir)) {
-      const edir = join(gdir, name, 'engine');
-      if (!existsSync(edir) || !statSync(edir).isDirectory()) continue;
-      // Every `.js` under `engine/`, not just `index.js`: a bundle can be split
-      // into chunks, and a chunk ships the same inlined dependency.
-      for (const f of readdirSync(edir)) {
-        if (!f.endsWith('.js')) continue;
-        found.push({
-          label: `${group}/${name}${f === 'index.js' ? '' : `/${f}`}`,
-          file: join(edir, f),
-        });
-      }
+
+  /**
+   * Every `.js` under one extension's `engine/`, not just `index.js`: a bundle
+   * can be split into chunks, and a chunk ships the same inlined dependency.
+   */
+  const collect = (dir: string, label: string) => {
+    const edir = join(dir, 'engine');
+    if (!existsSync(edir) || !statSync(edir).isDirectory()) return;
+    for (const f of readdirSync(edir)) {
+      if (!f.endsWith('.js')) continue;
+      found.push({ label: `${label}${f === 'index.js' ? '' : `/${f}`}`, file: join(edir, f) });
+    }
+  };
+
+  // Extensions live at BOTH depths — `<group>/<name>` and, for six of them,
+  // `<name>` at the top. Walking only `<group>/<name>` is not a style choice, it
+  // is a blind spot: the first version of this gate did exactly that, reported
+  // "45 artifacts, all current", and had never looked at `ai`, `billing`, `crm`,
+  // `forms`, `search` or `sms` — all six still shipping the vulnerable hono the
+  // gate exists to catch. A `*/*/` glob in the repack loop had missed the same
+  // six minutes earlier, which is how a gate and the work it checks can share
+  // one wrong assumption and agree with each other.
+  //
+  // A `manifest.json` at the directory root is what distinguishes an extension
+  // from a group.
+  for (const entry of readdirSync(EXT_ROOT)) {
+    if (entry.startsWith('.')) continue;
+    const dir = join(EXT_ROOT, entry);
+    if (!statSync(dir).isDirectory()) continue;
+    if (existsSync(join(dir, 'manifest.json'))) {
+      collect(dir, entry);
+      continue;
+    }
+    for (const name of readdirSync(dir)) {
+      const sub = join(dir, name);
+      if (!statSync(sub).isDirectory()) continue;
+      collect(sub, `${entry}/${name}`);
     }
   }
   return found;

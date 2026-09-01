@@ -12,11 +12,25 @@ let copied = $state(false);
 let activeTab = $state<'svelte' | 'sdk' | 'curl'>('svelte');
 
 const snippets = $derived({
-  svelte: `<script lang="ts">
+  // `${'<'}/script>` below, not `<\/script>`, and not by preference.
+  //
+  // The generated snippet has to CONTAIN a closing script tag. Written literally,
+  // the browser's HTML parser ends this component's own <script> block at it. The
+  // usual escape (`<\/script>`) fixes that, but biome reads it as a useless escape
+  // and its autofix removed it — after which biome's own Svelte parser could not
+  // read the file it had just written. Measured 2026-09-01.
+  //
+  // A `biome-ignore` cannot help here: the diagnostic points at a line INSIDE the
+  // template literal, and a comment there would land in the generated string.
+  //
+  // Interpolating the `<` sidesteps both. The source no longer contains the
+  // character sequence, so nothing terminates early; the output is byte-identical,
+  // verified rather than assumed.
+  svelte: `${'<'}script lang="ts">
   import { useCollection } from '$stores/collection.svelte';
 
   const ${collectionName} = useCollection('${collectionName}');
-<\/script>
+${'<'}/script>
 
 {#if ${collectionName}.loading}
   <span class="loading loading-spinner"></span>

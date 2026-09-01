@@ -13,7 +13,6 @@ import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
 import { WEBHOOK_DLQ_KEY, webhookWorker } from '../../lib/webhook-worker.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: fake Redis for the worker under test
 type Args = any[];
 
 class FakeRedis {

@@ -5,7 +5,6 @@
 
 import { describe, it, expect } from 'bun:test';
 import { buildAllowedCols, decodeCursor } from '../../lib/data/query-parse.js';
-// biome-ignore lint/suspicious/noExplicitAny: dynamic collection shape in tests
 type Any = any;
 
 describe('buildAllowedCols', () => {

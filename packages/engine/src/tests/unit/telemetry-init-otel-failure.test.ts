@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 mock.module('@opentelemetry/sdk-node', () => ({
   NodeSDK: class {
+    // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
     constructor() {}
     start() {
       throw new Error('sdk start boom');
@@ -21,6 +22,7 @@ mock.module('@opentelemetry/core', () => ({
   W3CTraceContextPropagator: class {},
   W3CBaggagePropagator: class {},
   CompositePropagator: class {
+    // biome-ignore lint/complexity/noUselessConstructor: types the argument. Removing it makes the class take ZERO arguments — measured: `Expected 0 arguments, but got 1` on every `new` below.
     constructor(_opts: unknown) {}
   },
 }));

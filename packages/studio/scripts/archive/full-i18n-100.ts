@@ -457,8 +457,7 @@ function autoKeyLabels(c: string, extKey: string): { content: string; added: num
   let out = c;
   for (const re of patterns) {
     re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(c))) {
+    for (const m of c.matchAll(re)) {
       const text = m[1].trim();
       if (!text || text.includes('{') || /^[\d\s]+$/.test(text)) continue;
       if (/^(btn-|loading |✓|—|\?)$/.test(text)) continue;

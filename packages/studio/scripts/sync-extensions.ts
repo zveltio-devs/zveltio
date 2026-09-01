@@ -356,18 +356,29 @@ if (wroteGeneratedTree) {
     const biome = JSON.parse(await Bun.file(biomePath).text()) as {
       files?: { includes?: string[] };
     };
+    // Both spellings count, because the canonical one CHANGED.
+    //
+    // Biome ≥ 2.2.0 ignores a folder with `!path` and warns (`useBiomeIgnoreFolder`)
+    // when the old `!path/**` is used — the trailing glob was a bug in earlier
+    // versions. `biome.json` was migrated to the new form on 2026-09-01 and this
+    // check, which compares string-for-string, then reported all eight synced
+    // routes as unexcluded when nothing had changed about them.
+    //
+    // Comparing the normalised path rather than the literal pattern means the next
+    // spelling change does not break this too.
+    const stripGlob = (p: string) => p.replace(/\/\*\*$/, '');
     const ignored = new Set(
-      (biome.files?.includes ?? []).filter((p) => p.startsWith('!packages/studio/')),
+      (biome.files?.includes ?? []).filter((p) => p.startsWith('!packages/studio/')).map(stripGlob),
     );
     const missing = syncedSlugs.filter(
-      (slug) => !ignored.has(`!packages/studio/src/routes/(admin)/${slug}/**`),
+      (slug) => !ignored.has(`!packages/studio/src/routes/(admin)/${slug}`),
     );
     if (missing.length > 0) {
       console.error(
         `\n[sync-ext] ${missing.length} synced route(s) are not excluded from biome.\n` +
           'These are generated files; linting them makes every build dirty.\n' +
           'Add to biome.json "files.includes" AND scripts/lib/any-targets.ts EXCLUDE:\n' +
-          missing.map((s) => `  "!packages/studio/src/routes/(admin)/${s}/**"`).join('\n') +
+          missing.map((s) => `  "!packages/studio/src/routes/(admin)/${s}"`).join('\n') +
           '\n',
       );
       process.exit(1);
