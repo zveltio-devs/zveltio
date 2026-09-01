@@ -106,8 +106,11 @@ query-ului** — până când cineva regenerează și repachetează. Fără nici
 Asta ridică repack-ul din „decizie de igienă" în „parte din reparația de
 securitate", și e argumentul care lipsea când documentul a fost scris prima dată.
 
-**Candidat de poartă nouă:** ceva care compară versiunea dependenței INCLUSE în
-artefactele generate cu cea din `bun.lock`. Nu există azi.
+**Poartă nouă — FĂCUTĂ:** `scripts/check-embedded-deps-fresh.ts` compară
+versiunea dependenței INCLUSE în fiecare artefact generat cu `bun.lock`, citind
+comentariile de cale lăsate de bundler — deci ce a intrat efectiv, nu ce declară
+un manifest. 45 de artefacte acoperite; dovedită prin plantare, `audit:gates`
+41/41.
 
 ## Criteriile punctului de validare — SCRISE ÎNAINTE
 
@@ -132,9 +135,31 @@ pasul 3.
 | 2 | Merge #373 în motor (CI deja verde) | DE FĂCUT |
 | 3 | Ridică pin-ul la `"hono": "4.13.5"` în extensii, verifică poarta + typecheck | DE FĂCUT |
 | 3b | **Regenerează runtime-ul de worker** — include hono inline | DE FĂCUT |
-| 4 | **Decizie de proprietar:** repack — acum cu argument de securitate, nu de igienă | DE FĂCUT |
-| 5 | Dacă da: repack + bump de versiuni, câte un tur de CI | DE FĂCUT |
-| 6 | **PUNCT DE VALIDARE** | DE FĂCUT |
+| 4 | **Decizie de proprietar:** repack | ✅ **DA** — argument de securitate |
+| 5 | Repack + bump de versiuni | ✅ **FĂCUT** — 44 de bundle-uri, toate pe 4.13.5 |
+| 6 | Poarta care închide clasa | ✅ **FĂCUT** — `check-embedded-deps-fresh` |
+| 7 | **PUNCT DE VALIDARE** | ✅ **TRECUT** — vezi mai jos |
+
+## Punct de validare — trecut
+
+1. `check-dep-lockstep` verde în extensii ✅
+2. `typecheck` verde în extensii ✅ — plus un defect PREEXISTENT reparat pe drum
+   (shim-ul `bun` nu declara `SQL`, folosit de `pool-autosize.ts` al motorului)
+3. CI verde în ambele repouri, motorul întâi ✅
+4. Fiecare extensie repachetată are versiune ridicată ✅ — 44 de patch-uri
+
+**Măsurat, înainte și după:**
+
+```
+înainte:  hono@4.13.3 în majoritatea bundle-urilor
+          hono@4.12.28 în auth/saml, compliance/gdpr, data/export
+după:     hono@4.13.5 peste tot — singura versiune rămasă
+```
+
+**Capcana care a costat două încercări:** primul repack a produs tot 4.13.3.
+`node_modules` al extensiilor avea 4.13.5, dar bundler-ul rezolvă prin cel al
+MOTORULUI, unde se făcuse `git pull` fără `bun install`. Verifică artefactul, nu
+ieșirea comenzii — `pack` a spus „✓ complete" în ambele cazuri.
 
 ## Capcane cunoscute
 
