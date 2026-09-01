@@ -58,7 +58,7 @@ function unwrap(content: string): string {
 
   const scriptEnd = content.indexOf('</script>') + '</script>'.length;
   const script = content.slice(0, scriptEnd);
-  let cleanedScript = script
+  const cleanedScript = script
     .replace(/import ExtensionPageShell[^\n]+\n/g, '')
     .replace(/import ExtensionDataPanel[^\n]+\n/g, '')
     .replace(/import ConfirmModal[^\n]+\n/g, '');
