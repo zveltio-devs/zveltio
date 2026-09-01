@@ -23,8 +23,10 @@ import { RULE_OPERATORS, type RuleOperator } from '../../lib/tenancy/rule-operat
 const OPS = Object.keys(RULE_OPERATORS) as RuleOperator[];
 
 // Never connected: `.compile()` renders SQL without touching the pool.
-// biome-ignore lint/suspicious/noExplicitAny: compile-only Kysely, no schema needed
-const kysely = new Kysely<any>({
+// No `biome-ignore` here: `noExplicitAny` does not fire in test files, so one
+// would be an unused suppression — which this repo ratchets, and which a gate
+// caught before CI did.
+const kysely = new Kysely<Record<string, never>>({
   dialect: new PostgresDialect({ pool: {} as never }),
 });
 const TYPES = { bucket: 'text' };
@@ -70,7 +72,9 @@ describe('the four appliers read one table', () => {
 
   it('the jsonb path uses the SQL spelling from the table', () => {
     for (const op of OPS) {
-      const [frag] = rlsJsonConditions([{ field: 'bucket', condition: { op, value: 'x' } as never }]);
+      const [frag] = rlsJsonConditions([
+        { field: 'bucket', condition: { op, value: 'x' } as never },
+      ]);
       // Compiled through a real Kysely, which never opens a connection for
       // `.compile()`. Compiling is what proves the spelling reached the
       // statement, rather than a template that merely mentions it.
