@@ -179,7 +179,8 @@ export function onAfterCommit(fn: () => void | Promise<void>): void {
     void fn();
     return;
   }
-  (current.afterCommit ??= []).push(fn);
+  current.afterCommit ??= [];
+  current.afterCommit.push(fn);
 }
 
 /** Take the queued work. Called by `withTenantIsolation` after the commit. */
