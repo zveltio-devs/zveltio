@@ -48,72 +48,73 @@ const SRC = join(ROOT, 'packages/engine/src');
 const REPORT_ONLY = process.argv.includes('--report');
 
 /**
- * The interpreters we know about, each with the suite case that pins it.
+ * The file every reading of the four operators must come from.
  *
- * Adding a name here is a claim that `row-rules-four-interpreters.test.ts`
- * exercises it over the operator x source x column-type x NULL matrix. The gate
- * checks the suite mentions it; it cannot check the coverage is honest, which is
- * why the claim is written down rather than inferred.
+ * `rule-operators.ts` holds the decisions: the SQL spelling, the Kysely
+ * spelling, the in-memory predicate, and the rule that a missing value drops the
+ * row on every operator. The four appliers render it; they no longer decide
+ * anything themselves.
  */
-const KNOWN = new Map<string, string>([
-  ['applyRlsFilters', 'the live-table WHERE'],
-  ['matchesRlsFilters', 'the in-process evaluator'],
-  ['rlsJsonConditions', 'SQL over jsonb snapshots (?as_of=)'],
-  ['buildRowRulePredicate', 'the generated RESTRICTIVE policy'],
-  // Not an emitter, but it decides what the other four are asked. It resolves a
-  // stored rule plus an identity into a condition, and in doing so makes a
-  // semantic choice the emitters cannot see: `in` and `not_in` comma-split a
-  // `static:` value, `eq` does not. Get that wrong and all four agree on the
-  // wrong thing, which no comparison between them would catch.
-  ['getRlsFilters', 'the resolver: stored rule + identity -> condition'],
-  // The validator. It decides which rules are impossible to express, and the
-  // suite partitions on it rather than on a hand-written exclusion list —
-  // hand-written lists are how the audit's cases slipped past the last one.
-  ['describeRuleProblem', 'the validator the suite partitions on'],
-]);
+const SOURCE = 'rule-operators.js';
 
-/**
- * Branches on the same operator names for a DIFFERENT question.
- *
- * Listed with the reason, not silently filtered: the whole point of this gate is
- * that "it also mentions not_in" is worth a second look, and the answer belongs
- * where the next person will read it.
- */
-const NOT_INTERPRETERS = new Map<string, string>([
-  [
-    'registerCoreFieldTypes',
-    'declares which operators each field type OFFERS (filterOperators). A list ' +
-      'of names, not a reading of them. Note it advertises is_null/is_not_null, ' +
-      'which no rule applier implements — they fail closed, loudly, by design.',
-  ],
-  [
-    'buildCondition',
-    'the user-facing `?filter=` query builder in db/dynamic.ts. Same operator ' +
-      'names, different feature: a caller-supplied filter narrows what a caller ' +
-      'already may see, while a row rule decides what that is. It is a fifth ' +
-      'implementation of these four operators and it should probably share the ' +
-      'compiler eventually — but it is not a rule interpreter, and folding it in ' +
-      'here would make this count mean two things at once.',
-  ],
-]);
-
-/** The suite that has to mention every one of them. */
+/** The suite that compares the four renderings over the whole matrix. */
 const SUITE = join(SRC, 'tests/harness/row-rules-four-interpreters.test.ts');
 
+/** The structural half: proof that each applier really reads the table. */
+const SINGLE_SOURCE_SUITE = join(SRC, 'tests/unit/rule-operators-single-source.test.ts');
+
 /**
- * A function that decides something per operator.
+ * Files that name the operators for a DIFFERENT question, listed with the reason
+ * rather than filtered silently — "it also mentions not_in" is worth a second
+ * look, and the answer belongs where the next person will read it.
+ */
+const NOT_RULE_READERS = new Map<string, string>([
+  [
+    'field-types/index.ts',
+    'declares which operators each field type OFFERS. A list of names, not a ' +
+      'reading of them. It advertises is_null/is_not_null, which no rule applier ' +
+      'implements — those fail closed, loudly, by design.',
+  ],
+  [
+    'lib/data/field-type-registry.ts',
+    'the same declaration, on the registry side.',
+  ],
+  [
+    'db/dynamic.ts',
+    'the user-facing `?filter=` query builder. Same operator names, different ' +
+      'question: a caller-supplied filter narrows what a caller already may see, ' +
+      'while a row rule decides what that is. It should probably share this ' +
+      'table one day; folding it in now would make the count mean two things.',
+  ],
+  [
+    'lib/data/query-parse.ts',
+    'parses `?filter=` into that builder’s shape. Same feature as db/dynamic.ts.',
+  ],
+  [
+    'routes/rls.ts',
+    'VALIDATES a stored rule on save — the four-value enum an administrator is ' +
+      'held to. It decides what may be stored, not what a stored rule means.',
+  ],
+  [
+    'routes/saved-queries.ts',
+    'validates operators in a saved user query. Same feature as `?filter=`.',
+  ],
+]);
+
+/**
+ * A file that names the operators at all.
  *
- * Matched on the operator literals rather than on a type name: a new applier
- * will not import anything in particular, but it cannot avoid naming the four
- * operators it has to branch on. `not_in` is the discriminating one — it is the
- * only string of the four that occurs nowhere else in this codebase for another
- * reason.
+ * Matched on the literals rather than on a type name: a hand-written reading
+ * will not import anything in particular, but it cannot avoid naming the
+ * operators it branches on. `not_in` is the discriminating one — it is the only
+ * string of the four that occurs nowhere else for another reason.
  */
 const BRANCHES_ON_OPERATORS = /'not_in'/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === 'tests' || name === 'testing') continue;
+    // Tests NAME the operators by design — that is what a differential suite is.
+    if (name === 'node_modules' || name === 'testing' || name === 'tests') continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (name.endsWith('.ts') && !name.endsWith('.d.ts')) out.push(p);
@@ -121,84 +122,76 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** `export function NAME` / `export async function NAME` above a match. */
-function enclosingExports(text: string): string[] {
-  const names: string[] = [];
-  const fn = /export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g;
-  let m: RegExpExecArray | null;
-  const marks: Array<{ at: number; name: string }> = [];
-  while ((m = fn.exec(text)) !== null) marks.push({ at: m.index, name: m[1]! });
+const readers: string[] = [];
+const handWritten: string[] = [];
 
-  const op = /'not_in'/g;
-  let o: RegExpExecArray | null;
-  while ((o = op.exec(text)) !== null) {
-    let owner = '';
-    for (const mark of marks) if (mark.at < o.index) owner = mark.name;
-    if (owner && !names.includes(owner)) names.push(owner);
-  }
-  return names;
-}
-
-const found = new Map<string, string>();
 for (const file of walk(SRC)) {
-  const text = Bun.file(file).text ? await Bun.file(file).text() : '';
+  const rel = relative(SRC, file).replace(/\\/g, '/');
+  if (rel === 'lib/tenancy/rule-operators.ts') continue;
+  const text = await Bun.file(file).text();
   if (!BRANCHES_ON_OPERATORS.test(text)) continue;
-  for (const name of enclosingExports(text)) found.set(name, file);
+  if (NOT_RULE_READERS.has(rel)) continue;
+  readers.push(rel);
+  // A reading of the operators that does NOT come from the table is a fifth
+  // interpretation written by hand — the thing this gate exists for.
+  if (!text.includes(SOURCE)) handWritten.push(rel);
 }
 
 const suite = await Bun.file(SUITE).text();
-
-const unregistered = [...found].filter(([name]) => !KNOWN.has(name) && !NOT_INTERPRETERS.has(name));
-const uncovered = [...KNOWN.keys()].filter((name) => !suite.includes(name));
-const vanished = [...KNOWN.keys()].filter((name) => !found.has(name));
+const structural = await Bun.file(SINGLE_SOURCE_SUITE).text();
 
 if (REPORT_ONLY) {
-  console.log(`[rule-interpreters] ${found.size} found, ${KNOWN.size} registered\n`);
-  for (const [name, file] of found) {
-    const mark = KNOWN.has(name) ? '✓' : NOT_INTERPRETERS.has(name) ? '–' : '?';
-    console.log(`  ${mark} ${name.padEnd(24)} ${relative(ROOT, file)}`);
-  }
+  console.log(
+    `[rule-interpreters] ${readers.length} file(s) render the operators, ` +
+      `${NOT_RULE_READERS.size} declared unrelated\n`,
+  );
+  for (const rel of readers) console.log(`  ${handWritten.includes(rel) ? '?' : '✓'} ${rel}`);
+  for (const [rel] of NOT_RULE_READERS) console.log(`  – ${rel}`);
   process.exit(0);
 }
 
-if (unregistered.length > 0) {
+if (handWritten.length > 0) {
   console.error(
-    `\n❌ ${unregistered.length} function(s) interpret a row rule but are not registered.\n\n` +
-      `   Every place that branches on the four operators emits its own reading of\n` +
-      `   one stored rule. Seven such divergences were found by an audit and one of\n` +
-      `   them was a leak; an eighth survived a day longer because nothing counted\n` +
-      `   the applier it lived in.\n`,
+    `\n❌ ${handWritten.length} file(s) read the four operators without going through\n` +
+      `   lib/tenancy/${SOURCE}\n\n` +
+      `   Every hand-written reading is a place the meaning can drift. An audit found\n` +
+      `   SEVEN divergences across three of them, one of which was a leak — \`neq\` on a\n` +
+      `   NULL column, absent from /api/data and delivered over SSE. A fourth applier\n` +
+      `   went uncompared a day longer and disagreed in 18 of 56 cases, because nobody\n` +
+      `   had counted it.\n`,
   );
-  for (const name of unregistered)
-    console.error(`  ${name.padEnd(24)} ${relative(ROOT, found.get(name)!)}`);
+  for (const rel of handWritten) console.error(`  ${rel}`);
   console.error(
-    `\n  Add each to the differential suite\n` +
-      `    ${relative(ROOT, SUITE)}\n` +
-      `  so it is compared against the others over the whole matrix, then register it\n` +
-      `  in KNOWN in this file. If it does NOT interpret a rule, say why there.\n`,
+    `\n  Render \`RULE_OPERATORS\` instead of deciding again. If the file answers a\n` +
+      `  DIFFERENT question — a saved-query filter, a validator, a list of offered\n` +
+      `  operators — add it to NOT_RULE_READERS in this file WITH the reason.\n`,
   );
   process.exit(1);
 }
 
-if (uncovered.length > 0) {
+// The table is only a single source if the renderings are actually compared.
+const missingFromSuite = ['applyRlsFilters', 'buildRowRulePredicate', 'matchesRlsFilters', 'rlsJsonConditions'].filter(
+  (n) => !suite.includes(n),
+);
+if (missingFromSuite.length > 0) {
   console.error(
-    `\n❌ ${uncovered.length} registered interpreter(s) are not named by the differential suite.\n`,
+    `\n❌ ${missingFromSuite.length} applier(s) are not named by the differential suite.\n`,
   );
-  for (const name of uncovered) console.error(`  ${name}`);
+  for (const n of missingFromSuite) console.error(`  ${n}`);
   console.error(`\n  ${relative(ROOT, SUITE)} must exercise each one.\n`);
   process.exit(1);
 }
 
-if (vanished.length > 0) {
+if (!structural.includes('RULE_OPERATORS')) {
   console.error(
-    `\n❌ ${vanished.length} registered interpreter(s) no longer exist in the source.\n` +
-      `   Remove them from KNOWN — a stale entry makes the count meaningless.\n`,
+    `\n❌ ${relative(ROOT, SINGLE_SOURCE_SUITE)} no longer derives from RULE_OPERATORS.\n` +
+      `   Without it, a leftover hard-coded spelling in an applier is invisible while\n` +
+      `   it happens to match the table.\n`,
   );
-  for (const name of vanished) console.error(`  ${name}`);
   process.exit(1);
 }
 
 console.log(
-  `[rule-interpreters] OK — ${found.size} interpreters, all registered and all named by ` +
-    `${relative(ROOT, SUITE)}`,
+  `[rule-interpreters] OK — ${readers.length} file(s) render the operators, all via ` +
+    `lib/tenancy/${SOURCE}; four appliers compared by ${relative(ROOT, SUITE)}`,
 );
