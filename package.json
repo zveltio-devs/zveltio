@@ -63,7 +63,7 @@
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "2.70.3",
     "bun-types": "latest",
-    "squawk-cli": "2.62.0",
+    "squawk-cli": "2.63.0",
     "svelte": "^5.56.10",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
