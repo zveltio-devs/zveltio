@@ -168,6 +168,20 @@ async function main(): Promise<void> {
   // flaky gate teaches and the reason it stops being read.
   const ratios = budgets.map((b) => b.value / baselineFor(b.name));
   const median = [...ratios].sort((a, z) => a - z)[Math.floor(ratios.length / 2)] ?? 1;
+  /**
+   * The failing metric the message is about — chosen from the ones that FAILED,
+   * not from all five.
+   *
+   * The first version took the highest ratio overall, which is a different
+   * question and gave the wrong answer: a run where `create` broke its budget
+   * printed advice about `delete`, because `delete` happened to sit further
+   * above its (much smaller) baseline while still passing. Caught by planting a
+   * failure, not by reading it.
+   */
+  const failing = budgets.filter((b) => !(Number.isFinite(b.value) && b.value <= b.budget));
+  const worst = (failing.length > 0 ? failing : budgets).reduce((a, b) =>
+    b.value / baselineFor(b.name) > a.value / baselineFor(a.name) ? b : a,
+  );
 
   for (const [i, b] of budgets.entries()) {
     const ok = Number.isFinite(b.value) && b.value <= b.budget;
@@ -188,9 +202,30 @@ async function main(): Promise<void> {
           '   number and leaves the rest flat. Re-run before investigating the code.',
       );
     } else {
+      // Deliberately weaker than the branch above, and the asymmetry is the
+      // point. "All five moved" has only one plausible cause. "One moved" has
+      // two, and this heuristic cannot tell them apart: a real regression and a
+      // metric that was simply noisy this run look identical from here.
+      //
+      // It matters most exactly where it reads worst. `delete` has a 10 ms
+      // baseline, so the ordinary jitter of a shared runner is a large multiple
+      // of it: master's own last six runs were 7.4, 12.5, 8.2, 37.8, 11.6 and
+      // 9.0 ms. A 240 ms sample printed "24.1x baseline" and this line called it
+      // a real regression; the re-run came back at 9.1 ms.
+      //
+      // Saying "re-run" is not the habit a flaky gate teaches — that is reading
+      // a failure and ignoring it. This asks for one more sample and then tells
+      // you what each answer means, which is the opposite.
+      const small = baselineFor(worst.name) < 25;
       console.log(
-        `→  The other metrics are near baseline (median ${median.toFixed(1)}x), so this is\n` +
-          '   NOT general runner slowness. Treat it as a real regression.',
+        `→  Only ${worst.name} moved (${(worst.value / baselineFor(worst.name)).toFixed(1)}x baseline); the rest are near it ` +
+          `(median ${median.toFixed(1)}x).\n` +
+          '   So this is NOT general runner slowness.\n' +
+          (small
+            ? `   But ${worst.name}'s baseline is only ${baselineFor(worst.name)} ms, small enough that ordinary\n` +
+              '   runner jitter shows up as a large multiple on its own. Re-run: if it comes\n' +
+              '   back near baseline it was noise, and if it stays high it is real.\n'
+            : '   Treat it as a real regression.\n'),
       );
     }
   }
