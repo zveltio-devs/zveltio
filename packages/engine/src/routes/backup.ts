@@ -62,7 +62,6 @@ export function explainDumpFailure(stderr: string): string {
   );
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 /**
  * Where `pg_dump` should connect, resolved once instead of twice.
  *
@@ -126,6 +125,7 @@ function resolveDumpTarget(): {
   };
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function backupRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
