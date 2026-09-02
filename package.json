@@ -18,6 +18,7 @@
     "check:fix": "biome check --write",
     "check:schema": "bun run scripts/schema-codegen.ts && bun run format && bun run scripts/schema-drift-check.ts",
     "check:shared-keys": "bun run scripts/sync-shared-message-keys.ts --check",
+    "check:ext-i18n-ns": "bun run scripts/check-extension-i18n-namespaces.ts",
     "check:sdui-schemas": "bun run scripts/check-extension-sdui-schemas.ts",
     "check:table-owners": "bun run scripts/check-duplicate-table-creators.ts",
     "check:rule-interpreters": "bun run scripts/check-rule-interpreters.ts",
