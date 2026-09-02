@@ -299,6 +299,8 @@ EXTENSIONS_DIR=/app/extensions
 |----------|---------|-------------|
 | `ZVELTIO_TENANT_ID` | — | Default tenant ID (single-tenant mode) |
 | `ZVELTIO_TENANT_NAME` | — | Default tenant display name |
+| `BACKUP_DB_USER` | unset | Role `pg_dump` connects as. **Required on a hardened install**: the engine's own role is bound by `FORCE ROW LEVEL SECURITY`, so `pg_dump` as the engine fails on a virgin database. Create a role with `BYPASSRLS`, used for nothing else — see [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md). Unset falls back to the engine's own credentials. |
+| `BACKUP_DB_PASSWORD` | unset | Password for `BACKUP_DB_USER`. Only read when that is set. |
 | `ZVELTIO_FAIL_CLOSED_TENANT` | unset | Set to `1` to make `zveltio_tenant_scope_ok` return **no rows** when `zveltio.current_tenant` is unset (migration 047). Default remains fail-open-to-default-tenant. **Do not enable** on single-tenant installs or jobs that omit tenant context. |
 | `ZVELTIO_ALLOW_UNENFORCED_RLS` | unset | Escape hatch when the engine role can bypass RLS and `zveltio_rls` is unavailable. Required to start in production in that state; only defensible on single-tenant installs. |
 
