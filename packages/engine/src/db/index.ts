@@ -172,6 +172,11 @@ export async function initDatabase(): Promise<Database> {
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
   const baseDialect = new BunSqlDialect({
     connectionString: databaseUrl,
+    // The engine's own database. It owns the module-level pool handles that
+    // `recycleActivePool()` and the worker-extension host read; `createDb()`
+    // does not, so an isolated connection can no longer take them and then die
+    // still holding them. See `primary` in BunSqlDialectConfig.
+    primary: true,
     // Not a throughput knob — a ceiling on concurrent requests.
     //
     // Every `/api/*` request outside TXN_SKIP_PREFIXES pins one connection for
