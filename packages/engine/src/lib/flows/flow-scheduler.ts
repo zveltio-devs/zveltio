@@ -14,6 +14,8 @@ import { scheduleGarbageCollector } from '../runtime/index.js';
 import { extensionRegistry } from '../extensions/index.js';
 import { serviceRegistry } from '../service-registry.js';
 import { withTenantIsolation } from '../tenancy/index.js';
+import { scheduleBackups } from '../backup/scheduler.js';
+import { resolveDumpTarget } from '../../routes/backup.js';
 import { sql } from 'kysely';
 
 const SCHEDULER_POLL_MS = 60_000; // How often the scheduler polls for due flows
@@ -25,6 +27,7 @@ let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _stopGC: (() => void) | null = null;
 let _stopTrashPurge: (() => void) | null = null;
+let _stopBackups: (() => void) | null = null;
 let _executeFlowOverride: typeof executeFlow | null = null;
 
 export const flowScheduler = {
@@ -57,6 +60,9 @@ export const flowScheduler = {
       // can cancel the pending setTimeout and prevent multiple timers from
       // accumulating across restarts.
       _stopTrashPurge = scheduleTrashPurge(_db);
+      // Backup schedules — the rows in `zv_backup_schedules` carried a cron
+      // expression that nothing read until this line existed.
+      _stopBackups = scheduleBackups(_db, resolveDumpTarget);
     }
   },
 
@@ -69,6 +75,10 @@ export const flowScheduler = {
     if (_stopGC) {
       _stopGC();
       _stopGC = null;
+    }
+    if (_stopBackups) {
+      _stopBackups();
+      _stopBackups = null;
     }
     if (_stopTrashPurge) {
       _stopTrashPurge();
