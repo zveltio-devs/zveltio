@@ -28,7 +28,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { nextCronRun } from '../flows/cron.js';
+import { nextCronRun } from '../flows/index.js';
 import { type DumpTarget, runScheduledBackup } from './run-scheduled-backup.js';
 
 /**
@@ -55,6 +55,8 @@ interface DueRow {
   name: string;
   cron_expression: string;
   next_run_at: Date | null;
+  storage_destination: 'local' | 's3' | 'both';
+  s3_prefix: string | null;
 }
 
 /**
@@ -105,7 +107,8 @@ export function scheduleBackups(db: Database, resolveTarget: () => DumpTarget): 
     let due: DueRow[];
     try {
       const rows = await sql<DueRow>`
-        SELECT id::text, name, cron_expression, next_run_at
+        SELECT id::text, name, cron_expression, next_run_at,
+               storage_destination, s3_prefix
           FROM zv_backup_schedules
          WHERE is_active = true
            AND next_run_at IS NOT NULL
@@ -165,6 +168,8 @@ export function scheduleBackups(db: Database, resolveTarget: () => DumpTarget): 
           target: resolveTarget(),
           actorId: null,
           note: `Scheduled: ${s.name}`,
+          destination: s.storage_destination,
+          s3Prefix: s.s3_prefix,
         });
         console.log(
           `[backup-scheduler] "${s.name}" ${out.status}` +
