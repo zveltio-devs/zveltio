@@ -56,5 +56,19 @@
     "zvd_relations": "Relații între colecții, deci la nivel de instanță ca și colecțiile.",
     "zvd_rls_policies": "Politici definite pe colecții partajate.",
     "zvd_rpc_functions": "Funcții definite la nivel de instanță."
+  },
+  "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
+  "unpoliced": {
+    "zv_tenant_users": "`getUserTenants()` (`tenant-manager.ts:445`) răspunde la „în ce firme sunt?\" — întrebarea de DINAINTE de a alege firma. Cu politică, lista de firme la login e goală și nimeni nu mai poate comuta.",
+    "zv_api_keys": "`validateApiKey()` (`lib/data/auth.ts:96`) caută DOAR după hash; cheia e cea care STABILEȘTE firma. Comparația cu firma cerută vine imediat după (`auth.ts:119`). Cu politică, autentificarea prin cheie API cade în întregime.",
+    "zv_invitations": "Răscumpărată după token, de un neautentificat care încă nu e membru nicăieri (`routes/auth.ts:90,123`). `/api/auth` e în `TXN_SKIP_PREFIXES`, deci nici nu există tranzacție de firmă. Tokenul E capabilitatea.",
+    "zv_environments": "`resolveEnvironment()` e chemată DIN INTERIORUL lui `tenantMiddleware`, înainte ca `withTenantIsolation` să deschidă tranzacția (`middleware/tenant.ts:75`). O politică aici rupe rezolvarea firmei — adică tot. Filtrează explicit pe `tenant_id`.",
+    "zv_tenant_usage": "Scrisă de `tenant-quota.ts:136` pe `quotaDb = poolDb ?? db` — pool, în afara tranzacției cererii, prin construcție. Citită agregat pe instanță de `/api/admin/system`. E registrul contabil al instanței.",
+    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă.",
+    "zv_dashboards": "`insightsRoutes(poolDb, auth)` (`routes/index.ts:458`) — pe pool, deliberat: ruta pune `SET TRANSACTION READ ONLY` și `statement_timeout` proprii, care n-au ce căuta pe toată cererea. Filtrează manual, cu `tenantOf(c)`, la fiecare acces.",
+    "zv_flows": "`flowsRoutes(poolDb, auth)` (`routes/index.ts:482`), plus `flow-scheduler.ts:90` care deschide propria tranzacție fără `SET LOCAL ROLE` și fără GUC — trebuie să vadă flow-urile scadente ale TUTUROR firmelor, altfel nu le poate rula.",
+    "zv_revisions": "`afterWrite` scrie jurnalul pe pool, și codul o spune (`write-pipeline.ts:411`): „afterWrite runs on the pool, not the request transaction, so it can't rely on the RLS GUC\". Pune `tenant_id` explicit.",
+    "zvd_webhooks": "Migrația 016 a adăugat `tenant_id` tocmai ca să repare un IDOR între firme, și a ales izolare în aplicație: `routes/webhooks.ts` rulează pe pool, iar `WebhookManager.trigger()` e chemat din `afterWrite`, tot pe pool, cu firma trecută explicit. `repairUnsignedWebhooksAtBoot` (`lib/webhooks.ts:36`) trebuie să vadă webhook-urile tuturor firmelor la pornire.",
+    "zvd_webhook_deliveries": "Copil al lui `zvd_webhooks`, scris de același expeditor de pe pool. Vezi mai sus."
   }
 }
