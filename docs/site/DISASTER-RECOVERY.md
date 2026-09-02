@@ -100,15 +100,29 @@ contains none of your other tenants. A backup that lies is worse than one that
 fails.
 
 Back up as a role that RLS does not bind, kept separate from the engine's role
-and used for nothing else:
+and used for nothing else. `bootstrap-db-role.sh` creates it when you ask:
+
+```sh
+ZVELTIO_BACKUP_PASSWORD='<strong password>' \
+  ./scripts/bootstrap-db-role.sh zveltio zveltio_app '<engine password>'
+```
+
+Without that variable the script skips the role and says so — nobody gets a
+privileged credential by accident, and an install that never backs up says why.
+
+By hand, if the database already exists:
 
 ```sh
 psql -U postgres -d zveltio -c \
   "CREATE ROLE zveltio_backup LOGIN PASSWORD '<strong password>' \
      NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;"
-psql -U postgres -d zveltio -c \
-  "GRANT pg_read_all_data TO zveltio_backup;"
+psql -U postgres -d zveltio -c "GRANT pg_read_all_data TO zveltio_backup;"
 ```
+
+**Both lines are needed and the failure in between is misleading.** `BYPASSRLS`
+alone lifts the policies, but the role still owns nothing and holds no SELECT
+grant, so `pg_dump` answers `permission denied for table` — a different error
+that looks like a different problem. Measured, both ways.
 
 Then point the dump at it — `PGUSER=zveltio_backup` for a cron `pg_dump`, or
 `BACKUP_DB_USER` / `BACKUP_DB_PASSWORD` if you drive backups through the engine.
