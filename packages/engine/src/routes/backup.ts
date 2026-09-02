@@ -7,6 +7,8 @@ import { unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
 import { toNumber, toNumberOrNull, toNumberSafe } from '../lib/numeric.js';
 
@@ -80,7 +82,7 @@ export function explainDumpFailure(stderr: string): string {
  * produced `pg_dump failed (exit 1): Password:` while `POST /` on the same
  * engine worked.
  */
-function resolveDumpTarget(): {
+export function resolveDumpTarget(): {
   host: string;
   port: string;
   name: string;
@@ -699,19 +701,25 @@ export function backupRoutes(db: Database, auth: any): Hono {
       resourceType: 'backup_schedule',
       metadata: { name: data.name, cron: data.cron_expression, action: 'created' },
     });
+    // Give it a first occurrence. A row whose `next_run_at` is NULL never
+    // becomes due — which is the state every schedule ever created was in,
+    // because nothing computed it.
+    const firstRun = await setNextRun(db, result.rows[0].id, data.cron_expression);
+
     // `manual_only` is in the response because the operator cannot see it any
     // other way: the row looks exactly like a working schedule, and the audit
     // log records `backup.scheduled`, which is what an auditor would rely on.
     return c.json(
-      {
-        schedule_id: result.rows[0].id,
-        manual_only: true,
-        note:
-          'Stored, but this engine does not run schedules by itself: nothing ' +
-          'evaluates cron_expression. Trigger it with POST /api/backup/schedules/' +
-          `${result.rows[0].id}/trigger — from system cron, for example. See ` +
-          'docs/site/DISASTER-RECOVERY.md §3.1.',
-      },
+      firstRun
+        ? { schedule_id: result.rows[0].id, next_run_at: firstRun.toISOString() }
+        : {
+            schedule_id: result.rows[0].id,
+            next_run_at: null,
+            warning:
+              `cron_expression '${data.cron_expression}' could not be parsed, so this ` +
+              'schedule will never run. Fix it with PATCH, or trigger it manually ' +
+              `with POST /api/backup/schedules/${result.rows[0].id}/trigger.`,
+          },
       201,
     );
   });
@@ -780,6 +788,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     await db.updateTable('zv_backup_schedules').set(updateData).where('id', '=', id).execute();
 
+    // A changed cron expression means a changed next occurrence. Without this
+    // the row keeps the marker computed from the OLD expression, so the edit
+    // appears to take effect and the schedule keeps its previous times.
+    if (data.cron_expression !== undefined) {
+      await setNextRun(db, id, data.cron_expression);
+    }
+
     await auditLog(db, {
       type: 'backup.scheduled',
       userId: user?.id,
@@ -818,117 +833,31 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     if (!schedule.rows[0]) return c.json({ error: 'Schedule not found or inactive' }, 404);
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `backup-schedule-${scheduleId}-${timestamp}.sql.gz`;
-    const filepath = `${BACKUP_DIR}/${filename}`;
-
-    const backupResult = await sql<{ id: string }>`
-      INSERT INTO zv_backups (filename, status, created_by, notes)
-      VALUES (${filename}, 'in_progress', ${user.id}, ${'Triggered by schedule: ' + schedule.rows[0].name})
-      RETURNING id::text
-    `.execute(db);
-    const backupId = backupResult.rows[0].id;
-
-    const {
-      host: dbHost,
-      port: dbPort,
-      name: dbName,
-      user: dbUser,
-      password: dbPassword,
-    } = resolveDumpTarget();
-
-    const backupBg = async () => {
-      try {
-        const mkdirProc = Bun.spawn(['mkdir', '-p', BACKUP_DIR]);
-        await mkdirProc.exited;
-
-        const pgdumpProc = Bun.spawn(
-          ['pg_dump', '-h', dbHost, '-p', String(dbPort), '-U', dbUser, '-d', dbName],
-          {
-            env: { ...process.env, PGPASSWORD: dbPassword } as Record<string, string>,
-            stdout: 'pipe',
-            stderr: 'pipe',
-          },
-        );
-
-        const gzipProc = Bun.spawn(['gzip', '-c'], {
-          stdin: pgdumpProc.stdout,
-          stdout: Bun.file(filepath),
-        });
-
-        await Promise.all([pgdumpProc.exited, gzipProc.exited]);
-
-        if (pgdumpProc.exitCode !== 0) {
-          const stderr = await new Response(pgdumpProc.stderr).text();
-          throw new Error(`pg_dump failed (exit ${pgdumpProc.exitCode}): ${stderr}`);
-        }
-
-        if (!(await Bun.file(filepath).exists())) {
-          throw new Error('Backup file was not created');
-        }
-
-        // 0600 — see /backup POST above. Same reasoning for scheduled dumps.
-        if (process.platform !== 'win32') {
-          await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
-        }
-
-        const size = Bun.file(filepath).size;
-
-        // The backup's own status and the schedule's `last_run_status` are the
-        // same outcome recorded in two places, and they are what an operator
-        // reads to decide whether last night's backup ran.
-        //
-        // Split, they disagree — the schedule says `completed` while the backup
-        // row says nothing was written, or the reverse. Both readings are worse
-        // than an error, because both are believed. This runs on the pool after
-        // the response, so it needs a transaction of its own; there is no
-        // request boundary out here to borrow.
-        await db.transaction().execute(async (trx) => {
-          await sql`
-            UPDATE zv_backups SET status = 'completed', size_bytes = ${size}, completed_at = NOW()
-            WHERE id = ${backupId}
-          `.execute(trx);
-
-          await sql`
-            UPDATE zv_backup_schedules
-            SET last_run_at = NOW(), last_run_status = 'completed'
-            WHERE id = ${scheduleId}
-          `.execute(trx);
-        });
-
-        await cleanupOldBackups(db);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error('Scheduled backup failed:', msg);
-        // Same pair, same reason. A failure the schedule does not record is a
-        // backup an operator believes ran.
-        await db.transaction().execute(async (trx) => {
-          await sql`
-            UPDATE zv_backups SET status = 'failed', error = ${msg} WHERE id = ${backupId}
-          `.execute(trx);
-          await sql`
-            UPDATE zv_backup_schedules SET last_run_at = NOW(), last_run_status = 'failed' WHERE id = ${scheduleId}
-          `.execute(trx);
-        });
-      }
-    };
-
-    backupBg().catch((err) => console.error('Scheduled backup bg error:', err));
+    // The body of this used to live here, which is why the schedules feature had
+    // no scheduler: there was nothing for one to call. Awaited now rather than
+    // fired and forgotten, so the response says what actually happened — a
+    // trigger that answers 200 and then fails silently is the shape this whole
+    // area kept taking.
+    const out = await runScheduledBackup(db, {
+      scheduleId,
+      scheduleName: schedule.rows[0].name,
+      target: resolveDumpTarget(),
+      actorId: user?.id ?? null,
+      note: `Triggered by schedule: ${schedule.rows[0].name}`,
+    });
 
     await auditLog(db, {
       type: 'backup.scheduled',
-      userId: user.id,
-      resourceId: backupId,
+      userId: user?.id,
+      resourceId: out.backupId,
       resourceType: 'backup',
-      metadata: { action: 'manual_trigger', schedule_id: scheduleId, filename },
+      metadata: { action: 'manual_trigger', schedule_id: scheduleId, filename: out.filename },
     });
 
-    return c.json({
-      backup_id: backupId,
-      status: 'in_progress',
-      filename,
-      schedule_id: scheduleId,
-    });
+    if (out.status === 'failed') {
+      return c.json({ backup_id: out.backupId, status: out.status, error: out.error }, 500);
+    }
+    return c.json({ backup_id: out.backupId, filename: out.filename, status: out.status });
   });
 
   // ── Enterprise: Integrity Checks ──────────────────────────────

@@ -42,10 +42,21 @@ d('ghost DDL changelog delete (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql
-      .raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`)
-      .execute(db)
-      .catch(() => {});
+    // The ghost artefacts too, not just the collection's table.
+    //
+    // `atomicSwap` renames the original to `_zv_old_<table>` and schedules the
+    // drop of that and the changelog SIXTY SECONDS later (ghost-ddl.ts:332). A
+    // test suite is long gone by then, so both tables outlive the run — which is
+    // exactly what `check:test-leftovers` reports, and it was right to. Whether
+    // the gate saw them depended on timing: another test's sweeper sometimes got
+    // there first. A test that creates them cleans them up itself rather than
+    // relying on a timer it does not control.
+    for (const t of [`_zv_old_${tableName}`, `_zv_changelog_${tableName}`, tableName]) {
+      await sql
+        .raw(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+        .execute(db)
+        .catch(() => {});
+    }
     await db
       .deleteFrom('zvd_collections')
       .where('name', '=', COLLECTION)
