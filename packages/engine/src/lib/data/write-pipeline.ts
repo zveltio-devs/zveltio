@@ -438,8 +438,24 @@ export async function afterWrite(
       collection,
       record_id: recordId,
       action,
-      data: JSON.stringify(data),
-      ...(delta ? { delta: JSON.stringify(delta) } : {}),
+      // The object, NOT `JSON.stringify(it)`. The column is `jsonb`, and a
+      // string parameter is stored as a jsonb STRING containing JSON text —
+      // `jsonb_typeof` says `string`, `data->>'field'` returns NULL, and
+      // `data ? 'field'` is false. Measured, all three.
+      //
+      // `sql`${JSON.stringify(data)}::jsonb`` is the obvious repair and is
+      // equally wrong, for the same reason: the parameter is already a JSON
+      // string, so the cast produces a jsonb string. Also measured. Passing the
+      // object is the only form that yields `jsonb_typeof = object`.
+      //
+      // Two readers had grown compensations for this — `list.ts` normalises with
+      // `CASE WHEN jsonb_typeof(data) = 'string' …` on the `?as_of=` path,
+      // `revisions.ts` with `typeof x === 'string' ? JSON.parse(x)`. Both keep
+      // working against the fixed shape. The admin audit route
+      // (`system-routes.ts`) has no compensation and was handing the
+      // double-encoded string straight to the caller.
+      data,
+      ...(delta ? { delta } : {}),
       user_id: userId,
       // Tag history with the writing tenant so the audit trail + time-travel
       // (?as_of=) can't be read across tenants. afterWrite runs on the pool, not
