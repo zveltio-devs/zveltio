@@ -85,6 +85,8 @@ function makeLoader(): ExtensionLoader {
     topoSortExtensions: topoSortMock,
     purgeExtensionData: purgeMock,
     lastLoadError: new Map(),
+    extDirs: new Map(),
+    forgetExtensionMessages: () => {},
   } as unknown as ExtensionLoader;
 }
 

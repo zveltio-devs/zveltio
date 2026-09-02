@@ -116,6 +116,7 @@ export async function unloadExtension(
   cronRunner.unregisterAll(name);
 
   loader.loaded.delete(name);
+  loader.forgetExtensionMessages(name);
   console.log(`🔌 Extension unloaded from memory: ${name}`);
 
   // Audit trail — record unload (system-triggered; userId omitted to
@@ -186,6 +187,7 @@ export async function reloadExtensionFromDisk(
   loader.modules.delete(name);
   loader.loaded.delete(name);
   loader.lastLoadError.delete(name);
+  loader.forgetExtensionMessages(name);
   serviceRegistry.unregisterAll(name);
   queryAlterRegistry.unregisterAll(name);
   entityAccessRegistry.unregisterAll(name);

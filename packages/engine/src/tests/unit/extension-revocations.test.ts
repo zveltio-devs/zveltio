@@ -215,6 +215,8 @@ describe('load-path enforcement', () => {
       loaded: new Map(),
       manifestMeta: new Map(),
       lastLoadError: new Map(),
+      extDirs: new Map(),
+      forgetExtensionMessages: () => {},
       modules: new Map(),
       isActive(name: string) {
         return this.loaded.has(name);

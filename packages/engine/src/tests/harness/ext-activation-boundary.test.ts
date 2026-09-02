@@ -80,6 +80,8 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
       loaded: new Map(),
       modules: new Map<string, ZveltioExtension>(),
       lastLoadError: new Map(),
+      extDirs: new Map(),
+      forgetExtensionMessages: () => {},
       ctx: { db } as unknown as ExtensionContext,
     } as unknown as ExtensionLoader;
     await finalizeExtensionLoad(
