@@ -139,7 +139,7 @@ describe('scheduleBackups — one tick', () => {
         stdout: new Response('').body,
         stderr: new Response('').body,
       } as never;
-    }) as typeof Bun.spawn);
+    }) as unknown as typeof Bun.spawn);
   }
 
   const due = (cron: string) => [
