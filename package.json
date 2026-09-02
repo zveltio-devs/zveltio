@@ -88,7 +88,7 @@
     "browserslist": "4.28.8",
     "cookie": "0.7.2",
     "esbuild": "0.28.2",
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.7",
     "js-yaml": "4.3.1",
     "linkify-it": "5.0.2",
     "nanoid": "5.1.16",
