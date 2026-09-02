@@ -78,10 +78,18 @@ const NOT_RULE_READERS = new Map<string, string>([
   ['lib/data/field-type-registry.ts', 'the same declaration, on the registry side.'],
   [
     'db/dynamic.ts',
-    'the user-facing `?filter=` query builder. Same operator names, different ' +
-      'question: a caller-supplied filter narrows what a caller already may see, ' +
-      'while a row rule decides what that is. It should probably share this ' +
-      'table one day; folding it in now would make the count mean two things.',
+    'the `?filter=` query builder — and, on the LIST path only, the thing that ' +
+      'actually applies row rules. `handlers/list.ts` merges the rule conditions ' +
+      'into the user filter map ("RLS wins over same-field user filter") and hands ' +
+      'the lot to `buildCondition`, so this file IS a fifth applier there, whatever ' +
+      'its name says. Every other read path — single, bulk, sync, expand, ' +
+      'extensions — goes through `applyRlsFilters`. MEASURED 2026-09-02 on the case ' +
+      'that produced the original leak, a NULL column: `<>` and `!=` both keep only ' +
+      'the non-matching non-NULL row, `NOT IN` and `NOT (= ANY(…))` agree, `IN` and ' +
+      '`= ANY(…)` agree. It does not diverge where divergence would matter, so ' +
+      'folding it in is cleanup, not a fix — and the count would then mean two ' +
+      'things. The earlier note here, that a caller filter only "narrows what a ' +
+      'caller already may see", was wrong about the list path.',
   ],
   [
     'lib/data/query-parse.ts',
