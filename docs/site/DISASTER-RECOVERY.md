@@ -70,6 +70,65 @@ for f in /var/backups/zveltio/*.sql.gz; do
 done
 ```
 
+#### The backup role — required on a hardened install
+
+**If you followed `scripts/bootstrap-db-role.sh` (as `DEPLOYMENT-K8S.md`
+recommends), `pg_dump` as the engine's role will fail.** Not eventually, and not
+only once you have data: it fails on a freshly migrated database with no
+collections at all, because `zv_edge_function_logs` ships with
+`FORCE ROW LEVEL SECURITY`.
+
+That is Postgres working correctly. `FORCE ROW LEVEL SECURITY` binds the table's
+owner as well as everyone else, and `pg_dump` refuses to dump a table whose rows
+it cannot prove are complete:
+
+```
+pg_dump: error: query failed: ERROR:  query would be affected by row-level
+security policy for table "zv_edge_function_logs"
+HINT:  To disable the policy for the table's owner, use
+       ALTER TABLE NO FORCE ROW LEVEL SECURITY.
+```
+
+**Do not follow that hint.** It is correct advice for Postgres in general and
+wrong here: the statement removes the boundary between tenants on that table. It
+would fix your backups by switching off the thing the backups exist to protect.
+
+**Do not add `--enable-row-security` either.** pg_dump would then dump only the
+rows the role can see — with no tenant context, the default tenant's. You would
+get a backup that succeeds, weighs roughly what you expect, and silently
+contains none of your other tenants. A backup that lies is worse than one that
+fails.
+
+Back up as a role that RLS does not bind, kept separate from the engine's role
+and used for nothing else:
+
+```sh
+psql -U postgres -d zveltio -c \
+  "CREATE ROLE zveltio_backup LOGIN PASSWORD '<strong password>' \
+     NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;"
+psql -U postgres -d zveltio -c \
+  "GRANT pg_read_all_data TO zveltio_backup;"
+```
+
+Then point the dump at it — `PGUSER=zveltio_backup` for a cron `pg_dump`, or
+`BACKUP_DB_USER` / `BACKUP_DB_PASSWORD` if you drive backups through the engine.
+
+This role can read every row in the database, so treat its password like the
+engine's: separate secret, no interactive login, and nothing else uses it. That
+is the trade — a backup by definition must read what RLS hides, so somebody has
+to hold that right. Giving it to a role that only ever runs `pg_dump` is
+narrower than giving it back to the engine.
+
+**Check that your backups actually work**, rather than that files appear:
+
+```sh
+zcat /var/backups/zveltio/<latest>.sql.gz | grep -c '^COPY public.zv_'
+```
+
+A dump that stopped at the first RLS-protected table still produces a valid
+gzip file — `gzip -t` above passes on it. Counting the `COPY` blocks is what
+tells you the dump reached the end.
+
 ### 3.2 T2 — Point-in-time recovery (PITR)
 
 Requires Postgres WAL archiving. Configure once in `postgresql.conf`:

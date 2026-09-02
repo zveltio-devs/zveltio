@@ -12,6 +12,56 @@ import { toNumber, toNumberOrNull, toNumberSafe } from '../lib/numeric.js';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
 
+/**
+ * Say what an RLS-blocked `pg_dump` means, because Postgres's own hint is
+ * dangerous here.
+ *
+ * On the hardened install — the one `docs/site/DEPLOYMENT-K8S.md` recommends and
+ * `scripts/bootstrap-db-role.sh` builds — the engine's role is
+ * `NOSUPERUSER NOBYPASSRLS` and owns the tables. `FORCE ROW LEVEL SECURITY`
+ * binds the owner too, and `pg_dump` refuses to dump a table whose rows it
+ * cannot prove are complete. So it fails, on a VIRGIN install with no
+ * collections at all: `zv_edge_function_logs` ships with FORCE RLS from
+ * migration 049. Measured, not inferred.
+ *
+ * Postgres ends that error with:
+ *
+ *   HINT: To disable the policy for the table's owner, use
+ *         ALTER TABLE NO FORCE ROW LEVEL SECURITY.
+ *
+ * Which is correct advice for Postgres and wrong advice here: that statement
+ * removes the boundary between tenants on that table. An operator whose backups
+ * are failing, reading a hint from the database itself, is exactly the person
+ * likely to run it. So the hint is answered rather than passed through.
+ *
+ * `--enable-row-security` is the other tempting fix and is worse: pg_dump then
+ * dumps only the rows the role can SEE, which without tenant context is the
+ * default tenant's. That produces a backup that succeeds, weighs about right,
+ * and silently omits every other tenant. A backup that lies is worse than a
+ * backup that fails.
+ */
+export function explainDumpFailure(stderr: string): string {
+  if (!/row-level security|row level security/i.test(stderr)) return stderr;
+  return (
+    `${stderr}\n` +
+    '\n--- Zveltio ---\n' +
+    "This is not a corrupt database. The engine's role is bound by FORCE ROW LEVEL\n" +
+    'SECURITY, so pg_dump will not dump tables it cannot read completely.\n' +
+    '\n' +
+    'DO NOT follow the HINT above. `ALTER TABLE ... NO FORCE ROW LEVEL SECURITY`\n' +
+    'removes the tenant boundary on that table — it would fix the backup by\n' +
+    'switching off the isolation the backup exists to protect.\n' +
+    '\n' +
+    'DO NOT add `--enable-row-security` either: pg_dump would then dump only the\n' +
+    "rows this role can see, which with no tenant context is the default tenant's.\n" +
+    'The backup would succeed and silently omit every other tenant.\n' +
+    '\n' +
+    'Back up as a role that RLS does not bind — one created with BYPASSRLS, kept\n' +
+    "apart from the engine's own role and used for nothing else. See\n" +
+    'docs/site/DISASTER-RECOVERY.md.'
+  );
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function backupRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
@@ -112,6 +162,25 @@ export function backupRoutes(db: Database, auth: any): Hono {
     dbName = dbName || 'zveltio_dev';
     dbUser = dbUser || 'postgres';
 
+    // A dump usually cannot run as the engine.
+    //
+    // On the hardened install the engine's role is `NOSUPERUSER NOBYPASSRLS` and
+    // owns the tables, and `FORCE ROW LEVEL SECURITY` binds the owner — so
+    // `pg_dump` refuses, on a virgin database with no collections, because
+    // `zv_edge_function_logs` ships with FORCE RLS. Without this override the
+    // built-in backup is simply unavailable on the configuration the deployment
+    // guide recommends, and the only remaining fixes are the two dangerous ones
+    // `explainDumpFailure` warns about.
+    //
+    // So: a separate role, created with BYPASSRLS and used for nothing else.
+    // Falls back to the engine's own credentials, which is right for the
+    // single-tenant and docker-compose installs where the engine owns the
+    // database outright and RLS never blocks it.
+    if (process.env.BACKUP_DB_USER) {
+      dbUser = process.env.BACKUP_DB_USER;
+      dbPassword = process.env.BACKUP_DB_PASSWORD || '';
+    }
+
     // Run backup in background — do NOT await
     const backupBg = async () => {
       try {
@@ -138,7 +207,9 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
         if (pgdumpProc.exitCode !== 0) {
           const stderr = await new Response(pgdumpProc.stderr).text();
-          throw new Error(`pg_dump failed (exit ${pgdumpProc.exitCode}): ${stderr}`);
+          throw new Error(
+            `pg_dump failed (exit ${pgdumpProc.exitCode}): ${explainDumpFailure(stderr)}`,
+          );
         }
 
         if (!(await Bun.file(filepath).exists())) {
