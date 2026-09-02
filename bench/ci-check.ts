@@ -3,17 +3,39 @@
  * ci-check.ts — Run the bench against the local engine and fail the build if
  * a critical p95 exceeds the upper-bound threshold.
  *
- * Thresholds are intentionally generous: CI runners have variable load and
- * cold caches, so we only flag *catastrophic* regressions (10× slowdowns),
- * not p99 drift. To track drift, archive `bench/results/latest.json` as a
- * CI artifact and compare across PRs out-of-band.
+ * Thresholds flag *catastrophic* regressions only — roughly a 10x slowdown —
+ * not p99 drift. CI runners have variable load and cold caches. To track drift,
+ * archive `bench/results/latest.json` as a CI artifact and compare across PRs
+ * out-of-band.
  *
- * Tunable via env:
- *   PERF_BUDGET_CREATE_P95_MS     (default 300)
- *   PERF_BUDGET_GET_P95_MS        (default 200)
- *   PERF_BUDGET_PATCH_P95_MS      (default 300)
- *   PERF_BUDGET_DELETE_P95_MS     (default 200)
- *   PERF_BUDGET_LIST_FIRST_P95_MS (default 300)
+ * ── The budgets are DERIVED, and they were not ────────────────
+ *
+ * They used to be five hand-picked round numbers, and the headroom they left
+ * varied by a factor of seven:
+ *
+ *     metric        master   budget   headroom
+ *     create        102,8ms    300ms      2,9x
+ *     get            38,6ms    200ms      5,2x
+ *     patch          85,5ms    300ms      3,5x
+ *     delete         10,0ms    200ms     20,0x
+ *     list.first     40,9ms    300ms      7,3x
+ *
+ * `create` therefore had under a third of the headroom this comment promised,
+ * which made it a drift detector by accident — and a flaky one. Measured on
+ * 2026-09-01: two unrelated PRs failed this job, once on `delete` and once on
+ * `create`, with EVERY metric inflated 2,4-4,8x. That is a slow runner, not a
+ * regression: a regression moves one number, load moves all of them.
+ *
+ * A gate that fails at random teaches people to press re-run without reading,
+ * which costs more than the gate is worth.
+ *
+ * So the budgets come from one baseline table times one multiplier. Changing
+ * how strict this gate is means changing `SLOWDOWN_FACTOR`, in one place,
+ * instead of five numbers drifting apart again.
+ *
+ * Tunable via env (each still overrides its own metric):
+ *   PERF_BUDGET_CREATE_P95_MS · PERF_BUDGET_GET_P95_MS · PERF_BUDGET_PATCH_P95_MS
+ *   PERF_BUDGET_DELETE_P95_MS · PERF_BUDGET_LIST_FIRST_P95_MS
  *
  * Exit codes:
  *   0 — all budgets met
@@ -22,6 +44,56 @@
  */
 
 import { readFile } from 'node:fs/promises';
+
+/**
+ * p95 on a healthy CI runner, measured on master 2026-09-01. Not aspirations —
+ * observations, so the headroom below is a real multiple of real behaviour.
+ *
+ * When the engine genuinely gets faster or slower for a reason, update these
+ * and say why in the commit. That is the drift record this gate does not keep.
+ */
+const CI_BASELINE_MS = {
+  create: 103,
+  get: 39,
+  patch: 86,
+  delete: 10,
+  listFirst: 41,
+} as const;
+
+/**
+ * How far past the baseline is "catastrophic". One number, because five that
+ * drift apart is how `create` ended up with 2,9x headroom while `delete` had 20x.
+ *
+ * Ten is what the header has always claimed. Runner noise measured at 2,4-4,8x,
+ * so this clears it with room and still catches an order-of-magnitude loss.
+ */
+const SLOWDOWN_FACTOR = 10;
+
+/**
+ * The budgets this replaced. A floor, never a ceiling.
+ *
+ * Deriving from the baseline would have TIGHTENED `delete` — 10ms x 10 is 100,
+ * against 200 before — and tightening a budget as a side effect of fixing
+ * flakiness is how a fix becomes the next flake. Nothing here gets stricter
+ * than what it replaced; the derivation only ever adds headroom.
+ */
+const PREVIOUS_BUDGET_MS = {
+  create: 300,
+  get: 200,
+  patch: 300,
+  delete: 200,
+  listFirst: 300,
+} as const;
+
+/** Baseline for a printed metric name like `create.p95`. */
+function baselineFor(metricName: string): number {
+  const key = metricName.replace('.p95', '').replace('list.first', 'listFirst');
+  return CI_BASELINE_MS[key as keyof typeof CI_BASELINE_MS] ?? 1;
+}
+
+function budgetFor(metric: keyof typeof CI_BASELINE_MS): number {
+  return Math.max(PREVIOUS_BUDGET_MS[metric], Math.round(CI_BASELINE_MS[metric] * SLOWDOWN_FACTOR));
+}
 import { loadConfig } from './lib/config.js';
 import { signInForToken, waitForHealthy } from './lib/http.js';
 import { runRestCrud } from './benchmarks/rest-crud.bench.js';
@@ -60,40 +132,67 @@ async function main(): Promise<void> {
     {
       name: 'create.p95',
       value: crud.create.p95,
-      budget: Number(process.env.PERF_BUDGET_CREATE_P95_MS ?? 300),
+      budget: Number(process.env.PERF_BUDGET_CREATE_P95_MS ?? budgetFor('create')),
     },
     {
       name: 'get.p95',
       value: crud.get.p95,
-      budget: Number(process.env.PERF_BUDGET_GET_P95_MS ?? 200),
+      budget: Number(process.env.PERF_BUDGET_GET_P95_MS ?? budgetFor('get')),
     },
     {
       name: 'patch.p95',
       value: crud.patch.p95,
-      budget: Number(process.env.PERF_BUDGET_PATCH_P95_MS ?? 300),
+      budget: Number(process.env.PERF_BUDGET_PATCH_P95_MS ?? budgetFor('patch')),
     },
     {
       name: 'delete.p95',
       value: crud.delete.p95,
-      budget: Number(process.env.PERF_BUDGET_DELETE_P95_MS ?? 200),
+      budget: Number(process.env.PERF_BUDGET_DELETE_P95_MS ?? budgetFor('delete')),
     },
     {
       name: 'list.first.p95',
       value: list.firstPage.p95,
-      budget: Number(process.env.PERF_BUDGET_LIST_FIRST_P95_MS ?? 300),
+      budget: Number(process.env.PERF_BUDGET_LIST_FIRST_P95_MS ?? budgetFor('listFirst')),
     },
   ];
 
   let failed = 0;
   console.log('\nResult:');
   console.log('─'.repeat(60));
-  for (const b of budgets) {
+  // Print each metric's inflation over the baseline, not just pass/fail.
+  //
+  // This is the line that makes a failure readable. A regression moves ONE
+  // number; a loaded runner moves all of them. Both looked identical in the old
+  // output — five values and a budget — so the only way to tell them apart was
+  // to re-run and see whether it happened again, which is exactly the habit a
+  // flaky gate teaches and the reason it stops being read.
+  const ratios = budgets.map((b) => b.value / baselineFor(b.name));
+  const median = [...ratios].sort((a, z) => a - z)[Math.floor(ratios.length / 2)] ?? 1;
+
+  for (const [i, b] of budgets.entries()) {
     const ok = Number.isFinite(b.value) && b.value <= b.budget;
     const mark = ok ? '✓' : '✗';
     console.log(
-      `${mark} ${b.name.padEnd(20)} ${b.value.toFixed(1).padStart(7)} ms  (budget ${b.budget} ms)`,
+      `${mark} ${b.name.padEnd(20)} ${b.value.toFixed(1).padStart(7)} ms  ` +
+        `(budget ${b.budget} ms, ${ratios[i]!.toFixed(1)}x baseline)`,
     );
     if (!ok) failed++;
+  }
+
+  if (failed > 0) {
+    console.log('─'.repeat(60));
+    if (median >= 2) {
+      console.log(
+        `⚠  EVERY metric is inflated (median ${median.toFixed(1)}x baseline). That is the\n` +
+          '   signature of a loaded runner, not a regression — a regression moves one\n' +
+          '   number and leaves the rest flat. Re-run before investigating the code.',
+      );
+    } else {
+      console.log(
+        `→  The other metrics are near baseline (median ${median.toFixed(1)}x), so this is\n` +
+          '   NOT general runner slowness. Treat it as a real regression.',
+      );
+    }
   }
   console.log('─'.repeat(60));
 
