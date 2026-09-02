@@ -13,11 +13,38 @@ export function getCache(): Redis | null {
 }
 
 /**
+ * Strip credentials from a Valkey URL so it can be logged.
+ *
+ * The URL is the single most useful thing to print when a connection fails —
+ * host, port and database are usually where the mistake is — and it is also the
+ * one place a password may sit. So print it, without that.
+ */
+function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = '***';
+    if (u.username) u.username = '***';
+    return u.toString();
+  } catch {
+    // Not a parseable URL — that is itself the likely fault, and echoing the
+    // raw string back is what tells the operator so. It cannot contain a
+    // password in a form we could have parsed out anyway.
+    return url;
+  }
+}
+
+/**
  * Initialize cache with lazy connection. Only connects if VALKEY_URL is set.
  * Optimizations:
  * - lazyConnect: connection is established only when first command is issued
  * - noReadyCheck: skips initial INFO command for faster startup
  * - maxRetriesPerRequest: retry up to 3 times on transient failures
+ *
+ * Returning null is for tests and for the operator who set
+ * `ZVELTIO_ALLOW_NO_CACHE=1`; a production boot without `VALKEY_URL` is stopped
+ * earlier, by `productionGuardViolations`. That guard covers the variable being
+ * ABSENT. This function covers it being PRESENT AND WRONG, which is now the
+ * likelier mistake of the two — see the error it throws.
  */
 export async function initCache(): Promise<Redis | null> {
   if (!process.env.VALKEY_URL) return null;
@@ -31,11 +58,42 @@ export async function initCache(): Promise<Redis | null> {
     },
   });
 
+  // ioredis reports the REASON on the 'error' event and then rejects
+  // `connect()` with a generic "Connection is closed." — two separate places,
+  // and only the useless one is thrown. Wrong password printed
+  // "NOAUTH Authentication required." to the log and then failed the boot with
+  // an ioredis stack trace, so the message naming the actual fault was several
+  // lines above the one that stopped the engine, and looked unrelated to it.
+  //
+  // Keep the last reason so it can be attached below. An array rather than a
+  // `let`: assigned only inside a callback, a `let` narrows to `never` by the
+  // catch block and will not compile.
+  const seen: Error[] = [];
   _cache.on('error', (err: Error) => {
+    seen.push(err);
     console.error('[cache] Valkey error:', err.message);
   });
 
-  await _cache.connect();
+  try {
+    await _cache.connect();
+  } catch (err) {
+    // Trailing period trimmed: ioredis ends some messages with one and not
+    // others, and the sentence below supplies its own.
+    const raw = seen.at(-1)?.message ?? (err instanceof Error ? err.message : String(err));
+    const reason = raw.replace(/\.\s*$/, '');
+    const hint = /NOAUTH|WRONGPASS/i.test(reason)
+      ? ' The server wants a password: put it in the URL as redis://:PASSWORD@host:port.'
+      : /ECONNREFUSED/i.test(reason)
+        ? ' Nothing is listening there — check that Valkey is running and on that port.'
+        : '';
+    throw new Error(
+      `Cannot connect to Valkey at ${redactUrl(process.env.VALKEY_URL)}: ${reason}.${hint} ` +
+        'Valkey is required: permission and identity caches, rate limiting and webhook ' +
+        'delivery all depend on it. To boot without one, and accept what that costs, set ' +
+        'ZVELTIO_ALLOW_NO_CACHE=1 and unset VALKEY_URL.',
+      { cause: err },
+    );
+  }
   return _cache;
 }
 
