@@ -15,7 +15,7 @@
  * these are the parts that hold the logic.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { scheduleBackups, setNextRun } from '../../lib/backup/scheduler.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -116,5 +116,81 @@ describe('scheduleBackups — the due query', () => {
     expect(q!.sql).toMatch(/is_active = true/i);
     expect(q!.sql).toMatch(/next_run_at is not null/i);
     expect(q!.sql).toMatch(/next_run_at <= NOW\(\)/i);
+  });
+});
+
+describe('scheduleBackups — one tick', () => {
+  // The dump itself is faked: what a tick decides is the order of its writes and
+  // whether it starts a dump at all, and a real `pg_dump` here would only add a
+  // DNS timeout to every case.
+  function fakeSpawn() {
+    return spyOn(Bun, 'spawn').mockImplementation(((
+      cmd: string[],
+      o?: { stdout?: { name?: string } },
+    ) => {
+      if (cmd[0] === 'gzip') {
+        const dest = o?.stdout?.name;
+        const done = dest ? Bun.write(dest, 'x').then(() => 0) : Promise.resolve(0);
+        return { exited: done, exitCode: 0 } as never;
+      }
+      return {
+        exited: Promise.resolve(0),
+        exitCode: 0,
+        stdout: new Response('').body,
+        stderr: new Response('').body,
+      } as never;
+    }) as typeof Bun.spawn);
+  }
+
+  const due = (cron: string) => [
+    { id: 'sched-1', name: 'Nightly', cron_expression: cron, next_run_at: new Date() },
+  ];
+
+  it('writes the next occurrence before it starts the dump', async () => {
+    // The order is the whole point. Written afterwards, a dump that outlives a
+    // tick would be found still due and started again; advancing first makes the
+    // worst case a missed run rather than a duplicated one.
+    const spy = fakeSpawn();
+    const db = new CannedDb()
+      .when(SELECT_UNPRIMED, [])
+      .when(SELECT_DUE, due('0 3 * * *'))
+      .when(/INSERT INTO zv_backups/i, [{ id: 'backup-1' }]);
+
+    stop = scheduleBackups(db.kysely as unknown as Database, target);
+    await db.waitFor(/INSERT INTO zv_backups/i);
+    spy.mockRestore();
+
+    const order = db.executed(/UPDATE zv_backup_schedules|INSERT INTO zv_backups/i);
+    expect(order[0]!.sql).toMatch(/UPDATE zv_backup_schedules/i);
+    expect(order[0]!.sql).toMatch(/next_run_at/i);
+    expect(order[1]!.sql).toMatch(/INSERT INTO zv_backups/i);
+  });
+
+  it('deactivates a due schedule whose cron cannot be parsed, and starts no dump', async () => {
+    // Otherwise it is retried every minute for ever, and nothing says so.
+    const spy = fakeSpawn();
+    const db = new CannedDb().when(SELECT_UNPRIMED, []).when(SELECT_DUE, due('not a cron'));
+
+    stop = scheduleBackups(db.kysely as unknown as Database, target);
+    await db.waitFor(/is_active = false/i);
+    spy.mockRestore();
+
+    expect(db.executed(/last_run_status = 'invalid_cron'/i).length).toBe(1);
+    expect(db.executed(/INSERT INTO zv_backups/i).length).toBe(0);
+  });
+
+  it('survives a tick that cannot read the table', async () => {
+    // The database may be restarting. The next tick is a minute away, and a throw
+    // here would take the loop with it.
+    const db = new CannedDb()
+      .when(SELECT_UNPRIMED, [])
+      .fail(SELECT_DUE, new Error('the database is restarting'));
+
+    stop = scheduleBackups(db.kysely as unknown as Database, target);
+    await db.waitFor(SELECT_DUE);
+
+    // Still stoppable — the loop is alive, not unwound by the error.
+    expect(() => stop?.()).not.toThrow();
+    expect(db.executed(/INSERT INTO zv_backups/i).length).toBe(0);
   });
 });
