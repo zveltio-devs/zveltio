@@ -24,10 +24,23 @@
 # under the plain role: when the extension is already present the statement is
 # a no-op and never reaches the privilege check.
 #
+#   * The BACKUP role, if you ask for one. `pg_dump` as the engine's own role
+#     CANNOT dump this database — `FORCE ROW LEVEL SECURITY` binds the table
+#     owner, and pg_dump refuses a table whose rows it cannot prove complete. It
+#     fails on a freshly migrated database with no collections at all, because
+#     `zv_edge_function_logs` ships with FORCE RLS. So the hardened install this
+#     script builds is exactly the one whose backups do not work, unless a role
+#     exists that row level security does not bind.
+#
 # Usage:
 #   PGPASSWORD=... ./scripts/bootstrap-db-role.sh [DBNAME] [APPROLE] [APPPASS]
 #
 # Environment: PGHOST, PGPORT, PGUSER (the superuser) as usual.
+#   ZVELTIO_BACKUP_PASSWORD  — set it and a `zveltio_backup` role is created,
+#                              able to READ every row and change none. Leave it
+#                              unset and the step is skipped with a warning, so
+#                              nobody gets a privileged credential by accident.
+#   ZVELTIO_BACKUP_ROLE      — name for it (default `zveltio_backup`).
 
 set -euo pipefail
 
@@ -114,6 +127,50 @@ done
 psql_super -d "$DB" -q -c "GRANT USAGE ON SCHEMA public TO $APP_ROLE;"
 psql_super -d "$DB" -q -c "GRANT CREATE ON SCHEMA public TO $APP_ROLE;"
 
+# ── The backup role ──────────────────────────────────────────────────────────
+#
+# BYPASSRLS alone is not enough and the failure is confusing: the role is not the
+# tables' owner and has no SELECT grant, so pg_dump gets `permission denied for
+# table` instead of the RLS error, and it looks like a different problem.
+# `pg_read_all_data` is the other half. Measured, both directions.
+#
+# Read-only by construction: `pg_read_all_data` grants SELECT and nothing else,
+# and the role owns nothing. Verified — INSERT, UPDATE and DELETE all come back
+# `permission denied for table`, DROP `must be owner`, CREATE `permission denied
+# for schema public`.
+BACKUP_ROLE="${ZVELTIO_BACKUP_ROLE:-zveltio_backup}"
+BACKUP_PASS="${ZVELTIO_BACKUP_PASSWORD:-}"
+
+if [ -n "$BACKUP_PASS" ]; then
+  psql_super -d postgres -q <<SQL
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$BACKUP_ROLE') THEN
+    CREATE ROLE $BACKUP_ROLE LOGIN PASSWORD '$BACKUP_PASS'
+      NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+  ELSE
+    ALTER ROLE $BACKUP_ROLE LOGIN PASSWORD '$BACKUP_PASS'
+      NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
+END
+\$\$;
+SQL
+  psql_super -d "$DB" -q -c "GRANT CONNECT ON DATABASE \"$DB\" TO $BACKUP_ROLE;"
+  psql_super -d "$DB" -q -c "GRANT pg_read_all_data TO $BACKUP_ROLE;"
+  echo "  ✓ role $BACKUP_ROLE (BYPASSRLS + pg_read_all_data, read-only)"
+else
+  echo "  ! no ZVELTIO_BACKUP_PASSWORD — backup role NOT created."
+  echo "    pg_dump as $APP_ROLE will FAIL on this database: FORCE ROW LEVEL"
+  echo "    SECURITY binds the owner. Re-run with ZVELTIO_BACKUP_PASSWORD set,"
+  echo "    or see docs/site/DISASTER-RECOVERY.md §3.1."
+fi
+
 echo
 echo "Done. Point the engine at this role and it will be bound by RLS:"
 echo "  DATABASE_URL=postgres://$APP_ROLE:<password>@${PGHOST:-localhost}:${PGPORT:-5432}/$DB"
+if [ -n "$BACKUP_PASS" ]; then
+  echo
+  echo "Back up with the backup role, not the engine's:"
+  echo "  BACKUP_DB_USER=$BACKUP_ROLE BACKUP_DB_PASSWORD=<password>   # engine route"
+  echo "  PGUSER=$BACKUP_ROLE pg_dump -d $DB                          # cron"
+fi
