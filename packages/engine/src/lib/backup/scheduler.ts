@@ -28,7 +28,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { nextCronRun } from '../flows/cron.js';
+import { nextCronRun } from '../flows/index.js';
 import { type DumpTarget, runScheduledBackup } from './run-scheduled-backup.js';
 
 /**
