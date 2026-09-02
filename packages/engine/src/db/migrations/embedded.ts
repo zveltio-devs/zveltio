@@ -21,6 +21,7 @@ import m004 from './sql/005_rls_initplan_predicate.sql' with { type: 'text' };
 import m005 from './sql/006_better_auth_account_issuer.sql' with { type: 'text' };
 import m006 from './sql/007_ext_registry_tenant_unique.sql' with { type: 'text' };
 import m007 from './sql/008_single_god.sql' with { type: 'text' };
+import m008 from './sql/009_revisions_unwrap_double_encoded.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -32,4 +33,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '006_better_auth_account_issuer.sql': m005,
   '007_ext_registry_tenant_unique.sql': m006,
   '008_single_god.sql': m007,
+  '009_revisions_unwrap_double_encoded.sql': m008,
 };
