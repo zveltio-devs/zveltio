@@ -166,6 +166,24 @@ export interface BunSqlDialectConfig {
   /** Connection string PostgreSQL. Fallback: DATABASE_URL env var. */
   connectionString?: string;
   /**
+   * True for the engine's own database, and only for it.
+   *
+   * A dialect marked primary owns `_activeBunPool` / `_activeDriver`, which are
+   * what `recycleActivePool()` throws away after extension migrations and what
+   * the worker-extension host queries through. Every other instance — the
+   * isolated connections `createDb()` hands to tests and one-off admin work —
+   * leaves them alone.
+   *
+   * Before this flag, whichever dialect initialised LAST owned them. A test that
+   * opened its own connection took the engine's handles, and destroying it left
+   * them pointing at a dead driver: `recycleActivePool()` returned silently
+   * because that driver had no pool, and `getActiveBunPool()` handed out a
+   * closed one, while the real database went on serving traffic.
+   *
+   * @default false
+   */
+  primary?: boolean;
+  /**
    * Maximum connection pool size.
    * @default 20
    */
@@ -291,8 +309,11 @@ class BunSqlDriver implements Driver {
       idleTimeout: Math.ceil(idleTimeoutMs / 1000),
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
     }) as BunSQLPool;
-    _activeBunPool = this.#pool;
-    _activeDriver = this;
+    // Only the primary database claims these. See `primary` in the config.
+    if (this.#config.primary) {
+      _activeBunPool = this.#pool;
+      _activeDriver = this;
+    }
   }
 
   /**
@@ -370,6 +391,34 @@ class BunSqlDriver implements Driver {
     if (this.#pool) {
       await this.#pool.close();
       this.#pool = null;
+    }
+    // Clear the module-level handles this driver set in `init()`.
+    //
+    // Without this they drift, and both consequences are silent:
+    //
+    //   `recycleActivePool()` becomes a no-op. It calls `recyclePool()`, which
+    //   opens with `if (!this.#pool) return;` — so after a destroy there is
+    //   nothing to recycle and it returns without saying so. That function is
+    //   the fix for `0A000 cached plan must not change result type`: extension
+    //   migrations alter engine-owned tables at boot, and the pool must be
+    //   thrown away so no prepared plan outlives them. A no-op there brings the
+    //   bug back.
+    //
+    //   `getActiveBunPool()` keeps handing out a CLOSED pool. The
+    //   worker-extension host runs its `db:query` RPC through exactly that
+    //   handle.
+    //
+    // It surfaced as a harness test that failed in CI and never locally:
+    // `expect(after).not.toBe(before)` — the pool was the same object, because
+    // an earlier file in that run had destroyed the driver and the globals
+    // still pointed at its closed pool. Different file order, different result,
+    // which is why it looked like flakiness.
+    //
+    // Guarded by identity: a second driver may have initialised since, and it
+    // must keep its own handles.
+    if (_activeDriver === this) {
+      _activeDriver = null;
+      _activeBunPool = null;
     }
   }
 
