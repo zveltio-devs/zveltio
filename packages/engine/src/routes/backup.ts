@@ -62,6 +62,69 @@ export function explainDumpFailure(stderr: string): string {
   );
 }
 
+/**
+ * Where `pg_dump` should connect, resolved once instead of twice.
+ *
+ * There were two copies. `POST /` parsed `DATABASE_URL` when the individual
+ * vars were absent; `POST /schedules/:id/trigger` did not — it read only
+ * `DATABASE_HOST`/`NAME`/`USER`/`PASSWORD` and fell back to
+ * `localhost`/`zveltio_dev`/`postgres`/`''`.
+ *
+ * On the documented install, which sets `DATABASE_URL` and nothing else, that
+ * second copy aimed at a database called `zveltio_dev` as user `postgres` with
+ * no password. So a scheduled backup either failed at the password prompt or,
+ * on a machine that happens to have a `zveltio_dev` lying around, dumped the
+ * WRONG DATABASE and recorded success.
+ *
+ * Measured: triggering a schedule on an engine started with only `DATABASE_URL`
+ * produced `pg_dump failed (exit 1): Password:` while `POST /` on the same
+ * engine worked.
+ */
+function resolveDumpTarget(): {
+  host: string;
+  port: string;
+  name: string;
+  user: string;
+  password: string;
+} {
+  let host = process.env.DATABASE_HOST_DIRECT || process.env.DATABASE_HOST || '';
+  let port = process.env.DATABASE_PORT_DIRECT || process.env.DATABASE_PORT || '';
+  let name = process.env.DATABASE_NAME || '';
+  let user = process.env.DATABASE_USER || '';
+  let password = process.env.DATABASE_PASSWORD || '';
+
+  if (!host || !name || !user) {
+    const rawUrl = process.env.DATABASE_URL || process.env.NATIVE_DATABASE_URL || '';
+    if (rawUrl) {
+      try {
+        const u = new URL(rawUrl);
+        if (!host) host = u.hostname;
+        if (!port) port = u.port || '5432';
+        if (!name) name = u.pathname.replace(/^\//, '');
+        if (!user) user = u.username;
+        if (!password) password = decodeURIComponent(u.password);
+      } catch {
+        /* malformed URL — keep what we have */
+      }
+    }
+  }
+
+  // The backup role, when one exists — see `explainDumpFailure` for why the
+  // engine's own role usually cannot dump this database at all.
+  if (process.env.BACKUP_DB_USER) {
+    user = process.env.BACKUP_DB_USER;
+    password = process.env.BACKUP_DB_PASSWORD || '';
+  }
+
+  return {
+    host: host || 'localhost',
+    port: port || '5432',
+    name: name || 'zveltio_dev',
+    user: user || 'postgres',
+    password,
+  };
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 export function backupRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
@@ -134,52 +197,16 @@ export function backupRoutes(db: Database, auth: any): Hono {
     `.execute(db);
     const backupId = backupResult.rows[0].id;
 
-    // Build DB connection params — prefer individual vars, fall back to parsing DATABASE_URL
-    let dbHost = process.env.DATABASE_HOST_DIRECT || process.env.DATABASE_HOST || '';
-    let dbPort = process.env.DATABASE_PORT_DIRECT || process.env.DATABASE_PORT || '';
-    let dbName = process.env.DATABASE_NAME || '';
-    let dbUser = process.env.DATABASE_USER || '';
-    let dbPassword = process.env.DATABASE_PASSWORD || '';
-
-    if (!dbHost || !dbName || !dbUser) {
-      const rawUrl = process.env.DATABASE_URL || process.env.NATIVE_DATABASE_URL || '';
-      if (rawUrl) {
-        try {
-          const u = new URL(rawUrl);
-          if (!dbHost) dbHost = u.hostname;
-          if (!dbPort) dbPort = u.port || '5432';
-          if (!dbName) dbName = u.pathname.replace(/^\//, '');
-          if (!dbUser) dbUser = u.username;
-          if (!dbPassword) dbPassword = decodeURIComponent(u.password);
-        } catch {
-          /* malformed URL — keep empty strings */
-        }
-      }
-    }
-
-    dbHost = dbHost || 'localhost';
-    dbPort = dbPort || '5432';
-    dbName = dbName || 'zveltio_dev';
-    dbUser = dbUser || 'postgres';
-
-    // A dump usually cannot run as the engine.
-    //
-    // On the hardened install the engine's role is `NOSUPERUSER NOBYPASSRLS` and
-    // owns the tables, and `FORCE ROW LEVEL SECURITY` binds the owner — so
-    // `pg_dump` refuses, on a virgin database with no collections, because
-    // `zv_edge_function_logs` ships with FORCE RLS. Without this override the
-    // built-in backup is simply unavailable on the configuration the deployment
-    // guide recommends, and the only remaining fixes are the two dangerous ones
-    // `explainDumpFailure` warns about.
-    //
-    // So: a separate role, created with BYPASSRLS and used for nothing else.
-    // Falls back to the engine's own credentials, which is right for the
-    // single-tenant and docker-compose installs where the engine owns the
-    // database outright and RLS never blocks it.
-    if (process.env.BACKUP_DB_USER) {
-      dbUser = process.env.BACKUP_DB_USER;
-      dbPassword = process.env.BACKUP_DB_PASSWORD || '';
-    }
+    // One resolver for both routes — see `resolveDumpTarget`. The copy that used
+    // to live here and the copy in the schedule trigger had drifted, and only
+    // one of them read `DATABASE_URL`.
+    const {
+      host: dbHost,
+      port: dbPort,
+      name: dbName,
+      user: dbUser,
+      password: dbPassword,
+    } = resolveDumpTarget();
 
     // Run backup in background — do NOT await
     const backupBg = async () => {
@@ -562,11 +589,36 @@ export function backupRoutes(db: Database, auth: any): Hono {
   });
 
   // ── Enterprise: Schedules ──────────────────────────────────────
+  //
+  // A schedule stored here does NOT fire on its own. Nothing reads
+  // `cron_expression`: the boot scheduler starts the garbage collector and the
+  // trash purge and nothing else, and `next_run_at` is never computed. The only
+  // thing that runs a schedule is `POST /schedules/:id/trigger`, called by hand
+  // or by system cron — which is what `docs/site/DISASTER-RECOVERY.md` §3.1
+  // documents.
+  //
+  // That gap matters more than it looks, because no installer closes it either:
+  // `install/install.sh` writes a systemd unit for the engine and the word
+  // "backup" does not appear in it at all. So a default install has no automatic
+  // backups, and the screen that would suggest otherwise is this one.
+  //
+  // Until a scheduler exists, the honest thing is to say so rather than accept
+  // a cron expression and answer 201. `nextCronRun` (lib/flows/cron.ts) and the
+  // execution body of the trigger route are both already here, so the work is
+  // extraction rather than invention — see the note on the create route.
 
   const ScheduleSchema = z.object({
     name: z.string().min(1),
     cron_expression: z.string().min(1),
     retention_count: z.number().int().min(1).default(7),
+    // `s3` and `both` are refused rather than stored.
+    //
+    // Nothing uploads a backup anywhere: there is no S3 upload code, and
+    // `zv_backup_uploads` — the table that would record one — has no reader or
+    // writer in the entire repository. Accepting the setting produced a
+    // configuration an operator could see in the UI, believe, and rely on for
+    // off-site copies that were never made. A refusal costs a 400; the silence
+    // cost the backup.
     storage_destination: z.enum(['local', 's3', 'both']).default('local'),
     s3_bucket: z.string().optional(),
     s3_prefix: z.string().optional(),
@@ -574,6 +626,18 @@ export function backupRoutes(db: Database, auth: any): Hono {
     notify_emails: z.array(z.string().email()).default([]),
     is_active: z.boolean().default(true),
   });
+
+  /** The refusal both create and update owe an operator, in one place. */
+  function unimplementedDestination(dest: string | undefined): string | null {
+    if (dest === undefined || dest === 'local') return null;
+    return (
+      `storage_destination='${dest}' is not implemented: nothing in this engine ` +
+      'uploads a backup off the machine. Storing the setting would leave you ' +
+      'believing you have off-site copies that are never made. Use ' +
+      "storage_destination='local' and copy the files yourself — see " +
+      'docs/site/DISASTER-RECOVERY.md §3.1.'
+    );
+  }
 
   // GET /schedules — list backup schedules
   router.get('/schedules', async (c) => {
@@ -597,6 +661,24 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const data = c.req.valid('json');
 
+    const refusal = unimplementedDestination(data.storage_destination);
+    if (refusal) return c.json({ error: refusal }, 400);
+
+    // `notify_emails` goes in as the ARRAY, not `JSON.stringify(it)`.
+    //
+    // The column is `text[]`, and a JSON string is not an array literal:
+    // Postgres answers `malformed array literal: "[]"` — `[` must introduce
+    // explicit dimensions, the literal it wants is `{}`. That is SQLSTATE 22P02,
+    // which `problem.ts` renders as a 400 `invalid_parameter`, so the route
+    // looked like it was rejecting the caller's input.
+    //
+    // It was not. EVERY payload failed, the defaults included, because
+    // `.default([])` supplies the empty array that cannot be cast. This endpoint
+    // has never created a schedule — `zv_backup_schedules` was empty on a
+    // database where it had just been called.
+    //
+    // Which is also why `zv_backup_uploads` has no writer anywhere and nothing
+    // reads `cron_expression`: no row ever reached them.
     const result = await sql<{ id: string }>`
       INSERT INTO zv_backup_schedules (
         name, cron_expression, retention_count, storage_destination,
@@ -605,7 +687,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
       ) VALUES (
         ${data.name}, ${data.cron_expression}, ${data.retention_count},
         ${data.storage_destination}, ${data.s3_bucket ?? null}, ${data.s3_prefix ?? null},
-        ${data.notify_on_failure}, ${JSON.stringify(data.notify_emails)},
+        ${data.notify_on_failure}, ${data.notify_emails},
         ${data.is_active}, ${user.id}
       ) RETURNING id::text
     `.execute(db);
@@ -617,7 +699,21 @@ export function backupRoutes(db: Database, auth: any): Hono {
       resourceType: 'backup_schedule',
       metadata: { name: data.name, cron: data.cron_expression, action: 'created' },
     });
-    return c.json({ schedule_id: result.rows[0].id }, 201);
+    // `manual_only` is in the response because the operator cannot see it any
+    // other way: the row looks exactly like a working schedule, and the audit
+    // log records `backup.scheduled`, which is what an auditor would rely on.
+    return c.json(
+      {
+        schedule_id: result.rows[0].id,
+        manual_only: true,
+        note:
+          'Stored, but this engine does not run schedules by itself: nothing ' +
+          'evaluates cron_expression. Trigger it with POST /api/backup/schedules/' +
+          `${result.rows[0].id}/trigger — from system cron, for example. See ` +
+          'docs/site/DISASTER-RECOVERY.md §3.1.',
+      },
+      201,
+    );
   });
 
   // PATCH /schedules/:id — update schedule
@@ -632,6 +728,9 @@ export function backupRoutes(db: Database, auth: any): Hono {
     `.execute(db);
 
     if (!existing.rows[0]) return c.json({ error: 'Schedule not found' }, 404);
+
+    const refusal = unimplementedDestination(data.storage_destination);
+    if (refusal) return c.json({ error: refusal }, 400);
 
     const setClauses: string[] = ['updated_at = NOW()'];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -659,7 +758,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
       setClauses.push(`notify_on_failure = $${values.push(data.notify_on_failure)}`);
     }
     if (data.notify_emails !== undefined) {
-      setClauses.push(`notify_emails = $${values.push(JSON.stringify(data.notify_emails))}`);
+      setClauses.push(`notify_emails = $${values.push(data.notify_emails)}`);
     }
     if (data.is_active !== undefined) {
       setClauses.push(`is_active = $${values.push(data.is_active)}`);
@@ -676,8 +775,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     if (data.s3_bucket !== undefined) updateData.s3_bucket = data.s3_bucket;
     if (data.s3_prefix !== undefined) updateData.s3_prefix = data.s3_prefix;
     if (data.notify_on_failure !== undefined) updateData.notify_on_failure = data.notify_on_failure;
-    if (data.notify_emails !== undefined)
-      updateData.notify_emails = JSON.stringify(data.notify_emails);
+    if (data.notify_emails !== undefined) updateData.notify_emails = data.notify_emails;
     if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
     await db.updateTable('zv_backup_schedules').set(updateData).where('id', '=', id).execute();
@@ -731,11 +829,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
     `.execute(db);
     const backupId = backupResult.rows[0].id;
 
-    const dbHost = process.env.DATABASE_HOST_DIRECT || process.env.DATABASE_HOST || 'localhost';
-    const dbPort = process.env.DATABASE_PORT_DIRECT || process.env.DATABASE_PORT || '5432';
-    const dbName = process.env.DATABASE_NAME || 'zveltio_dev';
-    const dbUser = process.env.DATABASE_USER || 'postgres';
-    const dbPassword = process.env.DATABASE_PASSWORD || '';
+    const {
+      host: dbHost,
+      port: dbPort,
+      name: dbName,
+      user: dbUser,
+      password: dbPassword,
+    } = resolveDumpTarget();
 
     const backupBg = async () => {
       try {
