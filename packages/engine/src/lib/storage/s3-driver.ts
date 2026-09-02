@@ -81,4 +81,16 @@ export class S3Driver implements StorageDriver {
     });
     return signed.url;
   }
+
+  /** Same signing as `signedUrl`, for a PUT. See the interface for why. */
+  async signedPutUrl(key: string, expiresInSec: number): Promise<string | null> {
+    if (!this.isConfigured()) return null;
+    const target = new URL(this.url(key));
+    target.searchParams.set('X-Amz-Expires', String(expiresInSec));
+    const signed = await this.client().sign(target, {
+      method: 'PUT',
+      aws: { signQuery: true },
+    });
+    return signed.url;
+  }
 }
