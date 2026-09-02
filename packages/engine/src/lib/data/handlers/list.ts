@@ -27,6 +27,12 @@ import { entityAccessRegistry } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
+import {
+  getTimeTravelCount,
+  isCacheableAsOf,
+  setTimeTravelCount,
+  timeTravelCountKey,
+} from '../time-travel-count.js';
 import { virtualList } from '../../virtual-collection-adapter.js';
 import type { CollectionDef, JsonValue } from '../types.js';
 import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../shape.js';
@@ -90,8 +96,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     // there) inside the process serving every other request.
     //
     // `rlsJsonConditions` is the same four operators against the JSONB
-    // snapshot; see it for why `->` and `to_jsonb` rather than `->>`, which
-    // would show rows a policy hides.
+    // snapshot, rendered from the one table in `lib/tenancy/rule-operators.ts`
+    // that all four appliers read — see it for why the comparison is textual and
+    // why a missing key drops the row on the negative operators too.
     const effectiveDbTT = getDb(c, db);
     const rlsTT = await getRlsFilters(collection, user, c.get('authType'));
     const conds = rlsJsonConditions(rlsTT);
@@ -149,22 +156,43 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
          LIMIT ${query.limit} OFFSET ${offset}
       `.execute(effectiveDbTT);
 
-    // `total` is the part that still costs, and it is inherent: knowing how many
-    // records existed at a point in time needs the DISTINCT ON over the whole
-    // history, however small the page is. Measured on the same 200 000 records:
-    // the page is 0,25 ms and reads 49 rows; the count is ~250 ms and reads all
-    // 400 000. Dropping the JSON from it saves ~18 ms of that and nothing more,
-    // so `data` is left out here — the count only needs to know which revision
-    // is the latest and whether it was a delete.
+    // `total` is the expensive half, and it is remembered rather than made
+    // cheaper — because it cannot be made cheaper. Measured on 200 000 records
+    // with 400 000 revisions, single tenant: the page is 0,25 ms and reads 49
+    // rows; the count is 262 ms and reads all 400 000, because knowing how many
+    // records existed at an instant means visiting every revision up to it,
+    // however small the page is. Three other formulations were measured and
+    // none wins; a loose index scan is 17x worse. See `time-travel-count.ts`.
     //
-    // Kept because the response has always carried `total` and `pages`, and
-    // paging clients rely on them. Making it optional is an API change, not a
-    // performance fix, so it is not made here.
-    const counted = await sql<{ n: string }>`
-        WITH latest AS (${latestKeys})
-        SELECT count(*)::text AS n FROM latest WHERE ${where}
-      `.execute(effectiveDbTT);
-    const total = Number(counted.rows[0]?.n ?? 0);
+    // `data` is left out of the count query on purpose: it saves ~18 ms and
+    // nothing more, because counting only needs to know which revision is the
+    // latest and whether it was a delete.
+    //
+    // An earlier note here said making `total` optional would be an API change
+    // and so was out of scope. That was wrong twice over: a parameter whose
+    // default did not move would have been additive rather than breaking, and
+    // it turned out not to be needed. The answer is to ask for it less often,
+    // not to make it cheaper or optional.
+    //
+    // The key deliberately omits page and limit: paging through one point in
+    // time asks the same question repeatedly, so page 2 onward is free.
+    const countKey = timeTravelCountKey({
+      tenantId: tenantId(c),
+      collection,
+      asOf: asOf.toISOString(),
+      userId: user.id,
+      filters: JSON.stringify(rlsTT),
+    });
+    const cacheable = isCacheableAsOf(asOf);
+    let total = cacheable ? await getTimeTravelCount(countKey) : null;
+    if (total === null) {
+      const counted = await sql<{ n: string }>`
+          WITH latest AS (${latestKeys})
+          SELECT count(*)::text AS n FROM latest WHERE ${where}
+        `.execute(effectiveDbTT);
+      total = Number(counted.rows[0]?.n ?? 0);
+      if (cacheable) await setTimeTravelCount(countKey, total, user.id);
+    }
 
     // Time travel MUST hide columns the role can't read, same as the live list
     // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
