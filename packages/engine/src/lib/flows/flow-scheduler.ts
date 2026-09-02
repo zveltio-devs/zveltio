@@ -13,6 +13,8 @@ import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
 import { extensionRegistry } from '../extensions/index.js';
 import { serviceRegistry } from '../service-registry.js';
+import { withTenantIsolation } from '../tenancy/index.js';
+import { sql } from 'kysely';
 
 const SCHEDULER_POLL_MS = 60_000; // How often the scheduler polls for due flows
 const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
@@ -252,6 +254,55 @@ export const flowScheduler = {
       });
   },
 };
+
+/**
+ * Runs a registered background handler once per tenant, inside that tenant's
+ * transaction.
+ *
+ * The handler reads FORCE-RLS'd rows. Called with the raw engine handle and no
+ * GUC — which is what this did — `zveltio_tenant_scope_ok` falls back to the
+ * DEFAULT tenant, so it saw only the default tenant's rows and quietly did
+ * nothing for every other company on the instance. For the trash purge that
+ * meant expired files were deleted for one tenant and left in object storage
+ * forever for the rest: no error, no log, a job reporting success.
+ *
+ * The same lesson is already written twenty lines into `data-quality.ts`: "it
+ * must run inside a tenant transaction (the GUC), or it sees zero rows." That
+ * one was learned by watching a scan return nothing. This one was silent
+ * because deleting nothing looks exactly like having nothing to delete.
+ *
+ * Sequential on purpose: `withTenantIsolation` holds a connection for the
+ * duration, and a nightly job has no reason to hold several. One tenant's
+ * failure must not stop the others, so each is caught on its own.
+ */
+async function runPerTenant(
+  db: Database,
+  label: string,
+  handler: (db: Database) => Promise<unknown>,
+): Promise<void> {
+  const tenants = await sql<{ id: string }>`
+    SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at
+  `.execute(db);
+
+  let ok = 0;
+  const failed: string[] = [];
+  for (const { id } of tenants.rows) {
+    try {
+      await withTenantIsolation(id, (trx) => handler(trx));
+      ok++;
+    } catch (err) {
+      failed.push(id);
+      console.error(`[${label}] tenant ${id} failed:`, err);
+    }
+  }
+
+  // Say how many, so "it ran" and "it ran everywhere" stop looking the same in
+  // the log. That difference is the whole bug this function exists to fix.
+  console.log(
+    `[${label}] ${ok}/${tenants.rows.length} tenant(s) processed` +
+      (failed.length ? `, ${failed.length} failed` : ''),
+  );
+}
 
 /**
  * Schedules the cloud trash purge to run daily at 03:30.
