@@ -28,6 +28,7 @@ import { fieldTypeRegistry } from './lib/data/index.js';
 import {
   extensionLoader,
   buildExtensionInternals,
+  isSupportedLocaleName,
   serviceRegistry,
 } from './lib/extensions/index.js';
 import { queryAlterRegistry } from './lib/data/index.js';
@@ -860,10 +861,44 @@ rm studio.tar.gz</pre>
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),
     ];
-    return c.json({
-      extensions: allActive,
-      meta: extensionLoader.getExtensionMeta(),
-    });
+    const meta = extensionLoader.getExtensionMeta();
+
+    // `?messages=<locale>` — opt-in, because the Studio never needs it.
+    //
+    // The Studio compiles its strings at build time (Paraglide), so for the
+    // host we ship, these bytes would be pure waste on every page load. A host
+    // built on another framework cannot do that: it receives an SDUI page
+    // schema whose labels are keys (`crm.col.organization`) and, without this,
+    // has nowhere to resolve them — the screen renders the keys themselves.
+    //
+    // Each extension's catalogue is attached to ITS OWN entry and never merged
+    // here. The engine carries an extension's catalogue the way it carries its
+    // page schema — as that extension's artefact — and does not become the
+    // owner of a global namespace; `routes/translations.ts` was deleted on
+    // 2026-08-10 for being exactly that. The caller merges, because the caller
+    // owns `common.*` and decides precedence.
+    const locale = c.req.query('messages');
+    if (locale !== undefined) {
+      if (!isSupportedLocaleName(locale)) {
+        return c.json(
+          {
+            type: 'about:blank',
+            title: 'Bad Request',
+            status: 400,
+            detail: `"${locale}" is not a locale name (expected e.g. "en" or "pt-BR").`,
+          },
+          400,
+        );
+      }
+      await Promise.all(
+        meta.map(async (entry) => {
+          const messages = await extensionLoader.getExtensionMessages(entry.name, locale);
+          if (messages !== undefined) entry.messages = messages;
+        }),
+      );
+    }
+
+    return c.json({ extensions: allActive, meta });
   });
 
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─

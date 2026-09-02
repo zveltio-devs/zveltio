@@ -19,6 +19,8 @@ function fakeLoader() {
     manifestMeta: new Map(),
     modules: new Map(),
     lastLoadError: new Map(),
+    extDirs: new Map(),
+    forgetExtensionMessages: () => {},
     ctx: {
       db: db.kysely,
       fieldTypeRegistry: { register: () => {} },
