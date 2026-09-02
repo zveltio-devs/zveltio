@@ -11,6 +11,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { uploadBackup } from './upload.js';
 
 /** Where dumps land. Same default as the routes, read the same way. */
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
@@ -49,6 +50,9 @@ export async function runScheduledBackup(
     target: DumpTarget;
     actorId: string | null;
     note?: string;
+    /** `local` keeps the dump here; `s3`/`both` also copy it off. */
+    destination?: 'local' | 's3' | 'both';
+    s3Prefix?: string | null;
   },
 ): Promise<ScheduledBackupOutcome> {
   const { scheduleId, scheduleName, target, actorId } = opts;
@@ -118,6 +122,26 @@ export async function runScheduledBackup(
         WHERE id = ${scheduleId}
       `.execute(trx);
     });
+
+    // Upload AFTER the local dump is recorded complete, and never in a way that
+    // can undo it.
+    //
+    // The two are separate facts: the dump exists on this disk, and a copy of it
+    // does or does not exist elsewhere. Folding the second into the first would
+    // report a perfectly good local backup as failed because a bucket was
+    // unreachable — and an operator who believes last night failed behaves very
+    // differently from one who knows the copy did.
+    if (opts.destination === 's3' || opts.destination === 'both') {
+      const up = await uploadBackup(db, {
+        backupId,
+        filepath,
+        filename,
+        prefix: opts.s3Prefix ?? null,
+      });
+      if (!up.uploaded) {
+        console.error(`[backup] ${filename} was written locally but not uploaded: ${up.error}`);
+      }
+    }
 
     return { backupId, filename, status: 'completed' };
   } catch (err) {

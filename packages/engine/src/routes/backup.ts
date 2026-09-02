@@ -7,6 +7,7 @@ import { unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { getStorage } from '../lib/storage/index.js';
 import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
 import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
@@ -629,14 +630,25 @@ export function backupRoutes(db: Database, auth: any): Hono {
     is_active: z.boolean().default(true),
   });
 
-  /** The refusal both create and update owe an operator, in one place. */
-  function unimplementedDestination(dest: string | undefined): string | null {
+  /**
+   * `s3` and `both` are accepted now — `lib/backup/upload.ts` implements them —
+   * but only when there is somewhere to upload to.
+   *
+   * The check is deliberately at write time rather than at run time: a schedule
+   * that will never be able to upload should be refused when it is created, not
+   * discovered failing at 03:00. Zveltio's default store is `local`, and the
+   * SeaweedFS in docker-compose is opt-in, so this refusal is the ordinary case
+   * and says so.
+   */
+  async function unusableDestination(dest: string | undefined): Promise<string | null> {
     if (dest === undefined || dest === 'local') return null;
+    const canUpload = (await getStorage().signedPutUrl('probe', 60)) !== null;
+    if (canUpload) return null;
     return (
-      `storage_destination='${dest}' is not implemented: nothing in this engine ` +
-      'uploads a backup off the machine. Storing the setting would leave you ' +
-      'believing you have off-site copies that are never made. Use ' +
-      "storage_destination='local' and copy the files yourself — see " +
+      `storage_destination='${dest}' needs object storage, and this instance stores ` +
+      'files locally — which is the default and usually right. Configure S3_ENDPOINT ' +
+      '(pointing somewhere that is NOT this machine, or the copy is not off-site), or ' +
+      "keep storage_destination='local' and copy the files yourself. See " +
       'docs/site/DISASTER-RECOVERY.md §3.1.'
     );
   }
@@ -663,7 +675,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const data = c.req.valid('json');
 
-    const refusal = unimplementedDestination(data.storage_destination);
+    const refusal = await unusableDestination(data.storage_destination);
     if (refusal) return c.json({ error: refusal }, 400);
 
     // `notify_emails` goes in as the ARRAY, not `JSON.stringify(it)`.
@@ -737,7 +749,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     if (!existing.rows[0]) return c.json({ error: 'Schedule not found' }, 404);
 
-    const refusal = unimplementedDestination(data.storage_destination);
+    const refusal = await unusableDestination(data.storage_destination);
     if (refusal) return c.json({ error: refusal }, 400);
 
     const setClauses: string[] = ['updated_at = NOW()'];
@@ -827,8 +839,14 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const scheduleId = c.req.param('id');
 
-    const schedule = await sql<{ id: string; name: string }>`
-      SELECT id::text, name FROM zv_backup_schedules WHERE id = ${scheduleId} AND is_active = true
+    const schedule = await sql<{
+      id: string;
+      name: string;
+      storage_destination: 'local' | 's3' | 'both';
+      s3_prefix: string | null;
+    }>`
+      SELECT id::text, name, storage_destination, s3_prefix
+        FROM zv_backup_schedules WHERE id = ${scheduleId} AND is_active = true
     `.execute(db);
 
     if (!schedule.rows[0]) return c.json({ error: 'Schedule not found or inactive' }, 404);
@@ -844,6 +862,11 @@ export function backupRoutes(db: Database, auth: any): Hono {
       target: resolveDumpTarget(),
       actorId: user?.id ?? null,
       note: `Triggered by schedule: ${schedule.rows[0].name}`,
+      // Same destination as an unattended run. A manual trigger that skipped the
+      // upload would make "I tested it and it worked" mean something different
+      // from what happens at 03:00.
+      destination: schedule.rows[0].storage_destination,
+      s3Prefix: schedule.rows[0].s3_prefix,
     });
 
     await auditLog(db, {
