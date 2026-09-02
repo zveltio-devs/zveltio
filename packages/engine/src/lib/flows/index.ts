@@ -18,3 +18,7 @@ export {
   type StepType,
   type StepValidationResult,
 } from './flow-step-schemas.js';
+// Cron parsing. Used by the flow scheduler and — since backup schedules are
+// cron expressions too — by lib/backup/scheduler.ts, which must come through
+// here rather than reaching into ./cron.js (scripts/import-boundaries.ts).
+export { nextCronRun } from './cron.js';
