@@ -142,6 +142,37 @@ export async function createCacheSecondaryStorage() {
     delete: async (key: string) => {
       await cache.del(key);
     },
+    /**
+     * Better-Auth's rate limiter requires this, and refuses to serve without it.
+     *
+     * Once a secondary storage exists, Better-Auth routes rate limiting through
+     * it rather than memory, and asserts the method up front:
+     *
+     *     BetterAuthError: Secondary-storage rate limiting requires
+     *                      SecondaryStorage.increment.
+     *
+     * That is a 500 on `/api/auth/*` — sign-in included — so authentication is
+     * simply down. Two conditions have to meet for it: Valkey configured (which
+     * builds this object) and rate limiting on (which Better-Auth does by
+     * default only when NODE_ENV=production). Since #402 made Valkey required,
+     * the first is now true of every production install.
+     *
+     * No test caught it because the whole harness runs NODE_ENV=test, where the
+     * rate limiter never starts. It surfaced in the extensions repo's live probe
+     * — the one job that boots in production mode — and only after that job was
+     * given a Valkey, which it had been missing.
+     *
+     * INCR + EXPIRE, not read-modify-write: two requests arriving together must
+     * not both read 4 and both write 5. `INCR` is atomic, and the TTL is set only
+     * on the first increment so the window starts when the first request in it
+     * does — refreshing it on every hit would let a steady stream hold the window
+     * open forever.
+     */
+    increment: async (key: string, ttl: number = 60) => {
+      const n = await cache.incr(key);
+      if (n === 1) await cache.expire(key, ttl);
+      return n;
+    },
     // Pipeline support for batch operations
     pipeline: async (
       operations: Array<{
