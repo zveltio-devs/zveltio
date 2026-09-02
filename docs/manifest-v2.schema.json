@@ -145,6 +145,11 @@
       "items": { "type": "string" },
       "description": "Capability flags the extension requests (database, settings, secrets, network, etc.)."
     },
+    "i18nPrefixes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9-]*(\\.[a-zA-Z0-9_-]+)*$" },
+      "description": "Message-key namespaces this extension owns, e.g. [\"invoicing\", \"finance.invoicing\"]. Declared, never derived from the directory path — `finance/invoicing` owns `invoicing.*`, and the two do not correspond. A list, because a single top-level prefix is not exclusive either: `finance.*` is written by six extensions, so a namespace is claimed at whatever depth the extension actually uses. Expected once the extension ships `studio/messages/`: those catalogues travel to the host through GET /api/extensions?messages=<locale>, and the host merges them last-one-wins. `common.*` and `ext.*` are the host's shared vocabulary and may not be claimed. Enforced by scripts/check-extension-i18n-namespaces.ts."
+    },
     "contributes": {
       "type": "object",
       "description": "Declares what this extension contributes to the engine + Studio.",
