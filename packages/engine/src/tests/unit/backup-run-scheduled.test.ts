@@ -56,7 +56,10 @@ function proc(exitCode: number, stderr = '') {
 function fakeSpawn(opts: { dumpExit?: number; stderr?: string; writeFile?: boolean } = {}) {
   const { dumpExit = 0, stderr = '', writeFile = true } = opts;
   lastDest = null;
-  return spyOn(Bun, 'spawn').mockImplementation(((cmd: string[], o?: { stdout?: { name?: string } }) => {
+  return spyOn(Bun, 'spawn').mockImplementation(((
+    cmd: string[],
+    o?: { stdout?: { name?: string } },
+  ) => {
     if (cmd[0] === 'gzip') {
       // Where the archive actually goes, taken from the call rather than rebuilt
       // from BACKUP_DIR: the module reads that env var once, at load, and which
@@ -69,7 +72,7 @@ function fakeSpawn(opts: { dumpExit?: number; stderr?: string; writeFile?: boole
     }
     if (cmd[0] === 'pg_dump') return proc(dumpExit, stderr) as never;
     return proc(0) as never;
-  }) as typeof Bun.spawn);
+  }) as unknown as typeof Bun.spawn);
 }
 
 beforeAll(async () => {
