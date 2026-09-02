@@ -25,9 +25,6 @@ export interface RunResult {
   error?: string;
 }
 
-const WORKER_MEMORY_LIMIT = 64 * 1024 * 1024; // 64 MB per worker
-const MEMORY_CHECK_INTERVAL = 50; // ms between heap checks
-
 export async function runFunction(
   code: string,
   request: Request,
@@ -68,7 +65,6 @@ export async function runFunction(
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
-      clearInterval(memCheck);
       worker.terminate();
     };
 
@@ -83,27 +79,36 @@ export async function runFunction(
         error: `Function timed out after ${timeoutMs}ms`,
       });
     }, timeoutMs);
-
-    // Memory watchdog — kills worker if heap spikes above safety threshold
-    const memCheck = setInterval(() => {
-      if (resolved) return; // Prevent multiple cleanup calls
-      try {
-        const usage = process.memoryUsage();
-        if (usage.heapUsed > WORKER_MEMORY_LIMIT * 4) {
-          // Safety threshold: if total heap > 4× worker limit, kill to protect server
-          cleanup();
-          resolve({
-            status: 507,
-            body: '',
-            logs: [],
-            duration_ms: Date.now() - start,
-            error: `Function exceeded memory limit. Heap: ${Math.round(usage.heapUsed / 1024 / 1024)}MB`,
-          });
-        }
-      } catch {
-        // process.memoryUsage() unavailable — skip check
-      }
-    }, MEMORY_CHECK_INTERVAL);
+    // There is deliberately no memory watchdog here, and the absence is the fix.
+    //
+    // One used to sit at this spot, killing the invocation with 507 when
+    // `process.memoryUsage().heapUsed` crossed a threshold. It could not do
+    // that job, for a reason no reading of it would show: `heapUsed` is the
+    // HOST thread's JS heap, and the work happens in a Worker.
+    //
+    // Measured on this runtime rather than reasoned about:
+    //
+    //     worker allocates ~200 MB   →  host heap grows   0 MB
+    //     worker returns a 400 MB body →  host heap grows 0 MB
+    //
+    // So it never observed the function at all. What it DID observe was
+    // everything else the engine had allocated — and on a busy engine that
+    // meant an edge function which allocated nothing was killed with
+    // "Function exceeded memory limit", quoting the server's megabytes back at
+    // the caller.
+    //
+    // It surfaced as a test that failed only inside the full suite and never
+    // alone, and reproduced exactly: clean heap → 504 (timed out); the same
+    // fixture with 376 MB of unrelated ballast → 507 ("Heap: 384MB").
+    //
+    // What actually bounds a runaway function is still here: the timeout above
+    // (504), and the worker dying of its own OOM, which arrives at `onerror`
+    // below as a 500. Verified — a function that allocates without bound
+    // returns 500 "Out of memory".
+    //
+    // A real per-invocation limit needs something Bun does not expose today: a
+    // per-Worker heap cap or a per-Worker usage reading. Better nothing than a
+    // guard that fires on the wrong signal and blames the wrong code.
 
     worker.postMessage({ code, requestData, env });
 
