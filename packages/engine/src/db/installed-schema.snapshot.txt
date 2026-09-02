@@ -797,6 +797,8 @@ table zv_checklist_scheme_weights
   uq  zv_checklist_scheme_weights_scheme_id_template_item_id_key UNIQUE (scheme_id, template_item_id)
   fk  zv_checklist_scheme_weights_template_item_id_fkey FOREIGN KEY (template_item_id) REFERENCES zv_checklist_template_items(id) ON DELETE CASCADE
   ck  zv_checklist_scheme_weights_weight_check CHECK ((weight >= (0)::numeric))
+  rls enabled forced
+  pol tenant_isolation_zv_checklist_scheme_weights FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_checklist_scores
   col checklist_id                   uuid NOT NULL
@@ -813,6 +815,8 @@ table zv_checklist_scores
   uq  zv_checklist_scores_checklist_id_scheme_id_key UNIQUE (checklist_id, scheme_id)
   pk  zv_checklist_scores_pkey PRIMARY KEY (id)
   fk  zv_checklist_scores_scheme_id_fkey FOREIGN KEY (scheme_id) REFERENCES zv_checklist_scoring_schemes(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation_zv_checklist_scores FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_checklist_scoring_schemes
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -831,6 +835,8 @@ table zv_checklist_scoring_schemes
   pk  zv_checklist_scoring_schemes_pkey PRIMARY KEY (id)
   fk  zv_checklist_scoring_schemes_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_checklist_templates(id) ON DELETE CASCADE
   idx uq_checklist_scheme_name UNIQUE (tenant_id, template_id, name)
+  rls enabled forced
+  pol tenant_isolation_zv_checklist_scoring_schemes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_checklist_template_items
   col assignee_role                  text
@@ -2496,6 +2502,8 @@ table zv_prompt_templates
   fk  zv_prompt_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   uq  zv_prompt_templates_name_key UNIQUE (tenant_id, name)
   pk  zv_prompt_templates_pkey PRIMARY KEY (id)
+  rls enabled forced
+  pol tenant_isolation_zv_prompt_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_publish_schedule
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
