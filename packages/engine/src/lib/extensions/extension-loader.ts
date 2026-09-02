@@ -47,6 +47,7 @@ import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
 import { purgeExtensionData } from './migration-runner.js';
 import type { ManifestMeta } from './manifest-schema.js';
+import { isSupportedLocaleName, loadExtensionMessages } from './manifest-schema.js';
 // resolveManifest/enforcePublisherTier/resolveEntryPath + finalizeExtensionLoad
 // + buildAllowedTables/EXTENSION_TABLE_GRANTS + embedPageSchemas (internal use)
 // now live inside the extracted load pipeline (lib/extensions/load.ts, H-04
@@ -169,7 +170,12 @@ export type { EventBus };
 // lib/extensions/manifest-schema.ts (H-04 split) to break the circular
 // import between the per-phase load helpers and the loader. Re-exported here
 // so existing import sites keep working.
-export { ManifestSchema, embedPageSchemas } from './manifest-schema.js';
+export {
+  ManifestSchema,
+  embedPageSchemas,
+  isSupportedLocaleName,
+  loadExtensionMessages,
+} from './manifest-schema.js';
 export type { ExtensionManifest } from './manifest-schema.js';
 
 // Default quotas exposed for callers that don't have a full manifest yet.
@@ -259,6 +265,49 @@ export class ExtensionLoader {
   /** Last load error per extension name — used by loadDynamic() to surface the real error.
    *  internal — also read by registerMarketplaceRoutes (loader split). */
   lastLoadError: Map<string, string> = new Map();
+  /** Extension name → resolved directory on disk. Written by the load pipeline
+   *  (load.ts) because directory resolution depends on `basePath` /
+   *  EXTENSIONS_DIR / the dev sibling, and a request handler cannot redo it.
+   *  Server-side only — never serialised into an /api/extensions response. */
+  extDirs: Map<string, string> = new Map();
+  /** `<name>\u0000<locale>` → that extension's catalogue, or null when it ships
+   *  none for the locale. Catalogues are files that change only when an
+   *  extension is installed or upgraded, so this is read once per pair and
+   *  dropped wholesale on unload. */
+  private messageCache: Map<string, Record<string, string> | null> = new Map();
+
+  /**
+   * One extension's own message catalogue, read on demand.
+   *
+   * Lazy rather than loaded with the manifest: nine locales across the shipping
+   * catalogues is ~1.1 MB and 500-odd file reads at boot, for an answer the
+   * Studio never asks for — it compiles its messages at build time through
+   * Paraglide. Only a host that cannot do that (one built on another framework)
+   * asks, and it asks for one locale.
+   */
+  async getExtensionMessages(
+    name: string,
+    locale: string,
+  ): Promise<Record<string, string> | undefined> {
+    if (!isSupportedLocaleName(locale)) return undefined;
+    const key = `${name}\u0000${locale}`;
+    const hit = this.messageCache.get(key);
+    if (hit !== undefined) return hit ?? undefined;
+    const extDir = this.extDirs.get(name);
+    if (extDir === undefined) return undefined;
+    const messages = await loadExtensionMessages(extDir, locale);
+    this.messageCache.set(key, messages ?? null);
+    return messages;
+  }
+
+  /** Drop cached catalogues for one extension — called when it is unloaded, so
+   *  a reinstall at a different version does not serve the old strings. */
+  forgetExtensionMessages(name: string): void {
+    const prefix = `${name}\u0000`;
+    for (const key of this.messageCache.keys()) {
+      if (key.startsWith(prefix)) this.messageCache.delete(key);
+    }
+  }
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
     // ctx must be set FIRST — ensureExtensionCoreDeps may throw and loadAll() is

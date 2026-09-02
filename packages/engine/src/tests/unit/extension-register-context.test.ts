@@ -17,6 +17,8 @@ function fakeLoader(over: Record<string, unknown> = {}): ExtensionLoader {
     loaded: new Map(),
     modules: new Map<string, ZveltioExtension>(),
     lastLoadError: new Map(),
+    extDirs: new Map(),
+    forgetExtensionMessages: () => {},
     ctx: { db: db.kysely } as unknown as ExtensionContext,
     ...over,
   } as unknown as ExtensionLoader;
