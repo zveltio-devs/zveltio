@@ -146,8 +146,11 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         collection: revision.collection,
         record_id: revision.record_id,
         action: 'update',
-        data: JSON.stringify(reverted),
-        delta: JSON.stringify({ _reverted_from: revision.id }),
+        // Objects, not strings — see the note in `write-pipeline.ts`: a string
+        // parameter lands in `jsonb` as a jsonb string, and every key lookup
+        // against it silently returns NULL.
+        data: reverted,
+        delta: { _reverted_from: revision.id },
         user_id: user.id,
         tenant_id: tenantId(c),
       })
