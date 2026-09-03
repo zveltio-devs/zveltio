@@ -316,7 +316,10 @@ async function loadMasterDetail(r: ResourceView) {
       !masterRows.some((mr) => String(mr[idKey]) === String(selectedMasterId))
     )
       selectedMasterId = masterRows[0]?.[idKey] ?? null;
-    if (selectedMasterId != null) {
+    if (selectedMasterId != null && r.dataSource) {
+      // Guarded, not `!`: `dataSource` is optional because a `layout: 'builder'`
+      // view has none, and reaching here without one should render an empty
+      // detail pane rather than throw on `.replace` of undefined.
       const durl = r.dataSource.replace('{masterId}', String(selectedMasterId));
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const dres = await api.get<any>(durl);
@@ -334,6 +337,7 @@ async function loadMasterDetail(r: ResourceView) {
 async function selectMaster(id: string) {
   selectedMasterId = id;
   const r = active;
+  if (!r.dataSource) return;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const dres = await api.get<any>(r.dataSource.replace('{masterId}', String(id)));
@@ -485,6 +489,11 @@ async function load() {
       qs.set('page', String(pageNum));
       qs.set('limit', String(r.pagination.limit));
     }
+    if (!r.dataSource) {
+      rows = [];
+      total = 0;
+      return;
+    }
     const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const res = await api.get<any>(url);
@@ -600,7 +609,8 @@ function cellClass(row: any, col: ColumnDef): string {
 // id → label maps for relation COLUMNS (lazy, one fetch per relation column)
 let relColMaps = $state<Record<string, Record<string, string>>>({});
 async function loadRelationColumns(r: ResourceView) {
-  for (const col of r.columns) {
+  // `columns` is optional for the same reason `dataSource` is.
+  for (const col of r.columns ?? []) {
     if (col.type !== 'relation' || !col.relation || relColMaps[col.key]) continue;
     try {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01

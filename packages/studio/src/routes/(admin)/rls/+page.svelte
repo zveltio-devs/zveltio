@@ -161,12 +161,17 @@ function sourceLabel(src: string): string {
 }
 </script>
 
+<!--
+  Passed as the default content, not as an `actions` snippet. `PageHeader` takes
+  `children` and renders nothing else, so `{#snippet actions()}` put this button
+  somewhere the component never looked and the "New policy" control simply did
+  not appear on this page. Every other caller passes content directly; this was
+  the only one that did not, and nothing said so until svelte-check ran.
+-->
 <PageHeader title={m['rls.title']()} subtitle={m['rls.subtitle']()}>
-  {#snippet actions()}
-    <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
-      <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
-    </button>
-  {/snippet}
+  <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
+    <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
+  </button>
 </PageHeader>
 
 <!-- Info banner: DaisyUI alert auto-themes (light + dark) — the old
