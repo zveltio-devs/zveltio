@@ -43,6 +43,8 @@
     "catch:fabricated": "bun run scripts/check-fabricated-success.ts",
     "ext:ambient": "bun run scripts/check-ambient-authority.ts",
     "sql:numeric-arith": "bun run scripts/check-numeric-string-arithmetic.ts",
+    "sql:jsonb": "bun run scripts/check-jsonb-binding.ts",
+    "check:env-documented": "bun run scripts/check-env-documented.ts",
     "ext:seam": "bun run scripts/check-insert-schema-match.ts",
     "lint:fix": "biome lint --write",
     "prepush": "bun run check:schema && bun run check:table-owners && bun run check:schema-snapshot && bun run check:atomic-writes && bun run check:pooldb-txn && bun run check:tenant-on-pool && bun run check:shared-keys && bun run scripts/import-boundaries.ts && bun run check:raw-sql && bun run sql:backticks && bun run any:ratchet && bun run lint:ratchet && bun run format:check && bun run typecheck",
