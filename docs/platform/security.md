@@ -1,22 +1,131 @@
-# 🔒 Zveltio Security Guide
+# Security
 
-Security best practices and hardening guide for Zveltio.
+Two documents cover security, and they answer different questions:
 
----
-
-## Table of Contents
-
-- [Security Overview](#security-overview)
-- [Authentication Security](#authentication-security)
-- [Authorization & RBAC](#authorization--rbac)
-- [API Security](#api-security)
-- [Database Security](#database-security)
-- [Network Security](#network-security)
-- [Security Checklist](#security-checklist)
+- **This one** — the threat model, what counts as a finding, and the operator's
+  hardening guide.
+- **[security-model.md](security-model.md)** — the technical model: cookies and
+  CSRF, CSP, secrets at rest, sandboxes, per-extension isolation and RBAC,
+  retention, and **how to report a vulnerability**.
 
 ---
 
-## Security Overview
+## Reporting a vulnerability
+
+**Do not open a public issue.** Email `security@zveltio.com`. Both repositories
+are public, so a committed secret is a disclosed secret and rates accordingly.
+Full policy in [security-model.md](security-model.md#reporting-vulnerabilities).
+
+---
+
+## 1. Threat model
+
+Who we defend against, in priority order:
+
+1. An authenticated user of tenant A reaching tenant B's data.
+2. An unauthenticated request reaching anything.
+3. A lower-privileged user escalating within their own tenant.
+4. A third-party extension exceeding what the operator granted it.
+5. An operator's own misconfiguration having silent security consequences.
+
+**The operator is trusted.** They have shell access to the machine and
+credentials for the database. A vulnerability that requires already being the
+instance administrator is generally not a finding — that person owns the box.
+What *is* a finding is a misconfiguration whose security consequences are
+silent, because the operator cannot defend against what the system does not
+tell them.
+
+**There is no public data API.** Everything under `/api/*` requires a session.
+Reviewers who assume a Firebase-shaped product audit for the wrong threats; this
+has happened in every external round to date.
+
+### Where security decisions actually live
+
+| Concern | Where it is decided |
+|---|---|
+| Tenant isolation | `lib/tenancy/` — `tenant-manager.ts`, `tenant-context.ts`, `rls.ts` |
+| Authorization / RBAC | `lib/tenancy/permissions.ts` (Casbin, **with domains** = per tenant) |
+| Row and column access | `lib/tenancy/entity-access.ts`, `column-permissions.ts`, `row-rule-policy.ts` |
+| Session / auth | Better-Auth, wired in `lib/auth.ts` |
+| Per-request middleware | `middleware/` — tenant guard, membership, rate limit, quota, URL validation |
+| Extension loading and sandbox | `lib/extensions/` — `load.ts`, `register.ts`, `extension-sandbox.ts`, `capabilities.ts` |
+| SSRF validation | `lib/security/url-validator.ts` (`assertPublicUrl`), used by `edge-functions/safe-fetch.ts` |
+| Worker SQL policy | `lib/extensions/worker-sql-policy.ts` |
+
+---
+
+## 2. Patterns that look like findings and are not
+
+Documented to save review time, **not to put them off limits**. If you can
+*break* one, that is a real and valuable finding. What is asked is that you
+check the mechanism before reporting the pattern.
+
+**2.1 — Postgres RLS policies exist but the engine's own role bypasses them.**
+Intentional in that shape. Enforcement lives in `withTenantIsolation`:
+`SET LOCAL ROLE zveltio_rls` plus a `set_config` GUC read by
+`zveltio_tenant_scope_ok`. A query path that reaches the database *without*
+going through that is exactly the kind of finding wanted.
+
+**2.2 — `/ext/*` is fail-closed at the engine, not per-extension.**
+`middleware/extension-auth-gate.ts` requires a valid session for anything under
+`/ext/<name>/*` unless the manifest declares that sub-path in `publicRoutes`. An
+extension author who forgets an inline check gets 401, not exposure. Check the
+opt-out list rather than assuming the historical fail-open design that older
+comments describe.
+
+**2.3 — Localhost calls in the AI and storage extensions are by design.**
+Ollama and SeaweedFS are meant to be reached on loopback. Do report an
+operator-controlled URL reaching loopback anywhere it was *not* intended.
+
+**2.4 — Extension bundles, not sources, are what runs.**
+The runtime loads `engine/index.js`, a built bundle — not `engine/routes.ts`.
+Reading only the TypeScript source can describe code that never executes. If a
+finding depends on source you read, confirm it is present in the bundle.
+
+**2.5 — `media/` and `public/` storage keys are served unsigned deliberately.**
+Everything else under `/files/*` requires a valid signature. The two public
+namespaces are the exception, not an oversight (`routes/files.ts`).
+
+### A correction worth carrying forward
+
+An earlier version of this list claimed that an extension's `ctx.db` was always
+a tenant-scoped proxy, and used that to dismiss nine findings. The proxy was
+real; the transaction it resolved was not. `runWithTenantTrx` restored the
+previous transaction in a **synchronous `finally` around an async callback** —
+so the transaction was present synchronously and `undefined` after one `await`.
+For three days every extension read and wrote on the global pool, and 302
+`tenant_isolation` policies across 350 tables were inert on the request path.
+Tests stayed green because they exercised the background-job branch, which took
+the other path.
+
+The lesson is general: **a "not a finding" list is a place to look first, not a
+place to skip**, and an integration test that calls a helper directly is not
+testing the path the middleware takes.
+
+---
+
+## 3. Verification traps
+
+Green signals that have lied, all observed during real audit rounds:
+
+- **`bun run typecheck` may be a turbo cache replay** (110 ms, `FULL TURBO`) and
+  verify nothing. Use `turbo run typecheck --force`.
+- **`RETURNING *` echoes the row the statement just wrote**, so an assertion on
+  the API response passes even when a column was silently dropped. Assert by
+  reading the row back in a separate query. This is exactly how an authorship
+  bug survived a round.
+- **A passing unit test may exercise a module production never imports.** Check
+  that the module has a non-test importer.
+- **A test that passes because the code path is dead is not a fix.** Confirm the
+  control positively works, not just that the failure stopped.
+- **Fixing the defect named is not the same as fixing the file.** When one write
+  path in a handler is repaired, probe every other write path in that file.
+
+---
+
+## 4. Operator hardening guide
+
+### Security Overview
 
 Zveltio implements **defense in depth** security with multiple layers:
 
@@ -48,9 +157,9 @@ Zveltio implements **defense in depth** security with multiple layers:
 
 ---
 
-## Authentication Security
+### Authentication Security
 
-### Password Security
+#### Password Security
 
 **Requirements enforced:**
 
@@ -65,7 +174,7 @@ Zveltio implements **defense in depth** security with multiple layers:
 // Passwords are hashed using bcrypt
 ```
 
-### Session Security
+#### Session Security
 
 ```typescript
 // Session configuration (Better-Auth)
@@ -81,7 +190,7 @@ Zveltio implements **defense in depth** security with multiple layers:
 }
 ```
 
-### Environment Variables
+#### Environment Variables
 
 ```bash
 # Authentication - CRITICAL
@@ -89,7 +198,7 @@ BETTER_AUTH_SECRET=CHANGE_ME_64_RANDOM_CHARACTERS
 BETTER_AUTH_URL=https://api.yourdomain.com
 ```
 
-### API Key Security
+#### API Key Security
 
 API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_SECRET` as a keyed salt. This prevents rainbow-table attacks against the predictable `zvk_` prefix format even if the database is compromised.
 
@@ -101,9 +210,9 @@ API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_
 
 ---
 
-## Authorization & RBAC
+### Authorization & RBAC
 
-### Casbin Policies
+#### Casbin Policies
 
 **Default Secure Policies:**
 
@@ -115,7 +224,7 @@ p, manager, data, write, DEPARTMENT
 p, employee, data, read, OWN
 ```
 
-### Emergency Admin Access
+#### Emergency Admin Access
 
 Zveltio has a special **Emergency Admin Access** mechanism for emergency access:
 
@@ -133,7 +242,7 @@ if (isGod) return true; // Emergency Admin bypass — all permission checks skip
 - Use the Emergency Admin account only when absolutely necessary
 - Monitor Emergency Admin activity closely
 
-### Hardening
+#### Hardening
 
 - ❌ Never grant `ALL` scope to non-admin users
 - ✅ Use specific scopes (ORGANIZATION, DEPARTMENT, OWN)
@@ -142,9 +251,9 @@ if (isGod) return true; // Emergency Admin bypass — all permission checks skip
 
 ---
 
-## API Security
+### API Security
 
-### SSRF Protection
+#### SSRF Protection
 
 All outbound HTTP requests (webhooks, edge functions, AI provider calls) pass through `safeFetch` + `validatePublicUrl`, which blocks:
 
@@ -156,11 +265,11 @@ All outbound HTTP requests (webhooks, edge functions, AI provider calls) pass th
 
 Webhook outbound headers are also sanitized — the following are blocked regardless of what is configured: `Authorization`, `Cookie`, `Set-Cookie`, `Host`, `X-Forwarded-For`, `X-Real-IP`, `Proxy-Authorization`.
 
-### Body Limits
+#### Body Limits
 
 A 10MB body limit is enforced globally on all `/api/*` routes (excluding storage upload and CSV/JSON import, which have their own limits and streaming).
 
-### Rate Limiting
+#### Rate Limiting
 
 Zveltio uses a sliding-window rate limiter backed by Valkey sorted sets. When Valkey is unavailable, an in-memory limiter takes over and **fails closed** (limits still enforced — no open bypass on outage).
 
@@ -181,7 +290,7 @@ Limits are identified **per user ID** for authenticated requests, or **per IP** 
 
 **Per-API-key overrides:** Individual API keys can have their own window/max via `PUT /api/api-keys/:id/rate-limit`, which takes precedence over tier defaults. Useful for trusted integrations that need higher limits.
 
-### CORS Configuration
+#### CORS Configuration
 
 ```typescript
 // NEVER use wildcard in production
@@ -196,7 +305,7 @@ app.use(
 );
 ```
 
-### Input Validation
+#### Input Validation
 
 ```typescript
 import { z } from 'zod';
@@ -211,7 +320,7 @@ const createUserSchema = z.object({
 });
 ```
 
-### SQL Injection Prevention
+#### SQL Injection Prevention
 
 Zveltio uses **Kysely** (parameterized queries) exclusively — raw SQL string concatenation is never used in the codebase:
 
@@ -225,7 +334,7 @@ await sql.raw(`SELECT * FROM users WHERE email = '${userInput}'`);
 
 Table names are also validated — user-created collections are prefixed with `zvd_` and all dynamic table references go through `safeTableName()` which enforces this prefix, preventing table injection attacks.
 
-### Edge Function Sandbox
+#### Edge Function Sandbox
 
 User-defined edge functions run in an isolated Bun worker with:
 
@@ -235,7 +344,7 @@ User-defined edge functions run in an isolated Bun worker with:
 - **Prototype frozen** at worker startup (prevents prototype pollution)
 - **Timeout:** configurable per function
 
-### Encrypted Secrets at Rest
+#### Encrypted Secrets at Rest
 
 | Secret | Encryption | Env var |
 |---|---|---|
@@ -246,9 +355,9 @@ Generate keys with: `openssl rand -hex 32`
 
 ---
 
-## Database Security
+### Database Security
 
-### Connection Security
+#### Connection Security
 
 ```bash
 # Use SSL for database connections
@@ -256,7 +365,7 @@ DATABASE_SSL=true
 DATABASE_SSL_REJECT_UNAUTHORIZED=true
 ```
 
-### Connection Pooling with PgDog
+#### Connection Pooling with PgDog
 
 PgDog is a multi-threaded Rust-based connection pooler with native SCRAM-SHA-256 support. Configuration is auto-generated at startup from environment variables via `pgdog-init`.
 
@@ -270,7 +379,7 @@ max_client_conn = 1000
 default_pool_size = 25
 ```
 
-### Access Control
+#### Access Control
 
 ```sql
 -- Application user (limited permissions)
@@ -283,7 +392,7 @@ CREATE USER zveltio_admin WITH PASSWORD 'different_strong_password';
 GRANT ALL PRIVILEGES ON DATABASE zveltio_prod TO zveltio_admin;
 ```
 
-### Row-Level Security (RLS)
+#### Row-Level Security (RLS)
 
 ```sql
 -- Enable RLS on sensitive tables
@@ -296,9 +405,9 @@ CREATE POLICY user_isolation ON zvd_user_data
 
 ---
 
-## Network Security
+### Network Security
 
-### Firewall Configuration
+#### Firewall Configuration
 
 ```bash
 # Allow only necessary ports
@@ -308,7 +417,7 @@ ufw allow 443/tcp  # HTTPS
 ufw enable
 ```
 
-### SSL/TLS
+#### SSL/TLS
 
 Always use HTTPS in production:
 
@@ -319,9 +428,9 @@ CERTBOT_AUTO_RENEW=true
 
 ---
 
-## Security Checklist
+### Security Checklist
 
-### Before Production
+#### Before Production
 
 - [ ] Change `BETTER_AUTH_SECRET` to a strong 64-character random string
 - [ ] Enable SSL/TLS with valid certificates
@@ -332,7 +441,7 @@ CERTBOT_AUTO_RENEW=true
 - [ ] Set up monitoring and alerting
 - [ ] Create backup strategy
 
-### Ongoing
+#### Ongoing
 
 - [ ] Review logs weekly
 - [ ] Rotate secrets quarterly
@@ -342,7 +451,7 @@ CERTBOT_AUTO_RENEW=true
 
 ---
 
-## Incident Response
+### Incident Response
 
 If you suspect a security incident:
 
@@ -354,8 +463,10 @@ If you suspect a security incident:
 
 ---
 
-## Learn More
+### See also
 
-- [Authorization Guide](/authorization)
-- [Installation Guide](/installation)
-- [Deployment Guide](/deployment)
+- [security-model.md](security-model.md) — the technical security model
+- [multi-tenancy.md](multi-tenancy.md) — how tenant isolation is enforced
+- [../engine/authorization.md](../engine/authorization.md) — RBAC and row rules
+- [operations.md](operations.md) — deployment hardening
+- [audit-coverage.md](audit-coverage.md) — what the automated gates cover

@@ -28,14 +28,14 @@ you know what you are running, and what you may leave out.
 | **PostgreSQL** | 18, with the `vector` extension | **Required** | Nothing runs. This is the product's state — collections, auth, audit trail, and the row-level security that separates tenants. |
 | **Valkey** (or Redis-compatible) | 8 | **Required** | The engine refuses to boot in production. Permission and identity caches go to the database on every request, and a revoked grant reaches only the replica that revoked it. To run without one deliberately, set `ZVELTIO_ALLOW_NO_CACHE=1`. |
 | **Object storage** (SeaweedFS, MinIO, S3) | S3-compatible | Optional | Nothing. Uploads default to the local filesystem; storage switches to S3 only when `S3_ENDPOINT` is set or `STORAGE_DRIVER=s3`. |
-| **PgDog** (connection pooler) | — | Optional | Nothing at one engine. It matters when several engine replicas share one Postgres — see [HORIZONTAL_SCALING.md](HORIZONTAL_SCALING.md). |
+| **PgDog** (connection pooler) | — | Optional | Nothing at one engine. It matters when several engine replicas share one Postgres — see [HORIZONTAL_SCALING.md](horizontal-scaling.md). |
 | **Prometheus + Grafana** | — | Optional | Only observability. The metrics endpoint exists either way; see [monitoring.md](monitoring.md). |
 
 **Bun ≥ 1.3.13** is needed to build from source or to develop. The released
 binaries are compiled and do not need it.
 
 Valkey moved from optional to required deliberately, and the reason is written
-down in [CONFIGURATION.md](CONFIGURATION.md#cache-valkeyredis): without a shared
+down in [CONFIGURATION.md](configuration.md#cache-valkeyredis): without a shared
 cache, a permission change is not a slower operation, it is one that silently
 does not reach the other replicas.
 

@@ -4,7 +4,7 @@
  * community → inline blocked" path; these cover the two operator/manifest
  * escape hatches and the tiers that ARE allowed to run inline.
  *
- * MARKETPLACE-POLICY.md §2: first-party/verified may run inline; community (or
+ * marketplace-policy.md §2: first-party/verified may run inline; community (or
  * unknown) must declare engine.isolation: "worker".
  */
 
