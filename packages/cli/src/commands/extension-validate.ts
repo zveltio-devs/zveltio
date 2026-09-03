@@ -423,7 +423,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
                 : c.dim('unknown');
   console.log(`  Manifest v2:   ${v2Label}`);
 
-  // MARKETPLACE-POLICY §2 enforcement: community submissions MUST declare
+  // marketplace-policy.md §2 enforcement: community submissions MUST declare
   // engine.isolation: 'worker'. The engine refuses inline community
   // extensions at enable, so we hard-fail here (beta.2) instead of just
   // warning — authors should never get to the review queue with an
@@ -469,7 +469,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       console.error(
         c.red(
           `Validation failed: ${resolved.tier} publishers must declare ` +
-            `engine.isolation: "worker" (MARKETPLACE-POLICY §2).`,
+            `engine.isolation: "worker" (marketplace-policy.md §2).`,
         ),
       );
       console.error(
@@ -477,7 +477,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
             'then re-pack. If you are a verified/first-party publisher, pass ' +
             '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
-            'See docs/site/MARKETPLACE-POLICY.md §2.',
+            'See docs/extensions/marketplace-policy.md §2.',
         ),
       );
       if (opts.silentExit) throw new Error('Validation failed: community inline isolation');
@@ -494,7 +494,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     console.error(
       c.dim(
         '  v1 manifests are unsupported since 1.0.0-beta.1. Run `zveltio extension pack` to ' +
-          'generate the v2 engine + integrity blocks. See docs/site/EXTENSION-DEVELOPER-GUIDE.md §4.',
+          'generate the v2 engine + integrity blocks. See docs/extensions/developer-guide.md §4.',
       ),
     );
     if (opts.silentExit) throw new Error('Validation failed: v1 manifest unsupported');

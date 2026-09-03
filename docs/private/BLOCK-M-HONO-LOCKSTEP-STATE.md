@@ -1,170 +1,172 @@
-# Stare — Blocul M: ridicarea `hono` în lockstep cu extensiile
+# State — Block M: raising `hono` in lockstep with the extensions
 
-> **Se citește la începutul fiecărui pas. Se actualizează după fiecare pas.**
-> PR deschis: **#373** (dependabot, `hono ^4.13.3 → ^4.13.5`), CI verde pe motor.
-> Scris 2026-09-01, cu scopul măsurat în ambele repouri.
+> **Read at the start of every step. Update after every step.**
+> Open PR: **#373** (dependabot, `hono ^4.13.3 → ^4.13.5`), CI green on the engine.
+> Written 2026-09-01, with the scope measured in both repositories.
 
 ---
 
-## De ce nu se poate merge singur
+## Why it cannot be merged on its own
 
-`hono` e una dintre cele șapte dependențe pe care extensiile trebuie să le
-pinuiască **exact** și care trebuie să corespundă cu `bun.lock` al motorului:
+`hono` is one of the seven dependencies the extensions must pin **exactly**, and
+which must match the engine's `bun.lock`:
 
 ```ts
 // zveltio-extensions/scripts/check-dep-lockstep.ts
 const LOCKSTEP_DEPS = ['kysely', 'hono', 'zod', '@hono/zod-validator', 'aws4fetch', 'pg', 'typescript'];
 ```
 
-Motivul e scris în poartă: repo-ul de extensii ignoră `bun.lock` dinadins, deci
-CI-ul rezolvă dependențele proaspăt de la npm. TypeScript deduplică două copii
-ale unui pachet **numai la potrivire exactă** — o divergență face cele două clase
-nominal incompatibile (`#private`) și inundă typecheck-ul cu ~77 de erori
-criptice în extensii fără legătură. **S-a întâmplat de două ori**, `2026-07-08` și
-`2026-07-17`, a doua oară fiindcă `kysely 0.29.4` s-a publicat la ore după o
-rulare verde.
+The reason is written into the gate: the extensions repository ignores
+`bun.lock` deliberately, so CI resolves dependencies fresh from npm. TypeScript
+deduplicates two copies of a package **only on an exact match** — a divergence
+makes the two classes nominally incompatible (`#private`) and floods typecheck
+with ~77 cryptic errors in unrelated extensions. **It has happened twice**,
+`2026-07-08` and `2026-07-17`, the second time because `kysely 0.29.4` was
+published hours after a green run.
 
-Deci: merge pe #373 fără mișcarea din extensii ⇒ CI-ul extensiilor roșu.
+So: merging #373 without the extensions-side move ⇒ red CI in the extensions.
 
-## Starea, măsurată
+## The state, measured
 
 ```
-zveltio-extensions/package.json   "hono": "4.13.3"     pin exact
+zveltio-extensions/package.json   "hono": "4.13.3"     exact pin
 zveltio/bun.lock                  hono@4.13.3
-#373 aduce                        hono@4.13.5
+#373 brings                       hono@4.13.5
 ```
 
-Poarta rulată acum: `✓ @hono/zod-validator 0.9.0 == engine`, `✓ pg`, `✓ typescript`
-— toate în lockstep. Nimic rupt azi.
+Gate run just now: `✓ @hono/zod-validator 0.9.0 == engine`, `✓ pg`,
+`✓ typescript` — all in lockstep. Nothing broken today.
 
-## Cele trei consecințe — care e obligatorie și care nu
+## The three consequences — which is mandatory and which is not
 
-Nota veche spune că un dep-bump are TREI consecințe în extensii. Măsurate acum,
-una singură e forțată de o poartă:
+The old note says a dependency bump has THREE consequences in the extensions.
+Measured now, only one is forced by a gate:
 
-| # | consecință | forțată? |
+| # | Consequence | Forced? |
 |---|---|---|
-| 1 | pin exact ridicat în `zveltio-extensions/package.json` | **DA** — `check-dep-lockstep` |
-| 2 | repack la bundle-urile care includ hono | **NU** — vezi mai jos |
-| 3 | bump de versiune pentru fiecare extensie repachetată | doar dacă se face 2 |
+| 1 | exact pin raised in `zveltio-extensions/package.json` | **YES** — `check-dep-lockstep` |
+| 2 | repack of the bundles that embed hono | **NO** — see below |
+| 3 | version bump for every repacked extension | only if 2 is done |
 
-**hono e INCLUS în bundle-uri, nu referit** — măsurat: `class Hono` apare de două
-ori într-un bundle de 699 KB (`analytics/dashboard/engine/index.js`), iar 76 de
-fișiere îl importă direct. Deci fără repack, cele 57 de extensii rulează cu hono
-4.13.3 inline, în timp ce motorul rulează 4.13.5.
+**hono is EMBEDDED in the bundles, not referenced** — measured: `class Hono`
+appears twice in a 699 KB bundle (`analytics/dashboard/engine/index.js`), and 76
+files import it directly. So without a repack, the 57 extensions run hono 4.13.3
+inline while the engine runs 4.13.5.
 
-Dar poarta care păzește prospețimea, `check-bundle-sources.ts`, hașuiește
-**SURSA**, nu dependențele — și spune în comentariu de ce: reîmpachetarea pentru
-comparație de octeți ar pica din motive care n-au legătură cu autorul, fiindcă
-ieșirea bundler-ului nu e stabilă între versiuni de Bun.
+But the gate that guards freshness, `check-bundle-sources.ts`, hashes the
+**SOURCE**, not the dependencies — and its comment says why: repacking for a
+byte comparison would fail for reasons unrelated to the author, because the
+bundler's output is not stable across Bun versions.
 
-**Deci repack-ul e o DECIZIE, nu o obligație.** Ce se câștigă: paritate reală
-între motor și extensii. Ce costă: 57 de repack-uri și 57 de bump-uri de versiune,
-fiindcă registry-ul refuză aceiași octeți la aceeași versiune.
+**So the repack is a DECISION, not an obligation.** What it buys: real parity
+between engine and extensions. What it costs: 57 repacks and 57 version bumps,
+because the registry refuses the same bytes at the same version.
 
-## PASUL 1, FĂCUT — și răstoarnă calculul: 4.13.5 e o versiune de SECURITATE
+## STEP 1, DONE — and it overturns the calculation: 4.13.5 is a SECURITY release
 
-Criteriul de oprire spunea „dacă 4.13.5 nu aduce nimic necesar, închide cu «nu
-merită»". Nu se activează. `v4.13.5` conține trei avize:
+The stop criterion said "if 4.13.5 brings nothing we need, close with 'not worth
+it'". It does not trigger. `v4.13.5` carries three advisories:
 
-| aviz | ne atinge? |
+| Advisory | Does it touch us? |
 |---|---|
-| parserul de query citește parametri DUPĂ fragmentul URL — diferențe de interpretare între aplicație și proxy/WAF (GHSA-crvj-82cr-hjcx) | **DA, prin forma de instalare** |
-| `toSSG()` scrie în afara directorului de ieșire (GHSA-gqvv-2mrq-wpjv) | nu — `toSSG` nefolosit |
-| `parseBody()` cu notație cu puncte → epuizare de memorie (GHSA-g6gw-c38x-mqfc) | nu — `parseBody` nefolosit |
+| the query parser reads parameters AFTER the URL fragment — interpretation differences between application and proxy/WAF (GHSA-crvj-82cr-hjcx) | **YES, through the deployment shape** |
+| `toSSG()` writes outside the output directory (GHSA-gqvv-2mrq-wpjv) | no — `toSSG` unused |
+| `parseBody()` with dot notation → memory exhaustion (GHSA-g6gw-c38x-mqfc) | no — `parseBody` unused |
 
-Verificat prin grep în cod scris de noi: **niciun `hono/cache`, niciun `toSSG`,
-niciun `parseBody`**. Dar primul aviz spune „*și aplicații în spatele unui proxy,
-WAF sau strat de jurnalizare care inspectează query-ul*" — care e exact forma
-self-hosted a Zveltio, iar `?filter=` și `?as_of=` sunt parametri pe care se iau
-decizii de acces.
+Verified by grep across code we wrote: **no `hono/cache`, no `toSSG`, no
+`parseBody`**. But the first advisory says "*and applications behind a proxy, WAF
+or logging layer that inspects the query*" — which is exactly Zveltio's
+self-hosted shape, and `?filter=` and `?as_of=` are parameters that access
+decisions are made on.
 
-**Deci blocul se face.**
+**So the block goes ahead.**
 
-## CONSTATARE DE SISTEM — mai mare decât blocul
+## SYSTEMIC FINDING — larger than the block
 
-O reparație de securitate într-o dependență INCLUSĂ nu ajunge nicăieri unde e
-inclusă, și **nicio poartă nu observă**.
+A security fix in an EMBEDDED dependency reaches nowhere it is embedded, and
+**no gate notices**.
 
-`hono` e încorporat în trei locuri:
+`hono` is embedded in three places:
 
 ```
-node_modules                                        se ridică la bump          ✅
+node_modules                                        rises with the bump        ✅
 packages/engine/src/lib/worker-extension-runtime-source.generated.ts   inline   ❌
 57 × <ext>/engine/index.js                                             inline   ❌
 ```
 
-Ambele porți de prospețime — `check-worker-source-fresh.ts` și
-`check-bundle-sources.ts` — hașuiează **SURSA**, nu dependențele, și spun asta în
-propriile comentarii. Sunt corecte pentru ce au fost scrise (o editare de sursă
-care n-a fost repachetată), dar oarbe la un bump de dependență.
+Both freshness gates — `check-worker-source-fresh.ts` and
+`check-bundle-sources.ts` — hash the **SOURCE**, not the dependencies, and say
+so in their own comments. They are correct for what they were written for (a
+source edit that was not repacked), but blind to a dependency bump.
 
-Consecința: după merge pe #373, motorul rulează hono 4.13.5, iar runtime-ul de
-worker și cele 57 de extensii rulează 4.13.3 — **cu problema de parsare a
-query-ului** — până când cineva regenerează și repachetează. Fără niciun semnal.
+The consequence: after #373 merges, the engine runs hono 4.13.5 while the worker
+runtime and the 57 extensions run 4.13.3 — **with the query-parsing issue** —
+until somebody regenerates and repacks. With no signal at all.
 
-Asta ridică repack-ul din „decizie de igienă" în „parte din reparația de
-securitate", și e argumentul care lipsea când documentul a fost scris prima dată.
+That lifts the repack from "hygiene decision" to "part of the security fix", and
+it is the argument that was missing when this document was first written.
 
-**Poartă nouă — FĂCUTĂ:** `scripts/check-embedded-deps-fresh.ts` compară
-versiunea dependenței INCLUSE în fiecare artefact generat cu `bun.lock`, citind
-comentariile de cale lăsate de bundler — deci ce a intrat efectiv, nu ce declară
-un manifest. 45 de artefacte acoperite; dovedită prin plantare, `audit:gates`
-41/41.
+**New gate — DONE:** `scripts/check-embedded-deps-fresh.ts` compares the version
+of the EMBEDDED dependency in every generated artifact against `bun.lock`,
+reading the path comments the bundler leaves behind — so, what actually went in,
+not what a manifest declares. 45 artifacts covered; proved by planting,
+`audit:gates` 41/41.
 
-## Criteriile punctului de validare — SCRISE ÎNAINTE
+## Validation-point criteria — WRITTEN IN ADVANCE
 
-1. `bun run scripts/check-dep-lockstep.ts` verde în extensii, cu noul pin.
-2. `bun run typecheck` verde în extensii — **acesta e testul care contează**,
-   fiindcă divergența de versiune se manifestă exact acolo, prin TS2345.
-3. CI verde în AMBELE repouri, în ordinea: motor întâi, extensii după.
-4. Dacă se face repack: fiecare extensie atinsă are versiune ridicată, iar
-   `check-bundle-sources` rămâne verde.
+1. `bun run scripts/check-dep-lockstep.ts` green in the extensions, with the new
+   pin.
+2. `bun run typecheck` green in the extensions — **this is the test that
+   matters**, because a version divergence surfaces exactly there, as TS2345.
+3. CI green in BOTH repositories, in this order: engine first, extensions after.
+4. If a repack is done: every touched extension has its version raised, and
+   `check-bundle-sources` stays green.
 
-**CRITERIU DE OPRIRE:** dacă `4.13.5` nu aduce nimic de care avem nevoie, blocul
-poate să se închidă cu „nu merită" — un patch de hono nu justifică singur 57 de
-repack-uri. Verifică CHANGELOG-ul lui hono între 4.13.3 și 4.13.5 ÎNAINTE de
-pasul 3.
+**STOP CRITERION:** if `4.13.5` brings nothing we need, the block may close with
+"not worth it" — a hono patch does not on its own justify 57 repacks. Check
+hono's CHANGELOG between 4.13.3 and 4.13.5 BEFORE step 3.
 
-## Pași
+## Steps
 
-| # | pas | stare |
+| # | Step | State |
 |---|---|---|
-| 0 | Citește documentul ăsta | — |
-| 1 | Citește ce e între 4.13.3 și 4.13.5 — decide dacă merită | ✅ **FĂCUT** — versiune de SECURITATE, se face |
-| 2 | Merge #373 în motor (CI deja verde) | DE FĂCUT |
-| 3 | Ridică pin-ul la `"hono": "4.13.5"` în extensii, verifică poarta + typecheck | DE FĂCUT |
-| 3b | **Regenerează runtime-ul de worker** — include hono inline | DE FĂCUT |
-| 4 | **Decizie de proprietar:** repack | ✅ **DA** — argument de securitate |
-| 5 | Repack + bump de versiuni | ✅ **FĂCUT** — 44 de bundle-uri, toate pe 4.13.5 |
-| 6 | Poarta care închide clasa | ✅ **FĂCUT** — `check-embedded-deps-fresh` |
-| 7 | **PUNCT DE VALIDARE** | ✅ **TRECUT** — vezi mai jos |
+| 0 | Read this document | — |
+| 1 | Read what is between 4.13.3 and 4.13.5 — decide whether it is worth it | ✅ **DONE** — SECURITY release, going ahead |
+| 2 | Merge #373 into the engine (CI already green) | TO DO |
+| 3 | Raise the pin to `"hono": "4.13.5"` in the extensions, check the gate + typecheck | TO DO |
+| 3b | **Regenerate the worker runtime** — it embeds hono inline | TO DO |
+| 4 | **Owner decision:** repack | ✅ **YES** — security argument |
+| 5 | Repack + version bumps | ✅ **DONE** — 44 bundles, all on 4.13.5 |
+| 6 | The gate that closes the class | ✅ **DONE** — `check-embedded-deps-fresh` |
+| 7 | **VALIDATION POINT** | ✅ **PASSED** — see below |
 
-## Punct de validare — trecut
+## Validation point — passed
 
-1. `check-dep-lockstep` verde în extensii ✅
-2. `typecheck` verde în extensii ✅ — plus un defect PREEXISTENT reparat pe drum
-   (shim-ul `bun` nu declara `SQL`, folosit de `pool-autosize.ts` al motorului)
-3. CI verde în ambele repouri, motorul întâi ✅
-4. Fiecare extensie repachetată are versiune ridicată ✅ — 44 de patch-uri
+1. `check-dep-lockstep` green in the extensions ✅
+2. `typecheck` green in the extensions ✅ — plus a PRE-EXISTING defect fixed on
+   the way (the `bun` shim did not declare `SQL`, used by the engine's
+   `pool-autosize.ts`)
+3. CI green in both repositories, engine first ✅
+4. Every repacked extension has its version raised ✅ — 44 patches
 
-**Măsurat, înainte și după:**
+**Measured, before and after:**
 
 ```
-înainte:  hono@4.13.3 în majoritatea bundle-urilor
-          hono@4.12.28 în auth/saml, compliance/gdpr, data/export
-după:     hono@4.13.5 peste tot — singura versiune rămasă
+before:  hono@4.13.3 in most bundles
+         hono@4.12.28 in auth/saml, compliance/gdpr, data/export
+after:   hono@4.13.5 everywhere — the only version left
 ```
 
-**Capcana care a costat două încercări:** primul repack a produs tot 4.13.3.
-`node_modules` al extensiilor avea 4.13.5, dar bundler-ul rezolvă prin cel al
-MOTORULUI, unde se făcuse `git pull` fără `bun install`. Verifică artefactul, nu
-ieșirea comenzii — `pack` a spus „✓ complete" în ambele cazuri.
+**The trap that cost two attempts:** the first repack produced 4.13.3 again. The
+extensions' `node_modules` had 4.13.5, but the bundler resolves through the
+ENGINE's, where a `git pull` had happened without `bun install`. Check the
+artifact, not the command's output — `pack` said "✓ complete" both times.
 
-## Capcane cunoscute
+## Known traps
 
-- Poarta citește `../zveltio/bun.lock` — calea e **relativă la repo-ul de
-  extensii**, deci sora trebuie clonată alături și trebuie să fie versiunea
-  ridicată, nu un worktree vechi. Un worktree pe alt commit dă un verde fals.
-- Ordinea contează: motorul întâi. Invers, poarta din extensii compară cu un lock
-  care încă are versiunea veche și pică pe bună dreptate.
+- The gate reads `../zveltio/bun.lock` — the path is **relative to the
+  extensions repository**, so the sibling must be cloned alongside and must be
+  the raised version, not an old worktree. A worktree on another commit gives a
+  false green.
+- Order matters: engine first. The other way round, the extensions gate compares
+  against a lock that still has the old version and fails, correctly.

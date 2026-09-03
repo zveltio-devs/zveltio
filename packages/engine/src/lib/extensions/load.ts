@@ -187,7 +187,7 @@ export async function loadExtensionFromDir(
     // companion tooling wave. So WASM extensions today are
     // compute-only or background-only. JS first-party extensions
     // continue to handle the HTTP surface.
-    // MARKETPLACE-POLICY.md §2 publisher-tier gate, BEFORE the runtime is
+    // marketplace-policy.md §2 publisher-tier gate, BEFORE the runtime is
     // chosen below.
     //
     // It used to sit inside the inline branch, which meant it governed exactly

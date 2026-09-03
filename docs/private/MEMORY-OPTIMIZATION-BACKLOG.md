@@ -1,12 +1,12 @@
 # 🚀 Optimizări Complete Zveltio - Single Source of Truth
 
 > **Status:** backlog viu de reducere a memoriei/dimensiunii instalării, formulat inițial
-> în aprilie 2026. Mutat din `refactoring/` în `docs/` la beta.30 (2026-07-16) și
+> in April 2026. Moved from `refactoring/` into `docs/` at beta.30 (2026-07-16) and
 > consolidat ca sursă unică (fostul `optimizari cod propuse.txt` era un subset).
-> **Itemii NU sunt verificați față de stadiul actual** — o parte poate fi deja făcută
+> **Items are NOT verified against the current state** — some may already be done
 > prin slim-engine + registry-on-demand (beta.14). De reevaluat înainte de a le ataca.
 
-## 📋 Lista Completă Optimizări pentru Reducerea Memoriei și Îmbunătățirea Performanței
+## Full list — memory reduction and performance improvements
 
 ### 🎯 Scop Final: 1.5-3GB RAM Requirement, 200-300 Pachete
 
@@ -19,7 +19,7 @@
 - [ ] **Replace global imports** with specific subpath imports
 - [ ] **Alternative**: Replace with `aws4fetch` + `s3-request-presigner-light` (90% reduction)
 - [ ] **Lazy loading** for S3 client initialization
-- [ ] **Implementare**: Modifică `src/routes/storage.ts` și `src/routes/media.ts`
+- [ ] **Implementation**: modify `src/routes/storage.ts` and `src/routes/media.ts`
 
 ### 2. **GraphQL Yoga Deferral** 🎯
 
@@ -40,7 +40,7 @@
 - [ ] **Evaluate usage** - only in `src/workers/pdf-worker.ts`
 - [ ] **Consider lighter alternatives**: `pdf-lite`, `jspdf`
 - [ ] **Lazy load** PDF generation capabilities
-- [ ] **Move** to extension dacă posibil
+- [ ] **Move** to extension if possible
 
 ---
 
@@ -49,9 +49,9 @@
 ### 5. **Unused Packages Audit** 🔍
 
 - [ ] **Remove unused**: `dataloader` (move with GraphQL to extensions)
-- [ ] **Analyze**: `casbin` usage vs necessity (keep - essential pentru RBAC)
+- [ ] **Analyze**: `casbin` usage vs necessity (keep — essential for RBAC)
 - [ ] **Check**: `nanoid` vs built-in Bun crypto (`crypto.randomUUID()`)
-- [ ] **Evaluate**: `expr-eval` - keep pentru validation, dar optimizează
+- [ ] **Evaluate**: `expr-eval` — keep for validation, but optimise
 
 ### 6. **Duplicate Functionality** 🔄
 
@@ -90,8 +90,8 @@
 
 ### 11. **Dependency Auditing Automation** 🤖
 
-- [ ] **Add script**: `npx depcheck` pentru verificare dependințe nefolosite
-- [ ] **CI integration** pentru dependency monitoring
+- [ ] **Add script**: `npx depcheck` to find unused dependencies
+- [ ] **CI integration** for dependency monitoring
 - [ ] **Bundle analysis** cu `bun --analyze`
 
 ---
@@ -109,20 +109,20 @@
 - [ ] **Move non-core features** to extensions
 - [ ] **Dynamic extension loading** at runtime
 - [ ] **Isolate heavy dependencies** in extensions
-- [ ] **Module Federation** pentru extensii rare folosite
+- [ ] **Module Federation** for rarely-used extensions
 
 ### 14. **Valkey-specific Optimizations** 🚀 (În loc de Redis)
 
-- [ ] **Connection pool optimization** pentru Valkey
+- [ ] **Connection pool optimization** for Valkey
 - [ ] **Memory-aware caching** with smart TTL adjustment
 - [ ] **Pipeline optimization** - single roundtrip commands
 - [ ] **Multi-tier caching**: L1 (Memory) → L2 (Valkey) → L3 (Database)
-- [ ] **Cluster-ready design** pentru scalability
+- [ ] **Cluster-ready design** for scalability
 
 ### 15. **Bun Native Features Utilization** ⚡
 
 - [ ] **Replace `nanoid`** with `crypto.randomUUID()`
-- [ ] **Use Bun's built-in SQLite** pentru cache simplu
+- [ ] **Use Bun's built-in SQLite** for a simple cache
 - [ ] **Optimize file serving** cu zero-copy operations
 - [ ] **Leverage Bun's native performance** features
 
@@ -148,7 +148,7 @@
 
 - [ ] **Baseline measurements** pre-optimizări
 - [ ] **Continuous performance monitoring**
-- [ ] **Regression testing** pentru performance
+- [ ] **Regression testing** for performance
 
 ---
 
@@ -164,14 +164,14 @@
 ### Faza 2 (High Impact - Săptămâna 2):
 
 - [ ] Valkey connection optimization
-- [ ] Zod și Better-Auth tree shaking
+- [ ] Zod and Better-Auth tree shaking
 - [ ] Bun native features adoption
 - [ ] Memory monitoring setup
 
 ### Faza 3 (Fine-tuning - Săptămâna 3):
 
 - [ ] Advanced lazy loading strategies
-- [ ] Module federation pentru extensii
+- [ ] Module federation for extensions
 - [ ] Proactive memory management
 - [ ] Performance benchmarking
 
@@ -188,7 +188,7 @@
 
 ## 🎯 Ținte de Performanță
 
-- **Memory:** ≤ 2GB pentru setup typical
+- **Memory:** ≤ 2 GB for a typical setup
 - **Startup Time:** ≤ 30 seconds
 - **Dependencies:** ≤ 300 packages
 - **Cold Start:** ≤ 5 seconds
@@ -207,4 +207,4 @@
 
 **Status:** 🟢 Actively maintained - Ultima actualizare: 2026-04-03
 
-_Această listă reprezintă single source of truth pentru optimizările Zveltio și trebuie actualizată pe măsură ce optimizările sunt implementate._
+_This list is the single source of truth for Zveltio's optimisation work and should be updated as items are implemented._

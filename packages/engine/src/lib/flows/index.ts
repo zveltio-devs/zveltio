@@ -8,6 +8,11 @@ export {
   type FlowRunResult,
 } from './flow-executor.js';
 export { flowScheduler } from './flow-scheduler.js';
+// Cron parsing lives here because flows needed it first, but it is not a flows
+// concept — `lib/backup/scheduler.ts` computes a backup's next run with the same
+// function. Exported through the barrel rather than reached into, which is what
+// `scripts/import-boundaries.ts` asks for and the reason it caught this.
+export { nextCronRun } from './cron.js';
 export {
   validateStepConfig,
   type StepType,

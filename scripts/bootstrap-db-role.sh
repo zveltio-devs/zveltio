@@ -162,7 +162,7 @@ else
   echo "  ! no ZVELTIO_BACKUP_PASSWORD — backup role NOT created."
   echo "    pg_dump as $APP_ROLE will FAIL on this database: FORCE ROW LEVEL"
   echo "    SECURITY binds the owner. Re-run with ZVELTIO_BACKUP_PASSWORD set,"
-  echo "    or see docs/site/DISASTER-RECOVERY.md §3.1."
+  echo "    or see docs/platform/disaster-recovery.md §3.1."
 fi
 
 echo

@@ -265,7 +265,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   );
 
   // Resolve the publisher tier so community extensions get worker
-  // isolation auto-injected (MARKETPLACE-POLICY §2). The engine refuses
+  // isolation auto-injected (marketplace-policy.md §2). The engine refuses
   // inline community extensions at enable, so packing one without worker
   // produces an artifact nobody can turn on. We fix it here rather than
   // letting the author discover it after a rejected review.
