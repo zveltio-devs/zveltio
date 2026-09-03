@@ -36,7 +36,7 @@ overwrites it. The tell is the key count dropping after a compile. Edit
 5. Run `bun run i18n:compile` from `packages/studio`.
 
 Full rules, including what `zveltio extension validate` enforces:
-[EXTENSION-DEVELOPER-GUIDE §10.5](../../../docs/site/EXTENSION-DEVELOPER-GUIDE.md#105-translating-your-extension).
+[EXTENSION-DEVELOPER-GUIDE §10.5](../../../docs/extensions/developer-guide.md#105-translating-your-extension).
 
 ## Gates
 

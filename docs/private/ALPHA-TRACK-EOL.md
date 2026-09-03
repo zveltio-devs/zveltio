@@ -19,7 +19,7 @@ Alpha releases **remain on GitHub** (tags + release assets) for reproducibility,
 | If you are on… | Action |
 |----------------|--------|
 | **Nothing installed yet** | Install beta only: `curl -fsSL https://get.zveltio.com/install.sh \| bash` or `zveltio update --version 3.0.0-beta.12` |
-| **`1.0.0-alpha.111` or newer** | Upgrade to latest beta; DB migrates on startup. See [MIGRATION-ALPHA-TO-BETA.md](./MIGRATION-ALPHA-TO-BETA.md) |
+| **`1.0.0-alpha.111` or newer** | Upgrade to latest beta; DB migrates on startup. See [MIGRATION-ALPHA-TO-BETA.md](../platform/migration-alpha-to-beta.md) |
 | **`1.0.0-alpha.110` or older** | Plan a maintenance window — extension manifests and bundled layout differ; migration is **one-way** to beta |
 | **Pinned to a specific alpha in CI** | Unpin; move CI to `3.0.0-beta.12` (or `@latest` beta from [get.zveltio.com/latest.json](https://get.zveltio.com/latest.json)) |
 
@@ -69,13 +69,13 @@ Alpha releases stay on GitHub for history; we will not ship new alpha versions.
 https://get.zveltio.com/latest.json).
 
 **Docs:** [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/ALPHA-TRACK-EOL.md) ·
-[Migration guide](https://github.com/zveltio-devs/zveltio/blob/master/docs/site/MIGRATION-ALPHA-TO-BETA.md)
+[Migration guide](https://github.com/zveltio-devs/zveltio/blob/master/docs/platform/migration-alpha-to-beta.md)
 ```
 
 ---
 
 ## Related
 
-- [MIGRATION-ALPHA-TO-BETA.md](./MIGRATION-ALPHA-TO-BETA.md) — env vars, migrations, extension repack
-- [MARKETPLACE-POLICY.md](./MARKETPLACE-POLICY.md) — controlled launch during beta
-- [CHANGELOG.md](../CHANGELOG.md) — full release history
+- [MIGRATION-ALPHA-TO-BETA.md](../platform/migration-alpha-to-beta.md) — env vars, migrations, extension repack
+- [MARKETPLACE-POLICY.md](../extensions/marketplace-policy.md) — controlled launch during beta
+- [CHANGELOG.md](../../CHANGELOG.md) — full release history

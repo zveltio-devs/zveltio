@@ -96,7 +96,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S5-03 | Realtime via Valkey Pub/Sub (replace in-memory broker) | 5 | 3d | DONE — new `lib/realtime-bus.ts` with three pluggable backends: `ValkeyRealtimeBus` (preferred, set `VALKEY_URL`), `PgNotifyRealtimeBus` (fallback, uses `Bun.SQL.subscribe()`), `NoopRealtimeBus` (no cross-instance — tests + truly-single-host installs). Selected at first call to `realtimeBus()` based on env. Both real backends suppress self-echo via a per-process `originId` so the publisher's own WS clients (already served by the local `broadcastEvent` in `data.ts`) don't see duplicates. The previous architecture issued `pg_notify('zveltio_changes', ...)` directly from `data.ts` and ran a separate `RealtimeManager` LISTEN class — which had a duplicate-broadcast bug because the originating instance received its own NOTIFY. The unified bus fixes that. `data.ts` write path now calls `realtimeBus().publish(...)` instead of inlining the pg_notify SQL. Legacy `lib/realtime.ts` left in the tree for one wave so external scripts still typecheck; will be removed in a follow-up. 10 unit tests cover backend selection (env-driven), noop semantics, self-echo suppression, event mapping, missing-field guards, ORIGIN_ID format stability. |
 | S5-04 | PgBoss for queues (replace custom `pdf-queue`, `ddl-queue`) | 5 | 2d | DONE — `ddl-queue.ts` rewritten on top of `pg-boss@12`. The previous 324-line hand-rolled queue (custom `zv_ddl_jobs` table, FOR UPDATE SKIP LOCKED claim, in-house retry/requeue passes) replaced with pg-boss's persistent queues, exponential backoff retry, DLQ, and 7-day completed-job archive. Per-type queues (`ddl.create_collection` / `drop_collection` / `add_field` / `remove_field` / `create_relation` / `drop_relation`) so concurrency can be tuned per op. Public surface preserved: `initDDLQueue(db)` / `enqueueDDLJob(db, type, payload)` / `getDDLJob(db, jobId)` keep the same signatures so callers in `routes/collections.ts`, `routes/schema-branches.ts`, and `extension-loader.ts` don't change. `mapJobToPublic` translates pg-boss's internal state names (`created`/`active`/`retry`/`completed`/`failed`/`cancelled`/`expired`) into the Studio-facing `{status, retry_count, ...}` shape — 10 unit tests pin this mapping. Graceful shutdown wired into bootstrap. **Scoped change**: `pdf-queue.ts` left as-is — it's an in-process Bun Worker pool for CPU work, not a Postgres-backed job queue; pg-boss is the wrong tool for that. The legacy `zv_ddl_jobs` table is preserved for historical queries (no new rows; can be dropped in a future migration). |
 | S5-05 | WASM sandbox for third-party extensions (Wasmtime) | 5 | 2w | DONE — full WASM sandbox shipped on top of the S5-05 foundation. `lib/wasm-extension-host.ts` loads `.wasm` extensions in capability-bound WebAssembly instances (Bun's built-in `WebAssembly.instantiate`, no wasmtime dep). Real isolation: separate linear memory, no V8 heap access, host controls the entire imports table (`zveltio.log`, `db_query`, `db_execute`, `fetch_begin`, `crypto_random_bytes`, `env_read`, `fs_read`/`fs_write`). `process.spawn` intentionally absent. Memory ceiling derived from `policy.quotas.memoryKbMax`; CPU budget enforced via `withCpuBudget` Promise.race. `extension-loader.ts` branches on `manifest.runtime === 'wasm'` and instantiates the host instead of dynamic-importing a `.ts` file. `WASM_HOST_ABI_VERSION = 1` exposed as a module-side constant. 7 unit tests pin ABI version, imports surface (presence + denial of `process_spawn`), `crypto_random_bytes` fills memory, `withCpuBudget` resolves/rejects per budget. Companion tooling (AssemblyScript bindings, full WASI preview-2) lands as the third-party ecosystem grows. |
-| S5-06 | Helm chart + Kustomize overlays for K8s self-host | 5 | 1w | DONE (chart) — new `charts/zveltio/` Helm chart deploys the engine on K8s. Single chart, sensible defaults, production-checklist hints in `NOTES.txt`. Templates: Deployment, Service, ServiceAccount, Secret (auto or `existingSecret`), PVC (engine `/data`), Ingress (off by default, cert-manager-friendly annotations), HPA (off by default, CPU + memory targets), PodDisruptionBudget. Optional in-cluster Postgres (StatefulSet, dev-grade) and Valkey (Deployment, dev-grade) gated behind `postgresql.enabled` / `redis.enabled` — production deploys use managed services. Pre-install / pre-upgrade migration Job (Helm hook) gated behind `migrationJob.enabled` for blue/green; the default flow relies on S4-10 auto-migrate. `_helpers.tpl` derives `databaseUrl` + `valkeyUrl` from in-cluster releases when enabled. `docs/site/DEPLOYMENT-K8S.md` documents the install (quick-start + production with HPA + ingress + ESO-style external secrets), realtime backend selection, migration strategies, observability hooks, uninstall + PVC retention. Kustomize overlays deferred — `helm template ... \| kustomize` covers the common reuse case until there's a concrete need. `helm lint` not run locally (no helm in env); templates statically reviewed and follow Bitnami conventions. |
+| S5-06 | Helm chart + Kustomize overlays for K8s self-host | 5 | 1w | DONE (chart) — new `charts/zveltio/` Helm chart deploys the engine on K8s. Single chart, sensible defaults, production-checklist hints in `NOTES.txt`. Templates: Deployment, Service, ServiceAccount, Secret (auto or `existingSecret`), PVC (engine `/data`), Ingress (off by default, cert-manager-friendly annotations), HPA (off by default, CPU + memory targets), PodDisruptionBudget. Optional in-cluster Postgres (StatefulSet, dev-grade) and Valkey (Deployment, dev-grade) gated behind `postgresql.enabled` / `redis.enabled` — production deploys use managed services. Pre-install / pre-upgrade migration Job (Helm hook) gated behind `migrationJob.enabled` for blue/green; the default flow relies on S4-10 auto-migrate. `_helpers.tpl` derives `databaseUrl` + `valkeyUrl` from in-cluster releases when enabled. `docs/platform/deployment-k8s.md` documents the install (quick-start + production with HPA + ingress + ESO-style external secrets), realtime backend selection, migration strategies, observability hooks, uninstall + PVC retention. Kustomize overlays deferred — `helm template ... \| kustomize` covers the common reuse case until there's a concrete need. `helm lint` not run locally (no helm in env); templates statically reviewed and follow Bitnami conventions. |
 | S5-07 | Electric SQL offline sync in SDK | 5 | 2w | DONE — full Electric wiring shipped on top of the S5-07 foundation. Engine: `POST /api/electric/auth` mints 60-s HS256 JWTs (sub / tenant_id / exp / aud=electric-sql), `GET /api/electric/config` reports enabled/disabled; both 503 cleanly when `ELECTRIC_URL` + `ELECTRIC_AUTH_TOKEN` aren't set so the SDK falls back to CRDT. Migration `075_electric_replication.sql` creates the `zveltio_electric` publication + helpers `zv_electric_enable_table(name)` / `zv_electric_disable_table(name)` (set `REPLICA IDENTITY FULL`, idempotent, table-name regex-validated against injection). SDK: `makeElectricProvider` in `@zveltio/sdk/offline` mints the token, opens a websocket (subscribe/unsubscribe routes per-table change events to callbacks), auto-refreshes the JWT 10s before expiry. New `ElectricUnavailable` error class for engine-side 503/401. `docker-compose.electric.yml` is the opt-in overlay (`docker compose -f docker-compose.yml -f docker-compose.electric.yml up`) with `electricsql/electric:0.12.1`, AUTH_MODE=secure, AUTH_JWT_ALG=HS256, publication=`zveltio_electric`. `docs/private/OFFLINE-SYNC.md` is the operator runbook (promoted to site as `/offline-sync`). Engine api-types fixture mounts `/api/electric` with `ElectricAuthResponse` + `ElectricConfigResponse` types. 8 unit tests cover route 401/503 + signed JWT shape + websocket subscribe/unsubscribe + 401/503 mapping to `ElectricUnavailable`. |
 | S5-08 | Passkeys / WebAuthn enabled by default | 5 | 1d | DONE — bumped `better-auth` 1.5.3 → 1.6.11 (passkey plugin landed in 1.6) + `@better-auth/kysely-adapter` 1.6.11 + new dep `@better-auth/passkey` 1.6.11. Engine wires `passkey({ rpID, rpName, origin })` into auth.ts plugins[]. `PASSKEY_RP_ID` env override (defaults to `new URL(BETTER_AUTH_URL).hostname`). New Studio routes: `/admin/account` (profile + passkeys + `account.sections` slot for extensions). New component `PasskeysSection.svelte` lists/registers/deletes credentials via `/api/auth/passkey/*` endpoints, using `@simplewebauthn/browser` (`startRegistration` / `startAuthentication`) to drive the browser ceremony. Login page gets a "Sign in with passkey" button when `PublicKeyCredential` is available. Sidebar's user identity area links to `/admin/account` for discoverability. All 4 packages typecheck clean; 298 unit tests still pass after the better-auth bump. |
 | S5-09 | Atlas migration safety in CI | 5 | 1d | DONE — `.github/workflows/migrate-safety.yml` runs Atlas (ariga.io/atlas) lint on every PR that touches `packages/engine/src/db/migrations/sql/**` or `atlas.hcl`. Concurrency-grouped per ref so re-pushes cancel in-flight runs. Atlas only lints NEW/CHANGED migrations vs the PR base — existing 73 migrations are grandfathered. Policy in `atlas.hcl`: `destructive`, `concurrent_index`, and `data_depend` analyzers fail the build (catches DROP/ALTER without explicit handling, `CREATE INDEX` without CONCURRENTLY, `NOT NULL` ALTER on column with nulls). Atlas spins its own ephemeral Postgres 18 container for syntax + semantic validation — no secrets/connection-strings needed for local-only mode. `ATLAS_TOKEN` secret is optional (enables Atlas Cloud features later, not required for the lint). |
@@ -118,10 +118,10 @@ contributor velocity. Sprint 5 is strategic differentiation.
 compromise lets an attacker run arbitrary code in the engine process.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (~line 196 — `downloadExtension`)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (~line 196 — `downloadExtension`)
 - `packages/sdk/src/extension/index.ts` (add `signature` field to manifest type)
 - `zveltio-registry/src/` (generate signature at publish time)
-- `packages/engine/src/lib/registry-keys.ts` (NEW) — hardcoded registry public key
+- `packages/engine/src/lib/security/registry-keys.ts` (NEW) — hardcoded registry public key
 
 **Design**:
 1. Registry generates one ed25519 keypair at deploy time. Public key is
@@ -158,7 +158,7 @@ route. Worse: `bun add` accepts any package name including transitive supply
 chain attacks.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (~line 867-975)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (~line 867-975)
 - `packages/sdk/src/extension/index.ts` (add `peerDependenciesAllowList` field)
 
 **Design**:
@@ -186,7 +186,7 @@ the same extension can race (extract overwrites, migrations run twice with
 race conditions, registry row written twice).
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (install/enable/disable/uninstall
+- `packages/engine/src/lib/extensions/extension-loader.ts` (install/enable/disable/uninstall
   handlers — wrap in advisory lock)
 
 **Design**:
@@ -216,7 +216,7 @@ All install/enable/disable/uninstall handlers wrap their body in
 extension is half-installed and can't be retried without manual SQL.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (`runExtensionMigrations`, ~line 977)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (`runExtensionMigrations`, ~line 977)
 - `packages/engine/src/lib/migration-parser.ts` (NEW or extend existing parser)
 
 **Design**:
@@ -250,7 +250,7 @@ extension is half-installed and can't be retried without manual SQL.
 "applied").
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (~line 1433-1448)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (~line 1433-1448)
 
 **Design**:
 1. Uninstall **requires confirmation** with `?purgeData=true` query parameter.
@@ -279,7 +279,7 @@ exist, so a misconfigured publish DoS's the engine disk.
 
 **Files to change**:
 - `packages/sdk/src/extension/index.ts` (manifest type)
-- `packages/engine/src/lib/extension-loader.ts` (validate after extract)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (validate after extract)
 
 **Design**:
 Manifest fields (all optional, sensible defaults):
@@ -303,7 +303,7 @@ install with `EXT_QUOTA_EXCEEDED { quota, observed, limit }`.
 manually retry.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (`downloadExtension`)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (`downloadExtension`)
 - `packages/engine/src/lib/safe-fetch.ts` (existing — extend with retry helper)
 
 **Design**:
@@ -322,7 +322,7 @@ manually retry.
 code change loads the stale cached version.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (~line 754, dynamic import)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (~line 754, dynamic import)
 
 **Design**:
 In dev mode (`NODE_ENV !== 'production'`), append a cache-busting query
@@ -356,7 +356,7 @@ This blocks ~30% of real Drupal-style use cases.
 
 **Files to change**:
 - `packages/sdk/src/extension/index.ts` (add event types)
-- `packages/engine/src/lib/event-bus.ts` (~line 55-114)
+- `packages/engine/src/lib/runtime/event-bus.ts` (~line 55-114)
 - `packages/engine/src/routes/data.ts` (all `db.insertInto / updateTable /
   deleteFrom` calls go through `writeWithHooks`)
 - `packages/engine/src/lib/write-with-hooks.ts` (NEW)
@@ -427,7 +427,7 @@ export async function writeWithHooks<T>(
   exceeded" }`. No row inserted.
 - Two extensions subscribe; both mutations apply (extension A patches `x`,
   extension B patches `y`); ordering is alphabetical by extension name.
-- Handler ordering documented in `docs/site/EXTENSION-DEVELOPER-GUIDE.md`.
+- Handler ordering documented in `docs/extensions/developer-guide.md`.
 
 ---
 
@@ -471,7 +471,7 @@ every route. Today: impossible.
 
 **Files to change**:
 - `packages/sdk/src/extension/index.ts` (`ExtensionContext.queryAlter`)
-- `packages/engine/src/lib/query-alter.ts` (NEW)
+- `packages/engine/src/lib/data/query-alter.ts` (NEW)
 - `packages/engine/src/routes/data.ts` (wrap selects through `applyQueryAlters`)
 
 **Design**:
@@ -505,7 +505,7 @@ edit only their own department's records"). Extensions need to plug in.
 
 **Files to change**:
 - `packages/sdk/src/extension/index.ts` (`ExtensionContext.entityAccess`)
-- `packages/engine/src/lib/entity-access.ts` (NEW)
+- `packages/engine/src/lib/tenancy/entity-access.ts` (NEW)
 - `packages/engine/src/routes/data.ts` (call `checkEntityAccess` on read/write)
 
 **Design**:
@@ -537,8 +537,8 @@ absent.
 
 **Files to change**:
 - `packages/sdk/src/extension/index.ts` (`ZveltioExtension.schedules`)
-- `packages/engine/src/lib/extension-loader.ts` (read schedules at registration)
-- `packages/engine/src/lib/cron-runner.ts` (NEW — generalized scheduler)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (read schedules at registration)
+- `packages/engine/src/lib/runtime/cron-runner.ts` (NEW — generalized scheduler)
 - `packages/engine/src/db/migrations/sql/NNN_extension_schedules.sql` (NEW)
 
 **Design**:
@@ -602,7 +602,7 @@ Restart is required. This blocks hot-reload, breaks middleware isolation, and
 makes route ownership opaque.
 
 **Files to change**:
-- `packages/engine/src/lib/extension-loader.ts` (`loadExtension`, ~line 802)
+- `packages/engine/src/lib/extensions/extension-loader.ts` (`loadExtension`, ~line 802)
 - `packages/engine/src/index.ts` (route mounting)
 - `packages/sdk/src/extension/index.ts` (`register` signature unchanged — but
   `app` is now a sub-app, not the root)
@@ -831,7 +831,7 @@ manual rebuild + engine restart.
 
 **Files to change**:
 - `packages/cli/src/commands/extension.ts` (~line 182-184 — replace `devExtension`)
-- `packages/engine/src/lib/extension-loader.ts` (add `__zveltio_dev_reload` HTTP
+- `packages/engine/src/lib/extensions/extension-loader.ts` (add `__zveltio_dev_reload` HTTP
   endpoint accepting `{ name }`)
 - `packages/sdk/src/studio/dev.ts` (NEW — HMR client)
 
@@ -1115,7 +1115,7 @@ CPU limits enforced by host.
 ### S5-06 · Helm chart + Kustomize
 
 `charts/zveltio/` (NEW). Engine deployment, Postgres StatefulSet, Valkey,
-SeaweedFS, ingress, secrets. Documented in `docs/site/DEPLOYMENT-K8S.md`.
+SeaweedFS, ingress, secrets. Documented in `docs/platform/deployment-k8s.md`.
 
 ### S5-07 · Electric SQL offline sync
 
@@ -1161,12 +1161,12 @@ Sprint 5 items, prioritized by user feedback.
 
 Implementation diverged slightly from the design:
 
-- Added [`packages/engine/src/lib/peer-deps-allowlist.ts`](../packages/engine/src/lib/peer-deps-allowlist.ts) — global allow-list (Set) plus `isPackageAllowed()` helper. The per-extension `allowedPackages` field from the original design was deferred: the global list is sufficient for the current 37 extensions and avoids manifest schema churn. Revisit when a third-party publisher needs a per-extension override.
-- `installNpmDependencies` in [`packages/engine/src/lib/extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts):
+- Added [`packages/engine/src/lib/peer-deps-allowlist.ts`](../../packages/engine/src/lib/peer-deps-allowlist.ts) — global allow-list (Set) plus `isPackageAllowed()` helper. The per-extension `allowedPackages` field from the original design was deferred: the global list is sufficient for the current 37 extensions and avoids manifest schema churn. Revisit when a third-party publisher needs a per-extension override.
+- `installNpmDependencies` in [`packages/engine/src/lib/extensions/extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts):
   - Added allow-list enforcement in the SECURITY validation block (right after regex name/version checks).
   - Changed the final `console.warn + return` to `throw new Error(...)` so failures propagate.
 - Caller in `loadExtension()` (~line 797) now wraps the call in try/catch, sets `lastLoadError`, and returns early — matching the existing pattern used for incompatible engine versions and missing pg extensions.
-- Unit tests in [`packages/engine/src/tests/unit/peer-deps-allowlist.test.ts`](../packages/engine/src/tests/unit/peer-deps-allowlist.test.ts) — 4 tests covering allowed, rejected, case-sensitivity, set inspection.
+- Unit tests in [`packages/engine/src/tests/unit/peer-deps-allowlist.test.ts`](../../packages/engine/src/tests/unit/peer-deps-allowlist.test.ts) — 4 tests covering allowed, rejected, case-sensitivity, set inspection.
 
 **Verification**: `bun run typecheck` clean; new unit tests pass (4/4).
 
@@ -1178,10 +1178,10 @@ Implementation diverged slightly from the design:
 
 ### S1-03 — pg_advisory_lock + in-memory mutex (DONE 2026-05-15)
 
-- Added `inMemoryMutex<T>(key, fn)` (pure same-process serialization) and `withExtensionLock<T>(db, name, fn)` (composes in-memory mutex with `pg_advisory_xact_lock(hashtext('ext:' + name))` inside a transaction) in [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts).
+- Added `inMemoryMutex<T>(key, fn)` (pure same-process serialization) and `withExtensionLock<T>(db, name, fn)` (composes in-memory mutex with `pg_advisory_xact_lock(hashtext('ext:' + name))` inside a transaction) in [`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts).
 - Wrapped all four lifecycle handlers (`install`, `enable`, `disable`, `uninstall`) — they extract `name` first, then run the body inside `withExtensionLock(db, name, async () => { ... })` returning `c.json(...)`.
 - The pg advisory-lock transaction stays open for the operation's duration (including external work like download + npm install). This holds one DB connection for the duration. Lifecycle ops are rare admin actions, so the trade-off is acceptable; documented in the helper's leading comment.
-- Unit tests in [`packages/engine/src/tests/unit/extension-lock.test.ts`](../packages/engine/src/tests/unit/extension-lock.test.ts) target `inMemoryMutex` directly (4 tests). `withExtensionLock` requires a real Kysely instance and is covered structurally via typecheck + the integration test stub.
+- Unit tests in [`packages/engine/src/tests/unit/extension-lock.test.ts`](../../packages/engine/src/tests/unit/extension-lock.test.ts) target `inMemoryMutex` directly (4 tests). `withExtensionLock` requires a real Kysely instance and is covered structurally via typecheck + the integration test stub.
 
 **Verification**: `bun run typecheck` clean; new unit tests pass (4/4).
 
@@ -1193,7 +1193,7 @@ Implementation diverged slightly from the design:
 
 ### S1-06 — Size quotas in manifest (DONE 2026-05-15)
 
-- Extended `ManifestSchema` in [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts) with `quotas` object (optional; defaults: `bundleSizeKbMax: 50000`, `nodeModulesSizeMbMax: 200`, `migrationsMax: 100`).
+- Extended `ManifestSchema` in [`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts) with `quotas` object (optional; defaults: `bundleSizeKbMax: 50000`, `nodeModulesSizeMbMax: 200`, `migrationsMax: 100`).
 - Exported `DEFAULT_QUOTAS`, `QuotaExceededError` (typed quota name + observed + limit), and `directorySizeBytes(dir)` (recursive size walk with graceful fallback on FS errors).
 - `loadExtension()` enforces three checks:
   - Bundle size: `directorySizeBytes(extDir)` after manifest parse (rejects ext > 50 MB by default).
@@ -1201,7 +1201,7 @@ Implementation diverged slightly from the design:
   - Migrations count: `extension.getMigrations().length` after module import.
 - Each failure mirrors the existing soft-fail pattern: warn + `lastLoadError.set(...)` + early return. No mid-install state.
 - Deferred: `routesMax` quota (would need a route-counting wrapper around `app.route(...)` — not landing in this iteration).
-- Unit tests in [`quota-and-retry.test.ts`](../packages/engine/src/tests/unit/quota-and-retry.test.ts) cover `directorySizeBytes` (empty / files / nested), `QuotaExceededError` (field capture), `DEFAULT_QUOTAS` (export shape).
+- Unit tests in [`quota-and-retry.test.ts`](../../packages/engine/src/tests/unit/quota-and-retry.test.ts) cover `directorySizeBytes` (empty / files / nested), `QuotaExceededError` (field capture), `DEFAULT_QUOTAS` (export shape).
 
 **Acceptance criteria status**:
 - [x] Extension whose folder exceeds 50 MB fails install (size check after manifest parse).
@@ -1210,10 +1210,10 @@ Implementation diverged slightly from the design:
 
 ### S1-07 — Download retry with exponential backoff (DONE 2026-05-15)
 
-- Added exported `fetchWithRetry(url, init)` in [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts).
+- Added exported `fetchWithRetry(url, init)` in [`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts).
 - Behavior: 3 attempts with delays 500ms / 2s / 5s. Retries on 5xx + 429 + network errors. Returns 4xx (other than 429) immediately (auth/not-found won't recover).
 - `downloadExtension` now calls `fetchWithRetry` instead of bare `fetch`.
-- Unit tests in [`quota-and-retry.test.ts`](../packages/engine/src/tests/unit/quota-and-retry.test.ts): 2xx pass-through, 4xx fail-fast, 5xx retry, 429 retry, network-error retry-then-fail. Mocks `globalThis.fetch` per test.
+- Unit tests in [`quota-and-retry.test.ts`](../../packages/engine/src/tests/unit/quota-and-retry.test.ts): 2xx pass-through, 4xx fail-fast, 5xx retry, 429 retry, network-error retry-then-fail. Mocks `globalThis.fetch` per test.
 
 **Acceptance criteria status**:
 - [x] Network blip on attempt 1 succeeds on retry without user-visible failure.
@@ -1221,7 +1221,7 @@ Implementation diverged slightly from the design:
 
 ### S1-08 — Module cache busting in dev (DONE 2026-05-15)
 
-- One-line change in `loadExtension()` ([`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts)): append `?v=${Date.now()}` to the dynamic-import path when `NODE_ENV !== 'production'`. Production loads keep the deterministic path (cache is correct after deploy).
+- One-line change in `loadExtension()` ([`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts)): append `?v=${Date.now()}` to the dynamic-import path when `NODE_ENV !== 'production'`. Production loads keep the deterministic path (cache is correct after deploy).
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
@@ -1236,8 +1236,8 @@ implementation took a **two-tier shape** that the original plan didn't spell out
 
 Foundation changes:
 
-- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) exports `MountStrategy` and adds optional `mountStrategy` field on `ZveltioExtension`.
-- Engine [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts) `loadExtension` + `reRegisterExtension` branch on `mountStrategy`. The `'global'` branch is unchanged today's behaviour; the `'subapp'` branch wraps in `new Hono()` and mounts at `/ext/<name>`.
+- SDK [`packages/sdk/src/extension/index.ts`](../../packages/sdk/src/extension/index.ts) exports `MountStrategy` and adds optional `mountStrategy` field on `ZveltioExtension`.
+- Engine [`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts) `loadExtension` + `reRegisterExtension` branch on `mountStrategy`. The `'global'` branch is unchanged today's behaviour; the `'subapp'` branch wraps in `new Hono()` and mounts at `/ext/<name>`.
 - Disable still uses today's `triggerReload()` (rebuilds the entire app). For sub-app extensions this drops the sub-app pointer cleanly — the route disappears. No new Hono-internal hacking needed.
 
 Pilot migrations (2 of 47 done):
@@ -1245,7 +1245,7 @@ Pilot migrations (2 of 47 done):
 - **`forms`** (clean sub-router): switched to `mountStrategy: 'subapp'`; routes inside `routes.ts` now use `/`, `/:id`, `/:id/responses`, `/public/:slug` (down from `/forms`, `/forms/:id`, etc.). URLs are now `/ext/forms`, `/ext/forms/:id`, … Updated 2 Studio call sites (Studio core `routes/(admin)/forms/+page.svelte` and the extension's own Studio bundle).
 - **`sms`** (clean sub-router, no Studio bundle): switched to `mountStrategy: 'subapp'`; `routes.ts` was already using relative paths so no internal changes. URLs are now `/ext/sms/send`, `/ext/sms/messages`, …
 
-Unit tests in [`subapp-mount.test.ts`](../packages/engine/src/tests/unit/subapp-mount.test.ts) — 6 tests covering: basic mount, slash-bearing names, 404 for unmounted prefixes, sub-app middleware fires correctly, disable = rebuild-without-mount (404), multi-extension namespace isolation.
+Unit tests in [`subapp-mount.test.ts`](../../packages/engine/src/tests/unit/subapp-mount.test.ts) — 6 tests covering: basic mount, slash-bearing names, 404 for unmounted prefixes, sub-app middleware fires correctly, disable = rebuild-without-mount (404), multi-extension namespace isolation.
 
 #### Migration roadmap for remaining 45 extensions
 
@@ -1300,12 +1300,12 @@ Pending (45), grouped by complexity:
 
 Engine-side scaffolding complete; **registry-side signing publication remains** as a follow-up in `zveltio-registry/`.
 
-- New module [`registry-keys.ts`](../packages/engine/src/lib/registry-keys.ts):
+- New module [`registry-keys.ts`](../../packages/engine/src/lib/security/registry-keys.ts):
   - `RegistryKey { keyId, publicKey: Uint8Array }`.
   - `BUILTIN_KEYS: RegistryKey[]` — hardcoded into the engine at build time. **Empty for now**; when the registry generates its keypair, the production pubkey lands here.
   - `REGISTRY_PUBLIC_KEYS_JSON` env var support: a JSON array of `{ keyId, publicKeyHex }` entries. Self-hosted operators can trust additional keys without rebuilding.
   - Exports `getTrustedKeys()` and `findKeyById(keyId)`.
-- New module [`signature-verify.ts`](../packages/engine/src/lib/signature-verify.ts):
+- New module [`signature-verify.ts`](../../packages/engine/src/lib/security/signature-verify.ts):
   - `ExtensionSignature { algorithm: 'ed25519', signature, bundleSha256, keyId, signedAt? }` — the shape of the `<archive>.sig` JSON file.
   - `parseSignature(input, extName)` — runtime shape validation.
   - `verifySignature(archive, signature, extName)` — three-step check: resolve key by `keyId`, recompute sha256 and compare to `bundleSha256`, verify Ed25519 via `crypto.subtle.verify`. Each failure mode throws `SignatureInvalidError` with the specific reason.
@@ -1315,7 +1315,7 @@ Engine-side scaffolding complete; **registry-side signing publication remains** 
 - ENV gate `REQUIRE_EXTENSION_SIGNATURES` (default: unset → false):
   - **Missing signature**: throws `SignatureMissingError` if required; otherwise warns and proceeds.
   - **Invalid signature**: ALWAYS throws — we never accept a present-but-broken signature.
-- Unit tests in [`signature-verify.test.ts`](../packages/engine/src/tests/unit/signature-verify.test.ts) — 17 tests across 3 describe blocks. Use real Ed25519 keypairs generated via `crypto.subtle.generateKey` (no mocks); cover valid signing, tamper detection, unknown keyId, cross-key forgery attempt, malformed base64, wrong-length signature, parseSignature edge cases, env-loader behaviour.
+- Unit tests in [`signature-verify.test.ts`](../../packages/engine/src/tests/unit/signature-verify.test.ts) — 17 tests across 3 describe blocks. Use real Ed25519 keypairs generated via `crypto.subtle.generateKey` (no mocks); cover valid signing, tamper detection, unknown keyId, cross-key forgery attempt, malformed base64, wrong-length signature, parseSignature edge cases, env-loader behaviour.
 
 **Remaining for full v1.0 signing**:
 - **Registry-side**: `zveltio-registry/` Cloudflare Worker must (a) generate and store an Ed25519 keypair, (b) on extension publish, compute `sha256(archive)`, sign it, write the `.sig` sibling alongside the archive in R2/whichever blob store. The public key value lands in `BUILTIN_KEYS`.
@@ -1333,19 +1333,19 @@ Engine-side scaffolding complete; **registry-side signing publication remains** 
 Extensions can declare scheduled tasks declaratively; the engine's cron
 runner polls every 30 s, executes due handlers, persists every run.
 
-- New SQL migration [`072_extension_schedule_runs.sql`](../packages/engine/src/db/migrations/sql/072_extension_schedule_runs.sql) — `zv_extension_schedule_runs` table with `(id, extension_name, schedule_name, started_at, finished_at, status, attempt, error_message, trace_id)`. Two indexes: one on `(ext, schedule, started_at DESC)`, one partial on `status IN ('failed', 'dlq')`. `embedded.ts` regenerated (65 migrations).
-- New module [`cron-runner.ts`](../packages/engine/src/lib/cron-runner.ts):
+- New SQL migration ``072_extension_schedule_runs.sql`` (squashed into the 3.0 migration set) — `zv_extension_schedule_runs` table with `(id, extension_name, schedule_name, started_at, finished_at, status, attempt, error_message, trace_id)`. Two indexes: one on `(ext, schedule, started_at DESC)`, one partial on `status IN ('failed', 'dlq')`. `embedded.ts` regenerated (65 migrations).
+- New module [`cron-runner.ts`](../../packages/engine/src/lib/runtime/cron-runner.ts):
   - `CronRunnerImpl` with `register(extName, schedule)`, `unregisterAll(extName)`, `count`, `list`, `clear`, `start(db, ctx)`, `stop()`, `_tick`, `_runOne`, `_insertRun`, `_finishRun`.
   - 30 s poll interval. Each tick walks registered entries; for each not in-flight whose `nextRunAt <= now`, runs handler async.
   - Retry policy from `schedule.retry` (defaults: `maxAttempts: 1`, `backoffMs: 1000`). Last failed attempt → `status: 'dlq'`. Intermediate failures → `status: 'failed'`.
   - `computeNextRun(schedule, now)` (exported pure function): returns `now + intervalMs` for interval schedules; returns today HH:MM if still future, else tomorrow HH:MM, for `at`-based schedules; returns `null` when neither is set.
-- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) adds `ExtensionSchedule` interface and optional `schedules?(): ExtensionSchedule[]` on `ZveltioExtension`.
+- SDK [`packages/sdk/src/extension/index.ts`](../../packages/sdk/src/extension/index.ts) adds `ExtensionSchedule` interface and optional `schedules?(): ExtensionSchedule[]` on `ZveltioExtension`.
 - `extension-loader.ts` wire-up:
   - After `extension.register(...)`, if `extension.schedules` is a function, the loader calls it and `cronRunner.register(name, schedule)` for each item. Failures non-fatal (logged + extension still loaded).
   - `unload(name)` adds `cronRunner.unregisterAll(name)` alongside the other registry cleanups.
   - `reRegisterExtension` re-registers schedules on hot-reload.
 - `src/index.ts` starts the runner after `flowScheduler.start(db)`, with a base ctx (handlers get the scope-bound ctx via cron-runner internals).
-- Unit tests in [`cron-runner.test.ts`](../packages/engine/src/tests/unit/cron-runner.test.ts) — 14 tests across 3 describe blocks: `computeNextRun` semantics, `register/unregister/list/count/clear`, and `_runOne` execution (single-run success, max-attempts on failure, stop-on-first-success).
+- Unit tests in [`cron-runner.test.ts`](../../packages/engine/src/tests/unit/cron-runner.test.ts) — 14 tests across 3 describe blocks: `computeNextRun` semantics, `register/unregister/list/count/clear`, and `_runOne` execution (single-run success, max-attempts on failure, stop-on-first-success).
 
 **Deliberate omissions from original design** (documented as follow-ups):
 - **Cron expressions** (`'0 3 * * *'` style) — `schedule.cron` is reserved in the type, logged as unsupported at register, and the schedule is skipped. Adding a real cron parser is a separate effort; `intervalMs` + `at` cover the common cases.
@@ -1364,14 +1364,14 @@ runner polls every 30 s, executes due handlers, persists every run.
 
 Same scope+ownership model as query-alter; first deny wins, default allow.
 
-- New module [`packages/engine/src/lib/entity-access.ts`](../packages/engine/src/lib/entity-access.ts) — `EntityAccessRegistryImpl` with `registerAs`, `checkAccess(table, record, user, op)`, `isAllowed(...)` sugar, `unregisterAll`, `clear`, `scope(extName)`.
+- New module [`packages/engine/src/lib/tenancy/entity-access.ts`](../../packages/engine/src/lib/tenancy/entity-access.ts) — `EntityAccessRegistryImpl` with `registerAs`, `checkAccess(table, record, user, op)`, `isAllowed(...)` sugar, `unregisterAll`, `clear`, `scope(extName)`.
 - Decision type: `'allow' | 'deny'`. Operations: `'view' | 'update' | 'delete'`. Checks are async.
-- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) exports `EntityAccessScope` and adds `entityAccess` field to `ExtensionContext` with payroll example in JSDoc.
+- SDK [`packages/sdk/src/extension/index.ts`](../../packages/sdk/src/extension/index.ts) exports `EntityAccessScope` and adds `entityAccess` field to `ExtensionContext` with payroll example in JSDoc.
 - Engine `ExtensionContext` extended; both ctx-construction sites in `extension-loader.ts` + bootstrap in `src/index.ts` wire `entityAccessRegistry.scope(name)`. `unload()` calls `entityAccessRegistry.unregisterAll(name)`.
 - `data.ts` enforces at 4 single-record sites:
   - `GET /:collection/:id`: after the record is fetched (post query-alter), an `isAllowed(..., 'view')` check returning false yields **404 (not 403)** so the caller cannot distinguish "doesn't exist" from "you can't see it".
   - PUT, PATCH, DELETE single: after the before-row fetch, `isAllowed(..., 'update' | 'delete')` returning false yields **403 Forbidden** — at this point the user already knows the row exists (the response wouldn't lie about it).
-- Unit tests in [`entity-access.test.ts`](../packages/engine/src/tests/unit/entity-access.test.ts) — 11 tests: default allow, first-deny short-circuits, all-allow passes, payload propagation, async checks, table isolation, realistic payroll-style policy, unregisterAll, scope tagging + cleanup, clear, isAllowed sugar.
+- Unit tests in [`entity-access.test.ts`](../../packages/engine/src/tests/unit/entity-access.test.ts) — 11 tests: default allow, first-deny short-circuits, all-allow passes, payload propagation, async checks, table isolation, realistic payroll-style policy, unregisterAll, scope tagging + cleanup, clear, isAllowed sugar.
 
 **Acceptance criteria status**:
 - [x] HR can view all payroll records; regular user only their own (payroll-style policy test).
@@ -1381,8 +1381,8 @@ Same scope+ownership model as query-alter; first deny wins, default allow.
 
 ### S2-03 — Query alter (DONE 2026-05-15)
 
-- New module [`packages/engine/src/lib/query-alter.ts`](../packages/engine/src/lib/query-alter.ts) — `QueryAlterRegistryImpl` with `registerAs(owner, table, alter)`, `applyAll(qb, table, user)`, `unregisterAll(owner)`, `clear()`, `scope(extName)`. Mirrors the ownership model from `service-registry.ts`: each extension gets a scoped view that tags registrations for cleanup-on-unload.
-- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) gains `QueryAlterScope` interface (`register`, `list`, `unregisterAll`) and a `queryAlter` field on `ExtensionContext` with worked example in the JSDoc.
+- New module [`packages/engine/src/lib/data/query-alter.ts`](../../packages/engine/src/lib/data/query-alter.ts) — `QueryAlterRegistryImpl` with `registerAs(owner, table, alter)`, `applyAll(qb, table, user)`, `unregisterAll(owner)`, `clear()`, `scope(extName)`. Mirrors the ownership model from `service-registry.ts`: each extension gets a scoped view that tags registrations for cleanup-on-unload.
+- SDK [`packages/sdk/src/extension/index.ts`](../../packages/sdk/src/extension/index.ts) gains `QueryAlterScope` interface (`register`, `list`, `unregisterAll`) and a `queryAlter` field on `ExtensionContext` with worked example in the JSDoc.
 - Engine `ExtensionContext` (internal) and both ctx-construction sites in `extension-loader.ts` plus the bootstrap context in `src/index.ts` all wire `queryAlterRegistry.scope(name)` (or `'engine'`).
 - `unload(name)` (extension-loader) now calls `queryAlterRegistry.unregisterAll(name)` alongside the existing `serviceRegistry.unregisterAll(name)` so a disabled extension stops affecting queries.
 - `data.ts` applies alters in 4 Kysely-builder sites:
@@ -1391,7 +1391,7 @@ Same scope+ownership model as query-alter; first deny wins, default allow.
   - PATCH before-row read.
   - DELETE single before-row read.
   - (Aborts a delete/update on rows hidden by an alter — gives 404 instead of leaking existence.)
-- Unit tests [`query-alter.test.ts`](../packages/engine/src/tests/unit/query-alter.test.ts) — 11 tests: no-handlers pass-through, single alter, cross-table isolation, chaining, unregister, scope tagging, scope.list, scope.unregisterAll, clear, null-user safety.
+- Unit tests [`query-alter.test.ts`](../../packages/engine/src/tests/unit/query-alter.test.ts) — 11 tests: no-handlers pass-through, single alter, cross-table isolation, chaining, unregister, scope tagging, scope.list, scope.unregisterAll, clear, null-user safety.
 
 **Acceptance criteria status**:
 - [x] Extension registers `queryAlter` for `zvd_contacts` filtering by `tenant_id`; single-record GET returns 404 for cross-tenant IDs (via the Kysely builder pipeline).
@@ -1404,7 +1404,7 @@ Same scope+ownership model as query-alter; first deny wins, default allow.
 - `PATCH /:collection/bulk`: per-row before-row read **inside** the transaction (snapshot consistency), then `runBefore('record.beforeUpdate')` with `{ before, patch }`. Aborts → per-row error; missing rows → per-row "Record not found".
 - `DELETE /:collection/bulk`: pre-fetch existing rows, run `runBefore('record.beforeDelete')` per row, partition into `allowed` (proceed) / `aborted` (per-row reason). Single `DELETE … WHERE id IN (allowed.ids)` executes for the allowed set. Response now returns 207 Multi-Status when any rows were aborted, with `aborted: [{ id, reason }]` alongside `deleted` and `ids`.
 - TODO comments removed where applicable; replaced with descriptive comments about per-row hook semantics.
-- Added "bulk pattern — per-row hooks with abort collection" test block to [`pre-write-hooks.test.ts`](../packages/engine/src/tests/unit/pre-write-hooks.test.ts) (2 tests covering the loop-collect-aborts pattern + non-abort propagation).
+- Added "bulk pattern — per-row hooks with abort collection" test block to [`pre-write-hooks.test.ts`](../../packages/engine/src/tests/unit/pre-write-hooks.test.ts) (2 tests covering the loop-collect-aborts pattern + non-abort propagation).
 
 **Outstanding from full S2-02 scope**: extension-internal writes through `RestrictedDb` proxy (`ctx.db.insertInto('zvd_x')`) still bypass hooks. The proxy would need to intercept `insertInto / updateTable / deleteFrom` and wrap them in the same `runBefore` flow. This is a non-trivial change and is parked as a separate follow-up.
 
@@ -1416,18 +1416,18 @@ practice the hook bus lived more naturally on the existing `TypedEventBus`,
 and the wrapper logic ended up being thin enough that inlining it into each
 route handler was clearer than a generic abstraction.
 
-- New types in [`event-bus.ts`](../packages/engine/src/lib/event-bus.ts): `BeforeInsertPayload`, `BeforeUpdatePayload`, `BeforeDeletePayload`, `AbortHookError`, `ZveltioBeforeEvents` map.
+- New types in [`event-bus.ts`](../../packages/engine/src/lib/runtime/event-bus.ts): `BeforeInsertPayload`, `BeforeUpdatePayload`, `BeforeDeletePayload`, `AbortHookError`, `ZveltioBeforeEvents` map.
 - `TypedEventBus` extended with `onBefore(event, handler)`, `runBefore(event, seed)`, `clearPreHooks()`, `preHookCount(event)`.
 - Pre-hooks live in a separate `Map<event, Handler[]>` (not Node's `EventEmitter`) because they need async sequential execution + a shared mutable payload + short-circuit on abort.
 - `runBefore` attaches `abort` + `mutate` to a copy of the seed payload, runs handlers in registration order, returns the final payload. `mutate` targets `payload.data` for `beforeInsert`, `payload.patch` for `beforeUpdate`, and is omitted from `beforeDelete` (delete has no mutable shape).
-- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) mirrors the three `BeforeXxxPayload` interfaces so extension authors get types.
+- SDK [`packages/sdk/src/extension/index.ts`](../../packages/sdk/src/extension/index.ts) mirrors the three `BeforeXxxPayload` interfaces so extension authors get types.
 - `data.ts` migrated for single-record write paths (POST/PUT/PATCH/DELETE on `/:collection[/id]`):
   - POST: calls `runBefore('record.beforeInsert', { collection, data, userId })`, uses returned `.data` for `dynamicInsert`.
   - PUT + PATCH: reads `beforeRow` first (404 short-circuit before hooks), then `runBefore('record.beforeUpdate', { collection, id, before, patch, userId })`, uses returned `.patch`.
   - DELETE: reads `existing` first, then `runBefore('record.beforeDelete', ...)`.
   - All four catch `AbortHookError` → HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`.
 - Bulk handlers (`POST /:collection/bulk`, `PATCH /:collection/bulk`, `DELETE /:collection/bulk`) flagged with TODO(S2-02) markers — they need per-row hook calls with per-row error handling.
-- Unit tests in [`pre-write-hooks.test.ts`](../packages/engine/src/tests/unit/pre-write-hooks.test.ts) (11 expectations across 11 tests): no-handler pass-through, single mutate, stacked mutations, abort short-circuit, async handlers, unsubscribe, beforeUpdate `patch` mutation + `before` immutability, beforeDelete abort + missing mutate.
+- Unit tests in [`pre-write-hooks.test.ts`](../../packages/engine/src/tests/unit/pre-write-hooks.test.ts) (11 expectations across 11 tests): no-handler pass-through, single mutate, stacked mutations, abort short-circuit, async handlers, unsubscribe, beforeUpdate `patch` mutation + `before` immutability, beforeDelete abort + missing mutate.
 
 **Deviation from design**: ordering is registration-order, not alphabetical-by-extension. Capturing the extension name at registration would require threading the loader's current-extension marker into the `onBefore` call. Decision: acceptable for v1.0 because extensions register their hooks during their `register()` callback, which runs in deterministic topological order (already enforced by `topoSortExtensions`). If a hook ordering bug ever surfaces, the fix is small.
 
@@ -1440,7 +1440,7 @@ route handler was clearer than a generic abstraction.
 
 ### S1-05 — Complete uninstall with purgeData (DONE 2026-05-15)
 
-- New SQL migration [`071_zv_migrations_down_sql.sql`](../packages/engine/src/db/migrations/sql/071_zv_migrations_down_sql.sql) adds nullable `down_sql TEXT` column. `embedded.ts` regenerated via `bun scripts/gen-embedded-migrations.ts` (64 → 64 migrations including 071).
+- New SQL migration ``071_zv_migrations_down_sql.sql`` (squashed into the 3.0 migration set) adds nullable `down_sql TEXT` column. `embedded.ts` regenerated via `bun scripts/gen-embedded-migrations.ts` (64 → 64 migrations including 071).
 - `runExtensionMigrations()` now persists the parsed DOWN body into `zv_migrations.down_sql` at apply time. Existing rows applied before this change keep NULL and will block purge.
 - New private method `purgeExtensionData(extensionName, db)` in `ExtensionLoader`:
   - Reads `zv_migrations` rows for the extension in reverse ID order (LIFO).
@@ -1465,13 +1465,13 @@ route handler was clearer than a generic abstraction.
 
 ### S1-04 — Transactional migration apply (DONE 2026-05-15)
 
-- Extracted UP/DOWN parsing into exported `parseMigrationSql(raw): ParsedMigration` in [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts). Marker `-- DOWN` is case-insensitive; missing or empty DOWN section yields `down: null`.
+- Extracted UP/DOWN parsing into exported `parseMigrationSql(raw): ParsedMigration` in [`extension-loader.ts`](../../packages/engine/src/lib/extensions/extension-loader.ts). Marker `-- DOWN` is case-insensitive; missing or empty DOWN section yields `down: null`.
 - Rewrote `runExtensionMigrations()` in two phases:
   - **Phase 1**: scan all migration paths, skip the ones already in `zv_migrations`, build a `pending` list of `{ name, up }` records. No transaction opened if nothing's pending.
   - **Phase 2**: open ONE outer transaction. Loop through `pending`, execute each UP via `(trx as any).executeQuery(...)`, insert the `zv_migrations` row via the same `trx`. If any UP throws, Postgres rolls back the whole chain.
 - Trade-off documented in code: migrations using `CONCURRENTLY` or other non-transactional DDL cannot run via this path — Postgres will reject them at the driver level. Publishers must use the non-concurrent variant or perform the operation outside the extension lifecycle.
 - The full DOWN section is parsed but not yet stored. Persisting `down_sql` per migration row is part of S1-05 (uninstall purge needs the DOWN bodies). A subsequent migration on `zv_migrations` will add the column.
-- Unit tests in [`migration-parser.test.ts`](../packages/engine/src/tests/unit/migration-parser.test.ts) (6 tests): file without marker, UP/DOWN split, case insensitivity, empty DOWN → null, whitespace trim, no trailing newline.
+- Unit tests in [`migration-parser.test.ts`](../../packages/engine/src/tests/unit/migration-parser.test.ts) (6 tests): file without marker, UP/DOWN split, case insensitivity, empty DOWN → null, whitespace trim, no trailing newline.
 
 **Acceptance criteria status**:
 - [x] Migration #2 of 3 throws → no rows added to `zv_migrations`, no tables created (covered by Postgres transactional DDL semantics + outer transaction wrap).

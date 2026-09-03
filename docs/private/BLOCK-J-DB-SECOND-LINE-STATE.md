@@ -1,223 +1,230 @@
-# Stare — Blocul J: a doua linie de apărare stă în bază
+# State — Block J: the second line of defence lives in the database
 
-> **Se citește la începutul fiecărui pas. Se actualizează după fiecare pas.**
-> Branch: `block-j/db-second-line`, din master.
-> Metoda: criterii scrise ÎNAINTE de măsurare; un bloc are voie să se închidă cu
-> „nu merită". C 4/4, B 4/4, D 4/4 („nu merită"), E decis, F 3/4, G 4/4, H 4/4,
-> A pasul 2.
-
----
-
-## Ce a cerut proprietarul, în cuvintele lui
-
-> „God user trebuie să fie și în bază. Prima linie de apărare este engine-ul,
-> iar a doua trebuie să fie RLS-ul din bază. Și, încă ceva: **același lucru
-> trebuie să fie la orice utilizator**. Engine-ul filtrează, stabilește politici,
-> dar trebuie să existe gardă și pe baza de date."
-
-Sunt două cereri, nu una, și a doua e mult mai mare decât prima.
+> **Read at the start of every step. Update after every step.**
+> Branch: `block-j/db-second-line`, off master.
+> Method: criteria written BEFORE measuring; a block is allowed to close with
+> "not worth it". C 4/4, B 4/4, D 4/4 ("not worth it"), E decided, F 3/4, G 4/4,
+> H 4/4, A at step 2.
 
 ---
 
-## Ce e adevărat azi — măsurat, nu presupus
+## What the owner asked for, in their words
 
-| | unde e apărat |
+> "The god user has to be in the database too. The first line of defence is the
+> engine, and the second has to be RLS in the database. And one more thing:
+> **the same must hold for every user**. The engine filters and sets policies,
+> but there must also be a guard on the database."
+
+That is two requests, not one, and the second is far larger than the first.
+
+---
+
+## What is true today — measured, not assumed
+
+| | Where it is defended |
 |---|---|
-| izolarea pe firmă (`tenant_id`) | **și în bază** — politici `FORCE RLS` care citesc `zveltio_visible_tenants()` din variabile de sesiune |
-| cine e god | **doar în engine** — `user.role = 'god'`, citit de `isGodUser`; nicio politică nu știe de el |
-| regulile de rând ale produsului (`zvd_rls_policies`) | **doar în engine** — `applyRlsFilters` adaugă un `WHERE`; baza nu știe că regula există |
+| tenant isolation (`tenant_id`) | **in the database too** — `FORCE RLS` policies reading `zveltio_visible_tenants()` from session variables |
+| who is god | **engine only** — `user.role = 'god'`, read by `isGodUser`; no policy knows about it |
+| the product's row rules (`zvd_rls_policies`) | **engine only** — `applyRlsFilters` adds a `WHERE`; the database does not know the rule exists |
 
-Iar felul în care god vede totul azi e **ieșirea din RLS**: rutele care au nevoie
-primesc `poolDb`, iar pool-ul se conectează ca `postgres`, superutilizator cu
-`rolbypassrls`. Adică privilegiul nu e exprimat, e o portiță.
+And the way god sees everything today is **by leaving RLS**: the routes that
+need it get `poolDb`, and the pool connects as `postgres`, a superuser with
+`rolbypassrls`. So the privilege is not expressed — it is a side door.
 
-**Și nimic nu impune un singur god.** Modelul cerut („unul singur pe instanță")
-nu e apărat nicăieri: `user.role` acceptă `'god'` pe oricâte rânduri.
-
----
-
-## De ce a doua cerere e cea grea
-
-O regulă de rând e un rând în `zvd_rls_policies`: un câmp, un operator din
-patru, o sursă de valoare din patru. Ca s-o aplice **baza**, îi trebuie
-identitatea apelantului în variabile de sesiune — asta e ieftin. Partea scumpă e
-forma predicatului: regulile sunt **dinamice**, un admin le schimbă la rulare.
-
-Două forme, amândouă cu un cost care trebuie măsurat, nu ghicit:
-
-1. **Politici generate** — motorul emite `CREATE POLICY` la fiecare schimbare de
-   regulă. Predicat simplu, plan bun, dar DDL pe o cale de administrare și o
-   mulțime de politici de întreținut.
-2. **O politică generică** care consultă `zvd_rls_policies` la interogare,
-   printr-o funcție. Zero DDL, dar o funcție per rând — și proiectul are deja
-   scrisă lecția că forma predicatului RLS a mutat un timp de la 415 la 204 ms.
+**And nothing enforces a single god.** The requested model ("exactly one per
+instance") is defended nowhere: `user.role` accepts `'god'` on any number of
+rows.
 
 ---
 
-## Criteriile punctului de validare — SCRISE ÎNAINTE DE MĂSURARE
+## Why the second request is the hard one
 
-1. **God e exprimat în bază, nu printr-o portiță.** Dovedit prin plantare: o
-   cerere care sare peste verificarea din engine tot nu poate citi rândurile
-   altei firme, iar una a lui god poate — fără să iasă pe conexiunea de
-   superutilizator.
-2. **Costul de plan e MĂSURAT pe o tabelă populată**, pentru amândouă căile:
-   apelantul obișnuit și god. Scris în cifre, nu în adjective.
-3. **Un singur god pe instanță, impus de bază.**
-4. **Regulile de rând: ori aplicate în bază cu un cost măsurat, ori un motiv
-   scris** de ce nu, care numește ce ar trebui să se schimbe ca să devină
-   posibil. „Rămâne în engine" e un rezultat valid dacă e apărat cu cifre.
+A row rule is a row in `zvd_rls_policies`: one field, one of four operators, one
+of four value sources. For the **database** to apply it, it needs the caller's
+identity in session variables — that part is cheap. The expensive part is the
+shape of the predicate: rules are **dynamic**, an admin changes them at runtime.
 
-**CRITERIU DE OPRIRE:** dacă clauza de god costă calea OBIȘNUITĂ mai mult decât
-**10%** din timpul unei listări paginate, nu se livrează în forma aceea. Costul
-ar fi plătit de fiecare cerere ca să apere un caz rar, iar asta e o proastă
-afacere indiferent cât de elegantă e ideea.
+Two forms, both with a cost that must be measured, not guessed:
 
-**Ce NU e criteriu:** să dispară verificările din engine. Prima linie rămâne
-prima linie; asta adaugă a doua.
+1. **Generated policies** — the engine emits `CREATE POLICY` on every rule
+   change. Simple predicate, good plan, but DDL on an administration path and a
+   lot of policies to maintain.
+2. **One generic policy** that consults `zvd_rls_policies` at query time through
+   a function. Zero DDL, but a function per row — and this project has already
+   written down the lesson that the shape of an RLS predicate moved a timing
+   from 415 to 204 ms.
 
 ---
 
-## Pași
+## Validation-point criteria — WRITTEN BEFORE MEASURING
 
-| # | Pas | Stare | Rezultat |
+1. **God is expressed in the database, not through a side door.** Proved by
+   planting: a request that skips the engine check still cannot read another
+   tenant's rows, and a god's request can — without going out over the superuser
+   connection.
+2. **The plan cost is MEASURED on a populated table**, for both paths: the
+   ordinary caller and god. Written in numbers, not adjectives.
+3. **One god per instance, enforced by the database.**
+4. **Row rules: either enforced in the database at a measured cost, or a written
+   reason** why not, naming what would have to change to make it possible.
+   "Stays in the engine" is a valid outcome if it is defended with numbers.
+
+**STOP CRITERION:** if the god clause costs the ORDINARY path more than **10%**
+of a paginated listing, it does not ship in that form. The cost would be paid by
+every request in order to defend a rare case, and that is a bad trade however
+elegant the idea.
+
+**What is NOT a criterion:** removing the engine's checks. The first line stays
+the first line; this adds a second.
+
+---
+
+## Steps
+
+| # | Step | State | Result |
 |---|---|---|---|
-| 0 | Citește documentul ăsta | — | (la fiecare pas) |
-| 1 | **Măsoară** costul clauzei de god pe predicatul existent | ✅ | trei forme măsurate; **cea elegantă costă de 7 ori** |
-| 2 | Măsoară cele două forme pentru regulile de rând | ✅ | **13,2 ms față de 0,98 ms** — decisiv |
-| 3 | Decide forma, în scris, pe baza cifrelor | ✅ | god: publicat din motor; reguli: politici generate |
-| 4 | God în bază + un singur god, impus | ✅ | zero cost pe calea obișnuită |
-| 5 | Regulile de rând — implementate sau refuzate motivat | ⬜ **RĂMÂNE** | măsurat și decis, neimplementat |
-| 6 | **PUNCT DE VALIDARE** | ⚠️ **3 din 4** | criteriul 4 nu e îndeplinit, și nu-l rescriu |
+| 0 | Read this document | — | (at every step) |
+| 1 | **Measure** the cost of the god clause on the existing predicate | ✅ | three forms measured; **the elegant one costs 7×** |
+| 2 | Measure the two forms for row rules | ✅ | **13.2 ms against 0.98 ms** — decisive |
+| 3 | Decide the form, in writing, from the numbers | ✅ | god: published by the engine; rules: generated policies |
+| 4 | God in the database + one god, enforced | ✅ | zero cost on the ordinary path |
+| 5 | Row rules — implemented or refused with a reason | ⬜ **REMAINS** | measured and decided, not implemented |
+| 6 | **VALIDATION POINT** | ⚠️ **3 of 4** | criterion 4 is unmet, and I am not rewriting it |
 
 ---
 
-## Jurnal
+## Log
 
-| Când | Pas | Ce s-a întâmplat |
+| When | Step | What happened |
 |---|---|---|
-| 2026-08-31 | setup | Criterii fixate ÎNAINTE. Criteriu de oprire numeric (10% pe calea obișnuită), fiindcă tentația aici e să plătească toată lumea pentru un caz rar. |
+| 2026-08-31 | setup | Criteria fixed BEFORE. A numeric stop criterion (10% on the ordinary path), because the temptation here is to make everyone pay for a rare case. |
 
 ---
 
-## Context care nu trebuie re-descoperit
+## Context that must not be rediscovered
 
-- **Forma predicatului decide planul.** `project_rls_plan_quality_2026_08_27`:
-  415 → 204 ms doar din marcaj, iar forma scalară ajunge la 129. „Politicile nu
-  pot folosi indexul" e FALS — s-a greșit de două ori, în direcții opuse.
-- Motorul se conectează ca `postgres` (sare RLS) și pune `SET LOCAL ROLE
-  zveltio_rls` în tranzacția cererii. Acolo se aplică politicile.
-- `zveltio_visible_tenants()` citește `zveltio.visible_tenants`, apoi
-  `zveltio.current_tenant`, apoi `zveltio.fail_closed_tenant`.
-- `DEFAULT false` pe un overload rupe toate politicile la rulare — deja pățit.
-- Bază proprie per sesiune; `zveltio_test` are lanț de migrații divergent.
-
+- **The shape of the predicate decides the plan.** 415 → 204 ms from the
+  wrapper alone, and the scalar form reaches 129. "Policies cannot use the
+  index" is FALSE — it was got wrong twice, in opposite directions.
+- The engine connects as `postgres` (bypasses RLS) and issues
+  `SET LOCAL ROLE zveltio_rls` inside the request transaction. That is where
+  policies apply.
+- `zveltio_visible_tenants()` reads `zveltio.visible_tenants`, then
+  `zveltio.current_tenant`, then `zveltio.fail_closed_tenant`.
+- `DEFAULT false` on an overload breaks every policy at runtime — already hit.
+- A database per session; `zveltio_test` has a divergent migration chain.
 
 ---
 
-## Pasul 1 — costul clauzei de god, măsurat (2026-08-31)
+## Step 1 — the cost of the god clause, measured (2026-08-31)
 
-Bază proprie, 400 000 de rânduri în două firme reale, index compus
-`(tenant_id, created_at DESC)`, listare paginată de 25. Mediane din 9 rulări.
+Own database, 400,000 rows across two real tenants, composite index
+`(tenant_id, created_at DESC)`, paginated listing of 25. Medians of 9 runs.
 
-| formă | calea obișnuită |
+| Form | Ordinary path |
 |---|---:|
-| cum e azi | **0,060 ms** |
-| `OR zveltio_is_god()` în față, în fiecare politică | 0,066 ms |
-| `... OR (SELECT zveltio_is_god())` la coadă | 0,068 ms |
-| **`zveltio_visible_tenants()` învățată să se extindă la toate firmele** | **0,434 ms** |
+| as it is today | **0.060 ms** |
+| `OR zveltio_is_god()` in front, in every policy | 0.066 ms |
+| `... OR (SELECT zveltio_is_god())` at the end | 0.068 ms |
+| **`zveltio_visible_tenants()` taught to expand to all tenants** | **0.434 ms** |
 
-Ultima e forma **elegantă** — o singură funcție schimbată, 300+ politici o
-moștenesc, nicio migrație pe politici. **Costă de șapte ori.** Cauza: subinterogarea
-`ARRAY(SELECT id FROM zv_tenants)` face funcția neinlineabilă, deci nu mai e
-pliată o dată la plan, ci chemată de-adevăratelea. Verificat și cu variabila
-citită direct, fără apel imbricat: 0,428 ms. Nu apelul era problema, subinterogarea.
+The last is the **elegant** form — one function changed, 300+ policies inherit
+it, no migration over policies. **It costs seven times as much.** The cause: the
+`ARRAY(SELECT id FROM zv_tenants)` subquery makes the function non-inlineable,
+so it is no longer folded once at plan time but genuinely called. Checked also
+with the variable read directly, with no nested call: 0.428 ms. The call was not
+the problem, the subquery was.
 
-**Criteriul de oprire (10% pe o listare) o respinge.** Ar fi fost ușor de livrat
-și greu de observat: 0,37 ms în plus pe fiecare cerere a fiecărei firme, ca să
-apere un caz rar.
+**The stop criterion (10% on a listing) rejects it.** It would have been easy to
+ship and hard to notice: 0.37 ms extra on every request of every tenant, to
+defend a rare case.
 
-### Forma aleasă: motorul publică, baza aplică
+### The chosen form: the engine publishes, the database enforces
 
-Costă **zero**, fiindcă nu schimbă nimic pe calea obișnuită: motorul scria deja
-`zveltio.visible_tenants` la fiecare cerere, într-un singur dus-întors cu
-celelalte trei variabile. Pentru un god scrie toate firmele.
+It costs **zero**, because it changes nothing on the ordinary path: the engine
+was already writing `zveltio.visible_tenants` on every request, in a single
+round trip with the other three variables. For a god it writes every tenant.
 
-Ce se câștigă: god **nu mai iese** din RLS pe `poolDb`. Până acum privilegiul lui
-nu era exprimat nicăieri — era o **portiță pe lângă** lucrul care exprimă
-privilegii, iar un handler care își uita verificarea pe conexiunea aia citea
-rândurile tuturor firmelor fără ca nimic din aval să poată observa.
+What this buys: god **no longer leaves** RLS via `poolDb`. Until now their
+privilege was expressed nowhere — it was a **side door around** the thing that
+expresses privileges, and a handler that forgot its check on that connection
+read every tenant's rows with nothing downstream able to notice.
 
-Ce **nu** se câștigă, spus limpede: decizia „cine e god" rămâne a motorului.
-Baza primește o afirmație de identitate, nu o autentifică — așa funcționează RLS
-cu utilizatori de aplicație, mereu. Ce s-a schimbat e că **granița o aplică baza**,
-pe aceeași cale ca pentru toți ceilalți.
+What it does **not** buy, stated plainly: the decision "who is god" stays the
+engine's. The database receives an identity assertion, it does not authenticate
+it — that is how RLS with application users always works. What changed is that
+**the database enforces the boundary**, by the same path as for everyone else.
 
 ---
 
-## Pasul 2 — regulile de rând, măsurate
+## Step 2 — row rules, measured
 
-Regulă: `created_by eq user_id`. Două forme, aceleași date.
+Rule: `created_by eq user_id`. Two forms, same data.
 
-| | aplicația adaugă filtrul (calea normală) | **aplicația a UITAT filtrul** |
+| | application adds the filter (normal path) | **application FORGOT the filter** |
 |---|---:|---:|
-| fără regulă în bază | 6,53 ms | **0,068 ms — și SCURGE** |
-| politici generate (predicat simplu) | 6,17 ms | **0,983 ms** |
-| o politică generică, funcție per rând | 7,61 ms | **13,232 ms** |
+| no rule in the database | 6.53 ms | **0.068 ms — and it LEAKS** |
+| generated policies (simple predicate) | 6.17 ms | **0.983 ms** |
+| one generic policy, per-row function | 7.61 ms | **13.232 ms** |
 
-Coloana a doua e singura care contează: e cazul pentru care există linia a doua.
-**Funcția generică e de 13 ori mai scumpă exact acolo.** Politicile generate sunt
-răspunsul, și pe calea normală nu costă nimic (6,17 față de 6,53 — sub zgomot).
+The second column is the only one that matters: it is the case the second line
+exists for. **The generic function is 13× more expensive exactly there.**
+Generated policies are the answer, and on the normal path they cost nothing
+(6.17 against 6.53 — below noise).
 
-Azi, în cazul acela, baza răspunde în 0,068 ms **cu rândurile greșite**.
-
----
-
-## Pasul 4 — livrat
-
-- **God publicat în `zveltio.visible_tenants`**, deci aplicat de politici.
-  Dovedit prin plantare: un god vede două firme prin politică, un utilizator
-  obișnuit una, o cerere fără utilizator numit — una. Și se întreabă baza direct
-  ce consideră vizibil, ca proba să nu fie despre handler.
-- **Un singur god pe instanță, impus de bază** (migrația 008, declanșator).
-  **Nu index unic**, fiindcă acela ar pica migrația pe orice instalare care are
-  deja doi — iar alegerea cui i se ia rolul nu e a unei migrații. Declanșatorul
-  refuză un al doilea de acum înainte, iar instalările cu mai mulți primesc un
-  avertisment și continuă să funcționeze.
-
-### Trei consecințe pe care le-a scos la iveală invariantul
-
-1. **248 de teste au picat** la prima rulare: harness-ul făcea un god per fișier.
-   Acum îl coboară pe cel dinainte — modelează produsul, nu-l ocolește.
-2. **Fluxul de recuperare adăuga un god.** Cu invariantul, s-ar fi refuzat singur
-   exact în situația pentru care există. Acum **transferă** rolul: cine deține un
-   jeton valid, necheltuit și rotit îl ia, iar rândul de audit o consemnează.
-   Asta e ce înseamnă recuperare.
-3. Două suite își făceau propriul god presupunând că pot fi mai mulți.
+Today, in that case, the database answers in 0.068 ms **with the wrong rows**.
 
 ---
 
-## Punct de validare — 3 din 4, blocul rămâne deschis
+## Step 4 — delivered
 
-| # | Criteriu | Verdict |
+- **God published into `zveltio.visible_tenants`**, therefore enforced by the
+  policies. Proved by planting: a god sees two tenants through the policy, an
+  ordinary user one, a request with no named user — one. And the database is
+  asked directly what it considers visible, so the proof is not about the
+  handler.
+- **One god per instance, enforced by the database** (migration 008, a trigger).
+  **Not a unique index**, because that would fail the migration on any
+  installation that already has two — and choosing whose role is taken away is
+  not a migration's decision. The trigger refuses a second one from now on, and
+  installations with several get a warning and keep working.
+
+### Three consequences the invariant brought to light
+
+1. **248 tests failed** on the first run: the harness created a god per file. It
+   now demotes the previous one — modelling the product rather than sidestepping
+   it.
+2. **The recovery flow added a god.** With the invariant, it would have refused
+   itself in exactly the situation it exists for. It now **transfers** the role:
+   whoever holds a valid, unspent, rotated token takes it, and the audit row
+   records it. That is what recovery means.
+3. Two suites made their own god assuming there could be several.
+
+---
+
+## Validation point — 3 of 4, the block stays open
+
+| # | Criterion | Verdict |
 |---|---|---|
-| 1 | God exprimat în bază, nu printr-o portiță | ✅ dovedit prin plantare |
-| 2 | Costul de plan măsurat, în cifre | ✅ trei forme; cea elegantă respinsă de propriul criteriu |
-| 3 | Un singur god, impus de bază | ✅ declanșator, cu motivul pentru care nu e index unic |
-| 4 | Regulile de rând: aplicate în bază, sau motiv scris | ⬜ **măsurate și decise, NEIMPLEMENTATE** |
+| 1 | God expressed in the database, not through a side door | ✅ proved by planting |
+| 2 | Plan cost measured, in numbers | ✅ three forms; the elegant one rejected by its own criterion |
+| 3 | One god, enforced by the database | ✅ trigger, with the reason it is not a unique index |
+| 4 | Row rules: enforced in the database, or a written reason | ⬜ **measured and decided, NOT IMPLEMENTED** |
 
-**Criteriul 4 nu e îndeplinit și nu-l rescriu ca să încapă** — e exact ce am
-refuzat să fac la blocul C. Măsurătoarea e făcută și forma e aleasă; ce rămâne e
-munca: motorul să emită `CREATE POLICY` din `zvd_rls_policies` și să le țină în
-pas cu regulile, inclusiv rolul apelantului într-o variabilă de sesiune.
+**Criterion 4 is unmet and I am not rewriting it to fit** — that is exactly what
+I refused to do in Block C. The measurement is done and the form is chosen; what
+remains is the work: the engine emitting `CREATE POLICY` from `zvd_rls_policies`
+and keeping them in step with the rules, including the caller's role in a
+session variable.
 
-**Măsurat:** harness 942/0, unit 2557/0, typecheck curat, lint curat,
-`check-migration-safety` fără pericole pe 008.
+**Measured:** harness 942/0, unit 2557/0, typecheck clean, lint clean,
+`check-migration-safety` reporting no hazards on 008.
 
-## Jurnal
+## Log
 
-| Când | Pas | Ce s-a întâmplat |
+| When | Step | What happened |
 |---|---|---|
-| 2026-08-31 | 1 | Forma elegantă costă de 7 ori. Respinsă de criteriul de oprire scris înainte. |
-| 2026-08-31 | 2 | Funcția generică: 13,2 ms față de 0,98 ms exact în cazul care contează. |
-| 2026-08-31 | 4 | Invariantul a picat 248 de teste și a scos la iveală că recuperarea adăuga un god în loc să-l transfere. |
-| 2026-08-31 | 5–6 | 3/4. Criteriul 4 rămâne neîndeplinit, scris ca atare. |
+| 2026-08-31 | 1 | The elegant form costs 7×. Rejected by the stop criterion written in advance. |
+| 2026-08-31 | 2 | The generic function: 13.2 ms against 0.98 ms exactly in the case that matters. |
+| 2026-08-31 | 4 | The invariant failed 248 tests and revealed that recovery added a god instead of transferring one. |
+| 2026-08-31 | 5–6 | 3/4. Criterion 4 stays unmet, written as such. |
