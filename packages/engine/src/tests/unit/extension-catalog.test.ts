@@ -1,7 +1,7 @@
 /**
  * Marketplace publisher-tier resolution (lib/extensions/extension-catalog.ts) —
  * the pure policy that decides whether an extension may run inline vs. must be
- * worker-isolated. Security-relevant (MARKETPLACE-POLICY §2).
+ * worker-isolated. Security-relevant (marketplace-policy.md §2).
  */
 
 import { describe, it, expect } from 'bun:test';

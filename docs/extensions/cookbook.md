@@ -3,7 +3,7 @@
 Task-oriented recipes. Every snippet below is modelled on a **real shipped
 extension** (linked per recipe) — not pseudocode. For the conceptual reference
 (lifecycle, manifest fields, isolation tiers) see
-[EXTENSION-DEVELOPER-GUIDE.md](EXTENSION-DEVELOPER-GUIDE.md).
+[developer-guide.md](developer-guide.md).
 
 > **The one rule that matters:** query through **`ctx.db`**. It is already scoped
 > to the caller's tenant (H-12) — every row you read or write is automatically
@@ -175,7 +175,7 @@ Services are unregistered automatically when your extension unloads.
 ## 7. Add an admin page without writing Svelte (SDUI)
 
 Declarative pages are **data**, rendered by the Studio host — no per-extension
-Studio build. See the full field catalog in [SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md).
+Studio build. See the full field catalog in [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md).
 Drop a schema in `studio/schemas/widgets.json`
 (modelled on [`content/drafts`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/content/drafts/studio/schemas/drafts.json)):
 
@@ -264,7 +264,7 @@ zveltio extension publish --dir <dir>    # validate, archive, sign, upload
 The engine installs extensions from **registry.zveltio.com**, never from a repo
 checkout. Publishing is what makes an extension installable.
 
-**Isolation tier matters** (MARKETPLACE-POLICY.md §2): first-party/verified may run
+**Isolation tier matters** (marketplace-policy.md §2): first-party/verified may run
 inline; community extensions must declare `engine.isolation: "worker"`. Declare it
 early — it changes how you're allowed to touch the process.
 

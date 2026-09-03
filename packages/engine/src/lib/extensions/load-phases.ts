@@ -245,7 +245,7 @@ export async function resolveManifest(
 }
 
 /**
- * Phase 2 — MARKETPLACE-POLICY.md §2 publisher-tier gate. When the manifest did
+ * Phase 2 — marketplace-policy.md §2 publisher-tier gate. When the manifest did
  * NOT opt into worker isolation (and no operator inline override is set), fetch
  * the registry catalog and refuse inline execution for community/unaudited
  * extensions.
@@ -257,7 +257,7 @@ export async function enforcePublisherTier(
   extName: string,
   manifest: ExtensionManifest | null,
 ): Promise<PhaseResult<void>> {
-  // MARKETPLACE-POLICY.md §2 enforcement: publisher tier governs
+  // marketplace-policy.md §2 enforcement: publisher tier governs
   // whether an extension may run inline. The registry catalog
   // carries `publisher_tier` (migration 010); older registries
   // omit it and resolvePublisherTier() falls back to is_official
@@ -325,7 +325,7 @@ export async function enforcePublisherTier(
       const msg =
         `Extension "${extName}" ${what} but does ` +
         `not declare engine.isolation: "worker". Per ` +
-        `MARKETPLACE-POLICY §2, ${tier} extensions must run in ` +
+        `marketplace-policy.md §2, ${tier} extensions must run in ` +
         `worker isolation. Republish with isolation: "worker" ` +
         `or, for trusted self-hosted installs, set ` +
         `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
