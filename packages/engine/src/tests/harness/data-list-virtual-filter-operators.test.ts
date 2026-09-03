@@ -45,7 +45,7 @@ d('data virtual list filter operators (in-process)', () => {
         sort: 99,
         singular_name: COLLECTION,
         source_type: 'virtual',
-        virtual_config: JSON.stringify(VIRTUAL_CONFIG),
+        virtual_config: toJsonb(VIRTUAL_CONFIG),
         fields: toJsonb([
           { name: 'min_score', type: 'number', required: false, unique: false, indexed: false },
           { name: 'max_score', type: 'number', required: false, unique: false, indexed: false },
