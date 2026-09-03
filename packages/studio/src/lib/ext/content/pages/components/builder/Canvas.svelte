@@ -37,13 +37,28 @@
   );
 </script>
 
+<!--
+  Suppressed with a reason: this element IS the drop surface of the page
+  builder. `dragover`/`dragleave`/`dragend` have to sit on the container a
+  block is dropped into, and there is no interactive child that could carry
+  them without changing what the canvas is. `role="region"` with a label and
+  an Escape handler is the accessible pairing; the rule does not accept a
+  region as a listener target.
+-->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="flex-1 overflow-y-auto bg-base-200 py-8 px-10"
   ondragover={(e) => { e.preventDefault(); dragState.active = true; }}
   ondragleave={() => (dragState.zone = null)}
   ondragend={() => { dragState.active = false; dragState.zone = null; }}
   onclick={() => onSelect(null)}
+  onkeydown={(e) => {
+    // Escape clears the selection — the keyboard equivalent of clicking the
+    // empty canvas, which is what the click handler above does.
+    if (e.key === 'Escape') onSelect(null);
+  }}
   role="region"
+  tabindex="-1"
   aria-label={m['content.pages.b.canvas']()}
 >
   <div class="mx-auto transition-[max-width] duration-300 grid grid-cols-12 gap-x-4 items-start {widthClass}">

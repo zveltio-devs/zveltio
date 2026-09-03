@@ -177,8 +177,14 @@
   }
 </script>
 
+<!--
+  A `<span>`, not a `<label>`. This snippet is used as a CAPTION above groups of
+  controls as well as beside single ones, so it can never carry a `for` that is
+  right in every case — and a `<label>` that names nothing is worse for a screen
+  reader than plain text, because it is announced as a label with no target.
+-->
 {#snippet label(text: string)}
-  <label class="block text-[10px] text-base-content/65 mb-0.5">{text}</label>
+  <span class="block text-[10px] text-base-content/65 mb-0.5">{text}</span>
 {/snippet}
 
 {#snippet colorRow(value: string, onInput: (v: string) => void)}
@@ -633,8 +639,8 @@
       <div class="grid grid-cols-2 gap-1.5">
         {#each [['Top','paddingTop'],['Bottom','paddingBottom'],['Left','paddingLeft'],['Right','paddingRight']] as [lbl, key]}
           <div>
-            <label class="text-[9px] text-base-content/65">{lbl}</label>
-            <input type="number" min="0" class="input input-xs w-full"
+            <label class="text-[9px] text-base-content/65" for={`sp-${key}`}>{lbl}</label>
+            <input id={`sp-${key}`} type="number" min="0" class="input input-xs w-full"
               value={s[key as keyof BlockStyle] ?? ''}
               oninput={(e) => patchStyle(key as keyof BlockStyle, e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
           </div>
@@ -645,8 +651,8 @@
       <div class="grid grid-cols-2 gap-1.5">
         {#each [['Top','marginTop'],['Bottom','marginBottom']] as [lbl, key]}
           <div>
-            <label class="text-[9px] text-base-content/65">{lbl}</label>
-            <input type="number" class="input input-xs w-full"
+            <label class="text-[9px] text-base-content/65" for={`off-${key}`}>{lbl}</label>
+            <input id={`off-${key}`} type="number" class="input input-xs w-full"
               value={s[key as keyof BlockStyle] ?? ''}
               oninput={(e) => patchStyle(key as keyof BlockStyle, e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
           </div>

@@ -73,7 +73,14 @@
         {#each items as item}
           <tr
             class={onRowClick ? 'cursor-pointer hover' : ''}
+            tabindex={onRowClick ? 0 : undefined}
             onclick={() => onRowClick?.(item)}
+            onkeydown={(e) => {
+              if (onRowClick && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                onRowClick(item);
+              }
+            }}
           >
             {#each resolved as col}
               <td class="max-w-xs truncate" title={cell(item[col])}>{cell(item[col])}</td>

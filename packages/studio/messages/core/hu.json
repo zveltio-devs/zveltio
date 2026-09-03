@@ -370,6 +370,8 @@
   "common.refresh": "Frissítés",
   "common.reject": "Elutasítás",
   "common.remove": "Eltávolítás",
+  "common.rename": "Átnevezés",
+  "common.reorder": "Átrendezés",
   "common.required": "Kötelező",
   "common.resetFailed": "A visszaállítás sikertelen",
   "common.revoke": "Visszavonás",
