@@ -56,6 +56,10 @@ interface SystemStatus {
 interface AuditEvent {
   event_type: string;
   user_id?: string | null;
+  /** LEFT-joined from `user.email` by GET /api/admin/audit — null for a system
+   *  actor or a deleted user. The table below has rendered it since it was
+   *  added there; this interface just never listed it. */
+  user_email?: string | null;
   resource_type?: string | null;
   resource_id?: string | null;
   created_at: string;

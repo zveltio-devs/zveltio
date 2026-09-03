@@ -1510,7 +1510,8 @@ export interface DbSchema {
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
-  // Portal old (renamed in migration 061, kept for transition)
+  // Portal old (renamed in 001_initial.sql, section `from 061_push_tokens.sql`;
+  // kept for transition)
   zvd_portal_theme: ZvdPortalThemeTable;
   zvd_portal_pages: ZvdPortalPagesTable;
   zvd_portal_sections: ZvdPortalSectionsTable;

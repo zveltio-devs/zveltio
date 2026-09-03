@@ -370,6 +370,8 @@
   "common.refresh": "Vernieuwen",
   "common.reject": "Afwijzen",
   "common.remove": "Verwijderen",
+  "common.rename": "Hernoemen",
+  "common.reorder": "Opnieuw ordenen",
   "common.required": "Verplicht",
   "common.resetFailed": "Herstellen mislukt",
   "common.revoke": "Intrekken",

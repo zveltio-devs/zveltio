@@ -239,7 +239,10 @@ they restore intact. Confirm it took by looking for this line at startup:
 
 If instead you see a warning that isolation is **not** enforced by the
 database, the engine's user lacks permission to create roles — grant it, or
-create the role by hand from migration 030, and restart. Do not leave a
+create the role by hand from the `CREATE ROLE zveltio_rls` block in
+`packages/engine/src/db/migrations/sql/001_initial.sql` (search for
+`from 030_rls_tenant_guc.sql` — the migrations were squashed into 001 and
+there is no longer a file numbered 030), and restart. Do not leave a
 multi-tenant instance running in that state.
 
 Belt and braces, if you would rather not rely on the boot path: take

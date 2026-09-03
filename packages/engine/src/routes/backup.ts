@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
-import { unlink } from 'node:fs/promises';
+import { chmod, unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -261,7 +261,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
         // which on a shared host means any user can `cat` the backup.
         // 0600 = owner read/write only. No-op on Windows.
         if (process.platform !== 'win32') {
-          await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
+          // `chmod` from node:fs/promises, not `Bun.spawn(['chmod', …]).exited.catch()`.
+          // `.exited` RESOLVES with the exit code and never rejects, so that `.catch`
+          // caught nothing: a chmod that failed was indistinguishable from one that
+          // worked, on a file holding the entire database. This rejects, and the
+          // failure is fatal to the backup — a dump the umask left world-readable is
+          // not a backup that succeeded.
+          await chmod(filepath, 0o600);
         }
 
         await sql`
