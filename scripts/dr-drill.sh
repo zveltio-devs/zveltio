@@ -154,7 +154,8 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     if psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='zveltio_rls'" | grep -q 1; then
       pass "zveltio_rls role reachable from the restore" 0
       echo "  - NOTE: roles live in the cluster, not the dump. Restoring onto a NEW" >>"$REPORT"
-      echo "    server also needs \`pg_dumpall --roles-only\`, or migration 030 re-run," >>"$REPORT"
+      echo "    server also needs \`pg_dumpall --roles-only\`, or the CREATE ROLE" >>"$REPORT"
+      echo "    zveltio_rls block from db/migrations/sql/001_initial.sql re-run," >>"$REPORT"
       echo "    or tenant isolation has policies with no role to enforce them." >>"$REPORT"
     else
       fail "zveltio_rls role missing in the restored cluster" "policies cannot be enforced"

@@ -109,7 +109,12 @@ async function loadPage(): Promise<void> {
 async function loadExtras(): Promise<void> {
   try {
     const [vocab, cols] = await Promise.all([
-      api.get<{ icons?: string[]; motion?: string[] }>(`${BASE}/vocabulary`).catch(() => ({})),
+      // The fallback is typed, not bare: `.catch(() => ({}))` widens the result
+      // to `{…} | {}`, and neither `icons` nor `motion` exists on `{}` — so the
+      // two reads below were type errors that nothing ran.
+      api
+        .get<{ icons?: string[]; motion?: string[] }>(`${BASE}/vocabulary`)
+        .catch((): { icons?: string[]; motion?: string[] } => ({})),
       api.get<{ collections?: Array<{ name: string; fields?: Array<{ name: string }> }> }>(
         '/api/collections',
       ).catch(() => ({ collections: [] })),

@@ -6,6 +6,7 @@ import type { Database } from '../../db/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
+import { hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -138,22 +139,12 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // Security: HMAC-SHA256 with the auth secret as a salt.
       // SHA-256 without a secret is vulnerable to rainbow table attacks because
       // API keys follow a predictable format (zvk_ prefix + 32 hex chars).
-      const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
-      if (!authSecret) {
-        return c.json({ error: 'Server configuration error: auth secret not set' }, 500);
-      }
-      const encoder = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(authSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign'],
-      );
-      const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(rawKey));
-      const keyHash = Array.from(new Uint8Array(hashBuffer))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+      // `hashApiKey`, not a copy of it. Both routes that MINT a key had this
+      // fourteen-line HMAC written out by hand, while `validateApiKey()` — the
+      // only code that ever checks one — calls the helper. They agree today by
+      // coincidence, and the helper's own docstring says what that costs: change
+      // the hash there and every key minted here becomes unverifiable, silently.
+      const keyHash = await hashApiKey(rawKey);
 
       const apiKey = await db
         .insertInto('zv_api_keys')

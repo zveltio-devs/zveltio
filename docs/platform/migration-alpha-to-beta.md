@@ -161,7 +161,13 @@ PATCH /api/admin/rate-limits/api
 
 2. **Add required env vars** (see tables above)
 
-3. **Run database init** (applies migrations 054–061)
+3. **Run database init** (applies whatever this engine is missing)
+
+   The alpha-era numbering this step used to quote — "migrations 054–061" —
+   no longer names anything: the set was squashed and the tree now ships
+   `001_initial.sql` through `010_…`, with the old files preserved as section
+   headers inside 001. `db:init` applies what is pending either way; there is
+   no range to check by hand.
    ```bash
    bun run db:init
    ```

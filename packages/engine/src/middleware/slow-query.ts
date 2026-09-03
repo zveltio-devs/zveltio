@@ -1,6 +1,7 @@
 import { onAfterCommit } from '../lib/tenancy/index.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
+import { toJsonb } from '../lib/jsonb.js';
 
 const SLOW_THRESHOLD_MS = parseInt(process.env.SLOW_QUERY_THRESHOLD_MS ?? '200');
 
@@ -46,7 +47,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
           .values({
             method: entry.method,
             path: entry.path,
-            query_params: JSON.stringify(entry.query),
+            query_params: toJsonb(entry.query),
             status_code: entry.status,
             duration_ms: entry.duration_ms,
           })

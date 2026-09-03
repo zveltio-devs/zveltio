@@ -54,6 +54,14 @@ jobs:
         run: cd packages/studio && bunx svelte-kit sync
 
       - name: Typecheck
+        # `svelte-check --fail-on-warnings`, not just errors. The 40 warnings this
+        # started with were almost all `a11y_label_has_associated_control` — a
+        # `<label>` with no `for`, so a screen reader announces the field as
+        # unlabelled and clicking the label does not focus it. For a product sold
+        # to public institutions that is a procurement question, not a nit.
+        #
+        # They are at zero. The bar is set here so the next one is a build failure
+        # rather than a number that drifts upward one commit at a time.
         run: cd packages/studio && bun run typecheck
 
       - name: Component tests

@@ -104,7 +104,10 @@ export interface QueryOptions {
   fts?: string;
   /**
    * When true, extends FTS with pg_trgm similarity on search_text column.
-   * Only set for collections created after migration 059 (has_trgm = true in zvd_collections).
+   * Set from `zvd_collections.has_trgm`, which the DDL manager sets on every
+   * collection created since pg_trgm search landed (`001_initial.sql`, section
+   * `from 059_pg_trgm.sql`). Older collections have no `search_text` column, so
+   * the flag is the test, not the collection's age.
    */
   hasTrgm?: boolean;
   /**
@@ -276,7 +279,8 @@ export async function dynamicSelect(
     let ftsExpr;
     if (hasTrgm) {
       // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
-      // search_text is maintained by the DDL trigger for collections created after migration 059.
+      // search_text is maintained by the DDL trigger, and only exists on collections
+      // carrying has_trgm — see the field's doc comment above.
       const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
       ftsExpr = sql`(search_vector @@ websearch_to_tsquery('english', ${fts}) OR search_text ILIKE ${likePattern})`;
     } else {

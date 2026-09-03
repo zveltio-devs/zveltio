@@ -1,0 +1,7 @@
+{
+  "_what": "Columns declared jsonb whose writers bind JSON.stringify(...) instead of toJsonb(...). The value is stored as a jsonb STRING, so `col->>'k'` is NULL and `col ? 'k'` is false. Counts may shrink, never grow.",
+  "_why_it_has_a_gate": "Four columns were found this way and repaired in 03515eb1, which shipped lib/jsonb.ts and no gate. A fifth site existed at the time — zvd_collections.fields, three writers — and nothing would have said so. Readers compensate, so the defect is silent until somebody writes the SQL that assumes the shape.",
+  "_how_to_fix": "Use `toJsonb(value)` from lib/jsonb.ts, which binds `${…}::text::jsonb`.",
+  "_regenerate": "bun run scripts/check-jsonb-binding.ts --update",
+  "counts": {}
+}

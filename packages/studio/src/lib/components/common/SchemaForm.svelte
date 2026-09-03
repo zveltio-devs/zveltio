@@ -106,6 +106,18 @@ export function validateAll(): boolean {
   }
   return ok;
 }
+
+/**
+ * A textarea takes text. `values` is `Record<string, unknown>` — a schema field
+ * can hold an object or an array, and one bound straight to `value` is typed
+ * `{}` and renders as "[object Object]". JSON for anything that is not a
+ * scalar, which is both what the field holds and what the user should see.
+ */
+function textValue(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') return JSON.stringify(v, null, 2);
+  return String(v);
+}
 </script>
 
 <div class={`space-y-3 ${cls}`}>
@@ -128,7 +140,7 @@ export function validateAll(): boolean {
           class:input-error={errors[field.name]}
           required={field.required}
           placeholder={field.placeholder as string | undefined}
-          value={values[field.name] ?? ''}
+          value={textValue(values[field.name])}
           oninput={(e) => onInput(field, (e.currentTarget as HTMLInputElement).value)}
         />
       {:else if field.type === 'textarea'}
@@ -138,7 +150,7 @@ export function validateAll(): boolean {
           class:textarea-error={errors[field.name]}
           required={field.required}
           placeholder={field.placeholder as string | undefined}
-          value={values[field.name] ?? ''}
+          value={textValue(values[field.name])}
           oninput={(e) => onInput(field, (e.currentTarget as HTMLTextAreaElement).value)}
         ></textarea>
       {:else if field.type === 'select'}
@@ -147,7 +159,7 @@ export function validateAll(): boolean {
           class="select select-bordered w-full"
           class:select-error={errors[field.name]}
           required={field.required}
-          value={values[field.name] ?? ''}
+          value={textValue(values[field.name])}
           onchange={(e) => onInput(field, (e.currentTarget as HTMLSelectElement).value)}
         >
           {#each normalizeOptions(field.options) as opt (opt.value)}

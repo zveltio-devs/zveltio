@@ -9,6 +9,7 @@
  * was — see `resolveDumpTarget` in `routes/backup.ts` for what that cost.
  */
 
+import { chmod } from 'node:fs/promises';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { uploadBackup } from './upload.js';
@@ -114,7 +115,13 @@ export async function runScheduledBackup(
     // 0600: the file holds the whole database, password hashes and customer data
     // included, and the usual umask would leave it world-readable.
     if (process.platform !== 'win32') {
-      await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
+      // `chmod` from node:fs/promises, not `Bun.spawn(['chmod', …]).exited.catch()`.
+      // `.exited` RESOLVES with the exit code and never rejects, so that `.catch`
+      // caught nothing: a chmod that failed was indistinguishable from one that
+      // worked, on a file holding the entire database. This rejects, and the
+      // failure is fatal to the backup — a dump the umask left world-readable is
+      // not a backup that succeeded.
+      await chmod(filepath, 0o600);
     }
 
     // The backup's status and the schedule's `last_run_status` are one outcome

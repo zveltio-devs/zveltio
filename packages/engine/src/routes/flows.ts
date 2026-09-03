@@ -6,6 +6,7 @@ import { auditLog } from '../lib/audit.js';
 import { EXECUTABLE_STEP_TYPES, executeFlow } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
 import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { toJsonb } from '../lib/jsonb.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -97,7 +98,7 @@ async function replaceSteps(db: Database, flowId: string, steps: StepInput[]): P
           name: s.name ?? s.type,
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           type: s.type as any, // CHECK constraint validates at the DB layer
-          config: JSON.stringify(s.config),
+          config: toJsonb(s.config),
           on_error: s.on_error,
         })),
       )
@@ -259,7 +260,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
           description: body.description ?? null,
           is_active: body.is_active,
           trigger_type: body.trigger.type,
-          trigger_config: JSON.stringify(toTriggerConfig(body.trigger)),
+          trigger_config: toJsonb(toTriggerConfig(body.trigger)),
           created_by: user.id,
         })
         .returningAll()
@@ -316,7 +317,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       if (body.is_active !== undefined) updates.is_active = body.is_active;
       if (body.trigger !== undefined) {
         updates.trigger_type = body.trigger.type;
-        updates.trigger_config = JSON.stringify(toTriggerConfig(body.trigger));
+        updates.trigger_config = toJsonb(toTriggerConfig(body.trigger));
       }
 
       // Validate any new step configs before touching the DB.
@@ -506,7 +507,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         name: body.name ?? body.type,
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         type: body.type as any,
-        config: JSON.stringify(validation.config ?? body.config),
+        config: toJsonb(validation.config ?? body.config),
         on_error: body.on_error,
       })
       .returningAll()
@@ -560,8 +561,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     if (body.type !== undefined) updates.type = body.type as any;
     if (body.name !== undefined) updates.name = body.name;
     if (body.on_error !== undefined) updates.on_error = body.on_error;
-    if (body.config !== undefined)
-      updates.config = JSON.stringify(validation.config ?? body.config);
+    if (body.config !== undefined) updates.config = toJsonb(validation.config ?? body.config);
 
     const updated = await db
       .updateTable('zv_flow_steps')

@@ -5,7 +5,7 @@ interface Props {
   placeholder?: string;
   onchange: (v: string) => void;
 }
-let { value, placeholder = 'Search...', onchange } = $props();
+let { value, placeholder = 'Search...', onchange }: Props = $props();
 </script>
 
 <label class="input input-sm flex items-center gap-2 max-w-64">
