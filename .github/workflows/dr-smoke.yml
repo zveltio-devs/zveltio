@@ -25,6 +25,25 @@ on:
     # Mondays 04:00 UTC — quiet window, gives us an early-week signal.
     - cron: '0 4 * * 1'
   workflow_dispatch: # allow ad-hoc runs from the Actions UI
+  pull_request:
+    # Also on changes to the backup path itself, because weekly is the wrong
+    # cadence for the one job that runs a REAL dump.
+    #
+    # Everything else that touches backups is a fake: the unit suites stub
+    # `Bun.spawn`, and `dr-drill.sh` reimplements `pg_dump | gzip` in shell
+    # rather than calling the product's code. So a regression in the actual
+    # pipeline could merge on a green board and surface at restore time — which
+    # is the one moment nobody can afford to find out. It nearly did: both backup
+    # paths ran for months without checking gzip's exit code, and a truncated
+    # archive was recorded as `completed`.
+    #
+    # Path-filtered, so this costs a job only on the PRs that can break it.
+    paths:
+      - 'packages/engine/src/lib/backup/**'
+      - 'packages/engine/src/routes/backup.ts'
+      - 'packages/engine/src/db/migrations/**'
+      - 'scripts/dr-drill.sh'
+      - '.github/workflows/dr-smoke.yml'
 
 permissions:
   contents: read
