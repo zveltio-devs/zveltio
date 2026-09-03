@@ -61,7 +61,6 @@ import { sql } from 'kysely';
  *
  *   await db.insertInto('zv_forms').values({ fields: toJsonb(fields) }).execute();
  */
-// biome-ignore lint/suspicious/noExplicitAny: any JSON-serialisable value
-export function toJsonb(value: any) {
+export function toJsonb(value: unknown) {
   return sql`${JSON.stringify(value ?? null)}::text::jsonb`;
 }
