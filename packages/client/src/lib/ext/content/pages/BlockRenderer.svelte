@@ -312,7 +312,9 @@
         />
 
       {:else if block.type === 'collection_list'}
-        {#snippet item(row, i)}
+        <!-- Annotated: Svelte does not infer a snippet's parameter types from
+             the prop it is later passed to, so without these both are `any`. -->
+        {#snippet item(row: Record<string, unknown>, i: number)}
           <!--
             `bindBlock` substitutes the record's values into the template and
             escapes every one of them: the template is authored markup and was

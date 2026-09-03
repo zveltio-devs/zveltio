@@ -64,6 +64,13 @@
 {:else}
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {#each items as item}
+      <!--
+        Suppressed with a reason: `role` and `tabindex` below are conditioned on
+        the SAME `onCardClick`, so the card is either a button with a tab stop or
+        an inert div — never a non-interactive element carrying a tab stop. The
+        analyzer cannot see that the two expressions are linked.
+      -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="card bg-base-100 shadow-sm border border-base-300 {onCardClick
           ? 'cursor-pointer hover:shadow-md transition-shadow'

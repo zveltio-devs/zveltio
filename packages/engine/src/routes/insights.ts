@@ -21,6 +21,7 @@ import {
   listAllRoles,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
+import { toJsonb } from '../lib/jsonb.js';
 
 /**
  * Resolve whether `userId` can read a dashboard. Order matters — admin
@@ -235,7 +236,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .values({
           name: body.name,
           description: body.description ?? null,
-          layout: JSON.stringify(body.layout),
+          layout: toJsonb(body.layout),
           is_public: body.is_public,
           tags: body.tags,
           created_by: user.id,
@@ -494,8 +495,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
           title: body.title,
           type: body.type,
           query: body.query,
-          config: JSON.stringify(body.config),
-          position: JSON.stringify(body.position),
+          config: toJsonb(body.config),
+          position: toJsonb(body.position),
           refresh_interval: body.refresh_interval ?? null,
         })
         .returningAll()
@@ -531,8 +532,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (body.title !== undefined) updates.title = body.title;
       if (body.type !== undefined) updates.type = body.type;
       if (body.query !== undefined) updates.query = body.query;
-      if (body.config !== undefined) updates.config = JSON.stringify(body.config);
-      if (body.position !== undefined) updates.position = JSON.stringify(body.position);
+      if (body.config !== undefined) updates.config = toJsonb(body.config);
+      if (body.position !== undefined) updates.position = toJsonb(body.position);
       if (body.refresh_interval !== undefined) updates.refresh_interval = body.refresh_interval;
 
       const panel = await db
@@ -634,7 +635,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .insertInto('zvd_panel_cache')
         .values({
           panel_id: id,
-          result: JSON.stringify(rows),
+          result: toJsonb(rows),
           row_count: rows.length,
           executed_at: new Date(),
           expires_at: new Date(Date.now() + 5 * 60 * 1000),
@@ -642,7 +643,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         })
         .onConflict((oc) =>
           oc.column('panel_id').doUpdateSet({
-            result: JSON.stringify(rows),
+            result: toJsonb(rows),
             row_count: rows.length,
             executed_at: new Date(),
             expires_at: new Date(Date.now() + 5 * 60 * 1000),
