@@ -215,7 +215,7 @@ const CASES: Case[] = [
       '// `audit-inventory.ts` rewrites this as a side effect, so it is held and',
       '// put back too — a probe that leaves the tree dirty is a probe that will',
       '// eventually be committed by accident.',
-      "const COVERAGE_DOC = 'docs/AUDIT-COVERAGE.md';",
+      "const COVERAGE_DOC = 'docs/platform/audit-coverage.md';",
       "const coverageDoc = readFileSync(COVERAGE_DOC, 'utf8');",
       '',
       'let code = 1;',

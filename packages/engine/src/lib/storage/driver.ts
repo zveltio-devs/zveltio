@@ -55,4 +55,21 @@ export interface StorageDriver {
    * serving route).
    */
   signedUrl(key: string, expiresInSec: number): Promise<string>;
+
+  /**
+   * A time-limited URL that accepts a PUT, or null when this store has no such
+   * thing.
+   *
+   * It exists for one caller: uploading a backup off the machine. `put()` cannot
+   * do that job — it takes the whole object as a `Uint8Array`, and a backup is
+   * the largest file this product produces. The integrity check next door
+   * already had to stop doing exactly that; its comment records what it cost.
+   *
+   * A presigned PUT lets the file be streamed straight from disk, which was
+   * measured before this was written: 300 MB uploaded for 35 MB of RSS.
+   *
+   * `local` returns null, and that is not a gap — the store IS the machine, so
+   * "upload the backup to it" is a copy from a directory to itself.
+   */
+  signedPutUrl(key: string, expiresInSec: number): Promise<string | null>;
 }

@@ -7,6 +7,10 @@ import { unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { getStorage } from '../lib/storage/index.js';
+import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { verifyArchive } from '../lib/backup/verify-archive.js';
+import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
 import { toNumber, toNumberOrNull, toNumberSafe } from '../lib/numeric.js';
 
@@ -16,7 +20,7 @@ const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
  * Say what an RLS-blocked `pg_dump` means, because Postgres's own hint is
  * dangerous here.
  *
- * On the hardened install — the one `docs/site/DEPLOYMENT-K8S.md` recommends and
+ * On the hardened install — the one `docs/platform/deployment-k8s.md` recommends and
  * `scripts/bootstrap-db-role.sh` builds — the engine's role is
  * `NOSUPERUSER NOBYPASSRLS` and owns the tables. `FORCE ROW LEVEL SECURITY`
  * binds the owner too, and `pg_dump` refuses to dump a table whose rows it
@@ -58,7 +62,7 @@ export function explainDumpFailure(stderr: string): string {
     '\n' +
     'Back up as a role that RLS does not bind — one created with BYPASSRLS, kept\n' +
     "apart from the engine's own role and used for nothing else. See\n" +
-    'docs/site/DISASTER-RECOVERY.md.'
+    'docs/platform/disaster-recovery.md.'
   );
 }
 
@@ -80,7 +84,7 @@ export function explainDumpFailure(stderr: string): string {
  * produced `pg_dump failed (exit 1): Password:` while `POST /` on the same
  * engine worked.
  */
-function resolveDumpTarget(): {
+export function resolveDumpTarget(): {
   host: string;
   port: string;
   name: string;
@@ -228,10 +232,16 @@ export function backupRoutes(db: Database, auth: any): Hono {
         const gzipProc = Bun.spawn(['gzip', '-c'], {
           stdin: pgdumpProc.stdout,
           stdout: Bun.file(filepath),
+          // Piped so a failure here can say why. Without it the only evidence
+          // that the second half of the pipeline died is its exit code.
+          stderr: 'pipe',
         });
 
         await Promise.all([pgdumpProc.exited, gzipProc.exited]);
 
+        // pg_dump first: a dump that failed outright has a better error than
+        // anything the archive check can produce, and `explainDumpFailure`
+        // translates the common ones.
         if (pgdumpProc.exitCode !== 0) {
           const stderr = await new Response(pgdumpProc.stderr).text();
           throw new Error(
@@ -239,9 +249,11 @@ export function backupRoutes(db: Database, auth: any): Hono {
           );
         }
 
-        if (!(await Bun.file(filepath).exists())) {
-          throw new Error('Backup file was not created');
-        }
+        // Then gzip's exit code, the file, and its size. This route and
+        // `run-scheduled-backup.ts` used to carry the same two checks — pg_dump
+        // and existence — and the same blind spot; verify-archive.ts is now the
+        // single copy, so a third backup path cannot inherit it again.
+        const size = await verifyArchive(gzipProc, filepath);
 
         // Tighten permissions on the dump file: it holds the entire DB
         // including password hashes, secrets, customer PII. The default
@@ -251,8 +263,6 @@ export function backupRoutes(db: Database, auth: any): Hono {
         if (process.platform !== 'win32') {
           await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
         }
-
-        const size = Bun.file(filepath).size;
 
         await sql`
           UPDATE zv_backups
@@ -594,7 +604,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // `cron_expression`: the boot scheduler starts the garbage collector and the
   // trash purge and nothing else, and `next_run_at` is never computed. The only
   // thing that runs a schedule is `POST /schedules/:id/trigger`, called by hand
-  // or by system cron — which is what `docs/site/DISASTER-RECOVERY.md` §3.1
+  // or by system cron — which is what `docs/platform/disaster-recovery.md` §3.1
   // documents.
   //
   // That gap matters more than it looks, because no installer closes it either:
@@ -627,15 +637,26 @@ export function backupRoutes(db: Database, auth: any): Hono {
     is_active: z.boolean().default(true),
   });
 
-  /** The refusal both create and update owe an operator, in one place. */
-  function unimplementedDestination(dest: string | undefined): string | null {
+  /**
+   * `s3` and `both` are accepted now — `lib/backup/upload.ts` implements them —
+   * but only when there is somewhere to upload to.
+   *
+   * The check is deliberately at write time rather than at run time: a schedule
+   * that will never be able to upload should be refused when it is created, not
+   * discovered failing at 03:00. Zveltio's default store is `local`, and the
+   * SeaweedFS in docker-compose is opt-in, so this refusal is the ordinary case
+   * and says so.
+   */
+  async function unusableDestination(dest: string | undefined): Promise<string | null> {
     if (dest === undefined || dest === 'local') return null;
+    const canUpload = (await getStorage().signedPutUrl('probe', 60)) !== null;
+    if (canUpload) return null;
     return (
-      `storage_destination='${dest}' is not implemented: nothing in this engine ` +
-      'uploads a backup off the machine. Storing the setting would leave you ' +
-      'believing you have off-site copies that are never made. Use ' +
-      "storage_destination='local' and copy the files yourself — see " +
-      'docs/site/DISASTER-RECOVERY.md §3.1.'
+      `storage_destination='${dest}' needs object storage, and this instance stores ` +
+      'files locally — which is the default and usually right. Configure S3_ENDPOINT ' +
+      '(pointing somewhere that is NOT this machine, or the copy is not off-site), or ' +
+      "keep storage_destination='local' and copy the files yourself. See " +
+      'docs/platform/disaster-recovery.md §3.1.'
     );
   }
 
@@ -661,7 +682,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const data = c.req.valid('json');
 
-    const refusal = unimplementedDestination(data.storage_destination);
+    const refusal = await unusableDestination(data.storage_destination);
     if (refusal) return c.json({ error: refusal }, 400);
 
     // `notify_emails` goes in as the ARRAY, not `JSON.stringify(it)`.
@@ -699,19 +720,25 @@ export function backupRoutes(db: Database, auth: any): Hono {
       resourceType: 'backup_schedule',
       metadata: { name: data.name, cron: data.cron_expression, action: 'created' },
     });
+    // Give it a first occurrence. A row whose `next_run_at` is NULL never
+    // becomes due — which is the state every schedule ever created was in,
+    // because nothing computed it.
+    const firstRun = await setNextRun(db, result.rows[0].id, data.cron_expression);
+
     // `manual_only` is in the response because the operator cannot see it any
     // other way: the row looks exactly like a working schedule, and the audit
     // log records `backup.scheduled`, which is what an auditor would rely on.
     return c.json(
-      {
-        schedule_id: result.rows[0].id,
-        manual_only: true,
-        note:
-          'Stored, but this engine does not run schedules by itself: nothing ' +
-          'evaluates cron_expression. Trigger it with POST /api/backup/schedules/' +
-          `${result.rows[0].id}/trigger — from system cron, for example. See ` +
-          'docs/site/DISASTER-RECOVERY.md §3.1.',
-      },
+      firstRun
+        ? { schedule_id: result.rows[0].id, next_run_at: firstRun.toISOString() }
+        : {
+            schedule_id: result.rows[0].id,
+            next_run_at: null,
+            warning:
+              `cron_expression '${data.cron_expression}' could not be parsed, so this ` +
+              'schedule will never run. Fix it with PATCH, or trigger it manually ' +
+              `with POST /api/backup/schedules/${result.rows[0].id}/trigger.`,
+          },
       201,
     );
   });
@@ -729,7 +756,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     if (!existing.rows[0]) return c.json({ error: 'Schedule not found' }, 404);
 
-    const refusal = unimplementedDestination(data.storage_destination);
+    const refusal = await unusableDestination(data.storage_destination);
     if (refusal) return c.json({ error: refusal }, 400);
 
     const setClauses: string[] = ['updated_at = NOW()'];
@@ -780,6 +807,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     await db.updateTable('zv_backup_schedules').set(updateData).where('id', '=', id).execute();
 
+    // A changed cron expression means a changed next occurrence. Without this
+    // the row keeps the marker computed from the OLD expression, so the edit
+    // appears to take effect and the schedule keeps its previous times.
+    if (data.cron_expression !== undefined) {
+      await setNextRun(db, id, data.cron_expression);
+    }
+
     await auditLog(db, {
       type: 'backup.scheduled',
       userId: user?.id,
@@ -812,123 +846,48 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const scheduleId = c.req.param('id');
 
-    const schedule = await sql<{ id: string; name: string }>`
-      SELECT id::text, name FROM zv_backup_schedules WHERE id = ${scheduleId} AND is_active = true
+    const schedule = await sql<{
+      id: string;
+      name: string;
+      storage_destination: 'local' | 's3' | 'both';
+      s3_prefix: string | null;
+    }>`
+      SELECT id::text, name, storage_destination, s3_prefix
+        FROM zv_backup_schedules WHERE id = ${scheduleId} AND is_active = true
     `.execute(db);
 
     if (!schedule.rows[0]) return c.json({ error: 'Schedule not found or inactive' }, 404);
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `backup-schedule-${scheduleId}-${timestamp}.sql.gz`;
-    const filepath = `${BACKUP_DIR}/${filename}`;
-
-    const backupResult = await sql<{ id: string }>`
-      INSERT INTO zv_backups (filename, status, created_by, notes)
-      VALUES (${filename}, 'in_progress', ${user.id}, ${'Triggered by schedule: ' + schedule.rows[0].name})
-      RETURNING id::text
-    `.execute(db);
-    const backupId = backupResult.rows[0].id;
-
-    const {
-      host: dbHost,
-      port: dbPort,
-      name: dbName,
-      user: dbUser,
-      password: dbPassword,
-    } = resolveDumpTarget();
-
-    const backupBg = async () => {
-      try {
-        const mkdirProc = Bun.spawn(['mkdir', '-p', BACKUP_DIR]);
-        await mkdirProc.exited;
-
-        const pgdumpProc = Bun.spawn(
-          ['pg_dump', '-h', dbHost, '-p', String(dbPort), '-U', dbUser, '-d', dbName],
-          {
-            env: { ...process.env, PGPASSWORD: dbPassword } as Record<string, string>,
-            stdout: 'pipe',
-            stderr: 'pipe',
-          },
-        );
-
-        const gzipProc = Bun.spawn(['gzip', '-c'], {
-          stdin: pgdumpProc.stdout,
-          stdout: Bun.file(filepath),
-        });
-
-        await Promise.all([pgdumpProc.exited, gzipProc.exited]);
-
-        if (pgdumpProc.exitCode !== 0) {
-          const stderr = await new Response(pgdumpProc.stderr).text();
-          throw new Error(`pg_dump failed (exit ${pgdumpProc.exitCode}): ${stderr}`);
-        }
-
-        if (!(await Bun.file(filepath).exists())) {
-          throw new Error('Backup file was not created');
-        }
-
-        // 0600 — see /backup POST above. Same reasoning for scheduled dumps.
-        if (process.platform !== 'win32') {
-          await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
-        }
-
-        const size = Bun.file(filepath).size;
-
-        // The backup's own status and the schedule's `last_run_status` are the
-        // same outcome recorded in two places, and they are what an operator
-        // reads to decide whether last night's backup ran.
-        //
-        // Split, they disagree — the schedule says `completed` while the backup
-        // row says nothing was written, or the reverse. Both readings are worse
-        // than an error, because both are believed. This runs on the pool after
-        // the response, so it needs a transaction of its own; there is no
-        // request boundary out here to borrow.
-        await db.transaction().execute(async (trx) => {
-          await sql`
-            UPDATE zv_backups SET status = 'completed', size_bytes = ${size}, completed_at = NOW()
-            WHERE id = ${backupId}
-          `.execute(trx);
-
-          await sql`
-            UPDATE zv_backup_schedules
-            SET last_run_at = NOW(), last_run_status = 'completed'
-            WHERE id = ${scheduleId}
-          `.execute(trx);
-        });
-
-        await cleanupOldBackups(db);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error('Scheduled backup failed:', msg);
-        // Same pair, same reason. A failure the schedule does not record is a
-        // backup an operator believes ran.
-        await db.transaction().execute(async (trx) => {
-          await sql`
-            UPDATE zv_backups SET status = 'failed', error = ${msg} WHERE id = ${backupId}
-          `.execute(trx);
-          await sql`
-            UPDATE zv_backup_schedules SET last_run_at = NOW(), last_run_status = 'failed' WHERE id = ${scheduleId}
-          `.execute(trx);
-        });
-      }
-    };
-
-    backupBg().catch((err) => console.error('Scheduled backup bg error:', err));
+    // The body of this used to live here, which is why the schedules feature had
+    // no scheduler: there was nothing for one to call. Awaited now rather than
+    // fired and forgotten, so the response says what actually happened — a
+    // trigger that answers 200 and then fails silently is the shape this whole
+    // area kept taking.
+    const out = await runScheduledBackup(db, {
+      scheduleId,
+      scheduleName: schedule.rows[0].name,
+      target: resolveDumpTarget(),
+      actorId: user?.id ?? null,
+      note: `Triggered by schedule: ${schedule.rows[0].name}`,
+      // Same destination as an unattended run. A manual trigger that skipped the
+      // upload would make "I tested it and it worked" mean something different
+      // from what happens at 03:00.
+      destination: schedule.rows[0].storage_destination,
+      s3Prefix: schedule.rows[0].s3_prefix,
+    });
 
     await auditLog(db, {
       type: 'backup.scheduled',
-      userId: user.id,
-      resourceId: backupId,
+      userId: user?.id,
+      resourceId: out.backupId,
       resourceType: 'backup',
-      metadata: { action: 'manual_trigger', schedule_id: scheduleId, filename },
+      metadata: { action: 'manual_trigger', schedule_id: scheduleId, filename: out.filename },
     });
 
-    return c.json({
-      backup_id: backupId,
-      status: 'in_progress',
-      filename,
-      schedule_id: scheduleId,
-    });
+    if (out.status === 'failed') {
+      return c.json({ backup_id: out.backupId, status: out.status, error: out.error }, 500);
+    }
+    return c.json({ backup_id: out.backupId, filename: out.filename, status: out.status });
   });
 
   // ── Enterprise: Integrity Checks ──────────────────────────────
