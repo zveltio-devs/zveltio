@@ -5,6 +5,8 @@
 // share one audit shape. These are pure helpers — everything they touch (db, the
 // Hono context) is passed in — so they carry no loader state.
 
+import { toJsonb } from '../jsonb.js';
+
 /** Per-extension license key from zv_settings (`ext_license:<name>`). Free
  * extensions need no key; paid ones send it as `Authorization: Bearer`. */
 
@@ -47,7 +49,9 @@ export async function writeLicenseAudit(db: any, row: LicenseAuditRow): Promise<
         performed_by: row.performed_by,
         ip: row.ip,
         user_agent: row.user_agent,
-        details: JSON.stringify(row.details ?? {}),
+        // See lib/jsonb.ts. Stored as a jsonb string, an audit row's details
+        // cannot be queried by key at all — which is most of why it is kept.
+        details: toJsonb(row.details ?? {}),
       })
       .execute();
   } catch (err) {

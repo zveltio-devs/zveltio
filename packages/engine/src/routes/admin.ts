@@ -11,6 +11,7 @@ import { fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
+import { toJsonb } from '../lib/jsonb.js';
 import type { RequestUser } from './data.js';
 import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
 import { registerSystemRoutes } from './admin/system-routes.js';
@@ -207,7 +208,10 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           name,
           key_hash: keyHash,
           key_prefix: prefix,
-          scopes: JSON.stringify(scopes),
+          // `::text::jsonb`, not `JSON.stringify` alone — see lib/jsonb.ts.
+          // Bound as a plain string this landed as a jsonb STRING, so
+          // `scopes @> '[...]'` matched nothing and `scopes ? 'x'` was false.
+          scopes: toJsonb(scopes),
           rate_limit,
           rls_bypass,
           expires_at: expires_at ? new Date(expires_at) : null,

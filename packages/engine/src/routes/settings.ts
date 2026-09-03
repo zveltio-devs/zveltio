@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
+import { toJsonb } from '../lib/jsonb.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 
 /**
@@ -298,13 +299,18 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ success: true, key, unchanged: true });
       }
       // JSON.stringify throws on circular references — return 400 with a
-      // clear message instead of letting it become a generic 500.
-      let serialized: string;
+      // clear message instead of letting it become a generic 500. The result is
+      // discarded: it exists to reject the value, not to be written.
       try {
-        serialized = JSON.stringify(value);
+        JSON.stringify(value);
       } catch {
         return c.json({ error: 'Value is not JSON-serializable' }, 400);
       }
+      // `toJsonb`, not the serialized string. Bound as a plain string this
+      // column stored the JSON TEXT rather than the JSON value — a bulk update
+      // of `language: 'en'` landed as `"\"en\""`, one wrapping too many, while
+      // the rows written at bootstrap were correct. See lib/jsonb.ts.
+      const serialized = toJsonb(value);
 
       await db
         .insertInto('zv_settings')
@@ -355,12 +361,12 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       // both write paths rather than left as a trap on one.
       if (isSecretSettingKey(key) && value === MASKED_SECRET) continue;
 
-      let serialized: string;
       try {
-        serialized = JSON.stringify(value);
+        JSON.stringify(value);
       } catch {
         return c.json({ error: `Value for key "${key}" is not JSON-serializable` }, 400);
       }
+      const serialized = toJsonb(value);
       await db
         .insertInto('zv_settings')
         .values({ key, value: serialized, updated_at: new Date() })
