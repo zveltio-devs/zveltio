@@ -255,6 +255,7 @@ computes the SHA-256, and patches these blocks in place.
 | `contributes.fieldTypes` | string[] | no | List of field type IDs registered. |
 | `contributes.stepTypes` | string[] | no | For workflow steps. |
 | `contributes.schedules` | string[] | no | Names of cron schedules declared. |
+| `i18nPrefixes` | string[] | yes, if you ship `studio/messages/` | The message-key namespaces you own, e.g. `["invoicing", "finance.invoicing"]`. See §10. |
 | `studio.navGroup` | string | no | Sidebar group: `business`, `finance`, `hr`, `compliance`, … |
 | `studio.pages` | object[] | no | `[{ path, label, icon, schema? }]`. One entry per Studio page. |
 | `studio.pages[].schema` | string | no | Path to a declarative page schema (e.g. `schemas/crm.json`), relative to the extension root. Present → the page renders from JSON (no `+page.svelte`, no per-host build). Absent → the page is a code `+page.svelte`. See §10. |
@@ -1355,6 +1356,40 @@ already applies.
 whose translations live in the host renders correctly only on a host that already
 knows about it. That is not a property an installable extension can have, and it
 is fatal for a third-party one.
+
+#### Your catalogue is yours, and it travels
+
+Declare the namespaces you own in `manifest.i18nPrefixes`:
+
+```json
+{ "i18nPrefixes": ["invoicing", "finance.invoicing"] }
+```
+
+**Declared, never derived from your directory.** `finance/invoicing` owns
+`invoicing.*` — path and namespace do not correspond, and a rule that assumed
+they did was written once and reverted before commit for flagging 106 correct
+keys. It is a **list** because a top-level prefix is not exclusive either:
+`finance.*` is written by six extensions. Claim your namespace at whatever depth
+you actually use.
+
+Two rules follow, and `check-extension-i18n-namespaces.ts` enforces both:
+
+- **Every key you ship falls under a prefix you declared.** A stray key belongs
+  to nobody.
+- **You may not ship `common.*` or `ext.*`.** That is the host's shared
+  vocabulary — you may *reference* it freely (that is what it is for), but the
+  merge layers extensions over core, so shipping `common.cancel` would replace
+  the host's own word on every screen in the product, not just yours.
+
+Why this suddenly matters: your catalogue no longer stays in the Studio build.
+`GET /api/extensions?messages=<locale>` attaches it to your entry, so a front end
+that cannot compile Paraglide — anything not our Studio — can resolve the labels
+in your page schema. Those hosts merge the per-extension catalogues themselves,
+last-one-wins, which is why disjointness stopped being tidiness and became
+correctness.
+
+The engine never merges them. It carries your catalogue the way it carries your
+page schema: as your artefact, unread.
 
 #### Declarative (SDUI) pages
 

@@ -422,6 +422,15 @@ jobs:
         # unguarded the copy rots silently: a newly added common key would be
         # rejected as unknown, a removed one would keep passing.
         run: bun run check:shared-keys
+      - name: Extension message namespaces are declared and disjoint
+        # Catalogues now travel to the host (`/api/extensions?messages=<locale>`)
+        # and the host merges them last-one-wins, so two extensions shipping the
+        # same key would resolve by load order — on someone else's front end,
+        # where nobody would look. Disjointness held by discipline alone (0
+        # collisions across 56 catalogues); this is what keeps it true. Also
+        # catches an extension shipping `common.*`, which the merge layers OVER
+        # core and would silently replace the host's own word.
+        run: bun run check:ext-i18n-ns ../zveltio-extensions
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.

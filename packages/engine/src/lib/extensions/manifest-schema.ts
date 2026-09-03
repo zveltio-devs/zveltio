@@ -146,6 +146,34 @@ export const ManifestSchema = z
      * extension. This is the list an OPERATOR grants to their people. Same word
      * in English, opposite directions.
      */
+    /**
+     * Message-key namespaces this extension owns, e.g. `["invoicing",
+     * "finance.invoice"]`.
+     *
+     * DECLARED, never derived from the directory path. Deriving it was tried
+     * on 2026-08-10 and reverted before commit: the rule "every key starts
+     * with the extension path" would have flagged 106 correct keys at
+     * `finance/invoicing`, which owns `invoicing.*` — the two do not
+     * correspond.
+     *
+     * A LIST, and of variable depth, because a single exclusive top-level
+     * prefix does not describe reality either: `finance.*` is written by six
+     * extensions (accounting, banking, expenses, invoicing, quotes,
+     * subscriptions) and `content.*` by six more. Measured over the 56
+     * shipping catalogues, 43 extensions need one namespace and 13 need two;
+     * at the depth each actually claims, no two extensions overlap.
+     *
+     * Why it must be declared at all: catalogues now travel to the host
+     * (`GET /api/extensions?messages=<locale>`), and a host merges them with
+     * last-one-wins. Disjointness is what makes that merge safe, and it holds
+     * today by discipline alone — 0 collisions across 2309 keys. This field is
+     * what lets a gate keep it true, and lets a third-party host attribute a
+     * key to the extension responsible for it.
+     *
+     * `common.*` is NOT declarable here: it is the host's shared vocabulary
+     * (interface verbs), which every extension may reference and none owns.
+     */
+    i18nPrefixes: z.array(z.string().regex(/^[a-z][a-zA-Z0-9-]*(\.[a-zA-Z0-9_-]+)*$/)).default([]),
     resources: z.array(z.string()).default([]),
     /**
      * Which of `resources` are withheld from the automatic default grant.
@@ -234,6 +262,13 @@ export interface ManifestMeta {
   description?: string;
   category?: string;
   contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
+  /** Message-key namespaces this extension owns — see `ManifestSchema.i18nPrefixes`.
+   *  Carried to the host so it can attribute a key to its owner. */
+  i18nPrefixes?: string[];
+  /** Present only when the caller asked for a locale (`?messages=<locale>`):
+   *  this extension's own catalogue, flat `key → text`. The host merges the
+   *  per-extension catalogues itself; the engine never unions them. */
+  messages?: Record<string, string>;
   studio?: {
     navGroup?: string;
     pages?: Array<{
@@ -295,4 +330,57 @@ export async function embedPageSchemas(
     }),
   );
   return { ...studio, pages };
+}
+
+/**
+ * A locale name that is safe to put in a filesystem path.
+ *
+ * The locale reaches this module from a query string
+ * (`GET /api/extensions?messages=<locale>`), and it is concatenated into a
+ * path under the extension directory. Anything but this shape — `..`, a
+ * slash, a NUL — is refused before it can be joined, so the parameter cannot
+ * address a file outside `<extDir>/studio/messages/`.
+ */
+const LOCALE_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
+
+export function isSupportedLocaleName(locale: string): boolean {
+  return LOCALE_RE.test(locale);
+}
+
+/**
+ * Read one extension's own message catalogue for one locale.
+ *
+ * Deliberately per-extension and unmerged. The engine ships an extension's
+ * catalogue the way it ships its page schema — as an opaque artefact belonging
+ * to that extension — and never unions the catalogues into a single answer.
+ * Merging would make the engine the owner of a global namespace, which is the
+ * thing deleted on 2026-08-10 when `routes/translations.ts` (366 lines, 15
+ * routes) came out: the engine knows HOW it accepts an extension, never WHAT a
+ * particular extension says. The host merges, because the host owns
+ * `common.*` and decides precedence.
+ *
+ * Returns undefined when the extension ships no catalogue for that locale —
+ * which is normal (an extension may translate only some of the nine) and must
+ * not be reported as an error.
+ */
+export async function loadExtensionMessages(
+  extDir: string,
+  locale: string,
+): Promise<Record<string, string> | undefined> {
+  if (!isSupportedLocaleName(locale)) return undefined;
+  const path = join(extDir, 'studio', 'messages', `${locale}.json`);
+  try {
+    const parsed = JSON.parse(await Bun.file(path).text()) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      // `$schema` is an editor affordance in the source file, not a message.
+      if (k === '$schema') continue;
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+  } catch {
+    // Missing file is the common case; a malformed one is the extension's bug
+    // and must not take the whole /api/extensions response down with it.
+    return undefined;
+  }
 }

@@ -36,6 +36,8 @@ function fakeLoader(over: Record<string, unknown> = {}): any {
     modules: new Map(),
     ctx: { db: db.kysely },
     lastLoadError: new Map(),
+    extDirs: new Map(),
+    forgetExtensionMessages: () => {},
     isActive: () => false,
     ...over,
   };
