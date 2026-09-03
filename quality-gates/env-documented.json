@@ -1,0 +1,7 @@
+{
+  "_what": "Environment variables packages/engine/src reads that appear in neither .env.example nor docs/platform/configuration.md. The list may shrink, never grow.",
+  "_why_it_has_a_gate": "There were 59, and 16 of them switched a guarantee off — plaintext encrypted fields, the worker SSRF guard, third-party extension isolation, the /ext/* auth gate, anonymous /metrics, rate-limit exemption by CIDR. Every one deliberate, none findable. For a product sold to institutions running it themselves, that list is a deliverable.",
+  "_how_to_fix": "Add the variable to docs/platform/configuration.md — under \"Escape hatches\" if it weakens a guarantee — or to .env.example if an operator would normally set it.",
+  "_regenerate": "bun run scripts/check-env-documented.ts --update",
+  "undocumented": []
+}
