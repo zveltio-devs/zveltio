@@ -9,33 +9,17 @@ import type Redis from 'ioredis';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
+import { FakeRedis } from '../../testing/fake-redis.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hlc304_${Date.now()}`;
 
-class CacheFakeRedis {
-  store = new Map<string, string>();
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
-  }
-  async setex(key: string, _ttl: number, val: string): Promise<'OK'> {
-    this.store.set(key, val);
-    return 'OK';
-  }
-  async sadd(): Promise<number> {
-    return 1;
-  }
-  async expire(): Promise<number> {
-    return 1;
-  }
-}
-
 d('data list query-cache 304 strict (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
-  const fakeRedis = new CacheFakeRedis();
+  const fakeRedis = new FakeRedis();
 
   beforeAll(async () => {
     process.env.QUERY_CACHE_TTL_SECONDS = '30';
