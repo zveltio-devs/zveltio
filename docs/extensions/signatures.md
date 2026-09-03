@@ -22,7 +22,7 @@ enforcing signatures would have blocked every install rather than securing one.
 
 Extensions run **in-process as engine code** (unless `engine.isolation: "worker"`,
 which only community/unverified publishers are forced into — see
-`MARKETPLACE-POLICY.md`). So for a first-party / verified extension that runs
+`marketplace-policy.md`). So for a first-party / verified extension that runs
 `inline`, tampered archive bytes = remote code execution in the engine.
 
 TLS protects the archive *in transit* from `registry.zveltio.com`. The Ed25519
@@ -121,7 +121,7 @@ before the marketplace accepts third-party code.**
 
 ## Related
 
-- `MARKETPLACE-POLICY.md` — three-tier publisher isolation (the primary trust
+- `marketplace-policy.md` — three-tier publisher isolation (the primary trust
   boundary; signatures are defence-in-depth beneath it).
-- `EXTENSION-DEVELOPER-GUIDE.md` — the fail-closed `/ext/*` auth gate +
+- `developer-guide.md` — the fail-closed `/ext/*` auth gate +
   `publicRoutes` manifest field.

@@ -6,8 +6,8 @@ renders it with trusted generic components — no per-extension Svelte build, no
 third-party JS in the admin.
 
 This document is the **field-level reference**. For the authoring workflow (manifest
-wiring, sync, CI), see [EXTENSION-DEVELOPER-GUIDE.md §10](./EXTENSION-DEVELOPER-GUIDE.md)
-and [EXTENSION-COOKBOOK recipe 7](./EXTENSION-COOKBOOK.md). The TypeScript source of
+wiring, sync, CI), see [developer-guide.md §10](../extensions/developer-guide.md)
+and [EXTENSION-COOKBOOK recipe 7](../extensions/cookbook.md). The TypeScript source of
 truth is [`packages/studio/src/lib/sdui/types.ts`](../../packages/studio/src/lib/sdui/types.ts).
 
 ---
@@ -305,7 +305,7 @@ bun run scripts/check-sdui-contract.ts ../zveltio-extensions
 
 Use **Tier-3 Svelte pages** (`studio/pages/+page.svelte`) for editors, canvases,
 maps, kanban, live chat, file browsers, and other UIs the vocabulary cannot express.
-See [EXTENSION-AUTHORING.md](./EXTENSION-AUTHORING.md) for tier guidance.
+See [authoring.md](../extensions/authoring.md) for tier guidance.
 
 For **dashboard slot widgets** (Model 2.5), ship `studio/src/contribute.ts` +
 Svelte components — schemas alone cannot mount into host slots.

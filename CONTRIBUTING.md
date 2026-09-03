@@ -16,7 +16,7 @@ context up front saves a lot of round-trips.
      are *intentionally* leaving for v1.
    - [`docs/private/TECHNICAL-GAPS.md`](docs/private/TECHNICAL-GAPS.md) — known gaps,
      P0–P3 priorities. Pick from here if you want maximum impact.
-   - [`docs/site/EXTENSION-DEVELOPER-GUIDE.md`](docs/site/EXTENSION-DEVELOPER-GUIDE.md)
+   - [`docs/extensions/developer-guide.md`](docs/extensions/developer-guide.md)
      — start here if you're building an extension instead of patching core.
 
 ## Development setup
@@ -54,7 +54,7 @@ cd packages/engine && bun test   # unit + integration
 ### Common dev footguns
 
 These bite contributors regularly. See also
-[`docs/site/EXTENSION-DEVELOPER-GUIDE.md` §12](docs/site/EXTENSION-DEVELOPER-GUIDE.md#12-local-development-loop).
+[`docs/extensions/developer-guide.md` §12](docs/extensions/developer-guide.md#12-local-development-loop).
 
 #### `EXTENSIONS_DIR` — where extension files come from
 
@@ -165,7 +165,7 @@ These are enforced in review. Skim before writing code:
 
 Found a vulnerability? **Don't open a public issue.** Email
 `security@zveltio.com`. We respond within 48 h on business days. See
-[`SECURITY.md`](SECURITY.md) for the disclosure policy.
+[`docs/platform/security-model.md`](docs/platform/security-model.md) for the disclosure policy.
 
 ## Licence
 

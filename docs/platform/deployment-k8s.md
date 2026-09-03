@@ -1,6 +1,6 @@
 # Deploying Zveltio on Kubernetes
 
-This guide walks through installing the engine on K8s via the official Helm chart in [`charts/zveltio`](../charts/zveltio).
+This guide walks through installing the engine on K8s via the official Helm chart in [`charts/zveltio`](../../charts/zveltio).
 
 The chart ships **only the engine**. Postgres, Valkey, and S3-compatible storage are external by default — most production deployments use managed services for these (Cloud SQL / RDS / Aiven / Supabase Postgres, ElastiCache / Memorystore / Aiven Valkey, S3 / R2 / MinIO). For dev / staging, in-cluster Postgres + Valkey are available behind feature flags.
 
@@ -160,7 +160,7 @@ Expected keys in the existing Secret:
 | `METRICS_TOKEN` | recommended | Bearer for `/metrics` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | OpenTelemetry collector |
 | `S3_*` | when using S3 storage | endpoint / bucket / region / keys |
-| `REGISTRY_PUBLIC_KEYS_JSON` | when verifying signed extensions | See `docs/site/EXTENSION-DEVELOPER-GUIDE.md` |
+| `REGISTRY_PUBLIC_KEYS_JSON` | when verifying signed extensions | See `docs/extensions/developer-guide.md` |
 
 **External Secrets Operator** + Vault / AWS Secrets Manager / GCP Secret Manager is the recommended pattern. Sealed-secrets works too if you prefer GitOps.
 

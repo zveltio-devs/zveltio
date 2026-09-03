@@ -12,7 +12,7 @@ export interface ExtensionCatalogEntry {
   /**
    * First-party extension (Zveltio-published, audited, allowed to use
    * `engine.isolation: 'inline'`). Third-party (community) extensions
-   * MUST declare `isolation: 'worker'` per `docs/site/MARKETPLACE-POLICY.md`
+   * MUST declare `isolation: 'worker'` per `docs/extensions/marketplace-policy.md`
    * §2 — the loader hard-fails the enable otherwise.
    *
    * Local hardcoded entries default to `true` (the 54 official + the
@@ -25,7 +25,7 @@ export interface ExtensionCatalogEntry {
    */
   is_official?: boolean;
   /**
-   * Publisher trust tier (MARKETPLACE-POLICY §2). Drives isolation
+   * Publisher trust tier (marketplace-policy.md §2). Drives isolation
    * enforcement at enable:
    *   - `first-party` / `verified` → may run `isolation: 'inline'`
    *   - `community` (or unknown)   → MUST declare `isolation: 'worker'`

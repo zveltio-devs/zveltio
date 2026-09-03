@@ -84,7 +84,7 @@ This is a disaster recovery feature — if someone accidentally deletes all Casb
 
 ### How It Works
 
-In [`packages/engine/src/lib/permissions.ts`](packages/engine/src/lib/permissions.ts):
+In [`packages/engine/src/lib/tenancy/permissions.ts`](../../packages/engine/src/lib/tenancy/permissions.ts):
 
 ```typescript
 export async function checkPermission(
