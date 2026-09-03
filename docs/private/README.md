@@ -5,8 +5,8 @@
 internal engineering material that is either **cited from source code** (and so
 must keep a stable path) or is **live planning** for work in progress.
 
-Working notes here are written in Romanian; the documentation chapters are in
-English.
+Everything under `docs/` is written in English, these internal notes included —
+they are read by the same people and agents as the chapters.
 
 ## Cited from source code — do not move
 
