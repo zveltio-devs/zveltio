@@ -950,6 +950,16 @@ function edgeColor(type: string): string {
   </div>
 
   <!-- Viewport -->
+  <!--
+    Suppressed with a reason rather than worked around. This is a pan/zoom
+    canvas: `mousedown` and `wheel` belong to the container, not to any child,
+    and there is no interactive element that could carry them without changing
+    what the diagram is. `role="application"` plus `aria-label` below is the
+    correct pairing for a widget that manages its own keyboard, and the rule
+    does not recognise it — the keyboard path is the toolbar above, which offers
+    zoom in/out/reset as real buttons.
+  -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     id="erd-viewport"
     class="relative grow overflow-hidden bg-base-200 cursor-grab"
@@ -1056,6 +1066,9 @@ function edgeColor(type: string): string {
                       {/if}
                     {:else}
                       <span
+                        role="button"
+                        tabindex={!isSys && !col.is_system ? 0 : undefined}
+                        aria-label={m['common.rename']()}
                         data-no-drag={!isSys && !col.is_system ? true : undefined}
                         class="font-mono truncate grow {isRel ? 'text-indigo-400' : ''} {isSys ? 'text-base-content/65' : ''}"
                         class:cursor-text={!isSys && !col.is_system}

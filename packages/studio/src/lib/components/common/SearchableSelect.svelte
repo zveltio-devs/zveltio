@@ -24,6 +24,11 @@ let {
   label?: string;
 } = $props();
 
+// Generated so the label can name the trigger. `<button>` is labelable, so
+// `for`/`id` is the right pairing here — this is a combobox whose trigger is a
+// button rather than a native <select>.
+const id = $props.id();
+
 let searchTerm = $state('');
 let isOpen = $state(false);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -71,16 +76,19 @@ $effect(() => {
 
 <div class="relative w-full">
 	{#if label}
-		<label class="label">
+		<label class="label" for={id}>
 			<span class="label-text font-semibold">{label}</span>
 		</label>
 	{/if}
 
 	<!-- Trigger Button -->
 	<button
+		{id}
 		type="button"
 		class="input input-bordered w-full flex items-center justify-between"
 		{disabled}
+		aria-haspopup="listbox"
+		aria-expanded={isOpen}
 		onclick={() => !disabled && (isOpen = !isOpen)}
 	>
 		<span class={selectedLabel ? '' : 'opacity-50'}>
@@ -102,7 +110,8 @@ $effect(() => {
 					oninput={(e) => handleSearch(e.currentTarget.value)}
 					placeholder={m['common.typeToSearch']()}
 					class="input input-sm input-bordered w-full"
-					autofocus
+					aria-label={m['common.typeToSearch']()}
+					{@attach (node: HTMLInputElement) => node.focus()}
 				/>
 			</div>
 
@@ -135,6 +144,7 @@ $effect(() => {
 		<button
 			type="button"
 			class="fixed inset-0 z-40"
+			aria-label={m['common.close']()}
 			onclick={() => isOpen = false}
 			tabindex="-1"
 		></button>

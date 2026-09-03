@@ -122,7 +122,14 @@ function relLabel(it: any, labelKey: string | string[]): string {
   return String(it[labelKey] ?? '');
 }
 
-let activeId = $state(schema.resources[0]!.id);
+// `$derived`-free on purpose — this is user state, not a mirror of the prop —
+// but the INITIAL value must not be captured at module init, or a schema that
+// arrives later leaves the page pointing at a resource from the previous one.
+let activeId = $state('');
+$effect(() => {
+  const first = schema.resources[0]?.id;
+  if (first && !schema.resources.some((r) => r.id === activeId)) activeId = first;
+});
 const active = $derived<ResourceView>(
   schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!,
 );
@@ -1557,9 +1564,10 @@ const shellTabs = $derived(
 {#snippet fieldInput(f: FieldDef, data: Record<string, any>)}
   {#if fieldVisible(f, data)}
   <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-    <label class="label py-0"><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
+    <label class="label py-0" for={`fld-${f.name}`}><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
     {#if f.type === 'select' || f.type === 'relation'}
       <select
+        id={`fld-${f.name}`}
         class="select select-sm"
         bind:value={data[f.name]}
         onchange={() => applyAutofill(f, data[f.name], data)}

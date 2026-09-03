@@ -130,7 +130,7 @@ function handleThemeToggle() {
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
 					</svg>
 				</button>
-				<ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
+				<ul class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
 					<li><button onclick={() => changePosition('top')}>{m['nav.posTop']()}</button></li>
 					<li><button onclick={() => changePosition('bottom')}>{m['nav.posBottom']()}</button></li>
 					<li><button onclick={() => changePosition('left')}>{m['nav.posLeft']()}</button></li>
@@ -153,7 +153,7 @@ function handleThemeToggle() {
 						</div>
 					{/if}
 				</button>
-				<ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52">
+				<ul class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52">
 					<li class="menu-title">
 						<span>{user.name || user.email}</span>
 					</li>

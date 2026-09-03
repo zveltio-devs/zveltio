@@ -370,6 +370,8 @@
   "common.refresh": "Odśwież",
   "common.reject": "Odrzuć",
   "common.remove": "Usuń",
+  "common.rename": "Zmień nazwę",
+  "common.reorder": "Zmień kolejność",
   "common.required": "Wymagane",
   "common.resetFailed": "Reset nie powiódł się",
   "common.revoke": "Odwołaj",
