@@ -135,7 +135,7 @@ $effect(() => {
        stylesheet and absent from the accessibility tree. DaisyUI's `modal-open`
        overrides the display in CSS, so the dialog looks open to a sighted user
        and does not exist for a screen reader. -->
-  <dialog open class="modal modal-open" role="dialog" aria-modal="true" aria-label={title || undefined}>
+  <dialog open class="modal modal-open" aria-modal="true" aria-label={title || undefined}>
     <div class="modal-box {sizes[size] ?? sizes.md}" bind:this={box} tabindex="-1">
       {#if title}<h3 class="font-bold text-lg">{title}</h3>{/if}
       {#if dismissible}

@@ -15,6 +15,10 @@ Complete reference for all environment variables used by the Zveltio engine.
 - [OAuth Providers](#oauth-providers)
 - [Extensions](#extensions)
 - [Multi-Tenancy](#multi-tenancy)
+- [Escape hatches](#escape-hatches)
+- [Server paths and limits](#server-paths-and-limits)
+- [Connection pool](#connection-pool)
+- [Extensions, registry and diagnostics](#extensions-registry-and-diagnostics)
 - [Observability](#observability)
 - [Example .env files](#example-env-files)
 
@@ -301,7 +305,7 @@ EXTENSIONS_DIR=/app/extensions
 | `ZVELTIO_TENANT_NAME` | — | Default tenant display name |
 | `BACKUP_DB_USER` | unset | Role `pg_dump` connects as. **Required on a hardened install**: the engine's own role is bound by `FORCE ROW LEVEL SECURITY`, so `pg_dump` as the engine fails on a virgin database. Create a role with `BYPASSRLS`, used for nothing else — see [DISASTER-RECOVERY.md](disaster-recovery.md). Unset falls back to the engine's own credentials. |
 | `BACKUP_DB_PASSWORD` | unset | Password for `BACKUP_DB_USER`. Only read when that is set. |
-| `ZVELTIO_FAIL_CLOSED_TENANT` | unset | Set to `1` to make `zveltio_tenant_scope_ok` return **no rows** when `zveltio.current_tenant` is unset (migration 047). Default remains fail-open-to-default-tenant. **Do not enable** on single-tenant installs or jobs that omit tenant context. |
+| `ZVELTIO_FAIL_CLOSED_TENANT` | unset | Set to `1` to make `zveltio_tenant_scope_ok` return **no rows** when `zveltio.current_tenant` is unset (`001_initial.sql`, section `from 047_fail_closed_tenant_opt_in.sql`). Default remains fail-open-to-default-tenant. **Do not enable** on single-tenant installs or jobs that omit tenant context. |
 | `ZVELTIO_ALLOW_UNENFORCED_RLS` | unset | Escape hatch when the engine role can bypass RLS and `zveltio_rls` is unavailable. Required to start in production in that state; only defensible on single-tenant installs. |
 
 In multi-tenant mode, tenants are resolved from:
@@ -316,7 +320,7 @@ In multi-tenant mode, tenants are resolved from:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RECOVERY_TOKEN` | — | Emergency bootstrap token (min 32 chars). When set, enables `POST /api/permissions/bootstrap` to promote any user to `god` role. Remove after use. |
-| `METRICS_TOKEN` | — | When set, protects `GET /metrics` with `Authorization: Bearer <token>`. If unset, metrics are public (acceptable behind a firewall). |
+| `METRICS_TOKEN` | — | Protects `GET /metrics` with `Authorization: Bearer <token>`. **Unset, `/metrics` returns 403, not metrics** — it fails closed rather than leak uptime, heap and request counts to an anonymous caller. This row previously said the opposite. To scrape without a token over a trusted network, set `METRICS_ALLOW_UNAUTHENTICATED=1` and mean it. |
 | `MAIL_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting IMAP/SMTP passwords at rest. Generate: `openssl rand -hex 32` |
 | `AI_KEY_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting AI provider API keys at rest. Generate: `openssl rand -hex 32` |
 
@@ -325,6 +329,120 @@ In multi-tenant mode, tenants are resolved from:
 openssl rand -hex 32   # for RECOVERY_TOKEN, MAIL_ENCRYPTION_KEY, AI_KEY_ENCRYPTION_KEY
 openssl rand -base64 32  # for BETTER_AUTH_SECRET
 ```
+
+---
+
+## Escape hatches
+
+Every variable here turns OFF something the engine otherwise guarantees. They
+exist because each has a legitimate use — a single-tenant install, a private
+network, a migration window — and they are collected in one place because the
+question "what can weaken this deployment?" deserves an answer that is a list
+rather than a grep.
+
+None of them is set by default. On a hardened install, all of them should be
+absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
+
+| Variable | What it turns off | When it is defensible |
+|----------|-------------------|-----------------------|
+| `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` | Refusing to write a field marked `encrypted: true` when `FIELD_ENCRYPTION_KEY` is unset. With `=1` the value is stored in the clear. | Never on an install holding PII. A development database, or a deliberate migration off encryption. |
+| `ZVELTIO_ALLOW_UNENFORCED_RLS` | Refusing to start when the engine's own role can bypass RLS and `zveltio_rls` is unavailable. | Single-tenant installs, where there is no second tenant to leak to. |
+| `ZVELTIO_ALLOW_MIGRATION_DIVERGENCE` | Refusing to start against a schema newer than the binary. | A rollback window you are actively supervising. |
+| `ZVELTIO_ALLOW_MISSING_DB` | Gates and the harness lane refusing to run without a database, rather than passing having checked nothing. | A lint-only CI job that genuinely has no Postgres. |
+| `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` | The SSRF guard inside worker extensions, which blocks `fetch` to private address ranges. | Testing a worker extension against a deliberately internal endpoint. |
+| `ZVELTIO_ALLOW_INLINE_THIRD_PARTY` | Forcing third-party extensions into worker isolation. With `=1` they load in the engine process. | Debugging an extension you wrote and trust. |
+| `ZVELTIO_EXT_AUTH_GATE=0` | The fail-closed authentication gate in front of every `/ext/*` route. | Nothing in production. It exists so a single extension's own auth can be exercised in isolation. |
+| `METRICS_ALLOW_UNAUTHENTICATED` | `/metrics` refusing anonymous callers when no `METRICS_TOKEN` is set. | A Prometheus scraper on a private network. |
+| `RATE_LIMIT_ALLOWLIST` | Rate limiting, for the listed CIDRs. | An internal load generator, or a known reverse proxy. |
+| `RATE_LIMIT_DENYLIST` | Nothing — it TIGHTENS. Comma-separated CIDRs refused before any handler runs. Listed here beside its twin so the pair is never found half-configured. | Blocking a known abusive range at the edge. |
+| `ZVELTIO_REGISTRATION_ENABLED` | The refusal to self-register (`registration_disabled`). Opens `POST /api/auth/sign-up/email` to anyone. | An instance that is genuinely meant to accept public sign-ups. |
+
+Two more do the opposite — they make the engine STRICTER, and are worth knowing
+for the same reason:
+
+| Variable | What it tightens |
+|----------|------------------|
+| `ZVELTIO_FAIL_CLOSED_TENANT` | A query with no tenant context sees zero rows instead of the default tenant's. See the Multi-Tenancy section. |
+| `ZVELTIO_STRICT_TENANT_SCOPE` | A query against a tenant-scoped table outside tenant context throws instead of falling back. |
+| `ZVELTIO_REQUIRE_CATALOG` | An unreachable extension registry blocks the load instead of degrading to the local catalogue. |
+| `ZVELTIO_REQUIRE_REVOCATION_CHECK` | An unreachable registry blocks extension loading instead of warning. |
+
+---
+
+## Server paths and limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_NAME` | `Zveltio` | Issuer name for TOTP enrolment; what an authenticator app shows. |
+| `BASE_URL` | `BETTER_AUTH_URL`, else `http://localhost:$PORT` | Absolute origin used to sign local storage URLs and to build links. |
+| `PUBLIC_URL` | — | Public origin when it differs from `BASE_URL` (behind a proxy or CDN). |
+| `STUDIO_DIST_PATH` | `$CWD/studio-dist` | Where the compiled Studio is served from. |
+| `CLIENT_DIST_PATH` | `$CWD/client-dist` | Where the compiled public web host is served from. |
+| `STORAGE_DIR` | `STORAGE_LOCAL_DIR`, else `$CWD/storage` | Root of the `local` storage driver. |
+| `MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Largest accepted upload; the request cap is this plus 5 MB of envelope. |
+| `MAX_EXT_BODY_BYTES` | the import limit | Largest request body an `/ext/*` route may receive. |
+| `WEBHOOK_DLQ_MAX` | `1000` | How many abandoned webhook deliveries the dead-letter queue keeps. |
+| `REQUEST_LOG_SAMPLE_RATE` | `1` | Fraction of non-error requests written to the request log. Errors are always logged. |
+| `SLOW_QUERY_THRESHOLD_MS` | driver default | Queries slower than this are recorded. `0` records every query — useful in CI, expensive in production. |
+| `OPENAPI_PUBLIC` | unset | `true` serves `/api/openapi.json` without authentication. |
+| `PASSKEY_RP_ID` | hostname of `BASE_URL` | WebAuthn relying-party id. Set it when the browser origin differs from the engine's. |
+| `PASSWORD_LEGACY_SCRYPT_DEADLINE` | — | ISO date after which a legacy scrypt password hash is refused rather than transparently re-hashed to argon2id. |
+| `MIGRATIONS_AUTO` | `1` | `0` boots without applying pending migrations. The engine still refuses to run against a schema NEWER than itself. |
+| `ZVELTIO_VERSION` | the build's version | Overrides the version the migration runner compares against. Diagnostics only. |
+
+## Connection pool
+
+The shipped defaults serve one engine against one database. CI overrides them
+because it boots many engines against one Postgres — see the note at the top of
+`.github/workflows/ci.yml`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_AUTH_POOL_MAX` | `3` | Separate small pool for authentication queries, so a saturated main pool cannot lock everyone out. |
+| `DB_ACQUIRE_TIMEOUT_MS` | `5000` | How long a request waits for a pooled connection before failing. |
+| `DB_QUERY_ACQUIRE_TIMEOUT_MS` | `35000` | The same, for a long-running query path. |
+| `DB_IDLE_IN_TXN_TIMEOUT_MS` | `60000` | `idle_in_transaction_session_timeout` for pooled connections. |
+| `NATIVE_DATABASE_URL` | — | Direct (non-pooler) connection string, for operations a transaction pooler cannot carry — `LISTEN/NOTIFY`, `CREATE INDEX CONCURRENTLY`. |
+
+## Extensions, registry and diagnostics
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REGISTRY_URL` | `https://registry.zveltio.com` | Extension registry. Point it at `http://127.0.0.1:9` in tests so nothing dials the real one. |
+| `ZVELTIO_CATALOG_PATH` | bundled catalogue | Path to a `catalog.json` to use instead of the bundled one. |
+| `EXTENSION_POLICIES_JSON` | — | Inline JSON of per-extension sandbox policies, for deployments that cannot ship a file. |
+| `ZVELTIO_EXTENSION_DEV_RELOAD` | unset | Enables `POST /__zveltio_dev_reload`, used by `zveltio extension dev`. Never in production. |
+| `ZVELTIO_IMPORT_LOGS_CONTRACT` | unset | Arms the import-logs reconciler, which is opt-in by design. |
+| `ZVELTIO_TRACE_SQL_ERRORS` | unset | `1` logs the full SQL of every failing statement. Statements may contain data. |
+| `ZVELTIO_TRACE_CONNECTIONS` | unset | `1` logs pool acquire/release, for diagnosing exhaustion. |
+
+## Electric (optional sync)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ELECTRIC_URL` | — | Electric sync service. Absent disables the `/api/electric` routes. |
+| `ELECTRIC_AUTH_TOKEN` | — | Bearer token for that service. |
+
+## Demo mode
+
+Only read when demo mode is on. See `middleware/demo-mode.ts` for what it gates.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEMO_EMAIL` | `demo@zveltio.com` | Account the demo instance seeds and advertises. |
+| `DEMO_PASSWORD` | `demo123456` | Its password. Public by design; never reuse it elsewhere. |
+| `DEMO_RESET_CRON` | — | Cron expression for resetting the demo data. |
+
+## Additional OAuth providers
+
+Same shape as the providers in [OAuth Providers](#oauth-providers): set both
+halves or leave both unset.
+
+| Variable | Description |
+|----------|-------------|
+| `APPLE_CLIENT_ID`, `APPLE_CLIENT_SECRET`, `APPLE_TEAM_ID`, `APPLE_KEY_ID` | Sign in with Apple. All four are required together. |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | Discord. |
+| `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` | X / Twitter. |
 
 ---
 

@@ -8,6 +8,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `htts_${Date.now()}`;
@@ -86,7 +87,7 @@ d('data single time-travel deep (in-process)', () => {
         collection: COLLECTION,
         record_id: survivorId,
         action: 'update',
-        data: JSON.stringify({ id: survivorId, title: 'from-string-json' }),
+        data: toJsonb({ id: survivorId, title: 'from-string-json' }),
         created_at: past,
       })
       .execute();

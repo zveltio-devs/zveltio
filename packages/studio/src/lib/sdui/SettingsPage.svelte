@@ -117,20 +117,20 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
               </div>
             {:else if f.type === 'select'}
               <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-                <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
-                <select class="select select-sm" bind:value={config[f.name]}>
+                <label class="label py-0" for={`set-${f.name}`}><span class="label-text text-xs">{t(f.label)}</span></label>
+                <select id={`set-${f.name}`} class="select select-sm" bind:value={config[f.name]}>
                   {#each f.options ?? [] as o}<option value={o.value}>{t(o.label)}</option>{/each}
                 </select>
               </div>
             {:else if f.type === 'textarea'}
               <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-                <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
-                <textarea class="textarea textarea-sm {f.mono ? 'font-mono text-xs' : ''}" rows={f.rows ?? 4} bind:value={config[f.name]} placeholder={t(f.placeholder)}></textarea>
+                <label class="label py-0" for={`set-${f.name}`}><span class="label-text text-xs">{t(f.label)}</span></label>
+                <textarea id={`set-${f.name}`} class="textarea textarea-sm {f.mono ? 'font-mono text-xs' : ''}" rows={f.rows ?? 4} bind:value={config[f.name]} placeholder={t(f.placeholder)}></textarea>
               </div>
             {:else}
               <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-                <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
-                <input class="input input-sm {f.mono ? 'font-mono text-xs' : ''}" type={f.type === 'password' ? 'password' : (f.type ?? 'text')} bind:value={config[f.name]} placeholder={t(f.placeholder)} />
+                <label class="label py-0" for={`set-${f.name}`}><span class="label-text text-xs">{t(f.label)}</span></label>
+                <input id={`set-${f.name}`} class="input input-sm {f.mono ? 'font-mono text-xs' : ''}" type={f.type === 'password' ? 'password' : (f.type ?? 'text')} bind:value={config[f.name]} placeholder={t(f.placeholder)} />
               </div>
             {/if}
           {/snippet}
@@ -139,9 +139,9 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
             <div class="space-y-2">
               {#each schema.info as inf}
                 <div class="form-control">
-                  <label class="label py-0"><span class="label-text text-xs">{t(inf.label)}</span></label>
+                  <label class="label py-0" for={`info-${inf.label}`}><span class="label-text text-xs">{t(inf.label)}</span></label>
                   <div class="flex gap-2">
-                    <input class="input input-sm flex-1 font-mono text-xs" readonly value={infoValue(inf.value)} />
+                    <input id={`info-${inf.label}`} class="input input-sm flex-1 font-mono text-xs" readonly value={infoValue(inf.value)} />
                     <button class="btn btn-ghost btn-sm" onclick={() => copy(infoValue(inf.value))}><Copy size={13} /></button>
                   </div>
                   {#if inf.hint}<span class="text-xs text-base-content/65">{t(inf.hint)}</span>{/if}

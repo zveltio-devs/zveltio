@@ -17,7 +17,15 @@
  * a probe can never be mistaken for somebody's own file.
  */
 import { $ } from 'bun';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 
 type Case = {
@@ -548,6 +556,37 @@ const CASES: Case[] = [
     body: "export function total(row: { amount: string }) {\n  return '0' + row.amount;\n}\n",
   },
   {
+    // An environment variable read by the engine and documented nowhere. The
+    // plant is a NEW name, because the gate is a ratchet over a baseline that is
+    // currently empty — the 59 that existed are all documented now.
+    gate: 'check-env-documented',
+    cmd: 'bun run scripts/check-env-documented.ts',
+    file: 'packages/engine/src/lib/__gate_probe_env.ts',
+    body:
+      'export function plant(): boolean {\n' +
+      "  return process.env.ZVELTIO_UNDOCUMENTED_GATE_PROBE === '1';\n" +
+      '}\n',
+  },
+  {
+    // A jsonb column bound to `JSON.stringify`. The plant names a real table and
+    // a real jsonb column on it — `zv_flows.trigger_config` — because the gate
+    // is table-aware on purpose: the same column NAME is jsonb on one table and
+    // text on another, and a probe on an invented table would prove only that
+    // the regex matches.
+    gate: 'check-jsonb-binding',
+    cmd: 'bun run scripts/check-jsonb-binding.ts',
+    file: 'packages/engine/src/lib/__gate_probe_jsonb.ts',
+    // `ANY_MARKER`, not the literal: `any-ratchet` counts these markers across
+    // the repository, so a probe body carrying a real one makes THIS file a
+    // violation of a gate two cases below. Caught exactly that way — `scripts:
+    // 14 → 15`.
+    body:
+      `// ${ANY_MARKER}: gate probe\n` +
+      'export async function plant(db: any) {\n' +
+      "  await db.insertInto('zv_flows').values({ trigger_config: JSON.stringify({}) }).execute();\n" +
+      '}\n',
+  },
+  {
     gate: 'check-studio-api-prefix',
     cmd: 'bun run scripts/check-studio-api-prefix.ts',
     file: 'packages/studio/src/lib/__gate_probe.ts',
@@ -792,23 +831,56 @@ if (ONLY.length > 0) {
 // clean" was not. Blocking on any modification meant the audit could not run
 // alongside the very work it checks, and what actually matters is that no
 // plant is ever mistaken for somebody's file.
-for (const c of CASES) {
+//
+// A collision now removes ONE case, not the run. It used to `process.exit(1)`
+// before a single gate had been exercised, and one of the 41 plant paths is
+// `packages/studio/dist/.zveltio-studio-version` — gitignored build output that
+// exists on every machine where anyone has built the Studio. So the meta-gate
+// answered "refusing to overwrite it with a probe" and checked nothing, on
+// exactly the developer machines it is most useful on. Refusing to overwrite
+// somebody's file is right; suppressing forty unrelated checks to do it is not.
+//
+// The skip is loud, listed again in the summary, and fatal in CI: there the tree
+// is a fresh checkout, so a collision means a plant path has become a real file
+// and the case has stopped testing anything.
+const skipped: { gate: string; file: string; why: string }[] = [];
+for (let i = CASES.length - 1; i >= 0; i--) {
+  const c = CASES[i]!;
   const appends = c.mode === 'append';
   if (!appends && existsSync(c.file)) {
-    console.error(`❌ ${c.file} already exists — refusing to overwrite it with a probe.`);
-    process.exit(1);
-  }
-  if (appends && !existsSync(c.file)) {
-    console.error(`❌ ${c.file} does not exist — an append probe has nothing to append to.`);
-    process.exit(1);
+    skipped.push({ gate: c.gate, file: c.file, why: 'already exists' });
+    CASES.splice(i, 1);
+  } else if (appends && !existsSync(c.file)) {
+    skipped.push({
+      gate: c.gate,
+      file: c.file,
+      why: 'does not exist, so an append probe has nothing to append to',
+    });
+    CASES.splice(i, 1);
   }
 }
+for (const s of skipped) {
+  console.error(`⚠️  ${s.gate}: SKIPPED — ${s.file} ${s.why}.`);
+}
+if (skipped.length > 0) console.error('');
 
 let caught = 0;
 const missed: string[] = [];
 
 for (const c of CASES) {
   const original = c.mode === 'append' ? readFileSync(c.file, 'utf8') : null;
+  // Which ancestors this probe is about to create, deepest last. The file header
+  // promises nothing is left behind, and for two months that was true only of
+  // the FILE: `mkdirSync(…, { recursive: true })` created parents that nothing
+  // ever removed. An empty `<ext>/studio/pages/` left in the extensions repo is
+  // read by the Studio sync as "this extension contributes routes", so running
+  // the meta-gate turned `check:ext-snapshot` red — a gate breaking a gate, and
+  // invisible to `git status`, which does not track empty directories.
+  const createdDirs: string[] = [];
+  for (let d = dirname(c.file); !existsSync(d); d = dirname(d)) {
+    createdDirs.unshift(d);
+    if (dirname(d) === d) break;
+  }
   mkdirSync(dirname(c.file), { recursive: true });
   writeFileSync(c.file, original === null ? c.body : original + c.body);
   let failed = false;
@@ -823,6 +895,15 @@ for (const c of CASES) {
   }
   if (original === null) rmSync(c.file, { force: true });
   else writeFileSync(c.file, original);
+  // Deepest first, and only while still empty: a directory the gate under test
+  // legitimately populated is somebody's, not ours.
+  for (let i = createdDirs.length - 1; i >= 0; i--) {
+    try {
+      rmdirSync(createdDirs[i]!);
+    } catch {
+      break;
+    }
+  }
 
   // A non-zero exit is not enough when the case says what the refusal must say.
   // A gate that cannot run also exits non-zero — "no database to build against"
@@ -849,13 +930,34 @@ for (const c of CASES) {
   }
 }
 
+// Files AND the directories that held them. The file half of this check has
+// been here all along and passed the whole time the run was leaving empty
+// parents behind, which is what a check on half a promise buys you.
 const leftovers = CASES.filter((c) => c.mode !== 'append' && existsSync(c.file)).map((c) => c.file);
+for (const c of CASES) {
+  if (c.mode === 'append') continue;
+  const dir = dirname(c.file);
+  if (existsSync(dir) && readdirSync(dir).length === 0) leftovers.push(`${dir}/ (empty)`);
+}
 if (leftovers.length) {
   console.error('\n❌ probe left files behind:\n  ' + leftovers.join('\n  '));
   process.exit(1);
 }
 
 console.log(`\n  ${caught}/${CASES.length} gates failed when they should.`);
+
+if (skipped.length > 0) {
+  console.error(
+    `\n⚠️  ${skipped.length} case(s) were NOT run: ${skipped.map((s) => s.gate).join(', ')}.` +
+      '\n   Those gates are unproved by this run. Clear the colliding path and run again.',
+  );
+  // Fatal in CI only. There the checkout is fresh, so a plant path that already
+  // exists means it has become a real file and the case tests nothing — the
+  // exact silent under-report this file exists to prevent. Locally it is a stale
+  // build artifact, and the other forty results are worth having.
+  if (process.env.CI) process.exit(1);
+}
+
 if (missed.length) {
   console.error(`\n❌ decoration, not a gate: ${missed.join(', ')}`);
   process.exit(1);

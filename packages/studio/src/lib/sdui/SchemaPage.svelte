@@ -122,7 +122,14 @@ function relLabel(it: any, labelKey: string | string[]): string {
   return String(it[labelKey] ?? '');
 }
 
-let activeId = $state(schema.resources[0]!.id);
+// `$derived`-free on purpose — this is user state, not a mirror of the prop —
+// but the INITIAL value must not be captured at module init, or a schema that
+// arrives later leaves the page pointing at a resource from the previous one.
+let activeId = $state('');
+$effect(() => {
+  const first = schema.resources[0]?.id;
+  if (first && !schema.resources.some((r) => r.id === activeId)) activeId = first;
+});
 const active = $derived<ResourceView>(
   schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!,
 );
@@ -316,7 +323,10 @@ async function loadMasterDetail(r: ResourceView) {
       !masterRows.some((mr) => String(mr[idKey]) === String(selectedMasterId))
     )
       selectedMasterId = masterRows[0]?.[idKey] ?? null;
-    if (selectedMasterId != null) {
+    if (selectedMasterId != null && r.dataSource) {
+      // Guarded, not `!`: `dataSource` is optional because a `layout: 'builder'`
+      // view has none, and reaching here without one should render an empty
+      // detail pane rather than throw on `.replace` of undefined.
       const durl = r.dataSource.replace('{masterId}', String(selectedMasterId));
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const dres = await api.get<any>(durl);
@@ -334,6 +344,7 @@ async function loadMasterDetail(r: ResourceView) {
 async function selectMaster(id: string) {
   selectedMasterId = id;
   const r = active;
+  if (!r.dataSource) return;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const dres = await api.get<any>(r.dataSource.replace('{masterId}', String(id)));
@@ -485,6 +496,11 @@ async function load() {
       qs.set('page', String(pageNum));
       qs.set('limit', String(r.pagination.limit));
     }
+    if (!r.dataSource) {
+      rows = [];
+      total = 0;
+      return;
+    }
     const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const res = await api.get<any>(url);
@@ -600,7 +616,8 @@ function cellClass(row: any, col: ColumnDef): string {
 // id → label maps for relation COLUMNS (lazy, one fetch per relation column)
 let relColMaps = $state<Record<string, Record<string, string>>>({});
 async function loadRelationColumns(r: ResourceView) {
-  for (const col of r.columns) {
+  // `columns` is optional for the same reason `dataSource` is.
+  for (const col of r.columns ?? []) {
     if (col.type !== 'relation' || !col.relation || relColMaps[col.key]) continue;
     try {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
@@ -1547,9 +1564,10 @@ const shellTabs = $derived(
 {#snippet fieldInput(f: FieldDef, data: Record<string, any>)}
   {#if fieldVisible(f, data)}
   <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
-    <label class="label py-0"><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
+    <label class="label py-0" for={`fld-${f.name}`}><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
     {#if f.type === 'select' || f.type === 'relation'}
       <select
+        id={`fld-${f.name}`}
         class="select select-sm"
         bind:value={data[f.name]}
         onchange={() => applyAutofill(f, data[f.name], data)}

@@ -2,6 +2,7 @@
 import { page } from '$app/state';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import BlockRenderer from '$lib/ext/content/pages/client/BlockRenderer.svelte';
 
 const ZONE_SLUG = 'client';
 

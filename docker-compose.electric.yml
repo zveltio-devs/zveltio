@@ -7,7 +7,7 @@ name: zveltio
 # Requires the engine env: ELECTRIC_URL=ws://electric:5133,
 # ELECTRIC_AUTH_TOKEN=<same secret as below>.
 #
-# Apply migration 075_electric_replication.sql (auto-applied by the
+# Apply `001_initial.sql`, section `from 075_electric_replication.sql`_electric_replication.sql (auto-applied by the
 # engine on startup) before any collection can sync — the migration
 # creates the `zveltio_electric` publication that the Electric service
 # subscribes to.
@@ -32,7 +32,7 @@ services:
       AUTH_MODE: 'secure'
       AUTH_JWT_ALG: 'HS256'
       AUTH_JWT_KEY: '${ELECTRIC_AUTH_TOKEN:?ERROR: ELECTRIC_AUTH_TOKEN must be set in .env}'
-      # Publication created by migration 075.
+      # Publication created by `001_initial.sql`, section `from 075_electric_replication.sql`.
       ELECTRIC_PUBLICATION: 'zveltio_electric'
       # Slot name. Electric creates the slot on first connect; pre-creating
       # would orphan it on engines that disable Electric later.

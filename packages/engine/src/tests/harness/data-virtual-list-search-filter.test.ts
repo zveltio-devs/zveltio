@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hvlst_${Date.now()}`;
@@ -44,8 +45,8 @@ d('data virtual list search and filters (in-process)', () => {
         sort: 99,
         singular_name: COLLECTION,
         source_type: 'virtual',
-        virtual_config: JSON.stringify(VIRTUAL_CONFIG),
-        fields: JSON.stringify([
+        virtual_config: toJsonb(VIRTUAL_CONFIG),
+        fields: toJsonb([
           { name: 'title', type: 'text', required: false, unique: false, indexed: false },
           { name: 'score', type: 'number', required: false, unique: false, indexed: false },
         ]),
