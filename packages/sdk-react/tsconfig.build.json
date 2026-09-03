@@ -1,0 +1,5 @@
+{
+  "_comment": "Build only. tsconfig.json includes the tests so `typecheck` sees them; this one excludes them so `tsc` does not emit them into dist/ and publish test files to npm.",
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.test.tsx"]
+}
