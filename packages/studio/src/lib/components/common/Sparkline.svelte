@@ -12,6 +12,11 @@
 -->
 <script lang="ts">
 import { Chart, Svg, Spline, Area } from 'layerchart';
+// d3-scale ships no types and no @types package is installed — it arrives as a
+// transitive dependency of layerchart, which is why nothing declares it. The
+// one function used here is declared locally rather than pulling a whole
+// @types tree in for it.
+// @ts-expect-error - d3-scale has no bundled type declarations
 import { scaleLinear } from 'd3-scale';
 
 interface Props {
