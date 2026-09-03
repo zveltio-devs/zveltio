@@ -69,7 +69,7 @@ export async function fetchRegistryCatalog(
       download_url:
         e.download_url ??
         `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(e.name)}/download`,
-      // Used by the enable-time enforcement of MARKETPLACE-POLICY.md §2.
+      // Used by the enable-time enforcement of marketplace-policy.md §2.
       // Registry exposes `is_official` on the catalog list response;
       // anything that isn't explicitly first-party is treated as a
       // community submission and must run in worker isolation.

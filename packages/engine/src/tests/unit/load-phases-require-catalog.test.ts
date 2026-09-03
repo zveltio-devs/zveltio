@@ -8,7 +8,7 @@
  *
  * Why it matters: local catalog entries are stamped `is_official: true`, so with
  * the registry unreachable a sideloaded extension named after one of them would
- * inherit first-party tier and be allowed to run INLINE (MARKETPLACE-POLICY.md §2).
+ * inherit first-party tier and be allowed to run INLINE (marketplace-policy.md §2).
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';

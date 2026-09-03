@@ -216,7 +216,7 @@ export const ManifestSchema = z
      * — the engine reads `engine/extension.wasm` and runs it inside a
      * capability-bound WebAssembly instance. WASM extensions get real
      * isolation (separate linear memory, no V8 heap access) at the cost
-     * of a small ABI surface; see `docs/site/EXTENSION-DEVELOPER-GUIDE.md` §16.
+     * of a small ABI surface; see `docs/extensions/developer-guide.md` §16.
      */
     runtime: z.enum(['js', 'wasm']).default('js').optional(),
     /**

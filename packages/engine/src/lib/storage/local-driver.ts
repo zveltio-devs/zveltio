@@ -109,6 +109,16 @@ export class LocalDriver implements StorageDriver {
     return `${baseUrl()}/files/${key.replace(/^\/+/, '')}`;
   }
 
+  /**
+   * Null, always. The local store IS this machine, so "upload the backup to it"
+   * would copy a file into the directory it already lives in — which is not an
+   * off-site copy, and pretending otherwise is the thing this whole area kept
+   * doing.
+   */
+  async signedPutUrl(_key: string, _expiresInSec: number): Promise<string | null> {
+    return null;
+  }
+
   async signedUrl(key: string, expiresInSec: number): Promise<string> {
     const exp = Math.floor(Date.now() / 1000) + expiresInSec;
     const k = key.replace(/^\/+/, '');

@@ -139,9 +139,15 @@ export async function initDatabase(): Promise<Database> {
   //
   // The reasoning above was half wrong, and it is worth correcting rather than
   // deleting. What exhausted that Postgres was not "several engines" in any
-  // deployment — it was the TEST HARNESS: 255 files, each booting an engine with
-  // its own pool, against one container. That multiplicity now declares itself
-  // in testing/app-harness.ts, which is where it is true.
+  // deployment — it was the TEST HARNESS running against one container. That
+  // multiplicity now declares itself in testing/app-harness.ts, which is where
+  // it is true.
+  //
+  // The count that used to be written here — "255 files, each booting an engine
+  // with its own pool" — was wrong, and worth correcting because a later fix was
+  // reasoned from it. `getTestApp()` caches process-wide, so the whole harness
+  // boots ONE app: measured on a 281-file run, `DDL queue started` appears once.
+  // What multiplies pools is several JOBS against one Postgres, not files.
   //
   // So the default can serve the case it is actually for: one engine, one
   // database. 25 measured comfortably on a 200-connection server

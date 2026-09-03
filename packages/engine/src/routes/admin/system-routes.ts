@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
@@ -160,7 +161,9 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
           name,
           key_hash: keyHash,
           key_prefix: prefix,
-          scopes: JSON.stringify(scopes),
+          // See lib/jsonb.ts — the second writer of this column, and it had
+          // the same defect.
+          scopes: toJsonb(scopes),
           rate_limit,
           expires_at: expires_at ? new Date(expires_at) : null,
           created_by: user.id,
