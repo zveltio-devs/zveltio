@@ -234,9 +234,18 @@ let _activeDriver: BunSqlDriver | null = null;
 /**
  * Drop every pooled connection and its cached plans. See `recyclePool`.
  *
- * A no-op when no driver has initialised — a test that never opened a pool has
- * no stale plans to clear, and throwing there would make the caller guard a
- * condition that cannot matter.
+ * A no-op when no driver holds the handles. That used to mean only one thing —
+ * nothing had opened a pool, so there were no stale plans to clear and throwing
+ * would have made the caller guard a condition that could not matter.
+ *
+ * It now means a second thing as well. `destroy()` clears the handles it set, so
+ * after a primary database is destroyed they are null even though ANOTHER
+ * database may still be live and serving; `initDatabase()` has no singleton
+ * guard, so a second call takes the handles and destroying that one leaves the
+ * first alive with nothing to recycle. Production calls `initDatabase()` once,
+ * but the integration and stress lanes call it per file and the CLI's rollback
+ * command calls it twice. In that case this really is a silent no-op over a live
+ * pool, which is the bug `primary` was added to close and does not fully close.
  */
 export async function recycleActivePool(): Promise<void> {
   await _activeDriver?.recyclePool();

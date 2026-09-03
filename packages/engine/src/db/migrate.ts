@@ -16,8 +16,14 @@ if (!databaseUrl) {
 
 const db = createDb(databaseUrl);
 
-// Force Kysely to initialize the driver (and therefore the Bun.SQL pool)
-// before runMigrations tries to use _activeBunPool.
+// Force Kysely to initialize the driver before the migrations run.
+//
+// This used to say the driver had to be up "before runMigrations tries to use
+// _activeBunPool". It does not: there is no reference to those module-level
+// handles anywhere under db/migrations/, and since `primary` was added to the
+// dialect a `createDb()` instance no longer sets them at all. What the probe
+// still buys is a clear connection error here rather than one raised from
+// inside the first migration.
 await sql`SELECT 1`.execute(db);
 
 try {

@@ -121,12 +121,20 @@ With tenant middleware on:
 
 ### Edge functions: worker vs subprocess
 
-- `EDGE_SANDBOX_MODE=worker` (default): ~1 ms startup, in-process
-  Worker thread. Use for admin-authored functions.
-- `EDGE_SANDBOX_MODE=subprocess`: ~30 ms startup, OS-process
-  isolation. Use for untrusted multi-tenant code. The subprocess
-  path is roughly 40× slower in throughput because of `Bun.spawn`
-  cost dominating the per-request budget.
+- `EDGE_SANDBOX_MODE=subprocess` (**default**): ~30 ms startup,
+  OS-process isolation. This is what runs unless you opt out, because
+  edge functions execute arbitrary TypeScript and a Worker shares the
+  engine's memory space. The subprocess path is roughly 40× slower in
+  throughput, `Bun.spawn` cost dominating the per-request budget.
+- `EDGE_SANDBOX_MODE=worker`: ~1 ms startup, in-process Worker thread.
+  Opt-in, for admin-authored functions where latency matters more than
+  isolation.
+
+This page said the opposite until 2026-09-03 — it named `worker` as the
+default, contradicting the code (`lib/edge-function-runner.ts`), the
+README, AGENTS.md and SECURITY.md. It is the public document, so an
+operator reading it would have believed untrusted code ran in-process by
+default, and would have sized capacity against the wrong startup cost.
 
 ## How we measure (methodology)
 
