@@ -25,6 +25,9 @@ import { CannedDb } from './fixtures/canned-db.js';
 const SELECT_DUE = /select[\s\S]*from zv_backup_schedules[\s\S]*next_run_at <= NOW\(\)/i;
 const SELECT_UNPRIMED = /select[\s\S]*from zv_backup_schedules[\s\S]*next_run_at IS NULL/i;
 const UPDATE_SCHEDULE = /UPDATE zv_backup_schedules/i;
+// The claim is the only UPDATE on this table that returns anything — that is
+// how the tick learns whether it won the occurrence or another replica did.
+const CLAIM = /UPDATE zv_backup_schedules[\s\S]*RETURNING/i;
 
 const target = () => ({ host: 'h', port: '5432', name: 'db', user: 'u', password: 'p' });
 
@@ -130,7 +133,9 @@ describe('scheduleBackups — one tick', () => {
     ) => {
       if (cmd[0] === 'gzip') {
         const dest = o?.stdout?.name;
-        const done = dest ? Bun.write(dest, 'x').then(() => 0) : Promise.resolve(0);
+        // Comfortably above EMPTY_ARCHIVE_BYTES: a one-byte file is now refused
+        // as an archive holding no dump, which would make every tick here fail.
+        const done = dest ? Bun.write(dest, 'x'.repeat(64)).then(() => 0) : Promise.resolve(0);
         return { exited: done, exitCode: 0 } as never;
       }
       return {
@@ -154,6 +159,7 @@ describe('scheduleBackups — one tick', () => {
     const db = new CannedDb()
       .when(SELECT_UNPRIMED, [])
       .when(SELECT_DUE, due('0 3 * * *'))
+      .when(CLAIM, [{ id: 'sched-1' }])
       .when(/INSERT INTO zv_backups/i, [{ id: 'backup-1' }]);
 
     stop = scheduleBackups(db.kysely as unknown as Database, target);
@@ -164,6 +170,56 @@ describe('scheduleBackups — one tick', () => {
     expect(order[0]!.sql).toMatch(/UPDATE zv_backup_schedules/i);
     expect(order[0]!.sql).toMatch(/next_run_at/i);
     expect(order[1]!.sql).toMatch(/INSERT INTO zv_backups/i);
+  });
+
+  it('starts no dump when another replica already claimed the occurrence', async () => {
+    // Every replica ticks and every one of them reads the same due row. Before
+    // the claim was conditional, all of them started a dump: N concurrent
+    // pg_dumps of the whole database, N rows, N uploads of the same bytes. The
+    // only guard was an in-process Set, which cannot see the other replicas.
+    //
+    // A claim that updates zero rows means someone else moved the marker first.
+    // That is the normal case on every instance but one, so it must be silent
+    // and it must not dump.
+    const spy = fakeSpawn();
+    const db = new CannedDb()
+      .when(SELECT_UNPRIMED, [])
+      .when(SELECT_DUE, due('0 3 * * *'))
+      .when(CLAIM, []) // lost the race
+      .when(/INSERT INTO zv_backups/i, [{ id: 'backup-1' }]);
+
+    stop = scheduleBackups(db.kysely as unknown as Database, target);
+    await db.waitFor(CLAIM);
+    spy.mockRestore();
+
+    expect(db.executed(CLAIM).length).toBe(1);
+    expect(db.executed(/INSERT INTO zv_backups/i).length).toBe(0);
+  });
+
+  it('claims on the marker still being due, not on an exact timestamp match', async () => {
+    // The obvious form — AND next_run_at = <the value this tick read> — is a
+    // trap: the column is timestamptz(6) and a JS Date carries milliseconds, so
+    // a value written by any other path would never match and the schedule would
+    // silently never run again. That is a worse failure than the duplicate dumps
+    // this fixes, so the shape of the predicate is pinned here.
+    const spy = fakeSpawn();
+    const db = new CannedDb()
+      .when(SELECT_UNPRIMED, [])
+      .when(SELECT_DUE, due('0 3 * * *'))
+      .when(CLAIM, [{ id: 'sched-1' }])
+      .when(/INSERT INTO zv_backups/i, [{ id: 'backup-1' }]);
+
+    stop = scheduleBackups(db.kysely as unknown as Database, target);
+    await db.waitFor(CLAIM);
+    spy.mockRestore();
+
+    const [claim] = db.executed(CLAIM);
+    // Only the WHERE clause: `SET next_run_at = $1` is the write, and it is the
+    // condition that must not be an equality.
+    const where = claim!.sql.split(/\bWHERE\b/i)[1] ?? '';
+    expect(where).toMatch(/next_run_at <= NOW\(\)/i);
+    expect(where).toMatch(/is_active = true/i);
+    expect(where).not.toMatch(/next_run_at\s*=\s*\$/i);
   });
 
   it('deactivates a due schedule whose cron cannot be parsed, and starts no dump', async () => {
