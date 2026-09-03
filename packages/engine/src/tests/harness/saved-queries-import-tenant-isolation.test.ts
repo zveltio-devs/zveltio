@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -33,7 +34,7 @@ d('saved-queries/import tenant isolation (in-process)', () => {
         id: FOREIGN_SQ_ID,
         name: `foreign-shared-${STAMP}`,
         collection: 'anything',
-        config: JSON.stringify({ filters: [] }),
+        config: toJsonb({ filters: [] }),
         is_shared: true,
         created_by: null,
         tenant_id: OTHER_TENANT,

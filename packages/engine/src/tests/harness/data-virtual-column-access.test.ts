@@ -49,7 +49,7 @@ d('virtual collection column access (in-process)', () => {
         sort: 99,
         singular_name: COLLECTION,
         source_type: 'virtual',
-        virtual_config: JSON.stringify(VIRTUAL_CONFIG),
+        virtual_config: toJsonb(VIRTUAL_CONFIG),
         fields: toJsonb([
           { name: 'title', type: 'text', required: false, unique: false, indexed: false },
           { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
