@@ -7,6 +7,7 @@ it, and working on it.
 | Document | Read it when |
 |---|---|
 | [overview.md](overview.md) | You want the product in one page — what it is, who it is for, how it compares |
+| [history.md](history.md) | You are taking over the project, or about to change something that looks arbitrary. **Why** the system is shaped this way |
 | [architecture.md](architecture.md) | You need the system shape: processes, data flow, request lifecycle |
 | [installation.md](installation.md) | You are setting up a machine, for development or production |
 | [configuration.md](configuration.md) | You need the environment-variable reference |

@@ -81,6 +81,10 @@ cannot see an environment variable, check that list before suspecting the test.
 Mutation testing (security-focused): `cd packages/engine && bun run test:mutation`.
 Benchmarks: [`../../bench/README.md`](../../bench/README.md).
 
+> The rules in this section are not style preferences — each one exists because
+> a specific measurement lied. The incidents are in
+> [history.md](history.md#6-the-lesson-that-produced-the-working-method).
+
 ### Two traps that produce false results
 
 **Two sessions sharing one test database destroy each other.** The failures look
