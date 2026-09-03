@@ -120,7 +120,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 - Studio rebuilds itself with the new pages — bulletproof against Svelte runtime fragmentation (we tried dynamic component loading; it broke. Postmortem in `git log alpha.71..alpha.74`).
 - Both engine routes and Studio pages appear without engine restart for the API layer.
 
-Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension publish` signs + uploads. Full guide: [docs/site/EXTENSION-DEVELOPER-GUIDE.md](docs/site/EXTENSION-DEVELOPER-GUIDE.md).
+Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension publish` signs + uploads. Full guide: [docs/extensions/developer-guide.md](docs/extensions/developer-guide.md).
 
 ---
 
@@ -263,7 +263,7 @@ bun run dev                                         # engine with hot reload
 cd packages/studio && bun run dev                   # admin UI on :5173
 ```
 
-Building extensions: [docs/site/EXTENSION-DEVELOPER-GUIDE.md](docs/site/EXTENSION-DEVELOPER-GUIDE.md).
+Building extensions: [docs/extensions/developer-guide.md](docs/extensions/developer-guide.md).
 
 ### Supported platforms
 
@@ -354,13 +354,13 @@ Honest about where we are: **3.0.0-beta.60** as of the latest release — `packa
 
 ⚠️ **Not yet for**: business-critical paths in regulated industries (no SOC2 / ISO 27001 yet — those are post-1.0), enterprise contracts requiring formal SLAs, headless multi-region at scale without operational maturity.
 
-**Marketplace controlled launch**: community extension submissions are technically accepted, but every submission lands `pending` and stays there until an admin approves manually via `apps.zveltio.com/admin/marketplace/*` or the `zveltio admin marketplace` CLI. The review team and SLA are documented as operator decisions in [`docs/site/MARKETPLACE-POLICY.md`](docs/site/MARKETPLACE-POLICY.md) §9.
+**Marketplace controlled launch**: community extension submissions are technically accepted, but every submission lands `pending` and stays there until an admin approves manually via `apps.zveltio.com/admin/marketplace/*` or the `zveltio admin marketplace` CLI. The review team and SLA are documented as operator decisions in [`docs/extensions/marketplace-policy.md`](docs/extensions/marketplace-policy.md) §9.
 
 **Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. We test on every commit (399 unit + 148 integration tests in CI).
 
 **Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 3.0.0-beta.60`. Full policy: [docs/private/ALPHA-TRACK-EOL.md](docs/private/ALPHA-TRACK-EOL.md).
 
-**Migration from alpha**: see [docs/site/MIGRATION-ALPHA-TO-BETA.md](docs/site/MIGRATION-ALPHA-TO-BETA.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
+**Migration from alpha**: see [docs/platform/migration-alpha-to-beta.md](docs/platform/migration-alpha-to-beta.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
 
 **v1.0 target**: tracked in [docs/private/REFACTORING-V1-PLAN.md](docs/private/REFACTORING-V1-PLAN.md) (extension platform: ✅ done at beta.1; remaining v1.0 work is product/GTM — benchmarks, demo.zveltio.com, case studies).
 

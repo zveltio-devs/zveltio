@@ -31,7 +31,7 @@ Bun workspaces + Turborepo monorepo. Packages under `packages/*`:
 | `@zveltio/engine` | `packages/engine` | The server. All core logic, routes, tests. |
 | `@zveltio/studio` | `packages/studio` | SvelteKit 5 admin UI (embedded into engine). |
 | `@zveltio/client` | `packages/client` | End-user facing SvelteKit app (portals etc.). |
-| `@zveltio/sdk` | `packages/sdk` | Public SDK. Subpath exports: `./extension`, `./codegen`, `./validate`, `./testing`, `./publish`, `./build`, `./studio`, `./ddl`. **API-stable surface** — do not break it. |
+| `@zveltio/sdk` | `packages/sdk` | Public SDK. Subpath exports: `./extension`, `./codegen`, `./validate`, `./testing`, `./publish`, `./build`, `./studio`, `./ddl`, `./rpc`, `./offline`. **API-stable surface** — do not break it. |
 | `@zveltio/react` / `@zveltio/vue` | `packages/sdk-react`, `packages/sdk-vue` | Thin framework bindings over the SDK. |
 | `@zveltio/cli` | `packages/cli` | `zveltio` binary (commander): install, extension init/publish/validate. |
 
@@ -41,10 +41,11 @@ Other top-level directories:
   Quality gates below). `scripts/sql/` holds SQL helpers.
 - `e2e/` — Playwright end-to-end specs (`e2e/tests/*.spec.ts`).
 - `bench/` — reproducible performance suite (see `bench/README.md`).
-- `docs/` — `docs/site/` is public documentation (extension developer guide,
-  deployment, API reference); `docs/private/` is internal planning/handoff;
-  `docs/adr/` holds architecture decision records.
-- `audit/` — security/architecture audit reports.
+- `docs/` — the unified documentation, in five chapters: `platform/`,
+  `engine/`, `studio/`, `ui/`, `extensions/`. Start at `docs/README.md`.
+  `docs/adr/` holds architecture decision records; `docs/private/` holds
+  internal engineering plans that are cited from source code and must keep
+  stable paths.
 - `quality-gates/` — JSON baselines for ratchet-style checks (lint warnings,
   `any` counts, coverage, ambient authority, etc.). Do not edit these by hand
   to make a failing gate pass.
@@ -262,7 +263,7 @@ generated).
   connection with statement timeout, `zveltio_worker` DB role with no grants
   on Better-Auth tables). Optional WASM runtime for strict isolation.
 - Extension dev loop, manifest v2 schema, and publishing:
-  `docs/site/EXTENSION-DEVELOPER-GUIDE.md` (§12 covers the local loop).
+  `docs/extensions/developer-guide.md` (§12 covers the local loop).
   Scaffold with `zveltio extension init <name>`.
 - The SDK extension surface (`ZveltioExtension`, `@zveltio/sdk/extension`,
   manifest v2, marketplace flow, worker isolation contract) is **API-stable in
@@ -291,7 +292,7 @@ generated).
 ## Security considerations
 
 - **Vulnerabilities: do NOT open public issues.** Email `security@zveltio.com`;
-  policy in `docs/private/SECURITY.md`. (There is no root `SECURITY.md` — if
+  policy in `docs/platform/security-model.md`. (There is no root `SECURITY.md` — if
   you add one, GitHub will surface it in the repo's Security tab, which is
   where a researcher looks first.)
 - Secrets come from `.env` / env vars only. `BETTER_AUTH_SECRET` signs session
@@ -337,16 +338,39 @@ generated).
 
 ## Documentation map
 
-- `README.md` — positioning and feature overview (canonical; mirror edits in
-  the website frontpage, per its header comment).
+Everything lives under `docs/`, in five chapters. **Start at
+[`docs/README.md`](docs/README.md)** — it is the index and the reading order by
+role.
+
+| Chapter | Read it when |
+|---|---|
+| `docs/platform/` | Product overview, architecture, install, configuration, multi-tenancy, security, operations, development workflow, known gaps |
+| `docs/engine/` | The server: API reference, collections, ghost DDL, auth, webhooks, SDK, CLI |
+| `docs/studio/` | The admin SPA: routing, data access, extension pages, i18n |
+| `docs/ui/` | Design system, component library, interaction patterns, SDUI |
+| `docs/extensions/` | The extension system, the developer guide, and the 56 official extensions |
+
+Read before you touch the thing they describe:
+
+- `docs/platform/multi-tenancy.md` — how tenant isolation actually works,
+  written for auditors. Read it before answering any question about tenancy,
+  and before assuming what a reviewer will assume.
+- `docs/platform/security.md` — the threat model, and the list of patterns that
+  look like findings and are not.
+- `docs/platform/known-gaps.md` — what is knowingly unfinished.
+
+Also:
+
+- `README.md` — positioning and feature overview (canonical; mirror edits in the
+  website frontpage, per its header comment).
 - `CONTRIBUTING.md` — dev setup, code rules, PR conventions.
-- `docs/MULTI-TENANCY.md` — how tenant isolation actually works, written for
-  auditors. Read it before answering any question about tenancy, and before
-  assuming what a reviewer will assume.
-- `docs/site/` — user/extension-developer docs (start: `intro.md`,
-  `EXTENSION-DEVELOPER-GUIDE.md`, `CONFIGURATION.md`, `deployment.md`).
-- `docs/private/` — internal plans and known gaps (`TECHNICAL-GAPS.md`,
-  `REFACTORING-V1-PLAN.md`, `MULTI-TENANT-ENABLEMENT.md`).
-- `docs/adr/` — architecture decision records.
+- `docs/private/` — internal plans. `HARDENING-9-PLAN.md` is cited by ~1100
+  `biome-ignore` comments and must not move. `TECHNICAL-GAPS.md` is the roadmap.
 - `bench/README.md` — benchmark methodology.
 - `CHANGELOG.md` — release history (large; grep it, don't read it whole).
+
+**The docs are also the source for zveltio.com.** The website repository syncs a
+selected subset at build time, driven by the `PAGES` manifest in its
+`scripts/sync-docs.mjs`. Before moving or renaming anything under `docs/`, grep
+the tree for the path — several documents are cited from source comments and
+from runtime error messages, and one is parsed by a unit test.

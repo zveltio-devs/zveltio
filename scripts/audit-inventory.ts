@@ -3,7 +3,7 @@
  * audit-inventory.ts — Cross-reference state-changing route handlers with
  * audit-log call sites. Produces:
  *
- *   docs/AUDIT-COVERAGE.md   (human-readable matrix + gap list)
+ *   docs/platform/audit-coverage.md   (human-readable matrix + gap list)
  *   audit-inventory.json     (CI-consumable, for regression checks)
  *
  * Rules:
@@ -23,7 +23,7 @@ import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const ROUTES_DIR = 'packages/engine/src/routes';
-const OUTPUT_MD = 'docs/AUDIT-COVERAGE.md';
+const OUTPUT_MD = 'docs/platform/audit-coverage.md';
 const OUTPUT_JSON = 'audit-inventory.json';
 
 interface RouteHandler {
