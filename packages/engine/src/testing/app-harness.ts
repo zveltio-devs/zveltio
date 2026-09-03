@@ -9,8 +9,14 @@
  *
  * Needs a real, migrated Postgres. Point it at one via TEST_DATABASE_URL
  * (falls back to DATABASE_URL). When neither is set, `harnessAvailable()` is
- * false and harness tests skip — so a plain `bun test` with no database still
+ * false and harness tests skip — so a plain `bun test` over the whole tree still
  * passes locally; CI runs these under a Postgres service.
+ *
+ * The per-file skip is honest; the LANE's summary was not. `bun test
+ * src/tests/harness` exited 0 having run nothing at all, which is the shape this
+ * repository has already been bitten by twice. `harness/requires-database.test.ts`
+ * now fails the lane when it has no database, unless ZVELTIO_ALLOW_MISSING_DB=1
+ * says the skipping is deliberate.
  *
  *   const { app, db } = await getTestApp();
  *   const cookie = await createGodSession(app, db);
