@@ -36,6 +36,23 @@ FAIL_COUNT=0
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 pass() { echo "- ✓ $1 ($2 ms)" >>"$REPORT"; PASS_COUNT=$((PASS_COUNT + 1)); log "PASS  $1"; }
 fail() { echo "- ✗ $1 — $2" >>"$REPORT"; FAIL_COUNT=$((FAIL_COUNT + 1)); log "FAIL  $1: $2"; }
+skip() { echo "- ⊘ $1 — $2" >>"$REPORT"; log "SKIP  $1: $2"; }
+
+# A drill that dies without saying where is worse than one that fails.
+#
+# `set -euo pipefail` is right for this script, but it turns any unguarded
+# non-zero — a psql that cannot see a table, a pipeline whose first stage fails —
+# into an instant exit with no report line and no message. That is exactly how
+# this went wrong: the weekly run was red from 2026-08-24 and its log ended after
+# the last PASS with nothing but "exit code 1", so it read as infrastructure
+# noise rather than the assertion it actually was. Two weeks of a red disaster
+# recovery drill went unexamined.
+#
+# The trap costs nothing when everything passes and names the line when it does
+# not. It still exits non-zero — the point is not to continue, it is to say why.
+trap 'rc=$?; fail "drill aborted before finishing" "unexpected non-zero at line $LINENO (exit $rc) — see the log above for the last command"; \
+      { echo ""; echo "## Summary"; echo ""; echo "- Pass: $PASS_COUNT"; echo "- Fail: $FAIL_COUNT"; } >>"$REPORT"; \
+      log "Report written to: $REPORT"; exit "$rc"' ERR
 
 cat >"$REPORT" <<EOF
 # DR drill — $TS
@@ -150,11 +167,28 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     # together. A restore where any one of those three is wrong looks perfect to
     # a table count and returns nothing here.
     #
-    # `contacts` because it is a core collection present on every install, and
-    # the assertion is that the tenant sees exactly its own rows: a zero would
-    # mean the policy denies everything, and a number larger than the tenant's
-    # would mean it is not filtering at all. Both are disasters, in opposite
-    # directions, and both pass a count of tables.
+    # `zv_saved_queries` because the ENGINE owns it, which is the property that
+    # matters here and the one the previous choice lost.
+    #
+    # This used to read `zvd_contacts`, described as "a core collection present
+    # on every install". That stopped being true on 2026-08-23, when the CRM
+    # demotion moved contacts out of the engine and into the `crm` extension
+    # (`refactor(engine): stop adopting CRM collections`). The drill boots a bare
+    # engine with no extensions, so the table simply does not exist — measured on
+    # a fresh install, `to_regclass('public.zvd_contacts')` is NULL and there are
+    # zero non-fixture collections. The very next weekly run went red and stayed
+    # red. A sibling test was updated in the same change ("pin ordinary access on
+    # projects, not contacts"); this script was missed.
+    #
+    # Nothing is missing from the dump: the restore matched the source table for
+    # table. The drill was asserting against a table that no longer belongs to
+    # the thing it is drilling.
+    #
+    # `zv_saved_queries` carries RLS, FORCE RLS and a `tenant_id`, and needs only
+    # `name` and `collection` beyond its defaults — so the probe stays a two-row
+    # insert. The assertion is unchanged: the tenant sees exactly its own rows. A
+    # zero means the policy denies everything, a two means it is not filtering at
+    # all, and both are disasters that a table count calls healthy.
     # Resolve the tenant BEFORE dropping into the role, and pass it as a
     # literal.
     #
@@ -179,25 +213,35 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
       # everything returns 0, and one that lost its filtering returns 2. Written
       # as superuser, which RLS does not apply to, into a database that is
       # dropped a few lines below.
+      PROBE_TABLE="zv_saved_queries"
+
+      # Guarded, and the guard is the point: if the probe table is ever demoted
+      # the way contacts was, this must report that — not exit.
+      if ! psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
+             "SELECT to_regclass('public.$PROBE_TABLE')" 2>/dev/null | grep -q .; then
+        skip "restored data readable under tenant isolation" \
+          "$PROBE_TABLE is not present in the restore — pick a table the engine still owns"
+      else
       psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc \
-        "INSERT INTO zvd_contacts (first_name, last_name, tenant_id)
-         VALUES ('drill', 'own-tenant', '$DRILL_TENANT'),
-                ('drill', 'other-tenant', gen_random_uuid())" >/dev/null 2>&1 || true
+        "INSERT INTO $PROBE_TABLE (name, collection, tenant_id)
+         VALUES ('drill-own', 'drill', '$DRILL_TENANT'),
+                ('drill-other', 'drill', gen_random_uuid())" >/dev/null 2>&1 || true
 
       ISO_SQL="BEGIN;
         SET LOCAL ROLE zveltio_rls;
         SELECT set_config('zveltio.current_tenant', '$DRILL_TENANT', true);
-        SELECT 'VISIBLE=' || count(*) FROM zvd_contacts;
+        SELECT 'VISIBLE=' || count(*) FROM $PROBE_TABLE;
         COMMIT;"
-      RESTORED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ISO_SQL" 2>/dev/null | sed -n 's/^VISIBLE=//p')
+      RESTORED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ISO_SQL" 2>/dev/null | sed -n 's/^VISIBLE=//p' || true)
       EXPECTED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
-        "SELECT count(*) FROM zvd_contacts WHERE tenant_id::text = '$DRILL_TENANT'" 2>/dev/null | tr -d ' ')
+        "SELECT count(*) FROM $PROBE_TABLE WHERE tenant_id::text = '$DRILL_TENANT'" 2>/dev/null | tr -d ' ' || true)
 
       if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]]; then
         pass "restored data readable under tenant isolation ($RESTORED_VISIBLE of its own rows)" 0
       else
         fail "restored data not readable under tenant isolation" \
           "as zveltio_rls the tenant sees '$RESTORED_VISIBLE', expected '$EXPECTED_VISIBLE'"
+      fi
       fi
     fi
   else
