@@ -12,6 +12,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { uploadBackup } from './upload.js';
+import { verifyArchive } from './verify-archive.js';
 
 /** Where dumps land. Same default as the routes, read the same way. */
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
@@ -89,24 +90,32 @@ export async function runScheduledBackup(
         stderr: 'pipe',
       },
     );
-    const gzip = Bun.spawn(['gzip', '-c'], { stdin: pgdump.stdout, stdout: Bun.file(filepath) });
+    const gzip = Bun.spawn(['gzip', '-c'], {
+      stdin: pgdump.stdout,
+      stdout: Bun.file(filepath),
+      // Piped so a failure here can say why. Without it the only evidence that
+      // the second half of the pipeline died is its exit code.
+      stderr: 'pipe',
+    });
     await Promise.all([pgdump.exited, gzip.exited]);
 
+    // Both halves, then the archive itself. `pg_dump` first: a dump that failed
+    // outright has a better error than anything the archive check can produce.
     if (pgdump.exitCode !== 0) {
       const stderr = await new Response(pgdump.stderr).text();
       throw new Error(`pg_dump failed (exit ${pgdump.exitCode}): ${stderr}`);
     }
-    if (!(await Bun.file(filepath).exists())) {
-      throw new Error('Backup file was not created');
-    }
+
+    // gzip's exit code, the file, and its size — see verify-archive.ts for what
+    // each one catches and why the pair of checks that used to be here passed a
+    // truncated dump as `completed`.
+    const size = await verifyArchive(gzip, filepath);
 
     // 0600: the file holds the whole database, password hashes and customer data
     // included, and the usual umask would leave it world-readable.
     if (process.platform !== 'win32') {
       await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
     }
-
-    const size = Bun.file(filepath).size;
 
     // The backup's status and the schedule's `last_run_status` are one outcome
     // written twice. Split, they can disagree — the schedule saying `completed`

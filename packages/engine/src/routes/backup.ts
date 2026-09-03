@@ -9,6 +9,7 @@ import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { verifyArchive } from '../lib/backup/verify-archive.js';
 import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
 import { toNumber, toNumberOrNull, toNumberSafe } from '../lib/numeric.js';
@@ -231,10 +232,16 @@ export function backupRoutes(db: Database, auth: any): Hono {
         const gzipProc = Bun.spawn(['gzip', '-c'], {
           stdin: pgdumpProc.stdout,
           stdout: Bun.file(filepath),
+          // Piped so a failure here can say why. Without it the only evidence
+          // that the second half of the pipeline died is its exit code.
+          stderr: 'pipe',
         });
 
         await Promise.all([pgdumpProc.exited, gzipProc.exited]);
 
+        // pg_dump first: a dump that failed outright has a better error than
+        // anything the archive check can produce, and `explainDumpFailure`
+        // translates the common ones.
         if (pgdumpProc.exitCode !== 0) {
           const stderr = await new Response(pgdumpProc.stderr).text();
           throw new Error(
@@ -242,9 +249,11 @@ export function backupRoutes(db: Database, auth: any): Hono {
           );
         }
 
-        if (!(await Bun.file(filepath).exists())) {
-          throw new Error('Backup file was not created');
-        }
+        // Then gzip's exit code, the file, and its size. This route and
+        // `run-scheduled-backup.ts` used to carry the same two checks — pg_dump
+        // and existence — and the same blind spot; verify-archive.ts is now the
+        // single copy, so a third backup path cannot inherit it again.
+        const size = await verifyArchive(gzipProc, filepath);
 
         // Tighten permissions on the dump file: it holds the entire DB
         // including password hashes, secrets, customer PII. The default
@@ -254,8 +263,6 @@ export function backupRoutes(db: Database, auth: any): Hono {
         if (process.platform !== 'win32') {
           await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
         }
-
-        const size = Bun.file(filepath).size;
 
         await sql`
           UPDATE zv_backups
