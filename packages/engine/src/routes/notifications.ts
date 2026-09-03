@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { toJsonb } from '../lib/jsonb.js';
 import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
 import { sendPushToUsers } from '../lib/push-notifications.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -35,7 +36,10 @@ export async function sendNotification(
     type: opts.type ?? 'info',
     action_url: opts.action_url ?? null,
     source: opts.source ?? null,
-    metadata: JSON.stringify(opts.metadata ?? {}),
+    // See lib/jsonb.ts. Measured on a live database before this: 12 of 12
+    // rows held a jsonb string, so `metadata ? 'key'` was false and
+    // `metadata->>'key'` NULL for every notification ever written.
+    metadata: toJsonb(opts.metadata ?? {}),
   }));
 
   // Insert each notification individually so a single invalid user_id (FK miss,
