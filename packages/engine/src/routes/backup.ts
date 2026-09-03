@@ -20,7 +20,7 @@ const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
  * Say what an RLS-blocked `pg_dump` means, because Postgres's own hint is
  * dangerous here.
  *
- * On the hardened install — the one `docs/site/DEPLOYMENT-K8S.md` recommends and
+ * On the hardened install — the one `docs/platform/deployment-k8s.md` recommends and
  * `scripts/bootstrap-db-role.sh` builds — the engine's role is
  * `NOSUPERUSER NOBYPASSRLS` and owns the tables. `FORCE ROW LEVEL SECURITY`
  * binds the owner too, and `pg_dump` refuses to dump a table whose rows it
@@ -62,7 +62,7 @@ export function explainDumpFailure(stderr: string): string {
     '\n' +
     'Back up as a role that RLS does not bind — one created with BYPASSRLS, kept\n' +
     "apart from the engine's own role and used for nothing else. See\n" +
-    'docs/site/DISASTER-RECOVERY.md.'
+    'docs/platform/disaster-recovery.md.'
   );
 }
 
@@ -604,7 +604,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // `cron_expression`: the boot scheduler starts the garbage collector and the
   // trash purge and nothing else, and `next_run_at` is never computed. The only
   // thing that runs a schedule is `POST /schedules/:id/trigger`, called by hand
-  // or by system cron — which is what `docs/site/DISASTER-RECOVERY.md` §3.1
+  // or by system cron — which is what `docs/platform/disaster-recovery.md` §3.1
   // documents.
   //
   // That gap matters more than it looks, because no installer closes it either:
@@ -656,7 +656,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
       'files locally — which is the default and usually right. Configure S3_ENDPOINT ' +
       '(pointing somewhere that is NOT this machine, or the copy is not off-site), or ' +
       "keep storage_destination='local' and copy the files yourself. See " +
-      'docs/site/DISASTER-RECOVERY.md §3.1.'
+      'docs/platform/disaster-recovery.md §3.1.'
     );
   }
 

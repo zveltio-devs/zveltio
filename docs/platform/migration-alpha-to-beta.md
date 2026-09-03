@@ -1,7 +1,7 @@
 # Migrating from Zveltio Alpha to Beta (1.0.0-beta.1)
 
 > **Alpha track is EOL** — no new `1.0.0-alpha.*` releases after `alpha.129`.
-> Use the latest beta (currently **3.0.0-beta.12**). See [ALPHA-TRACK-EOL.md](./ALPHA-TRACK-EOL.md).
+> Use the latest beta (currently **3.0.0-beta.12**). See [ALPHA-TRACK-EOL.md](../private/ALPHA-TRACK-EOL.md).
 
 ## Overview
 

@@ -1,5 +1,5 @@
 /**
- * Publisher tier resolution for the CLI (MARKETPLACE-POLICY §2).
+ * Publisher tier resolution for the CLI (marketplace-policy.md §2).
  *
  * The engine refuses `engine.isolation: "inline"` for community-tier
  * extensions at enable. To save authors a round-trip through the review
