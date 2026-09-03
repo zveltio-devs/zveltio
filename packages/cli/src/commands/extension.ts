@@ -350,7 +350,7 @@ Next steps:
      routes you actually serve, and the message keys against what you ship`
   }
   5. Local preview: \`cd packages/studio && bun scripts/sync-extensions.ts\`,
-     then \`bun run dev\` — see EXTENSION-DEVELOPER-GUIDE.md §2
+     then \`bun run dev\` — see developer-guide.md §2
 
 Where UI goes:
   a page                    -> studio/schemas/*.json          (almost always)

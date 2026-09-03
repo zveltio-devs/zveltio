@@ -198,7 +198,7 @@ curl -sSL https://zveltio.com/install.sh | bash
 systemctl restart zveltio
 ```
 
-The engine is stateless; reinstalling restores `/api/health` in < 30 s.
+The engine is stateless; reinstalling restores `/api/health` in under 30 s.
 
 > **Upgrades (binary swap on a live DB).** Replacing the engine binary with a
 > newer release runs that release's pending migrations against your existing

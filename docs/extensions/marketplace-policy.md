@@ -138,7 +138,7 @@ What worker isolation does NOT give:
 - Streaming responses. Bodies are buffered as text across the IPC
   hop.
 
-See `EXTENSION-DEVELOPER-GUIDE.md` §13.5 for the full 3-tier policy
+See `developer-guide.md` §13.5 for the full 3-tier policy
 including the "future Tier 3" (subprocess / WASM) that isn't
 implemented today.
 

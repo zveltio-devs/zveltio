@@ -84,7 +84,7 @@ Anything else has to be vendored under `studio/src/`.
 
 Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
 for anything that is CRUD, settings, tabs of tables, or KPI+list. See
-[SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md).
+[SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md).
 
 Use **Tier-3** (`studio/pages/+page.svelte`, synced into Studio at release) only
 when the UI cannot be expressed with the current SDUI vocabulary. Formal criteria

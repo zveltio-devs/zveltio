@@ -31,7 +31,7 @@
  * bucket, another machine's MinIO — and worth nothing when it points at the
  * container next door. The engine cannot tell which, so it does not claim to:
  * `storage_destination` stays `local` by default, and
- * `docs/site/DISASTER-RECOVERY.md` keeps recommending that the operator copy the
+ * `docs/platform/disaster-recovery.md` keeps recommending that the operator copy the
  * files off themselves.
  */
 
@@ -107,7 +107,7 @@ export async function uploadBackup(
         'therefore nowhere to upload to. Either configure S3_ENDPOINT (pointing ' +
         'somewhere that is NOT this machine, or the copy is not off-site), or leave ' +
         "storage_destination as 'local' and copy the files off yourself — see " +
-        'docs/site/DISASTER-RECOVERY.md §3.1.';
+        'docs/platform/disaster-recovery.md §3.1.';
       await record('failed', size, msg);
       return { uploaded: false, error: msg };
     }

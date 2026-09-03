@@ -3,13 +3,13 @@
 > **Audience**: developers building extensions for the Zveltio Business OS.
 >
 > **Companion documents**:
-> - [`EXTENSION-COOKBOOK.md`](EXTENSION-COOKBOOK.md) — **task-oriented recipes**
+> - [`cookbook.md`](cookbook.md) — **task-oriented recipes**
 >   ("how do I send an email on insert?", "how do I add an admin page without
 >   writing Svelte?"). Start here if you learn by doing; this guide is the
 >   reference behind it.
-> - [`EXTENSION-AUTHORING.md`](EXTENSION-AUTHORING.md) — contract reference (the
+> - [`authoring.md`](authoring.md) — contract reference (the
 >   *what*).
-> - [`REFACTORING-V1-PLAN.md`](REFACTORING-V1-PLAN.md) — platform roadmap (some
+> - [`REFACTORING-V1-PLAN.md`](../private/REFACTORING-V1-PLAN.md) — platform roadmap (some
 >   features described here land in v1.0).
 >
 > Sections marked **(v1.0)** describe APIs landing in the v1.0 sprint. Sections
@@ -131,7 +131,7 @@ zveltio extension dev
   a per-extension Vite dev server. From a sibling checkout:
   `cd packages/studio && bun scripts/sync-extensions.ts && bun run dev`, then
   open `/admin/my-feature`. Slot contributions need `studio/src/contribute.ts`
-  (see [EXTENSION-AUTHORING.md](./EXTENSION-AUTHORING.md)). Legacy scaffolds
+  (see [authoring.md](authoring.md)). Legacy scaffolds
   that still ship `studio/package.json` get vite HMR here; new scaffolds do not.
 
 Open `http://localhost:3000/admin/my-feature` to see your Studio page.
@@ -266,7 +266,7 @@ computes the SHA-256, and patches these blocks in place.
 | `engine.target` | `"bun" \| "node" \| "*"` | no | Default `"bun"`. |
 | `engine.bundled` | bool | yes (v2) | Always `true` post-alpha.111. Bun compiled binary can't resolve bare specifiers at runtime, so deps must be bundled at pack time. |
 | `engine.bundlePeers` | bool | no | Default `false`. Set `true` to inline the `peerDependencies` into the bundle. Required when the extension uses any peer dep — external peers don't work on the binary install. See alpha.113 in CHANGELOG. |
-| `engine.isolation` | `"inline" \| "worker"` | no | Default `"inline"`. **`"worker"` is REQUIRED for community/third-party submissions** per MARKETPLACE-POLICY.md §2 — the loader hard-fails the enable otherwise. See §13.5 below for the trade-offs. |
+| `engine.isolation` | `"inline" \| "worker"` | no | Default `"inline"`. **`"worker"` is REQUIRED for community/third-party submissions** per marketplace-policy.md §2 — the loader hard-fails the enable otherwise. See §13.5 below for the trade-offs. |
 | `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
 | `integrity.archiveSha256` | hex64 | no | SHA-256 of the `.zvext` archive. Optional; the registry computes and stores this on upload. Engine verifies it against the `X-Archive-Sha256` response header at install time. |
 | `signature` | object | no | Filled by `zveltio extension publish`. Do not edit by hand. |
@@ -1105,8 +1105,8 @@ third-party JS in the admin**.
 Schemas live in `studio/schemas/` (not `studio/pages/`), so the sync step ignores
 them automatically.
 
-**Vocabulary** (full reference: [SDUI-SCHEMA-REFERENCE.md](./SDUI-SCHEMA-REFERENCE.md);
-source of truth: [`packages/studio/src/lib/sdui/types.ts`](../packages/studio/src/lib/sdui/types.ts)):
+**Vocabulary** (full reference: [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md);
+source of truth: [`packages/studio/src/lib/sdui/types.ts`](../../packages/studio/src/lib/sdui/types.ts)):
 - **Resources**: single or multi-tab; per-resource `dataSource`/`dataPath`/`search`/`filters`/`pagination`/`stats`.
 - **Columns** `type`: `text` · `mono` · `date` · `currency` (`code` or `codeKey`) · `badge` (`colors`+`labels`) · `relation` (id→label from another endpoint) · `boolean` (✓/—). Plus `secondary` (two-line cell), `join`, `template` (`{ENGINE_URL}`/`{field}` tokens), `classWhen` (conditional CSS), `editable` (inline select/text PATCH on change).
 - **Row/detail actions**: `kind` `call`|`edit`|`download` (opens cookie-authed endpoint in a new tab), `method`, `endpoint` (`{id}`/`{field}` tokens), `visibleWhen`, `confirm`, `body` (`{field}` tokens, `{a-b}` subtraction).
@@ -1165,7 +1165,7 @@ Declare the URL in `manifest.studio.pages[].path` (e.g. `/admin/my-feature`).
 
 Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
 when the UI is CRUD-shaped — zero Studio build, same delivery model as first-party
-extensions. See [EXTENSION-AUTHORING.md](./EXTENSION-AUTHORING.md).
+extensions. See [authoring.md](authoring.md).
 
 **Do not** use `registerRoute()` from a runtime bundle — that was the removed v1
 IIFE path (`studio/dist/bundle.js`, deleted beta.15).
@@ -1340,7 +1340,7 @@ Studio merges every extension's catalogue with its own at build time
 `ext.*` are the host's generic words — Save, Cancel, Status, Name, Price,
 Currency, "Delete this item?" — and you may use them without shipping them.
 Nobody needs a thirtieth private key for "Save". The full list is
-[`packages/sdk/src/validate/shared-message-keys.ts`](../packages/sdk/src/validate/shared-message-keys.ts);
+[`packages/sdk/src/validate/shared-message-keys.ts`](../../packages/sdk/src/validate/shared-message-keys.ts);
 if a genuinely generic word is missing, add it to `messages/core/` in the host
 rather than privately.
 

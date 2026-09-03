@@ -544,7 +544,7 @@ command. Running it surfaced a real gap in restoring onto new hardware.
 - **The weekly `DR Smoke` workflow runs that script** instead of a smaller copy
   of it, and publishes the report as an artefact on every run. One definition of
   a good restore, exercised weekly and by hand.
-- `docs/site/DISASTER-RECOVERY.md` § Scenario B now says what to expect when
+- `docs/platform/disaster-recovery.md` § Scenario B now says what to expect when
   restoring onto new hardware, and which line at startup confirms isolation is
   enforced.
 
@@ -909,7 +909,7 @@ branch.
 
 ### Changed
 
-- **`verified` now has a written criterion** (`docs/site/MARKETPLACE-POLICY.md`
+- **`verified` now has a written criterion** (`docs/extensions/marketplace-policy.md`
   §2): a member of the Zveltio team read the source of that version. Not a
   contract, not a green CI run, not a recognisable name. The tier was
   documented as "vendor-vetted", which is not a criterion, while
@@ -1780,7 +1780,7 @@ sandbox can't compile, which had silently broken `run_script` flow steps.
   `instance` + a stable `code` + `traceId`), replacing the ad-hoc
   `{ "error": "…" }` shape. The SDK throws a typed `ZveltioApiError`; Studio reads
   `detail`/`code`/`traceId`. Legacy `{ error }` parsing is kept as a tolerant
-  fallback during the beta. See `docs/site/MIGRATION-ALPHA-TO-BETA.md`.
+  fallback during the beta. See `docs/platform/migration-alpha-to-beta.md`.
 - **feat(release) H-16**: `scripts/release-gate.ts` codifies the stable-cut
   criteria (ratchets, coverage, migration superset, CI green, soak, open P0s).
 - **feat(ops)**: deep per-subsystem health checks + degradation matrix.
@@ -2519,7 +2519,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 releases are kept for history; no new alpha tags will be published. Upgrade to
 beta: `zveltio update --version 1.0.0-beta.2` (or latest from get.zveltio.com).
 See [docs/private/ALPHA-TRACK-EOL.md](docs/private/ALPHA-TRACK-EOL.md) and
-[docs/site/MIGRATION-ALPHA-TO-BETA.md](docs/site/MIGRATION-ALPHA-TO-BETA.md).
+[docs/platform/migration-alpha-to-beta.md](docs/platform/migration-alpha-to-beta.md).
 
 13 alpha releases (.117 → .129) closed every Phase 1 bundle-first,
 worker isolation, trust chain, and marketplace review-queue gap.
@@ -2571,7 +2571,7 @@ extensions + marketplace submissions are all validated end-to-end.
 
 **Migrating from alpha:**
 
-- See `docs/site/MIGRATION-ALPHA-TO-BETA.md`.
+- See `docs/platform/migration-alpha-to-beta.md`.
 - If you run a custom extension, ensure `manifest.engine.bundled:
   true` and run `zveltio extension pack` once. Community-tier
   extensions must additionally set `engine.isolation: 'worker'`.
@@ -2786,7 +2786,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 ### Marketplace public readiness — enforcement + trust chain closure
 
 Three small pieces that close the gap between
-`docs/site/MARKETPLACE-POLICY.md` (the contract) and the runtime (which
+`docs/extensions/marketplace-policy.md` (the contract) and the runtime (which
 previously just trusted the publisher).
 
 - **Engine enforces `isolation: 'worker'` for third-party
@@ -2848,7 +2848,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
   - `.github/workflows/ci.yml` — runs `extension pack` + verifies
     committed bundle hash matches manifest engineSha256 + runs
     `extension validate`. PR red = no merge.
-- `docs/site/MARKETPLACE-POLICY.md` (new) — submission rules, isolation
+- `docs/extensions/marketplace-policy.md` (new) — submission rules, isolation
   tier requirements per publisher tier (community / verified
   partner / first-party), permission scopes, review checklist,
   lifecycle, takedown criteria. Honest about Tier 3 limitations.
@@ -3790,7 +3790,7 @@ accordingly.
 
 ### Ops docs
 
-  - **`docs/site/DEPLOYMENT-K8S.md`** — Probes section expanded with a
+  - **`docs/platform/deployment-k8s.md`** — Probes section expanded with a
     3-endpoint table (`/api/health`, `/api/health/ready`,
     `/api/health/deep`) and concrete `livenessProbe` /
     `readinessProbe` / `startupProbe` YAML matching the engine's
@@ -3799,7 +3799,7 @@ accordingly.
     published throughput / latency numbers, the hardware baseline
     they're measured on, the reproduction recipe (`bench/scenarios/`
     + `bench/ci-check.ts`), and the multi-tenant overhead delta.
-  - **`docs/private/SECURITY.md`** + **`docs/private/SESSION-PRs-2026-05-24.md`** —
+  - **`docs/platform/security-model.md`** + **`docs/private/SESSION-PRs-2026-05-24.md`** —
     updated to reflect the closed §6.1 backlog (was previously
     listing it as "pending").
 
@@ -3916,7 +3916,7 @@ the Studio route from the extension, no clobber.
 
 ### Docs
 
-`docs/site/EXTENSION-AUTHORING.md` updated with two new sections:
+`docs/extensions/authoring.md` updated with two new sections:
 - "Studio v2 — no per-extension build" — what's gone, what to
   ship instead, why.
 - "Studio rebuild — what happens on enable/disable" — the actual
@@ -4292,7 +4292,7 @@ designer + first-class business templates + a public demo mode.
   as an artifact (`PERF_BUDGET_*_P95_MS` overridable).
 
 #### Reliability
-- `docs/site/DISASTER-RECOVERY.md` — operator runbook (scenarios A–F, RPO/RTO
+- `docs/platform/disaster-recovery.md` — operator runbook (scenarios A–F, RPO/RTO
   targets) + `scripts/dr-drill.sh` quarterly drill (requires `ZVELTIO_ENV=drill`).
 - `GET /api/health/ready` — kubernetes-style readiness probe (db + cache +
   migrations).
@@ -4304,7 +4304,7 @@ designer + first-class business templates + a public demo mode.
   pre-provisioned "Zveltio Engine Overview" dashboard.
 
 #### Security & audit
-- `scripts/audit-inventory.ts` — generates `docs/AUDIT-COVERAGE.md` listing
+- `scripts/audit-inventory.ts` — generates `docs/platform/audit-coverage.md` listing
   every mutating route handler and whether it calls `auditLog()`. Coverage
   went from 7 % to 22 % (12 → 41 audited handlers).
 - `scripts/audit-regression-check.ts` — locks 28 critical-path handlers
@@ -4413,7 +4413,7 @@ None. Every new endpoint, env flag, and middleware is additive.
 ### Breaking / Architecture
 
 - **AI is now an extension, not core.** All `/api/ai*`, `/api/zveltio-ai`, and `/api/ai-analytics` routes; the AI provider manager; embeddings; semantic search; text-to-SQL; schema generation; agentic ZveltioAI engine — all moved out of `packages/engine` and into `zveltio-extensions/ai/`. The extension is auto-activated on first boot when files are on disk, so out-of-the-box behaviour is unchanged for new installs.
-- **`ctx.services` inter-extension service registry.** Extensions can now publish services (`ctx.services.register('ai.providers', …)`) and consume services published by other extensions (`ctx.services.get('ai.providers')`). This is the supported way for extensions to communicate; direct imports between extensions remain forbidden. See [docs/site/EXTENSION-AUTHORING.md](docs/site/EXTENSION-AUTHORING.md#inter-extension-services--ctxservices).
+- **`ctx.services` inter-extension service registry.** Extensions can now publish services (`ctx.services.register('ai.providers', …)`) and consume services published by other extensions (`ctx.services.get('ai.providers')`). This is the supported way for extensions to communicate; direct imports between extensions remain forbidden. See [docs/extensions/authoring.md](docs/extensions/authoring.md#inter-extension-services--ctxservices).
 - **Topological extension loading.** Extensions declaring `dependencies` in `manifest.json` are now loaded after their providers. Cycles fail loudly. Missing dependencies emit a warning and the dependent extension still loads (services it expected may return null).
 - **`ctx.internals.aiProviderManager` removed.** Consumers must use `ctx.services.get('ai.providers')` and add `{ "name": "ai" }` to manifest dependencies.
 - **`ctx.internals` gained**: `enqueueDDLJob`, `validatePublicUrl`, `extractTextFromFile`, `sendNotification`. These are engine-internal helpers previously imported directly by AI code; they remain available for first-party extensions that need them.
@@ -4489,7 +4489,7 @@ None. Every new endpoint, env flag, and middleware is additive.
 
 ### Breaking / Architecture
 
-- **Extensions no longer use runtime engine imports** — all `@zveltio/engine-*` virtual packages and direct `../../../../packages/engine/src/...` imports removed from every extension. Engine internals are now injected via `ctx.internals.*` (see `docs/site/EXTENSION-AUTHORING.md`).
+- **Extensions no longer use runtime engine imports** — all `@zveltio/engine-*` virtual packages and direct `../../../../packages/engine/src/...` imports removed from every extension. Engine internals are now injected via `ctx.internals.*` (see `docs/extensions/authoring.md`).
 - **`Bun.plugin` shims removed** — `installExtensionShims()` deleted from `extension-loader.ts`. Shims never worked in compiled binaries; all extensions now rely on real `node_modules/` provisioned by `ensureExtensionCoreDeps()`.
 - **SDK `ExtensionContext` extended** — `ctx.internals` namespace added: `aiProviderManager`, `dynamicInsert`, `introspectSchema`, `runQualityScan`, `invalidateRulesCache`, `runEdgeFunction`, `extensionRegistry`, `generatePDFAsync`, `renderTemplate`, `generatePDF`, `moveToTrash`, `scheduleFileIndexing`, `DataLoaderRegistry`, `checkQueryDepth`.
 - **`buildExtensionInternals()`** exported from `extension-loader.ts`; engine passes the full internals object when calling `loadAll()` and `reRegisterExtension()`.
@@ -4505,7 +4505,7 @@ None. Every new endpoint, env flag, and middleware is additive.
 
 ### Docs
 
-- Added `docs/site/EXTENSION-AUTHORING.md` — full contract for extension authors: folder layout, `manifest.json` fields, `engine/index.ts` shape, the `ctx` API, route patterns, migration guide, and what to avoid.
+- Added `docs/extensions/authoring.md` — full contract for extension authors: folder layout, `manifest.json` fields, `engine/index.ts` shape, the `ctx` API, route patterns, migration guide, and what to avoid.
 
 ---
 

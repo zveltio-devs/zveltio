@@ -49,7 +49,7 @@ describe('an RLS-blocked pg_dump explains itself', () => {
 
   it('names the actual remedy', () => {
     expect(explained).toContain('BYPASSRLS');
-    expect(explained).toContain('DISASTER-RECOVERY.md');
+    expect(explained).toContain('docs/platform/disaster-recovery.md');
   });
 
   it('leaves an unrelated failure completely untouched', () => {
