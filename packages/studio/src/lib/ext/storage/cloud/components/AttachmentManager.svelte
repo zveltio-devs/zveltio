@@ -33,7 +33,9 @@
 
 	let uploading = $state(false);
 	let dragOver = $state(false);
-	let fileInput: HTMLInputElement;
+	// `$state`: reassigned by `bind:this`, and without it Svelte 5 does not track
+	// the write, so anything deriving from it reads the initial undefined.
+	let fileInput = $state<HTMLInputElement | undefined>();
 
 	function formatSize(bytes: number): string {
 		if (bytes < 1024) return bytes + ' B';
@@ -89,6 +91,8 @@
 	<!-- Upload Area -->
 	{#if !readOnly}
 		<div
+			role="region"
+			aria-label="Drop files here to upload"
 			class="border-2 border-dashed rounded-lg p-8 text-center transition {dragOver ? 'border-primary bg-primary/5' : 'border-base-300'}"
 			ondrop={handleDrop}
 			ondragover={handleDragOver}
@@ -116,7 +120,7 @@
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 				</svg>
 				<p class="text-sm mb-2">Drag & drop files or click to browse</p>
-				<button class="btn btn-sm btn-primary" onclick={() => fileInput.click()}>
+				<button class="btn btn-sm btn-primary" onclick={() => fileInput?.click()}>
 					Choose Files
 				</button>
 			{/if}

@@ -410,7 +410,10 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
         </div>
 
         {#each draft[collKey] as item, idx (item[idKey] ?? idx)}
+          <!-- `listitem`: these rows ARE a reorderable list, and a drop target
+               with no role is announced as nothing at all. -->
           <div
+            role="listitem"
             class="bg-base-100 rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-end transition-shadow"
             class:ring-2={dragOver === idx && dragFrom !== idx}
             class:ring-primary={dragOver === idx && dragFrom !== idx}
@@ -419,6 +422,9 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
             ondrop={(e) => onDrop(e, idx)}
           >
             <div
+              role="button"
+              tabindex="0"
+              aria-label={t('common.reorder')}
               class="md:col-span-1 flex items-center justify-center pb-1 cursor-grab active:cursor-grabbing text-base-content/55"
               draggable="true"
               ondragstart={(e) => onDragStart(e, idx)}

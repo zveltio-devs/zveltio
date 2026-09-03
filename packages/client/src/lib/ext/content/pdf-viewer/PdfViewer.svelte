@@ -59,7 +59,9 @@
     <span class="loading loading-spinner loading-md text-primary"></span>
   </div>
 {:else if PDFViewer}
-  <svelte:component this={PDFViewer} config={{ src, toolbar }} style="height:{height}px;width:100%;" />
+  <!-- In runes mode a capitalised variable IS a dynamic component;
+       `<svelte:component>` is deprecated and does the same thing. -->
+  <PDFViewer config={{ src, toolbar }} style="height:{height}px;width:100%;" />
 {:else}
   <iframe {src} title="PDF Document" class="w-full rounded border border-base-300" style="height:{height}px"></iframe>
 {/if}

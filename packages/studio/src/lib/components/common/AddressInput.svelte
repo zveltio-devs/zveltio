@@ -45,8 +45,14 @@ function selectAddress(addr: Address) {
 }
 </script>
 
-<div class="form-control">
-	<label class="label"><span class="label-text">{label}</span></label>
+<!--
+	A fieldset, not a label: this names the street/city/postcode GROUP, and a
+	`<label>` can only name one control. `<legend>` is what associates a caption
+	with a set of fields, and it is what a screen reader announces when focus
+	enters any of them.
+-->
+<fieldset class="form-control">
+	<legend class="label"><span class="label-text">{label}</span></legend>
 	
 	<div class="relative">
 		<input
@@ -86,4 +92,4 @@ function selectAddress(addr: Address) {
 			<input type="text" bind:value={value.postal_code} placeholder={m['address.postal']()} class="input input-sm input-bordered" {disabled} />
 		</div>
 	{/if}
-</div>
+</fieldset>
