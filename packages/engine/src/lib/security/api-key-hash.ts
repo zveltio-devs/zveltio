@@ -8,7 +8,13 @@
  * Any divergence silently makes keys created at one site unverifiable at another.
  */
 export async function hashApiKey(key: string): Promise<string> {
-  const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
+  // `BETTER_AUTH_SECRET` alone. A `?? process.env.SECRET_KEY` fallback sat here
+  // and in the two routes below, and it was unreachable in all three: `initAuth()`
+  // throws without `BETTER_AUTH_SECRET`, so the engine cannot reach a request
+  // handler in the state the fallback existed for. Eleven other production sites
+  // read the variable without it; a second spelling of one secret is a divergence
+  // waiting for somebody to add a twelfth site that honours only one of them.
+  const authSecret = process.env.BETTER_AUTH_SECRET ?? '';
   if (!authSecret) throw new Error('Server configuration error: BETTER_AUTH_SECRET not set');
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
