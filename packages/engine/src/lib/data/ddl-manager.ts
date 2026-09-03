@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
+import { toJsonb } from '../jsonb.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
@@ -831,7 +832,7 @@ export class DDLManager {
         ...(updates.displayName ? { display_name: updates.displayName } : {}),
         ...(updates.icon ? { icon: updates.icon } : {}),
         ...(updates.description !== undefined ? { description: updates.description } : {}),
-        ...(updates.fields ? { fields: JSON.stringify(updates.fields) } : {}),
+        ...(updates.fields ? { fields: toJsonb(updates.fields) } : {}),
         updated_at: new Date(),
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       } as any)
@@ -1145,7 +1146,7 @@ export class DDLManager {
     await db
       .updateTable('zvd_collections')
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-      .set({ fields: JSON.stringify(fields), updated_at: new Date() } as any)
+      .set({ fields: toJsonb(fields), updated_at: new Date() } as any)
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where('name' as any, '=', collectionName)
       .execute();
@@ -1168,12 +1169,12 @@ export class DDLManager {
         sort: definition.sort ?? 99,
         singular_name: definition.singularName || definition.name,
         description: definition.description || null,
-        fields: JSON.stringify(definition.fields),
+        fields: toJsonb(definition.fields),
       })
       .onConflict((oc) =>
         oc.column('name').doUpdateSet({
           display_name: definition.displayName || definition.name,
-          fields: JSON.stringify(definition.fields),
+          fields: toJsonb(definition.fields),
           updated_at: new Date(),
         }),
       )
