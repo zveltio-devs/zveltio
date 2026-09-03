@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 **/node_modules/
+# …and the same names as SYMLINKS. A trailing slash matches a directory only,
+# so a worktree that links its dependencies rather than installing them offers
+# `node_modules` to `git add -A` as an ordinary file. Local `.git/info/exclude`
+# carried this for whoever set it up; it does not travel with the repository.
+node_modules
+**/node_modules
 .pnpm-store/
 .pnpm-debug.log
 
