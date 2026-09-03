@@ -20,6 +20,7 @@ import { SYSTEM_COLLECTIONS, getSystemCollection } from '../lib/system-collectio
 import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
+import { toJsonb } from '../lib/jsonb.js';
 
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
@@ -507,7 +508,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
         await (trx as any)
           .updateTable('zvd_collections')
-          .set({ fields: JSON.stringify(updatedFields), updated_at: new Date() })
+          .set({ fields: toJsonb(updatedFields), updated_at: new Date() })
           .where('name', '=', name)
           .execute();
       });
