@@ -234,6 +234,7 @@ export async function resolveManifest(
       description: manifest.description,
       category: manifest.category,
       contributes: manifest.contributes as ManifestMeta['contributes'],
+      i18nPrefixes: manifest.i18nPrefixes,
       studio: await embedPageSchemas(extDir, manifest.studio),
     };
   }

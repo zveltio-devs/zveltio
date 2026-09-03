@@ -46,6 +46,15 @@ export async function loadExtensionFromDir(
     const defaultBase = resolveExtensionsBase();
     const extDir = basePath ? join(basePath, extName) : join(defaultBase, extName);
 
+    // Remember where this extension lives. `/api/extensions?messages=<locale>`
+    // reads the extension's own catalogue on demand, and the request handler
+    // has no other way back to the directory — the resolution above depends on
+    // `basePath`, EXTENSIONS_DIR and the dev sibling, none of which are stable
+    // to recompute later. Kept off ManifestMeta on purpose: that object is
+    // serialised to the browser, and a server filesystem path is not something
+    // to hand a client.
+    loader.extDirs.set(extName, extDir);
+
     const enginePath = join(extDir, 'engine/index.js');
 
     const earlyManifestPath = join(extDir, 'manifest.json');
@@ -58,6 +67,7 @@ export async function loadExtensionFromDir(
       description?: string;
       category?: string;
       contributes?: { engine?: boolean };
+      i18nPrefixes?: string[];
       studio?: ManifestMeta['studio'];
     } | null = null;
     if (existsSync(earlyManifestPath)) {
@@ -121,6 +131,7 @@ export async function loadExtensionFromDir(
         description: early.description,
         category: early.category,
         contributes: early.contributes,
+        i18nPrefixes: early.i18nPrefixes,
         studio: await embedPageSchemas(extDir, early.studio),
       });
       console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);

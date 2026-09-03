@@ -22,6 +22,8 @@ function fakeLoader(extension: ZveltioExtension): ExtensionLoader {
     ]),
     modules: new Map([['sched-ext', extension]]),
     lastLoadError: new Map(),
+    extDirs: new Map(),
+    forgetExtensionMessages: () => {},
     ctx: { db: db.kysely } as unknown as ExtensionContext,
   } as unknown as ExtensionLoader;
 }
