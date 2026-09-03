@@ -144,7 +144,7 @@ recomandare care arată spre un script inexistent e chiar clasa `dr-drill.sh`.
 
 **Codul construiește un pool de 25. Documentația publică spunea 10.**
 
-`DEFAULT_DB_POOL_MAX = 25` în `db/index.ts`, dar `docs/site/CONFIGURATION.md` documenta
+`DEFAULT_DB_POOL_MAX = 25` în `db/index.ts`, dar `docs/platform/configuration.md` documenta
 implicitul ca `10`. Un operator care își dimensionează `max_connections` din documentație
 bugetează 10 pe instanță și primește 25 — de două ori și jumătate mai multe conexiuni
 decât a planificat. A doua instanță pică cu *„sorry, too many clients already"*, exact
