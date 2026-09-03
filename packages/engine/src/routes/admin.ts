@@ -11,6 +11,7 @@ import { fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
+import { hashApiKey } from '../lib/security/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 import type { RequestUser } from './data.js';
 import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
@@ -185,22 +186,12 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       const rawKey = `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
       const prefix = rawKey.substring(0, 12);
 
-      const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
-      if (!authSecret) {
-        return c.json({ error: 'Server configuration error: auth secret not set' }, 500);
-      }
-      const encoder = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(authSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign'],
-      );
-      const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(rawKey));
-      const keyHash = Array.from(new Uint8Array(hashBuffer))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+      // `hashApiKey`, not a copy of it. Both routes that MINT a key had this
+      // fourteen-line HMAC written out by hand, while `validateApiKey()` — the
+      // only code that ever checks one — calls the helper. They agree today by
+      // coincidence, and the helper's own docstring says what that costs: change
+      // the hash there and every key minted here becomes unverifiable, silently.
+      const keyHash = await hashApiKey(rawKey);
 
       const apiKey = await db
         .insertInto('zv_api_keys')
