@@ -42,8 +42,6 @@ async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
  <button
  class="btn btn-sm btn-outline gap-1"
  disabled={exporting}
- tabindex="0"
- role="button"
  >
  {#if exporting}
  <span class="loading loading-spinner loading-xs"></span>

@@ -23,6 +23,7 @@ import m006 from './sql/007_ext_registry_tenant_unique.sql' with { type: 'text' 
 import m007 from './sql/008_single_god.sql' with { type: 'text' };
 import m008 from './sql/009_revisions_unwrap_double_encoded.sql' with { type: 'text' };
 import m009 from './sql/010_unwrap_double_encoded_jsonb.sql' with { type: 'text' };
+import m010 from './sql/011_unwrap_collections_fields_jsonb.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -36,4 +37,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '008_single_god.sql': m007,
   '009_revisions_unwrap_double_encoded.sql': m008,
   '010_unwrap_double_encoded_jsonb.sql': m009,
+  '011_unwrap_collections_fields_jsonb.sql': m010,
 };

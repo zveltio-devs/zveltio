@@ -8,6 +8,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { toJsonb } from './jsonb.js';
 
 // PG data_type → Zveltio type mapping
 const PG_TYPE_MAP: Record<string, string> = {
@@ -185,7 +186,7 @@ export async function introspectSchema(
       // Update fields but DON'T change is_managed — it may have been already managed
       await db
         .updateTable('zvd_collections')
-        .set({ fields: JSON.stringify(fields), updated_at: new Date() })
+        .set({ fields: toJsonb(fields), updated_at: new Date() })
         .where('name', '=', table_name)
         .execute();
       results.push({
@@ -202,7 +203,7 @@ export async function introspectSchema(
         .values({
           name: table_name,
           display_name: displayName,
-          fields: JSON.stringify(fields),
+          fields: toJsonb(fields),
           is_managed: false,
           source_type: 'table',
         })

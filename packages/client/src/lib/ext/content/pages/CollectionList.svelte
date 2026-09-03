@@ -25,6 +25,8 @@
    */
 
   // biome-ignore lint/suspicious/noExplicitAny: rows are untyped collection data
+  import type { Snippet } from 'svelte';
+
   type Row = Record<string, any>;
 
   let {
@@ -54,7 +56,11 @@
      * paging controls and the refusal handling here, in one place, whichever
      * layout is chosen.
      */
-    renderItem = undefined as undefined | ((row: Row, index: number) => unknown),
+    // A Snippet, not a plain function. `{@render …}` accepts only a snippet —
+    // declared as `(row, index) => unknown` this prop failed to typecheck at the
+    // render site, and left the caller's `{#snippet item(row, i)}` parameters
+    // implicitly `any` because there was no snippet type to infer them from.
+    renderItem = undefined as Snippet<[Row, number]> | undefined,
   } = $props();
 
   /**

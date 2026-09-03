@@ -8,6 +8,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hsync_${Date.now()}`;
@@ -29,7 +30,7 @@ d('collections sync-schema introspect (in-process)', () => {
       .execute(db);
     await db
       .updateTable('zvd_collections')
-      .set({ fields: JSON.stringify([]) })
+      .set({ fields: toJsonb([]) })
       .where('name', '=', COLLECTION)
       .execute();
   });

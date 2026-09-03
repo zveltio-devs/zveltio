@@ -35,16 +35,16 @@ async function handleLogin(e: Event) {
 
       <form onsubmit={handleLogin} class="space-y-3">
         <div class="form-control">
-          <label class="label pb-1"><span class="label-text text-sm">Email</span></label>
+          <label class="label pb-1" for="portal-email"><span class="label-text text-sm">Email</span></label>
           <input
-            type="email" bind:value={email} required
+            id="portal-email" type="email" bind:value={email} required
             class="input input-bordered input-sm w-full" placeholder="you@example.com"
           />
         </div>
         <div class="form-control">
-          <label class="label pb-1"><span class="label-text text-sm">Password</span></label>
+          <label class="label pb-1" for="portal-password"><span class="label-text text-sm">Password</span></label>
           <input
-            type="password" bind:value={password} required
+            id="portal-password" type="password" bind:value={password} required
             class="input input-bordered input-sm w-full" placeholder="••••••••"
           />
         </div>

@@ -8,6 +8,7 @@ import type { Database } from '../db/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
+import { toJsonb } from '../lib/jsonb.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -72,7 +73,7 @@ async function addFieldToCollection(
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     await (trx as any)
       .updateTable('zvd_collections')
-      .set({ fields: JSON.stringify([...current, field]), updated_at: new Date() })
+      .set({ fields: toJsonb([...current, field]), updated_at: new Date() })
       .where('name', '=', collectionName)
       .execute();
   });
@@ -112,7 +113,7 @@ async function removeFieldFromCollection(
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     await (trx as any)
       .updateTable('zvd_collections')
-      .set({ fields: JSON.stringify(updated), updated_at: new Date() })
+      .set({ fields: toJsonb(updated), updated_at: new Date() })
       .where('name', '=', collectionName)
       .execute();
   });
