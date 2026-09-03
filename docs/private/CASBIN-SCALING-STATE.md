@@ -1,392 +1,408 @@
-# Stare — scalarea autorizării Casbin
+# State — scaling Casbin authorization
 
-> **Se citește la începutul fiecărui pas. Se actualizează după fiecare pas.**
-> Branch: `perf/casbin-scaling` · pornit din `422377b2` (3.0.0-beta.64)
-> Metodă: blocuri de 5–7 pași, cu punct de validare între blocuri.
-> Regula care le guvernează pe toate: **nu se construiește nimic înainte ca o
-> măsurătoare să arate că merită.** Un bloc are voie să se încheie cu „nu merită".
+> **Read at the start of every step. Update after every step.**
+> Branch: `perf/casbin-scaling` · started from `422377b2` (3.0.0-beta.64)
+> Method: blocks of 5–7 steps, with a validation point between blocks.
+> The rule governing all of them: **nothing is built before a measurement shows
+> it is worth it.** A block is allowed to end with "not worth it".
 
 ---
 
-## De ce există branch-ul ăsta
+## Why this branch exists
 
-Auditul din 27–29 august a redus o decizie de autorizare de la 364–885 ms la 4,7 ms
-rece și 0,115 ms cald. Asta a rezolvat **latența unei verificări**.
+The 27–29 August audit reduced an authorization decision from 364–885 ms to
+4.7 ms cold and 0.115 ms warm. That solved **the latency of one check**.
 
-Ce n-a rezolvat, și ce am clasificat greșit ca „nu mai e pe calea critică":
-**rezolvarea scalează cu mărimea instanței.**
+What it did not solve, and what I misclassified as "no longer on the critical
+path": **resolution scales with the size of the instance.**
 
-| Politici `p` | Rezolvare rece per (utilizator, firmă) |
+| `p` policies | Cold resolution per (user, tenant) |
 |---|---|
-| 7 208 | 4,70 ms |
-| 23 978 | **9,96 ms** |
+| 7,208 | 4.70 ms |
+| 23,978 | **9.96 ms** |
 
-Cauza structurală, măsurată: **toate cele 23 978 de reguli `p` au `dom = '*'`.**
-Niciuna nu e legată de o firmă. Deci rezolvarea fiecărui utilizator parcurge
-politicile întregii instanțe — colecțiile tuturor firmelor plus toate resursele de
-extensii. 5 957 de resurse distincte în instanța de măsurare.
+The structural cause, measured: **all 23,978 `p` rules have `dom = '*'`.** None
+is bound to a tenant. So resolving each user walks the whole instance's
+policies — every tenant's collections plus every extension resource. 5,957
+distinct resources in the measured instance.
 
-Extrapolat: 100 de firme × 20 de colecții ⇒ zeci de mii de reguli, iar prima
-verificare a fiecărui utilizator în fereastra de TTL le parcurge pe toate.
+Extrapolated: 100 tenants × 20 collections ⇒ tens of thousands of rules, and
+every user's first check inside the TTL window walks all of them.
 
-**Taxa asta crește cu succesul produsului.** Taxa de tranzacție (0,19 ms per cerere)
-e constantă. Pentru un „Business OS multi-tenant", asta e plafonul care contează.
+**That tax grows with the product's success.** The transaction tax (0.19 ms per
+request) is constant. For a "multi-tenant Business OS", this is the ceiling that
+matters.
 
 ---
 
-## Blocul 1 — MĂSURARE. Nu se scrie cod de producție.
+## Block 1 — MEASUREMENT. No production code is written.
 
-| # | Pas | Stare | Rezultat |
+| # | Step | State | Result |
 |---|---|---|---|
-| 0 | Citește documentul ăsta | — | (la fiecare pas) |
-| 1 | Banc de scalare controlat pe bază proprie `zv_casbin` | ✅ **FĂCUT** | vezi §Curba |
-| 2 | Curba rezolvării — formă, nu două puncte | ✅ **FĂCUT** | **liniară, ușor supra-liniară** |
-| 3 | Fezabilitatea `loadFilteredPolicy` cu enforcer singleton partajat între firme | ✅ **FĂCUT** | **NU e fezabil** |
-| 4 | Ce s-ar rupe dacă regulile `p` ar fi legate de domeniu în loc de `dom='*'` | ✅ **FĂCUT** | index: 13–19×, dar premisa e falsă |
-| 5 | Creșterea regulilor `g` cu utilizatori × firme | ⛔ **ANULAT** | premisa a căzut la pasul 4 |
-| 6 | **PUNCT DE VALIDARE** | ✅ **FĂCUT** | **BLOCUL 2 NU SE DESCHIDE** |
+| 0 | Read this document | — | (at every step) |
+| 1 | Controlled scaling bench on its own `zv_casbin` database | ✅ **DONE** | see §The curve |
+| 2 | The resolution curve — its shape, not two points | ✅ **DONE** | **linear, slightly super-linear** |
+| 3 | Feasibility of `loadFilteredPolicy` with a singleton enforcer shared across tenants | ✅ **DONE** | **NOT feasible** |
+| 4 | What would break if `p` rules were domain-bound instead of `dom='*'` | ✅ **DONE** | index: 13–19×, but the premise is false |
+| 5 | Growth of `g` rules with users × tenants | ⛔ **CANCELLED** | the premise fell at step 4 |
+| 6 | **VALIDATION POINT** | ✅ **DONE** | **BLOCK 2 DOES NOT OPEN** |
 
-### Criteriile punctului de validare (scrise ÎNAINTE de măsurare)
+### Validation-point criteria (written BEFORE measuring)
 
-Blocul 2 se deschide **doar dacă** cel puțin una dintre condiții e adevărată:
+Block 2 opens **only if** at least one condition is true:
 
-- Curba e cel puțin liniară în numărul de politici **și** o cale identificată o
-  reduce la sub-liniar sau la constant per firmă.
-- `loadFilteredPolicy` e fezabil fără a rupe semantica multi-firmă a enforcer-ului
-  singleton.
+- The curve is at least linear in the number of policies **and** an identified
+  path reduces it to sub-linear or to constant per tenant.
+- `loadFilteredPolicy` is feasible without breaking the multi-tenant semantics
+  of the singleton enforcer.
 
-Dacă niciuna nu e adevărată: **blocul 2 nu se deschide.** Se scrie concluzia aici și
-se raportează. Un „nu merită" măsurat e un rezultat, nu un eșec.
+If neither is true: **block 2 does not open.** The conclusion is written here and
+reported. A measured "not worth it" is a result, not a failure.
 
-### Ce NU se atinge în blocul 1
+### What is NOT touched in block 1
 
-Cod de producție. Politica RLS. Enforcer-ul. Nimic din `packages/engine/src` în
-afară de fișiere de măsurare aruncate după.
+Production code. The RLS policy. The enforcer. Nothing in
+`packages/engine/src` beyond throwaway measurement files.
 
-### Curba (pașii 1–2, măsurat 2026-08-29)
+### The curve (steps 1–2, measured 2026-08-29)
 
-Bancul imită forma reală: politici pe ROL, una per (rol, resursă, acțiune), toate
-`dom='*'`. În instanța de audit: `tenant_member` × 3 acțiuni + `tenant_viewer` × 1,
-peste 6 161 de resurse = 24 644 de reguli.
+The bench imitates the real shape: policies on ROLE, one per (role, resource,
+action), all `dom='*'`. In the audited instance: `tenant_member` × 3 actions +
+`tenant_viewer` × 1, across 6,161 resources = 24,644 rules.
 
-| Resurse | Politici | Rezolvare (cu rol) | Rezolvare (fără rol) |
+| Resources | Policies | Resolution (with role) | Resolution (no role) |
 |---|---|---|---|
-| 1 500 | 6 000 | 3,57 ms | 1,17 ms |
-| 3 000 | 12 000 | 7,26 ms | 2,50 ms |
-| 6 000 | 24 000 | 16,32 ms | 7,01 ms |
-| 12 000 | 48 000 | 28,50 ms | 10,70 ms |
-| 24 000 | 96 000 | **62,33 ms** | 26,55 ms |
+| 1,500 | 6,000 | 3.57 ms | 1.17 ms |
+| 3,000 | 12,000 | 7.26 ms | 2.50 ms |
+| 6,000 | 24,000 | 16.32 ms | 7.01 ms |
+| 12,000 | 48,000 | 28.50 ms | 10.70 ms |
+| 24,000 | 96,000 | **62.33 ms** | 26.55 ms |
 
-**De 16× mai multe politici ⇒ de 17,5× mai mult timp.** Liniar, ușor supra-liniar.
+**16× more policies ⇒ 17.5× more time.** Linear, slightly super-linear.
 
-Extrapolat la 1 000 de firme × 24 de colecții: **62 ms** pentru fiecare rezolvare
-(utilizator, firmă), plătită la prima verificare din fiecare fereastră de TTL de 60 s.
+Extrapolated to 1,000 tenants × 24 collections: **62 ms** for every (user,
+tenant) resolution, paid on the first check of each 60 s TTL window.
 
-Cazul „fără rol" e mai ieftin dar crește la fel — și el e cazul refuzului, adică cel
-pe care îl cere un atacator.
+The "no role" case is cheaper but grows the same way — and it is the denial
+case, the one an attacker asks for.
 
-**Prima jumătate a criteriului de validare e îndeplinită:** curba e cel puțin
-liniară. Rămâne de arătat că există o cale care o reduce.
+**The first half of the validation criterion is met:** the curve is at least
+linear. What remains is to show a path that reduces it.
 
-### Pasul 3 — `loadFilteredPolicy`: nu e fezabil
+### Step 3 — `loadFilteredPolicy`: not feasible
 
-Adaptorul Kysely **nu** implementează `FilteredAdapter` (fără `isFiltered`, fără
-`loadFilteredPolicy`), iar `_enforcer` e un singleton partajat între firme. Dar
-obstacolul real e mai adânc: **nu există felie după care să filtrezi.** Toate
-regulile `p` au `dom='*'`, deci o încărcare filtrată pe domeniu le-ar întoarce pe
-toate.
+The Kysely adapter does **not** implement `FilteredAdapter` (no `isFiltered`, no
+`loadFilteredPolicy`), and `_enforcer` is a singleton shared across tenants. But
+the real obstacle is deeper: **there is no slice to filter by.** All `p` rules
+have `dom='*'`, so a domain-filtered load would return all of them.
 
-### Pasul 4 — indexul ajută, dar numai cu datele schimbate
+### Step 4 — the index helps, but only with the data changed
 
-La 48 000 de politici:
+At 48,000 policies:
 
-| | Timp | Construit o dată |
+| | Time | Built once |
 |---|---|---|
-| A. scanare completă (azi) | 3,405 ms | — |
-| B. index pe domeniu | **0,264 ms** | 6,8 ms |
-| C. index pe (domeniu, subiect) | **0,182 ms** | 13,9 ms |
-| D. index pe subiect, **date neschimbate** | **12,096 ms** | 7,3 ms |
+| A. full scan (today) | 3.405 ms | — |
+| B. index on domain | **0.264 ms** | 6.8 ms |
+| C. index on (domain, subject) | **0.182 ms** | 13.9 ms |
+| D. index on subject, **data unchanged** | **12.096 ms** | 7.3 ms |
 
-D e verdictul care contează: **fără schimbarea datelor, indexul nu dă nimic** —
-`tenant_member` deține 36 000 din 48 000 de reguli, deci separarea pe subiect nu
-reduce nimic pentru rolul comun. B și C funcționează doar pentru că le-am construit
-pe politici legate de domeniu.
+D is the verdict that matters: **without changing the data, the index gives
+nothing** — `tenant_member` holds 36,000 of 48,000 rules, so splitting by
+subject reduces nothing for the common role. B and C only work because I built
+them over domain-bound policies.
 
 ---
 
-## PUNCT DE VALIDARE — verdict: BLOCUL 2 NU SE DESCHIDE
+## VALIDATION POINT — verdict: BLOCK 2 DOES NOT OPEN
 
-**Premisa branch-ului e falsă, și am descoperit-o abia aici.**
+**The branch's premise is false, and I only discovered it here.**
 
-`zvd_collections` **nu are `tenant_id`.** Colecțiile sunt la nivel de instanță,
-**partajate între firme** — o instalare cu 100 de firme și 20 de colecții are 20 de
-colecții, nu 2 000. Deci numărul de politici **NU crește cu numărul de firme.**
-Crește cu numărul de resurse pe care le definește operatorul, mărginit de ce
-construiește el, nu de câți clienți are.
+`zvd_collections` **has no `tenant_id`.** Collections are instance-level,
+**shared across tenants** — an installation with 100 tenants and 20 collections
+has 20 collections, not 2,000. So the number of policies does **NOT** grow with
+the number of tenants. It grows with the number of resources the operator
+defines, bounded by what they build, not by how many customers they have.
 
-Ceea ce înseamnă și că legarea pe domeniu (singura cale care taie curba) **n-are ce
-lega**: nu există felie per firmă, fiindcă resursele sunt comune.
+Which also means domain binding (the only path that cuts the curve) **has
+nothing to bind**: there is no per-tenant slice, because the resources are
+shared.
 
-### De unde a venit greșeala: propria mea poluare
+### Where the mistake came from: my own pollution
 
-Baza pe care am măsurat avea **167 de colecții, dintre care 163 artefacte ale
-propriilor mele teste** (nume cu marcă de timp). Instanța reală `/opt/zveltio` are
-**3 colecții, 79 de politici `p`, 23 de resurse distincte** — de ~300 de ori mai
-puțin.
+The database I measured on had **167 collections, 163 of them artefacts of my
+own tests** (timestamped names). The real `/opt/zveltio` instance has
+**3 collections, 79 `p` policies, 23 distinct resources** — roughly 300× fewer.
 
-### Corecție la cifrele raportate anterior
+### Correction to previously reported figures
 
-Recalculat pe scări realiste:
+Recalculated at realistic scales:
 
-| Resurse | Politici | `enforce()` — codul vechi | `checkPermission` — codul nou |
+| Resources | Policies | `enforce()` — old code | `checkPermission` — new code |
 |---|---|---|---|
-| **23 (instanța reală)** | 92 | **0,930 ms** | 0,351 ms |
-| 300 (toate extensiile) | 1 200 | 7,271 ms | 0,672 ms |
-| 1 000 | 4 000 | 23,435 ms | 1,509 ms |
-| 6 000 | 24 000 | 142,835 ms | 11,440 ms |
+| **23 (the real instance)** | 92 | **0.930 ms** | 0.351 ms |
+| 300 (all extensions) | 1,200 | 7.271 ms | 0.672 ms |
+| 1,000 | 4,000 | 23.435 ms | 1.509 ms |
+| 6,000 | 24,000 | 142.835 ms | 11.440 ms |
 
-**Cifra de „364 ms per decizie" din auditul precedent a fost măsurată pe baza
-poluată.** Pe o instanță reală, codul vechi costa **0,93 ms**. Vectorul de
-amplificare „3 req/s cu un cont gratuit" e la fel de supraevaluat.
+**The "364 ms per decision" figure from the previous audit was measured on the
+polluted database.** On a real instance, the old code cost **0.93 ms**. The
+"3 req/s with a free account" amplification vector is overstated by the same
+factor.
 
-**Reparația rămâne corectă și rămâne utilă** — schimbă panta, iar la ~300 de resurse
-(o instalare cu toate extensiile) codul vechi ajunge la 7,3 ms per refuz față de
-0,67 ms. Dar nu a reparat o problemă de producție existentă azi; a reparat una care
-apare la o scară pe care instanțele reale n-o ating încă.
+**The fix remains correct and remains useful** — it changes the slope, and at
+~300 resources (an installation with every extension) the old code reaches
+7.3 ms per denial against 0.67 ms. But it did not fix a production problem that
+exists today; it fixed one that appears at a scale real instances have not yet
+reached.
 
-### Ce se face în schimb
+### What is done instead
 
-Nimic pe branch-ul ăsta. Concluzia e rezultatul.
+Nothing on this branch. The conclusion is the result.
 
-Rămâne o singură acțiune, ieftină și fără legătură cu Casbin: **suita de teste lasă
-în urmă colecții** (163 într-o singură bază). Asta nu e doar dezordine — a produs o
-măsurătoare falsă care a condus un audit întreg. Merită curățenie în `afterAll`.
+One action remains, cheap and unrelated to Casbin: **the test suite leaves
+collections behind** (163 in a single database). That is not merely untidy — it
+produced a false measurement that drove an entire audit. It deserves cleanup in
+`afterAll`.
 
 ---
 
-## Blocul 2 — NU SE DESCHIDE (vezi punctul de validare)
+## Block 2 — DOES NOT OPEN (see the validation point)
 
 ---
 
-## Blocul 3 — colecțiile pe care suita le lasă în urmă
+## Block 3 — the collections the suite leaves behind
 
-Nu e igienă. **O măsurătoare falsă produsă de aici a condus un audit întreg** și a
-ajuns în două rapoarte ca „364 ms per decizie de autorizare". Baza avea 163 de
-colecții din teste; instanța reală are 3.
+Not hygiene. **A false measurement produced here drove an entire audit** and
+reached two reports as "364 ms per authorization decision". The database had 163
+collections from tests; the real instance has 3.
 
-| # | Pas | Stare | Rezultat |
+| # | Step | State | Result |
 |---|---|---|---|
-| 0 | Citește documentul | — | (la fiecare pas) |
-| 1 | Măsoară: câte colecții lasă o rulare completă, pe bază curată | ✅ **FĂCUT** | **5 colecții + 2 tabele fantomă per rulare** |
-| 2 | Identifică fișierele vinovate | ✅ **FĂCUT** | 5 fișiere, două ale mele |
-| 3 | Repară curățenia | ✅ **FĂCUT** | helper comun `dropTestCollection` |
-| 4 | Poartă | ✅ **FĂCUT** | `check:test-leftovers`, dovedită prin plantare |
-| 5 | Verificare pe bază curată | ✅ **FĂCUT** (corectat) | **prima trecere a ratat un fișier** — vezi §Corecția |
-| 6 | **PUNCT DE VALIDARE** | ✅ **TRECUT** | ambele criterii îndeplinite |
+| 0 | Read the document | — | (at every step) |
+| 1 | Measure: how many collections a full run leaves, on a clean database | ✅ **DONE** | **5 collections + 2 ghost tables per run** |
+| 2 | Identify the guilty files | ✅ **DONE** | 5 files, two of them mine |
+| 3 | Fix the cleanup | ✅ **DONE** | shared helper `dropTestCollection` |
+| 4 | Gate | ✅ **DONE** | `check:test-leftovers`, proved by planting |
+| 5 | Verify on a clean database | ✅ **DONE** (corrected) | **the first pass missed a file** — see §The correction |
+| 6 | **VALIDATION POINT** | ✅ **PASSED** | both criteria met |
 
-### Ce s-a găsit (pașii 1–3)
+### What was found (steps 1–3)
 
-O rulare completă lăsa **5 colecții** — deci cele 163 s-au adunat din ~30 de rulări
-în timpul auditului. Cauza, în toate cazurile: testele ștergeau **tabelul** dar
-lăsau rândul din `zvd_collections`.
+A full run left **5 collections** — so the 163 accumulated over ~30 runs during
+the audit. The cause, in every case: the tests dropped the **table** but left
+the row in `zvd_collections`.
 
-| Fișier | Ce lăsa |
+| File | What it left |
 |---|---|
-| `collections.test.ts` | o a doua colecție, cu numele generat inline — nimic n-o mai putea numi ca s-o șteargă |
-| `ddl-tenant-default-guard.test.ts` | rândul |
-| `revisions-tenant-isolation.test.ts` | rândul |
-| `data-list-count-mode.test.ts` (al meu) | rândul |
-| `ghost-ddl-orphan-sweep.test.ts` (al meu) | rândul |
-| `ghost-ddl-alter-column` / `-execute` | copia de după swap, fiindcă anulează deliberat timer-ul |
-| `ghost-ddl-rename-column` | **aceeași copie — ratat la prima trecere, vezi §Corecția** |
+| `collections.test.ts` | a second collection with an inline-generated name — nothing could name it again to drop it |
+| `ddl-tenant-default-guard.test.ts` | the row |
+| `revisions-tenant-isolation.test.ts` | the row |
+| `data-list-count-mode.test.ts` (mine) | the row |
+| `ghost-ddl-orphan-sweep.test.ts` (mine) | the row |
+| `ghost-ddl-alter-column` / `-execute` | the post-swap copy, because it deliberately cancels the timer |
+| `ghost-ddl-rename-column` | **the same copy — missed on the first pass, see §The correction** |
 
-Reparate cu un helper comun, `dropTestCollection(db, name)`, care șterge **și**
-tabelul **și** rândul. Cele două de ghost DDL folosesc `sweepGhostOrphans(db)` — deci
-testul curăță cu exact calea de cod pe care o folosește producția, nu cu o a doua
-scriere a ei.
+Fixed with a shared helper, `dropTestCollection(db, name)`, which drops **both**
+the table **and** the row. The two ghost-DDL ones use `sweepGhostOrphans(db)` —
+so the test cleans up with exactly the code path production uses, not with a
+second copy of it.
 
-### Poarta
+### The gate
 
-`check:test-leftovers` caută colecții cu sufix de marcă de timp (deci o colecție
-reală a unui operator nu e confundată cu resturi) și tabele `_zv_old_*` /
-`_zv_changelog_*`. **Dovedită prin plantare, nu prin citire:** cu o colecție
-plantată pică; pe bază curată trece. În CI, imediat după suita de harness.
+`check:test-leftovers` looks for collections with a timestamp suffix (so a real
+operator's collection is not mistaken for residue) and for `_zv_old_*` /
+`_zv_changelog_*` tables. **Proved by planting, not by reading:** with a planted
+collection it fails; on a clean database it passes. In CI, immediately after the
+harness suite.
 
-### Corecția (2026-08-29, după ce CI a picat)
+### The correction (2026-08-29, after CI failed)
 
-**Pasul 5 a fost raportat drept „zero rămășițe" și nu era.** CI a picat pe chiar
-poarta adăugată de blocul ăsta:
+**Step 5 was reported as "zero leftovers" and was not.** CI failed on the very
+gate this block added:
 
 ```
 ghost table _zv_changelog_zvd_hgren_1788004596261
 ghost table _zv_old_zvd_hgren_1788004596261
 ```
 
-`hgren_` vine din `ghost-ddl-rename-column.test.ts` — **al treilea** fișier care
-cheamă `GhostDDL.execute`, lângă cele două reparate. Nu fusese atins, deci copia de
-după swap și changelog-ul ei supraviețuiau: `DROP TABLE ... CASCADE` pe tabela sursă
-nu le atinge, sunt tabele separate.
+`hgren_` comes from `ghost-ddl-rename-column.test.ts` — the **third** file
+calling `GhostDDL.execute`, beside the two that were fixed. It had not been
+touched, so the post-swap copy and its changelog survived:
+`DROP TABLE ... CASCADE` on the source table does not touch them, they are
+separate tables.
 
-**Nu e o condiție de CI.** Reproduce local în 1,2 s, pe bază curată, rulând singur
-fișierul. Verificarea din pasul 5 pur și simplu nu a acoperit fișierul ăsta — n-a
-fost mediu diferit, a fost acoperire lipsă.
+**Not a CI condition.** It reproduces locally in 1.2 s, on a clean database,
+running the file alone. The step-5 verification simply did not cover this file —
+it was not a different environment, it was missing coverage.
 
-Clasa de greșeală e chiar cea scrisă în antetul lui `check-raw-sql-identifiers.ts`:
-*enumerating names is the mistake; the pattern is what to match*. Reparația a
-enumerat fișierele ghost-ddl de care își amintea, nu pe cele care cheamă
-`GhostDDL.execute`. Enumerarea corectă are nouă fișiere; cele patru `harness/`
-rămase fără sweep (`multi-ddl`, `changelog-update`, `changelog-delete`,
-`changelog-live`) **nu lasă nimic** — verificat pe suita completă, nu presupus,
-fiindcă nu anulează timer-ul de curățenie.
+The class of mistake is the one written in the header of
+`check-raw-sql-identifiers.ts`: *enumerating names is the mistake; the pattern is
+what to match*. The fix enumerated the ghost-ddl files it remembered, not the
+ones that call `GhostDDL.execute`. The correct enumeration has nine files; the
+four remaining `harness/` ones without a sweep (`multi-ddl`, `changelog-update`,
+`changelog-delete`, `changelog-live`) **leave nothing** — verified against the
+full suite, not assumed, because they do not cancel the cleanup timer.
 
-Măsurat în ambele direcții, pe două baze curate separate:
+Measured in both directions, on two separate clean databases:
 
-| | rezultat |
+| | Result |
 |---|---|
-| fără reparație, doar `ghost-ddl-rename-column` | 2 tabele fantomă, poarta pică |
-| cu reparație, suita completă (865 pass, 0 fail) | **zero colecții, zero fantome**, poarta trece |
+| without the fix, `ghost-ddl-rename-column` alone | 2 ghost tables, gate fails |
+| with the fix, full suite (865 pass, 0 fail) | **zero collections, zero ghosts**, gate passes |
 
-A doua reparație din același tur: `dropTestCollection` interpola un identificator
-citat într-un `sql.raw` fără gardă, ceea ce `check:raw-sql` a prins. Are acum
-`SAFE_NAME` — un test care dă un nume nescriibil primește o eroare, nu SQL rupt.
+A second fix in the same round: `dropTestCollection` interpolated a quoted
+identifier into a `sql.raw` without a guard, which `check:raw-sql` caught. It now
+has `SAFE_NAME` — a test giving an unwritable name gets an error, not broken SQL.
 
-### Criteriile punctului de validare (scrise ÎNAINTE)
+### Validation-point criteria (written IN ADVANCE)
 
-- O rulare completă de harness pe o bază curată lasă **zero** colecții și zero
-  tabele `zvd_*` orfane.
-- Poarta pică pe un test care lasă o colecție în urmă (dovedit prin plantare, nu
-  prin citire).
+- A full harness run on a clean database leaves **zero** collections and zero
+  orphaned `zvd_*` tables.
+- The gate fails on a test that leaves a collection behind (proved by planting,
+  not by reading).
 
-Dacă poarta nu poate fi făcută să pice la o violare plantată, nu se comite — o
-poartă nedovedită e decor, și tocmai am petrecut o săptămână demonstrând asta.
+If the gate cannot be made to fail on a planted violation, it is not committed —
+an unproven gate is decoration, and we have just spent a week demonstrating that.
 
 ---
 
-## Jurnal
+## Log
 
-| Când | Pas | Ce s-a întâmplat |
+| When | Step | What happened |
 |---|---|---|
-| 2026-08-29 | setup | Branch creat din `422377b2`. Document de stare scris. Blocul 1 definit cu criterii de validare stabilite înainte de măsurare. |
-| 2026-08-29 | 1–2 | Banc pe bază proprie `zv_casbin`, cinci puncte de măsurare. Curba e liniară: 6 000 → 96 000 de politici mută rezolvarea de la 3,57 la 62,33 ms. Prima jumătate a criteriului e îndeplinită. |
-| 2026-08-29 | 3 | `loadFilteredPolicy` nu e fezabil: adaptorul nu implementează interfața, enforcer-ul e partajat, și nu există felie de filtrat fiindcă `dom='*'`. |
-| 2026-08-29 | 4 | Indexul dă 13–19× **doar** pe politici legate de domeniu. Fără schimbarea datelor: zero. |
-| 2026-08-29 | 3.5 corecție | **Pasul 5 era greșit.** CI a picat pe poarta blocului: `ghost-ddl-rename-column` — al treilea fișier care cheamă `GhostDDL.execute` — nu fusese atins. Reproduce local în 1,2 s, deci n-a fost mediu diferit, a fost acoperire lipsă. Reparat prin `sweepGhostOrphans`; enumerarea completă are 9 fișiere, restul verificate curate. Plus garda `SAFE_NAME` în `dropTestCollection`, cerută de `check:raw-sql`. |
-| 2026-08-29 | **VALIDARE** | **Blocul 2 NU se deschide.** `zvd_collections` n-are `tenant_id` — colecțiile sunt partajate, deci politicile NU cresc cu firmele. Baza de măsurare avea 163 de colecții din teste; instanța reală are 3. Cifra de 364 ms din auditul precedent a fost artefact de poluare; real e 0,93 ms. |
+| 2026-08-29 | setup | Branch created from `422377b2`. State document written. Block 1 defined with validation criteria fixed before measuring. |
+| 2026-08-29 | 1–2 | Bench on its own `zv_casbin` database, five measurement points. The curve is linear: 6,000 → 96,000 policies moves resolution from 3.57 to 62.33 ms. The first half of the criterion is met. |
+| 2026-08-29 | 3 | `loadFilteredPolicy` is not feasible: the adapter does not implement the interface, the enforcer is shared, and there is no slice to filter because `dom='*'`. |
+| 2026-08-29 | 4 | The index gives 13–19× **only** over domain-bound policies. Without changing the data: nothing. |
+| 2026-08-29 | 3.5 correction | **Step 5 was wrong.** CI failed on this block's own gate: `ghost-ddl-rename-column` — the third file calling `GhostDDL.execute` — had not been touched. It reproduces locally in 1.2 s, so it was not a different environment, it was missing coverage. Fixed with `sweepGhostOrphans`; the full enumeration has 9 files, the rest verified clean. Plus the `SAFE_NAME` guard in `dropTestCollection`, required by `check:raw-sql`. |
+| 2026-08-29 | **VALIDATION** | **Block 2 does NOT open.** `zvd_collections` has no `tenant_id` — collections are shared, so policies do NOT grow with tenants. The measurement database had 163 collections from tests; the real instance has 3. The 364 ms figure from the previous audit was a pollution artefact; the real one is 0.93 ms. |
 
 ---
 
-## Context care nu trebuie re-descoperit
+## Context that must not be rediscovered
 
-- **Mediul:** worktree izolat `/home/liviu/zveltio-audit-ba/zveltio`, bază proprie
-  `zv_audit_ba`, port `:3400`. Ocupate de alții: `:3000`, `:3200`, `:3201`, `:3300`.
-- **Env fără de care testele mint:** `ZVELTIO_REGISTRATION_ENABLED=1`,
-  `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL` **pe linie
-  separată** (`export A=1 B=$A` expandează `$A` înainte de atribuire).
-- **Nu contamina baza de măsurare.** `pg_stat_statements` adaugă coloane `rows`,
-  `calls`, `wal_*` în `public` și lărgește corpusul porții numerice.
-- **CI ≠ local.** De patru ori în auditul precedent, un test a trecut local și a
-  picat în CI: suita `unit` rulează fără bază de date; suita partajează procesul,
-  deci un fișier anterior poate lăsa un cache în urmă; primul rând din `user` poate
-  fi contul god, iar `checkPermission` iese pe scurtătură înainte de memo.
-- **Casbin:** modelul e `r = sub, dom, obj, act`; `dom` e firma. Obiectele se compară
-  prin **egalitate simplă**, fără `keyMatch`. `getImplicitRolesForUser` e de
-  încredere; `getImplicitPermissionsForUser` **NU** — filtrează pe domeniu exact și
-  întoarce zero pentru un `tenant_admin`, fiindcă regulile `p` au `dom='*'`.
-
+- **The environment:** isolated worktree `/home/liviu/zveltio-audit-ba/zveltio`,
+  own database `zv_audit_ba`, port `:3400`. Taken by others: `:3000`, `:3200`,
+  `:3201`, `:3300`.
+- **Env without which the tests lie:** `ZVELTIO_REGISTRATION_ENABLED=1`,
+  `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL` **on a
+  separate line** (`export A=1 B=$A` expands `$A` before assignment).
+- **Do not contaminate the measurement database.** `pg_stat_statements` adds
+  `rows`, `calls` and `wal_*` columns in `public` and widens the numeric gate's
+  corpus.
+- **CI ≠ local.** Four times in the previous audit a test passed locally and
+  failed in CI: the `unit` suite runs without a database; the suite shares the
+  process, so an earlier file can leave a cache behind; the first row in `user`
+  may be the god account, and `checkPermission` short-circuits before the memo.
+- **Casbin:** the model is `r = sub, dom, obj, act`; `dom` is the tenant. Objects
+  are compared by **plain equality**, without `keyMatch`.
+  `getImplicitRolesForUser` is trustworthy; `getImplicitPermissionsForUser` is
+  **NOT** — it filters on an exact domain and returns zero for a `tenant_admin`,
+  because the `p` rules have `dom='*'`.
 
 ---
 
-## Blocul 4 — rolul engine-ului: e arhitectura de azi cea bună?
+## Block 4 — the engine's role: is today's architecture the right one?
 
-Măsurat: engine-ul se conectează ca `postgres` (`rolsuper=t`, `rolbypassrls=t`).
-Pe un tabel cu `FORCE ROW LEVEL SECURITY` pornit, acel rol vede **306 360 de rânduri
-din 63 de firme**; `zveltio_rls` vede 100 360 dintr-una. Superuserii nu sunt legați
-de RLS, niciodată.
+Measured: the engine connects as `postgres` (`rolsuper=t`, `rolbypassrls=t`).
+On a table with `FORCE ROW LEVEL SECURITY` enabled, that role sees **306,360
+rows across 63 tenants**; `zveltio_rls` sees 100,360 from one. Superusers are
+never bound by RLS.
 
-Deci **cererile de utilizator sunt izolate** (`withTenantIsolation` coboară rolul),
-iar **tot restul nu e**: job-uri de fundal, reconcilieri, audit, backup.
+So **user requests are isolated** (`withTenantIsolation` descends the role), and
+**everything else is not**: background jobs, reconcilers, audit, backup.
 
-### Întrebarea de arhitectură, nu doar de configurație
+### The architectural question, not just a configuration one
 
-Azi **fiecare cerere își coboară singură privilegiile**. Implicitul e „neîngrădit
-până se restrânge cineva". Trei variante de comparat:
+Today **every request descends its own privileges**. The default is "unbounded
+until someone restricts it". Three variants to compare:
 
-- **Zero — azi.** Pool superuser + `SET LOCAL ROLE` per cerere.
-- **A — rol simplu + ridicare explicită.** Engine-ul rulează restrâns; ce are nevoie
-  de vedere globală se ridică explicit. Inversează implicitul.
-- **B — două pool-uri.** Unul conectat CA rol restrâns pentru cereri, unul privilegiat
-  pentru fundal și DDL. Identitatea conexiunii poartă privilegiul, deci `SET LOCAL
-  ROLE` dispare din calea fierbinte, iar implicitul devine sigur prin construcție.
+- **Zero — today.** Superuser pool + `SET LOCAL ROLE` per request.
+- **A — plain role + explicit elevation.** The engine runs restricted; whatever
+  needs a global view elevates explicitly. Inverts the default.
+- **B — two pools.** One connected AS the restricted role for requests, one
+  privileged for background work and DDL. The connection's identity carries the
+  privilege, so `SET LOCAL ROLE` leaves the hot path and the default becomes
+  safe by construction.
 
-| # | Pas | Stare | Rezultat |
+| # | Step | State | Result |
 |---|---|---|---|
-| 0 | Citește documentul | — | (la fiecare pas) |
-| 1 | Inventar | ✅ **FĂCUT** | 111 tabele cu `tenant_id`; ~14 situri în `lib/` |
-| 2 | Clasificare | ✅ **FĂCUT** | fundalul are nevoie **structurală** de vedere globală |
-| 3 | Costul lui `SET LOCAL ROLE` | ✅ **FĂCUT** | 0,055 ms — și se poate lua **fără** schimbare de arhitectură |
-| 4 | Fezabilitatea B | ✅ **FĂCUT** | posibilă, dar nu reduce expunerea |
-| 5 | Ce se rupe | ⛔ **ANULAT** | verdictul s-a stabilit la pasul 2 |
-| 6 | **PUNCT DE VALIDARE** | ✅ **FĂCUT** | **NU se schimbă rolul** |
+| 0 | Read the document | — | (at every step) |
+| 1 | Inventory | ✅ **DONE** | 111 tables with `tenant_id`; ~14 sites in `lib/` |
+| 2 | Classification | ✅ **DONE** | background work **structurally** needs a global view |
+| 3 | The cost of `SET LOCAL ROLE` | ✅ **DONE** | 0.055 ms — and it can be had **without** an architecture change |
+| 4 | Feasibility of B | ✅ **DONE** | possible, but does not reduce exposure |
+| 5 | What breaks | ⛔ **CANCELLED** | the verdict was settled at step 2 |
+| 6 | **VALIDATION POINT** | ✅ **DONE** | **the role does NOT change** |
 
-### Pasul 1–2 — inventarul, și de ce clasificarea decide totul
+### Steps 1–2 — the inventory, and why classification decides everything
 
-111 tabele poartă `tenant_id`. În `lib/`, ~14 situri le ating în afara tranzacției.
-Dar numărul nu e ce contează; **natura lor e.**
+111 tables carry `tenant_id`. In `lib/`, ~14 sites touch them outside the
+transaction. But the number is not what matters; **their nature is.**
 
-- `repairUnsignedWebhooksAtBoot` citește webhook-urile **tuturor** firmelor.
-- `flow-executor` caută `tenant_id`-ul unui flow **ca să afle** în ce firmă rulează.
-- Reconcilierile de la boot trec peste tabelele tuturor firmelor.
+- `repairUnsignedWebhooksAtBoot` reads **every** tenant's webhooks.
+- `flow-executor` looks up a flow's `tenant_id` **in order to learn** which
+  tenant it runs in.
+- The boot reconcilers walk every tenant's tables.
 
-Munca de fundal care operează *între* firme trebuie, prin definiție, să vadă între
-firme. Un rol restrâns nu le-ar face nesigure — le-ar face **oarbe**.
+Background work that operates *between* tenants must, by definition, see between
+tenants. A restricted role would not make them unsafe — it would make them
+**blind**.
 
-### Pasul 3 — câștigul de performanță nu cere schimbarea
+### Step 3 — the performance gain does not require the change
 
-| | Timp per cerere |
+| | Time per request |
 |---|---|
-| Azi: `SET LOCAL ROLE` ca instrucțiune separată | 0,230 ms |
-| Varianta B: rolul vine cu conexiunea | 0,181 ms |
-| **Rolul setat în același `set_config`** | **0,175 ms** |
+| Today: `SET LOCAL ROLE` as a separate statement | 0.230 ms |
+| Variant B: the role comes with the connection | 0.181 ms |
+| **The role set in the same `set_config`** | **0.175 ms** |
 
-A treia e **mai rapidă decât B** și nu cere nicio schimbare de arhitectură.
-Verificat că e echivalentă, nu doar mai rapidă: `set_config('role','zveltio_rls',true)`
-dă `current_user = zveltio_rls` și RLS se aplică — o firmă vizibilă, exact ca
-`SET LOCAL ROLE`. Superuserul vede 63.
+The third is **faster than B** and requires no architectural change. Verified as
+equivalent, not merely faster: `set_config('role','zveltio_rls',true)` gives
+`current_user = zveltio_rls` and RLS applies — one tenant visible, exactly as
+with `SET LOCAL ROLE`. The superuser sees 63.
 
 ---
 
-## PUNCT DE VALIDARE — verdict: NU se schimbă rolul engine-ului
+## VALIDATION POINT — verdict: the engine's role does NOT change
 
-**Criteriul 1 pică.** Locurile care au nevoie de vedere globală nu sunt o mulțime
-mică și închidabilă — sunt întregul strat de fundal, prin proiectare.
+**Criterion 1 fails.** The places needing a global view are not a small,
+closable set — they are the entire background layer, by design.
 
-**Criteriul 2 pică pe fond.** Varianta B e tehnic fezabilă (DDL-ul trece prin
-pg-boss, deci prin pool-ul privilegiat), dar **nu reduce expunerea**: pool-ul de
-fundal ar rămâne privilegiat, și exact acolo trăiește accesul neîngrădit. B ar face
-sigură-prin-construcție doar calea de cerere, care e deja sigură prin coborârea
-explicită de rol. Iar câștigul ei măsurat e mai mic decât cel gratuit.
+**Criterion 2 fails on substance.** Variant B is technically feasible (DDL goes
+through pg-boss, so through the privileged pool), but it **does not reduce
+exposure**: the background pool would stay privileged, and that is exactly where
+unbounded access lives. B would make only the request path safe by construction,
+and that path is already safe through the explicit role descent. And its measured
+gain is smaller than the free one.
 
-### Ce iese totuși din bloc
+### What comes out of the block anyway
 
-1. **Un câștig gratuit, verificat:** rolul mutat în `set_config`-ul existent —
-   **0,055 ms per cerere, 24% din costul de pregătire**, o linie, risc zero.
-2. ⛔ **INFIRMAT 2026-08-29 — recomandarea de mai jos nu se poate face.** În `lib/` mânerul neîngrădit se numește `db`, la fel ca o tranzacție: măsurat, `lib/` conține identificatorul `poolDb` **o dată, într-un comentariu**, față de 19 ori în `routes/`. O poartă extinsă acolo n-ar prinde nimic, niciodată — și fusese deja încercată și revenită. Vezi `BLOCK-C-GATES-STATE.md` §Pasul 6. Textul original se păstrează mai jos, ca să nu fie re-propus.
+1. **A free, verified gain:** the role moved into the existing `set_config` —
+   **0.055 ms per request, 24% of the preparation cost**, one line, zero risk.
+2. ⛔ **DISPROVED 2026-08-29 — the recommendation below cannot be done.** In
+   `lib/` the unbounded handle is called `db`, the same as a transaction:
+   measured, `lib/` contains the identifier `poolDb` **once, in a comment**,
+   against 19 times in `routes/`. A gate extended there would catch nothing,
+   ever — and it had already been tried and reverted. The original text is kept
+   below so it is not re-proposed.
 
-   ~~**Expunerea se închide mai bine la build:**~~ extinderea porții
-   `check-tenant-table-on-pool` la `lib/`, cu o listă explicită de excepții motivate
-   pentru munca de fundal care are nevoie legitimă de vedere globală. Prinde aceeași
-   clasă fără să riște să orbească nimic.
+   ~~**The exposure closes better at build time:**~~ extending the
+   `check-tenant-table-on-pool` gate to `lib/`, with an explicit list of
+   motivated exceptions for background work that legitimately needs a global
+   view. Catches the same class without risking blinding anything.
 
-**Ce NU se face:** schimbarea rolului de conectare al engine-ului.
+**What is NOT done:** changing the engine's connection role.
 
-### Criteriile punctului de validare (scrise ÎNAINTE)
+### Validation-point criteria (written IN ADVANCE)
 
-Se recomandă o schimbare **doar dacă**:
-- Numărul locurilor care au nevoie legitimă de vedere globală e mic și enumerabil
-  (sub ~10), **și** fiecare poate primi o cale explicită.
-- **Sau** varianta B se dovedește fezabilă fără să rupă DDL-ul.
+A change is recommended **only if**:
+- The number of places legitimately needing a global view is small and
+  enumerable (under ~10), **and** each can be given an explicit path.
+- **Or** variant B proves feasible without breaking DDL.
 
-Dacă ies multe locuri legitime: **nu se schimbă rolul.** Expunerea se închide mai
-bine caz cu caz — și atunci recomandarea e extinderea porții
-`check-tenant-table-on-pool` la `lib/`, care prinde aceeași clasă la build fără să
-riște să orbească nimic.
+If many legitimate places emerge: **the role does not change.** The exposure
+closes better case by case — and then the recommendation is extending the
+`check-tenant-table-on-pool` gate to `lib/`, which catches the same class at
+build time without risking blinding anything.

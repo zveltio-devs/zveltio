@@ -1,508 +1,533 @@
-# Planul de maturizare — ce aș schimba dacă aș reconstrui Zveltio
+# The maturity plan — what I would change if I rebuilt Zveltio
 
-> **Scris:** 2026-08-29, după o săptămână de audit măsurat pe `3.0.0-beta.64`.
-> **Premisa proprietarului:** ieșirea din beta nu e grabă. Maturitatea întâi.
-> **Forma pieței:** self-hosted, **dar nu neapărat mono-firmă** — vezi secțiunea
-> imediat următoare. Premisa inițială a documentului era greșită.
-> **Metodă:** blocuri de 5–7 pași, criterii de validare scrise ÎNAINTE de măsurare,
-> document de stare citit la începutul fiecărui pas.
+> **Written:** 2026-08-29, after a week of auditing measured against `3.0.0-beta.64`.
+> **The owner's premise:** leaving beta is not urgent. Maturity first.
+> **The market's shape:** self-hosted, **but not necessarily single-tenant** — see
+> the section immediately below. The document's initial premise was wrong.
+> **Method:** blocks of 5–7 steps, validation criteria written BEFORE measuring, a
+> state document read at the start of every step.
 >
-> **Regula care le guvernează pe toate:** un bloc are voie să se încheie cu „nu
-> merită". În săptămâna care a produs documentul ăsta, **patru din cinci blocuri
-> s-au încheiat exact așa** — și de fiecare dată măsurătoarea a găsit ceva mai bun
-> decât planul pe care îl aveam în cap.
-
+> **The rule governing all of them:** a block is allowed to end with "not worth
+> it". In the week that produced this document, **four blocks out of five ended
+> exactly that way** — and every time the measurement found something better than
+> the plan I had in my head.
 
 ---
 
-## STAREA LUCRĂRII — actualizat 2026-08-30
+## WORK STATE — updated 2026-08-30
 
-Planul de mai jos e ce **era** de făcut. Asta e ce s-a făcut. Fiecare bloc executat are un
-document de stare propriu, cu măsurătorile și cu punctul lui de validare.
+The plan below is what **was** to be done. This is what was done. Each executed
+block had its own state document, with its measurements and its validation point.
 
-| bloc | stare | unde | livrat prin |
+| Block | State | State document | Delivered by |
 |---|---|---|---|
-| **C — porțile** | ✅ **ÎNCHIS, 4 din 4** (2026-08-31) | `BLOCK-C-GATES-STATE.md` | #360, #361, #363, #364 |
-| **B — granița per-firmă/instanță** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-B-BOUNDARY-STATE.md` | #365, ext#62 |
-| **F — indexurile pe tiparele de acces** | ✅ **ÎNCHIS, 3 din 4 + unul anulat măsurat** | `BLOCK-F-ACCESS-PATTERNS-STATE.md` | #366 |
-| **A — a doua rezervare** | ✅ **ÎNCHIS** — citirile ȘI scrierile la zero conexiuni în plus | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367, #387 |
-| **G — activarea extensiilor per firmă** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-G-PER-TENANT-ACTIVATION-STATE.md` | #368 |
-| **D — condiții pe rânduri** | ✅ **ÎNCHIS cu „nu merită", 4 din 4** | `BLOCK-D-ROW-CONDITIONS-STATE.md` | — (zero cod de produs) |
-| **H — `?as_of=` citea tot** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-H-TIME-TRAVEL-PAGINATION-STATE.md` | din constatarea lui D |
-| **J — a doua linie în bază** | ✅ **ÎNCHIS, 4 din 4** (prin blocul K) | `BLOCK-J-DB-SECOND-LINE-STATE.md` | — |
-| **K — regulile de rând în bază** | ✅ **ÎNCHIS, 4 din 4** | `BLOCK-K-ROW-RULES-IN-DB-STATE.md` | — |
-| **E — decizii de proprietar** | ✅ **DECIS ȘI EXECUTAT** | `BLOCK-E-OWNER-DECISIONS-STATE.md` | — |
-| **L — ridicarea biome la 2.5.11** | ✅ **ÎNCHIS** — lint la ZERO avertismente, de la 51 | `BLOCK-L-BIOME-UPGRADE-STATE.md` | #397, #400 |
-| **M — `hono` în lockstep cu extensiile** | ✅ **ÎNCHIS, 7 din 7** — versiune de securitate, 44 de bundle-uri repachetate + poartă nouă | `BLOCK-M-HONO-LOCKSTEP-STATE.md` | #373, #398, #399, ext#73 |
+| **C — the gates** | ✅ **CLOSED, 4 of 4** (2026-08-31) | retired | #360, #361, #363, #364 |
+| **B — the per-tenant / instance boundary** | ✅ **CLOSED, 4 of 4** | retired | #365, ext#62 |
+| **F — indexes following access patterns** | ✅ **CLOSED, 3 of 4 + one cancelled by measurement** | retired | #366 |
+| **A — the second reservation** | ✅ **CLOSED** — reads AND writes at zero extra connections | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | #367, #387 |
+| **G — per-tenant extension activation** | ✅ **CLOSED, 4 of 4** | retired | #368 |
+| **D — row conditions** | ✅ **CLOSED with "not worth it", 4 of 4** | retired | — (zero product code) |
+| **H — `?as_of=` read everything** | ✅ **CLOSED, 4 of 4** | retired | from D's finding |
+| **J — the second line in the database** | ✅ **CLOSED, 4 of 4** (via block K) | `BLOCK-J-DB-SECOND-LINE-STATE.md` | — |
+| **K — row rules in the database** | ✅ **CLOSED, 4 of 4** | `BLOCK-K-ROW-RULES-IN-DB-STATE.md` | — |
+| **E — owner decisions** | ✅ **DECIDED AND EXECUTED** | retired | — |
+| **L — raising biome to 2.5.11** | ✅ **CLOSED** — lint at ZERO warnings, down from 51 | `BLOCK-L-BIOME-UPGRADE-STATE.md` | #397, #400 |
+| **M — `hono` in lockstep with the extensions** | ✅ **CLOSED, 7 of 7** — security release, 44 bundles repacked + a new gate | `BLOCK-M-HONO-LOCKSTEP-STATE.md` | #373, #398, #399, ext#73 |
 
-### Ce a găsit fiecare bloc, pe scurt
+*"Retired" means the block closed and its state document was removed in the
+September 2026 documentation cleanup. What each one found is summarised below;
+where it changed code, the reason lives in a comment at that code.*
 
-**C.** Meta-poarta `audit:gates` **nu rula nicăieri** — nici în CI, nici în `prepush`, iar
-`prepush` nu e legat de niciun hook. Acoperirea reală era **9 porți din 31**, nu „11/11":
-11 era numărul de *cazuri*. **Șapte porți erau fail-open** — raportau „curat" fără repo-ul
-soră sau fără bază de date, una dintre ele scanând o cincime din corpus. Rămâne deschis
-fiindcă 23 de porți din 41 încă nu sunt dovedite prin plantare, iar criteriul **nu a fost
-rescris** ca să încapă.
+### What each block found, briefly
 
-**B.** Granița **e derivabilă din cod** — 384 de tabele, 333 per firmă, 51 de instanță,
-confruntat **362 din 362** cu o bază instalată complet. **Nouă tabele de instanță sunt
-copii ai unor tabele per-firmă**, izolate doar prin join, fără a doua linie. Un defect real
-reparat: `zv_prompt_templates`. Și `admin-gate-check` extinsă la sora, unde erau **113
-situri nepăzite** față de zero în engine.
+**C.** The `audit:gates` meta-gate **ran nowhere** — not in CI, not in `prepush`,
+and `prepush` is not wired to any hook. Real coverage was **9 gates out of 31**,
+not "11/11": 11 was the number of *cases*. **Seven gates were fail-open** —
+reporting "clean" with no sibling repository or no database, one of them scanning
+a fifth of the corpus. It stays open because 23 gates out of 41 are still not
+proved by planting, and the criterion **was not rewritten** to fit.
 
-**F.** Tiparele costă **de la zece firme**, nu de la o mie: un filtru pe câmp cu `ORDER BY`
-ia **46 ms și aruncă toate cele 300 000 de rânduri** ca să întoarcă 25 — la 10 și la 100
-de firme deopotrivă, fiindcă e o prăpastie de plan, nu o creștere. Egalitatea explicită era
-**stinsă pentru fiecare cerere autentificată**. Reparate amândouă: **12,5 ms → 0,065 ms**,
-fără regresie la o singură firmă.
+**B.** The boundary **is derivable from code** — 384 tables, 333 per tenant, 51
+instance-level, confronted **362 out of 362** against a fully installed database.
+**Nine instance tables are children of per-tenant tables**, isolated only through
+a join, with no second line. One real defect fixed: `zv_prompt_templates`. And
+`admin-gate-check` was extended to the sibling, where there were **113 unguarded
+sites** against zero in the engine.
 
-**G.** `UNIQUE (name)` pe `zv_extension_registry` făcea activarea per firmă **imposibilă**,
-nu doar nefăcută — al doilea rând era cheie duplicată. Iar listarea respecta `tenant_id`,
-deci arăta unei firme o extensie ca absentă în timp ce codul ei răspundea. Poarta stă pe
-**mânerul predat extensiei**, nu pe cale: `mountStrategy: 'global'` (implicitul) îi dă
-app-ul motorului. Instalarea lua firma dintr-un **antet**.
+**F.** The patterns cost **from ten tenants upwards**, not from a thousand: a
+field filter with `ORDER BY` takes **46 ms and discards all 300,000 rows** to
+return 25 — at 10 tenants and at 100 alike, because it is a plan cliff, not
+growth. Explicit equality was **switched off for every authenticated request**.
+Both fixed: **12.5 ms → 0.065 ms**, with no regression at a single tenant.
 
-**D.** Închis **fără nicio linie de cod de produs**. Tot limbajul de politici de rând e
-**patru operatori pe un câmp**, combinate cu ȘI; filtrarea în memorie costă **2,2 ms din
-336** — 0,65%. CASL le-ar acoperi pe toate patru, dar ar adăuga o dependență și ar cere
-oricum aceeași traducere spre Kysely, scrisă de mână, ca să înlocuiască 70 de linii care nu
-pot devia.
+**G.** `UNIQUE (name)` on `zv_extension_registry` made per-tenant activation
+**impossible**, not merely undone — the second row was a duplicate key. And the
+listing respected `tenant_id`, so it showed one tenant an extension as absent
+while its code was answering. The gate sits on **the handle given to the
+extension**, not on the path: `mountStrategy: 'global'` (the default) hands it
+the engine's app. Installation took the tenant from a **header**.
 
-**H.** Ce a găsit D în schimb: `?as_of=` **citea tot istoricul colecției ca să întoarcă o
-pagină** — 400 000 de rânduri aduse în proces pentru 25. Acum citește **49**. Câștigul e
-memoria (~50 MB per cerere), nu timpul: `total` a rămas ~250 ms și e inerent.
+**D.** Closed **without a single line of product code**. The whole row-policy
+language is **four operators on one field**, combined with AND; in-memory
+filtering costs **2.2 ms out of 336** — 0.65%. CASL would cover all four, but it
+would add a dependency and would still require the same hand-written translation
+to Kysely, in order to replace 70 lines that cannot drift.
 
-**A.** Plafonul de concurență **e real și e exact la `DB_POOL_MAX`** — la `c = pool`
-serviciul nu se degradează, se oprește, cu toate conexiunile `idle in transaction` și una
-singură activă. Verificat la pool 10 și la 25. **Dar planul promite prea mult:** doar 56%
-din timpul în care o conexiune e ținută e petrecut degeaba, deci tranzacțiile scurte ar da
-aproximativ **2,3×**, nu „plafonul dispare". Iar `DB_POOL_MAX` mută același plafon liniar,
-fără nicio schimbare de cod. Blocul s-a oprit la pasul 1: întrebarea a devenit una de
-proprietar, nu de inginerie.
+**H.** What D found instead: `?as_of=` **read the collection's entire history to
+return one page** — 400,000 rows pulled into the process for 25. It now reads
+**49**. The gain is memory (~50 MB per request), not time: `total` stayed at
+~250 ms and is inherent.
 
-### Ce a fost anulat, măsurat — și de ce contează lista asta
+**A.** The concurrency ceiling **is real and is exactly at `DB_POOL_MAX`** — at
+`c = pool` the service does not degrade, it stops, with every connection
+`idle in transaction` and exactly one active. Verified at pool 10 and at 25.
+**But the plan promises too much:** only 56% of the time a connection is held is
+spent doing nothing, so short transactions would give roughly **2.3×**, not "the
+ceiling disappears". And `DB_POOL_MAX` moves the same ceiling linearly, with no
+code change. The block stopped at step 1: the question became an owner's, not an
+engineer's.
 
-- **C pasul 6**, extinderea lui `check-tenant-table-on-pool` la `lib/`: `lib/` conține
-  identificatorul `poolDb` **o dată, într-un comentariu**, față de 19 ori în `routes/`.
-  Poarta n-ar prinde nimic, niciodată.
-- **F pasul 6**, poarta pe indexuri: regula ar prinde **220 de situri**, majoritatea
-  indexuri de cheie străină legitime. Un ratchet fără motive scrise e decorațiune.
+### What was cancelled, by measurement — and why this list matters
 
-Amândouă închise cu aceeași regulă: **o poartă a cărei listă de excepții e singurul lucru
-pe care-l produce e mai rea decât nicio poartă.**
+- **C step 6**, extending `check-tenant-table-on-pool` to `lib/`: `lib/` contains
+  the identifier `poolDb` **once, in a comment**, against 19 times in `routes/`.
+  The gate would catch nothing, ever.
+- **F step 6**, the gate on indexes: the rule would catch **220 sites**, most of
+  them legitimate foreign-key indexes. A ratchet with no written reasons is
+  decoration.
 
-### Reparat pe drum, în afara blocurilor
+Both closed under the same rule: **a gate whose only output is its own exception
+list is worse than no gate.**
 
-- **`0A000 cached plan must not change result type`** — pica lane-ul de integrare la ~2 din
-  3 rulări. Cauza, găsită cu un event trigger de DDL: **migrațiile extensiilor rulează după
-  ce motorul și-a deschis pool-ul**, iar extensia `ai` alterează `zvd_collections` la 1,3 s
-  după pornire. Reparat prin reciclarea pool-ului (#362).
+### Fixed along the way, outside the blocks
 
----
-
-## Forma pieței — corectat de proprietar, 2026-08-29
-
-Documentul a fost scris presupunând că instalarea tipică e self-hosted **cu o
-singură firmă**, și a tras de acolo concluzii despre ce merită optimizat. Premisa
-e greșită.
-
-**Self-hosted, dar nu neapărat mono-firmă.** Corporații formate din mai multe
-firme. Instituții publice care au în subordine alte instituții publice. Adică
-exact forma **ierarhică** — un nod care citește peste subarborele lui — nu o
-colecție de firme străine una de alta.
-
-**Cerința care decurge, în cuvintele proprietarului:** multi-tenancy nu are voie să
-penalizeze performanța **nici** pentru o singură firmă, **nici** pentru mai multe.
-Nu e o alegere între cele două cazuri; sunt amândouă, simultan.
-
-Ce se schimbă în document: argumentul „la o singură firmă scanarea completă *e*
-planul corect, deci indexarea pe firmă nu plătește" rămâne adevărat **pentru acel
-caz**, dar nu mai justifică absența unui bloc despre indexuri — fiindcă acel caz
-nu mai e singurul. De aici **Blocul F**.
-
-Ce NU se schimbă: nimic din lista „ce NU e în plan". Fiecare intrare de acolo a
-fost respinsă pe alt motiv decât mărimea pieței, iar cele două care ating firmele
-(politici legate de domeniu, `loadFilteredPolicy`) cad pentru că **resursele sunt
-partajate între firme**, ceea ce corecția asta nu atinge.
+- **`0A000 cached plan must not change result type`** — failed the integration
+  lane on roughly 2 runs in 3. The cause, found with a DDL event trigger:
+  **extension migrations run after the engine has opened its pool**, and the `ai`
+  extension alters `zvd_collections` 1.3 s after startup. Fixed by recycling the
+  pool (#362).
 
 ---
 
-## Metoda de lucru — obligatorie, nu recomandată
+## The market's shape — corrected by the owner, 2026-08-29
 
-Nu e ceremonie. E procedura care a produs documentul ăsta, și motivul pentru care
-patru din cinci blocuri s-au închis cu „nu merită" **înainte** să se scrie cod.
+This document was written assuming the typical installation is self-hosted **with
+a single tenant**, and drew conclusions from there about what is worth
+optimising. The premise is wrong.
 
-### 1. Un document de stare care călătorește cu sarcina
+**Self-hosted, but not necessarily single-tenant.** Corporations made up of
+several companies. Public institutions with other public institutions under them.
+That is, exactly the **hierarchical** shape — a node reading across its subtree —
+not a collection of mutually foreign tenants.
 
-Un singur fișier care ține starea curentă a lucrării. **Se citește la începutul
-fiecărui pas** și **se actualizează după fiecare pas** — nu la finalul blocului, nu
-„când e ceva de spus".
+**The requirement that follows, in the owner's words:** multi-tenancy must not
+penalise performance **either** for a single tenant **or** for several. It is not
+a choice between the two cases; it is both, simultaneously.
 
-Trebuie să conțină:
+What changes in this document: the argument "with a single tenant a full scan
+*is* the right plan, so per-tenant indexing does not pay" stays true **for that
+case**, but no longer justifies the absence of a block about indexes — because
+that case is no longer the only one. Hence **Block F**.
 
-- **De ce există blocul** — cu cifrele care l-au justificat, nu cu intenția
-- **Tabel de pași**, fiecare cu stare (`DE FĂCUT` / `ÎN LUCRU` / `FĂCUT` / `ANULAT`)
-  și rezultatul lui
-- **Criteriile punctului de validare, scrise ÎNAINTE de măsurare** — ca să nu poată
-  fi ajustate după ce se văd cifrele. Ăsta e punctul central al metodei.
-- **Ce NU se atinge în bloc** — explicit
-- **Jurnal** cu o linie per pas
-- **Context care nu trebuie re-descoperit** — mediu, variabile, capcane. Fără el,
-  următorul care preia pierde o zi refăcând ce s-a aflat deja.
-
-Exemplu viu: `docs/private/CASBIN-SCALING-STATE.md`.
-
-### 2. Descompunere în blocuri de 5–7 pași
-
-Nu mai mult. Un bloc de doisprezece pași e un plan care nu s-a gândit unde poate
-greși. Pasul 0 al fiecărui bloc e întotdeauna „citește documentul de stare".
-
-Primul pas al unui bloc **măsoară**, nu construiește. Dacă măsurătoarea nu confirmă
-premisa, blocul se închide acolo și restul pașilor nu se mai fac. S-a întâmplat de
-patru ori într-o săptămână.
-
-### 3. Punct de validare între blocuri
-
-Blocul următor **nu se deschide** decât dacă criteriile scrise dinainte sunt
-îndeplinite. Un „nu merită" măsurat e un rezultat, nu un eșec — se scrie în document
-și se raportează.
-
-Trei reguli care fac diferența dintre validare reală și formalitate:
-
-- **Criteriile se scriu înainte de măsurare.** După, nu mai sunt criterii, sunt
-  justificări.
-- **O poartă nedovedită prin plantare e decor.** Plantezi violarea pe care zice că o
-  prinde și verifici că pică. `audit-gates.ts` face asta pentru toate cele 11.
-- **Verifică pe mediul lor, nu pe al tău.** În săptămâna asta, patru schimbări au
-  trecut local și au picat în CI — suita `unit` rulează fără bază de date, procesul e
-  partajat între fișiere, iar primul rând din `user` poate fi contul god.
-
-### Capcana care a costat cel mai mult
-
-**O bază de date murdară nu dă un test roșu. Dă un număr credibil și fals.**
-
-Suita lăsa cinci colecții per rulare. Treizeci de rulări au produs o bază în care
-autorizarea măsura 364 ms per decizie. Cifra a ajuns în două rapoarte scrise înainte
-ca cineva să întrebe câte colecții are o instalare reală. Răspunsul era trei, iar
-costul real 0,93 ms.
-
-Înainte de orice măsurătoare care produce o cifră raportabilă: **verifică pe ce fel
-de bază măsori.**
+What does NOT change: nothing in the "what is NOT in the plan" list. Every entry
+there was rejected for a reason other than market size, and the two that touch
+tenants (domain-bound policies, `loadFilteredPolicy`) fall because **the
+resources are shared across tenants**, which this correction does not touch.
 
 ---
 
-## Ce NU e în plan, și de ce
+## The working method — mandatory, not recommended
 
-Se pune aici primul, fiindcă lista asta a costat mai mult de descoperit decât cea
-de mai jos.
+This is not ceremony. It is the procedure that produced this document, and the
+reason four blocks out of five closed with "not worth it" **before** any code was
+written.
 
-| Idee | De ce nu |
+### 1. A state document that travels with the task
+
+One file holding the work's current state. **Read at the start of every step**
+and **updated after every step** — not at the end of the block, not "when there
+is something to say".
+
+It must contain:
+
+- **Why the block exists** — with the numbers that justified it, not the
+  intention
+- **A step table**, each with a state (`TO DO` / `IN PROGRESS` / `DONE` /
+  `CANCELLED`) and its result
+- **The validation-point criteria, written BEFORE measuring** — so they cannot be
+  adjusted once the numbers are visible. This is the centre of the method.
+- **What is NOT touched in the block** — explicitly
+- **A log**, one line per step
+- **Context that must not be rediscovered** — environment, variables, traps.
+  Without it, whoever picks the work up next loses a day redoing what is already
+  known.
+
+Live example: `CASBIN-SCALING-STATE.md`.
+
+### 2. Decomposition into blocks of 5–7 steps
+
+No more. A twelve-step block is a plan that has not thought about where it might
+be wrong. Step 0 of every block is always "read the state document".
+
+A block's first step **measures**, it does not build. If the measurement does not
+confirm the premise, the block closes there and the remaining steps are not done.
+That happened four times in one week.
+
+### 3. A validation point between blocks
+
+The next block **does not open** unless the criteria written in advance are met.
+A measured "not worth it" is a result, not a failure — it is written in the
+document and reported.
+
+Three rules that separate real validation from a formality:
+
+- **Criteria are written before measuring.** Afterwards they are not criteria,
+  they are justifications.
+- **A gate not proved by planting is decoration.** You plant the violation it
+  claims to catch and check that it fails. `audit-gates.ts` does this for all of
+  them.
+- **Verify in their environment, not yours.** In that week, four changes passed
+  locally and failed in CI — the `unit` suite runs without a database, the
+  process is shared between files, and the first row in `user` may be the god
+  account.
+
+### The trap that cost the most
+
+**A dirty database does not give you a red test. It gives you a credible, false
+number.**
+
+The suite left five collections per run. Thirty runs produced a database in which
+authorization measured 364 ms per decision. That figure reached two written
+reports before anyone asked how many collections a real installation has. The
+answer was three, and the real cost 0.93 ms.
+
+Before any measurement that produces a reportable number: **check what kind of
+database you are measuring on.**
+
+---
+
+## What is NOT in the plan, and why
+
+This comes first, because this list cost more to discover than the one below.
+
+| Idea | Why not |
 |---|---|
-| Oprirea RLS pe instalările cu o singură firmă | Câștig 0,19 ms/cerere. Pierdere: apărarea în adâncime, iar dacă detecția „o singură firmă" greșește o dată, izolarea nu e mai lentă, e **absentă**. |
-| `loadFilteredPolicy` din Casbin | Nu există felie de filtrat: toate regulile `p` au `dom='*'`. Adaptorul nici nu implementează interfața. |
-| Politici Casbin legate de domeniu | Colecțiile **nu au `tenant_id`** — sunt partajate între firme. Nu există per-firmă ce să legi. |
-| Engine-ul pe rol NOSUPERUSER | Fundalul are nevoie **structurală** de vedere globală: `repairUnsignedWebhooksAtBoot` citește webhook-urile tuturor firmelor; `flow-executor` caută `tenant_id`-ul unui flow ca să afle în ce firmă rulează. Un rol restrâns nu le-ar face nesigure — le-ar face **oarbe**. |
-| Înlocuirea Casbin cu CASL | Permisiunile voastre sunt **date editabile la runtime** (`zv_roles`, ecran de administrare, acordare fără deploy). Asta e puterea centrală a Casbin. CASL definește abilitățile **în cod**; ai rescrie depozitul de politici. În plus, `dom` e first-class la Casbin și inexistent la CASL, iar 55+ extensii depind de `permissionGate` ca API. |
-| Zanzibar/SpiceDB | Modelul corect la scara Google, dar e **serviciu extern** — contrazice direct simplitatea self-hosted, care e argumentul vostru de vânzare. |
-| Două pool-uri (restrâns pentru cereri, privilegiat pentru fundal) | Fezabil, dar nu reduce expunerea: pool-ul de fundal rămâne privilegiat, și acolo trăiește accesul neîngrădit. Iar câștigul (0,181 ms) e mai mic decât cel obținut gratuit prin mutarea rolului în `set_config` (0,175 ms). |
+| Switching RLS off on single-tenant installations | Gain: 0.19 ms/request. Loss: defence in depth — and if the "single tenant" detection is wrong once, isolation is not slower, it is **absent**. |
+| Casbin's `loadFilteredPolicy` | There is no slice to filter: all `p` rules have `dom='*'`. The adapter does not even implement the interface. |
+| Domain-bound Casbin policies | Collections **have no `tenant_id`** — they are shared across tenants. There is nothing per-tenant to bind. |
+| The engine on a NOSUPERUSER role | Background work **structurally** needs a global view: `repairUnsignedWebhooksAtBoot` reads every tenant's webhooks; `flow-executor` looks up a flow's `tenant_id` in order to learn which tenant it runs in. A restricted role would not make them unsafe — it would make them **blind**. |
+| Replacing Casbin with CASL | Your permissions are **runtime-editable data** (`zv_roles`, an admin screen, granting without a deploy). That is Casbin's central strength. CASL defines abilities **in code**; you would be rewriting the policy store. Also `dom` is first-class in Casbin and non-existent in CASL, and 55+ extensions depend on `permissionGate` as an API. |
+| Zanzibar/SpiceDB | The right model at Google's scale, but it is an **external service** — directly contradicting self-hosted simplicity, which is your selling argument. |
+| Two pools (restricted for requests, privileged for background) | Feasible, but does not reduce exposure: the background pool stays privileged, and that is where unbounded access lives. And the gain (0.181 ms) is smaller than the one obtained for free by moving the role into `set_config` (0.175 ms). |
 
 ---
 
-## Blocul A — contextul de firmă devine explicit
+## Block A — tenant context becomes explicit
 
-**Cea mai valoroasă schimbare din document, și cea mai riscantă.**
+**The most valuable change in this document, and the riskiest.**
 
-### Problema, măsurată
+### The problem, measured
 
-`registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth })`. Acel `scopedDb` e un
-`Proxy` al cărui `get` citește `getCurrentTenantTrx()` **la fiecare acces de
-proprietate**. Extensiile primesc același tipar prin `createRestrictedDb`.
+`registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth })`. That `scopedDb` is
+a `Proxy` whose `get` reads `getCurrentTenantTrx()` **on every property access**.
+Extensions get the same pattern through `createRestrictedDb`.
 
-Un `Proxy.get` e **sincron**. Nu poate aștepta deschiderea unei tranzacții. De aici
-decurg, în lanț:
+A `Proxy.get` is **synchronous**. It cannot await opening a transaction. From
+that follow, in a chain:
 
-- tranzacția trebuie deschisă **înainte** de handler, deci ține toată cererea
-- ținând toată cererea, **fixează o conexiune din pool** de la BEGIN la răspuns
-- de aici plafonul de concurență: la `DB_POOL_MAX=25`, `p95` sare la secunde peste
-  c≈30 pe calea de date
-- iar lenevirea tranzacției e **imposibilă** fără a rupe contractul public al SDK-ului
-  de extensii: orice `db.selectFrom(...)` dinaintea deschiderii ar cădea tăcut pe
-  pool-ul neizolat, în tot engine-ul și în toate cele 55+ extensii deodată
+- the transaction must be opened **before** the handler, so it is held for the
+  whole request
+- being held for the whole request, it **pins a pool connection** from BEGIN to
+  response
+- hence the concurrency ceiling: at `DB_POOL_MAX=25`, `p95` jumps to seconds
+  above c≈30 on the data path
+- and making the transaction lazy is **impossible** without breaking the
+  extension SDK's public contract: any `db.selectFrom(...)` before the open would
+  silently fall onto the unisolated pool, across the whole engine and all 55+
+  extensions at once
 
-### Ce aș face
+### What I would do
 
-Fiecare handler primește un handle **deja legat de firmă**, ca argument explicit.
-Mai verbos. În schimb:
+Every handler receives a handle **already bound to the tenant**, as an explicit
+argument. More verbose. In exchange:
 
-- tranzacția poate fi scurtă (per interogare sau per grup), nu per cerere
-- „am uitat contextul" devine **eroare de compilare**, nu scurgere tăcută
-- plafonul de concurență dispare, fiindcă o conexiune e ținută microsecunde, nu
-  milisecunde
+- the transaction can be short (per query or per group), not per request
+- "I forgot the context" becomes a **compile error**, not a silent leak
+- the concurrency ceiling disappears, because a connection is held for
+  microseconds, not milliseconds
 
-### Pași
+### Steps
 
-| # | Pas | Criteriu de ieșire |
+| # | Step | Exit criterion |
 |---|---|---|
-| 1 | Măsoară cât timp e ținută efectiv o conexiune pe o cerere reală, față de cât ar fi ținută cu tranzacții scurte | cifra, nu estimarea |
-| 2 | Inventariază cele 43 de situri `reqDb` + 2 `?? db` + tot codul de extensie pe `ctx.db` | listă completă |
-| 3 | Proiectează accesorul explicit — `async`, ca TypeScript să prindă orice sit ratat | prototip pe 3 rute |
-| 4 | Poarta care păzește refactorizarea: nicio interogare pe date de firmă în afara tranzacției | **dovedită prin plantare** |
-| 5 | Migrarea rutelor nucleu, bucăți de câte ~10, cu suita verde între ele | verde la fiecare bucată |
-| 6 | Contractul SDK pentru extensii: `ctx.db` capătă o formă explicită, cu perioadă de tranziție | 57/57 extensii trec |
-| 7 | **VALIDARE** — plafonul chiar s-a mutat? | măsurat, nu presupus |
+| 1 | Measure how long a connection is actually held on a real request, against how long it would be with short transactions | the number, not an estimate |
+| 2 | Inventory the 43 `reqDb` sites + 2 `?? db` + all extension code on `ctx.db` | a complete list |
+| 3 | Design the explicit accessor — `async`, so TypeScript catches any missed site | a prototype on 3 routes |
+| 4 | The gate guarding the refactor: no query on tenant data outside the transaction | **proved by planting** |
+| 5 | Migrate the core routes, in batches of ~10, with the suite green between them | green at every batch |
+| 6 | The SDK contract for extensions: `ctx.db` gets an explicit form, with a transition period | 57/57 extensions pass |
+| 7 | **VALIDATION** — did the ceiling actually move? | measured, not assumed |
 
-**Criteriul de oprire:** dacă pasul 1 arată că plafonul nu se mută, blocul se închide
-acolo. Restul pașilor nu se fac.
+**Stop criterion:** if step 1 shows the ceiling does not move, the block closes
+there. The remaining steps are not done.
 
-**Avertisment din istoric:** un `finally` **sincron** a golit odată tranzacția
-devreme și a lăsat 302 politici inerte, cu testele verzi. Refactorizarea asta trece
-prin exact același teren.
+**Warning from history:** a **synchronous** `finally` once emptied the
+transaction early and left 302 policies inert, with the tests green. This
+refactor walks exactly the same ground.
 
 ---
 
-## Blocul B — granița dintre „per firmă" și „de instanță" devine vizibilă
+## Block B — the boundary between "per tenant" and "instance-level" becomes visible
 
-### Problema
+### The problem
 
-`zvd_collections` **nu are `tenant_id`** — colecțiile sunt partajate. La fel
-`zvd_relations`, `zvd_rls_policies`, `zvd_permissions`, `zvd_push_tokens`. Dar
-`zvd_webhooks` **are**. Prefixul nu spune nimic.
+`zvd_collections` **has no `tenant_id`** — collections are shared. Likewise
+`zvd_relations`, `zvd_rls_policies`, `zvd_permissions`, `zvd_push_tokens`. But
+`zvd_webhooks` **does**. The prefix says nothing.
 
-**M-a păcălit personal.** Am scris o poartă presupunând că `zvd_` înseamnă „legat de
-firmă", care a raportat trei constatări, toate cod corect. Și am construit premisa
-unui branch întreg pe ideea că politicile cresc cu numărul de firme — falsă, exact
-din același motiv.
+**It fooled me personally.** I wrote a gate assuming `zvd_` meant "tenant-bound",
+which reported three findings, all of them correct code. And I built an entire
+branch's premise on the idea that policies grow with the number of tenants —
+false, for exactly the same reason.
 
-Din 111 tabele cu `tenant_id`, **16 nucleu nu au deloc RLS** — izolarea lor e doar
-în cod. E testată, deci nu e scurgere. Dar pe tabelele de colecții un `where` uitat
-e prins de RLS; pe cele 16 e scurgere imediată, fără a doua linie.
+Of 111 tables with `tenant_id`, **16 core ones have no RLS at all** — their
+isolation is only in code. It is tested, so it is not a leak. But on collection
+tables a forgotten `where` is caught by RLS; on those 16 it is an immediate leak,
+with no second line.
 
-### Pași
+### Steps
 
-| # | Pas | Criteriu de ieșire |
+| # | Step | Exit criterion |
 |---|---|---|
-| 1 | Clasifică toate cele 111 + tabelele de instanță, într-un tabel citit de mașină | fișier, nu wiki |
-| 2 | Fă clasificarea derivabilă din cod — schemă separată, prefix, sau declarație | o singură sursă |
-| 3 | Poartă: un tabel nou trebuie să declare de care parte e | dovedită prin plantare |
-| 4 | Cele 16 nucleu: decide pentru fiecare — RLS, sau motiv scris de ce nu | zero nedecise |
-| 5 | **VALIDARE** — poate cineva adăuga un tabel fără să declare partea? | nu |
+| 1 | Classify all 111 plus the instance tables, in a machine-readable table | a file, not a wiki |
+| 2 | Make the classification derivable from code — a separate schema, a prefix, or a declaration | a single source |
+| 3 | Gate: a new table must declare which side it is on | proved by planting |
+| 4 | The 16 core ones: decide for each — RLS, or a written reason why not | zero undecided |
+| 5 | **VALIDATION** — can anyone add a table without declaring its side? | no |
 
 ---
 
-## Blocul C — porțile înainte de cod
+## Block C — the gates, before code
 
-### De ce e bloc separat
+### Why it is a separate block
 
-Cele mai valoroase lucruri găsite în auditul din 27–29 august **n-au fost bug-uri**.
-Au fost porți care nu verificau nimic:
+The most valuable things found in the 27–29 August audit **were not bugs**. They
+were gates that checked nothing:
 
-- `check-numeric-string-arithmetic` ieșea cu 0 în **patru feluri** distincte
-- jobul de CI care o rula era singurul care nu clona repo-ul soră
-- suita lăsa **5 colecții per rulare**; 30 de rulări au produs o bază în care o
-  măsurătoare a raportat autorizarea la 364 ms când realitatea era 0,93 ms
+- `check-numeric-string-arithmetic` exited 0 in **four distinct ways**
+- the CI job running it was the only one that did not clone the sibling
+  repository
+- the suite left **5 collections per run**; 30 runs produced a database in which
+  a measurement reported authorization at 364 ms when reality was 0.93 ms
 
-Ultimul e cel care contează: **o poartă lipsă nu dă un test roșu. Dă un număr
-credibil și fals**, care ajunge în două rapoarte scrise.
+The last is the one that matters: **a missing gate does not give you a red test.
+It gives you a credible, false number**, which ends up in two written reports.
 
-### Pași
+### Steps
 
-| # | Pas | Criteriu de ieșire |
+| # | Step | Exit criterion |
 |---|---|---|
-| 1 | Fiecare poartă intră în `audit-gates.ts` — plantezi violarea, vezi dacă pică | 100% acoperire, azi 11/11 |
-| 2 | Nicio poartă nu are voie să iasă cu 0 când nu poate verifica | fail-closed peste tot |
-| 3 | Fiecare poartă declară de ce are nevoie; CI îi dă exact aia | fără sărituri tăcute |
-| 4 | Poartă asupra porților: una nouă fără caz în meta-poartă nu se comite | dovedită prin plantare |
-| 5 | ~~`check-tenant-table-on-pool` extinsă la `lib/`~~ | ⛔ **ANULAT 2026-08-29, măsurat** |
-| 6 | **VALIDARE** — există vreo poartă care trece pe o violare plantată? | zero |
+| 1 | Every gate enters `audit-gates.ts` — plant the violation, see whether it fails | 100% coverage, 11/11 today |
+| 2 | No gate may exit 0 when it cannot check | fail-closed everywhere |
+| 3 | Every gate declares what it needs; CI gives it exactly that | no silent skips |
+| 4 | A gate over the gates: a new one with no case in the meta-gate is not committed | proved by planting |
+| 5 | ~~`check-tenant-table-on-pool` extended to `lib/`~~ | ⛔ **CANCELLED 2026-08-29, measured** |
+| 6 | **VALIDATION** — is there any gate that passes on a planted violation? | zero |
 
-**Pasul 5 s-a închis cu „nu merită".** Venea din blocul 4 al
-`CASBIN-SCALING-STATE.md`, dar fusese deja încercat și revenit, iar motivul e scris în
-antetul porții: în `lib/` mânerul neîngrădit se numește `db`, la fel ca o tranzacție.
-Măsurat: `lib/` conține identificatorul `poolDb` **o singură dată, într-un comentariu**;
-`routes/` de 19 ori. Poarta extinsă n-ar putea prinde nimic, niciodată — prima încercare
-a livrat exact asta, plus patru „excepții motivate" pentru violări imposibile.
+**Step 5 closed with "not worth it".** It came from block 4 of
+`CASBIN-SCALING-STATE.md`, but it had already been tried and reverted, and the
+reason is written in the gate's header: in `lib/` the unbounded handle is called
+`db`, the same as a transaction. Measured: `lib/` contains the identifier
+`poolDb` **once, in a comment**; `routes/` 19 times. The extended gate could
+catch nothing, ever — the first attempt delivered exactly that, plus four
+"motivated exceptions" for impossible violations.
 
-Expunerea rămâne reală, dar cere o aserțiune de **runtime** (o interogare pe o tabelă de
-firmă fără GUC de firmă, sub `NODE_ENV=test`), nu o poartă de build. E o proiectare
-separată, nu o extindere.
-
----
-
-## Blocul D — stratul de condiții pe rânduri
-
-### Observație, nu plan ferm
-
-`getRlsFilters()` traduce reguli în condiții de interogare — scris de mână. E exact
-ce face **CASL** bine, cu tipare și traducere spre query.
-
-Nu propun schimbarea motorului de autorizare — Casbin rămâne alegerea bună. Dar
-partea de **condiții pe rânduri** e o bucată separabilă unde o bibliotecă matură ar
-putea plăti. Merită un bloc de măsurare, nu o decizie acum.
-
-Atenție la un lucru găsit: pe calea de *time travel*, filtrele se aplică **în
-memorie** (`matchesRlsFilters`), nu în SQL. O regulă care ascunde rânduri costă acolo
-tot setul citit înainte de filtrare.
+The exposure is real, but it needs a **runtime** assertion (a query on a tenant
+table with no tenant GUC, under `NODE_ENV=test`), not a build gate. That is a
+separate design, not an extension.
 
 ---
 
-## Blocul E — decizii de proprietar, nu de inginerie
+## Block D — the row-conditions layer
 
-1. **Catalogul din engine.** `extension-catalog.ts`: 749 de linii, 60 de intrări, 4
-   importatori runtime, text specific României. Argumentul pentru mutare e curat.
-   Contra-argumentul e al pieței tale: instalările izolate trebuie să vadă ce pot
-   instala. **Compromis propus:** catalogul rămâne, dar ca **date versionate
-   livrate**, nu ca sursă TypeScript compilată în engine.
+### An observation, not a firm plan
 
-2. **`KNOWN_EXTENSION_RESOURCES`.** Redus deja la o plasă; reconcilierea citește
-   manifestele. Rămâne de decis dacă lista mai are rost.
+`getRlsFilters()` translates rules into query conditions — hand-written. That is
+exactly what **CASL** does well, with patterns and translation to a query.
 
-3. **`DB_POOL_MAX`.** Implicitul e 25. Ridicarea la 40 mută `p95` de la secunde la
-   214 ms la c=30 — dar schimbă concurența per instanță pe numărul de instanțe care
-   încap în `max_connections`. Reglaj de deployment, decizie de proprietar.
+I am not proposing changing the authorization engine — Casbin remains the right
+choice. But the **row conditions** part is a separable piece where a mature
+library might pay. It deserves a measurement block, not a decision now.
+
+Note one thing found: on the *time travel* path, the filters are applied **in
+memory** (`matchesRlsFilters`), not in SQL. A rule that hides rows costs the
+whole set read before filtering.
 
 ---
 
-## Blocul F — indexurile urmează tiparele de acces, nu coloanele
+## Block E — owner decisions, not engineering ones
 
-### De ce există
+1. **The catalog in the engine.** `extension-catalog.ts`: 749 lines, 60 entries,
+   4 runtime importers, Romania-specific text. The argument for moving it out is
+   clean. The counter-argument is your market's: isolated installations must be
+   able to see what they can install. **Proposed compromise:** the catalog stays,
+   but as **versioned shipped data**, not as TypeScript source compiled into the
+   engine.
+2. **`KNOWN_EXTENSION_RESOURCES`.** Already reduced to a safety net; the
+   reconciliation reads the manifests. What remains is deciding whether the list
+   still has a purpose.
+3. **`DB_POOL_MAX`.** The default is 25. Raising it to 40 moves `p95` from
+   seconds to 214 ms at c=30 — but it trades per-instance concurrency against the
+   number of instances that fit in `max_connections`. A deployment tuning, an
+   owner decision.
 
-Sfat venit din afară și confirmat de măsurătorile proprii: *proiectezi schema după
-cine cere ce date, iar fiecare tipar de acces își primește indexul lui.* Din trei
-recomandări externe, singura care atinge ceva ce planul ăsta nu acoperea.
+---
 
-Mecanismul e deja dovedit în repo, pe **un singur** tipar — `57913f41`, măsurat pe
-300 000 de rânduri și 63 de firme:
+## Block F — indexes follow access patterns, not columns
 
-| | timp | rânduri aruncate ca să întoarcă 25 |
+### Why it exists
+
+Advice from outside, confirmed by our own measurements: *design the schema after
+who asks for which data, and every access pattern gets its own index.* Of three
+external recommendations, the only one touching something this plan did not
+cover.
+
+The mechanism is already proved in the repository, on **one** pattern —
+`57913f41`, measured on 300,000 rows and 63 tenants:
+
+| | Time | Rows discarded to return 25 |
 |---|---|---|
-| politica singură | 1,94 ms | 6 408 |
-| politica + egalitate explicită, index `(tenant_id, created_at DESC)` | **0,08 ms** | 0 |
+| the policy alone | 1.94 ms | 6,408 |
+| the policy + explicit equality, index `(tenant_id, created_at DESC)` | **0.08 ms** | 0 |
 
-Cauza e structurală și nu dispare: predicatul e
-`tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])`, iar un `= ANY`
-peste un tablou pe care planificatorul nu-l vede până la execuție **nu poate
-conduce o scanare ordonată de index**. Forma nu e o greșeală — **ierarhia o cere**,
-fiindcă o citire de subarbore nu se reduce la o egalitate scalară. Tensiunea e deci
-permanentă: ierarhia cere tabloul, tabloul ucide scanarea ordonată, iar egalitatea
-explicită de lângă politică e singurul lucru care le împacă.
+The cause is structural and does not go away: the predicate is
+`tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])`, and an `= ANY`
+over an array the planner cannot see until execution **cannot drive an ordered
+index scan**. The form is not a mistake — **the hierarchy requires it**, because
+a subtree read does not reduce to a scalar equality. So the tension is permanent:
+the hierarchy needs the array, the array kills the ordered scan, and explicit
+equality beside the policy is the only thing that reconciles them.
 
-Costul crește cu numărul de firme din tabelă. La forma de piață din secțiunea de
-sus — un holding cu filiale, o instituție cu unități subordonate — asta nu e o
-scară teoretică.
+The cost grows with the number of tenants in the table. At the market shape
+described above — a holding company with subsidiaries, an institution with
+subordinate units — that is not a theoretical scale.
 
-### Constatarea care deschide blocul — măsurată 2026-08-29
+### The finding that opens the block — measured 2026-08-29
 
-**Egalitatea explicită nu se aplică pentru nicio cerere autentificată.**
+**Explicit equality is not applied for any authenticated request.**
 
-`setSingleTenantScope(scope === null)` (`tenant-manager.ts:867`) — dar
-`resolveTenantScope` **nu întoarce niciodată `null`**: întoarce un obiect pe fiecare
-ramură, inclusiv `{ visible: [tenantId] }` pentru `read_scope='self'`. Iar `userId`
-e pasat pentru orice cerere cu sesiune (`middleware/tenant.ts:144`).
+`setSingleTenantScope(scope === null)` (`tenant-manager.ts:867`) — but
+`resolveTenantScope` **never returns `null`**: it returns an object on every
+branch, including `{ visible: [tenantId] }` for `read_scope='self'`. And `userId`
+is passed for any request with a session (`middleware/tenant.ts:144`).
 
-Sondă pe o firmă **fără** ierarhie, utilizator cu `read_scope='self'`, implicitul:
+A probe on a tenant **without** a hierarchy, a user with `read_scope='self'`, the
+default:
 
 ```
-fara userId (cheie API / fundal):  egalitate pe 0000...0001
-cu userId  (cerere autentificata): NULL — fara egalitate
+without userId (API key / background):  equality on 0000...0001
+with userId    (authenticated request): NULL — no equality
 ```
 
-Calea rapidă e activă exact pentru traficul care n-are nevoie de ea, și inactivă
-pentru cel care are. **Nu ierarhia costă optimizarea — autentificarea o costă.**
+The fast path is active exactly for the traffic that does not need it, and
+inactive for the traffic that does. **It is not the hierarchy that costs the
+optimisation — it is authentication.**
 
-`tenant-scope-filter.test.ts` nu poate prinde asta: acceptă deliberat ambele
-rezultate (`seen === null || seen === ROOT`), deci rămâne verde în ambele lumi.
+`tenant-scope-filter.test.ts` cannot catch this: it deliberately accepts both
+outcomes (`seen === null || seen === ROOT`), so it stays green in both worlds.
 
-### Restul tiparelor — citite, nu măsurate
+### The remaining patterns — read, not measured
 
-La crearea unei colecții se creează azi:
+Creating a collection today creates:
 
-| tipar de acces | index | prefixat cu `tenant_id`? |
+| Access pattern | Index | Prefixed with `tenant_id`? |
 |---|---|---|
 | `ORDER BY created_at DESC` | `(tenant_id, created_at DESC)` | ✅ #358 |
-| filtru pe `status` | `(status)` | ❌ |
-| filtru pe câmp indexat de utilizator | `("<câmp>")` | ❌ |
-| căutare | GIN pe `search_vector` | ❌ |
+| filter on `status` | `(status)` | ❌ |
+| filter on a user-indexed field | `("<field>")` | ❌ |
+| search | GIN on `search_vector` | ❌ |
 
-Iar `reconcileExtensionTenantRLS` creează doar `(tenant_id)`, fără compusul pe care
-`applyTenantRLS` îl creează lângă el — aceeași asimetrie ca cea reparată în #336, un
-nivel mai adânc, pe tabelele extensiilor.
+And `reconcileExtensionTenantRLS` creates only `(tenant_id)`, without the
+composite that `applyTenantRLS` creates beside it — the same asymmetry fixed in
+#336, one level deeper, on the extensions' tables.
 
-**Tabelul ăsta e derivat prin citire.** Repo-ul are două ocoluri greșite pe exact
-predicatul ăsta, iar un audit prin citire a ratat o scurgere reală acum două zile.
-Pasul 1 măsoară; nu confirmă lista de mai sus.
+**This table is derived by reading.** The repository has two wrong detours on
+exactly this predicate, and an audit-by-reading missed a real leak two days ago.
+Step 1 measures; it does not confirm the list above.
 
-### Pași
+### Steps
 
-| # | Pas | Criteriu de ieșire |
+| # | Step | Exit criterion |
 |---|---|---|
-| 1 | Măsoară fiecare tipar din tabel cu politica APLICATĂ, la 1 / 10 / 100 de firme | cifre, nu lista de mai sus |
-| 2 | **Pragul:** de la câte firme începe fiecare tipar să coste? Sub prag, tiparul iese din bloc | un număr scris pentru fiecare |
-| 3 | `singleTenant` să însemne „raza e exact firma asta", nu „n-a ieșit obiect de scope" | un test care DISTINGE, nu unul care acceptă ambele |
-| 4 | Egalitatea explicită pe calea extensiilor, sau motiv scris de ce nu | decis, nu omis |
-| 5 | Compusul lipsă din `reconcileExtensionTenantRLS` | simetrie cu `applyTenantRLS` |
-| 6 | Poartă: un index nou pe o tabelă de firmă declară tiparul pe care-l servește | dovedită prin plantare |
-| 7 | **VALIDARE** — plafonul s-a mutat la **ambele** capete: o firmă și N firme? | măsurat, amândouă |
+| 1 | Measure every pattern in the table with the policy APPLIED, at 1 / 10 / 100 tenants | numbers, not the list above |
+| 2 | **The threshold:** from how many tenants does each pattern start to cost? Below the threshold, the pattern leaves the block | a written number for each |
+| 3 | Make `singleTenant` mean "the reach is exactly this tenant", not "no scope object came out" | a test that DISTINGUISHES, not one that accepts both |
+| 4 | Explicit equality on the extensions' path, or a written reason why not | decided, not omitted |
+| 5 | The missing composite in `reconcileExtensionTenantRLS` | symmetry with `applyTenantRLS` |
+| 6 | Gate: a new index on a tenant table declares the pattern it serves | proved by planting |
+| 7 | **VALIDATION** — did the ceiling move at **both** ends: one tenant and N tenants? | measured, both |
 
-**Criteriul de oprire:** dacă pasul 2 arată că niciun tipar nu costă sub o mie de
-firme, blocul se închide acolo și rămâne doar pasul 3 — care e o corecție de o linie
-plus un test, și se face oricum.
+**Stop criterion:** if step 2 shows that no pattern costs below a thousand
+tenants, the block closes there and only step 3 remains — which is a one-line
+correction plus a test, and is done anyway.
 
-**Ce NU se atinge:** forma predicatului RLS. S-a schimbat de trei ori, ultima dată în
-`005_rls_initplan_predicate.sql`, și e acum cea corectă. Blocul adaugă egalități și
-indexuri **lângă** politică; o egalitate poate doar să îngusteze setul pe care
-politica îl permite, niciodată să-l lărgească, deci suprafața de securitate rămâne
-neschimbată și RLS continuă să decidă.
-
----
-
-## Ordinea recomandată
-
-**1. Blocul C — porțile.** Primul, deși e cel mai puțin spectaculos. Blocul A trece
-prin terenul unde un `finally` sincron a lăsat odată 302 politici inerte **cu testele
-verzi**. Nu se începe fără plasa. Fără C, o regresie din A nu se vede.
-
-**2. Blocul B — granița per-firmă / instanță.** Ieftin, și neclaritatea lui a produs
-deja două concluzii greșite ale mele într-o singură săptămână: o poartă care raporta
-cod corect drept violare, și premisa falsă a unui branch întreg. Trebuie făcut
-înainte de A, fiindcă A mută exact codul care depinde de distincția asta.
-
-**3. Blocul F — indexurile pe tiparele de acces.** După B, fiindcă B e cel care
-spune care tabele sunt per firmă — adică pe care are sens un index compus. Înainte
-de A, fiindcă A mută exact codul care decide raza cererii, iar pasul 3 al lui F îl
-corectează întâi.
-
-**4. Blocul A — contextul explicit.** La urmă, cu tot timpul din lume, și cu
-libertatea declarată de a se opri la pasul 1 dacă măsurătoarea nu confirmă că
-plafonul se mută.
-
-**D și E oricând** — nu blochează nimic și nu sunt blocate de nimic.
-
-### De ce ordinea asta și nu ordinea valorii
-
-A e cea mai valoroasă și e ultima. Nu din prudență: din faptul că e singura care
-poate rupe izolarea tăcut. C și B costă puțin și transformă o eventuală greșeală din
-A dintr-una tăcută într-una zgomotoasă. Ordinea e aleasă după **ce se întâmplă dacă
-greșim**, nu după ce câștigăm dacă reușim.
+**What is NOT touched:** the shape of the RLS predicate. It has changed three
+times, most recently in `005_rls_initplan_predicate.sql`, and is now the right
+one. The block adds equalities and indexes **beside** the policy; an equality can
+only narrow the set the policy permits, never widen it, so the security surface
+is unchanged and RLS goes on deciding.
 
 ---
 
-## Ce validează planul ăsta ca fiind onest
+## The recommended order
 
-Fiecare afirmație de aici are un număr sau un test în spate, iar cele care nu au sunt
-marcate ca observații. Lista „ce NU e în plan" e mai lungă decât lista de făcut,
-pentru că săptămâna care a produs-o a fost în mare parte o listă de idei bune care
-n-au supraviețuit măsurării — inclusiv trei ale mele care ajunseseră deja în rapoarte
-scrise înainte să fie infirmate.
+**1. Block C — the gates.** First, although it is the least spectacular. Block A
+walks the ground where a synchronous `finally` once left 302 policies inert
+**with the tests green**. You do not start without the net. Without C, a
+regression from A is invisible.
 
-### Blocul G — activarea extensiilor per firmă (2026-08-30) — **4/4**
+**2. Block B — the per-tenant / instance boundary.** Cheap, and its ambiguity has
+already produced two wrong conclusions of mine in a single week: a gate reporting
+correct code as a violation, and an entire branch's false premise. It must come
+before A, because A moves exactly the code that depends on this distinction.
 
-God instalează pe instanță; adminul firmei decide dacă acționează la el.
-A doua jumătate nu era doar nefăcută, era **imposibilă**: `UNIQUE (name)` pe
-`zv_extension_registry` dădea o extensie un singur rând, deci `tenant_id` putea
-reține doar cine a instalat ultimul. Migrația `007` o deschide cu
+**3. Block F — indexes on access patterns.** After B, because B is what says
+which tables are per tenant — that is, on which a composite index makes sense.
+Before A, because A moves exactly the code that decides a request's reach, and
+F's step 3 corrects it first.
+
+**4. Block A — explicit context.** Last, with all the time in the world, and with
+the declared freedom to stop at step 1 if the measurement does not confirm that
+the ceiling moves.
+
+**D and E at any time** — they block nothing and are blocked by nothing.
+
+### Why this order and not the order of value
+
+A is the most valuable and it is last. Not out of caution: because it is the only
+one that can break isolation silently. C and B cost little and turn a possible
+mistake in A from a silent one into a noisy one. The order is chosen by **what
+happens if we get it wrong**, not by what we gain if we succeed.
+
+---
+
+## What validates this plan as honest
+
+Every claim here has a number or a test behind it, and those that do not are
+marked as observations. The "what is NOT in the plan" list is longer than the
+to-do list, because the week that produced it was largely a list of good ideas
+that did not survive measurement — including three of mine that had already
+reached written reports before being disproved.
+
+### Block G — per-tenant extension activation (2026-08-30) — **4/4**
+
+God installs on the instance; the tenant's admin decides whether it acts for
+them. The second half was not merely undone, it was **impossible**:
+`UNIQUE (name)` on `zv_extension_registry` gave an extension a single row, so
+`tenant_id` could only record who installed last. Migration `007` opens it with
 `UNIQUE NULLS NOT DISTINCT (tenant_id, name)`.
 
-**Poarta nu stă pe cale, ci pe mâner.** `mountStrategy: 'global'` — implicitul —
-predă extensiei app-ul motorului; o poartă pe `/ext/*` n-ar fi păzit nimic.
-Detalii, limite și cele două lucruri pe care le acoperă doar parțial (cron,
-`app.route()`): `docs/private/BLOCK-G-PER-TENANT-ACTIVATION-STATE.md`.
+**The gate does not sit on the path, it sits on the handle.**
+`mountStrategy: 'global'` — the default — hands the extension the engine's app; a
+gate on `/ext/*` would have guarded nothing. Two things it covers only partially:
+cron and `app.route()`.

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 
 /**
  * Third-party isolation enforcement — alpha.124 closed the gap
- * between MARKETPLACE-POLICY.md §2 (worker mandatory for community
+ * between marketplace-policy.md §2 (worker mandatory for community
  * submissions) and the runtime. beta.2 extended the binary
  * official/community decision into the full three-tier model
  * (first-party / verified / community) so verified partners may run

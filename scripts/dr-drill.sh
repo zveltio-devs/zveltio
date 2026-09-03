@@ -287,7 +287,7 @@ WAL_DIR="${WAL_ARCHIVE_DIR:-/var/lib/postgresql/wal-archive}"
 if [[ -d "$WAL_DIR" ]] && [[ -n "$(ls -A "$WAL_DIR" 2>/dev/null)" ]]; then
   WAL_COUNT=$(find "$WAL_DIR" -type f | wc -l | tr -d ' ')
   pass "WAL archive populated ($WAL_COUNT segments)" 0
-  echo "  - PITR rehearsal: manual step — see DISASTER-RECOVERY.md § 4 Scenario C" >>"$REPORT"
+  echo "  - PITR rehearsal: manual step — see disaster-recovery.md § 4 Scenario C" >>"$REPORT"
 else
   echo "- ⓘ WAL archive empty or missing at $WAL_DIR — PITR not configured (T2 setup skipped)" >>"$REPORT"
 fi

@@ -1,515 +1,519 @@
-# Tenancy ierarhic — plan de implementare
+# Hierarchical tenancy — implementation plan
 
-*2026-08-26. Cele patru întrebări deschise au primit răspuns; documentul e acum
-plan, nu ciornă. Faptele despre starea actuală sunt verificate în cod și în baza
-de date, nu deduse.*
+*2026-08-26. The four open questions have been answered; this document is now a
+plan, not a draft. The facts about the current state are verified in code and in
+the database, not inferred.*
 
 ---
 
-## 1. Ce există azi
+## 1. What exists today
 
-| element | stare |
+| Element | State |
 |---|---|
-| `zv_tenants` | listă **plată**: `id, slug, name, plan, status, max_records, max_storage_gb, max_api_calls_day, max_users, billing_email, trial_ends_at, settings`. **Fără `parent_id`.** |
-| `zv_tenant_users` | `(id, tenant_id, user_id, role, invited_by, joined_at)` — un rol per pereche, fără rază, fără valabilitate |
-| predicatul RLS | `zveltio_tenant_scope_ok(row_tenant)` = **egalitate simplă** cu GUC-ul |
-| politicile | `FOR ALL`, cu **același predicat în `USING` și în `WITH CHECK`** |
-| autorizare | Casbin, cu firma drept **domeniu** |
-| acoperire | 29 de tabele cu `tenant_id` la bază, 48 cu extensiile |
-| rânduri globale | **nu există**: 17 tabele permit `tenant_id` NULL, dar `NULL = X` dă NULL, deci un asemenea rând e invizibil pentru toți |
+| `zv_tenants` | a **flat** list: `id, slug, name, plan, status, max_records, max_storage_gb, max_api_calls_day, max_users, billing_email, trial_ends_at, settings`. **No `parent_id`.** |
+| `zv_tenant_users` | `(id, tenant_id, user_id, role, invited_by, joined_at)` — one role per pair, no reach, no validity period |
+| the RLS predicate | `zveltio_tenant_scope_ok(row_tenant)` = **plain equality** against the GUC |
+| the policies | `FOR ALL`, with **the same predicate in `USING` and in `WITH CHECK`** |
+| authorization | Casbin, with the tenant as the **domain** |
+| coverage | 29 tables with `tenant_id` in the base, 48 with the extensions |
+| global rows | **do not exist**: 17 tables allow `tenant_id` NULL, but `NULL = X` yields NULL, so such a row is invisible to everyone |
 
-Coloanele `plan`, `trial_ends_at`, `billing_email` spun ce model a fost
-construit: o listă de clienți SaaS cu abonament.
+The `plan`, `trial_ends_at` and `billing_email` columns say which model was
+built: a list of SaaS customers with a subscription.
 
-## 2. De ce nu ajunge
+## 2. Why it is not enough
 
-ANSVSA are 41 de direcții județene în subordine. Contabilitatea ANSVSA trebuie
-să vadă ce au completat județele; Buzău și Călărași nu trebuie să se vadă între
-ele. Cu egalitate simplă, a doua cerință merge, **prima n-are cum** — nu există
-noțiunea de „deasupra".
+ANSVSA has 41 county directorates under it. ANSVSA's accounting must see what
+the counties have filled in; Buzău and Călărași must not see each other. With
+plain equality the second requirement works, **the first cannot** — there is no
+notion of "above".
 
-Orice corporație cu filiale are aceeași formă. Un singur caz, nu două.
+Any corporation with subsidiaries has the same shape. One case, not two.
 
-## 3. Modelul
+## 3. The model
 
-Unitățile formează un **arbore de adâncime arbitrară**. Ce se configurează nu e
-arborele, ci **raza fiecărei atribuiri**:
+Units form a **tree of arbitrary depth**. What is configured is not the tree but
+**the reach of each assignment**:
 
-*(persoană, unitate, rol, rază_citire, valabil_de_la, valabil_până_la)*
+*(person, unit, role, read_scope, valid_from, valid_to)*
 
-| rază de citire | acoperă |
+| Read scope | Covers |
 |---|---|
-| `self` | doar unitatea |
-| `subtree` | unitatea și tot ce e sub ea |
-| `list` | un set explicit de unități |
-| `org` | tot |
+| `self` | the unit only |
+| `subtree` | the unit and everything below it |
+| `list` | an explicit set of units |
+| `org` | everything |
 
-**Scrierea nu are rază.** *Datele sunt ale subordonatului.* Se scrie numai în
-nodul propriu, oricine ai fi. Un nivel superior citește și aprobă; nu corectează
-în locul altuia.
+**Writing has no reach.** *The data belong to the subordinate.* You write only
+into your own node, whoever you are. A level above reads and approves; it does
+not correct in someone else's place.
 
-### Vizibilitatea merge în ambele sensuri
+### Visibility goes both ways
 
-Regula de mai sus lasă două situații reale fără soluție, deci modelul are nevoie
-și de direcția opusă:
+The rule above leaves two real situations unsolved, so the model also needs the
+opposite direction:
 
-- **nomenclatoarele naționale** — legislație, registrul unităților autorizate,
-  coduri: scrise o dată sus, citite de toate unitățile de dedesubt;
-- **o inspecție făcută de o echipă centrală la o unitate subordonată** — o scrie
-  centrul, în nodul lui, dar e despre subordonat, care trebuie să o vadă.
+- **national reference data** — legislation, the register of authorised units,
+  codes: written once at the top, read by every unit below;
+- **an inspection carried out by a central team at a subordinate unit** — the
+  centre writes it, in its own node, but it is about the subordinate, who must
+  see it.
 
-**Vizibilitatea în jos e opt-in pe colecție, nu automată.** Salarizarea centrului
-nu devine vizibilă județelor doar pentru că e mai sus.
+**Downward visibility is opt-in per collection, not automatic.** The centre's
+payroll does not become visible to the counties merely because it is higher up.
 
-**Vizibilitatea în sus NU e opt-in pe colecție** — și asta e o decizie, nu o
-omisiune. Susul e deja controlat pe două axe: `read_scope` pe persoană (cine are
-`subtree` vede sub el, cine are `self` nu) și Casbin pe resursă. Un al treilea
-steag ar duplica în mare parte a doua axă, iar riscul a trei dimensiuni nu e
-performanța, e **credința greșită**: cineva configurează una din trei și crede că
-datele sunt ascunse când nu sunt.
+**Upward visibility is NOT opt-in per collection** — and that is a decision, not
+an omission. Upward is already controlled on two axes: `read_scope` per person
+(whoever has `subtree` sees below them, whoever has `self` does not) and Casbin
+per resource. A third flag would largely duplicate the second axis, and the risk
+of three dimensions is not performance, it is **mistaken belief**: somebody
+configures one of the three and thinks the data are hidden when they are not.
 
-Cazul „holdingul nu trebuie să vadă filiala X" se exprimă prin
-`read_scope = 'list'` — set explicit în loc de subarbore. E granularitatea
-corectă: pe persoană, nu pe colecție.
+The "the holding company must not see subsidiary X" case is expressed through
+`read_scope = 'list'` — an explicit set instead of a subtree. That is the right
+granularity: per person, not per collection.
 
-Iar ușa rămâne deschisă **gratis**: steagul e un literal în politică, nu o
-coloană citită pe rând. Dacă apare un caz real care cere „colecția asta nu urcă
-niciodată, indiferent de rază", se adaugă un al doilea literal doar în politicile
-colecțiilor care au nevoie — fără migrație și fără cost pentru restul. Tabelul de
-mai jos e dovada: un literal fals dispare din plan.
+And the door stays open **for free**: the flag is a literal in the policy, not a
+column read per row. If a real case appears requiring "this collection never
+goes up, whatever the reach", a second literal is added only in the policies of
+the collections that need it — no migration and no cost for the rest. The table
+below is the proof: a false literal disappears from the plan.
 
-### Departamentele nu intră în RLS
+### Departments do not enter RLS
 
-RLS răspunde la *care unități*. Casbin, care are deja domeniu pe unitate,
-răspunde la *care resurse*. „Contabilitatea centrului vede contabilitatea
-județelor, dar nu resursele umane" e treaba lui Casbin. Cele două înmulțite dau
-matricea completă.
+RLS answers *which units*. Casbin, which already has a domain per unit, answers
+*which resources*. "The centre's accounting sees the counties' accounting but not
+their HR" is Casbin's job. The two multiplied give the full matrix.
 
-## 4. Schema
+## 4. The schema
 
 ```
 zv_tenants
   + parent_id      uuid REFERENCES zv_tenants(id)
-  + closed_at      timestamptz          -- unitatea nu se șterge NICIODATĂ
+  + closed_at      timestamptz          -- a unit is NEVER deleted
   + merged_into    uuid REFERENCES zv_tenants(id)
   - plan, trial_ends_at, billing_email, max_api_calls_day
-        (abonamentul e al instanței, nu al unei filiale)
+        (the subscription belongs to the instance, not to a subsidiary)
 
-zv_tenant_users            → devine tabela de atribuiri
+zv_tenant_users            → becomes the assignments table
   + read_scope   text  CHECK (read_scope IN ('self','subtree','list','org'))
-  + scope_list   uuid[]                 -- doar pentru read_scope = 'list'
+  + scope_list   uuid[]                 -- only for read_scope = 'list'
   + valid_from   timestamptz NOT NULL DEFAULT now()
-  + valid_to     timestamptz            -- NULL = fără termen
+  + valid_to     timestamptz            -- NULL = open-ended
 
-zv_tenant_transfers        → tabelă nouă
+zv_tenant_transfers        → new table
   (id, table_name, record_id, from_tenant, to_tenant, moved_at, moved_by, reason)
 ```
 
-**`tenant_id` de pe cele 48 de tabele rămâne neatins.** Nicio migrație de date.
+**The `tenant_id` on the 48 tables is untouched.** No data migration.
 
-**O unitate nu se șterge niciodată.** Fuziune sau desființare înseamnă
-`closed_at` plus `merged_into`. Altfel rândurile istorice arată spre un nod
-inexistent și raportul de anul trecut nu se mai poate calcula.
+**A unit is never deleted.** A merger or dissolution means `closed_at` plus
+`merged_into`. Otherwise historical rows point at a node that does not exist and
+last year's report can no longer be computed.
 
-**Transferul unui dosar se jurnalizează.** Rândul se mută, dar *faptul mutării*
-rămâne. Nu e proprietate temporală completă — aceea ar cere coloane pe toate cele
-48 de tabele — dar răspunde la „cine deținea dosarul în martie" și **nu împiedică**
-trecerea la varianta completă dacă se dovedește necesară.
+**A file transfer is journalled.** The row moves, but *the fact of the move*
+stays. It is not full temporal ownership — that would require columns on all 48
+tables — but it answers "who owned this file in March" and **does not prevent**
+moving to the full variant if that proves necessary.
 
-## 5. Predicatul
+## 5. The predicate
 
-Două funcții în loc de una, fiindcă citirea și scrierea nu mai coincid.
+Two functions instead of one, because reading and writing no longer coincide.
 
 ```sql
--- SCRIERE: nodul propriu, atât. Identic cu predicatul de azi, deci
--- `WITH CHECK` din politicile existente rămâne corect fără modificare.
+-- WRITE: your own node, that is all. Identical to today's predicate, so the
+-- `WITH CHECK` of the existing policies stays correct without modification.
 zveltio_tenant_write_ok(row_tenant uuid) →
   row_tenant = current_setting('zveltio.current_tenant')::uuid
 
--- CITIRE: mulțimea vizibilă, plus ascendenții dacă rândul e dintr-o colecție
--- marcată ca moștenită în jos.
+-- READ: the visible set, plus the ancestors if the row belongs to a collection
+-- marked as inherited downwards.
 zveltio_tenant_scope_ok(row_tenant uuid, inherit_down boolean DEFAULT false) →
   row_tenant = ANY(current_setting('zveltio.visible_tenants'))
   OR (inherit_down AND row_tenant = ANY(current_setting('zveltio.ancestor_tenants')))
 ```
 
-`DEFAULT false` e ce face migrarea suportabilă: **fiecare politică existentă
-continuă să cheme funcția cu un argument** și se comportă ca înainte.
+`DEFAULT false` is what makes the migration bearable: **every existing policy
+goes on calling the function with one argument** and behaves as before.
 
-GUC-uri puse o dată pe cerere, deci **zero căutări pe rând**:
+GUCs set once per request, so **zero per-row lookups**:
 
-| GUC | conținut |
+| GUC | Contents |
 |---|---|
-| `zveltio.current_tenant` | nodul unde lucrez (neschimbat — și `DEFAULT`-ul coloanelor `tenant_id` îl folosește) |
-| `zveltio.visible_tenants` | mulțimea pe care o pot citi |
-| `zveltio.ancestor_tenants` | lanțul de deasupra nodului meu |
+| `zveltio.current_tenant` | the node I am working in (unchanged — and the `DEFAULT` of the `tenant_id` columns uses it) |
+| `zveltio.visible_tenants` | the set I may read |
+| `zveltio.ancestor_tenants` | the chain above my node |
 
-### Costul, măsurat
+### The cost, measured
 
-Pe o tabelă de 500 000 de rânduri cu 200 de unități, index pe `tenant_id`
-(2026-08-26, `EXPLAIN ANALYZE`):
+On a 500,000-row table with 200 units, index on `tenant_id` (2026-08-26,
+`EXPLAIN ANALYZE`):
 
-| predicat | rânduri citite | timp | plan |
+| Predicate | Rows read | Time | Plan |
 |---|---|---|---|
-| egalitate (modelul de azi) | 2 500 | 0,29ms | Index Only Scan |
-| `= ANY`, 3 unități | 7 500 | 0,82ms | Index Only Scan |
-| `= ANY`, 42 unități | 105 000 | 10,5ms | Index Only Scan |
+| equality (today's model) | 2,500 | 0.29 ms | Index Only Scan |
+| `= ANY`, 3 units | 7,500 | 0.82 ms | Index Only Scan |
+| `= ANY`, 42 units | 105,000 | 10.5 ms | Index Only Scan |
 
-**Costul pe rând e constant** — 0,116 / 0,109 / 0,100 µs. Mărimea mulțimii nu
-contează; contează câte rânduri se returnează. Un nod-părinte care consolidează
-citește legitim de 42 de ori mai multe rânduri, și aia e consolidarea, nu
-mecanismul. Dacă devine o problemă, remediul e agregatul materializat (§9), nu
-reglarea predicatului.
+**The per-row cost is constant** — 0.116 / 0.109 / 0.100 µs. The size of the set
+does not matter; what matters is how many rows are returned. A consolidating
+parent node legitimately reads 42 times more rows, and that is the
+consolidation, not the mechanism. If it becomes a problem, the remedy is a
+materialised aggregate (§9), not tuning the predicate.
 
-Steagul de moștenire în jos:
+The downward-inheritance flag:
 
-| `inherit_down` | timp | plan |
+| `inherit_down` | Time | Plan |
 |---|---|---|
-| `false` | 0,77ms | **ramura dispare din plan** — identic cu cazul fără steag |
-| `true` | 9,5ms | `BitmapOr` peste două scanări de index |
+| `false` | 0.77 ms | **the branch disappears from the plan** — identical to the no-flag case |
+| `true` | 9.5 ms | `BitmapOr` across two index scans |
 
-**Un opt-in dezactivat costă exact zero**, fiindcă planificatorul pliază
-literalul la compilare. Activat, e de ~7 ori mai scump pe rând, dar tot pe index
-și tot în milisecunde.
+**A disabled opt-in costs exactly zero**, because the planner folds the literal
+at compile time. Enabled, it is ~7× more expensive per row, but still on the
+index and still in milliseconds.
 
-**Limita de scară:** pentru zeci sau sute de unități, mulțimea e o listă mică
-rezolvată o dată pe cerere. Peste câteva mii, trecerea corectă e la cale
-materializată (`ltree`) cu potrivire de prefix — **prin aceleași funcții**, deci
-decizia se amână fără cost.
+**The scale limit:** for tens or hundreds of units, the set is a small list
+resolved once per request. Beyond a few thousand, the correct move is a
+materialised path (`ltree`) with prefix matching — **through the same
+functions**, so the decision can be deferred at no cost.
 
-## 6. Partea cu rază de acțiune reală
+## 6. The part with real blast radius
 
-Politicile de azi sunt `FOR ALL` cu **același predicat în `USING` și `WITH
-CHECK`**. Ca să se despartă citirea de scriere, **fiecare politică de tenant
-trebuie recreată**, iar șablonul din care se creează politici pentru tabelele noi
-de extensie trebuie schimbat odată cu ele.
+Today's policies are `FOR ALL` with **the same predicate in `USING` and
+`WITH CHECK`**. To separate reading from writing, **every tenant policy must be
+recreated**, and the template from which policies are created for new extension
+tables must change with them.
 
-E mecanic, dar **trebuie să fie complet**. Precedentul e în notele proiectului:
-`ensureRlsEnforcementRole` a lăsat odată rolul `zveltio_rls` cu 11 tabele din
-378, iar nimic n-a semnalat. Migrația trebuie să numere ce a atins și să refuze
-dacă numărul nu se potrivește cu ce declară `pg_policies`.
+It is mechanical, but **it must be complete**. The precedent is in the project's
+notes: `ensureRlsEnforcementRole` once left the `zveltio_rls` role with 11 tables
+out of 378, and nothing flagged it. The migration must count what it touched and
+refuse if the number does not match what `pg_policies` declares.
 
-### Cât de mecanic — măsurat 2026-08-26
+### How mechanical — measured 2026-08-26
 
-Pe o bază cu extensiile instalate:
+On a database with the extensions installed:
 
-- **315 politici pe 315 tabele** — exact una per tabelă;
-- **toate 315 identice**, în fiecare privință: `FOR ALL`, rol `public`,
-  `PERMISSIVE`, `USING zveltio_tenant_scope_ok(tenant_id)`, iar `WITH CHECK`
-  **același predicat**;
-- zero politici de tenant cu altă formă.
+- **315 policies on 315 tables** — exactly one per table;
+- **all 315 identical**, in every respect: `FOR ALL`, role `public`,
+  `PERMISSIVE`, `USING zveltio_tenant_scope_ok(tenant_id)`, and `WITH CHECK`
+  **the same predicate**;
+- zero tenant policies of any other shape.
 
-Deci rescrierea e **un singur șablon aplicat de 315 ori**, iar verificarea e o
-interogare: după migrație, toate 315 trebuie să aibă `zveltio_tenant_write_ok`
-în `WITH CHECK` și niciuna să nu mai aibă vechea funcție acolo. Dacă numărul nu e
-315, migrația se oprește.
+So the rewrite is **one template applied 315 times**, and the check is a query:
+after the migration, all 315 must have `zveltio_tenant_write_ok` in `WITH CHECK`
+and none may still have the old function there. If the number is not 315, the
+migration stops.
 
-Din cele 315, doar **4 vin din baseline-ul engine-ului**; restul de 311 sunt
-create de migrațiile extensiilor. Șablonul lor trebuie schimbat odată cu
-migrația, altfel fiecare extensie instalată după aceea reintroduce forma veche.
+Of the 315, only **4** come from the engine's baseline; the other 311 are created
+by extension migrations. Their template must change together with the migration,
+or every extension installed afterwards reintroduces the old shape.
 
-### Un gol găsit pe drum, care privește direct lucrarea asta
+### A gap found along the way, which bears directly on this work
 
-**20 de tabele au `tenant_id` și NICIO politică — și RLS nici măcar activat**
-(`relrowsecurity = false`). Pe o bază fără extensii sunt 25.
+**20 tables have `tenant_id` and NO policy — and RLS is not even enabled**
+(`relrowsecurity = false`). On a database without extensions there are 25.
 
-Reconcilierea de la boot (`reconcileTenantRLS`) rulează **doar pe tabelele de
-colecție** (`zvd_*` din `zvd_collections`, plus `pages`/`views`/`zones`); nu
-atinge tabelele `zv_*` ale engine-ului.
+The boot reconciliation (`reconcileTenantRLS`) runs **only over collection
+tables** (`zvd_*` from `zvd_collections`, plus `pages`/`views`/`zones`); it does
+not touch the engine's `zv_*` tables.
 
-Unele sunt legitim inter-firme și **nu trebuie** să primească politică:
-`zv_tenants`-adiacentele (`zv_tenant_users`, `zv_tenant_usage`,
+Some are legitimately cross-tenant and **must not** get a policy: the
+`zv_tenants` neighbours (`zv_tenant_users`, `zv_tenant_usage`,
 `zv_environments`), `zv_api_keys`, `zv_extension_registry`.
 
-Altele arată a date de firmă care se bazează doar pe filtrarea din aplicație:
+Others look like tenant data relying only on application-side filtering:
 `zv_dashboards`, `zv_flows`, `zv_invitations`, `zv_record_comments`,
-`zv_revisions`, `zv_saved_queries`, plus tabelele de scoring din checklists și
+`zv_revisions`, `zv_saved_queries`, plus the checklist scoring tables and
 `zvd_page_views` / `zvd_webhooks` / `zvd_webhook_deliveries`.
 
-**Nu am verificat dacă vreuna e exploatabilă** — unele pot fi accesate doar prin
-căi care filtrează oricum. Dar contează direct aici: **predicatul ierarhic nu le
-va proteja nici pe ele.** Prima lucrare a implementării ar trebui să fie
-împărțirea acestei liste în „legitim inter-firme" și „lipsă de acoperire", cu
-motivul scris lângă fiecare.
+**I have not checked whether any of these is exploitable** — some may only be
+reachable through paths that filter anyway. But it matters directly here: **the
+hierarchical predicate will not protect them either.** The first task of the
+implementation should be splitting this list into "legitimately cross-tenant"
+and "coverage gap", with the reason written beside each.
 
-## 7. Ordinea de lucru
+## 7. Order of work
 
-1. Migrație de schemă (§4). Aditivă, nu mută date.
-2. Funcțiile noi (§5). `DEFAULT false` face ca nimic să nu se schimbe încă.
-3. Middleware: rezolvă atribuirile → calculează mulțimea vizibilă și lanțul de
-   ascendenți → pune GUC-urile.
-4. Recrearea politicilor (§6), cu numărătoare și refuz la nepotrivire.
-5. Marcarea colecțiilor moștenite în jos.
-6. Testul (§8).
+1. Schema migration (§4). Additive, moves no data.
+2. The new functions (§5). `DEFAULT false` means nothing changes yet.
+3. Middleware: resolve the assignments → compute the visible set and the
+   ancestor chain → set the GUCs.
+4. Recreate the policies (§6), with counting and refusal on mismatch.
+5. Mark the downward-inherited collections.
+6. The test (§8).
 
-## 8. Cum se verifică
+## 8. How it is verified
 
-Un test care construiește arborele în miniatură — rădăcină plus două unități
-surori — și dovedește, pe rânduri reale:
+A test that builds the tree in miniature — a root plus two sibling units — and
+proves, on real rows:
 
-1. Sora A nu vede rândurile sorei B.
-2. Rădăcina vede rândurile ambelor.
-3. Rădăcina **nu poate scrie** în rândurile unei surori.
-4. O atribuire expirată nu mai vede nimic.
-5. Un rând dintr-o colecție moștenită în jos, scris la rădăcină, e vizibil din
-   ambele surori.
-6. Un rând dintr-o colecție **ne**marcată, scris la rădăcină, **nu** e vizibil de
-   dedesubt.
+1. Sibling A does not see sibling B's rows.
+2. The root sees both.
+3. The root **cannot write** into a sibling's rows.
+4. An expired assignment sees nothing.
+5. A row from a downward-inherited collection, written at the root, is visible
+   from both siblings.
+6. A row from an **un**marked collection, written at the root, is **not** visible
+   from below.
 
-Punctul 2 trebuie să pice pe codul de azi. E proba că modelul chiar s-a schimbat.
+Point 2 must fail against today's code. That is the proof the model really
+changed.
 
-## 9. Explicit în afara modelului
+## 9. Explicitly outside the model
 
-- **Vizibilitate doar pe agregat** („văd totalul, nu înregistrările"). RLS e la
-  nivel de rând. Se rezolvă cu vederi sau agregate materializate. Scris aici ca
-  să nu încerce nimeni să o forțeze în politici.
-- **Reședința datelor** — instanță separată, nu rază.
-- **Rânduri cu doi proprietari** — un singur `tenant_id` pe rând. Coproprietatea
-  reală ar cere o tabelă de legătură; se rezolvă prin direcție (proprietar unic
-  la nodul potrivit, vizibil în jos).
+- **Aggregate-only visibility** ("I see the total, not the records"). RLS is
+  row-level. Solved with views or materialised aggregates. Written here so
+  nobody tries to force it into policies.
+- **Data residency** — a separate instance, not a reach.
+- **Rows with two owners** — one `tenant_id` per row. Real co-ownership would
+  need a link table; it is solved through direction (a single owner at the right
+  node, visible downwards).
 
-## 10. Abordări respinse, și de ce
+## 10. Rejected approaches, and why
 
-Sfaturile de mai jos sunt ce întoarce o căutare pe „multi-tenancy BaaS". Sunt
-plauzibile, larg repetate, și **fiecare desface una dintre proprietățile de la
-§3–§5**. Scrise aici fiindcă peste un an cineva le va primi din nou și vor părea
-rezonabile.
+The advice below is what a search for "multi-tenancy BaaS" returns. It is
+plausible, widely repeated, and **each item undoes one of the properties in
+§3–§5**. Written here because in a year somebody will receive it again and it
+will look reasonable.
 
-### „Sediul central are un rol care ocolește RLS"
+### "Head office has a role that bypasses RLS"
 
-Forma obișnuită: `if (role === 'hq_admin') allowedUnits = []` — listă goală
-însemnând „fără restricții".
+The usual form: `if (role === 'hq_admin') allowedUnits = []` — an empty list
+meaning "no restrictions".
 
-**De ce nu.** Un rol care *oprește* impunerea e un rol unde o singură eroare
-scurge tot. Aici sediul central e `read_scope = 'org'`: tot impus de bază, tot
-auditabil, tot vizibil în politici. Un array gol în cod e o gaură; o rază 'org'
-e o politică. Vezi și §12: `rls_bypass` nu devine niciodată mecanismul a nimic.
+**Why not.** A role that *switches off* enforcement is a role where one mistake
+leaks everything. Here head office is `read_scope = 'org'`: still enforced by the
+database, still auditable, still visible in the policies. An empty array in code
+is a hole; an 'org' reach is a policy. See also §12: `rls_bypass` never becomes
+the mechanism for anything.
 
-### „Filtrează în query builder / ORM"
+### "Filter in the query builder / ORM"
 
-Forma obișnuită: un middleware injectează `WHERE org_unit_id IN (…)` în fiecare
-interogare, cu argumentul că „chiar dacă un programator terț uită să filtreze,
-sistemul filtrează oricum".
+The usual form: a middleware injects `WHERE org_unit_id IN (…)` into every
+query, on the argument that "even if a third-party developer forgets to filter,
+the system filters anyway".
 
-**De ce nu.** Adevărat doar dacă interogarea trece prin acel query builder. Zveltio
-are 57 de extensii scrise de terți care își scriu propriul SQL și nu sunt
-obligate să treacă pe acolo. RLS există tocmai ca impunerea să nu depindă de
-disciplina apelantului. Impunerea stă în politicile Postgres; query builder-ul e
-ergonomie, nu graniță.
+**Why not.** True only if the query goes through that query builder. Zveltio has
+57 third-party extensions that write their own SQL and are under no obligation
+to go through it. RLS exists precisely so that enforcement does not depend on
+the caller's discipline. Enforcement lives in the Postgres policies; the query
+builder is ergonomics, not a boundary.
 
-### „Pune unitatea activă în JWT"
+### "Put the active unit in the JWT"
 
-Forma obișnuită: `active_org_unit_id` în token, vândut ca optimizare — „nu mai
-interoghezi tabela de utilizatori la fiecare cerere".
+The usual form: `active_org_unit_id` in the token, sold as an optimisation — "no
+more querying the users table on every request".
 
-**De ce nu.** Raza devine irevocabilă până la expirarea token-ului. Retragi o
-atribuire, iar purtătorul continuă cu raza veche până expiră. Un milisecund pe
-cerere schimbat pe o fereastră de revocare de ore. Atribuirile se rezolvă per
-cerere; §4 le dă `valid_from` / `valid_to` tocmai ca revocarea să fie o dată, nu
-o repovestire.
+**Why not.** The reach becomes irrevocable until the token expires. You withdraw
+an assignment and the bearer continues with the old reach until expiry. One
+millisecond per request traded for a revocation window of hours. Assignments are
+resolved per request; §4 gives them `valid_from` / `valid_to` precisely so that
+revocation is a date, not a retelling.
 
-### „Scrie auditul asincron, după răspuns"
+### "Write the audit asynchronously, after the response"
 
-Forma obișnuită: `setImmediate(() => db.insert(auditLog))`, ca să nu se dubleze
-latența.
+The usual form: `setImmediate(() => db.insert(auditLog))`, to avoid doubling
+latency.
 
-**De ce nu — și asta e măsurat, nu presupus.** O scriere trimisă după răspuns
-rulează pe tranzacția cererii, care e deja comisă și cu conexiunea întoarsă în
-pool. Din `data/import/engine/routes.ts`, despre exact acest tipar:
+**Why not — and this is measured, not assumed.** A write dispatched after the
+response runs on the request's transaction, which is already committed with the
+connection returned to the pool. From `data/import/engine/routes.ts`, about
+exactly this pattern:
 
-> *„The recovery write went to a closed transaction, its `.catch` discarded the
+> *"The recovery write went to a closed transaction, its `.catch` discarded the
 > error, and a job that died left `status: 'pending'`, `errors: []` and not one
 > line anywhere. Measured on a virgin database: an import stayed pending forever
 > with no trace, which is how a broken import reads as a slow one."*
 
-Dacă auditul chiar trebuie scos de pe calea critică, îi trebuie **tranzacția lui
-proprie** (`withTenantIsolation`), nu contextul cererii.
+If the audit really must come off the critical path, it needs **its own
+transaction** (`withTenantIsolation`), not the request's context.
 
-### „Marchează rândurile globale cu `org_unit_id = NULL`"
+### "Mark global rows with `org_unit_id = NULL`"
 
-**De ce nu, ca atare.** Verificat: sub un predicat de egalitate, `NULL = X` dă
-NULL, deci un asemenea rând e invizibil pentru toată lumea, nu vizibil tuturor.
-Azi 17 tabele permit NULL și niciuna nu obține nimic din asta. Vizibilitatea în
-jos se face prin proprietar la un nod ascendent plus steagul de la §3, nu prin
-absența proprietarului.
+**Why not, as stated.** Verified: under an equality predicate, `NULL = X` yields
+NULL, so such a row is invisible to everyone, not visible to everyone. Today 17
+tables allow NULL and none of them gains anything from it. Downward visibility is
+achieved through an owner at an ancestor node plus the flag from §3, not through
+the absence of an owner.
 
-### „Partiționează pe `org_unit_id`"
+### "Partition on `org_unit_id`"
 
-**De ce nu aici.** Bun sfat pentru tenanți independenți cu interogări care ating
-o singură unitate. Într-un arbore, consolidarea atinge *toate* partițiile —
-adaugi cost de planificare exact pe interogarea pentru care există modelul.
+**Why not here.** Good advice for independent tenants with queries touching a
+single unit. In a tree, consolidation touches *every* partition — you add
+planning cost to exactly the query the model exists for.
 
-### „Transferă între unități printr-o funcție cu drepturi de sistem"
+### "Transfer between units through a `SECURITY DEFINER` function"
 
-**De ce nu.** Încă un ocol, și contrazice §4: transferul se jurnalizează. O
-funcție cu drepturi de sistem e o a doua cale de acces care nu apare în nicio
-politică.
+**Why not.** Another bypass, and it contradicts §4: transfers are journalled. A
+`SECURITY DEFINER` function is a second access path that appears in no policy.
 
-## 11. Notat separat
+## 11. Noted separately
 
-Toate instalările rulează **medii de producție**. Schemele `_dev` per unitate,
-`resolveEnvironment` și `provisionEnvironment` devin astfel greutate moartă care
-se înmulțește cu fiecare unitate nouă. Simplificare reală, cu rază de acțiune
-proprie — de decis separat, nu odată cu asta.
+All installations run **production environments**. The per-unit `_dev` schemas,
+`resolveEnvironment` and `provisionEnvironment` therefore become dead weight that
+multiplies with every new unit. A real simplification, with its own blast
+radius — to be decided separately, not together with this.
 
-## 12. Federație — proiectat acum, construit mai târziu
+## 12. Federation — designed now, built later
 
-Ca să nu se rescrie lanțul de acces peste un an, **principalul e polimorf de la
-început**: persoană | serviciu | instanță străină. Un acord către o instanță
-străină e o atribuire ca oricare alta, cu aceeași gramatică de raze și cu
-valabilitate în timp — deci **un singur punct de aplicare**, nu o a doua cale
-mai slabă.
+So that the access chain is not rewritten in a year, **the principal is
+polymorphic from the start**: person | service | foreign instance. An agreement
+with a foreign instance is an assignment like any other, with the same grammar
+of reaches and with validity in time — so **a single enforcement point**, not a
+second, weaker path.
 
-`zv_api_keys` are deja `scopes`, `expires_at`, `allowed_ips` și `casbin_subject`:
-jumătate din mecanism. Ce lipsește e identitatea instanței (cheie publică/mTLS)
-și transportul.
+`zv_api_keys` already has `scopes`, `expires_at`, `allowed_ips` and
+`casbin_subject`: half the mechanism. What is missing is the instance's identity
+(public key / mTLS) and the transport.
 
-**`rls_bypass` nu devine niciodată mecanismul federației.**
+**`rls_bypass` never becomes the mechanism of federation.**
 
 ---
 
-## 13. Note de implementare — ce s-a dovedit altfel (2026-08-26)
+## 13. Implementation notes — what turned out otherwise (2026-08-26)
 
-*Adăugate după implementare, pe ramura `feat/tenancy-hierarchy`. Planul de mai
-sus a fost urmat; patru dintre afirmațiile lui nu au supraviețuit contactului cu
-baza de date, și fiecare conta.*
+*Added after implementation, on the `feat/tenancy-hierarchy` branch. The plan
+above was followed; four of its claims did not survive contact with the
+database, and each of them mattered.*
 
-### §5 — `DEFAULT false` ar fi rupt toate cele 315 politici
+### §5 — `DEFAULT false` would have broken all 315 policies
 
-Planul cerea `zveltio_tenant_scope_ok(row_tenant uuid, inherit_down boolean
-DEFAULT false)` **lângă** funcția existentă cu un argument, ca politicile vechi
-să cheme mai departe cu un argument. Postgres refuză:
+The plan called for `zveltio_tenant_scope_ok(row_tenant uuid, inherit_down
+boolean DEFAULT false)` **beside** the existing one-argument function, so that
+old policies would go on calling with one argument. Postgres refuses:
 
 ```
 ERROR:  function zveltio_tenant_scope_ok(uuid) is not unique
 HINT:  Could not choose a best candidate function.
 ```
 
-Un parametru cu valoare implicită **intră în mulțimea de candidați** pentru un
-apel cu un argument, deci apelul devine ambiguu. Nu la creare — **la fiecare
-interogare**, pe toate cele 315 politici deodată.
+A parameter with a default value **enters the candidate set** for a one-argument
+call, so the call becomes ambiguous. Not at creation time — **on every query**,
+across all 315 policies at once.
 
-Nici înlocuirea prin ștergere nu e disponibilă: o politică ia dependență tare de
-funcția pe care o cheamă, iar `DROP FUNCTION` e refuzat cât timp există politica.
+Replacing by dropping is not available either: a policy takes a hard dependency
+on the function it calls, and `DROP FUNCTION` is refused while the policy exists.
 
-Ce s-a făcut: funcția cu un argument e **rescrisă pe loc** (`CREATE OR REPLACE`,
-aceeași semnătură), iar varianta cu două argumente **nu are valoare implicită**,
-deci nu poate primi un apel cu un argument și nu creează ambiguitate.
+What was done: the one-argument function is **rewritten in place**
+(`CREATE OR REPLACE`, same signature), and the two-argument variant **has no
+default value**, so it cannot receive a one-argument call and creates no
+ambiguity.
 
-### §5 — tabelul de costuri măsura altceva decât rulează politica
+### §5 — the cost table measured something other than what the policy runs
 
-Cifrele din §5 (Index Only Scan, 0,29ms / 10,5ms) sunt reale, dar au fost
-măsurate pe un predicat **scris de mână** — `tenant_id = ANY (...)`. Politicile
-cheamă o **funcție booleană de rând**, care se expandează într-un `CASE` în
-jurul comparației, iar Postgres **nu poate folosi un index printr-un `CASE`**:
-coloana indexată trebuie să apară într-o clauză indexabilă la nivelul de sus.
+The figures in §5 (Index Only Scan, 0.29 ms / 10.5 ms) are real, but they were
+measured against a **hand-written** predicate — `tenant_id = ANY (...)`. The
+policies call a **row-level boolean function**, which expands into a `CASE`
+around the comparison, and Postgres **cannot use an index through a `CASE`**: the
+indexed column must appear in an indexable clause at the top level.
 
-Măsurat pe 500 000 de rânduri, 200 de unități, cu index pe `tenant_id` prezent
-tot timpul:
+Measured on 500,000 rows, 200 units, with the index on `tenant_id` present
+throughout:
 
-| forma predicatului | plan | timp |
+| Predicate form | Plan | Time |
 |---|---|---|
-| funcție booleană de rând (**forma folosită până acum**) | Seq Scan | **249 ms** |
-| `tenant_id = ANY (funcție STABLE care întoarce mulțimea)`, 1 unitate | Index Only Scan | 0,28 ms |
-| aceeași, 42 de unități | Index Only Scan | 10,8 ms |
+| row-level boolean function (**the form used until now**) | Seq Scan | **249 ms** |
+| `tenant_id = ANY (STABLE function returning the set)`, 1 unit | Index Only Scan | 0.28 ms |
+| the same, 42 units | Index Only Scan | 10.8 ms |
 
-Prin urmare **nu costul ierarhiei era problema, ci forma predicatului — de
-dinainte de lucrarea asta.** Migrația scrie politicile în forma indexabilă:
-`USING (tenant_id = ANY (zveltio_visible_tenants()))`. Funcțiile cu nume vechi
-rămân definite peste aceleași mulțimi, fiindcă 57 de migrații de extensii le
-scriu în politicile pe care le creează și nu toate sunt în acest depozit; o
-extensie instalată mâine primește o politică **corectă, dar neindexată**, iar
-reconcilierul de la boot o mută pe forma rapidă.
+So **the cost was not the hierarchy's, it was the predicate's shape — from
+before this work.** The migration writes the policies in the indexable form:
+`USING (tenant_id = ANY (zveltio_visible_tenants()))`. The old-named functions
+stay defined over the same sets, because 57 extension migrations write them into
+the policies they create and not all of them live in this repository; an
+extension installed tomorrow gets a **correct but unindexed** policy, and the
+boot reconciler moves it onto the fast form.
 
-Contează mai mult acum decât înainte: un nod-părinte citește legitim de 42 de
-ori mai multe rânduri, deci ăsta e exact momentul în care o scanare secvențială
-încetează să fie ieftină.
+It matters more now than before: a parent node legitimately reads 42 times more
+rows, so this is exactly the moment a sequential scan stops being cheap.
 
-### Corecție la corecția de mai sus — forma indexabilă nu ține ca POLITICĂ (2026-08-27)
+### A correction to the correction above — the indexable form does not hold AS A POLICY (2026-08-27)
 
-Simptomul de mai sus e real și important. Mecanismul și remediul nu sunt.
+The symptom above is real and important. The mechanism and the remedy are not.
 
-Măsurat pe 500 000 de rânduri din care 2 500 aparțin firmei, cu index prezent,
-`FORCE ROW LEVEL SECURITY` activ — deci cu politica chiar aplicată:
+Measured on 500,000 rows of which 2,500 belong to the tenant, with the index
+present and `FORCE ROW LEVEL SECURITY` active — so with the policy actually
+applied:
 
-| forma, **ca politică** | plan | rânduri scanate |
+| Form, **as a policy** | Plan | Rows scanned |
 |---|---|---|
-| funcție booleană de rând (vechea formă) | Index Only Scan, fără `Index Cond` | 500 000 |
-| `tenant_id = ANY (zveltio_visible_tenants())` — **forma scrisă de migrație** | **Parallel Seq Scan** | 500 000 |
-| predicat scris inline în politică | fără `Index Cond` | 500 000 |
-| înfășurat în `(SELECT …)` | fără `Index Cond` | 500 000 |
-| funcție wrapper marcată `LEAKPROOF` | fără `Index Cond` | 500 000 |
+| row-level boolean function (the old form) | Index Only Scan, no `Index Cond` | 500,000 |
+| `tenant_id = ANY (zveltio_visible_tenants())` — **the form the migration writes** | **Parallel Seq Scan** | 500,000 |
+| the predicate written inline in the policy | no `Index Cond` | 500,000 |
+| wrapped in `(SELECT …)` | no `Index Cond` | 500,000 |
+| a wrapper function marked `LEAKPROOF` | no `Index Cond` | 500,000 |
 
-Aceleași expresii, **ca `WHERE` obișnuit**, se comportă exact cum descrie tabelul
-de mai sus: `= ANY(funcție)` dă `Bitmap Index Scan` cu `Index Cond` pe 2 500 de
-rânduri, iar funcția booleană nu.
+The same expressions, **as an ordinary `WHERE`**, behave exactly as the table
+above describes: `= ANY(function)` gives a `Bitmap Index Scan` with an
+`Index Cond` over 2,500 rows, and the boolean function does not.
 
-**Deci diferența nu e forma predicatului, ci faptul că e politică.** Planificatorul
-estimează qualul de securitate ca potrivind tot — 208 333 de rânduri per worker
-față de 2 492 estimate corect pentru aceeași expresie ca `WHERE`. Fără o
-estimare, nu alege drumul prin index.
+**So the difference is not the predicate's shape, it is the fact that it is a
+policy.** The planner estimates the security qual as matching everything —
+208,333 rows per worker against 2,492 correctly estimated for the same
+expression as a `WHERE`. With no estimate, it does not choose the index path.
 
-Cifra de 0,28ms din tabelul de mai sus a fost aproape sigur măsurată **în afara
-politicii**. E aceeași greșeală de metodă pe care corecția o reproșează,
-corect, versiunii inițiale a acestui document — și pe care a repetat-o.
+The 0.28 ms figure in the table above was almost certainly measured **outside
+the policy**. It is the same methodological mistake this correction rightly
+levels at the initial version of this document — and which it then repeated.
 
-**Ce funcționează, verificat:** politica rămâne, iar interogarea repetă filtrul
-explicit. Politica activă plus `WHERE tenant_id = current_setting(…)` →
-`Index Cond`, 2 500 de rânduri, cost 53 în loc de 6 600. RLS rămâne garanția;
-filtrul explicit e ce are nevoie planificatorul. Se poate injecta o singură dată,
-în proxy-ul cu domeniu de cerere, pentru engine și extensii deopotrivă.
+**What does work, verified:** the policy stays, and the query repeats the filter
+explicitly. The active policy plus `WHERE tenant_id = current_setting(…)` →
+`Index Cond`, 2,500 rows, cost 53 instead of 6,600. RLS remains the guarantee;
+the explicit filter is what the planner needs. It can be injected once, in the
+request-scoped proxy, for the engine and the extensions alike.
 
-**Consecință pentru migrație:** forma nouă a politicilor e semantic corectă și
-nu strică nimic, dar **nu aduce câștigul de performanță invocat ca justificare**
-— iar la `count(*)` e un plan mai prost decât forma veche (Seq Scan față de Index
-Only Scan). Nu e motiv să se dea înapoi; e motiv ca justificarea să nu rămână
-scrisă greșit.
+**Consequence for the migration:** the new policy form is semantically correct
+and breaks nothing, but **it does not deliver the performance gain invoked as
+its justification** — and on `count(*)` it is a worse plan than the old form
+(Seq Scan against Index Only Scan). That is not a reason to back out; it is a
+reason for the justification not to stay written down wrongly.
 
-### §6 — sunt 16 pe o instalare curată, nu 20
+### §6 — there are 16 on a clean installation, not 20
 
-Cele patru care lipsesc — `zvd_pages`, `zvd_views`, `zvd_zones`,
-`zvd_page_views` — **nu există pe o instalare curată**. Sunt tabelele vechi din
-care `content/pages` migrează. Baza pe care s-a măsurat §6 era moștenită
-dinainte de fuziune. Detalii și împărțirea completă în
-`TENANCY-COVERAGE-CLASSIFICATION.md`.
+The four that are missing — `zvd_pages`, `zvd_views`, `zvd_zones`,
+`zvd_page_views` — **do not exist on a clean installation**. They are the old
+tables `content/pages` migrates from. The database §6 was measured on predated
+the merge. Details and the full classification in
+[`TENANCY-COVERAGE-CLASSIFICATION.md`](TENANCY-COVERAGE-CLASSIFICATION.md).
 
-Din cele 16, **5 intră în migrație** și 11 rămân afară cu motiv scris. Cele mai
-multe dintre cele 11 nu sunt „administrative": sunt tabele al căror unic
-cititor e un lucrător de fundal care rulează **pe pool, fără GUC** — unde o
-politică n-ar proteja nimic, ar stinge tăcut funcția. `zv_flows`,
-`zvd_webhooks`, `zv_revisions` și `zv_dashboards` sunt exact asta, iar
-`insightsRoutes(poolDb, …)` / `flowsRoutes(poolDb, …)` o spun în `routes/index.ts`.
+Of the 16, **5 enter the migration** and 11 stay out with a written reason. Most
+of the 11 are not "administrative": they are tables whose only reader is a
+background worker running **on the pool, with no GUC** — where a policy would
+protect nothing and would silently switch the feature off. `zv_flows`,
+`zvd_webhooks`, `zv_revisions` and `zv_dashboards` are exactly that, and
+`insightsRoutes(poolDb, …)` / `flowsRoutes(poolDb, …)` say so in
+`routes/index.ts`.
 
-**Una era exploatabilă**, iar §6 lăsase întrebarea deschisă:
-`GET /ext/workflow/checklists/templates/:id/scoring-schemes` citea schemele de
-punctaj ale altei firme. Dovedit pe rânduri reale, reparat, și acum acoperit de
-politică.
+**One was exploitable**, and §6 had left the question open:
+`GET /ext/workflow/checklists/templates/:id/scoring-schemes` read another
+tenant's scoring schemes. Proved on real rows, fixed, and now covered by a
+policy.
 
-### §6 — „dacă numărul nu e 315, migrația se oprește" e prea rigid
+### §6 — "if the number is not 315, the migration stops" is too rigid
 
-315 e ce are o instalare cu toate extensiile. O bază doar cu engine-ul are 4.
-Migrația nu poate ști numărul dinainte. Invariantul echivalent și verificabil pe
-orice instalare: **numărul rescris = numărul găsit**, **zero politici rămase pe
-predicatul vechi**, și toate cele rescrise poartă ambele predicate noi. Migrația
-se oprește dacă vreuna nu ține.
+315 is what an installation with every extension has. A database with only the
+engine has 4. The migration cannot know the number in advance. The equivalent
+invariant, checkable on any installation: **the number rewritten = the number
+found**, **zero policies left on the old predicate**, and every rewritten one
+carries both new predicates. The migration stops if any of these fails.
 
-### Un gol găsit în reconcilier, nu în plan
+### A gap found in the reconciler, not in the plan
 
-`reconcileExtensionTenantRLS` filtra tabelele după prefixul `zv_`/`zvd_`. Cele
-11 tabele `trace_*` din `compliance/traceability` au `tenant_id`, declară
-politică `tenant_isolation_*` și **erau sărite de fiecare boot** — deci
-garanția „gazda pune fiecare tabelă de extensie pe predicatul gazdei" nu era
-adevărată, și nimic nu o spunea. Prefixul nu era ce făcea operația sigură;
-numele e în continuare validat ca identificator simplu înainte de interpolare.
+`reconcileExtensionTenantRLS` filtered tables by the `zv_`/`zvd_` prefix. The 11
+`trace_*` tables in `compliance/traceability` have `tenant_id`, declare a
+`tenant_isolation_*` policy, and **were skipped at every boot** — so the
+guarantee "the host puts every extension table on the host's predicate" was not
+true, and nothing said so. The prefix was not what made the operation safe; the
+name is still validated as a plain identifier before interpolation.
 
-### Ce NU s-a făcut din §4, deliberat
+### What was deliberately NOT done from §4
 
-Cele patru coloane de abonament (`plan`, `trial_ends_at`, `billing_email`,
-`max_api_calls_day`) **nu au fost șterse**. Toate patru sunt vii:
-`routes/tenants.ts` le acceptă și le întoarce, Studio are formular pe `plan`, iar
-`max_api_calls_day` **e** mecanismul de cotă din `middleware/tenant-quota.ts` —
-ștergerea lui nu e curățenie, e oprirea cotelor per firmă. Restul planului e
-aditiv; asta ar fi fost singura lui parte distructivă, și nu e cerută de nimic
-altceva din el. Precedentul pentru amânare e în depozit: jumătatea de
-*contracție* a migrației 048 e un reconciliator pe care operatorul îl armează
-(`contractImportLogs`), nu o migrație. Decizie de proprietar.
+The four subscription columns (`plan`, `trial_ends_at`, `billing_email`,
+`max_api_calls_day`) **were not dropped**. All four are live: `routes/tenants.ts`
+accepts and returns them, Studio has a form on `plan`, and `max_api_calls_day`
+**is** the quota mechanism in `middleware/tenant-quota.ts` — dropping it is not
+tidying, it is switching off per-tenant quotas. The rest of the plan is additive;
+this would have been its only destructive part, and nothing else in it requires
+it. The precedent for deferring is in the repository: the *contract* half of
+migration 048 is a reconciler the operator arms (`contractImportLogs`), not a
+migration. An owner decision.

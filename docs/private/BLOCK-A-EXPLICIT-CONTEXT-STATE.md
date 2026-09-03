@@ -1,412 +1,450 @@
-# Stare — Blocul A: contextul de firmă devine explicit
+# State — Block A: tenant context becomes explicit
 
-> **Se citește la începutul fiecărui pas. Se actualizează după fiecare pas.**
-> Branch: `block-a/explicit-context` · Plan: `MATURITY-REFACTOR-PLAN.md` §Blocul A.
-> Ordinea C → B → F → **A**, aleasă după **ce se întâmplă dacă greșim**.
-> C s-a închis cu 3 din 4, B cu 4 din 4, F cu 3 din 4 plus unul anulat — **niciunul cu
-> criteriile rescrise după ce s-au văzut cifrele.**
-
----
-
-## De ce e ultimul, și de ce e cel mai periculos
-
-E **singurul bloc care poate rupe izolarea tăcut.** C și B au fost făcute înainte tocmai
-ca o greșeală de aici să devină zgomotoasă în loc de invizibilă:
-
-- un `finally` **sincron** a golit odată tranzacția devreme și a lăsat **302 politici
-  inerte, cu testele verzi**;
-- `zveltio_rls` a rămas odată cu 11 tabele din 378, și verdele venea din `NODE_ENV=test`.
-
-Ambele s-au întâmplat în acest cod. Blocul trece prin exact același teren.
-
-## Problema, așa cum e descrisă în plan
-
-`registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth })`. Acel `scopedDb` e un
-`Proxy` al cărui `get` citește `getCurrentTenantTrx()` **la fiecare acces de proprietate**.
-Un `Proxy.get` e **sincron** — nu poate aștepta deschiderea unei tranzacții. De aici, în
-lanț: tranzacția se deschide înainte de handler, ține toată cererea, fixează o conexiune
-din pool, iar la `DB_POOL_MAX` concurența se blochează.
+> **Read at the start of every step. Update after every step.**
+> Branch: `block-a/explicit-context` · Plan: `MATURITY-REFACTOR-PLAN.md` §Block A.
+> Order C → B → F → **A**, chosen by **what happens if we get it wrong**.
+> C closed at 3 of 4, B at 4 of 4, F at 3 of 4 plus one cancelled — **none of them
+> with the criteria rewritten after the numbers were seen.**
 
 ---
 
-## Criteriile punctului de validare — SCRISE ÎNAINTE DE MĂSURARE
+## Why it is last, and why it is the most dangerous
 
-1. **Plafonul de concurență s-a mutat, măsurat la aceeași `DB_POOL_MAX`** — aceeași bază,
-   aceeași rută, aceeași sarcină. Nu „pare mai rapid": p95 la concurență peste pool.
-2. **Nicio regresie de izolare.** Suita completă verde ȘI o probă care arată că o cerere
-   fără context de firmă **nu** poate citi date de firmă.
-3. **Orice sit ratat e eroare de compilare**, nu scurgere la rulare — asta e diferența
-   dintre refactorizarea asta și cele două incidente de mai sus.
-4. **Contractul SDK rămâne valid** pentru extensiile existente, sau are perioadă de
-   tranziție scrisă.
+It is **the only block that can break isolation silently.** C and B were done
+first precisely so that a mistake here becomes noisy instead of invisible:
 
-**CRITERIU DE OPRIRE, scris acum:** dacă **pasul 1** arată că plafonul **nu se mută** —
-că timpul în care conexiunea e ținută degeaba e mic față de durata cererii — blocul se
-închide acolo. Restul pașilor nu se fac. Planul spune asta explicit, și e singurul bloc
-căruia i s-a scris dinainte dreptul de a se opri la prima măsurătoare.
+- a **synchronous** `finally` once emptied the transaction early and left **302
+  policies inert, with the tests green**;
+- `zveltio_rls` was once left with 11 tables out of 378, and the green came from
+  `NODE_ENV=test`.
 
-**Ce NU e criteriu:** eleganța. Un `db` explicit e mai verbos; asta nu e un argument nici
-pentru, nici împotriva.
+Both happened in this code. This block walks the same ground.
+
+## The problem, as the plan describes it
+
+`registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth })`. That `scopedDb` is
+a `Proxy` whose `get` reads `getCurrentTenantTrx()` **on every property access**.
+A `Proxy.get` is **synchronous** — it cannot await opening a transaction. From
+there, in a chain: the transaction opens before the handler, is held for the
+whole request, pins a pool connection, and at `DB_POOL_MAX` concurrency stalls.
 
 ---
 
-## Pași
+## Validation-point criteria — WRITTEN BEFORE MEASURING
 
-| # | Pas | Stare | Rezultat |
+1. **The concurrency ceiling has moved, measured at the same `DB_POOL_MAX`** —
+   same database, same route, same load. Not "feels faster": p95 at concurrency
+   above the pool.
+2. **No isolation regression.** The full suite green AND a probe showing that a
+   request with no tenant context **cannot** read tenant data.
+3. **Any missed site is a compile error**, not a runtime leak — that is the
+   difference between this refactor and the two incidents above.
+4. **The SDK contract stays valid** for existing extensions, or has a written
+   transition period.
+
+**STOP CRITERION, written now:** if **step 1** shows the ceiling **does not
+move** — that the time a connection is held for nothing is small against the
+request's duration — the block closes there. The remaining steps are not done.
+The plan says this explicitly, and it is the only block that was given, in
+advance, the right to stop at the first measurement.
+
+**What is NOT a criterion:** elegance. An explicit `db` is more verbose; that is
+an argument neither for nor against.
+
+---
+
+## Steps
+
+| # | Step | State | Result |
 |---|---|---|---|
-| 0 | Citește documentul ăsta | — | (la fiecare pas) |
-| 1 | **Măsoară** cât e ținută efectiv o conexiune pe o cerere reală, față de cât ar fi cu tranzacții scurte | ✅ **FĂCUT** | plafonul e real; câștigul e ~2,3×, **nu „dispare”** |
-| 2 | Inventar | ✅ | **89 de situri — dar inventarul NU e reparația. Vezi mai jos.** |
-| 3 | Accesorul explicit, `async`, ca TypeScript să prindă siturile ratate | DE FĂCUT | — |
-| 4 | Poartă: nicio interogare pe date de firmă în afara tranzacției | DE FĂCUT | — |
-| 5 | Migrarea rutelor nucleu, bucăți de ~10, suita verde între ele | DE FĂCUT | — |
-| 6 | Contractul SDK pentru extensii, cu tranziție | DE FĂCUT | — |
-| 7 | **PUNCT DE VALIDARE** | DE FĂCUT | — |
+| 0 | Read this document | — | (at every step) |
+| 1 | **Measure** how long a connection is actually held on a real request, against how long it would be with short transactions | ✅ **DONE** | the ceiling is real; the gain is ~2.3×, **not "it disappears"** |
+| 2 | Inventory | ✅ | **89 sites — but the inventory is NOT the fix. See below.** |
+| 3 | The explicit accessor, `async`, so TypeScript catches missed sites | TO DO | — |
+| 4 | Gate: no query on tenant data outside the transaction | TO DO | — |
+| 5 | Migrate the core routes, in batches of ~10, suite green between them | TO DO | — |
+| 6 | The SDK contract for extensions, with a transition | TO DO | — |
+| 7 | **VALIDATION POINT** | TO DO | — |
 
 ---
 
-## Măsurătoarea (pasul 1, 2026-08-30)
+## The measurement (step 1, 2026-08-30)
 
-Motor viu pe `:3400`, colecție cu 50 000 de rânduri, `/api/data/benchrows?limit=25`,
-sarcină reală prin HTTP cu sesiune god. Probe din `pg_stat_activity` în timpul sarcinii.
+Live engine on `:3400`, a 50,000-row collection,
+`/api/data/benchrows?limit=25`, real load over HTTP with a god session. Samples
+from `pg_stat_activity` during the load.
 
-### Plafonul există, e exact la `DB_POOL_MAX`, și deasupra lui serviciul SE OPREȘTE
+### The ceiling exists, is exactly at `DB_POOL_MAX`, and above it the service STOPS
 
-| `DB_POOL_MAX` | c | cereri | erori | p95 | stări în pool |
+| `DB_POOL_MAX` | c | requests | errors | p95 | pool states |
 |---:|---:|---:|---:|---:|---|
-| 10 | 5 | 2 146 | 0 | 19,6 ms | `idle in transaction×4` |
-| 10 | **10** | **10** | **10** | **9 724 ms** | **`idle in transaction×10`, `active×1`** |
-| 10 | 15 / 20 / 30 | = c | toate | ~11 975 ms | identic |
-| 25 | 20 | 2 603 | 0 | 59,6 ms | — |
-| 25 | **25** | **25** | **25** | **10 489 ms** | — |
+| 10 | 5 | 2,146 | 0 | 19.6 ms | `idle in transaction×4` |
+| 10 | **10** | **10** | **10** | **9,724 ms** | **`idle in transaction×10`, `active×1`** |
+| 10 | 15 / 20 / 30 | = c | all | ~11,975 ms | identical |
+| 25 | 20 | 2,603 | 0 | 59.6 ms | — |
+| 25 | **25** | **25** | **25** | **10,489 ms** | — |
 
-Nu e o degradare, e o oprire: la `c = DB_POOL_MAX` fiecare conexiune e ținută
-`idle in transaction` și **una singură lucrează**. Motorul refuză în loc să aștepte
-(garda `pool_busy`, din lucrarea de limită de tranzacție), deci răspunde cu eroare în loc
-să atârne — dar răspunde cu eroare.
+This is not degradation, it is a stall: at `c = DB_POOL_MAX` every connection is
+held `idle in transaction` and **exactly one is working**. The engine refuses
+rather than waits (the `pool_busy` guard, from the transaction-boundary work), so
+it answers with an error instead of hanging — but it answers with an error.
 
-**Plafonul se mută liniar cu `DB_POOL_MAX`, și cu nimic altceva.**
+**The ceiling moves linearly with `DB_POOL_MAX`, and with nothing else.**
 
-### Cât din timpul ținut e muncă reală
+### How much of the held time is real work
 
-Douăzeci de probe în timpul unei sarcini la c=5, `DB_POOL_MAX=10`:
+Twenty samples during a load at c=5, `DB_POOL_MAX=10`:
 
-| | conexiuni |
+| | connections |
 |---|---:|
-| `active` — muncă reală | **2,20** |
-| `idle in transaction` — ținute degeaba | **2,85** |
-| **fracțiunea de muncă reală** | **44%** |
+| `active` — real work | **2.20** |
+| `idle in transaction` — held for nothing | **2.85** |
+| **fraction of real work** | **44%** |
 
-### Ce înseamnă, și de ce corectează planul
+### What it means, and why it corrects the plan
 
-Planul spune că, prin tranzacții scurte, **„plafonul de concurență dispare, fiindcă o
-conexiune e ținută microsecunde, nu milisecunde"**. Măsurătoarea nu susține asta.
+The plan says that, with short transactions, **"the concurrency ceiling
+disappears, because a connection is held for microseconds, not milliseconds"**.
+The measurement does not support that.
 
-56% din timpul în care o conexiune e ținută e petrecut `idle in transaction`. Cu tranzacții
-scurte, capacitatea la același pool ar crește cu aproximativ **1 / 0,44 ≈ 2,3×** — de la
-c≈10 la c≈23 pe un pool de 10. Real, dar **nu nemărginit**, și nu „dispare".
+56% of the time a connection is held is spent `idle in transaction`. With short
+transactions, capacity at the same pool would rise by roughly **1 / 0.44 ≈ 2.3×**
+— from c≈10 to c≈23 on a pool of 10. Real, but **not unbounded**, and not
+"disappears".
 
-**Rezerva la propria mea cifră:** 44% vine dintr-o sarcină sub saturație, pe o rută simplă
-(o listare de 25 de rânduri) cu baza locală. O cerere cu mai multă muncă per apel ar
-deplasa raportul în oricare direcție. Cifra e un ordin de mărime, nu o promisiune.
+**A reservation about my own figure:** 44% comes from a load below saturation, on
+a simple route (a 25-row listing) with a local database. A request doing more
+work per call would shift the ratio in either direction. The number is an order
+of magnitude, not a promise.
 
-### Alternativa ieftină, măsurată alături
+### The cheap alternative, measured alongside
 
-`DB_POOL_MAX` mută același plafon, liniar, **fără nicio schimbare de cod**: de la 10 la 25
-plafonul urcă de la c=10 la c=25. E limitat de `max_connections / instanțe`, și e chiar
-decizia de proprietar din §Blocul E.
+`DB_POOL_MAX` moves the same ceiling, linearly, **with no code change at all**:
+from 10 to 25 the ceiling rises from c=10 to c=25. It is bounded by
+`max_connections / instances`, and it is precisely the owner decision in
+§Block E.
 
-Deci întrebarea nu e „merită plafonul mutat" — e **„merită mutat cu 2,3× prin cel mai
-riscant refactor din plan, când o linie de configurație îl mută liniar"**. Asta e o decizie
-de proprietar, nu de inginerie, și blocul se oprește aici până când e luată.
+So the question is not "is it worth moving the ceiling" — it is **"is it worth
+moving it by 2.3× through the riskiest refactor in the plan, when one line of
+configuration moves it linearly"**. That is an owner decision, not an engineering
+one, and the block stops here until it is taken.
 
-**Criteriul de oprire NU s-a activat literal** — 56% nu e „mic". Dar cifra e destul de
-departe de promisiunea planului cât să nu deschid pașii 2–7 fără ca proprietarul să vadă
-comparația.
+**The stop criterion did NOT trigger literally** — 56% is not "small". But the
+figure is far enough from the plan's promise that I will not open steps 2–7
+without the owner seeing the comparison.
 
-## Varianta aleasă: 3 — configurația acum, refactorul când nu mai ajunge
+## The chosen variant: 3 — configuration now, the refactor when it is no longer enough
 
-Proprietarul a ales să ridice plafonul prin `DB_POOL_MAX` întâi, și să lase Blocul A
-pentru când plafonul ridicat nu mai ajunge. Cele două nu se exclud, iar prima e gratuită.
+The owner chose to raise the ceiling through `DB_POOL_MAX` first, and to leave
+Block A for when the raised ceiling stops being enough. The two are not mutually
+exclusive, and the first is free.
 
-**Și nu era nimic de construit.** Pârghia e deja expusă, măsurată și păzită:
-`reportConcurrencyCeiling` tipărește la fiecare boot aritmetica — ce plafon ai, ce permite
-serverul, câte instanțe încap — sugerează o valoare care încă lasă loc pentru patru
-instanțe, și avertizează când sub două mai încap. Implicitul e **deliberat neridicat**, cu
-motivul scris: un implicit e moștenit de fiecare instalare, inclusiv de cele cu mai multe
-motoare pe un Postgres, unde 25 de fiecare l-au epuizat deja. Ridicarea e o decizie de
-operator luată împotriva unui `max_connections` pe care l-a verificat.
+**And there was nothing to build.** The lever is already exposed, measured and
+guarded: `reportConcurrencyCeiling` prints the arithmetic at every boot — what
+ceiling you have, what the server allows, how many instances fit — suggests a
+value that still leaves room for four instances, and warns when fewer than two
+fit. The default is **deliberately not raised**, with the reason written down: a
+default is inherited by every installation, including those with several engines
+on one Postgres, where 25 each has already exhausted it. Raising it is an
+operator decision taken against a `max_connections` they have checked.
 
-Am verificat și că `scripts/bench-concurrency.ts`, la care trimite garda, **există** — o
-recomandare care arată spre un script inexistent e chiar clasa `dr-drill.sh`.
+I also verified that `scripts/bench-concurrency.ts`, which the guard points at,
+**exists** — a recommendation pointing at a non-existent script is exactly the
+`dr-drill.sh` class.
 
-### Ce am găsit totuși, și e real
+### What I did find, and it is real
 
-**Codul construiește un pool de 25. Documentația publică spunea 10.**
+**The code builds a pool of 25. The public documentation said 10.**
 
-`DEFAULT_DB_POOL_MAX = 25` în `db/index.ts`, dar `docs/site/CONFIGURATION.md` documenta
-implicitul ca `10`. Un operator care își dimensionează `max_connections` din documentație
-bugetează 10 pe instanță și primește 25 — de două ori și jumătate mai multe conexiuni
-decât a planificat. A doua instanță pică cu *„sorry, too many clients already"*, exact
-avertismentul pe care garda de boot îl tipărește.
+`DEFAULT_DB_POOL_MAX = 25` in `db/index.ts`, but
+`docs/platform/configuration.md` documented the default as `10`. An operator
+sizing `max_connections` from the documentation budgets 10 per instance and gets
+25 — two and a half times more connections than planned. The second instance
+fails with *"sorry, too many clients already"*, exactly the warning the boot
+guard prints.
 
-E **a treia ortografie a aceluiași număr**. Primele două au fost reconciliate deja, printr-un
-test scris tocmai pentru asta — `pool-max-single-source.test.ts`, care există fiindcă
-`initDatabase` construia cu `?? 25` în timp ce `startup-guards.ts` raționa cu `?? 10`.
-Testul păzea codul; copia pe care o citește **omul** a rămas pe dinafară.
+It is the **third spelling of the same number**. The first two were already
+reconciled, by a test written for exactly this —
+`pool-max-single-source.test.ts`, which exists because `initDatabase` built with
+`?? 25` while `startup-guards.ts` reasoned with `?? 10`. The test guarded the
+code; the copy a **human** reads was left out.
 
-Reparat, și adăugat la același test — dovedit prin revenire: cu `10` în documentație pică,
-cu `25` trece.
+Fixed, and added to that same test — proved by reverting: with `10` in the
+documentation it fails, with `25` it passes.
 
-## Pasul mic, făcut: căderea pe pool devine vizibilă
+## The small step, done: falling back to the pool becomes visible
 
-Întrebarea proprietarului care a produs pasul ăsta: *„dacă scapă de engine și de PgDog, nu
-vine RLS-ul care protejează?"* Măsurat pe aceeași tabelă, cu `FORCE ROW LEVEL SECURITY` și
-politica de producție:
+The owner's question that produced this step: *"if it escapes the engine and
+PgDog, doesn't RLS come in and protect?"* Measured on the same table, with
+`FORCE ROW LEVEL SECURITY` and the production policy:
 
 ```
-pool brut, rol postgres              : 2 rânduri — A+B    ← RLS NU protejează
-tranzacție de firmă, rol zveltio_rls : 1 rânduri — A      ← RLS protejează
+raw pool, postgres role              : 2 rows — A+B    ← RLS does NOT protect
+tenant transaction, zveltio_rls role : 1 row  — A      ← RLS protects
 ```
 
-**RLS-ul e real și funcționează, dar e ARMAT de tranzacție.** Motorul se conectează ca
-`postgres` — `rolsuper=true`, `rolbypassrls=true` — iar un superuser ocolește RLS
-întotdeauna. Protecția vine din `SET LOCAL ROLE zveltio_rls`, care coboară privilegiile, și
-acel `SET LOCAL` trăiește exact în tranzacția pe care `?? pool` o sare. Nu e o a doua linie
-de apărare acolo; **e aceeași linie.**
+**RLS is real and it works, but it is ARMED by the transaction.** The engine
+connects as `postgres` — `rolsuper=true`, `rolbypassrls=true` — and a superuser
+always bypasses RLS. The protection comes from `SET LOCAL ROLE zveltio_rls`,
+which descends privileges, and that `SET LOCAL` lives exactly in the transaction
+that `?? pool` skips. There is no second line of defence there; **it is the same
+line.**
 
-De aceea „deschide tranzacția mai târziu" n-a fost niciodată o schimbare mică: greșeala nu
-se vede.
+That is why "open the transaction later" was never a small change: the mistake
+is invisible.
 
-### Ce s-a construit
+### What was built
 
-Un contor în `createRequestScopedDb`, cu `ZVELTIO_STRICT_TENANT_SCOPE=1` pentru cine îl
-vrea zgomotos. Implicit **nu schimbă niciun comportament de producție** — se livrează ca
-diagnostic, iar o aruncare aici pe un apel legitim de boot ar culca o instalare.
+A counter in `createRequestScopedDb`, with `ZVELTIO_STRICT_TENANT_SCOPE=1` for
+anyone who wants it loud. By default it **changes no production behaviour** — it
+ships as a diagnostic, and throwing here on a legitimate boot call would put an
+installation on the floor.
 
-Plus `unscoped-fallback.test.ts`: trece cereri reale prin aplicația reală și cere ca
-numărul să rămână zero. Al doilea caz produce o cădere **intenționat**, ca un zero să nu
-poată fi un contor care nu se mișcă niciodată.
+Plus `unscoped-fallback.test.ts`: it drives real requests through the real
+application and requires the number to stay zero. The second case produces a
+fallback **deliberately**, so that a zero cannot be a counter that never moves.
 
-### Prima versiune era prea grosieră, și instrumentul a spus-o singur
+### The first version was too coarse, and the instrument said so itself
 
-La prima rulare a raportat **două căderi** în trei cereri obișnuite. Nu erau scurgeri:
+On its first run it reported **two fallbacks** in three ordinary requests. They
+were not leaks:
 
-| sit | tabela |
+| Site | Table |
 |---|---|
 | `middleware/rate-limit.ts:23` | `zv_rate_limit_configs` |
 | `ddl-manager.getCollections` | `zvd_collections` |
 | `routes/tenants.ts:80` | `zv_tenants` |
 
-**Toate trei sunt de instanță** — chiar clasificarea pe care Blocul B a stabilit-o și a
-verificat-o 362/362. Un contor care nu deosebește o tabelă partajată de una de firmă
-raportează cod corect drept scurgere, și așa se ajunge ca o poartă să fie oprită.
+**All three are instance-level** — exactly the classification Block B
+established and verified 362/362. A counter that cannot tell a shared table from
+a tenant one reports correct code as a leak, and that is how a gate ends up
+switched off.
 
-Reparat: contorul cunoaște acum granița, citită din `information_schema` la boot — după
-migrațiile extensiilor, unde tabelele își capătă `tenant_id`. **Nu o listă generată**:
-răspunsul e derivabil din baza însăși, deci n-are ce se învechi.
+Fixed: the counter now knows the boundary, read from `information_schema` at
+boot — after the extension migrations, where tables acquire their `tenant_id`.
+**Not a generated list**: the answer is derivable from the database itself, so
+there is nothing to go stale.
 
-Deci Blocul B nu doar a clasificat granița — a făcut posibil instrumentul care o apără la
-rulare. Ordinea C → B → F → A s-a plătit aici.
+So Block B did not merely classify the boundary — it made possible the
+instrument that defends it at runtime. The order C → B → F → A paid for itself
+here.
 
-## Modelul de administrare — cerut de proprietar, 2026-08-30
+## The administration model — requested by the owner, 2026-08-30
 
-**Un singur superadmin pe instanță (`god`), care instalează extensiile. Administratori
-per firmă, care gestionează doar firma lor. Iar când god creează o firmă, trebuie să fie
-obligat să creeze și administratorul ei.**
+**One superadmin per instance (`god`), who installs the extensions.
+Administrators per tenant, who manage only their own. And when god creates a
+tenant, they must be forced to create its administrator too.**
 
-### Ce era, măsurat
+### What it was, measured
 
-`requireInstanceAdmin` = god **SAU** admin al firmei implicite. Al doilea braț e potrivit
-pentru majoritatea operațiilor de instanță și greșit pentru instalare: pune **cod nou** pe
-instanță, iar migrațiile unei extensii pot altera tabelele engine-ului — extensia `ai`
-adaugă trei coloane la `zvd_collections`, măsurat azi. Într-un holding, firma implicită e
-compania-mamă, deci administratorul ei ar decide ce cod rulează la filiale.
+`requireInstanceAdmin` = god **OR** an admin of the default tenant. The second
+arm is right for most instance operations and wrong for installation: it puts
+**new code** on the instance, and an extension's migrations can alter engine
+tables — the `ai` extension adds three columns to `zvd_collections`, measured
+today. In a holding company, the default tenant is the parent company, so its
+administrator would decide what code runs at the subsidiaries.
 
-**Făcut:** zece operații care schimbă instanța — install, enable, enable-all, disable,
-config, uninstall, aprobarea capabilităților, plus cele trei de licență — trec de la
-`requireInstanceAdmin` la `isGodUser`. Cele două rute de **citire** rămân pe admin: a
-vedea ce s-ar putea instala nu strică nimic, iar retragerea lor ar goli pagina din Studio.
+**Done:** ten operations that change the instance — install, enable, enable-all,
+disable, config, uninstall, capability approval, plus the three licence ones —
+move from `requireInstanceAdmin` to `isGodUser`. The two **read** routes stay on
+admin: seeing what could be installed harms nothing, and withdrawing them would
+empty the Studio page.
 
-Consecință, spusă nu descoperită: **o instanță fără god nu mai poate instala nimic** până
-la `zveltio create-god`. Aia e forma cerută, nu o scăpare.
+Consequence, stated rather than discovered: **an instance with no god can no
+longer install anything** until `zveltio create-god`. That is the requested
+shape, not an oversight.
 
-### Activarea per firmă: era IMPOSIBILĂ, nu doar neimplementată
+### Per-tenant activation: it was IMPOSSIBLE, not merely unimplemented
 
-Migrația `070` a adăugat `zv_extension_registry.tenant_id` cu comentariul *„NULL =
-instanță, setat = doar acea firmă"*, plus două indexuri, iar listarea din marketplace îl
-respecta. **Dar `UNIQUE (name)` pe aceeași tabelă face ca o extensie să aibă exact un rând**
-— iar `onConflict` e chiar pe `name`, deci fiecare instalare suprascrie tenant-ul.
-Dovedit:
+Migration `070` added `zv_extension_registry.tenant_id` with the comment *"NULL =
+instance, set = that tenant only"*, plus two indexes, and the marketplace listing
+respected it. **But `UNIQUE (name)` on the same table means an extension has
+exactly one row** — and `onConflict` is on `name`, so every install overwrites
+the tenant. Proved:
 
 ```
-INSERT ai pentru firma-A  → ok
-INSERT ai pentru firma-B  → ERROR: duplicate key ... Key (name)=(ai) already exists
+INSERT ai for tenant-A  → ok
+INSERT ai for tenant-B  → ERROR: duplicate key ... Key (name)=(ai) already exists
 ```
 
-Deci `tenant_id` putea reține doar **cine a instalat ultimul**. Încărcătorul, care îl
-ignora, avea din întâmplare singurul comportament corect — iar listarea arăta unei firme o
-extensie ca absentă în timp ce codul ei rula pentru toată lumea.
+So `tenant_id` could only record **who installed last**. The loader, which
+ignored it, happened to have the only correct behaviour — and the listing showed
+one tenant an extension as absent while its code ran for everybody.
 
-**Făcut:** listarea raportează acum ce face runtime-ul — activă dacă **orice** rând al ei e
-activ. Coloana și indexurile rămân, cu explicația lângă ele.
+**Done:** the listing now reports what the runtime does — active if **any** of
+its rows is active. The column and indexes stay, with the explanation beside
+them.
 
-**Ce ar cere activarea reală per firmă**, acum că se știe: cheia unică lărgită de la
-`(name)` la `(tenant_id, name)` — campania din `005_tenant_scoped_unique_keys` — **plus**
-gating per cerere, fiindcă extensiile își înregistrează rutele și hook-urile într-un singur
-proces. Nu e un filtru pe o interogare de încărcare.
+**What real per-tenant activation would require**, now that it is known: the
+unique key widened from `(name)` to `(tenant_id, name)` — the
+`005_tenant_scoped_unique_keys` campaign — **plus** per-request gating, because
+extensions register their routes and hooks in a single process. It is not a
+filter on a load query.
 
-### O firmă nu se mai poate crea fără administratorul ei
+### A tenant can no longer be created without its administrator
 
-`admin_user_email` era validat ca **format de e-mail**, niciodată ca utilizator existent. O
-greșeală de tastare producea o firmă fără apartenență și fără rol Casbin — și un **201**
-care spunea că a mers. Comentariul rutei descria exact asta ca fiind eșecul de evitat:
+`admin_user_email` was validated as an **email format**, never as an existing
+user. A typo produced a tenant with no membership and no Casbin role — and a
+**201** saying it had worked. The route's comment described exactly this as the
+failure to avoid:
 
-> *„A tenant row with no membership is a tenant NOBODY can reach… only an instance admin
-> querying the table directly would ever find out it exists."*
+> *"A tenant row with no membership is a tenant NOBODY can reach… only an
+> instance admin querying the table directly would ever find out it exists."*
 
-Intenția era scrisă, codul făcea invers.
+The intent was written down; the code did the opposite.
 
-**Reparat**, cu o capcană pe drum care merită păstrată: prima versiune întorcea o valoare
-din tranzacție, deci **firma rămânea scrisă** — `return` dintr-o tranzacție COMITE, exact
-lecția campaniei de scrieri atomice. Testul a prins-o fiindcă verifică tabela, nu doar
-codul de stare. Acum aruncă, deci se derulează înapoi.
+**Fixed**, with a trap along the way worth keeping: the first version returned a
+value from the transaction, so **the tenant stayed written** — `return` from a
+transaction COMMITS, exactly the lesson of the atomic-writes campaign. The test
+caught it because it checks the table, not just the status code. It now throws,
+so it rolls back.
 
-## Ce NU se atinge
+## What is NOT touched
 
-- **Politica RLS, forma predicatului, clasificarea graniței.** B și F le-au închis.
-- **Rolul de conectare al engine-ului.** Decis măsurat că nu se schimbă.
-- **Ierarhia de firme.** Lucrare separată, necomisă.
+- **The RLS policy, the predicate's shape, the boundary classification.** B and F
+  closed those.
+- **The engine's connection role.** Measured and decided not to change.
+- **The tenant hierarchy.** Separate work, uncommitted.
 
 ---
 
-## Jurnal
+## Log
 
-| Când | Pas | Ce s-a întâmplat |
+| When | Step | What happened |
 |---|---|---|
-| 2026-08-30 | model | Instalarea extensiilor trece pe **god** (10 operații); citirea rămâne pe admin. **Activarea per firmă era IMPOSIBILĂ** — `UNIQUE (name)` pe registry, dovedit; listarea spune acum adevărul. **O firmă nu se mai poate crea fără administratorul ei** — `admin_user_email` era validat doar ca format. Prima versiune a reparației lăsa firma scrisă (`return` dintr-o tranzacție comite); reparat prin aruncare. |
-| 2026-08-30 | pas mic | Măsurat că **RLS nu protejează pe calea de cădere**: motorul e superuser, `rolbypassrls=true`; 2 rânduri pe pool-ul brut față de 1 în tranzacție. Contor + mod strict + test pe cereri reale. **Prima versiune a raportat 2 căderi care erau cod corect** pe tabele de instanță — reparat folosind granița din Blocul B, citită din `information_schema` la boot. |
-| 2026-08-30 | decizie | Varianta 3 aleasă de proprietar: configurația acum, refactorul mai târziu. **Nimic de construit** — pârghia e deja expusă și păzită de `reportConcurrencyCeiling`, iar scriptul la care trimite există. **Dar documentația publică spunea `10` acolo unde codul construiește `25`** — a treia ortografie a unui număr ale cărui prime două fuseseră deja reconciliate printr-un test. Reparat și adăugat la acel test, dovedit prin revenire. |
-| 2026-08-30 | 1 | **Plafonul e real și exact la `DB_POOL_MAX`** — la c=pool serviciul se oprește, cu toate conexiunile `idle in transaction` și una activă; verificat la pool 10 și 25. **Dar doar 56% din timpul ținut e degeaba**, deci tranzacțiile scurte ar da ~2,3×, nu „plafonul dispare" cum spune planul. `DB_POOL_MAX` mută același plafon liniar, fără cod. **Blocul se oprește la pasul 1 până la decizia proprietarului.** |
-| 2026-08-30 | setup | Document scris, criterii fixate ÎNAINTE de măsurare. Pasul 1 are dreptul declarat să închidă blocul. |
+| 2026-08-30 | model | Extension installation moves to **god** (10 operations); reading stays on admin. **Per-tenant activation was IMPOSSIBLE** — `UNIQUE (name)` on the registry, proved; the listing now tells the truth. **A tenant can no longer be created without its administrator** — `admin_user_email` was only format-validated. The first fix left the tenant written (`return` from a transaction commits); fixed by throwing. |
+| 2026-08-30 | small step | Measured that **RLS does not protect on the fallback path**: the engine is a superuser, `rolbypassrls=true`; 2 rows on the raw pool against 1 inside the transaction. Counter + strict mode + a test over real requests. **The first version reported 2 fallbacks that were correct code** on instance tables — fixed using Block B's boundary, read from `information_schema` at boot. |
+| 2026-08-30 | decision | Variant 3 chosen by the owner: configuration now, refactor later. **Nothing to build** — the lever is already exposed and guarded by `reportConcurrencyCeiling`, and the script it points at exists. **But the public documentation said `10` where the code builds `25`** — the third spelling of a number whose first two had already been reconciled by a test. Fixed and added to that test, proved by reverting. |
+| 2026-08-30 | 1 | **The ceiling is real and exactly at `DB_POOL_MAX`** — at c=pool the service stalls, with every connection `idle in transaction` and one active; verified at pool 10 and 25. **But only 56% of the held time is wasted**, so short transactions would give ~2.3×, not "the ceiling disappears" as the plan says. `DB_POOL_MAX` moves the same ceiling linearly, with no code. **The block stops at step 1 pending the owner's decision.** |
+| 2026-08-30 | setup | Document written, criteria fixed BEFORE measuring. Step 1 has the declared right to close the block. |
 
 ---
 
-## Context care nu trebuie re-descoperit
+## Context that must not be rediscovered
 
-- **Măsurătoarea de referință care există deja:** `/api/insights` încremenea la
-  `c = DB_POOL_MAX` — 10 conexiuni `idle in transaction`, 0 `active`. Reparat prin mutarea
-  rutelor pe `poolDb` (v. `project_transaction_boundary_2026_08_26`). Deci calea aia e deja
-  scoasă din tranzacție; blocul ăsta e despre restul.
-- **Nu opri motoare cu `pkill -f`** — după PID. `/opt/zveltio` (`:3000`) și sesiunile
-  celorlalți rulează pe aceeași mașină. Portul meu e `:3400`.
-- **Baza de referință:** schema engine + **jumătățile UP** ale migrațiilor de extensii
-  (`awk '/^-- DOWN[[:space:]]*$/{exit}'`). 81 de migrații au secțiune DOWN; `psql -f` pe
-  fișierul întreg creează tabelele și apoi le șterge, cu `rc=0`.
-- **Env fără de care testele mint:** `ZVELTIO_REGISTRATION_ENABLED=1`,
-  `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL`, pe linii separate.
-
+- **The reference measurement that already exists:** `/api/insights` stalled at
+  `c = DB_POOL_MAX` — 10 connections `idle in transaction`, 0 `active`. Fixed by
+  moving the routes onto `poolDb`. So that path is already out of the
+  transaction; this block is about the rest.
+- **Do not stop engines with `pkill -f`** — use the PID. `/opt/zveltio` (`:3000`)
+  and other people's sessions run on the same machine. My port is `:3400`.
+- **The reference database:** engine schema + the **UP halves** of the extension
+  migrations (`awk '/^-- DOWN[[:space:]]*$/{exit}'`). 81 migrations have a DOWN
+  section; `psql -f` on the whole file creates the tables and then drops them,
+  with `rc=0`.
+- **Env without which the tests lie:** `ZVELTIO_REGISTRATION_ENABLED=1`,
+  `FIELD_ENCRYPTION_KEY=<64 hex>`, `TEST_PORT`, `TEST_DATABASE_URL`, on separate
+  lines.
 
 ---
 
-## Pasul 2 — inventarul, și de ce planul măsura lucrul greșit (2026-08-30)
+## Step 2 — the inventory, and why the plan was measuring the wrong thing (2026-08-30)
 
-Inventarul cerut de pas există: **89 de situri** — 46 `reqDb(`, 18 `c.get('tenantTrx')`,
-9 `getCurrentTenantTrx()`, 16 căderi `?? db`. Ăsta ar fi refactorul.
+The inventory the step asked for exists: **89 sites** — 46 `reqDb(`, 18
+`c.get('tenantTrx')`, 9 `getCurrentTenantTrx()`, 16 `?? db` fallbacks. That would
+be the refactor.
 
-Înainte de a-l începe, am măsurat **ce se întâmplă efectiv în timpul în care conexiunea e
-ținută**, fiindcă planul spune că tranzacția e ținută prea mult.
+Before starting it, I measured **what actually happens during the time the
+connection is held**, because the plan says the transaction is held too long.
 
-### Nu e ținută mult
+### It is not held long
 
-Instrumentare temporară pe granița tranzacției, sarcină reală prin HTTP:
+Temporary instrumentation on the transaction boundary, real load over HTTP:
 
-| | total în tranzacție | până la prima interogare | după ultima | interogări |
+| | total in transaction | to the first query | after the last | queries |
 |---|---:|---:|---:|---:|
-| listare caldă | **1,59 ms** | 0,39 ms | 0,05 ms | 9 |
-| listare rece | 10,39 ms | 1,32 ms | 0,10 ms | 34 |
+| warm listing | **1.59 ms** | 0.39 ms | 0.05 ms | 9 |
+| cold listing | 10.39 ms | 1.32 ms | 0.10 ms | 34 |
 
-**La margini nu e aproape nimic de tăiat.** O tranzacție de 1,6 ms nu explică un plafon.
+**There is almost nothing to cut at the edges.** A 1.6 ms transaction does not
+explain a ceiling.
 
-### Ce e, de fapt: **a doua rezervare**
+### What it actually is: **the second reservation**
 
-O singură cerere, fără nicio concurență:
+A single request, with no concurrency at all:
 
 ```
-DB_POOL_MAX=1   GET /api/data/spanrows?limit=25   → niciun răspuns, 8,85 s, tăiat
-DB_POOL_MAX=2   aceeași cerere                    → 200 în 62 ms
+DB_POOL_MAX=1   GET /api/data/spanrows?limit=25   → no response, 8.85 s, cut off
+DB_POOL_MAX=2   the same request                  → 200 in 62 ms
 ```
 
-**O cerere are nevoie de două conexiuni deodată.** Ține una pentru tranzacția de firmă și
-cere pool-ului alta — `checkAccess`, `getColumnAccess`, `DDLManager.getCollection`,
-`getVirtualConfig`: șase situri numai în `list.ts`, toate pe `db`, adică pe pool. Sunt
-acolo dintr-un motiv real: în tranzacție sesiunea rulează ca `zveltio_rls`, care nu poate
-citi ce le trebuie.
+**One request needs two connections at once.** It holds one for the tenant
+transaction and asks the pool for another — `checkAccess`, `getColumnAccess`,
+`DDLManager.getCollection`, `getVirtualConfig`: six sites in `list.ts` alone, all
+on `db`, meaning on the pool. They are there for a real reason: inside the
+transaction the session runs as `zveltio_rls`, which cannot read what they need.
 
-**Asta explică exact forma măsurătorii de la pasul 1**, care altfel e ciudată: prăbușirea
-e la `c = pool`, nu la `c = pool / 2`. Sub plafon rămâne mereu o conexiune liberă care
-poate servi a doua cerere; **la plafon fiecare conexiune e ținută de o tranzacție al cărei
-proprietar așteaptă o a doua care nu mai poate veni.** De-asta se vede
-`idle in transaction × 10, active × 1` — și de-asta serviciul se oprește în loc să
-încetinească.
+**This explains exactly the shape of the step-1 measurement**, which is otherwise
+strange: the collapse is at `c = pool`, not at `c = pool / 2`. Below the ceiling
+there is always a free connection that can serve the second request; **at the
+ceiling every connection is held by a transaction whose owner is waiting for a
+second one that can never come.** That is why you see
+`idle in transaction × 10, active × 1` — and why the service stops rather than
+slows.
 
-### Ce înseamnă pentru bloc
+### What it means for the block
 
-Planul propunea un refactor de 89 de situri ca să scurteze tranzacțiile. **Măsurătoarea
-spune că tranzacțiile nu sunt problema.** Reparația e alta și e mai mică: **o cerere nu
-are voie să ceară pool-ului o a doua conexiune cât timp ține una.** Fie se citesc
-metadatele ÎNAINTE de a deschide tranzacția — tiparul există deja în cod, `sessionPrefetch`
-face exact asta, cu un comentariu care spune de ce — fie rolul `zveltio_rls` primește
-dreptul de citire pe tabelele de metadate, ca citirile să încapă în tranzacție.
+The plan proposed a refactor across 89 sites in order to shorten the
+transactions. **The measurement says the transactions are not the problem.** The
+fix is different and smaller: **a request must not ask the pool for a second
+connection while it holds one.** Either the metadata is read BEFORE opening the
+transaction — the pattern already exists in the code, `sessionPrefetch` does
+exactly this, with a comment explaining why — or the `zveltio_rls` role is
+granted read access on the metadata tables, so the reads fit inside the
+transaction.
 
-### Detectorul care mințea — și cum arată cel care nu minte
+### The detector that lied — and what one that does not looks like
 
-Prima formă a verificării pornea motorul cu `DB_POOL_MAX=1` și declara vinovată
-orice rută care nu răspundea. A numit zece. **Aceleași zece au răspuns apoi 200,
-tot la pool 1, pe un motor pornit de mână cu același mediu** — fiindcă între
-sonde scrierile de fundal ale motorului țin singura conexiune, iar o cerere care
-n-are nevoie decât de tranzacția ei tot expiră așteptând-o.
+The first form of the check started the engine with `DB_POOL_MAX=1` and declared
+guilty any route that did not answer. It named ten. **The same ten then answered
+200, still at pool 1, on an engine started by hand with the same environment** —
+because between probes the engine's background writes hold the single
+connection, and a request that needs only its own transaction still times out
+waiting for it.
 
-Verificarea măsura pălăvrăgeala motorului, nu proprietatea. Și, mai rău, **a
-continuat să numească rute după ce fuseseră reparate** — cel mai rău lucru pe
-care îl poate face o poartă. A fost aruncată.
+The check was measuring the engine's chatter, not the property. And, worse, **it
+went on naming routes after they had been fixed** — the worst thing a gate can
+do. It was thrown away.
 
-Ce a rămas numără proprietatea acolo unde se întâmplă: driverul pool-ului
-numără fiecare conexiune luată **cât timp cererea ține deja tranzacția**, iar
-middleware-ul de firmă raportează cifra în antetul `x-zveltio-extra-connections`.
-Nimic nu depinde de cronometraj, de saturație sau de ce face motorul în fundal.
-Trăiește în harness, în proces, ca test — `second-reservation.test.ts`.
+What remains counts the property where it happens: the pool driver counts every
+connection taken **while the request already holds the transaction**, and the
+tenant middleware reports the number in the `x-zveltio-extra-connections`
+header. Nothing depends on timing, on saturation, or on what the engine does in
+the background. It lives in the harness, in process, as a test —
+`second-reservation.test.ts`.
 
-### Reparațiile, și ce le-a scos la iveală
+### The fixes, and what they brought to light
 
-`scripts/check-second-reservation.ts` pornește motorul cu `DB_POOL_MAX=1` și întreabă
-fiecare rută singurul lucru care nu se poate contesta: **poți răspunde cu o singură
-conexiune?**
+`scripts/check-second-reservation.ts` starts the engine with `DB_POOL_MAX=1` and
+asks every route the one thing that cannot be argued with: **can you answer with
+a single connection?**
 
-| răspund | nu răspund |
+| Answer | Do not answer |
 |---|---|
 | `/api/health`, `/api/collections`, `/api/me`, `/api/dashboards` | `/api/webhooks`, `/api/saved-queries`, `/api/notifications`, `/api/revisions`, `/api/flows`, `/api/settings`, `/api/users`, `/api/api-keys`, `/api/tenants`, `/api/audit` |
 
-**10 din 14.** Patru rute sunt deja pe partea bună, deci tiparul e realizabil — nu e o
-limită a arhitecturii.
+**10 out of 14.** Four routes are already on the right side, so the pattern is
+achievable — it is not an architectural limit.
 
-E **cremalieră, nu poartă**: lista are voie să scadă, niciodată să crească. Dovedită în
-ambele direcții prin plantare (scoaterea unei rute din prag ⇒ rc=1).
+It is a **ratchet, not a gate**: the list may shrink, never grow. Proved in both
+directions by planting (removing a route from the threshold ⇒ rc=1).
 
 ---
 
-## Ce urmează în blocul A
+## What comes next in Block A
 
-Pașii 3–6 din plan (accesor explicit, poartă, migrarea rutelor, contract SDK) **nu mai
-sunt forma corectă a lucrării.** Ce rămâne de făcut, în ordinea în care se poate verifica:
+Steps 3–6 of the plan (explicit accessor, gate, route migration, SDK contract)
+**are no longer the right shape for the work.** What remains, in the order it can
+be verified:
 
-1. Pentru fiecare din cele 10 rute, mută citirea de metadate înaintea tranzacției **sau**
-   în tranzacție — și scade pragul cu fiecare.
-2. `DB_POOL_MAX` ridicat la 40 (livrat în blocul E) **nu repară asta** — mută plafonul de
-   la 25 la 40 de cereri simultane, dar o cerere continuă să ceară două conexiuni.
+1. For each of the 10 routes, move the metadata read before the transaction
+   **or** into it — and lower the threshold with each one.
+2. `DB_POOL_MAX` raised to 40 (delivered in Block E) **does not fix this** — it
+   moves the ceiling from 25 to 40 simultaneous requests, but a request still
+   asks for two connections.
 
-## Jurnal
+## Log
 
-| Când | Pas | Ce s-a întâmplat |
+| When | Step | What happened |
 |---|---|---|
-| 2026-08-30 | 2 | Inventarul cerut există (89 de situri), dar măsurătoarea a arătat că nu el e reparația: tranzacția ține 1,59 ms, iar o cerere are nevoie de DOUĂ conexiuni. Cremalieră cu 10 rute, dovedită prin plantare. |
+| 2026-08-30 | 2 | The requested inventory exists (89 sites), but the measurement showed it is not the fix: the transaction is held 1.59 ms, and a request needs TWO connections. A ratchet with 10 routes, proved by planting. |

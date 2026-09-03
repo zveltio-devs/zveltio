@@ -1,16 +1,17 @@
-# §6 — Cele 20 de tabele fără politică, împărțite
+# §6 — The 20 tables without a policy, classified
 
-*2026-08-26. Prima lucrare cerută de `TENANCY-HIERARCHY-DESIGN.md` §6. Fiecare
-rând de mai jos are un motiv verificat în cod sau probat pe o bază vie, nu dedus.*
+*2026-08-26. The first task required by `TENANCY-HIERARCHY-DESIGN.md` §6. Every
+row below has a reason verified in code or proved against a live database, not
+inferred.*
 
 ---
 
-## Cum s-a măsurat
+## How it was measured
 
-Bază construită în ordinea din `project_ext_contract_suite_recipe`: bază virgină
-→ schema engine (harness) → migrațiile extensiilor (suita de contract, 590/590)
-→ un al doilea boot al engine-ului, ca reconcilierele să ruleze. Rezultat:
-**382 de tabele, 315 politici**.
+Database built in the order given by the extension contract-suite recipe: virgin
+database → engine schema (harness) → extension migrations (contract suite,
+590/590) → a second engine boot, so the reconcilers run. Result: **382 tables,
+315 policies**.
 
 ```sql
 SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -21,124 +22,127 @@ WHERE n.nspname='public' AND c.relkind='r'
                   WHERE p.schemaname='public' AND p.tablename=c.relname);
 ```
 
-### Prima corecție la lista din §6: 20 → 16 + 4
+### First correction to the §6 list: 20 → 16 + 4
 
-Pe o instalare curată golul e de **16 tabele**, nu 20. Cele patru care lipsesc —
-`zvd_pages`, `zvd_views`, `zvd_zones`, `zvd_page_views` — **nu există pe o
-instalare curată**. Sunt tabelele *vechi* din care `content/pages`
-migrează (`001_initial.sql` al extensiei le citește o dată, ca sursă, și scrie
-`zv_pages` / `zv_page_sites`). Apar în baza de referință pe care s-a măsurat §6
-fiindcă aceea era o bază moștenită dinainte de fuziunea `content/pages`.
+On a clean installation the gap is **16 tables**, not 20. The four that are
+missing — `zvd_pages`, `zvd_views`, `zvd_zones`, `zvd_page_views` — **do not
+exist on a clean installation**. They are the *old* tables that `content/pages`
+migrates from (the extension's `001_initial.sql` reads them once, as a source,
+and writes `zv_pages` / `zv_page_sites`). They appeared in the reference
+database §6 was measured against because that database predated the
+`content/pages` merge.
 
-Nu intră în migrație. Sunt reziduu de upgrade, nu lipsă de acoperire — și pe
-bazele unde chiar există, `zvd_pages`/`zvd_views`/`zvd_zones` sunt oricum în
-lista de built-ins a lui `reconcileTenantRLS`, deci primesc politică la primul
-boot de după ce ajung să existe.
-
----
-
-## A. Legitim inter-firme — NU primesc politică (11)
-
-Criteriul nu e „pare administrativ". E: **întrebarea la care răspunde tabela se
-pune înainte să existe o firmă curentă**, sau se pune despre toate firmele
-deodată. O politică aici nu e prudență în plus, e o eroare de model.
-
-| tabelă | de ce nu |
-|---|---|
-| `zv_tenant_users` | `getUserTenants()` (`tenant-manager.ts:445`) răspunde la „în ce firme sunt?" — întrebarea de *dinainte* de a alege firma. Cu politică, lista de firme la login e goală și nimeni nu mai poate comuta. |
-| `zv_api_keys` | `validateApiKey()` (`lib/data/auth.ts:96`) caută **doar după hash**; cheia e cea care *stabilește* firma. Comparația cu firma cerută vine imediat după (`auth.ts:119`) și e corectă. Cu politică, autentificarea prin cheie API cade în întregime. |
-| `zv_invitations` | Răscumpărată **după token, de un neautentificat care încă nu e membru nicăieri** (`routes/auth.ts:90,123`). `/api/auth` e în `TXN_SKIP_PREFIXES`, deci nici nu există tranzacție de firmă. Tokenul *e* capabilitatea. |
-| `zv_environments` | `resolveEnvironment()` e chemată **din interiorul lui `tenantMiddleware`, înainte** ca `withTenantIsolation` să deschidă tranzacția (`middleware/tenant.ts:75`). O politică aici rupe rezolvarea firmei — adică tot. Filtrează explicit pe `tenant_id`. |
-| `zv_tenant_usage` | Scrisă de `tenant-quota.ts:136` pe `quotaDb = poolDb ?? db` — pool, în afara tranzacției cererii, prin construcție. Citită agregat pe instanță de `/api/admin/system`. E registrul contabil al instanței. |
-| `zv_extension_registry` | Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per **instanță**, nu per firmă. |
-| `zvd_webhooks` + `zvd_webhook_deliveries` | Comentariul e chiar în cod (`lib/webhooks.ts:120`): *„the dispatcher runs on the GLOBAL pool, not inside the request transaction, so it can't read `current_setting('zveltio.current_tenant')`"*. Filtrează explicit pe `tenant_id` primit ca argument. Cu politică, dispecerul ar vedea zero rânduri și **webhook-urile ar înceta tăcut** pentru toate firmele nenormate. |
-| `zv_dashboards` | `insightsRoutes(poolDb, auth)` (`routes/index.ts:458`) — **pe pool**, deliberat: ruta pune `SET TRANSACTION READ ONLY` și un `statement_timeout` proprii, care n-au ce căuta pe toată cererea. De aceea filtrează manual, cu `tenantOf(c)`, la fiecare acces. |
-| `zv_flows` | `flowsRoutes(poolDb, auth)` (`routes/index.ts:482`), plus `flow-scheduler.ts:90` care deschide **propria tranzacție pe `_db`, fără `SET LOCAL ROLE` și fără GUC** — trebuie să vadă flow-urile scadente ale tuturor firmelor, altfel nu le poate rula. |
-| `zv_revisions` | `afterWrite` scrie jurnalul **pe pool**, și codul o spune (`write-pipeline.ts:411`): *„afterWrite runs on the pool, not the request transaction, so it can't rely on the RLS GUC"*. Pune `tenant_id` explicit. |
-
-**Rezerva pe ultimele patru.** `zv_dashboards`, `zv_flows`, `zv_revisions` și
-perechea de webhook-uri sunt *legitim inter-firme la scriitorul/cititorul lor de
-fundal*, nu în principiu. Politica ar fi corectă ca model și greșită ca execuție:
-`zveltio_tenant_scope_ok` fără GUC cade pe firma implicită, deci ar tăia tăcut
-exact firmele nenormate. Sunt marcate „nu acum" cu o condiție scrisă, nu
-închise: se acoperă când apelantul de fundal e mutat pe `withTenantIsolation`,
-care e o lucrare cu rază proprie. `zv_revisions` e cazul cel mai neplăcut —
-`INSERT`-ul are `.catch(...console.error)`, deci o politică pusă azi ar face
-jurnalul de audit să eșueze *într-o linie de log*, nu într-o eroare.
-
-Un detaliu care ține de §6: în `content/drafts/engine/routes.ts:366` există un
-`COUNT(*)` pe `zv_revisions` **fără filtru de firmă** (numerotarea versiunilor
-de ciornă). Nu scurge conținut, dar numără rândurile altei firme — de reparat
-separat, la sursă.
+They do not enter the migration. They are upgrade residue, not a coverage gap —
+and on databases where they do exist, `zvd_pages` / `zvd_views` / `zvd_zones`
+are in `reconcileTenantRLS`'s built-in list anyway, so they get a policy at the
+first boot after they come into existence.
 
 ---
 
-## B. Lipsă de acoperire — INTRĂ în migrație (5)
+## A. Legitimately cross-tenant — NO policy (11)
 
-Criteriul: **fiecare acces existent poartă deja un filtru de firmă sau ar trebui
-să poarte**, nimic nu le citește fără context, și absența politicii e o scăpare.
+The criterion is not "looks administrative". It is: **the question this table
+answers is asked before a current tenant exists**, or is asked about all tenants
+at once. A policy here is not extra caution, it is a modelling error.
 
-| tabelă | de ce da |
+| Table | Why not |
 |---|---|
-| `zv_checklist_scoring_schemes` | Vezi proba de mai jos. **Scurgere dovedită.** |
-| `zv_checklist_scheme_weights` | Aceeași omisiune, aceeași migrație. |
-| `zv_checklist_scores` | Aceeași omisiune. Conține scorul și `snapshot`-ul unei inspecții. |
-| `zv_record_comments` | Toate cele 4 accese sunt în `routes/revisions.ts`, pe `db` (deci în tranzacția firmei), toate deja cu `tenant_id = ${tenantId(c)}`. Politica e strict apărare în adâncime, fără risc de regresie. |
-| `zv_saved_queries` | Toate cele 8 accese sunt în `routes/saved-queries.ts`, pe `db`, toate deja filtrate. Idem. |
+| `zv_tenant_users` | `getUserTenants()` (`tenant-manager.ts:445`) answers "which tenants am I in?" — the question asked *before* choosing a tenant. With a policy, the tenant list at login is empty and nobody can switch. |
+| `zv_api_keys` | `validateApiKey()` (`lib/data/auth.ts:96`) looks up **by hash only**; the key is what *establishes* the tenant. The comparison against the requested tenant follows immediately (`auth.ts:119`) and is correct. With a policy, API-key authentication fails entirely. |
+| `zv_invitations` | Redeemed **by token, by an unauthenticated caller who is not yet a member anywhere** (`routes/auth.ts:90,123`). `/api/auth` is in `TXN_SKIP_PREFIXES`, so there is no tenant transaction at all. The token *is* the capability. |
+| `zv_environments` | `resolveEnvironment()` is called **from inside `tenantMiddleware`, before** `withTenantIsolation` opens the transaction (`middleware/tenant.ts:75`). A policy here breaks tenant resolution — that is, everything. It filters on `tenant_id` explicitly. |
+| `zv_tenant_usage` | Written by `tenant-quota.ts:136` on `quotaDb = poolDb ?? db` — the pool, outside the request transaction, by construction. Read in aggregate per instance by `/api/admin/system`. It is the instance's ledger. |
+| `zv_extension_registry` | Read at boot (`index.ts:532,561`), with no request in flight. Extensions install per **instance**, not per tenant. |
+| `zvd_webhooks` + `zvd_webhook_deliveries` | The comment is in the code itself (`lib/webhooks.ts:120`): *"the dispatcher runs on the GLOBAL pool, not inside the request transaction, so it can't read `current_setting('zveltio.current_tenant')`"*. It filters on the `tenant_id` passed as an argument. With a policy, the dispatcher would see zero rows and **webhooks would stop silently** for every non-default tenant. |
+| `zv_dashboards` | `insightsRoutes(poolDb, auth)` (`routes/index.ts:458`) — **on the pool**, deliberately: the route sets its own `SET TRANSACTION READ ONLY` and `statement_timeout`, which have no business applying to the whole request. That is why it filters manually, with `tenantOf(c)`, on every access. |
+| `zv_flows` | `flowsRoutes(poolDb, auth)` (`routes/index.ts:482`), plus `flow-scheduler.ts:90`, which opens **its own transaction on `_db`, with no `SET LOCAL ROLE` and no GUC** — it has to see every tenant's due flows, or it cannot run them. |
+| `zv_revisions` | `afterWrite` writes the journal **on the pool**, and the code says so (`write-pipeline.ts:411`): *"afterWrite runs on the pool, not the request transaction, so it can't rely on the RLS GUC"*. It sets `tenant_id` explicitly. |
 
-### De ce cele trei tabele de scoring — mecanismul exact
+**A reservation on the last four.** `zv_dashboards`, `zv_flows`, `zv_revisions`
+and the webhook pair are *legitimately cross-tenant at their background
+writer/reader*, not in principle. A policy would be right as a model and wrong
+in execution: `zveltio_tenant_scope_ok` with no GUC falls back to the default
+tenant, so it would silently cut off exactly the non-default tenants. They are
+marked "not now" with a written condition, not closed: they get covered when the
+background caller moves onto `withTenantIsolation`, which is a piece of work
+with its own scope. `zv_revisions` is the most unpleasant case — the `INSERT`
+carries `.catch(...console.error)`, so a policy added today would make the audit
+journal fail *into a log line*, not into an error.
 
-`workflow/checklists/engine/migrations/002_tenant_rls.sql` enumeră **o listă
-fixă** de cinci tabele și le pune politici. `004_scoring_schemes.sql` adaugă
-**încă trei** tabele cu `tenant_id`, două migrații mai târziu, și face doar
-`GRANT ... TO zveltio_rls` — niciun `ENABLE ROW LEVEL SECURITY`, nicio politică.
+One detail belonging to §6: `content/drafts/engine/routes.ts:366` has a
+`COUNT(*)` on `zv_revisions` **with no tenant filter** (draft version
+numbering). It does not leak content, but it counts another tenant's rows — to
+be fixed separately, at the source.
 
-`reconcileExtensionTenantRLS` nu le poate salva: el adoptă, prin construcție,
-doar tabelele care *declară deja* o politică `tenant_isolation_*`. O tabelă care
-n-a avut niciodată una e invizibilă pentru el.
+---
 
-### Proba — nu mai e „neverificat"
+## B. Genuine coverage gap — ENTER the migration (5)
 
-§6 spunea: *„Nu am verificat dacă vreuna e exploatabilă."* Una este. Rulat pe
-baza vie, sub rolul `zveltio_rls`, adică exact rolul pe care îl ia cererea:
+The criterion: **every existing access already carries a tenant filter or ought
+to**, nothing reads them without context, and the missing policy is an
+oversight.
+
+| Table | Why yes |
+|---|---|
+| `zv_checklist_scoring_schemes` | See the proof below. **Demonstrated leak.** |
+| `zv_checklist_scheme_weights` | Same omission, same migration. |
+| `zv_checklist_scores` | Same omission. Holds an inspection's score and `snapshot`. |
+| `zv_record_comments` | All 4 accesses are in `routes/revisions.ts`, on `db` (so inside the tenant transaction), all already carrying `tenant_id = ${tenantId(c)}`. The policy is strictly defence in depth, with no regression risk. |
+| `zv_saved_queries` | All 8 accesses are in `routes/saved-queries.ts`, on `db`, all already filtered. Likewise. |
+
+### Why the three scoring tables — the exact mechanism
+
+`workflow/checklists/engine/migrations/002_tenant_rls.sql` enumerates a **fixed
+list** of five tables and gives them policies. `004_scoring_schemes.sql` adds
+**three more** tables with `tenant_id`, two migrations later, and does only
+`GRANT ... TO zveltio_rls` — no `ENABLE ROW LEVEL SECURITY`, no policy.
+
+`reconcileExtensionTenantRLS` cannot save them: by construction it adopts only
+tables that *already declare* a `tenant_isolation_*` policy. A table that never
+had one is invisible to it.
+
+### The proof — no longer "unverified"
+
+§6 said: *"I have not checked whether any of these is exploitable."* One is. Run
+against the live database, under the `zveltio_rls` role — exactly the role a
+request takes:
 
 ```
-=== firma B citește PĂRINTELE protejat (zv_checklist_templates) ===
+=== tenant B reads the PROTECTED parent (zv_checklist_templates) ===
  rows_b_can_see
 ----------------
               0
 
-=== firma B citește COPILUL neprotejat — interogarea rutei, verbatim ===
+=== tenant B reads the UNPROTECTED child — the route's query, verbatim ===
       name       |       description        |              tenant_id
 -----------------+--------------------------+--------------------------------------
  A secret scheme | A confidential threshold | 11111111-1111-1111-1111-111111111111
 ```
 
-Ruta e `GET /ext/workflow/checklists/templates/:id/scoring-schemes`
-(`routes.ts:1013`): interoghează `zv_checklist_scoring_schemes` direct, după
-`template_id` **luat din URL**, fără să treacă întâi prin
-`zv_checklist_templates`. Sora ei, `POST` pe aceeași cale (`routes.ts:1045`),
-*are* garda — caută întâi șablonul, care e protejat, și dă 404 pe un id străin.
-Deci nu e o decizie, e o omisiune într-una din două rute gemene.
+The route is `GET /ext/workflow/checklists/templates/:id/scoring-schemes`
+(`routes.ts:1013`): it queries `zv_checklist_scoring_schemes` directly, by
+`template_id` **taken from the URL**, without going through
+`zv_checklist_templates` first. Its sibling, `POST` on the same path
+(`routes.ts:1045`), *does* have the guard — it looks the template up first, and
+the template is protected, so it 404s on a foreign id. So this is not a
+decision, it is an omission in one of two twin routes.
 
-Orice utilizator autentificat în firma B, cu un UUID de șablon din firma A,
-citește numele, descrierea și pragul de trecere ale schemelor de punctaj ale
-firmei A.
+Any user authenticated in tenant B, holding a template UUID from tenant A, reads
+the name, description and pass threshold of tenant A's scoring schemes.
 
 ---
 
-## C. Ce înseamnă asta pentru lucrarea principală
+## C. What this means for the main task
 
-Cele două numere din §6 se schimbă și trebuie schimbate în plan:
+Both numbers in §6 change, and must change in the plan:
 
-- politicile de recreat rămân **315** — niciuna dintre cele de mai sus nu era
-  între ele;
-- migrația **adaugă 5 politici noi**, deci verificarea de la §6 devine
-  „**320** de politici de firmă, toate cu `zveltio_tenant_write_ok` în
-  `WITH CHECK`", nu 315. Migrația se oprește dacă numărul nu se potrivește.
+- policies to recreate stay at **315** — none of the above were among them;
+- the migration **adds 5 new policies**, so the §6 check becomes "**320** tenant
+  policies, all with `zveltio_tenant_write_ok` in `WITH CHECK`", not 315. The
+  migration stops if the number does not match.
 
-Cele patru din §A cu rezervă (`zv_dashboards`, `zv_flows`, `zv_revisions`,
-`zvd_webhooks`+`zvd_webhook_deliveries`) rămân în afara migrației **cu motiv
-scris**, nu din uitare. Sunt intrarea naturală a lucrării din
-`TRANSACTION-BOUNDARY-HANDOFF.md`, care e exact despre cine rulează pe pool și
-cine în tranzacția cererii.
+The four in §A carrying a reservation (`zv_dashboards`, `zv_flows`,
+`zv_revisions`, `zvd_webhooks` + `zvd_webhook_deliveries`) stay out of the
+migration **with a written reason**, not by forgetting. They are the natural
+entry point for the transaction-boundary work — which is exactly about who runs
+on the pool and who runs inside the request transaction.
