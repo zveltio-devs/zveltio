@@ -60,6 +60,44 @@ interface DueRow {
 }
 
 /**
+ * Take ownership of one due occurrence, or find out someone else already has.
+ *
+ * The engine runs as several replicas — `DB_POOL_MAX`'s own comment sizes the
+ * pool for exactly that — and every replica ticks. Before this, all of them read
+ * the same due row and all of them started a dump: the only guard was `running`,
+ * a `Set` that cannot see outside its own process. The result per occurrence was
+ * N concurrent `pg_dump`s of the whole database, N rows in `zv_backups`, and N
+ * uploads of the same bytes.
+ *
+ * The rest of the engine already fences replicas — `flow-scheduler.ts` with
+ * `FOR UPDATE SKIP LOCKED`, `extension-utils.ts` and the migration runner with
+ * advisory locks. This was the one scheduler without it, driving the single most
+ * expensive operation the system has.
+ *
+ * The condition is `next_run_at <= NOW()`, NOT equality with the value this tick
+ * read. Equality is the obvious form and it is a trap: the column is
+ * `timestamptz(6)` while a JS `Date` carries milliseconds, so a value that
+ * round-trips through any other writer would never match and the schedule would
+ * silently never run again — a worse failure than the one being fixed. The
+ * predicate needs no such agreement: whoever updates first moves the marker into
+ * the future, and everyone else matches zero rows.
+ *
+ * Returns true if this caller won and should run the backup.
+ */
+async function claimOccurrence(db: Database, scheduleId: string, next: Date): Promise<boolean> {
+  const claimed = await sql<{ id: string }>`
+    UPDATE zv_backup_schedules
+       SET next_run_at = ${next}, updated_at = NOW()
+     WHERE id = ${scheduleId}
+       AND is_active = true
+       AND next_run_at IS NOT NULL
+       AND next_run_at <= NOW()
+    RETURNING id::text
+  `.execute(db);
+  return claimed.rows.length === 1;
+}
+
+/**
  * Compute and store the next occurrence for a schedule.
  *
  * Exported because creating or editing a schedule must set it too — a row whose
@@ -134,10 +172,12 @@ export function scheduleBackups(db: Database, resolveTarget: () => DumpTarget): 
       // stops that within one process, but a restart mid-dump would not be
       // covered by it. Advancing first means the worst case is a missed run,
       // not a duplicated one.
-      const next = await setNextRun(db, s.id, s.cron_expression, new Date()).catch((err) => {
-        console.error(`[backup-scheduler] ${s.id}: could not set next_run_at:`, err);
-        return null;
-      });
+      // Computed before anything is written, so that a database error while
+      // advancing the marker is no longer mistaken for an unusable cron. It used
+      // to be: `setNextRun` failing returned null through the catch below, and
+      // null meant "unparseable", so one transient write failure deactivated a
+      // perfectly good schedule and told the operator its cron was invalid.
+      const next = nextCronRun(s.cron_expression, new Date());
       if (next === null) {
         // An unparseable cron expression would otherwise be retried every minute
         // forever. Deactivate it and say so — loudly, because the operator
@@ -152,6 +192,29 @@ export function scheduleBackups(db: Database, resolveTarget: () => DumpTarget): 
           `[backup-scheduler] "${s.name}" has an unusable cron expression ` +
             `(${s.cron_expression}) and has been deactivated. No backup will run for it.`,
         );
+        continue;
+      }
+
+      // Move the marker BEFORE running, and make moving it the claim.
+      //
+      // A dump can take longer than a tick, so if the next occurrence were
+      // written afterwards the following tick would find the same row still due
+      // and start a second dump. Advancing first means the worst case is a
+      // missed run rather than a duplicated one — and doing it conditionally
+      // means that holds across replicas, not just within this process.
+      let won: boolean;
+      try {
+        won = await claimOccurrence(db, s.id, next);
+      } catch (err) {
+        // Leave the marker where it is: the row is still due, and the next tick
+        // tries again. Deactivating here would punish a schedule for a database
+        // hiccup.
+        console.error(`[backup-scheduler] ${s.id}: could not advance next_run_at:`, err);
+        continue;
+      }
+      if (!won) {
+        // Another replica took this occurrence. Nothing is wrong, and this is
+        // the normal case on every instance but one.
         continue;
       }
 
