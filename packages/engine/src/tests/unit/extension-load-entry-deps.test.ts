@@ -57,6 +57,8 @@ describe('loadExtensionFromDir — entry path failure', () => {
       manifestMeta: new Map(),
       modules: new Map(),
       lastLoadError: new Map(),
+      extDirs: new Map(),
+      forgetExtensionMessages: () => {},
       ctx: { db: new CannedDb().kysely } as ExtensionContext,
     };
     await loadExtensionFromDir(loader as never, 'dev-ext', new Hono(), loader.ctx, base);

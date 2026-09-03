@@ -724,6 +724,27 @@ const CASES: Case[] = [
       '}\n',
   },
   {
+    // An extension shipping a key from the host's shared vocabulary.
+    //
+    // Chosen over the other three violations because it is the one that does
+    // damage silently: `merge-extension-messages.ts` layers extensions AFTER
+    // core, so a squatted `common.cancel` replaces the host's own word on every
+    // screen in the product, not just the squatter's. Nothing looks broken.
+    //
+    // `create` on a new catalogue file rather than `append` to a real one: the
+    // gate parses each catalogue as JSON and skips what it cannot read, so
+    // appending raw text to `en.json` would plant a violation the gate is
+    // designed not to see — testing the wrong thing and passing for the wrong
+    // reason. The filename is not a real locale, which does not matter: the
+    // gate reads every *.json in the directory, exactly as a host merging them
+    // would.
+    gate: 'check-extension-i18n-namespaces',
+    cmd: 'bun run scripts/check-extension-i18n-namespaces.ts ../zveltio-extensions',
+    file: '../zveltio-extensions/search/studio/messages/zz.json',
+    body: '{ "common.cancel": "planted by audit-gates" }\n',
+    mode: 'create',
+  },
+  {
     // A new table that carries no `tenant_id` and declares nothing. It looks
     // identical to a deliberate instance-level table, which is the whole reason
     // the gate exists.
