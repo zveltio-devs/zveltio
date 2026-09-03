@@ -62,6 +62,14 @@ jobs:
         run: cd packages/cli && bun run typecheck
       - name: Type check SDK
         run: cd packages/sdk && bun run typecheck
+      - name: Type check the React and Vue bindings
+        # Both are PUBLISHED to npm and neither was checked by any job. The only
+        # `tsc` they ever saw was the one inside `bun run build`, at publish time,
+        # on a tag — so a type error in a hook was discoverable by consumers
+        # before it was discoverable here.
+        run: |
+          cd packages/sdk-react && bun run typecheck && cd -
+          cd packages/sdk-vue && bun run typecheck
       - name: Audit regression check
         # Fail the build if any privileged route has lost its auditLog() call.
         # See scripts/audit-regression-check.ts for the maintained list.
@@ -304,6 +312,39 @@ jobs:
         # the gate was added: those were not reviewed one by one, but no new one
         # can appear unnoticed.
         run: bun run catch:fabricated
+      - name: JSON.stringify is not bound to a jsonb column
+        # Bind `JSON.stringify(v)` to a `jsonb` column and the driver stores a
+        # jsonb STRING containing JSON text, not the value: `jsonb_typeof` says
+        # `string`, `col->>'k'` is NULL and `col ? 'k'` is false. Four columns
+        # were found holding text that way and repaired in 03515eb1, which
+        # shipped `lib/jsonb.ts` and no gate.
+        #
+        # There was a fifth site at that moment and nothing said so:
+        # `zvd_collections.fields`, an ARRAY-valued column, written as a string
+        # by seven writers across four files — with `ddl-manager.ts` carrying the
+        # matching `typeof row.fields === 'string' ? JSON.parse(...)` on the way
+        # back out, which is exactly why it never surfaced. This gate is what
+        # found it; migration 011 repairs the rows.
+        #
+        # Which columns are jsonb comes from the migrations of BOTH repositories,
+        # per table — `config`, `data`, `details` and `fields` are each jsonb on
+        # one table and text on another, so the column name alone decides nothing.
+        # Ratcheted at what remains; `--report` lists every site.
+        run: bun run sql:jsonb
+      - name: Every environment variable the engine reads is documented
+        # 59 were read by packages/engine/src and named in neither .env.example
+        # nor docs/platform/configuration.md. Sixteen switched a guarantee off:
+        # plaintext storage of fields marked `encrypted: true`, the SSRF guard
+        # inside worker extensions, third-party extension isolation, the
+        # fail-closed gate in front of every /ext/* route, anonymous /metrics,
+        # rate-limit exemption by CIDR. Each deliberate, each correctly
+        # implemented, none of them findable.
+        #
+        # This product is sold to companies and public institutions running it
+        # themselves, and "what can weaken this deployment?" is a question they
+        # have to answer. An answer that starts with "grep the source" is not one.
+        # They are now collected under "Escape hatches"; this keeps the list whole.
+        run: bun run check:env-documented
       - name: Ambient authority check
         # An in-process extension reading `process.env` sees the ENGINE's whole
         # environment — DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY —
@@ -486,24 +527,32 @@ jobs:
         #     onto the patched one; studio + client tests and builds verified green.
         #   GHSA-r28c-9q8g-f849  PostCSS — root override at 8.5.25.
         #
-        #   GHSA-mh99-v99m-4gvg  brace-expansion DoS — THE ONLY REMAINING IGNORE.
-        #     Read the reasoning before extending it; the previous version of this
-        #     comment claimed the package was build/test-only, which was false:
-        #     casbin (runtime authz) → minimatch → brace-expansion put it squarely
-        #     in the shipped tree. That runtime path is now PATCHED — casbin 5.51.1
-        #     → minimatch 10.2.6 → brace-expansion 5.0.8 (the advisory covers
-        #     <=5.0.7). What still trips the audit is the 2.x line, reached only
-        #     through archiver → glob/readdir-glob → minimatch 5.x/9.x, which are
-        #     build/test tooling. That line CANNOT be patched: the advisory's fix
-        #     is 5.0.8 and no 2.x backport exists, while minimatch 5/9 require
-        #     `^2.x` and would break on a forced 5.x (v5 exports a named `expand`;
-        #     minimatch 5 does `const expand = require('brace-expansion')` and
-        #     would call an object). Exploiting it needs attacker-controlled brace
-        #     patterns; in the runtime path the patterns are admin-authored Casbin
-        #     policies, and in the build path they are our own globs.
-        run: >-
-          bun audit --audit-level=high
-          --ignore=GHSA-mh99-v99m-4gvg
+        #   GHSA-mh99-v99m-4gvg  brace-expansion DoS — was the last ignore, and is
+        #     now gone because the advisory is gone. The root `overrides` pin
+        #     `brace-expansion: 5.0.9`, which collapses EVERY copy in the tree onto
+        #     the patched line; `bun audit --json` no longer reports the id at all,
+        #     so the flag was suppressing nothing. Measured before removing it.
+        #
+        #     What that pin cost, recorded because the comment it replaces
+        #     predicted it and it happened anyway: brace-expansion 5 exports an
+        #     OBJECT (`{ expand, EXPANSION_MAX, … }`), while minimatch 5 and 9 do
+        #     `require('brace-expansion')` and call the result. Both now throw on
+        #     any pattern containing braces:
+        #
+        #       minimatch@5.1.9 → "expand is not a function"
+        #       minimatch@9.0.9 → "brace_expansion_1.default is not a function"
+        #
+        #     Accepted, not overlooked. Both copies are reachable only through
+        #     archiver → readdir-glob / archiver-utils → glob, and `archiver` is
+        #     pulled by `testcontainers`, a peer dependency of
+        #     `sdk/src/testing/with-test-db.ts` that is imported lazily and only by
+        #     extension authors running container-backed tests. Nothing in either
+        #     repository passes a brace pattern down that chain, and the shipped
+        #     runtime path (casbin → minimatch 10 → brace-expansion ^5) wants 5.x.
+        #     Dropping the override to un-break minimatch 5/9 would put a
+        #     vulnerable 2.x copy back and bring the ignore back with it, which is
+        #     the worse trade. Revisit if archiver ever moves to minimatch 10.
+        run: bun audit --audit-level=high
 
   unit-tests:
     name: Unit Tests
@@ -550,6 +599,18 @@ jobs:
         # Tier-policy resolution + peer-deps allowlist drift guard live in
         # the CLI; run them in CI (typecheck alone doesn't exercise them).
         run: cd packages/cli && bun test
+      - name: Run SDK + binding tests
+        # Four packages are published to npm — sdk, react, vue, cli — and this
+        # job ran only the last of them. The SDK's 24 tests existed and were
+        # invoked by no workflow; react and vue had none at all, which is why
+        # they arrive with this step rather than after it.
+        #
+        # The SDK is the contract every extension author compiles against, so
+        # "it builds" was the whole guarantee it shipped with.
+        run: |
+          cd packages/sdk && bun test && cd -
+          cd packages/sdk-react && bun test && cd -
+          cd packages/sdk-vue && bun test
 
   installed-schema:
     name: Installed schema (engine + every extension)

@@ -38,7 +38,7 @@ const GROUPS = $derived([
 </script>
 
 {#if open}
-  <dialog open class="modal modal-open" role="dialog" aria-modal="true" aria-label={m['keys.title']()}>
+  <dialog open class="modal modal-open" aria-modal="true" aria-label={m['keys.title']()}>
     <div class="modal-box max-w-lg">
       <h3 class="text-lg font-bold">{m['keys.title']()}</h3>
       <div class="mt-4 flex flex-col gap-5">

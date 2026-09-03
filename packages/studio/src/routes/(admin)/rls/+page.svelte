@@ -161,12 +161,17 @@ function sourceLabel(src: string): string {
 }
 </script>
 
+<!--
+  Passed as the default content, not as an `actions` snippet. `PageHeader` takes
+  `children` and renders nothing else, so `{#snippet actions()}` put this button
+  somewhere the component never looked and the "New policy" control simply did
+  not appear on this page. Every other caller passes content directly; this was
+  the only one that did not, and nothing said so until svelte-check ran.
+-->
 <PageHeader title={m['rls.title']()} subtitle={m['rls.subtitle']()}>
-  {#snippet actions()}
-    <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
-      <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
-    </button>
-  {/snippet}
+  <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
+    <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
+  </button>
 </PageHeader>
 
 <!-- Info banner: DaisyUI alert auto-themes (light + dark) — the old
@@ -204,8 +209,8 @@ function sourceLabel(src: string): string {
         <h3 class="font-semibold">{editingId ? m['rls.editPolicy']() : m['rls.newPolicy']()}</h3>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div class="form-control">
-            <label class="label label-text text-xs">{m['common.col.collection']()}</label>
-            <select bind:value={form.collection} class="select select-sm select-bordered w-full">
+            <label class="label label-text text-xs" for="rls-collection">{m['common.col.collection']()}</label>
+            <select id="rls-collection" bind:value={form.collection} class="select select-sm select-bordered w-full">
               <option value="*">{m['rls.allCollectionsOpt']()}</option>
               {#each collections as col}
                 <option value={col}>{col}</option>
@@ -213,28 +218,28 @@ function sourceLabel(src: string): string {
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">{m['common.col.role']()}</label>
-            <select bind:value={form.role} class="select select-sm select-bordered w-full">
+            <label class="label label-text text-xs" for="rls-role">{m['common.col.role']()}</label>
+            <select id="rls-role" bind:value={form.role} class="select select-sm select-bordered w-full">
               {#each roles as r}
                 <option value={r}>{r === '*' ? m['rls.allRolesOpt']() : r}</option>
               {/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">{m['rls.filterField']()}</label>
-            <input bind:value={form.filter_field} type="text" placeholder={m['rls.egCreatedBy']()} class="input input-sm input-bordered w-full" />
+            <label class="label label-text text-xs" for="rls-filter-field">{m['rls.filterField']()}</label>
+            <input id="rls-filter-field" bind:value={form.filter_field} type="text" placeholder={m['rls.egCreatedBy']()} class="input input-sm input-bordered w-full" />
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">{m['rls.operator']()}</label>
-            <select bind:value={form.filter_op} class="select select-sm select-bordered w-full">
+            <label class="label label-text text-xs" for="rls-operator">{m['rls.operator']()}</label>
+            <select id="rls-operator" bind:value={form.filter_op} class="select select-sm select-bordered w-full">
               {#each FILTER_OPS as op}
                 <option value={op}>{op}</option>
               {/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">{m['rls.valueSource']()}</label>
-            <select bind:value={form.filter_value_source} class="select select-sm select-bordered w-full">
+            <label class="label label-text text-xs" for="rls-value-source">{m['rls.valueSource']()}</label>
+            <select id="rls-value-source" bind:value={form.filter_value_source} class="select select-sm select-bordered w-full">
               {#each VALUE_SOURCES as vs}
                 <option value={vs.value}>{vs.label()}</option>
               {/each}
@@ -249,8 +254,8 @@ function sourceLabel(src: string): string {
             {/if}
           </div>
           <div class="form-control sm:col-span-2 lg:col-span-1">
-            <label class="label label-text text-xs">{m['rls.descOptional']()}</label>
-            <input bind:value={form.description} type="text" placeholder={m['rls.egUsersOwnRecords']()} class="input input-sm input-bordered w-full" />
+            <label class="label label-text text-xs" for="rls-description">{m['rls.descOptional']()}</label>
+            <input id="rls-description" bind:value={form.description} type="text" placeholder={m['rls.egUsersOwnRecords']()} class="input input-sm input-bordered w-full" />
           </div>
         </div>
         <div class="flex items-center gap-3">

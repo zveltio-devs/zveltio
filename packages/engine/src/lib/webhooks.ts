@@ -4,6 +4,7 @@ import { getCache } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
 import { maybeDecrypt } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
+import { toJsonb } from './jsonb.js';
 
 let _db: Database | null = null;
 
@@ -152,7 +153,7 @@ export const WebhookManager = {
             .insertInto('zvd_webhook_deliveries')
             .values({
               webhook_id: wh.id,
-              payload: JSON.stringify({
+              payload: toJsonb({
                 event,
                 collection,
                 data,
@@ -160,7 +161,7 @@ export const WebhookManager = {
               }),
               url: wh.url,
               method: wh.method || 'POST',
-              headers: JSON.stringify((wh.headers as Record<string, string>) || {}),
+              headers: toJsonb((wh.headers as Record<string, string>) || {}),
               attempt: 1,
               max_attempts: wh.retry_attempts ?? 3,
               tenant_id: wh.tenant_id ?? tenant,

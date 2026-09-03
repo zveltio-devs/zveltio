@@ -8,7 +8,11 @@
 import { base } from '$app/paths';
 import { AlertCircle } from '@lucide/svelte';
 import { api } from '$lib/api.js';
-import { m } from '$lib/paraglide/messages.js';
+// `$lib/i18n.svelte.js`, like the other 74 callers. Paraglide emits plain
+// `.js` with no declarations, so importing its output directly makes every
+// message key `any`; the host re-exports the same object from a TypeScript
+// module, which is where the types come from.
+import { m } from '$lib/i18n.svelte.js';
 
 type OverdueBucket = { currency: string; count: number; total: number };
 

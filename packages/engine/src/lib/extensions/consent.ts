@@ -26,6 +26,7 @@
  */
 
 import type { Database } from '../../db/index.js';
+import { toJsonb } from '../jsonb.js';
 
 /** Parse the JSONB column, tolerating the string form some drivers return. */
 export function parseGranted(value: unknown): string[] | null {
@@ -103,7 +104,7 @@ export async function recordConsent(
 ): Promise<void> {
   await db
     .updateTable('zv_extension_registry')
-    .set({ granted_capabilities: JSON.stringify([...new Set(capabilities)].sort()) })
+    .set({ granted_capabilities: toJsonb([...new Set(capabilities)].sort()) })
     .where('name', '=', name)
     .execute();
 }

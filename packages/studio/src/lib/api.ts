@@ -176,9 +176,25 @@ export const collectionsApi = {
   jobStatus: (jobId: string) => api.get<{ job: any }>(`/api/collections/jobs/${jobId}`),
 };
 
+/**
+ * Query parameters as callers actually write them.
+ *
+ * `Record<string, string>` was the declared type while every paging call site
+ * passed `{ limit: 25, offset: 0 }` — numbers. It worked, because
+ * `URLSearchParams` coerces, and it was a type error nobody could see: the
+ * Studio's `typecheck` is `tsc`, which does not read `.svelte` files at all.
+ */
+export type QueryParams = Record<string, string | number | boolean>;
+
+function toQueryString(params: QueryParams): string {
+  const out = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) out.set(k, String(v));
+  return out.toString();
+}
+
 export const dataApi = {
-  list: (collection: string, params?: Record<string, string>) => {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  list: (collection: string, params?: QueryParams) => {
+    const qs = params ? `?${toQueryString(params)}` : '';
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     return api.get<{ records: any[]; pagination: any }>(`/api/data/${collection}${qs}`);
   },
@@ -197,8 +213,8 @@ export const dataApi = {
 };
 
 export const usersApi = {
-  list: async (params?: Record<string, string>) => {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  list: async (params?: QueryParams) => {
+    const qs = params ? `?${toQueryString(params)}` : '';
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ users: any[]; pagination: any }>(`/api/users${qs}`);
     return data.users || [];

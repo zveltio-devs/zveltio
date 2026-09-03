@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -42,7 +43,7 @@ d('api-keys/invitations tenant isolation (in-process)', () => {
         name: `foreign-key-${STAMP}`,
         key_hash: `hash-${STAMP}`,
         key_prefix: 'zvk_foreign0',
-        scopes: JSON.stringify([]),
+        scopes: toJsonb([]),
         rate_limit: 1000,
         is_active: true,
         created_by: null,
