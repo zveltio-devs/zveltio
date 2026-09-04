@@ -466,6 +466,57 @@
       ],
       "notDone": "Nothing repaired: every finding is a gate's own regex or scope, and repairing eight gates in the session that found them would land eight unreviewed changes at once. audit-gates.ts read as structure, runner and all 44 case declarations rather than every case body line by line. The 'second shape' holes are unexercised today (0 occurrences of each in engine and sibling) \u2014 verified per finding, so these are holes in a guarantee, not live violations.",
       "verdict": "logged"
+    },
+    {
+      "section": "E04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/E02-gates-authz",
+      "files": [
+        "scripts/merge-coverage.ts",
+        "scripts/release-gate.ts",
+        "scripts/lib/install-template.ts",
+        "scripts/review-inventory.ts"
+      ],
+      "tests": ["packages/engine/src/tests/unit/gate-coverage-partial-report.test.ts"],
+      "ran": [
+        "release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as \u2713 'skipped (offline)'; the one real failure (version consistency) still exits 1",
+        "merge-coverage with a missing input lane \u2192 throws, exit 1 (fail-closed)",
+        "review-inventory: planted a nonexistent path in a session \u2192 accepted silently, exit 0",
+        "review-inventory: planted an A05 file under an E02 session \u2192 A05 shows 1/7 with 'last session \u2014'"
+      ],
+      "findings": [
+        {
+          "severity": "medium",
+          "where": "scripts/release-gate.ts:183 (and soak, P0)",
+          "what": "RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as \u2713 and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI \u2014 the pattern exists and is not applied here.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/release-gate.ts:66 checkCoverage()",
+          "what": "reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/review-inventory.ts (session attribution)",
+          "what": "`reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section \u2014 planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session \u2014', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "scripts/merge-coverage.ts:57",
+          "what": "nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "SELF-REVIEW on review-inventory.ts, which I wrote today \u2014 the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.",
+      "verdict": "logged"
     }
   ]
 }

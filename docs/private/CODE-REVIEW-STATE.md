@@ -10,19 +10,19 @@ Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E04 — Gates — coverage, ratchets, release**
+### → **E08 — CI workflows**
 
-*Baselines that go stale against master, and a coverage gate that reads a number instead of measuring.*
+*Which gate actually runs, on which event, and which job is allowed to fail. A gate that runs nowhere is a comment.*
 
-4 of 10 files still unread. Its file list is under [`E04`](#e04--gates-coverage-ratchets-release) below.
+21 of 21 files still unread. Its file list is under [`E08`](#e08--ci-workflows) below.
 
-After it: E08, A04, A05, A06 …
+After it: A04, A05, A06, A02 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **30 / 656** (5%)
-- Lines in scope: **7,167 / 135,302** (5%)
+- Files in scope: **34 / 656** (5%)
+- Lines in scope: **9,143 / 135,302** (7%)
 - Test files opened by some session: **6 / 859**
 
 ## Sections
@@ -113,7 +113,7 @@ After it: E08, A04, A05, A06 …
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,895 | 6/10 | 2026-09-04 — partial |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,895 | 10/10 | 2026-09-04 — logged |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -1132,12 +1132,12 @@ After it: E08, A04, A05, A06 …
 | ✅ | `scripts/any-ratchet.ts` | 186 |
 | ✅ | `scripts/coverage-gate.ts` | 329 |
 | ✅ | `scripts/lib/any-targets.ts` | 97 |
-| · | `scripts/lib/install-template.ts` | 126 |
+| ✅ | `scripts/lib/install-template.ts` | 126 |
 | ✅ | `scripts/lib/require-sibling.ts` | 92 |
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
-| · | `scripts/merge-coverage.ts` | 214 |
-| · | `scripts/release-gate.ts` | 350 |
-| · | `scripts/review-inventory.ts` | 1286 |
+| ✅ | `scripts/merge-coverage.ts` | 214 |
+| ✅ | `scripts/release-gate.ts` | 350 |
+| ✅ | `scripts/review-inventory.ts` | 1286 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
@@ -1184,6 +1184,16 @@ After it: E08, A04, A05, A06 …
   - **medium** scripts/coverage-gate.ts (--update) — --update reset `gated` to the GATED constant, silently removing `routes` from enforcement, dropped `floor`/`floorNote`, and overwrote the baseline's honest provenance with a fixed sentence about the unit suite. The repair policy forbids editing a baseline to make a gate pass; the gate's own --update did it. Decisions are now preserved and `source` names the report actually graded. → *fixed*
   - **low** scripts/coverage-gate.ts (printTable) — the `[gated]` tag came from the GATED constant while enforcement iterated baseline.gated, so the table printed `lib [gated]`, left `routes` untagged, and the gate then failed on `routes` one line below. Now reads the baseline. → *fixed*
   - not done: Four of the ten files remain unread: merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and is untested. One finding in its own right, not merely an open question: a file-level `biome-ignore-all` also zeroes a rule's count in lint-warning-ratchet, where it reads as an IMPROVEMENT and prompts lowering the baseline — a gate that would actively reward the defect. And require-sibling, now repaired to demand a corpus, still cannot tell a STALE sibling from a current one: the checkout beside this one is 8 commits behind origin/master, so sibling-scanning gates answer confidently about code that no longer exists (sql:jsonb flags ~45 sites master has already fixed).
+- **2026-09-04** · claude-opus-5 · 4 files · **logged** · `review/E02-gates-authz`
+  - ran: release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as ✓ 'skipped (offline)'; the one real failure (version consistency) still exits 1
+  - ran: merge-coverage with a missing input lane → throws, exit 1 (fail-closed)
+  - ran: review-inventory: planted a nonexistent path in a session → accepted silently, exit 0
+  - ran: review-inventory: planted an A05 file under an E02 session → A05 shows 1/7 with 'last session —'
+  - **medium** scripts/release-gate.ts:183 (and soak, P0) — RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as ✓ and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI — the pattern exists and is not applied here. → *logged* (known-gaps.md)
+  - **medium** scripts/release-gate.ts:66 checkCoverage() — reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured. → *logged* (known-gaps.md)
+  - **medium** scripts/review-inventory.ts (session attribution) — `reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section — planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session —', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate. → *logged* (known-gaps.md)
+  - **low** scripts/merge-coverage.ts:57 — nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is. → *logged* (known-gaps.md)
+  - not done: SELF-REVIEW on review-inventory.ts, which I wrote today — the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.
 
 ### E05 — Build, packaging and Studio tooling scripts
 
