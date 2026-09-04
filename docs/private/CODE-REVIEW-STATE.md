@@ -22,8 +22,8 @@ After it: A05, A06, A02, A07 …
 
 - Sections in scope: **60**
 - Files in scope: **59 / 656** (9%)
-- Lines in scope: **13,181 / 135,302** (10%)
-- Test files opened by some session: **8 / 859**
+- Lines in scope: **13,181 / 135,331** (10%)
+- Test files opened by some session: **8 / 860**
 
 ## Sections
 
@@ -42,7 +42,7 @@ After it: A05, A06, A02, A07 …
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
 | A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
-| A04 | Tenancy core | 5 | 1,968 | 4/5 | 2026-09-04 — partial |
+| A04 | Tenancy core | 5 | 1,997 | 4/5 | 2026-09-04 — partial |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
 | A06 | Permissions, roles, column access | 5 | 2,188 | 0/5 | — |
 | A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
@@ -124,7 +124,7 @@ After it: A05, A06, A02, A07 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 859 | 92,063 | n/a | — |
+| T01 | Test corpus | 860 | 92,144 | n/a | — |
 
 ---
 
@@ -213,7 +213,7 @@ After it: A05, A06, A02, A07 …
 | ✅ | `packages/engine/src/lib/tenancy/fail-closed-tenant.ts` | 40 |
 | ✅ | `packages/engine/src/lib/tenancy/index.ts` | 14 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-context.ts` | 417 |
-| · | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1345 |
+| · | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1374 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-scope.ts` | 152 |
 
 **Sessions**
@@ -224,10 +224,11 @@ After it: A05, A06, A02, A07 …
   - ran: probed an unknown x-tenant-slug through the harness. /api/collections showed nothing (instance-level table, correctly ignored by the counter) — the first probe measured nothing and was redone.
   - ran: /api/webhooks with a known slug: 200, 0 unscoped fallbacks. With slug 'no-such-tenant-anywhere': 200, **1 unscoped fallback** — the request ran outside the tenant transaction, on the pool.
   - ran: row visibility on that same route, two tenants seeded: the bogus slug returned ONLY the default tenant's row, not the other's — tenantId(c) falls back to DEFAULT_TENANT_ID, so a handler that filters explicitly contains it.
-  - **high** lib/tenancy/tenant-manager.ts:749 resolveTenantFromRequest — the x-tenant-slug branch returns getTenantBySlug(slug) directly, so an UNKNOWN slug yields null and the middleware's else-branch runs the request with no tenant and no transaction. The subdomain branch twelve lines below handles exactly this case and says why: 'null silently disables the tenant GUC, which breaks RLS in the worst possible way'. Priority 1 — the path the Studio uses on every request — never got the same fallback. PROVEN: 1 unscoped fallback on /api/webhooks with a bogus slug, against 0 with a real one. Consequence is route-dependent and I measured it rather than assuming: handlers that add an explicit tenant_id predicate degrade to the DEFAULT tenant (tenantId(c) returns the sentinel), so the route I tested did not leak. A handler relying on RLS alone would run on the pool as the engine's own role, which in the recommended 'enforced' deployment is the privileged one. → *logged* (known-gaps.md)
+  - ran: probed a SUSPENDED tenant: /api/webhooks with its slug returns **200 and 1 unscoped fallback**, not the 403 'Tenant account is suspended' the middleware intends. getTenantBySlug filters status='active', so the suspended row never reaches the 403 branch at middleware/tenant.ts:134 — that branch is unreachable via the slug path.
+  - **high** lib/tenancy/tenant-manager.ts:749 resolveTenantFromRequest — the x-tenant-slug branch returns getTenantBySlug(slug) directly, so an UNKNOWN slug yields null and the middleware's else-branch runs the request with no tenant and no transaction. The subdomain branch twelve lines below handles exactly this case and says why: 'null silently disables the tenant GUC, which breaks RLS in the worst possible way'. Priority 1 — the path the Studio uses on every request — never got the same fallback. PROVEN: 1 unscoped fallback on /api/webhooks with a bogus slug, against 0 with a real one. Consequence is route-dependent and I measured it rather than assuming: handlers that add an explicit tenant_id predicate degrade to the DEFAULT tenant (tenantId(c) returns the sentinel), so the route I tested did not leak. A handler relying on RLS alone would run on the pool as the engine's own role, which in the recommended 'enforced' deployment is the privileged one. SHARPER TRIGGER, measured after the first write-up: getTenantBySlug filters `status = 'active'`, so a SUSPENDED tenant also yields null and takes the same path — 200 with 1 unscoped fallback instead of the 403 the middleware has for exactly that case. The 403 at middleware/tenant.ts:134 is unreachable via the slug path, because the lookup feeding it already filtered the row out. Suspending a tenant is an ordinary administrative action (non-payment, offboarding) and it does not refuse their requests; it moves them out of tenant isolation. NOT verified: whether a non-god user of the suspended tenant can then read the default tenant's rows — that depends on each route's own authorization and was not tested. → *logged* (known-gaps.md)
   - **medium** lib/tenancy/fail-closed-tenant.ts:14-38 — the whole body is wrapped in try/catch → console.warn. Measured: a non-owner role gets 'must be owner of database' from ALTER DATABASE ... SET, and that error is swallowed. So an operator who sets ZVELTIO_FAIL_CLOSED_TENANT=1 — an explicit request for contextless queries to see zero rows — can boot with the setting silently not applied. The repository already holds the right standard three hundred lines away: an unenforceable RLS role is FATAL in production with an explicit ZVELTIO_ALLOW_UNENFORCED_RLS override, and the comment there says why a warning is the wrong instrument ('it scrolls past during a deploy'). The existing unit test pins only the current_database() probe failure, not the ALTER failure. → *logged* (known-gaps.md)
   - **low** lib/tenancy/tenant-scope.ts:150 encodeTenantSet — encodeTenantSet([]) and encodeTenantSet(null) both produce '', and the file's own docstring says an empty GUC means 'no set published' → equality fallback. The only path reaching [] is org-reach over an empty zv_tenants (and the god branch in tenant-manager does the same), so the effect is a NARROWING to the own unit — the safe direction — but the two states are indistinguishable in the GUC. → *logged* (known-gaps.md)
-  - not done: PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit.
+  - not done: PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit. The suspended-tenant consequence is measured only as far as the unscoped fallback and the 200; the row-level question for a non-god user is open.
 
 ### A05 — RLS policies and row rules
 
@@ -1385,12 +1386,12 @@ After it: A05, A06, A02, A07 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **851** of 859.
+Test files nobody has opened yet: **852** of 860.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 492 |
-| `packages/engine/src/tests/harness` | 281 |
+| `packages/engine/src/tests/harness` | 282 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |
