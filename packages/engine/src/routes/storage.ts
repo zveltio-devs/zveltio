@@ -191,14 +191,6 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
 
-  // Tenant of the current request (always resolved — "always-one-tenant", so the
-  // default tenant in single-tenant installs). Every media read/delete is scoped
-  // by this so one tenant can't reach another's files by id (cross-tenant IDOR).
-  const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
-  // biome-ignore lint/suspicious/noExplicitAny: Hono ctx var is untyped here
-  const tenantOf = (c: any): string =>
-    (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
-
   // Auth middleware
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -220,7 +212,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       effectiveDb
         .selectFrom('zv_media_files')
         .selectAll()
-        .where('tenant_id', '=', tenantOf(c))
+        .where('tenant_id', '=', tenantId(c))
         .orderBy('created_at', 'desc'),
       listUser.id,
       await isTenantAdmin(listUser.id).catch(() => false),
@@ -393,7 +385,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
         width,
         height,
         created_by: user.id,
-        tenant_id: tenantOf(c),
+        tenant_id: tenantId(c),
         // A public upload is served from a bare URL with no authentication at
         // all, so hiding it from a listing would be theatre — and it is what a
         // record's file/image field stores, since a private signed URL expires
@@ -412,7 +404,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const folders = await foldersDb
       .selectFrom('zv_media_folders')
       .selectAll()
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('name')
       .execute();
     return c.json({ folders });
@@ -430,7 +422,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     try {
       const folder = await foldersWriteDb
         .insertInto('zv_media_folders')
-        .values({ name, parent_id: parent_id || null, created_by: user.id, tenant_id: tenantOf(c) })
+        .values({ name, parent_id: parent_id || null, created_by: user.id, tenant_id: tenantId(c) })
         .returningAll()
         .executeTakeFirst();
 
@@ -449,7 +441,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
@@ -474,7 +466,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
@@ -502,7 +494,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
@@ -594,7 +586,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
@@ -617,7 +609,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .deleteFrom('zv_media_files')
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       .where('id', '=', (file as any).id)
-      .where('tenant_id', '=', tenantOf(c))
+      .where('tenant_id', '=', tenantId(c))
       .execute();
     return c.json({ success: true });
   });

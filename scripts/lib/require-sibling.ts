@@ -26,21 +26,63 @@
  * forgets should go red rather than quiet.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
+ * Does this path hold the extensions repository, or merely exist?
+ *
+ * `existsSync` was the whole test, and an empty directory passes it. Measured:
+ * with a sibling that exists and is empty, `check-fabricated-success` reported
+ * "OK — 0 site(s), baseline allows 0" and exited 0, having scanned nothing —
+ * the exact sentence this file's header says it exists to prevent, one step
+ * further along. An absent corpus is not a clean corpus, and neither is an
+ * empty one.
+ *
+ * Not hypothetical. An interrupted `git clone` leaves the directory behind, and
+ * on 2026-09-04 `audit-gates.ts` was leaving empty directories inside the
+ * sibling on every run.
+ *
+ * The marker is a manifest, because that is what makes the directory the
+ * extensions repository rather than any other directory: every extension has
+ * one, and a checkout that has none has nothing these gates read. Searched two
+ * levels down, which covers `<category>/<ext>/manifest.json` and the
+ * `<ext>/manifest.json` shape, and stops well short of a full walk.
+ */
+function looksLikeExtensionsRepo(root: string): boolean {
+  const walk = (dir: string, depth: number): boolean => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const e of entries) {
+      if (e.isFile() && e.name === 'manifest.json') return true;
+      if (depth > 0 && e.isDirectory() && e.name !== 'node_modules' && !e.name.startsWith('.')) {
+        if (walk(join(dir, e.name), depth - 1)) return true;
+      }
+    }
+    return false;
+  };
+  return walk(root, 2);
+}
 
 export function requireSibling(root: string, gate: string): void {
-  if (existsSync(root)) return;
+  if (existsSync(root) && looksLikeExtensionsRepo(root)) return;
+
+  const empty = existsSync(root);
 
   if (process.env.ZVELTIO_ALLOW_MISSING_SIBLING === '1') {
     console.warn(
-      `[${gate}] WARNING — no sibling checkout at ${root}; ` +
+      `[${gate}] WARNING — ${empty ? 'the sibling checkout at ' + root + ' holds no extension manifest' : 'no sibling checkout at ' + root}; ` +
         'scanning this repository only, because ZVELTIO_ALLOW_MISSING_SIBLING=1.',
     );
     return;
   }
 
   console.error(
-    `[${gate}] FAIL — no sibling checkout at ${root}.\n` +
+    `[${gate}] FAIL — ${empty ? `the sibling checkout at ${root} holds no extension manifest (an empty or half-cloned directory)` : `no sibling checkout at ${root}`}.\n` +
       '  This gate reads the extensions repository. Without it the corpus is empty or\n' +
       '  partial, and reporting OK would mean "found nothing" where the truth is "could\n' +
       '  not look". Clone it beside this one, or set ZVELTIO_ALLOW_MISSING_SIBLING=1 to\n' +

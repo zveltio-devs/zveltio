@@ -28,7 +28,6 @@
  * gate, kept so upgrading an existing install does not break the extensions
  * already on it.
  */
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -185,7 +184,14 @@ export async function listKnownResources(db: Database, extensionsBase?: string):
  * materializes from the same field — so read them instead of remembering them.
  */
 async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<string[]> {
-  if (!existsSync(base)) return [];
+  // Bun.file(path).exists() returns false for directories, so stat + isDirectory
+  // is the correct existence check for the extensions base path.
+  try {
+    const st = await Bun.file(base).stat();
+    if (!st.isDirectory()) return [];
+  } catch {
+    return [];
+  }
 
   let installed: string[];
   try {
@@ -210,12 +216,12 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
   const silent: string[] = [];
   for (const name of installed) {
     const manifestPath = join(base, name, 'manifest.json');
-    if (!existsSync(manifestPath)) {
+    if (!(await Bun.file(manifestPath).exists())) {
       silent.push(name);
       continue;
     }
     try {
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { resources?: unknown };
+      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as { resources?: unknown };
       const declared = Array.isArray(manifest.resources)
         ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
         : [];

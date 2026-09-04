@@ -126,14 +126,27 @@ export function filterWritableFields(
   access: ColumnAccess,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
 ): { data: Record<string, any>; blocked: string[] } {
-  if (access.readOnly.size === 0 && !access.readOnly.has('*')) {
+  // A column the user cannot see must not be writable either — writing it
+  // blind lets a role set values it can never read back, which defeats the
+  // purpose of hiding it. Treat hidden as implicitly read-only.
+  const hasMask =
+    access.readOnly.size > 0 ||
+    access.readOnly.has('*') ||
+    access.hidden.size > 0 ||
+    access.hidden.has('*');
+  if (!hasMask) {
     return { data, blocked: [] };
   }
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
   const result: Record<string, any> = {};
   const blocked: string[] = [];
   for (const [k, v] of Object.entries(data)) {
-    if (access.readOnly.has(k) || access.readOnly.has('*')) {
+    if (
+      access.readOnly.has(k) ||
+      access.readOnly.has('*') ||
+      access.hidden.has(k) ||
+      access.hidden.has('*')
+    ) {
       blocked.push(k);
     } else {
       result[k] = v;

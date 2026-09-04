@@ -44,7 +44,18 @@ if (!listMatch) {
   console.error(`[pooldb-txn-skip] could not find TXN_SKIP_PREFIXES in ${MIDDLEWARE}`);
   process.exit(1);
 }
-const skipPrefixes = [...listMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+// Comments inside the array are stripped BEFORE the strings are read out.
+//
+// The list is documented in place — the block above it explains why `/api/users`
+// is deliberately absent — and a quoted path written in one of those sentences
+// used to be extracted as though it were an entry. Planted on 2026-09-04: a new
+// pool-backed router plus a line reading
+// `// '/api/plantpool' is deliberately NOT here` turned the gate green and put
+// that router in its success line, as one of five "all outside the request
+// transaction". The prose survives today only because it happens to quote paths
+// in backticks; the gate must not depend on that.
+const listBody = listMatch[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+const skipPrefixes = [...listBody.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 // `app.route('<path>', <name>(poolDb, …))` — poolDb as the FIRST argument, which
 // is what "this router runs on the pool" looks like.

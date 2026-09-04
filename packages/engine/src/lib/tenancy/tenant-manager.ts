@@ -177,27 +177,28 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   if (!SAFE_COLLECTION_TABLE.test(table)) {
     throw new Error(`refusing to apply RLS to unsafe table name: ${table}`);
   }
-  const t = `"${table}"`;
-  const def = `'${DEFAULT_TENANT_ID}'::uuid`;
-  await sql
-    .raw(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS tenant_id UUID DEFAULT ${def}`)
-    .execute(db);
-  await sql.raw(`UPDATE ${t} SET tenant_id = ${def} WHERE tenant_id IS NULL`).execute(db);
+  const def = sql.raw(`'${DEFAULT_TENANT_ID}'::uuid`);
+  await sql`
+    ALTER TABLE ${sql.id(table)} ADD COLUMN IF NOT EXISTS tenant_id UUID DEFAULT ${def}
+  `.execute(db);
+  await sql`
+    UPDATE ${sql.id(table)} SET tenant_id = ${def} WHERE tenant_id IS NULL
+  `.execute(db);
   // NULLIF(..., '') is load-bearing: current_setting(..., true) returns an EMPTY
   // STRING (not NULL) when the GUC is set-but-blank — e.g. a god/single-tenant
   // request that runs without a tenant context. COALESCE only catches NULL, so
   // without the NULLIF the default evaluates `''::uuid` → "invalid input syntax
   // for type uuid" and every insert into an RLS table 500s. NULLIF maps '' → NULL
   // so COALESCE falls back to the default tenant.
-  await sql
-    .raw(
-      `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})`,
-    )
-    .execute(db);
-  await sql.raw(`ALTER TABLE ${t} ALTER COLUMN tenant_id SET NOT NULL`).execute(db);
-  await sql
-    .raw(`CREATE INDEX IF NOT EXISTS "idx_${table}_tenant_id" ON ${t}(tenant_id)`)
-    .execute(db);
+  await sql`
+    ALTER TABLE ${sql.id(table)} ALTER COLUMN tenant_id SET DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})
+  `.execute(db);
+  await sql`
+    ALTER TABLE ${sql.id(table)} ALTER COLUMN tenant_id SET NOT NULL
+  `.execute(db);
+  await sql`
+    CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${table}_tenant_id`)} ON ${sql.id(table)}(tenant_id)
+  `.execute(db);
   // And the composite the paginated read actually needs.
   //
   // The single-column index above lets the policy predicate be satisfied; it
@@ -212,20 +213,21 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   //
   // Guarded on the column: this runs for collection tables, which always have
   // `created_at`, but the guard costs nothing and the next caller may not.
-  await sql
-    .raw(
-      `DO $$ BEGIN
-         IF EXISTS (SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = current_schema()
-                      AND table_name = '${table}' AND column_name = 'created_at') THEN
-           EXECUTE 'CREATE INDEX IF NOT EXISTS "idx_${table}_tenant_created" ON ${t}(tenant_id, created_at DESC)';
-         END IF;
-       END $$`,
-    )
-    .execute(db);
-  await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
-  await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
-  await sql.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${t}`).execute(db);
+  const hasCreatedAt = await sql<{ n: number }>`
+    SELECT COUNT(*)::int AS n FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = ${table}
+      AND column_name = 'created_at'
+  `.execute(db);
+  if (hasCreatedAt.rows[0]?.n ?? 0) {
+    await sql`
+      CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${table}_tenant_created`)}
+      ON ${sql.id(table)}(tenant_id, created_at DESC)
+    `.execute(db);
+  }
+  await sql`ALTER TABLE ${sql.id(table)} ENABLE ROW LEVEL SECURITY`.execute(db);
+  await sql`ALTER TABLE ${sql.id(table)} FORCE ROW LEVEL SECURITY`.execute(db);
+  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(table)}`.execute(db);
   // The predicate lives in the two named functions rather than being spelled
   // out here. It used to be written inline, and the extension migration
   // template wrote its own fail-OPEN version of the same rule — two spellings
@@ -239,13 +241,12 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   // data belong to the subordinate, and a level above reads and approves rather
   // than correcting in someone else's place. Putting the read predicate back
   // into WITH CHECK would let a parent write into a child's rows.
-  await sql
-    .raw(
-      `CREATE POLICY tenant_isolation ON ${t} ` +
-        `USING (tenant_id = ANY (${await visibleTenantsFn(db, table)})) ` +
-        `WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
-    )
-    .execute(db);
+  const visibleFn = await visibleTenantsFn(db, table);
+  await sql`
+    CREATE POLICY tenant_isolation ON ${sql.id(table)}
+    USING (tenant_id = ANY (${sql.raw(visibleFn)}))
+    WITH CHECK (zveltio_tenant_write_ok(tenant_id))
+  `.execute(db);
 }
 
 /**
@@ -285,8 +286,7 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
     // data) — SAFE_COLLECTION_TABLE only matches the latter, so it would have
     // skipped every extension table this function exists to fix.
     if (!SAFE_TENANT_TABLE.test(tablename) || !SAFE_POLICY_NAME.test(policyname)) continue;
-    const t = `"${tablename}"`;
-    const def = `'${DEFAULT_TENANT_ID}'::uuid`;
+    const def = sql.raw(`'${DEFAULT_TENANT_ID}'::uuid`);
     try {
       // Backfill before switching the predicate. The old policy made a NULL
       // tenant_id visible to everyone; the new one makes it visible to nobody.
@@ -298,28 +298,28 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       `.execute(db);
       const n = orphans.rows[0]?.n ?? 0;
       if (n > 0) {
-        await sql.raw(`UPDATE ${t} SET tenant_id = ${def} WHERE tenant_id IS NULL`).execute(db);
+        await sql`
+          UPDATE ${sql.id(tablename)} SET tenant_id = ${def} WHERE tenant_id IS NULL
+        `.execute(db);
         console.warn(
           `[tenant-rls] ${tablename}: backfilled ${n} row(s) with no tenant_id to the ` +
             `default tenant — they were previously visible to every tenant.`,
         );
       }
       // Match the engine's column DEFAULT so writes and reads agree.
-      await sql
-        .raw(
-          `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT ` +
-            `COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})`,
-        )
-        .execute(db);
+      await sql`
+        ALTER TABLE ${sql.id(tablename)} ALTER COLUMN tenant_id SET DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})
+      `.execute(db);
       // The index `applyTenantRLS` creates for collection tables, which this
       // path never did. A policy without it is not wrong, only slow: the
       // predicate can only become an Index Cond if there is an index to use,
       // and without one every tenant-scoped read of the table is a full scan.
       // Extensions that ship their own index are unaffected — 6 of 201
       // policy-bearing tables in a real install had none.
-      await sql
-        .raw(`CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_id" ON ${t}(tenant_id)`)
-        .execute(db);
+      await sql`
+        CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_id`)}
+        ON ${sql.id(tablename)}(tenant_id)
+      `.execute(db);
       // And the composite, for the same reason `applyTenantRLS` creates one:
       // the single-column index above satisfies the policy predicate and does
       // nothing for `ORDER BY created_at DESC LIMIT n`, which is what a listing
@@ -332,27 +332,27 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       // Guarded on the column, and this path needs the guard where the
       // collection path does not: an extension table is any shape its author
       // chose, and plenty have no `created_at`.
-      await sql
-        .raw(
-          `DO $$ BEGIN
-             IF EXISTS (SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = '${tablename}' AND column_name = 'created_at') THEN
-               EXECUTE 'CREATE INDEX IF NOT EXISTS "idx_${tablename}_tenant_created" ON ${t}(tenant_id, created_at DESC)';
-             END IF;
-           END $$`,
-        )
-        .execute(db);
-      await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
-      await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
-      await sql.raw(`DROP POLICY IF EXISTS ${`"${policyname}"`} ON ${t}`).execute(db);
-      await sql
-        .raw(
-          `CREATE POLICY ${`"${policyname}"`} ON ${t} ` +
-            `USING (tenant_id = ANY (${await visibleTenantsFn(db, tablename)})) ` +
-            `WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
-        )
-        .execute(db);
+      const hasCreatedAt = await sql<{ n: number }>`
+        SELECT COUNT(*)::int AS n FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ${tablename}
+          AND column_name = 'created_at'
+      `.execute(db);
+      if (hasCreatedAt.rows[0]?.n ?? 0) {
+        await sql`
+          CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_created`)}
+          ON ${sql.id(tablename)}(tenant_id, created_at DESC)
+        `.execute(db);
+      }
+      await sql`ALTER TABLE ${sql.id(tablename)} ENABLE ROW LEVEL SECURITY`.execute(db);
+      await sql`ALTER TABLE ${sql.id(tablename)} FORCE ROW LEVEL SECURITY`.execute(db);
+      await sql`DROP POLICY IF EXISTS ${sql.id(policyname)} ON ${sql.id(tablename)}`.execute(db);
+      const visibleFn = await visibleTenantsFn(db, tablename);
+      await sql`
+        CREATE POLICY ${sql.id(policyname)} ON ${sql.id(tablename)}
+        USING (tenant_id = ANY (${sql.raw(visibleFn)}))
+        WITH CHECK (zveltio_tenant_write_ok(tenant_id))
+      `.execute(db);
       applied++;
     } catch (err) {
       console.warn(
@@ -1230,6 +1230,14 @@ export async function enableRLS(tableName: string): Promise<void> {
   await sql`
     ALTER TABLE ${sql.id(tableName)}
     ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES zv_tenants(id) ON DELETE CASCADE
+  `.execute(_db);
+
+  // 1b. Default matches applyTenantRLS: writes without an explicit tenant_id
+  // land in the current tenant instead of becoming NULL rows invisible to everyone.
+  await sql`
+    ALTER TABLE ${sql.id(tableName)}
+    ALTER COLUMN tenant_id SET DEFAULT
+      COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${DEFAULT_TENANT_ID}::uuid)
   `.execute(_db);
 
   // 2. Index for query performance

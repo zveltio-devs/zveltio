@@ -24,21 +24,6 @@ re-checked in source at that date, not carried forward from a report.
 
 ## 1. Engine
 
-**Gap — hidden columns are readable-denied but still writable.**
-`ColumnAccess` carries both `hidden` (filtered out of GET responses) and
-`readOnly` (rejected on write). `filterWritableFields`
-(`lib/tenancy/column-permissions.ts`) consults only `readOnly`. A role denied
-*visibility* of a column can therefore still set its value blind. Narrow, but
-real: the two sets should either both gate writes, or `hidden` should imply
-`readOnly`.
-
-**Gap — `CREATE POLICY` interpolates the table name with a bare quote wrap.**
-`lib/tenancy/tenant-manager.ts` builds `const t = `"${table}"`` and interpolates
-it into DDL. Every sibling statement in the same file uses `sql.id()`. Not
-currently exploitable — the names come from the Postgres catalogue, not from a
-request — but it is the one statement of the set that would be injectable if
-that ever changed.
-
 **Deferred — extension migrations run *after* the engine starts serving.**
 An extension issuing `ALTER TABLE` on a core table about a second after boot
 invalidates prepared statements held on the pool; this is the historical source
@@ -105,6 +90,99 @@ rather than 501, which is arguably worse: a provisioning client reads it as
 
 **Gap — `projects/helpdesk` Studio and API disagree on field names.** The
 Studio form sends `subject`/`body`; the API expects `title`/`content`.
+
+---
+
+## 3a. The gates themselves
+
+Read file by file on 2026-09-04 (campaign section E01, the twelve tenancy/SQL
+gates). Seven defects were repaired in that session and pinned by
+`packages/engine/src/tests/harness/gate-planted-variants.test.ts`; what follows
+is what was left. Each was found by planting a violation and watching the gate
+stay green — none of it is visible by reading the regex.
+
+**Gap — `check-tenant-table-on-pool` judges an empty set.** It matches the
+literal `poolDb.` under `routes/`, and measured on 2026-09-04 there are **zero**
+such sites: all four pool-backed routers receive the raw pool under the parameter
+name `db` (`app.route('/api/insights', insightsRoutes(poolDb, auth))` is
+`function insightsRoutes(db: Database)` inside), so every query in them is spelled
+`db.selectFrom(…)`. The gate has never judged one of the sites it exists for. Its
+success line now prints the reach so the emptiness is visible, but closing the
+hole means teaching it to resolve the alias — which would start failing on
+production code (`insights.ts` queries `zv_dashboards`, `zv_panels` and
+`zvd_insight_saved_queries` on the pool; spot-checked handlers do filter
+`tenant_id` by hand, as the design requires). That is a decision about the
+routers, not a repair to the gate.
+
+**Gap — `check-atomic-writes` is silenced by any `.transaction(` in the slice.**
+The check is `if (/\.transaction\s*\(/.test(part)) continue`, so a handler that
+opens a transaction for an audit-log write and then does two unwrapped writes
+beside it is skipped entirely. Planted and confirmed. The file's own header
+argues that separating this properly needs a parser rather than a regex, and that
+remains true — but the escape is not among the two blind spots it documents.
+
+**Gap — `check-tenant-boundary` credits any `ARRAY[…]` in a file that also
+creates a `tenant_isolation` policy.** 24 tables get their "policed" status only
+through that path, and the array need not be an RLS loop — a list of table names
+used for index maintenance in the same file would do. Verified rather than
+assumed: the gate's whole classification was compared against
+`pg_class.relrowsecurity` on a full engine+54-extension install, and it is
+**exactly right — 0 divergences in either direction** across 333 tenant-scoped
+tables. The heuristic is currently telling the truth; it is the *reason* it does
+so that is fragile.
+
+**Gap — `bun run audit:gates` cannot run in a checkout that has built the
+Studio.** The pre-flight refuses when a `create` probe path already exists, and
+`packages/studio/dist/.zveltio-studio-version` is an ordinary local build
+artifact — so the meta-gate aborts before planting anything. CI is unaffected
+(nothing has built the Studio there yet). Reported as fixed on `master` after
+this checkout's base: a colliding path now skips that one case instead of
+aborting the run.
+
+**Gap — `check-jsonb-binding` cannot see a `JSON.stringify` behind a variable.**
+Widened on 2026-09-04 to catch it behind a ternary — which is how the one live
+defect it then found was written — but a value assigned to a local first, and the
+raw-value case its own header already declines to claim, both need type inference
+rather than a wider regex. A clean run is not proof; use `toJsonb` and the
+question does not arise.
+
+**Gap — the local `zveltio-extensions` checkout drifts silently.** Every
+sibling-scanning gate reads whatever is on disk, so a checkout behind
+`origin/master` reports failures that do not exist on master — measured at 8
+commits behind on 2026-09-04, producing 45 phantom `jsonb-binding` sites. The
+gates cannot tell staleness from a defect, and neither can a reader of their
+output. Pull the sibling before trusting any local gate run.
+
+**Gap — a harness test that writes falls back to whatever `.env` names.**
+`process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL`, plus Bun's
+auto-loading of the nearest `.env`, means the database a writing test connects to
+depends on the directory it was launched from: `zveltio_test` from
+`packages/engine`, and **`zv_dev` — the development database — from the repo
+root**. Three harness files share the pattern (`pool-autosize`,
+`gate-numeric-arith-fails-closed`, `jsonb-notification-binding`) and the last two
+INSERT rows. A test that writes should refuse to run without an explicit test URL
+rather than quietly pick one; `skipIf` on an absent variable is the wrong shape
+here, because the variable is rarely absent — it is merely wrong.
+
+**Gap — six of the thirteen gates have no test of their own.** Only
+`check-numeric-string-arithmetic` had one before 2026-09-04;
+`gate-planted-variants.test.ts` now covers seven more, but each pins the specific
+variant that was repaired rather than the gate as a whole. The remaining six —
+`check-atomic-writes`, `check-duplicate-table-creators`,
+`check-insert-schema-match`, `check-raw-sql-identifiers`,
+`check-tenant-boundary`'s ARRAY path and `check-numeric-string-arithmetic`'s
+detector half — are still proved only by the planting harness, which means that
+when it cannot run, nothing checks that they still bite.
+
+**Open question, for whoever reviews the read path — row rules do not reach
+virtual collections.** `lib/data/handlers/list.ts` serves the virtual branch and
+`return`s from it well before the "RLS injection" block, so a virtual collection
+gets column permissions and no row filtering. Found while establishing that
+`virtual-collection-adapter.ts` is not a hand-written copy of the rule
+interpreter (it is not — it renders the caller's own `?filter=` for a third-party
+API). Not verified against intent; it may well be the only thing that can be done
+when the rows come from someone else's database. It looks identical either way,
+which is the reason it is written down.
 
 ---
 
