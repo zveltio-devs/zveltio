@@ -26,12 +26,13 @@
 
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
-import { DEFAULT_TENANT_ID } from './tenancy/tenant-manager.js';
+import { DEFAULT_TENANT_ID } from './tenancy/index.js';
 
-// Single source of truth for the default tenant sentinel. Re-exported here so
-// routes that already import from `lib/route-db` do not have to reach into
-// tenancy internals.
-export { DEFAULT_TENANT_ID } from './tenancy/tenant-manager.js';
+// Single source of truth for the default tenant sentinel. Through the tenancy
+// barrel, not the deep file: `import-boundaries` gates that, and reaching into
+// `tenancy/tenant-manager` directly is what this re-export exists to spare
+// callers of.
+export { DEFAULT_TENANT_ID } from './tenancy/index.js';
 
 export function reqDb(c: Context, fallback: Database): Database {
   const trx = c.get('tenantTrx') as Database | null | undefined;
