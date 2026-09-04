@@ -91,6 +91,20 @@ describe('filterWritableFields (write mask)', () => {
     expect(r.data).toEqual({});
     expect(r.blocked.sort()).toEqual(['a', 'b']);
   });
+
+  it('treats hidden columns as not writable', () => {
+    // A role denied visibility of a column must not be able to set it,
+    // otherwise it can write values it can never read back.
+    const r = filterWritableFields({ a: 1, secret: 2, c: 3 }, access(['secret']));
+    expect(r.data).toEqual({ a: 1, c: 3 });
+    expect(r.blocked).toEqual(['secret']);
+  });
+
+  it("a '*' hidden mask blocks every write", () => {
+    const r = filterWritableFields({ a: 1, b: 2 }, access(['*']));
+    expect(r.data).toEqual({});
+    expect(r.blocked.sort()).toEqual(['a', 'b']);
+  });
 });
 
 describe('getColumnAccess', () => {

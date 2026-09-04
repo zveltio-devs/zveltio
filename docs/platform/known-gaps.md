@@ -24,14 +24,6 @@ re-checked in source at that date, not carried forward from a report.
 
 ## 1. Engine
 
-**Gap — hidden columns are readable-denied but still writable.**
-`ColumnAccess` carries both `hidden` (filtered out of GET responses) and
-`readOnly` (rejected on write). `filterWritableFields`
-(`lib/tenancy/column-permissions.ts`) consults only `readOnly`. A role denied
-*visibility* of a column can therefore still set its value blind. Narrow, but
-real: the two sets should either both gate writes, or `hidden` should imply
-`readOnly`.
-
 **Deferred — extension migrations run *after* the engine starts serving.**
 An extension issuing `ALTER TABLE` on a core table about a second after boot
 invalidates prepared statements held on the pool; this is the historical source
