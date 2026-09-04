@@ -91,6 +91,20 @@ function tsFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * `\s*` around the dot, not a same-line match.
+ *
+ * The scan used to run line by line, so it only ever saw `poolDb.selectFrom('t')`
+ * written on ONE line — and a chain long enough to wrap is exactly what the
+ * formatter turns into
+ *
+ *     const rows = await poolDb
+ *       .selectFrom('zv_api_keys')
+ *
+ * which was invisible. Planted on 2026-09-04: the same violation the probe in
+ * `audit-gates.ts` catches on one line stayed green when broken across two, and
+ * every real call site in this codebase is long enough to wrap.
+ */
 const QUERY = /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)'/g;
 
 /**
@@ -108,22 +122,28 @@ const QUERY = /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\
 const allowed = new Map<string, string>();
 
 const findings: string[] = [];
+/** Every `poolDb.<op>('t')` seen, matched or not — the gate's reach. */
+let sitesSeen = 0;
+
+/** Line and block comments blanked, newlines kept so line numbers survive. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (_m, p1: string) => p1);
+}
 
 for (const file of tsFiles(ROUTES_DIR)) {
-  const src = readFileSync(file, 'utf8');
-  const lines = src.split('\n');
+  const src = stripComments(readFileSync(file, 'utf8'));
   const rel = file.slice(ROOT.length + 1);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) continue;
-    QUERY.lastIndex = 0;
-    for (const m of line.matchAll(QUERY)) {
-      const table = m[2]!;
-      if (!tenantScoped.has(table)) continue;
-      if (allowed.has(`${rel}:${table}`)) continue;
-      findings.push(`${rel}:${i + 1}  ${table}\n      ${line.trim().slice(0, 100)}`);
-    }
+  QUERY.lastIndex = 0;
+  for (const m of src.matchAll(QUERY)) {
+    sitesSeen++;
+    const table = m[2]!;
+    const line = src.slice(0, m.index!).split('\n').length;
+    if (!tenantScoped.has(table)) continue;
+    if (allowed.has(`${rel}:${table}`)) continue;
+    findings.push(`${rel}:${line}  ${table}\n      ${m[0].replace(/\s+/g, ' ')}`);
   }
 }
 
@@ -136,6 +156,23 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
+// The reach is printed, not implied.
+//
+// "none queried on `poolDb` from a route" reads as "I looked at the sites and
+// they are fine". Measured on 2026-09-04 it meant something else: there are ZERO
+// `poolDb.` query sites under `routes/`, because all four pool-backed routers
+// receive the raw pool under the parameter name `db` — `insightsRoutes(poolDb,
+// auth)` is `function insightsRoutes(db: Database)` inside, and its queries are
+// spelled `db.selectFrom('zv_dashboards')`. So this gate has never judged a
+// single one of the sites it exists for. Saying so out loud is the smallest
+// honest change; teaching it to resolve the alias would make it start failing on
+// production code and is a decision for the owner, not a repair. See the note in
+// the ledger for E01.
 console.log(
-  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known, none queried on \`poolDb\` from a route.`,
+  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known; ` +
+    `${sitesSeen} \`poolDb.\` query site(s) under routes/, none of them on a tenant table.` +
+    (sitesSeen === 0
+      ? '\n  NOTE: zero sites matched. The four pool-backed routers take the raw pool as `db`,' +
+        '\n  so nothing under routes/ spells `poolDb.` and this gate is judging an empty set.'
+      : ''),
 );

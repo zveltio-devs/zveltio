@@ -45,7 +45,9 @@ Other top-level directories:
   `engine/`, `studio/`, `ui/`, `extensions/`. Start at `docs/README.md`.
   `docs/adr/` holds architecture decision records; `docs/private/` holds
   internal engineering plans that are cited from source code and must keep
-  stable paths.
+  stable paths. A file-by-file review campaign is running over the whole tree —
+  if you are here to review code rather than change it, start at
+  `docs/private/CODE-REVIEW-CAMPAIGN.md`.
 - `quality-gates/` — JSON baselines for ratchet-style checks (lint warnings,
   `any` counts, coverage, ambient authority, etc.). Do not edit these by hand
   to make a failing gate pass.

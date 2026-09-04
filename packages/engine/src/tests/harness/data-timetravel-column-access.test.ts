@@ -52,13 +52,22 @@ d('time-travel column access (in-process)', () => {
     colPermId = perm?.id ?? '';
     await invalidateColumnPermCache(COLLECTION);
 
+    // Hidden columns are now treated as not writable (known-gaps.md §3a), so the
+    // role cannot supply `secret` on create. Create the visible part, then seed
+    // the hidden value directly as the DB owner to simulate data written by a
+    // higher-privileged role/process.
     const create = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ title: 'visible', secret: 'topsecret' }),
+      body: JSON.stringify({ title: 'visible' }),
     });
     expect(create.status).toBe(201);
     recordId = ((await create.json()) as { id: string }).id;
+    await sql`
+      UPDATE ${sql.table(`zvd_${COLLECTION}`)}
+      SET secret = ${'topsecret'}
+      WHERE id = ${recordId}
+    `.execute(db);
   });
 
   afterAll(async () => {

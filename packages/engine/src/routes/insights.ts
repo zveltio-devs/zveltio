@@ -22,6 +22,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { toJsonb } from '../lib/jsonb.js';
+import { tenantId } from '../lib/route-db.js';
 
 /**
  * Resolve whether `userId` can read a dashboard. Order matters — admin
@@ -158,9 +159,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   // Tenant of the request (always resolved — default tenant in single-tenant).
   // Dashboards have no RLS and are queried on the raw pool db, so every dashboard
   // query is scoped by this — otherwise a PUBLIC dashboard leaks to every tenant.
-  const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
-  const tenantOf = (c: Context): string =>
-    (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
+  // Uses tenantId() from route-db.ts so the default sentinel stays in one place.
+  const tenantOf = tenantId;
 
   // ── GET /stats ───────────────────────────────────────────────────────────────
   app.get('/stats', async (c) => {
@@ -368,6 +368,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .selectFrom('zv_dashboards')
         .select(['id', 'created_by'])
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst();
 
       if (!dash) return c.json({ error: 'Not found' }, 404);
@@ -376,6 +377,11 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         const isAdmin = await requireInstanceAdmin(user.id);
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
       }
+
+      // `zvd_dashboard_shares` has no tenant_id column of its own — it is one of
+      // the nine tables isolated by join alone. Its whole tenant boundary is the
+      // lookup above: scope that by tenant and the shares follow through
+      // dashboard_id, because canReadDashboard is handed an already-fetched row.
 
       // Validate `shared_with_role` against the live Casbin role list.
       // Persisting a dead role name silently broke the existing role-share

@@ -96,8 +96,25 @@ const CREATE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w
  * wanted one) made the optional group fail and the capture land on `IF`. Prose
  * about a table is not a declaration of one.
  */
+/**
+ * The UP half only. A `CREATE TABLE` written to restore a table a rollback just
+ * dropped is not a second creator — it never runs on an install.
+ *
+ * Planted 2026-09-04, and one real file has the shape today:
+ * `analytics/quality/…/004_drop_quality_score.sql` recreates `zvd_quality_scores`
+ * below its marker. Harmless so far only because it is the same owner as the
+ * table's real creator, so `add()` deduplicates it; a different owner doing the
+ * same thing would have been reported as shadowing that cannot occur.
+ *
+ * Same marker and same reason as `upHalf()` in `scripts/lib/install-template.ts`.
+ */
+function upHalf(sql: string): string {
+  const m = /^[ \t]*--[ \t]*DOWN[ \t]*$/im.exec(sql);
+  return m ? sql.slice(0, m.index) : sql;
+}
+
 function tablesIn(sql: string): string[] {
-  const code = sql.replace(/--[^\n]*/g, '');
+  const code = upHalf(sql).replace(/--[^\n]*/g, '');
   // `matchAll` rather than a `while ((m = re.exec()))` loop: the assignment form
   // is what the lint ratchet counts, and a shared `/g/` regex carries
   // `lastIndex` between calls, so the exec form also has to be reset by hand.

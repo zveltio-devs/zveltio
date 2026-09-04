@@ -525,6 +525,9 @@ async function main(): Promise<void> {
   const migrationErrors: string[] = [];
   let examined = 0;
   let insertSites = 0;
+  /** Sites whose table is in no migration — counted, never counted as checked. */
+  let unknownTable = 0;
+  const unknownTables = new Set<string>();
 
   migrationErrors.push(...(await buildTemplate(admin)));
 
@@ -558,11 +561,29 @@ async function main(): Promise<void> {
         const fileSrc = readFileSync(file, 'utf8');
         const updateLines = new Set(findUpdates(fileSrc).map((u) => u.line));
         for (const site of [...findInserts(fileSrc), ...findUpdates(fileSrc)]) {
-          insertSites++;
           const table = tables.get(site.table);
-          // A table this extension does not own — the engine's, or another
-          // extension's. Out of scope: we only built this extension's schema.
-          if (!table) continue;
+          // A table no migration in EITHER repository creates, or one the
+          // engine's DDL manager builds at runtime from a collection definition.
+          // Nothing to compare against, so nothing is claimed about it.
+          //
+          // The count moved below this line on 2026-09-04. It used to be
+          // incremented first, so a site that was skipped here still landed in
+          // "474 INSERT site(s) checked against their own schema" — a number
+          // asserting a comparison that never happened. Planted the same day:
+          // `INSERT INTO zz_table_that_does_not_exist (…)` in an extension left
+          // the gate green AND raised the count to 475. A whole-table typo is a
+          // worse defect than the wrong-column one this gate does catch, and it
+          // was the one hiding inside the success line.
+          //
+          // Measured on the real corpus the same day: 0 sites skipped, 0
+          // migrations failing to apply. The counter exists so that stops being
+          // something anyone has to take on trust.
+          if (!table) {
+            unknownTable++;
+            unknownTables.add(site.table);
+            continue;
+          }
+          insertSites++;
 
           for (const col of site.columns) {
             if (!table.columns.has(col)) {
@@ -681,9 +702,19 @@ async function main(): Promise<void> {
   }
 
   const allowed = Object.values(baseline).reduce((a, b) => a + b, 0);
+  // What did NOT get compared is part of the answer. A migration that fails to
+  // apply leaves its tables absent, every INSERT against them is skipped, and
+  // without these two numbers the run still reads as a clean sweep.
   console.log(
     `[insert-schema] OK — ${examined} extension(s) built, ${insertSites} INSERT site(s) checked against their own schema, ${findings.length} finding(s), baseline allows ${allowed}.`,
   );
+  if (migrationErrors.length > 0 || unknownTable > 0) {
+    console.log(
+      `[insert-schema] NOT checked: ${unknownTable} site(s) on ${unknownTables.size} table(s) no ` +
+        `migration creates${unknownTables.size > 0 ? ` (${[...unknownTables].sort().slice(0, 8).join(', ')})` : ''}; ` +
+        `${migrationErrors.length} migration statement(s) failed to apply. Re-run with --verbose for the list.`,
+    );
+  }
 }
 
 await main();
