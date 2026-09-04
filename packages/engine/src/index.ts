@@ -41,6 +41,7 @@ import { websocketHandler } from './routes/ws.js';
 import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
+import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
 import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
@@ -1500,14 +1501,21 @@ async function bootstrap() {
 // Graceful shutdown
 async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
+  cronRunner.stop();
   webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
-  realtimeBus()
-    .stop()
-    .catch((err: Error) => {
-      console.warn('[shutdown] realtimeBus.stop() failed:', err.message);
-    });
+  // Stop isolated extension workers before the DB pool drains.
+  try {
+    await getWorkerHostIfInitialized()?.stopAll();
+  } catch (err: unknown) {
+    console.warn('[shutdown] worker host stopAll() failed:', (err as Error).message);
+  }
+  try {
+    await realtimeBus().stop();
+  } catch (err: unknown) {
+    console.warn('[shutdown] realtimeBus.stop() failed:', (err as Error).message);
+  }
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/data/index.js');
@@ -1515,10 +1523,15 @@ async function shutdown() {
   } catch {
     /* not initialized yet */
   }
+  // Stop the HTTP server so in-flight requests can drain before we exit.
+  // `stop()` returns a promise (bun-types/serve.d.ts) and `process.exit(0)` is
+  // the next statement, so without the await the drain this comment promises
+  // does not happen.
+  await _server?.stop();
   process.exit(0);
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown());
+process.on('SIGTERM', () => shutdown());
 
 // Bun crashes the process on any unhandled promise rejection. A handful
 // of recoverable error classes shouldn't take the engine down:
