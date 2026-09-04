@@ -3,7 +3,7 @@ import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { getCurrentDomain } from './tenant-context.js';
+import { getCurrentDomain, getCurrentDomainOrNull } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
 // Cache TTLs
@@ -811,7 +811,12 @@ export async function checkPermission(
  */
 export async function requireInstanceAdmin(userId: string): Promise<boolean> {
   if (await isGodUser(userId)) return true;
-  if (getCurrentDomain() !== DEFAULT_TENANT_ID) return false;
+  // `getCurrentDomainOrNull`, not `getCurrentDomain`: the latter answers
+  // DEFAULT_TENANT_ID when no store was ever opened, so a request whose tenant
+  // could not be resolved read as "we are in the root tenant" and a delegated
+  // tenant_admin passed this gate. No context is not the root tenant.
+  const domain = getCurrentDomainOrNull();
+  if (domain !== DEFAULT_TENANT_ID) return false;
   return checkPermission(userId, 'admin', '*');
 }
 

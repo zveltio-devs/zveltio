@@ -234,6 +234,35 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         }
       });
     } else {
+      // An EXPLICIT `x-tenant-slug` that resolves to nothing is refused, rather
+      // than served without a tenant.
+      //
+      // `getTenantBySlug` filters `status = 'active'`, so this covers both a
+      // slug that does not exist and one whose tenant is SUSPENDED — and the
+      // suspended case is the realistic one: the 403 twenty lines above can
+      // never fire through this path, because the lookup feeding it already
+      // dropped the row.
+      //
+      // Continuing without a tenant is not merely unscoped, it is an
+      // escalation: no store means `getCurrentDomain()` reads as the root
+      // tenant, and `requireInstanceAdmin` then admits a delegated
+      // `tenant_admin`. Measured against /api/admin/rls on 2026-09-04 — 403
+      // with a real tenant slug, 200 with one that does not exist.
+      //
+      // One status for both cases on purpose: distinguishing them would tell an
+      // unauthenticated caller which slugs exist.
+      if (c.req.raw.headers.get('x-tenant-slug')) {
+        return c.json(
+          {
+            type: 'about:blank',
+            title: 'Not Found',
+            status: 404,
+            code: 'tenant_not_found',
+            detail: 'No active tenant matches the x-tenant-slug header.',
+          },
+          404,
+        );
+      }
       c.set('environment', null);
       c.set('tenantSchema', 'public');
       await next();
