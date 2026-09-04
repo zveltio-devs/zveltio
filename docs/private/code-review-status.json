@@ -678,6 +678,84 @@
       ],
       "notDone": "Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed \u2014 both are larger than a review commit.",
       "verdict": "logged"
+    },
+    {
+      "section": "A05",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/A05-rls-row-rules",
+      "files": [
+        "packages/engine/src/lib/tenancy/rule-operators.ts",
+        "packages/engine/src/lib/tenancy/signed-cache.ts",
+        "packages/engine/src/lib/tenancy/entity-access.ts",
+        "packages/engine/src/lib/tenancy/denial.ts",
+        "packages/engine/src/lib/tenancy/rls.ts",
+        "packages/engine/src/lib/tenancy/row-rule-policy.ts",
+        "packages/engine/src/routes/rls.ts"
+      ],
+      "tests": [],
+      "ran": [
+        "called RULE_OPERATORS directly with the values each applier actually receives: eq/neq on a Date object versus the ISO string, and on a JS number versus '5.0'",
+        "traced the realtime record to its source: write-pipeline hands broadcastDataEvent the row from .returningAll(), so timestamptz arrives as a Date",
+        "emitted a real predicate from buildRowRulePredicate and read the SQL",
+        "EXPLAIN on 50 000 rows, both predicate forms: bare current_setting \u2192 Bitmap Heap Scan (cost 60.19); (SELECT current_setting(\u2026)) \u2192 Index Only Scan (cost 2.51)",
+        "grepped for guc( \u2014 zero call sites",
+        "ran catch:fabricated against the realtime fail-open: reports 0 site(s), because the .catch is not within 4 lines of a query call",
+        "caught prepush lying about my own commit: `bun run prepush` reported OK, and the committed state then FAILED `format:check`. Cause: check:schema runs `bun run format` in WRITE mode, so prepush reformats the working tree and then verifies what it just repaired \u2014 not what is committed. Every `prepush OK` in this campaign was about a possibly-reformatted tree rather than the commit about to be pushed."
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "lib/tenancy/rule-operators.ts + rls.ts:284 matchesRlsFilters, via routes/realtime.ts:289",
+          "what": "comparison is textual (String(a) === String(b)), which is right for SQL and for the JSONB snapshots but wrong for the realtime path, where the record comes straight from the write pipeline and a timestamptz is a JS Date. Measured: a rule 'created_at neq static:<iso>' \u2014 meant to HIDE rows \u2014 keeps false on SQL and the as_of path (row hidden) and true on realtime (row DELIVERED over SSE). Same on numerics: 'score neq static:5.0' hides in SQL, delivers on realtime. eq under-delivers, neq over-delivers, and neq is the operator you reach for to hide something. This is the file whose header records the previous instance of exactly this shape: 'a leak \u2014 neq against a NULL column: absent from /api/data, delivered over SSE'. The file unified the DECISIONS; the four appliers still receive different TYPES.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "routes/realtime.ts:488-489",
+          "what": "the subscription's two authorization lookups both degrade to no-restriction on error: getRlsFilters(...).catch(() => []) means no row filters, getColumnAccess(...).catch(() => null) means no masking (access?.columns ? apply : record at line 293 sends the raw record). Three lines below sits the comment 'a masked field must not arrive over SSE just because it arrived as an event rather than as a response' \u2014 the intent is explicit and the error path contradicts it. catch:fabricated reports 0 sites here, because its LOOKBACK is 4 lines from a query call and these are not query calls: the E02 finding about that gate's scope, with a live instance on a security path.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "lib/tenancy/row-rule-policy.ts:89 valueExpr",
+          "what": "the guc() helper that produces the InitPlan form (SELECT current_setting(\u2026)) is never called \u2014 zero call sites. The bypass and actor guards are wrapped; the VALUE comparison, the one compared against the column and therefore the one that decides whether an index can be used, is emitted bare. Measured on 50 000 rows: bare gives a Bitmap Heap Scan at cost 60.19, the marked form an Index Only Scan at cost 2.51. The file's own comment measures the same effect at 0,769 ms against 0,257 ms and says 'The row-rule generator was written without it' \u2014 the fix landed on two of three sites.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/rls.ts:47 resolveValue + 210",
+          "what": "an unrecognised value source resolves to null and the caller does `continue` with the comment 'fail-open for this policy'. In the same file, an unrecognised OPERATOR refuses the query outright ('Refusing the query rather than returning rows the policy was meant to hide'). Same class of unknown, opposite directions. The admin route's Zod refine closes this at the API boundary \u2014 added after a rule stored as 'user.id' resolved to nothing \u2014 so this is defence in depth plus a residue question for rows written before that refine landed. user_email also resolves to null when the session object carries no email.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/rls.ts:423 assertEnforceable",
+          "what": "returns early without validating when collection === '*' or when the collection's table does not exist yet, so a wildcard or ahead-of-schema policy can be stored unenforceable \u2014 which is the state the read path then fails open on.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/entity-access.ts:56",
+          "what": "only the exact string 'deny' denies; anything else \u2014 undefined, false, a boolean from a check written as `return record.ownerId === user.id` \u2014 is allow. The extensions repo compiles with strict:false, so that mistake is not caught by the author's own typecheck. A throwing check does fail closed (no caller catches). Unexercised today: no extension registers a check, and the ext-harness stub's register() is a no-op, so an extension cannot test one either.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "package.json (prepush \u2192 check:schema)",
+          "what": "`prepush` is documented as the local contract for a pushable tree, and it MUTATES that tree: check:schema runs `bun run format` (write mode) before the later `format:check` step, so an unformatted commit is silently reformatted in the working tree and the chain then passes on the repaired state. Measured on this branch: prepush said OK, the pushed commit failed format:check, and CI's Lint job would have caught what the local contract missed. Root package.json is also in NO campaign section \u2014 SOURCE_EXT does not match .json \u2014 so the file defining every gate's entry point and the prepush chain itself is outside the review.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "Nothing repaired. The realtime type divergence is the one worth fixing first and it is not a one-liner: either the appliers are handed normalised values, or the in-memory comparison learns the column type \u2014 both are decisions about where normalisation belongs. Verified clean and worth recording: signed-cache.ts (namespace-bound HMAC, timingSafeEqual, length-checked, fail-closed on tamper), loadPolicies (tampered cache falls through to the database), and the admin route's Zod refine on filter_value_source.",
+      "verdict": "logged"
     }
   ]
 }

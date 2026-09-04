@@ -10,19 +10,19 @@ Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **A05 — RLS policies and row rules**
+### → **A06 — Permissions, roles, column access**
 
-*Predicate shape decides both correctness and the query plan; one interpreter for the rules.*
+*Deny by default, cache invalidation across replicas, hidden versus read-only columns.*
 
-7 of 7 files still unread. Its file list is under [`A05`](#a05--rls-policies-and-row-rules) below.
+5 of 5 files still unread. Its file list is under [`A06`](#a06--permissions-roles-column-access) below.
 
-After it: A06, A02, A07, A16 …
+After it: A02, A07, A16, A11 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **60 / 656** (9%)
-- Lines in scope: **14,555 / 135,331** (11%)
+- Files in scope: **67 / 656** (10%)
+- Lines in scope: **16,057 / 135,331** (12%)
 - Test files opened by some session: **10 / 860**
 
 ## Sections
@@ -43,7 +43,7 @@ After it: A06, A02, A07, A16 …
 | A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 1,997 | 5/5 | 2026-09-04 — logged |
-| A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
+| A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
 | A06 | Permissions, roles, column access | 5 | 2,188 | 0/5 | — |
 | A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
@@ -244,13 +244,30 @@ After it: A06, A02, A07, A16 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/tenancy/denial.ts` | 124 |
-| · | `packages/engine/src/lib/tenancy/entity-access.ts` | 123 |
-| · | `packages/engine/src/lib/tenancy/rls.ts` | 503 |
-| · | `packages/engine/src/lib/tenancy/row-rule-policy.ts` | 464 |
-| · | `packages/engine/src/lib/tenancy/rule-operators.ts` | 116 |
-| · | `packages/engine/src/lib/tenancy/signed-cache.ts` | 65 |
-| · | `packages/engine/src/routes/rls.ts` | 107 |
+| ✅ | `packages/engine/src/lib/tenancy/denial.ts` | 124 |
+| ✅ | `packages/engine/src/lib/tenancy/entity-access.ts` | 123 |
+| ✅ | `packages/engine/src/lib/tenancy/rls.ts` | 503 |
+| ✅ | `packages/engine/src/lib/tenancy/row-rule-policy.ts` | 464 |
+| ✅ | `packages/engine/src/lib/tenancy/rule-operators.ts` | 116 |
+| ✅ | `packages/engine/src/lib/tenancy/signed-cache.ts` | 65 |
+| ✅ | `packages/engine/src/routes/rls.ts` | 107 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 7 files · **logged** · `review/A05-rls-row-rules`
+  - ran: called RULE_OPERATORS directly with the values each applier actually receives: eq/neq on a Date object versus the ISO string, and on a JS number versus '5.0'
+  - ran: traced the realtime record to its source: write-pipeline hands broadcastDataEvent the row from .returningAll(), so timestamptz arrives as a Date
+  - ran: emitted a real predicate from buildRowRulePredicate and read the SQL
+  - ran: EXPLAIN on 50 000 rows, both predicate forms: bare current_setting → Bitmap Heap Scan (cost 60.19); (SELECT current_setting(…)) → Index Only Scan (cost 2.51)
+  - ran: grepped for guc( — zero call sites
+  - ran: ran catch:fabricated against the realtime fail-open: reports 0 site(s), because the .catch is not within 4 lines of a query call
+  - **high** lib/tenancy/rule-operators.ts + rls.ts:284 matchesRlsFilters, via routes/realtime.ts:289 — comparison is textual (String(a) === String(b)), which is right for SQL and for the JSONB snapshots but wrong for the realtime path, where the record comes straight from the write pipeline and a timestamptz is a JS Date. Measured: a rule 'created_at neq static:<iso>' — meant to HIDE rows — keeps false on SQL and the as_of path (row hidden) and true on realtime (row DELIVERED over SSE). Same on numerics: 'score neq static:5.0' hides in SQL, delivers on realtime. eq under-delivers, neq over-delivers, and neq is the operator you reach for to hide something. This is the file whose header records the previous instance of exactly this shape: 'a leak — neq against a NULL column: absent from /api/data, delivered over SSE'. The file unified the DECISIONS; the four appliers still receive different TYPES. → *logged* (known-gaps.md)
+  - **medium** routes/realtime.ts:488-489 — the subscription's two authorization lookups both degrade to no-restriction on error: getRlsFilters(...).catch(() => []) means no row filters, getColumnAccess(...).catch(() => null) means no masking (access?.columns ? apply : record at line 293 sends the raw record). Three lines below sits the comment 'a masked field must not arrive over SSE just because it arrived as an event rather than as a response' — the intent is explicit and the error path contradicts it. catch:fabricated reports 0 sites here, because its LOOKBACK is 4 lines from a query call and these are not query calls: the E02 finding about that gate's scope, with a live instance on a security path. → *logged* (known-gaps.md)
+  - **medium** lib/tenancy/row-rule-policy.ts:89 valueExpr — the guc() helper that produces the InitPlan form (SELECT current_setting(…)) is never called — zero call sites. The bypass and actor guards are wrapped; the VALUE comparison, the one compared against the column and therefore the one that decides whether an index can be used, is emitted bare. Measured on 50 000 rows: bare gives a Bitmap Heap Scan at cost 60.19, the marked form an Index Only Scan at cost 2.51. The file's own comment measures the same effect at 0,769 ms against 0,257 ms and says 'The row-rule generator was written without it' — the fix landed on two of three sites. → *logged* (known-gaps.md)
+  - **low** lib/tenancy/rls.ts:47 resolveValue + 210 — an unrecognised value source resolves to null and the caller does `continue` with the comment 'fail-open for this policy'. In the same file, an unrecognised OPERATOR refuses the query outright ('Refusing the query rather than returning rows the policy was meant to hide'). Same class of unknown, opposite directions. The admin route's Zod refine closes this at the API boundary — added after a rule stored as 'user.id' resolved to nothing — so this is defence in depth plus a residue question for rows written before that refine landed. user_email also resolves to null when the session object carries no email. → *logged* (known-gaps.md)
+  - **low** lib/tenancy/rls.ts:423 assertEnforceable — returns early without validating when collection === '*' or when the collection's table does not exist yet, so a wildcard or ahead-of-schema policy can be stored unenforceable — which is the state the read path then fails open on. → *logged* (known-gaps.md)
+  - **low** lib/tenancy/entity-access.ts:56 — only the exact string 'deny' denies; anything else — undefined, false, a boolean from a check written as `return record.ownerId === user.id` — is allow. The extensions repo compiles with strict:false, so that mistake is not caught by the author's own typecheck. A throwing check does fail closed (no caller catches). Unexercised today: no extension registers a check, and the ext-harness stub's register() is a no-op, so an extension cannot test one either. → *logged* (known-gaps.md)
+  - not done: Nothing repaired. The realtime type divergence is the one worth fixing first and it is not a one-liner: either the appliers are handed normalised values, or the in-memory comparison learns the column type — both are decisions about where normalisation belongs. Verified clean and worth recording: signed-cache.ts (namespace-bound HMAC, timingSafeEqual, length-checked, fail-closed on tamper), loadPolicies (tampered cache falls through to the database), and the admin route's Zod refine on filter_value_source.
 
 ### A06 — Permissions, roles, column access
 
