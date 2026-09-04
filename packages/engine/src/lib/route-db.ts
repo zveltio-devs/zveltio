@@ -26,14 +26,17 @@
 
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
+import { DEFAULT_TENANT_ID } from './tenancy/tenant-manager.js';
+
+// Single source of truth for the default tenant sentinel. Re-exported here so
+// routes that already import from `lib/route-db` do not have to reach into
+// tenancy internals.
+export { DEFAULT_TENANT_ID } from './tenancy/tenant-manager.js';
 
 export function reqDb(c: Context, fallback: Database): Database {
   const trx = c.get('tenantTrx') as Database | null | undefined;
   return trx ?? fallback;
 }
-
-/** Default tenant id ("always-one-tenant") — single-tenant installs run as this. */
-export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
 /**
  * The current request's tenant id. `tenantMiddleware` always resolves a tenant

@@ -32,13 +32,6 @@ re-checked in source at that date, not carried forward from a report.
 real: the two sets should either both gate writes, or `hidden` should imply
 `readOnly`.
 
-**Gap — `CREATE POLICY` interpolates the table name with a bare quote wrap.**
-`lib/tenancy/tenant-manager.ts` builds `const t = `"${table}"`` and interpolates
-it into DDL. Every sibling statement in the same file uses `sql.id()`. Not
-currently exploitable — the names come from the Postgres catalogue, not from a
-request — but it is the one statement of the set that would be injectable if
-that ever changed.
-
 **Deferred — extension migrations run *after* the engine starts serving.**
 An extension issuing `ALTER TABLE` on a core table about a second after boot
 invalidates prepared statements held on the pool; this is the historical source
@@ -79,35 +72,6 @@ accordingly. WASM isolation exists as an option and is
 [deliberately deferred](#4-deliberate-deferrals) as the default.
 
 ---
-
-**Gap — `POST /dashboards/:id/shares` looks the dashboard up without its tenant.**
-`routes/insights.ts:368` guards the route with
-
-    .selectFrom('zv_dashboards').select(['id','created_by']).where('id','=',id)
-
-and no `tenant_id` predicate. Seven of the eight `zv_dashboards` lookups in that
-file carry one; this is the eighth. It matters more here than it would elsewhere
-for two reasons that compound: the router is mounted as
-`insightsRoutes(poolDb, auth)` and listed in `TXN_SKIP_PREFIXES`, so it runs
-OUTSIDE the tenant transaction — no `SET LOCAL ROLE`, no GUC, and therefore no
-RLS behind the missing predicate — and what it then writes,
-`zvd_dashboard_shares`, is one of the nine instance-level tables
-`check-tenant-boundary` classifies as *isolated by join alone*. Its own header
-says of them: "a forgotten join is a cross-tenant read with nothing behind it."
-This is that, in the wild.
-
-What is verified: the predicate is absent, every sibling route has it, and RLS
-does not apply on this path. What is NOT verified: end-to-end exploitability.
-The route still requires `dash.created_by === user.id` or instance admin, so
-reaching it needs an actor who owns a dashboard in one tenant while acting in
-another — which a multi-tenant membership allows and a single-tenant one does
-not. Treat the missing predicate as the defect; the reachability question is a
-second, separate measurement.
-
-Found on 2026-09-04 while measuring whether `check-tenant-table-on-pool` was
-worth teaching to resolve the `db` alias: 30 queries on tenant-scoped tables
-across the four pool-backed routers, 5 with no `tenant_id` in the chain, 4 of
-those legitimately guarded by a tenant-filtered SELECT above them, and this one.
 
 ## 3. Official extensions
 
