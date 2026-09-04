@@ -1080,7 +1080,10 @@ async function main() {
   md.push('> The method — what counts as reviewed — is in');
   md.push('> [`CODE-REVIEW-CAMPAIGN.md`](./CODE-REVIEW-CAMPAIGN.md). Read it first.');
   md.push('');
-  md.push(`Generated: ${new Date().toISOString()} · ledger updated: ${ledger.updated}`);
+  // No wall-clock stamp: three sessions share this checkout, and a timestamp
+  // made every re-run a git modification even when nothing had changed.
+  // The file is now a pure function of the ledger and the tree.
+  md.push(`Ledger updated: ${ledger.updated}`);
   md.push('');
 
   // ── Summary ──
