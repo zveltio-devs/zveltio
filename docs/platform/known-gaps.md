@@ -547,6 +547,22 @@ the frozen `KNOWN_EXTENSION_RESOURCES` list. The other control is real —
 `listKnownResources` collects installed extensions that declare nothing and names
 them at boot — so the stated minimum is half-met.
 
+**Predicted and disproved (2).** `invalidateGodCache` returns early when there is
+no shared cache, which would leave the in-process god memo answering `true` for a
+demoted god — the exact failure `invalidatePermissionCache`'s comment warns about.
+It does not: the early return sits *after* `clearLocalPermissionCache(userId)`,
+whose per-user branch deletes `_localGod`. The first reading used a window that
+had cut off the function's first line.
+
+**Verified clean — the recovery endpoint.** `POST /api/permissions/bootstrap`
+hands out the god role without a session and is registered *before* the route
+file's blanket guard, which is deliberate and conditioned: `RECOVERY_TOKEN` of at
+least 32 characters (403 when unset), constant-time comparison, single use by
+token fingerprint stored in `zv_settings`, the spent-check placed **after** the
+match so a refusal cannot reveal whether a recovery has ever happened, every
+refusal written to the audit log, and its own rate-limit bucket so an unrelated
+burst cannot lock recovery out.
+
 **Predicted and disproved, recorded so it is not re-derived.** `checkPermission`
 files every resource no policy mentions under one cache key, and computes the
 answer with the real name — so a stale policy-object index could cache one
