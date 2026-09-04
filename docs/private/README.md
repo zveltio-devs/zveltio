@@ -32,6 +32,9 @@ grep -rn "docs/private/" --include="*.ts" --include="*.svelte" --include="*.sql"
 
 | File | Status |
 |---|---|
+| `CODE-REVIEW-CAMPAIGN.md` | The file-by-file review campaign: method, failure classes, session protocol. Read before claiming a section. |
+| `CODE-REVIEW-STATE.md` | Generated checklist and progress (`bun run review:inventory`). Do not edit by hand. |
+| `code-review-status.json` | The campaign ledger — one appended object per session. |
 | `MATURITY-REFACTOR-PLAN.md` | The campaign plan. Blocks run in the order C → B → F → A; a block may close with "not worth it". |
 | `BLOCK-A-EXPLICIT-CONTEXT-STATE.md` | In progress (step 2) |
 | `BLOCK-J-DB-SECOND-LINE-STATE.md`, `BLOCK-K-ROW-RULES-IN-DB-STATE.md` | Row rules in the database |
