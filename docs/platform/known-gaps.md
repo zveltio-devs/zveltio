@@ -433,6 +433,88 @@ counter moved. Planting an empty tenant-scoped table set makes that test fail, s
 a zero in the first test cannot be a counter that never ran. Predicted a hole
 here; the code defended itself.
 
+### A05 — RLS policies and row rules (2026-09-04)
+
+Seven files. Nothing repaired; every finding is measured.
+
+**Gap — the same rule means different things on the realtime path.**
+`rule-operators.ts` exists because one rule was interpreted in four places and
+drifted; its header records the last instance as *"a leak — `neq` against a NULL
+column: absent from `/api/data`, delivered over SSE"*. The same shape is still
+there, with a different cause. Comparison is textual — `String(a) === String(b)`
+— which is right for SQL and for the JSONB snapshots, and wrong for realtime,
+where the record comes straight from the write pipeline and a `timestamptz` is a
+JavaScript `Date`. Measured:
+
+    rule "created_at neq static:<iso>" — meant to HIDE rows
+      SQL / as_of (string)  keep = false   row hidden, as intended
+      realtime  (Date)      keep = true    row DELIVERED over SSE
+
+Numerics do the same: `score neq static:5.0` hides in SQL and delivers on
+realtime. `eq` under-delivers, `neq` over-delivers — and `neq` is the operator
+you reach for to hide something. The file unified the *decisions*; the four
+appliers still receive different *types*.
+
+**Gap — a subscription that cannot resolve its policies gets none.**
+`routes/realtime.ts:488` reads `getRlsFilters(...).catch(() => [])` and
+`getColumnAccess(...).catch(() => null)`. Empty filters mean no row policy;
+`null` columns mean no masking, because line 293 sends the raw record when
+`access?.columns` is falsy. Three lines below sits the comment *"a masked field
+must not arrive over SSE just because it arrived as an event rather than as a
+response"* — the intent is explicit and the error path contradicts it.
+`catch:fabricated` reports zero sites here: its window is four lines from a query
+call and these are not query calls. That is the E02 finding about the gate's
+scope, now with a live instance on a security path.
+
+**Gap — the row-rule predicate leaves its own optimisation on the floor.**
+`valueExpr` defines a `guc()` helper that produces the InitPlan form
+`(SELECT current_setting(…))`, with a comment measuring it at 0,769 ms against
+0,257 ms and noting *"The row-rule generator was written without it"*. The helper
+has **zero call sites**. The bypass and actor guards are wrapped; the value
+comparison — the one compared against the column, and therefore the one that
+decides whether an index can be used — is emitted bare. Measured independently on
+50 000 rows:
+
+    bare current_setting(...)          Bitmap Heap Scan   cost 60.19
+    (SELECT current_setting(...))      Index Only Scan    cost  2.51
+
+**Gap (low) — an unknown value source fails open where an unknown operator fails
+closed.** `resolveValue` returns `null` for a source it does not know and the
+caller does `continue`, with the comment *"fail-open for this policy"*. In the
+same file, an unknown *operator* refuses the query outright. The admin route's
+Zod refine closes this at the API boundary — it was added after a rule stored as
+`user.id` resolved to nothing — so what remains is defence in depth, and a
+residue question for rows written before that refine landed. `user_email` also
+resolves to `null` when the session object carries no email.
+
+**Gap (low) — `assertEnforceable` skips its own check.** It returns early for
+`collection === '*'` and for a collection whose table does not exist yet, so a
+policy can be stored in exactly the state the read path then fails open on.
+
+**Gap (low) — only the literal string `'deny'` denies.** `entity-access` treats
+anything else as allow, including the `boolean` an extension author would
+naturally return from `record.ownerId === user.id`. The extensions repository
+compiles with `strict: false`, so that is not caught by the author's own
+typecheck. A *throwing* check does fail closed. Unexercised today — no extension
+registers one, and the test harness stub's `register()` is a no-op, so an
+extension cannot test one either.
+
+**Gap — `prepush` reformats the tree it is checking, and root `package.json` is
+in no section.** The chain is documented as the local contract for a pushable
+tree; `check:schema` runs `bun run format` in **write** mode before the later
+`format:check`, so an unformatted commit is silently repaired in the working tree
+and the chain passes on the repaired state. Measured while closing this section:
+`prepush` reported OK, the commit that was then pushed failed `format:check`, and
+only CI would have caught it. Separately, root `package.json` — which defines the
+prepush chain and every gate's entry point — matches no section's file pattern,
+so it is outside the campaign entirely.
+
+**Verified clean.** `signed-cache.ts` binds the HMAC to namespace and key, uses
+`timingSafeEqual` behind a length check, and decodes a tampered entry to `null`
+so the caller asks the database. `loadPolicies` falls through to the database on
+any cache failure. The admin route refuses an unknown `filter_value_source` at
+the boundary.
+
 ---
 
 ## 4. Deliberate deferrals
