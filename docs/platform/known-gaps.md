@@ -247,6 +247,42 @@ second shape more than theoretical.
 `const { X } = process.env` are invisible. Lower severity than its
 ambient-authority twin: this one measures documentation completeness, not access.
 
+### E04 — coverage, ratchet and release gates (2026-09-04)
+
+Four files, finishing the section E04 opened. Nothing repaired here either.
+
+**Gap — `RELEASE_GATE_SKIP_NETWORK=1` turns three checks into ticks.**
+`required CI green`, `latest soak green` and `no open P0 issues` return
+`ok: true` with the detail `skipped (offline)`, print as **✓**, and the summary
+reads `all 7 checks passed` having verified four. The detail is honest; the tick
+and the total are not. `audit-gates.ts`, in this repository, already solved the
+same problem the other way — a skipped case is listed separately, repeated in the
+summary and fatal in CI.
+
+**Gap — the release gate's coverage check never measures.** `checkCoverage()`
+reads `measured` and `target` out of `quality-gates/coverage-baseline.json` and
+compares them **to each other**. Both are hand-maintained in that one file, whose
+own notes record the recorded number going stale three times (2026-08-19,
+08-23, 09-03) — each time discovered because a pull request paid for it. So the
+check that gates a stable cut can pass on a number nobody has re-measured since
+the last drift.
+
+**Gap — the campaign's own generator does not validate what it is told.**
+`review-inventory.ts` builds `reviewed` as a flat set of every path in every
+session's `files`, so a session's declared `section` is never enforced against
+them. Planted: an `A05` file recorded under an `E02` session left A05 reading
+**1/7 with "last session —"** — a section partly reviewed by nobody. A path in
+no section, or one that does not exist, is accepted in silence. The coverage
+number this campaign rests on accepts input it cannot check. Found by
+self-review, which is the weakest kind: it should be re-read by another session.
+
+**Gap (low) — `merge-coverage.ts` assumes the lcov and the tree agree.**
+`nonExecutableLines()` reads today's source to decide which lines of a report are
+non-executable, with nothing checking that the report was produced from that
+source. A missing file fails conservatively — nothing is dropped, so coverage
+reads low. A *changed* file does not: line numbers shift under the filter and the
+error can go either way.
+
 ---
 
 ## 4. Deliberate deferrals
