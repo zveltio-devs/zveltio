@@ -139,7 +139,9 @@
       "date": "2026-09-04",
       "agent": "claude-opus-5",
       "branch": "review/campaign-setup (working tree \u2014 not committed)",
-      "files": ["scripts/check-jsonb-binding.ts"],
+      "files": [
+        "scripts/check-jsonb-binding.ts"
+      ],
       "tests": [
         "packages/engine/src/tests/harness/gate-planted-variants.test.ts",
         "packages/engine/src/tests/harness/jsonb-notification-binding.test.ts"
@@ -478,7 +480,9 @@
         "scripts/lib/install-template.ts",
         "scripts/review-inventory.ts"
       ],
-      "tests": ["packages/engine/src/tests/unit/gate-coverage-partial-report.test.ts"],
+      "tests": [
+        "packages/engine/src/tests/unit/gate-coverage-partial-report.test.ts"
+      ],
       "ran": [
         "release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as \u2713 'skipped (offline)'; the one real failure (version consistency) still exits 1",
         "merge-coverage with a missing input lane \u2192 throws, exit 1 (fail-closed)",
@@ -649,7 +653,9 @@
       "date": "2026-09-04",
       "agent": "claude-opus-5",
       "branch": "review/A04-tenancy-core",
-      "files": ["packages/engine/src/lib/tenancy/tenant-manager.ts"],
+      "files": [
+        "packages/engine/src/lib/tenancy/tenant-manager.ts"
+      ],
       "tests": [
         "packages/engine/src/tests/harness/rls-role-credential-grants.test.ts",
         "packages/engine/src/tests/harness/tenant-apply-rls.test.ts"
@@ -756,6 +762,44 @@
       ],
       "notDone": "Nothing repaired. The realtime type divergence is the one worth fixing first and it is not a one-liner: either the appliers are handed normalised values, or the in-memory comparison learns the column type \u2014 both are decisions about where normalisation belongs. Verified clean and worth recording: signed-cache.ts (namespace-bound HMAC, timingSafeEqual, length-checked, fail-closed on tamper), loadPolicies (tampered cache falls through to the database), and the admin route's Zod refine on filter_value_source.",
       "verdict": "logged"
+    },
+    {
+      "section": "A06",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/A06-permissions",
+      "files": [
+        "packages/engine/src/lib/tenancy/column-permissions.ts",
+        "packages/engine/src/lib/tenancy/resource-grants.ts"
+      ],
+      "tests": [
+        "packages/engine/src/tests/harness/tenant-slug-escalation.test.ts"
+      ],
+      "ran": [
+        "proved a privilege escalation end to end and shipped the fix as PR #444 (separate branch): a delegated tenant_admin got /api/admin/rls 403 with a real tenant slug and 200 with an unknown one, because no tenant meant no ALS store and getCurrentDomain() reads that as the root tenant",
+        "predicted a cache-poisoning path through checkPermission's UNKNOWN_RESOURCE bucketing and DISPROVED it: every policy write goes through the Casbin adapter, which invalidates the object index, and the routes additionally clear the shared cache",
+        "called getColumnAccess with each role value the schema permits: member \u2192 column masked; admin \u2192 NOT masked; superadmin \u2192 not masked; god \u2192 MASKED",
+        "checked the CHECK constraint on \"user\".role (001_initial.sql:1160): ('god','admin','manager','member') \u2014 so 'admin' is assignable and 'superadmin' is not",
+        "checked for scripts/check-extension-resources.ts: it does not exist, and no script scans permissionGate calls"
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "lib/tenancy/column-permissions.ts:24",
+          "what": "getColumnAccess short-circuits on a hardcoded role NAME: `if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), readOnly: new Set() }`. Measured against every value the schema permits on \"user\".role: member is masked, admin is NOT, god IS masked. So the bypass names a role that is not the most privileged one and omits the one that is, and a user set to 'admin' \u2014 a value 001_initial.sql:1160 explicitly allows \u2014 sees every hidden column with no policy row expressing it and no way to revoke it short of editing code. This is precisely the pattern getRlsFilters removed, with its comment stating why: 'a string comparison against a role name is invisible, unauditable and impossible to revoke'. 'superadmin' is a dead branch \u2014 not in the CHECK constraint, and absent from the rest of the product.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/resource-grants.ts:26 and :66",
+          "what": "the header cites `scripts/check-extension-resources.ts` twice as the gate that fails the build when a permissionGate call names an undeclared resource. That script does not exist, and no script in scripts/ scans permissionGate calls. It is named as one of the two compensating controls for an owner decision (2026-08-30) that removed the frozen KNOWN_EXTENSION_RESOURCES list; the OTHER control is real \u2014 listKnownResources collects extensions declaring nothing and names them at boot. So the decision's stated minimum is half-met, and the file asserts a build-time protection that was never built.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "PARTIAL. permissions.ts (997 lines) read in the parts that decide access \u2014 checkPermission, effectivePermissions, requireInstanceAdmin, isTenantAdmin, resolveUserRole, the three signed caches, the policy-object index and the Casbin adapter \u2014 but not end to end; initPermissions, the model string, listAllRoles and getUserRoles are unread. routes/permissions.ts (435) and routes/admin/permission-routes.ts (349) were only read where they write policies or invalidate caches. The escalation found here is fixed and out as PR #444; nothing else repaired.",
+      "verdict": "partial"
     }
   ]
 }
