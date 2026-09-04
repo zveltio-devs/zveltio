@@ -1185,6 +1185,23 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         FOR s IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
           EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_rls', s.sequencename);
         END LOOP;
+        -- REVOKE, not merely skip. ALTER DEFAULT PRIVILEGES (migration 001)
+        -- grants DML on every table this role creates FROM NOW ON, so a
+        -- credential table added by a later migration is granted at CREATE time
+        -- and the skip list above never sees it. That is how passkey arrived
+        -- granted in migration 002 and stayed granted: measured in CI on a fresh
+        -- database, where skipping it in the loop changed nothing at all.
+        --
+        -- So the set is taken back explicitly, at every boot, which also heals
+        -- installs that ran an older build. Migration 001 revokes the same four
+        -- for exactly this reason; passkey was missing from both lists.
+        FOR t IN
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public'
+            AND tablename IN ('session', 'account', 'verification', 'twoFactor', 'passkey')
+        LOOP
+          EXECUTE format('REVOKE ALL ON public.%I FROM zveltio_rls', t.tablename);
+        END LOOP;
       END
       $ensure_rls_grants$;
     `.execute(db);
