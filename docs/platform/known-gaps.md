@@ -288,6 +288,59 @@ source. A missing file fails conservatively — nothing is dropped, so coverage
 reads low. A *changed* file does not: line numbers shift under the filter and the
 error can go either way.
 
+### E08 — what CI actually runs (2026-09-04)
+
+Twenty-one files. The section's question was which gate runs, on which event, and
+which job is allowed to fail. The answer is mostly reassuring and was measured,
+not read: **44 of the 56 gate scripts run in a `pull_request` workflow**; the two
+that do not are release-time (`release-gate`, `sync-engine-version`); the ten
+referenced by no workflow are one-shots, probes and codemods, none of them gates.
+The E01-era state — "9 gates of 31" — is gone.
+
+**Gap — E2E never runs on a pull request.** `e2e.yml` triggers on
+`push: branches: [master]` and `workflow_dispatch`. A pull request can break every
+Playwright spec and merge green; the signal arrives afterwards, on master, where
+it is a bisect rather than a review comment.
+
+**Gap — two workflows install without `--frozen-lockfile`.** `build.yml` and
+`e2e.yml` run a bare `bun install`, so the job that validates `bun run build` and
+the browser suite may resolve dependency versions the lockfile does not pin —
+they are the two least likely to be reproducible. Every other workflow passes the
+flag; `dependabot-lockfile.yml` omits it legitimately, since rewriting the
+lockfile is its purpose.
+
+**Gap — a release can finish green with the extension registry a version behind.**
+`sync-extensions` is `continue-on-error: true` and its only action is a
+fire-and-forget `createDispatchEvent` to the extensions repository. Nothing checks
+that the dispatch arrived or that the downstream sync ran, and the failure renders
+neutral rather than red. The trade is right — an infra flake must not lose a
+release, and beta.9 was lost exactly that way — but the detection is missing.
+
+**Gap (low) — `bunx` in two workflows.** `client.yml:47` and `studio.yml:54` call
+`bunx svelte-kit sync`. This repository's rule is `bun x`, and `bunx` is absent
+from the Bun install the documentation describes — E04 logged the same defect in
+`suppress-existing-any.ts`, where it threw ENOENT. `e2e.yml` uses `bun x` in three
+places, so this is an incomplete fix, and it means those two steps cannot be
+reproduced locally on a machine set up as documented.
+
+**Gap (low) — a step named "Smoke test auth endpoint" cannot fail.** It contains
+only `curl` calls that echo their output, two of them with `|| true`, and asserts
+nothing. Someone reading the log sees a smoke test that passed. In the same file
+`bun audit` is named "Report all advisories (informational)" and paired with a
+gating step — the repository already knows how to name a diagnostic.
+
+**Verified clean, recorded so nobody re-derives it.** `bun audit || true` and the
+coverage `|| true` are report-then-gate *pairs*: the enforcing step sits directly
+above each. The three `continue-on-error: true` jobs in `release.yml` are
+post-release side effects, each with its reason written down. Dependabot covers
+both `npm` and `github-actions`, and all fourteen actions are SHA-pinned.
+`dependabot-lockfile.yml` combines `pull_request_target`, `contents: write` and a
+checkout of the PR head — a shape that is usually a vulnerability — and is
+correctly guarded: the job-level actor check admits only Dependabot, and Bun runs
+no lifecycle scripts by default (no `trustedDependencies` is declared).
+`release-gate` is wired so that `publish-release` needs it. The sibling clone
+resolves a paired branch of the same name before falling back to master.
+
 ---
 
 ## 4. Deliberate deferrals
