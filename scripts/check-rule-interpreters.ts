@@ -57,6 +57,10 @@ const REPORT_ONLY = process.argv.includes('--report');
  */
 const SOURCE = 'rule-operators.js';
 
+/** An `import … from '…/rule-operators.js'`, in either the static or the
+ *  dynamic form — as opposed to the file merely naming it in prose. */
+const IMPORTS_SOURCE = /(?:from|import\s*\(\s*)\s*['"][^'"]*rule-operators\.js['"]/;
+
 /** The suite that compares the four renderings over the whole matrix. */
 const SUITE = join(SRC, 'tests/harness/row-rules-four-interpreters.test.ts');
 
@@ -139,7 +143,16 @@ for (const file of walk(SRC)) {
   readers.push(rel);
   // A reading of the operators that does NOT come from the table is a fifth
   // interpretation written by hand — the thing this gate exists for.
-  if (!text.includes(SOURCE)) handWritten.push(rel);
+  //
+  // An IMPORT, not a mention. `text.includes('rule-operators.js')` was satisfied
+  // by a comment: planted on 2026-09-04, a hand-written fifth applier carrying
+  // the line `// rule-operators.js is the source of truth; this renders it` was
+  // waved through, and the success line then counted it — "3 file(s) render the
+  // operators, all via lib/tenancy/rule-operators.js" — which was untrue of the
+  // file it had just accepted. A gate that a comment can satisfy is a gate that
+  // grades the claim instead of the code. Both real readers
+  // (`lib/tenancy/rls.ts`, `lib/tenancy/row-rule-policy.ts`) import it.
+  if (!IMPORTS_SOURCE.test(text)) handWritten.push(rel);
 }
 
 const suite = await Bun.file(SUITE).text();
