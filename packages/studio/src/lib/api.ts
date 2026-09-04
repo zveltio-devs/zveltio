@@ -51,7 +51,10 @@ class ApiClient {
     const res = await fetch(`${this.base}${path}`, {
       method,
       credentials: 'include',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: {
+        ...tenantHeader(),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
 

@@ -77,6 +77,31 @@ describe('api — successful responses', () => {
       expect.objectContaining({ credentials: 'include' }),
     );
   });
+
+  it('sends x-tenant-slug from localStorage on JSON requests', async () => {
+    // The low-level fetch() wrapper always added the header, but the typed
+    // JSON helpers built on request() did not — so changing the selected tenant
+    // in the UI had no effect on most API calls.
+    const storage: Record<string, string> = { 'zveltio.tenantSlug': 'district-7' };
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage[k] ?? null,
+      setItem: (k: string, v: string) => {
+        storage[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete storage[k];
+      },
+    });
+    respond(200, {});
+    await api.get('/api/data/x');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/data/x'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-tenant-slug': 'district-7' }),
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('api — the error envelope', () => {
