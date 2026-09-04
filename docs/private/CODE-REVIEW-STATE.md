@@ -6,23 +6,23 @@
 > The method — what counts as reviewed — is in
 > [`CODE-REVIEW-CAMPAIGN.md`](./CODE-REVIEW-CAMPAIGN.md). Read it first.
 
-Generated: 2026-09-04T07:54:13.527Z · ledger updated: 2026-09-04
+Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E01 — Gates — tenancy, SQL and data safety**
+### → **E02 — Gates — authorisation, audit, structure**
 
-*Plant a violation in each. A gate that does not fail on it is not a gate.*
+*Which of these read the sibling repository, and which report clean when they cannot find it.*
 
-1 of 13 files still unread. Its file list is under [`E01`](#e01--gates-tenancy-sql-and-data-safety) below.
+11 of 11 files still unread. Its file list is under [`E02`](#e02--gates-authorisation-audit-structure) below.
 
-After it: E02, E04, E08, A04 …
+After it: E04, E08, A04, A05 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **12 / 656** (2%)
-- Lines in scope: **3,099 / 134,855** (2%)
+- Files in scope: **13 / 656** (2%)
+- Lines in scope: **3,613 / 135,041** (3%)
 - Test files opened by some session: **2 / 855**
 
 ## Sections
@@ -55,7 +55,7 @@ After it: E02, E04, E08, A04 …
 | A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
 | A16 | Tenant and admin routes | 5 | 1,876 | 0/5 | — |
-| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,566 | 0/7 | — |
+| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,583 | 0/7 | — |
 
 ### B — engine subsystems
 
@@ -110,10 +110,10 @@ After it: E02, E04, E08, A04 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| E01 | Gates — tenancy, SQL and data safety | 13 | 3,447 | 12/13 | 2026-09-04 — repaired |
+| E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 0/11 | — |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,676 | 0/10 | — |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,679 | 0/10 | — |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -124,7 +124,7 @@ After it: E02, E04, E08, A04 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 855 | 91,252 | n/a | — |
+| T01 | Test corpus | 855 | 91,400 | n/a | — |
 
 ---
 
@@ -385,7 +385,7 @@ After it: E02, E04, E08, A04 …
 | --- | --- | --: |
 | · | `packages/engine/src/lib/audit.ts` | 92 |
 | · | `packages/engine/src/lib/data-quality.ts` | 394 |
-| · | `packages/engine/src/lib/notifications.ts` | 33 |
+| · | `packages/engine/src/lib/notifications.ts` | 50 |
 | · | `packages/engine/src/lib/system-collections.ts` | 63 |
 | · | `packages/engine/src/routes/rpc.ts` | 199 |
 | · | `packages/engine/src/routes/settings.ts` | 383 |
@@ -997,16 +997,16 @@ After it: E02, E04, E08, A04 …
 | --- | --- | --: |
 | ✅ | `scripts/check-atomic-writes.ts` | 325 |
 | ✅ | `scripts/check-duplicate-rules.ts` | 200 |
-| ✅ | `scripts/check-duplicate-table-creators.ts` | 189 |
+| ✅ | `scripts/check-duplicate-table-creators.ts` | 206 |
 | ✅ | `scripts/check-insert-schema-match.ts` | 720 |
-| · | `scripts/check-jsonb-binding.ts` | 348 |
+| ✅ | `scripts/check-jsonb-binding.ts` | 471 |
 | ✅ | `scripts/check-migration-safety.ts` | 262 |
 | ✅ | `scripts/check-numeric-string-arithmetic.ts` | 325 |
 | ✅ | `scripts/check-pooldb-txn-skip.ts` | 102 |
 | ✅ | `scripts/check-raw-sql-identifiers.ts` | 149 |
 | ✅ | `scripts/check-rule-interpreters.ts` | 218 |
 | ✅ | `scripts/check-sql-template-backticks.ts` | 107 |
-| ✅ | `scripts/check-tenant-boundary.ts` | 324 |
+| ✅ | `scripts/check-tenant-boundary.ts` | 350 |
 | ✅ | `scripts/check-tenant-table-on-pool.ts` | 178 |
 
 **Sessions**
@@ -1038,6 +1038,27 @@ After it: E02, E04, E08, A04 …
   - **medium** scripts/audit-gates.ts (section E02) — observed from here — `bun run audit:gates` exits 1 before planting anything when a `create` probe path already exists, and packages/studio/dist/.zveltio-studio-version is an ordinary local build artifact. So the only proof these twelve gates have is unrunnable in any checkout that has built the Studio. Reported fixed on master after this checkout's base. → *logged* (known-gaps.md §3a)
   - **low** packages/engine/src/lib/data/handlers/list.ts:222-265 (section A12) — observed from here — the virtual-collection branch returns before the 'RLS injection' block, so row rules never apply to a virtual collection; only column permissions do. Found while proving virtual-collection-adapter.ts is not a duplicated rule interpreter. NOT verified against intent — it may be the only thing possible when the rows come from a third party. Written down because it looks identical either way. → *logged* (known-gaps.md §3a)
   - not done: Eleven of the twelve gates still have no test beyond the six variants added here; the T01 backlog for this section is 'a case per gate, not per repair'. The `db`-alias blindness in check-tenant-table-on-pool is diagnosed but not closed — closing it makes the gate fail on insights.ts/flows.ts and needs an owner decision about those routers, not a patch. audit:gates could not be run end to end in this checkout. E01 WILL REOPEN: master carries scripts/check-jsonb-binding.ts, which belongs to this section, so a catch-up merge takes it from 12/12 to 12/13 and the generator hands it back as NEXT — intended, and worth the visit given that gate's subject (zv_api_keys.scopes held as JSON text, where an authorisation check written the natural SQL way denies a key its own scopes). The placement of master's new files was measured twice on 2026-09-04, and the first measurement is worth keeping: they had been reported as placed while four of the five were absent from scripts/review-inventory.ts — an edit script whose multi-entry anchors had been broken by an intervening `check:fix` reformat, so four `replace()` calls returned the string unchanged and exited 0. Reported success that did not happen, inside the campaign that names it as failure class 1. Re-verified after the second attempt, by routing rather than by grep: check-jsonb-binding.ts→E01, check-env-documented.ts→E02, check-extension-i18n-namespaces.ts→E03, backfill-i18n-prefixes.ts→E06 are explicit entries, and lib/jsonb.ts→A08, lib/backup/verify-archive.ts→B10, sdk/src/extension/jsonb.ts→D02, testing/fake-redis.ts→E07, 010_unwrap_double_encoded_jsonb.sql→A10 route correctly by prefix through the real matcher, with nothing unassigned. E06's bare `scripts/` prefix — which would have swallowed a new gate silently and filed it as an ops probe — is now an explicit list, so an unplaced gate fails loudly instead. No git command that changes the tree was run, and nothing is committed.
+- **2026-09-04** · claude-opus-5 · 1 files · **repaired** · `review/campaign-setup (working tree — not committed)`
+  - ran: the 13th file, after master's merge reopened E01 at 12/13
+  - ran: check-jsonb-binding on a STALE sibling (8 commits behind): 29 columns, ~45 sites, FAIL — traced to staleness, not a defect. Against origin/master of the extensions (git archive, read-only): OK, 0 sites across 115 tables. CI is green legitimately.
+  - ran: engine-only vs with-sibling: 'OK — 0 site(s) across 29 table(s)' vs 'across 115 table(s)'. The gate had no requireSibling; the only tell was a number nobody reads.
+  - ran: planted 5 value shapes: direct JSON.stringify caught, `as never` suffix caught, TERNARY missed, local variable missed, and a commented-out write CAUGHT (false positive)
+  - ran: planted a JSDoc documenting the wrong form — the house style of every gate header in E01 — and the gate failed on a clean tree
+  - ran: widening the match to a non-anchored JSON.stringify found a REAL live site: packages/engine/src/lib/notifications.ts:21
+  - ran: proved it against the engine's real dialect (BunSqlDialect): old writer → jsonb_typeof=string, metadata ? 'k' = false, metadata->>'k' = NULL, for BOTH the populated and the '{}' empty case; after the repair → object/true/'v'
+  - ran: the FIRST proof used Kysely+pg and reported the old writer as CORRECT — a false negative from the wrong driver, caught only by re-running on the dialect the engine actually constructs
+  - ran: bun test gate-planted-variants + jsonb-notification-binding + gate-numeric-arith — 30 pass, 0 fail; jsonb-notification-binding against the pre-repair writer: 1 pass, 2 fail
+  - ran: all 13 E01 gates on the CI corpus — 13/13 exit 0
+  - ran: typecheck 7/7 (engine a real cache miss — it caught a `sql<T[]>` row type the passing test could not), lint + format clean
+  - **high** packages/engine/src/lib/notifications.ts:21 — sendNotification bound `input.metadata ? JSON.stringify(input.metadata) : '{}'` to the jsonb column zv_notifications.metadata, so every notification stored a jsonb STRING — `metadata->>'k'` NULL, `metadata ? 'k'` false — including the '{}' default. Migration 010 lists this column as double-encoded in 22 of 22 rows and states the rule the family was fixed under: 'The writers are fixed in the same change... repairing the data first would leave new rows arriving in the old shape.' This writer was missed, so the data repair was undone by the next notification. 010 also records that this column, unlike zv_api_keys.scopes, has NO reader-side compensation. → *repaired* (jsonb-notification-binding.test.ts — asserts in SQL, on BunSqlDialect)
+  - **medium** scripts/check-jsonb-binding.ts (value match) — the match was anchored at `^JSON.stringify`, so the ordinary way to write a nullable jsonb column — `col: v ? JSON.stringify(v) : null` — was invisible. That is the shape the live defect above was written in. Widened to search the value, carving out `::text::jsonb`, which IS the correct binding and would otherwise start failing correct code. → *repaired* (gate-planted-variants.test.ts, 2 cases)
+  - **medium** scripts/check-jsonb-binding.ts (comments) — comments were not stripped, so a commented-out write and — worse — a JSDoc DOCUMENTING the wrong form both counted as violations. That is this repository's house style: every E01 gate shows the form it refuses in its own header, and this file has to do it twice (INTERP_OPEN exists for exactly that). The first person to explain this gate in a comment would have turned it red on a clean tree. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **medium** scripts/check-jsonb-binding.ts (corpus) — no requireSibling: without the extensions checkout it scanned the engine alone and printed a confident OK. Same fail-open Block C fixed for five other gates, and it lands harder here — every site in this gate's own history lived in an extension. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **medium** scripts/check-jsonb-binding.ts (file filter) — the only gate in its family that scanned .test.ts files — the other six all exclude them. Consequence beyond noise: a regression test for this defect MUST write the wrong shape to assert PostgreSQL cannot read it, so the only honest test of the binding was one the gate refused. → *repaired* (the fixtures in both new test files)
+  - **low** scripts/check-tenant-boundary.ts, scripts/check-duplicate-table-creators.ts — the two `-- DOWN` cuts deferred from the first session, now applied: both read the rollback half as though it were schema. Verified behaviour-preserving on today's corpus — both verdicts byte-identical before and after. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **low** ../zveltio-extensions (local checkout) — the sibling checkout is 8 commits behind origin/master, which makes `sql:jsonb` and every other sibling-scanning gate report failures that do not exist on master. Not a code defect; it needs a pull before any local run is trustworthy. → *logged* (reported to the session holding git)
+  - **medium** scripts/lib/require-sibling.ts:32 (section E04) — inherited by this session's repair — The guard is `if (existsSync(root)) return;`, so an EMPTY sibling directory passes it and the gate prints the same confident OK it prints over the real corpus. Found by the session reviewing E04, confirmed on this branch. It backs eight gates, five of them E01's once check-jsonb-binding is counted — and check-jsonb-binding is the one where it costs most, because that gate derives its jsonb COLUMN SET from both repositories' migrations: a hollow sibling does not just shrink the code scanned, it shrinks the schema being judged, from 115 tables to 29. Nothing measured in either E01 session is affected — both ran with the real sibling present — but the repair recorded above is weaker than 'closed': it refuses an absent path, not an empty one. Being fixed in E04 (manifest required within two levels); not touched here. → *logged* (known-gaps.md §3a)
+  - not done: The two misses I did not close in check-jsonb-binding: a JSON.stringify reaching the column through a local variable, and the raw-value case its own header already declines to claim. Both need type inference, not a wider regex. The `db`-alias blindness in check-tenant-table-on-pool and the ARRAY-literal credit in check-tenant-boundary remain as recorded in the first session — still owner decisions, unchanged. E01 is now 13 of 13. CORRECTION to this session's own reporting: I stated 'lint and format clean' having run `lint` and `format:check` but NOT `lint:ratchet`, which is the gate that counts — it was failing on two warnings from my two test files. `lint` reports warnings and exits 0; the ratchet is what makes them fatal. Caught by the session holding git, who fixed both. Running two of the three gates that protect a change and reporting the result as clean is the same error this section spent the day finding in other people's code.
 
 ### E02 — Gates — authorisation, audit, structure
 
@@ -1094,7 +1115,7 @@ After it: E02, E04, E08, A04 …
 | · | `scripts/lint-warning-ratchet.ts` | 137 |
 | · | `scripts/merge-coverage.ts` | 214 |
 | · | `scripts/release-gate.ts` | 350 |
-| · | `scripts/review-inventory.ts` | 1282 |
+| · | `scripts/review-inventory.ts` | 1285 |
 | · | `scripts/suppress-existing-any.ts` | 73 |
 
 ### E05 — Build, packaging and Studio tooling scripts

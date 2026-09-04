@@ -43,9 +43,26 @@ import { join } from 'node:path';
 const REPO = join(import.meta.dir, '..', '..', '..', '..', '..');
 const SCRIPTS = join(REPO, 'scripts');
 
-/** A temp root holding one gate and whatever corpus the case fabricates. */
+/**
+ * A literal `$` + `{` for the one fixture that has to NAME the wrong form rather
+ * than perform it. Written whole it trips `noTemplateCurlyInString`, and that
+ * rule is right. Same answer `check-jsonb-binding.ts` reached for `INTERP_OPEN`.
+ */
+const INTERP_OPEN = `$${'{'}`;
+
+/**
+ * A temp root holding one gate and whatever corpus the case fabricates.
+ *
+ * Nested one level deeper than the temp directory — `<mkdtemp>/repo`, not
+ * `<mkdtemp>` — so that `<root>/../zveltio-extensions` is PRIVATE to the case.
+ * The flat shape put that path at `/tmp/zveltio-extensions`, which is shared:
+ * the case below that fabricates a sibling created it for every other case in
+ * the file, and the one asserting no sibling exists then failed depending on
+ * execution order. Bun's file and test order is `readdir` order, so that is a
+ * flake nobody would reproduce on demand.
+ */
 function fakeRoot(gate: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'e01-gate-'));
+  const root = join(mkdtempSync(join(tmpdir(), 'e01-gate-')), 'repo');
   mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
   copyFileSync(join(SCRIPTS, gate), join(root, 'scripts', gate));
   copyFileSync(
@@ -65,12 +82,13 @@ async function run(
   root: string,
   gate: string,
   args: string[] = [],
+  env: Record<string, string> = {},
 ): Promise<{ code: number; out: string }> {
   const proc = Bun.spawn(['bun', 'run', join(root, 'scripts', gate), ...args], {
     // The gates resolve their corpus from `import.meta.dir/..`, but
     // check-pooldb-txn-skip reads two paths relative to the working directory.
     cwd: root,
-    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' } as never,
+    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env } as never,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -339,6 +357,136 @@ describe('check-rule-interpreters wants an import, not a mention', () => {
       const { code, out } = await run(r, GATE);
       expect(out).toContain('OK');
       expect(code).toBe(0);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── check-jsonb-binding ─────────────────────────────────────────────────────
+
+describe('check-jsonb-binding reads code, not prose', () => {
+  const GATE = 'check-jsonb-binding.ts';
+
+  /** A root with one jsonb column declared and one source file to judge. */
+  function root(body: string): string {
+    const r = fakeRoot(GATE);
+    mkdirSync(join(r, 'quality-gates'), { recursive: true });
+    writeFileSync(join(r, 'quality-gates', 'jsonb-binding.json'), JSON.stringify({ counts: {} }));
+    write(
+      r,
+      'packages/engine/src/db/migrations/sql/001_initial.sql',
+      'CREATE TABLE IF NOT EXISTS zv_flows (\n  id uuid PRIMARY KEY,\n  trigger_config jsonb\n);\n',
+    );
+    write(r, 'packages/engine/src/lib/probe.ts', body);
+    // An explicit EXTENSIONS_DIR is the documented way to ask for a narrower
+    // scan; without it the gate now refuses, which the last case here pins.
+    return r;
+  }
+
+  const narrow = { EXTENSIONS_DIR: '/nonexistent-on-purpose' };
+
+  it('catches JSON.stringify bound to a jsonb column', async () => {
+    const r = root(
+      "export const p = (db: any, v: unknown) =>\n  db.insertInto('zv_flows').values({ trigger_config: JSON.stringify(v) }).execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE, [], narrow);
+      expect(out).toContain('zv_flows.trigger_config');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('catches it behind a ternary — the ordinary way to write a nullable column', async () => {
+    const r = root(
+      "export const p = (db: any, v: unknown) =>\n  db.insertInto('zv_flows').values({ trigger_config: v ? JSON.stringify(v) : null }).execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE, [], narrow);
+      expect(out).toContain('zv_flows.trigger_config');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT fire on the wrong form shown inside a comment', async () => {
+    // This repository documents the shape it refuses, in the header of the gate
+    // that refuses it. A ratchet that counts prose fails on a clean tree.
+    const r = root(
+      "/**\n * Never write this:\n *   db.insertInto('zv_flows').values({ trigger_config: JSON.stringify(v) })\n */\n" +
+        "export const p = (db: any) => db.insertInto('zv_flows').values({ id: '1' }).execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE, [], narrow);
+      expect(out).toContain('OK');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT fire on the correct ::text::jsonb binding written by hand', async () => {
+    const fixture = `export const p = (db: any, v: unknown) =>\n  db.insertInto('zv_flows').values({ trigger_config: sql\`${INTERP_OPEN}JSON.stringify(v)}::text::jsonb\` }).execute();\n`;
+    // The fixture is asserted before it is used, because this case passes on
+    // exit 0 — and a fixture that had silently lost its interpolation would
+    // also produce exit 0, for the opposite reason. A negative test whose
+    // subject can go missing is a green light wired to nothing, which is the
+    // thing this whole file is about. `INTERP_OPEN` is assembled rather than
+    // written whole to satisfy `noTemplateCurlyInString`, so what it produces
+    // is worth pinning rather than assuming.
+    expect(fixture).toContain('JSON.stringify(v)');
+    expect(fixture).toContain('::text::jsonb');
+    const r = root(fixture);
+    try {
+      expect((await run(r, GATE, [], narrow)).code).toBe(0);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to report on an engine-only scan when the sibling is simply absent', async () => {
+    // Without the sibling it used to print `OK — 0 site(s) across 29 table(s)`;
+    // with one, 115. The corpus this gate exists for lives in the extensions.
+    const r = root(
+      "export const p = (db: any) => db.insertInto('zv_flows').values({ id: '1' }).execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('no sibling checkout');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── the `-- DOWN` half is rollback SQL, not schema ──────────────────────────
+
+describe('the migration readers grade the half that runs', () => {
+  it('check-tenant-boundary does not count RLS enabled only in a rollback', async () => {
+    const GATE = 'check-tenant-boundary.ts';
+    const r = fakeRoot(GATE);
+    try {
+      mkdirSync(join(r, 'quality-gates'), { recursive: true });
+      writeFileSync(
+        join(r, 'quality-gates', 'tenant-boundary.json'),
+        JSON.stringify({ instance_level: {}, unpoliced: {} }),
+      );
+      write(
+        r,
+        'packages/engine/src/db/migrations/sql/001.sql',
+        'CREATE TABLE IF NOT EXISTS zz_probe (\n  id uuid PRIMARY KEY,\n  tenant_id uuid NOT NULL\n);\n' +
+          '\n-- DOWN\nALTER TABLE zz_probe ENABLE ROW LEVEL SECURITY;\nDROP TABLE zz_probe;\n',
+      );
+      // The sibling guard fires before anything else, so give it one.
+      mkdirSync(join(r, '..', 'zveltio-extensions'), { recursive: true });
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('zz_probe');
+      expect(out).toContain('no migration enables row level security');
+      expect(code).toBe(1);
     } finally {
       rmSync(r, { recursive: true, force: true });
     }

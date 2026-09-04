@@ -80,6 +80,35 @@ accordingly. WASM isolation exists as an option and is
 
 ---
 
+**Gap — `POST /dashboards/:id/shares` looks the dashboard up without its tenant.**
+`routes/insights.ts:368` guards the route with
+
+    .selectFrom('zv_dashboards').select(['id','created_by']).where('id','=',id)
+
+and no `tenant_id` predicate. Seven of the eight `zv_dashboards` lookups in that
+file carry one; this is the eighth. It matters more here than it would elsewhere
+for two reasons that compound: the router is mounted as
+`insightsRoutes(poolDb, auth)` and listed in `TXN_SKIP_PREFIXES`, so it runs
+OUTSIDE the tenant transaction — no `SET LOCAL ROLE`, no GUC, and therefore no
+RLS behind the missing predicate — and what it then writes,
+`zvd_dashboard_shares`, is one of the nine instance-level tables
+`check-tenant-boundary` classifies as *isolated by join alone*. Its own header
+says of them: "a forgotten join is a cross-tenant read with nothing behind it."
+This is that, in the wild.
+
+What is verified: the predicate is absent, every sibling route has it, and RLS
+does not apply on this path. What is NOT verified: end-to-end exploitability.
+The route still requires `dash.created_by === user.id` or instance admin, so
+reaching it needs an actor who owns a dashboard in one tenant while acting in
+another — which a multi-tenant membership allows and a single-tenant one does
+not. Treat the missing predicate as the defect; the reachability question is a
+second, separate measurement.
+
+Found on 2026-09-04 while measuring whether `check-tenant-table-on-pool` was
+worth teaching to resolve the `db` alias: 30 queries on tenant-scoped tables
+across the four pool-backed routers, 5 with no `tenant_id` in the chain, 4 of
+those legitimately guarded by a tenant-filtered SELECT above them, and this one.
+
 ## 3. Official extensions
 
 Verified in `../zveltio-extensions` on 2026-09-02.
@@ -136,14 +165,6 @@ beside it is skipped entirely. Planted and confirmed. The file's own header
 argues that separating this properly needs a parser rather than a regex, and that
 remains true — but the escape is not among the two blind spots it documents.
 
-**Gap — `check-tenant-boundary` reads the DOWN half of a migration.** Every other
-reader in the repo cuts at the `-- DOWN` marker (`upHalf()` in
-`scripts/lib/install-template.ts`, the runner's `parseMigration`,
-`check-migration-safety`'s own `DOWN_MARKER`); this one does not, so
-`ALTER TABLE t ENABLE ROW LEVEL SECURITY` written in a *rollback* section counts
-the table as policed. Planted and confirmed. Latent today: measured across both
-repositories, 302 tables enable RLS and all 302 do so in the UP half.
-
 **Gap — `check-tenant-boundary` credits any `ARRAY[…]` in a file that also
 creates a `tenant_isolation` policy.** 24 tables get their "policed" status only
 through that path, and the array need not be an RLS loop — a list of table names
@@ -154,13 +175,6 @@ assumed: the gate's whole classification was compared against
 tables. The heuristic is currently telling the truth; it is the *reason* it does
 so that is fragile.
 
-**Gap — `check-duplicate-table-creators` counts a rollback as a creation.** It
-strips `--` comments but not the DOWN section, so a `CREATE TABLE` written to
-restore a dropped table reads as a second owner. Over-reports rather than under-
-reports, and one file does it today
-(`ext:analytics/quality/…/004_drop_quality_score.sql` recreates
-`zvd_quality_scores`), harmlessly, because it is the same owner.
-
 **Gap — `bun run audit:gates` cannot run in a checkout that has built the
 Studio.** The pre-flight refuses when a `create` probe path already exists, and
 `packages/studio/dist/.zveltio-studio-version` is an ordinary local build
@@ -169,10 +183,40 @@ artifact — so the meta-gate aborts before planting anything. CI is unaffected
 this checkout's base: a colliding path now skips that one case instead of
 aborting the run.
 
-**Gap — eleven of the twelve gates have no test of their own.** Only
-`check-numeric-string-arithmetic` had one before 2026-09-04. Their sole proof is
-the planting harness above, which means that when it cannot run, nothing at all
-checks that these gates still bite.
+**Gap — `check-jsonb-binding` cannot see a `JSON.stringify` behind a variable.**
+Widened on 2026-09-04 to catch it behind a ternary — which is how the one live
+defect it then found was written — but a value assigned to a local first, and the
+raw-value case its own header already declines to claim, both need type inference
+rather than a wider regex. A clean run is not proof; use `toJsonb` and the
+question does not arise.
+
+**Gap — the local `zveltio-extensions` checkout drifts silently.** Every
+sibling-scanning gate reads whatever is on disk, so a checkout behind
+`origin/master` reports failures that do not exist on master — measured at 8
+commits behind on 2026-09-04, producing 45 phantom `jsonb-binding` sites. The
+gates cannot tell staleness from a defect, and neither can a reader of their
+output. Pull the sibling before trusting any local gate run.
+
+**Gap — a harness test that writes falls back to whatever `.env` names.**
+`process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL`, plus Bun's
+auto-loading of the nearest `.env`, means the database a writing test connects to
+depends on the directory it was launched from: `zveltio_test` from
+`packages/engine`, and **`zv_dev` — the development database — from the repo
+root**. Three harness files share the pattern (`pool-autosize`,
+`gate-numeric-arith-fails-closed`, `jsonb-notification-binding`) and the last two
+INSERT rows. A test that writes should refuse to run without an explicit test URL
+rather than quietly pick one; `skipIf` on an absent variable is the wrong shape
+here, because the variable is rarely absent — it is merely wrong.
+
+**Gap — six of the thirteen gates have no test of their own.** Only
+`check-numeric-string-arithmetic` had one before 2026-09-04;
+`gate-planted-variants.test.ts` now covers seven more, but each pins the specific
+variant that was repaired rather than the gate as a whole. The remaining six —
+`check-atomic-writes`, `check-duplicate-table-creators`,
+`check-insert-schema-match`, `check-raw-sql-identifiers`,
+`check-tenant-boundary`'s ARRAY path and `check-numeric-string-arithmetic`'s
+detector half — are still proved only by the planting harness, which means that
+when it cannot run, nothing checks that they still bite.
 
 **Open question, for whoever reviews the read path — row rules do not reach
 virtual collections.** `lib/data/handlers/list.ts` serves the virtual branch and
