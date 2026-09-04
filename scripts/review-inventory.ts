@@ -51,7 +51,8 @@ type SessionEntry = {
   findings?: Finding[];
   /** What was deliberately left undone, and why. */
   notDone?: string;
-  verdict: 'clean' | 'repaired' | 'blocked' | 'partial';
+  /** `logged` = read in full, findings recorded, nothing repaired in-session. */
+  verdict: 'clean' | 'repaired' | 'logged' | 'blocked' | 'partial';
 };
 
 type Ledger = { updated: string; sessions: SessionEntry[] };
