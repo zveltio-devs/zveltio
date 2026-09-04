@@ -22,7 +22,7 @@ After it: E04, E08, A04, A05 …
 
 - Sections in scope: **60**
 - Files in scope: **18 / 656** (3%)
-- Lines in scope: **4,203 / 135,131** (3%)
+- Lines in scope: **4,203 / 135,175** (3%)
 - Test files opened by some session: **5 / 858**
 
 ## Sections
@@ -39,12 +39,12 @@ After it: E04, E08, A04, A05 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| A01 | Boot, app assembly, middleware order | 9 | 2,894 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,054 | 0/17 | — |
+| A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
+| A02 | Middleware chain | 17 | 2,057 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
-| A04 | Tenancy core | 5 | 1,960 | 0/5 | — |
+| A04 | Tenancy core | 5 | 1,968 | 0/5 | — |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
-| A06 | Permissions, roles, column access | 5 | 2,169 | 0/5 | — |
+| A06 | Permissions, roles, column access | 5 | 2,188 | 0/5 | — |
 | A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
@@ -69,17 +69,17 @@ After it: E04, E08, A04, A05 …
 | B06 | Realtime, WebSocket, event bus | 5 | 2,153 | 0/5 | — |
 | B07 | Flows and cron | 7 | 2,377 | 0/7 | — |
 | B08 | Webhooks and notifications | 5 | 1,501 | 0/5 | — |
-| B09 | Storage, files, media | 14 | 1,888 | 0/14 | — |
+| B09 | Storage, files, media | 14 | 1,880 | 0/14 | — |
 | B10 | Backup, PITR, restore | 5 | 1,833 | 0/5 | — |
 | B11 | Edge functions and script execution | 12 | 1,965 | 0/12 | — |
-| B12 | Insights, saved queries, SQL editor | 3 | 1,737 | 0/3 | — |
+| B12 | Insights, saved queries, SQL editor | 3 | 1,743 | 0/3 | — |
 | B13 | Sync, Electric, runtime infrastructure | 7 | 1,466 | 0/7 | — |
 
 ### C — Studio & client
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| C01 | Studio shell, routing, API client, build config | 24 | 2,569 | 0/24 | — |
+| C01 | Studio shell, routing, API client, build config | 24 | 2,572 | 0/24 | — |
 | C02 | SDUI renderer — SchemaPage | 3 | 2,357 | 0/3 | — |
 | C03 | SDUI renderer — layouts | 3 | 1,095 | 0/3 | — |
 | C04 | Components — collections and fields | 7 | 2,230 | 0/7 | — |
@@ -124,7 +124,7 @@ After it: E04, E08, A04, A05 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 858 | 91,811 | n/a | — |
+| T01 | Test corpus | 858 | 91,864 | n/a | — |
 
 ---
 
@@ -155,7 +155,7 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/api-types.ts` | 286 |
-| · | `packages/engine/src/index.ts` | 1597 |
+| · | `packages/engine/src/index.ts` | 1610 |
 | · | `packages/engine/src/lib/service-registry.ts` | 122 |
 | · | `packages/engine/src/lib/startup-guards.ts` | 212 |
 | · | `packages/engine/src/routes/index.ts` | 514 |
@@ -170,7 +170,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/route-db.ts` | 46 |
+| · | `packages/engine/src/lib/route-db.ts` | 49 |
 | · | `packages/engine/src/lib/savepoint.ts` | 82 |
 | · | `packages/engine/src/middleware/demo-mode.ts` | 75 |
 | · | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
@@ -213,7 +213,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/lib/tenancy/fail-closed-tenant.ts` | 40 |
 | · | `packages/engine/src/lib/tenancy/index.ts` | 14 |
 | · | `packages/engine/src/lib/tenancy/tenant-context.ts` | 417 |
-| · | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1337 |
+| · | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1345 |
 | · | `packages/engine/src/lib/tenancy/tenant-scope.ts` | 152 |
 
 ### A05 — RLS policies and row rules
@@ -236,9 +236,9 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/tenancy/column-permissions.ts` | 143 |
+| · | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
 | · | `packages/engine/src/lib/tenancy/permissions.ts` | 997 |
-| · | `packages/engine/src/lib/tenancy/resource-grants.ts` | 245 |
+| · | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
 | · | `packages/engine/src/routes/admin/permission-routes.ts` | 349 |
 | · | `packages/engine/src/routes/permissions.ts` | 435 |
 
@@ -517,7 +517,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/lib/storage/probe.ts` | 75 |
 | · | `packages/engine/src/lib/storage/s3-driver.ts` | 96 |
 | · | `packages/engine/src/routes/files.ts` | 145 |
-| · | `packages/engine/src/routes/storage.ts` | 626 |
+| · | `packages/engine/src/routes/storage.ts` | 618 |
 | · | `packages/engine/src/workers/pdf-worker.ts` | 196 |
 
 ### B10 — Backup, PITR, restore
@@ -557,7 +557,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/routes/insights.ts` | 1014 |
+| · | `packages/engine/src/routes/insights.ts` | 1020 |
 | · | `packages/engine/src/routes/saved-queries.ts` | 610 |
 | · | `packages/engine/src/routes/sql-editor.ts` | 113 |
 
@@ -582,7 +582,7 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/studio/src/hooks.client.ts` | 4 |
-| · | `packages/studio/src/lib/api.ts` | 277 |
+| · | `packages/studio/src/lib/api.ts` | 280 |
 | · | `packages/studio/src/lib/auth.svelte.ts` | 57 |
 | · | `packages/studio/src/lib/config.ts` | 27 |
 | · | `packages/studio/src/lib/denial.ts` | 43 |
