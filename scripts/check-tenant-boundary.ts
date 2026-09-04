@@ -71,7 +71,33 @@ function sqlUnder(dir: string): string[] {
   return out;
 }
 
-const strip = (s: string) => s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+/**
+ * The UP half only — everything from a `-- DOWN` line on is rollback SQL.
+ *
+ * Every other reader in this repository cuts here: `upHalf()` in
+ * `scripts/lib/install-template.ts`, `parseMigration()` in the runner, and
+ * `DOWN_MARKER` in `check-migration-safety.ts`. This gate did not, so it graded
+ * a slice that never executes on an install.
+ *
+ * Planted 2026-09-04: a tenant-scoped table whose `ENABLE ROW LEVEL SECURITY`
+ * appeared ONLY below the marker — that is, only when rolling the migration
+ * BACK — was recorded as policed and the gate passed. Latent when measured the
+ * same day (302 of 302 tables enable RLS in the UP half), which is why this is a
+ * correction to the parser rather than a repair to a leak.
+ *
+ * `\s*$`, not `\b`: the marker is a line that is exactly `-- DOWN`. The loose
+ * form also matches `-- DOWN: manual rollback required`, which is prose, and
+ * `001_initial.sql` contains that exact line — cutting there would discard most
+ * of the schema. Same rule, same reason, as `upHalf()`.
+ */
+const upHalf = (s: string) => {
+  const m = /^[ \t]*--[ \t]*DOWN[ \t]*$/im.exec(s);
+  return m ? s.slice(0, m.index) : s;
+};
+const strip = (s: string) =>
+  upHalf(s)
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 const norm = (t: string) => t.trim().replace(/"/g, '').split('.').pop()!.toLowerCase();
 
 // The head only. The body is taken by counting parentheses, because a regex

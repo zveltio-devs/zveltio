@@ -26,14 +26,18 @@
 
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
+import { DEFAULT_TENANT_ID } from './tenancy/index.js';
+
+// Single source of truth for the default tenant sentinel. Through the tenancy
+// barrel, not the deep file: `import-boundaries` gates that, and reaching into
+// `tenancy/tenant-manager` directly is what this re-export exists to spare
+// callers of.
+export { DEFAULT_TENANT_ID } from './tenancy/index.js';
 
 export function reqDb(c: Context, fallback: Database): Database {
   const trx = c.get('tenantTrx') as Database | null | undefined;
   return trx ?? fallback;
 }
-
-/** Default tenant id ("always-one-tenant") — single-tenant installs run as this. */
-export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
 /**
  * The current request's tenant id. `tenantMiddleware` always resolves a tenant

@@ -169,10 +169,47 @@ async function lint(file: string): Promise<Finding[]> {
       ],
       { stdout: 'pipe', stderr: 'pipe' },
     );
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
 
-    const parsed: Finding[] = out.trim() ? JSON.parse(out) : [];
+    // The linter's own exit code, which this used to discard.
+    //
+    // squawk exits 1 both for "I found hazards" and for "I could not run", and
+    // the two are told apart by what came back on stdout: findings, or nothing.
+    // Reading only stdout meant a linter that never started — not installed, a
+    // renamed binary, a crash — produced an empty parse, no findings, and
+    // `✅ No upgrade hazards found`. Measured on 2026-09-04 by making the
+    // binary unresolvable: the gate passed a migration adding a NOT NULL column
+    // with no default, which is the hazard it exists to refuse.
+    //
+    // This is the same class as the unchecked `gzip.exitCode` on the backup
+    // paths: a process was awaited, its verdict was not, and the absence of a
+    // complaint was read as approval.
+    const trimmed = out.trim();
+    if (trimmed === '') {
+      if (code === 0) return []; // ran, said nothing: genuinely clean.
+      console.error(`❌ ${file}: the migration linter did not run (exit ${code}).`);
+      console.error(
+        '   Nothing came back on stdout, so nothing was linted. Green here would mean\n' +
+          '   "did not look", which is how this gate stops being one.\n' +
+          (err.trim() ? `   squawk said: ${err.trim().split('\n').slice(0, 4).join('\n   ')}` : ''),
+      );
+      process.exit(1);
+    }
+
+    let parsed: Finding[];
+    try {
+      parsed = JSON.parse(trimmed) as Finding[];
+    } catch {
+      // Output that is not the JSON reporter's is not a clean bill of health
+      // either — it is a linter saying something this code cannot read.
+      console.error(`❌ ${file}: the migration linter's output was not JSON (exit ${code}).`);
+      console.error(`   ${trimmed.split('\n').slice(0, 4).join('\n   ')}`);
+      process.exit(1);
+    }
     return parsed.map((f) => ({ ...f, file }));
   } finally {
     await $`rm -f ${tmp}`.quiet();

@@ -54,10 +54,24 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = process.env.EXTENSIONS_DIR ?? join(ROOT, '..', 'zveltio-extensions');
 const BASELINE = join(ROOT, 'quality-gates', 'jsonb-binding.json');
+
+// An absent sibling is not a clean sibling.
+//
+// The scan is `if (existsSync(EXT_ROOT))` in two places, so without the
+// extensions checkout it quietly covered the engine alone and said so only in a
+// number nobody reads: `OK — 0 site(s) across 29 table(s)` with no sibling,
+// against `across 115 table(s)` with one. That is the fail-open Block C fixed
+// for five other gates, and it lands harder here — every one of the sites this
+// gate's own history is about lived in an extension.
+//
+// Skipped when EXTENSIONS_DIR points somewhere explicitly: that is a caller
+// asking for a narrower scan on purpose, which is how the probe suites use it.
+if (!process.env.EXTENSIONS_DIR) requireSibling(EXT_ROOT, 'jsonb-binding');
 
 /**
  * A literal `$` + `{` for the two places this file has to NAME the wrong form
@@ -195,8 +209,76 @@ function topLevelPairs(body: string): string[] {
 /** How far past `insertInto('t')` a `.values({…})` is still the same statement. */
 const CHAIN_WINDOW = 6000;
 
+/**
+ * Line and block comments blanked, newlines and offsets preserved.
+ *
+ * String-aware, because the naive `replace(/\/\*[\s\S]*?\*\//g, '')` does not
+ * know what a string is and a `/*` inside one eats everything to the next
+ * `*` + `/`. Same walker as `check-atomic-writes.ts`, for the same reason.
+ *
+ * Added 2026-09-04 after planting two shapes that both went red on a clean
+ * tree: a commented-out write, and — worse — a JSDoc header DOCUMENTING the
+ * wrong form. The second is this repository's house style; every gate in E01
+ * shows the form it refuses in its own header, and this file has to do it twice
+ * (see `INTERP_OPEN` above, which exists precisely so the text can name the
+ * wrong form without performing it). So the first person to write
+ * `col: JSON.stringify(v)` into a comment explaining this gate would have made
+ * the gate fail on a tree with no defect in it — and a ratchet that fires on
+ * prose is one somebody switches off.
+ *
+ * Blanking rather than deleting: every offset downstream, including the line
+ * numbers this file reports, stays the file's own.
+ */
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const ch = src[i]!;
+    const next = src[i + 1];
+    if (quote) {
+      if (ch === '\\') {
+        out += ch + (next ?? '');
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') {
+        out += ' ';
+        i++;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      out += '  ';
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        out += src[i] === '\n' ? '\n' : ' ';
+        i++;
+      }
+      out += '  ';
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
-  const src = readFileSync(file, 'utf8');
+  const src = stripComments(readFileSync(file, 'utf8'));
   const found: Site[] = [];
 
   const entry = /\.(insertInto|updateTable)\(\s*['"`]([\w.]+)['"`]\s*\)/g;
@@ -226,7 +308,28 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
 
         const value = kv[2]!.trim();
         let form: string | null = null;
-        if (/^JSON\.stringify\s*\(/.test(value)) form = 'JSON.stringify(…)';
+        /**
+         * Anywhere in the value, not anchored at its start.
+         *
+         * `^JSON\.stringify` matched the plain case and nothing else. Planted
+         * 2026-09-04, both of these stayed green on a jsonb column:
+         *
+         *   trigger_config: v ? JSON.stringify(v) : null
+         *   trigger_config: JSON.stringify(v) as never   ← this one was caught,
+         *                                                  the ternary was not
+         *
+         * A conditional is the ordinary way to write a nullable jsonb column, so
+         * the miss sat directly on the common shape rather than on an exotic one.
+         *
+         * `::text::jsonb` is excluded because that IS the correct binding —
+         * `toJsonb` is `${…}::text::jsonb`, and someone inlining it by hand is
+         * right, not wrong. Without that carve-out, widening the search would
+         * have started failing correct code, which is the other way to lose a
+         * gate.
+         */
+        const STRINGIFY = /\bJSON\.stringify\s*\(/;
+        const CORRECT_CAST = /::\s*text\s*::\s*jsonb/;
+        if (STRINGIFY.test(value) && !CORRECT_CAST.test(value)) form = 'JSON.stringify(…)';
         else if (/^sql`\s*\$\{\s*JSON\.stringify[\s\S]*?\}\s*::\s*jsonb\s*`/.test(value))
           // Assembled rather than written whole: a literal `${…}` in a string
           // trips `noTemplateCurlyInString`, and that rule is right — it exists
@@ -260,12 +363,32 @@ if (jsonb.size === 0) {
   process.exit(1);
 }
 
+/**
+ * Production writers only — `.test.ts` is excluded.
+ *
+ * This was the one gate in its family that read test files; the other six all
+ * skip them (`!e.includes('.test.')` in check-atomic-writes,
+ * check-insert-schema-match, check-numeric-string-arithmetic and
+ * check-tenant-table-on-pool, `!e.endsWith('.test.ts')` in
+ * check-raw-sql-identifiers, and a skipped `tests` directory in
+ * check-duplicate-rules and check-rule-interpreters).
+ *
+ * A test is not a writer, and the exclusion is not merely tidiness: a
+ * regression test for THIS defect has to write the wrong shape on purpose in
+ * order to assert that PostgreSQL cannot read it. Without the exclusion, the
+ * only honest test of the binding is one the gate refuses — and any fixture
+ * anyone writes with `JSON.stringify` into a jsonb column trips the ratchet on a
+ * tree with no production defect. Found on 2026-09-04 by exactly that: the
+ * proof in `jsonb-notification-binding.test.ts` was reported as a violation.
+ */
+const isSource = (f: string) => f.endsWith('.ts') && !f.endsWith('.d.ts') && !f.includes('.test.');
+
 const files: string[] = [];
 for (const dir of ['packages/engine/src', 'packages/cli/src', 'packages/sdk/src']) {
   const p = join(ROOT, dir);
-  if (existsSync(p)) walk(p, (f) => f.endsWith('.ts') && !f.endsWith('.d.ts'), files);
+  if (existsSync(p)) walk(p, isSource, files);
 }
-if (existsSync(EXT_ROOT)) walk(EXT_ROOT, (f) => f.endsWith('.ts') && !f.endsWith('.d.ts'), files);
+if (existsSync(EXT_ROOT)) walk(EXT_ROOT, isSource, files);
 
 // One site per file:line:table.column. The same object literal is reachable
 // through more than one `.set(...)` match when a chain nests them, and counting
