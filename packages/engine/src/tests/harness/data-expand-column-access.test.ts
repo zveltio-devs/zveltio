@@ -65,15 +65,20 @@ d('expand column access (in-process)', () => {
     colPermId = perm?.id ?? '';
     await invalidateColumnPermCache(PARENT);
 
-    parentId = (
-      (await (
-        await app.request(`/api/data/${PARENT}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', cookie },
-          body: JSON.stringify({ title: 'p', secret: 'classified' }),
-        })
-      ).json()) as { id: string }
-    ).id;
+    // Hidden columns are now treated as not writable (known-gaps.md §3a). Create
+    // the parent without `secret`, then seed the hidden value directly as the DB
+    // owner to simulate data written by a higher-privileged role/process.
+    const parentRes = await app.request(`/api/data/${PARENT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'p' }),
+    });
+    parentId = ((await parentRes.json()) as { id: string }).id;
+    await sql`
+      UPDATE ${sql.table(`zvd_${PARENT}`)}
+      SET secret = ${'classified'}
+      WHERE id = ${parentId}
+    `.execute(db);
 
     const childRes = await app.request(`/api/data/${CHILD}`, {
       method: 'POST',
