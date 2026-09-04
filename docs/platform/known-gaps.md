@@ -515,6 +515,46 @@ so the caller asks the database. `loadPolicies` falls through to the database on
 any cache failure. The admin route refuses an unknown `filter_value_source` at
 the boundary.
 
+### A06 — permissions, roles, column access (2026-09-04, partial)
+
+The escalation this section found is fixed and shipped as its own change; what
+follows is what was left.
+
+**Gap — column masking is bypassed by a hardcoded role name, and it names the
+wrong role.** `getColumnAccess` opens with
+`if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), … }`.
+Measured against every value the schema permits on `"user".role`
+(`001_initial.sql:1160` allows `god`, `admin`, `manager`, `member`):
+
+    role='member'      salary hidden      correct
+    role='admin'       nothing hidden     full bypass
+    role='god'         salary hidden      the most privileged role IS masked
+
+So the bypass names a role that is not the top one and omits the one that is. A
+user set to `admin` sees every hidden column, with no policy row expressing it
+and no way to revoke it short of editing code — which is exactly what
+`getRlsFilters` removed, and its comment says why: *"a string comparison against
+a role name is invisible, unauditable and impossible to revoke."* `superadmin` is
+a dead branch: not in the CHECK constraint, and absent from the rest of the
+product.
+
+**Gap (low) — `resource-grants.ts` cites a gate that does not exist.** Its header
+names `scripts/check-extension-resources.ts` twice as the build-time check that
+fails when a `permissionGate` call uses an undeclared resource. There is no such
+script, and nothing in `scripts/` scans `permissionGate` calls. It is named as one
+of the two compensating controls for the owner decision of 2026-08-30 that removed
+the frozen `KNOWN_EXTENSION_RESOURCES` list. The other control is real —
+`listKnownResources` collects installed extensions that declare nothing and names
+them at boot — so the stated minimum is half-met.
+
+**Predicted and disproved, recorded so it is not re-derived.** `checkPermission`
+files every resource no policy mentions under one cache key, and computes the
+answer with the real name — so a stale policy-object index could cache one
+resource's *allow* under the shared unknown key. It cannot: every policy write
+reaches the database through the Casbin adapter, which drops the memo and the
+index on each call *"whichever route or boot task called it"*, and the routes
+clear the shared cache as well. Two independent defences.
+
 ---
 
 ## 4. Deliberate deferrals
