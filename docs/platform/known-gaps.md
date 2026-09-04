@@ -398,6 +398,34 @@ reach and the god branch over an empty `zv_tenants`, so the effect is a narrowin
 to the own unit — the safe direction — but the two states cannot be told apart in
 the GUC.
 
+**Gap — the schema-per-tenant machinery is vestigial, and it looks like isolation.**
+`provisionTenantSchema` creates `tenant_<slug>` with its own
+`zvd_collections` / `zvd_relations` / `zvd_permissions` every time a tenant is
+created, and **nothing in the data layer reads them**. `tenantSchema` is set by
+the middleware and consumed by no data route; no `search_path` is set for these
+schemas (the preview-environment middleware sets one for *branch* schemas, a
+different feature). Forty-five of them had accumulated in a single test database.
+
+Its one apparent consumer is the proof that the path has never run:
+`runQualityScan` accepts a `tenantSchema` and builds
+`` `${schema}.zvd_${collection}` ``, which reaches `sql.id()` as one dotted
+string. Measured — `SELECT … FROM "probe_sch.t"` answers *relation does not
+exist*, while `"probe_sch"."t"` works — so the parameter cannot do what it says,
+and it is exposed to extensions through `ctx.internals`.
+
+The cost is not the dead code. An operator who inspects the database and finds a
+schema per tenant will reasonably conclude that tenant data is separated by
+schema. It is not: isolation is row-level, in `public`. Fixing this is an owner
+decision rather than a patch — either the machinery goes, or it is wired up and
+the identifier bug fixed.
+
+**Gap (low) — the extension reconciler drops a policy before creating its
+replacement.** `DROP POLICY` and `CREATE POLICY` run as two statements on the
+pool rather than one transaction, so between them the table has RLS enabled and
+no policy. That is the fail-closed direction — a non-owner sees zero rows — but
+live traffic on that table reads empty for the duration rather than reading
+correctly.
+
 **Verified clean, and worth recording because it is the answer to the question
 this campaign keeps asking.** `unscoped-fallback.test.ts` carries a **positive
 control**: a second test that produces a fallback on purpose and asserts the
