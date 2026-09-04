@@ -139,7 +139,9 @@
       "date": "2026-09-04",
       "agent": "claude-opus-5",
       "branch": "review/campaign-setup (working tree \u2014 not committed)",
-      "files": ["scripts/check-jsonb-binding.ts"],
+      "files": [
+        "scripts/check-jsonb-binding.ts"
+      ],
       "tests": [
         "packages/engine/src/tests/harness/gate-planted-variants.test.ts",
         "packages/engine/src/tests/harness/jsonb-notification-binding.test.ts"
@@ -280,6 +282,100 @@
         }
       ],
       "notDone": "Five of the ten files are unread: coverage-gate.ts, merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and was not tested. One open question worth a session of its own: a file-level suppression also zeroes a rule's count in lint-warning-ratchet, where it reads as an improvement rather than as invisibility.",
+      "verdict": "partial"
+    },
+    {
+      "section": "E04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/E04-gates-coverage-ratchets",
+      "files": [
+        "scripts/any-ratchet.ts",
+        "scripts/lib/any-targets.ts",
+        "scripts/lib/require-sibling.ts",
+        "scripts/suppress-existing-any.ts",
+        "scripts/lint-warning-ratchet.ts",
+        "scripts/coverage-gate.ts"
+      ],
+      "tests": [
+        "packages/engine/src/tests/unit/gate-any-ratchet-file-level.test.ts",
+        "packages/engine/src/tests/unit/gate-require-sibling-empty.test.ts",
+        "packages/engine/src/tests/unit/gate-coverage-partial-report.test.ts"
+      ],
+      "ran": [
+        "biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any \u2014 0 diagnostics, so biome honours the file-level form; the same file without it \u2014 1 per any",
+        "any-ratchet over that tree \u2014 'OK \u2014 total suppressions 1137 (baseline 1137)', having counted none of the three",
+        "after the repair, same probe \u2014 FAIL, exit 1, naming the file",
+        "check-fabricated-success against a fabricated root whose sibling directory exists and is EMPTY \u2014 'OK \u2014 0 site(s), baseline allows 0', exit 0",
+        "after the repair \u2014 FAIL exit 1 ('no extension manifest'); with one manifest.json present \u2014 OK exit 0; with ZVELTIO_ALLOW_MISSING_SIBLING=1 \u2014 WARNING + OK",
+        "bun run scripts/suppress-existing-any.ts \u2014 ENOENT at line 43 before the repair; `bun x biome lint --suppress` after, verified to actually write the comment ('Fixed 1 file')",
+        "bun run studio:dev \u2014 'bunx: command not found', exit 127",
+        "all 7 requireSibling gates + any:ratchet + lint:ratchet + lint + format:check after the repairs \u2014 all green",
+        "both new tests against the pre-repair scripts \u2014 2 of 3 fail in each; after \u2014 6 pass",
+        "biome.json exclusion list vs the hand-mirrored regex in lib/any-targets.ts \u2014 33 slugs each, zero divergence today",
+        "coverage-gate over the real merged lcov (202 files) \u2014 OK, routes +0.7pt; over the real unit-only lcov \u2014 now REFUSED with '8 of 37 source files (22%)' instead of the fabricated 'routes 73.6% \u2192 13%'",
+        "grep for `floor` in coverage-gate.ts \u2014 one hit, the type field on line 57; never read, never compared",
+        "coverage-gate --update on a copy of the real baseline \u2014 gated ['lib','routes'] became ['lib'], floor {lib:95} and floorNote disappeared, source overwritten with a fixed sentence about the unit suite",
+        "the three new test files against their pre-repair scripts \u2014 2/3, 2/3 and 4/5 fail; 11 pass after"
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "scripts/any-ratchet.ts:33",
+          "what": "the ratchet counted only `biome-ignore`, while biome also honours `biome-ignore-all` (whole file) and `biome-ignore-start` (range). One comment hid three `any` and the gate reported no change at all \u2014 the debt could grow without moving a count, which is the one thing it promises cannot happen. Counting them is not a repair, because one marker buys an unbounded number; they are refused.",
+          "status": "fixed"
+        },
+        {
+          "severity": "high",
+          "where": "scripts/lib/require-sibling.ts:31",
+          "what": "the guard tested `existsSync(root)`, and an empty directory passes it. With an empty sibling, check-fabricated-success printed the same sentence it prints over a real 51-extension corpus. Affects all 8 gates that call it. Now requires an extension manifest within two levels.",
+          "status": "fixed"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/suppress-existing-any.ts:45",
+          "what": "spawned `bunx`, which is absent from the Bun install this repository documents \u2014 the codemod threw ENOENT at its first batch and could not run. The campaign's own method doc carries the rule: `bun x`, not `bunx`.",
+          "status": "fixed"
+        },
+        {
+          "severity": "low",
+          "where": "package.json:54 (studio:dev)",
+          "what": "same `bunx` defect: `bun run studio:dev` exits 127 with 'bunx: command not found'. Outside this section's files, so logged rather than fixed.",
+          "status": "logged",
+          "ref": "known-gaps.md \u2014 to be added by the owner of E05/package.json"
+        },
+        {
+          "severity": "low",
+          "where": "scripts/lib/any-targets.ts:97",
+          "what": "`EXCLUDE_SOURCE` is exported 'for the biome.json cross-check'; nothing imports it and no such check exists. The two exclusion lists agree today (33 = 33, verified) but by discipline, not mechanism \u2014 the thing this repository repeatedly says is not enough.",
+          "status": "logged"
+        },
+        {
+          "severity": "high",
+          "where": "scripts/coverage-gate.ts",
+          "what": "the gate could not tell a partial report from a real drop. Its default input is the UNIT-only lcov, which carries 8 of 37 route files, and the baseline says its numbers came from the MERGED report \u2014 so the default comparison is between two different things by construction. It printed 'routes: 73.6% \u2192 13% (dropped 60.6pt)' over a leftover file with the confidence of a measurement. The alarming direction is the lucky one: a partial report whose loaded files are the well-covered ones passes silently. Now refuses when a gated subtree's file count falls below minFileCoverage (0.7).",
+          "status": "fixed"
+        },
+        {
+          "severity": "high",
+          "where": "scripts/coverage-gate.ts:57",
+          "what": "`floor` \u2014 described in the baseline as 'Hard minimum, enforced, and NOT rewritten by --update' \u2014 appeared in the script exactly once, as a type field. Never read, never enforced, and dropped by --update. Both halves of that sentence were false. The floorNote explains why it exists: `measured` is legitimately rewritten whenever the corpus changes shape, and 'a number that only moves relative to itself can walk anywhere.' Now enforced.",
+          "status": "fixed"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/coverage-gate.ts (--update)",
+          "what": "--update reset `gated` to the GATED constant, silently removing `routes` from enforcement, dropped `floor`/`floorNote`, and overwrote the baseline's honest provenance with a fixed sentence about the unit suite. The repair policy forbids editing a baseline to make a gate pass; the gate's own --update did it. Decisions are now preserved and `source` names the report actually graded.",
+          "status": "fixed"
+        },
+        {
+          "severity": "low",
+          "where": "scripts/coverage-gate.ts (printTable)",
+          "what": "the `[gated]` tag came from the GATED constant while enforcement iterated baseline.gated, so the table printed `lib [gated]`, left `routes` untagged, and the gate then failed on `routes` one line below. Now reads the baseline.",
+          "status": "fixed"
+        }
+      ],
+      "notDone": "Four of the ten files remain unread: merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and is untested. One finding in its own right, not merely an open question: a file-level `biome-ignore-all` also zeroes a rule's count in lint-warning-ratchet, where it reads as an IMPROVEMENT and prompts lowering the baseline \u2014 a gate that would actively reward the defect. And require-sibling, now repaired to demand a corpus, still cannot tell a STALE sibling from a current one: the checkout beside this one is 8 commits behind origin/master, so sibling-scanning gates answer confidently about code that no longer exists (sql:jsonb flags ~45 sites master has already fixed).",
       "verdict": "partial"
     }
   ]
