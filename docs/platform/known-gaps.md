@@ -184,6 +184,110 @@ API). Not verified against intent; it may well be the only thing that can be don
 when the rows come from someone else's database. It looks identical either way,
 which is the reason it is written down.
 
+### E02 — authorisation, audit and structure gates (2026-09-04)
+
+Read file by file, eleven files. Nothing was repaired in that session: every
+finding below is a gate's own regex or scope, and repairing eight gates in the
+session that found them would land eight unreviewed changes at once. Each was
+found by **planting** the shape and watching the gate stay green — twenty plants
+in all. Each is currently **unexercised**: the offending spelling appears zero
+times in the engine and zero times in the sibling, verified per finding. These
+are holes in a guarantee, not live violations.
+
+**Gap — the meta-gate proves existence, not coverage.** `audit-gates.ts` plants
+ONE shape per gate. Six of the gates it certifies fail a second shape, listed
+below. It already knows the class — `check-raw-sql-identifiers` carries a second
+case named `(multi-line call)` — so the lesson was learned once and never
+generalised. This is the finding the other seven are instances of, and the reason
+"43/44 gates caught their violation" is a weaker statement than it reads as.
+
+**Gap — `route-collision-check` reports the same success over a third of its
+corpus.** `walkRouteFiles` swallows a missing directory, so with no sibling it
+scans **37 files instead of 112** and prints an identical `✅ No route-ordering
+collisions`, exit 0. Nothing in the output distinguishes them. It is the one
+sibling-reading gate in this section that does not call `requireSibling`.
+
+**Gap — `check-ambient-authority` cannot see `Bun.env`.** It scans for
+`process.env`. `Bun.env` hands an in-process extension the same
+`DATABASE_URL` / `BETTER_AUTH_SECRET` / `FIELD_ENCRYPTION_KEY` the gate's own
+header names, and the runtime is Bun — `AGENTS.md` tells contributors to prefer
+Bun APIs. Its success line says "no extension reads process.env", which is true
+and misleading. `node:fs` and `process.env` are both caught; only the Bun
+spelling is not.
+
+**Gap — `check-gate-coverage` misses gates not invoked as `bun run`.** It parses
+workflows for `bun run X`. Four steps use `bun scripts/X.ts` instead; three are
+generators, but `packages/studio/scripts/check-contributions-registry.ts` calls
+`process.exit(1)` from `studio.yml`, has no planted case, and appears in neither
+`not_a_gate` nor `uncovered`. An unproven gate of exactly the kind this ratchet
+exists to catch, invisible for two compounding reasons: the invocation form, and
+the assumption that gates live in the root `scripts/`.
+
+**Gap — a commented-out `auditLog` satisfies the audit requirement.**
+`audit-inventory.ts` tests `/\bauditLog\s*\(/` against the raw handler slice
+with no comment stripping. Planted: with both calls in `sql-editor.ts` deleted
+the regression check fails correctly; with both **commented out** it passes,
+reporting "24 mandatory handlers audited". A false negative on a compliance
+artifact, which is the dangerous direction. `check-env-documented`, in this same
+section, strips comments before scanning — the technique is known here.
+
+**Gap — `admin-gate-check` is defeated by the repo's own formatter.** The scan is
+line by line, so `checkPermission(u, 'admin', '*')` wrapped across lines — which
+Biome's 100-character width will do inside any longer expression — is invisible.
+Double quotes escape it too. Both planted, both exit 0.
+
+**Gap — `check-fabricated-success` sees one spelling of the same catch.**
+`LOOKBACK = 4` lines from the query call, and the value must be an inline arrow.
+The same `.catch(() => [])` five lines below the `.execute()`, or extracted to a
+named fallback (`.catch(emptyList)`), is invisible. Extracting a repeated
+fallback into a named function is ordinary refactoring, which is what makes the
+second shape more than theoretical.
+
+**Gap — `check-env-documented` matches only `process.env.X`.** `Bun.env.X` and
+`const { X } = process.env` are invisible. Lower severity than its
+ambient-authority twin: this one measures documentation completeness, not access.
+
+### E04 — coverage, ratchet and release gates (2026-09-04)
+
+Four files, finishing the section E04 opened. Nothing repaired here either.
+
+**Gap — `RELEASE_GATE_SKIP_NETWORK=1` turns three checks into ticks.**
+`required CI green`, `latest soak green` and `no open P0 issues` return
+`ok: true` with the detail `skipped (offline)`, print as **✓**, and the summary
+reads `all 7 checks passed` having verified four. The detail is honest; the tick
+and the total are not. `audit-gates.ts`, in this repository, already solved the
+same problem the other way — a skipped case is listed separately, repeated in the
+summary and fatal in CI.
+
+**Corrected the same day, while reading E08:** `RELEASE_GATE_SKIP_NETWORK` is
+set nowhere in `.github/` or `package.json`, and `release.yml` runs the gate with
+`GH_TOKEN`. So this is the shape of the escape hatch, not a live gap in the
+pipeline — it was written up before that was checked.
+
+**Gap — the release gate's coverage check never measures.** `checkCoverage()`
+reads `measured` and `target` out of `quality-gates/coverage-baseline.json` and
+compares them **to each other**. Both are hand-maintained in that one file, whose
+own notes record the recorded number going stale three times (2026-08-19,
+08-23, 09-03) — each time discovered because a pull request paid for it. So the
+check that gates a stable cut can pass on a number nobody has re-measured since
+the last drift.
+
+**Gap — the campaign's own generator does not validate what it is told.**
+`review-inventory.ts` builds `reviewed` as a flat set of every path in every
+session's `files`, so a session's declared `section` is never enforced against
+them. Planted: an `A05` file recorded under an `E02` session left A05 reading
+**1/7 with "last session —"** — a section partly reviewed by nobody. A path in
+no section, or one that does not exist, is accepted in silence. The coverage
+number this campaign rests on accepts input it cannot check. Found by
+self-review, which is the weakest kind: it should be re-read by another session.
+
+**Gap (low) — `merge-coverage.ts` assumes the lcov and the tree agree.**
+`nonExecutableLines()` reads today's source to decide which lines of a report are
+non-executable, with nothing checking that the report was produced from that
+source. A missing file fails conservatively — nothing is dropped, so coverage
+reads low. A *changed* file does not: line numbers shift under the filter and the
+error can go either way.
+
 ---
 
 ## 4. Deliberate deferrals

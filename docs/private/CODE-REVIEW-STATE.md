@@ -10,19 +10,19 @@ Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E02 — Gates — authorisation, audit, structure**
+### → **E08 — CI workflows**
 
-*Which of these read the sibling repository, and which report clean when they cannot find it.*
+*Which gate actually runs, on which event, and which job is allowed to fail. A gate that runs nowhere is a comment.*
 
-11 of 11 files still unread. Its file list is under [`E02`](#e02--gates-authorisation-audit-structure) below.
+21 of 21 files still unread. Its file list is under [`E08`](#e08--ci-workflows) below.
 
-After it: E04, E08, A04, A05 …
+After it: A04, A05, A06, A02 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **19 / 656** (3%)
-- Lines in scope: **4,532 / 135,300** (3%)
+- Files in scope: **34 / 656** (5%)
+- Lines in scope: **9,143 / 135,302** (7%)
 - Test files opened by some session: **6 / 859**
 
 ## Sections
@@ -40,7 +40,7 @@ After it: E04, E08, A04, A05 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,057 | 0/17 | — |
+| A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 1,968 | 0/5 | — |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
@@ -111,9 +111,9 @@ After it: E04, E08, A04, A05 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
-| E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 0/11 | — |
+| E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,894 | 6/10 | 2026-09-04 — partial |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,895 | 10/10 | 2026-09-04 — logged |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -170,7 +170,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/route-db.ts` | 49 |
+| · | `packages/engine/src/lib/route-db.ts` | 50 |
 | · | `packages/engine/src/lib/savepoint.ts` | 82 |
 | · | `packages/engine/src/middleware/demo-mode.ts` | 75 |
 | · | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
@@ -1066,17 +1066,39 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `scripts/admin-gate-check.ts` | 175 |
-| · | `scripts/audit-gates.ts` | 964 |
-| · | `scripts/audit-inventory.ts` | 206 |
-| · | `scripts/audit-regression-check.ts` | 116 |
-| · | `scripts/check-ambient-authority.ts` | 279 |
-| · | `scripts/check-env-documented.ts` | 204 |
-| · | `scripts/check-fabricated-success.ts` | 192 |
-| · | `scripts/check-gate-coverage.ts` | 175 |
-| · | `scripts/check-test-leftovers.ts` | 73 |
-| · | `scripts/import-boundaries.ts` | 111 |
-| · | `scripts/route-collision-check.ts` | 140 |
+| ✅ | `scripts/admin-gate-check.ts` | 175 |
+| ✅ | `scripts/audit-gates.ts` | 964 |
+| ✅ | `scripts/audit-inventory.ts` | 206 |
+| ✅ | `scripts/audit-regression-check.ts` | 116 |
+| ✅ | `scripts/check-ambient-authority.ts` | 279 |
+| ✅ | `scripts/check-env-documented.ts` | 204 |
+| ✅ | `scripts/check-fabricated-success.ts` | 192 |
+| ✅ | `scripts/check-gate-coverage.ts` | 175 |
+| ✅ | `scripts/check-test-leftovers.ts` | 73 |
+| ✅ | `scripts/import-boundaries.ts` | 111 |
+| ✅ | `scripts/route-collision-check.ts` | 140 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 11 files · **logged** · `review/E02-gates-authz`
+  - ran: planted 20 violations across 8 gates; every finding below is a planted shape, not a reading
+  - ran: route-collision-check: 112 files scanned with the sibling, 37 without — identical success line
+  - ran: import-boundaries: '.js' deep import → exit 1; same import without the extension → exit 0, and it typechecks
+  - ran: audit-regression-check: both auditLog calls removed → exit 1; both commented out → exit 0
+  - ran: check-fabricated-success: adjacent .catch(() => []) → exit 1; same 5 lines away → exit 0; named callback → exit 0
+  - ran: admin-gate-check: single-quoted one-line → exit 1; double-quoted → exit 0; multi-line call → exit 0
+  - ran: check-env-documented: process.env.X → exit 1; Bun.env.X → exit 0; destructured → exit 0
+  - ran: check-ambient-authority: process.env and node:fs → exit 1; Bun.env → exit 0 (probed on a scratch tree, sibling untouched)
+  - ran: check-test-leftovers: no URL → exit 1, no schema → exit 1, real DB → exit 0 (fail-closed on all three)
+  - **high** scripts/audit-gates.ts (whole set) — the meta-gate plants ONE shape per gate, so it proves a gate exists, not that it covers its rule. Six of the gates it certifies fail a second shape — measured below. It already knows the class: check-raw-sql-identifiers has a second case named '(multi-line call)'. The lesson was never generalised. → *logged* (known-gaps.md)
+  - **medium** scripts/route-collision-check.ts:31,112 — walkRouteFiles swallows a missing directory, so an absent sibling silently drops 75 of 112 files and prints the same '✅ No route-ordering collisions'. No count in the output distinguishes them. It does not use requireSibling. → *logged* (known-gaps.md)
+  - **medium** scripts/check-ambient-authority.ts — scans for process.env only; Bun.env gives an extension the same access to DATABASE_URL/BETTER_AUTH_SECRET/FIELD_ENCRYPTION_KEY and is invisible. The runtime is Bun and AGENTS.md tells contributors to prefer Bun APIs. Zero uses today. → *logged* (known-gaps.md)
+  - **medium** scripts/check-gate-coverage.ts:86 — only matches 'bun run X'. Four workflow steps invoke 'bun scripts/X.ts'; three are generators, but packages/studio/scripts/check-contributions-registry.ts calls process.exit(1) in studio.yml and is in neither baseline section nor audit-gates. An unproven gate the ratchet exists to catch. → *logged* (known-gaps.md)
+  - **medium** scripts/audit-inventory.ts — tests /\bauditLog\s*\(/ against the raw handler slice with no comment stripping, so a commented-out call satisfies the audit requirement — a false NEGATIVE on the compliance artifact. check-env-documented in the same section strips comments first; the technique is known here. → *logged* (known-gaps.md)
+  - **medium** scripts/admin-gate-check.ts:80-85 — line-by-line scan, so a checkPermission(u,'admin','*') wrapped across lines by the 100-char formatter is invisible; double quotes also escape. The repo's own formatter can defeat it. → *logged* (known-gaps.md)
+  - **medium** scripts/check-fabricated-success.ts:88 — LOOKBACK=4 lines from the query call, and the pattern requires an inline arrow. The same .catch(() => []) five lines away, or extracted to a named fallback, is invisible. Extracting a repeated fallback is ordinary refactoring. → *logged* (known-gaps.md)
+  - **low** scripts/check-env-documented.ts:92 — matches process.env.X and process.env['X'] only; Bun.env.X and const {X} = process.env are invisible. Documentation completeness, not access. → *logged* (known-gaps.md)
+  - not done: Nothing repaired: every finding is a gate's own regex or scope, and repairing eight gates in the session that found them would land eight unreviewed changes at once. audit-gates.ts read as structure, runner and all 44 case declarations rather than every case body line by line. The 'second shape' holes are unexercised today (0 occurrences of each in engine and sibling) — verified per finding, so these are holes in a guarantee, not live violations.
 
 ### E03 — Gates — artifact freshness and i18n
 
@@ -1110,12 +1132,12 @@ After it: E04, E08, A04, A05 …
 | ✅ | `scripts/any-ratchet.ts` | 186 |
 | ✅ | `scripts/coverage-gate.ts` | 329 |
 | ✅ | `scripts/lib/any-targets.ts` | 97 |
-| · | `scripts/lib/install-template.ts` | 126 |
+| ✅ | `scripts/lib/install-template.ts` | 126 |
 | ✅ | `scripts/lib/require-sibling.ts` | 92 |
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
-| · | `scripts/merge-coverage.ts` | 214 |
-| · | `scripts/release-gate.ts` | 350 |
-| · | `scripts/review-inventory.ts` | 1285 |
+| ✅ | `scripts/merge-coverage.ts` | 214 |
+| ✅ | `scripts/release-gate.ts` | 350 |
+| ✅ | `scripts/review-inventory.ts` | 1286 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
@@ -1162,6 +1184,16 @@ After it: E04, E08, A04, A05 …
   - **medium** scripts/coverage-gate.ts (--update) — --update reset `gated` to the GATED constant, silently removing `routes` from enforcement, dropped `floor`/`floorNote`, and overwrote the baseline's honest provenance with a fixed sentence about the unit suite. The repair policy forbids editing a baseline to make a gate pass; the gate's own --update did it. Decisions are now preserved and `source` names the report actually graded. → *fixed*
   - **low** scripts/coverage-gate.ts (printTable) — the `[gated]` tag came from the GATED constant while enforcement iterated baseline.gated, so the table printed `lib [gated]`, left `routes` untagged, and the gate then failed on `routes` one line below. Now reads the baseline. → *fixed*
   - not done: Four of the ten files remain unread: merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and is untested. One finding in its own right, not merely an open question: a file-level `biome-ignore-all` also zeroes a rule's count in lint-warning-ratchet, where it reads as an IMPROVEMENT and prompts lowering the baseline — a gate that would actively reward the defect. And require-sibling, now repaired to demand a corpus, still cannot tell a STALE sibling from a current one: the checkout beside this one is 8 commits behind origin/master, so sibling-scanning gates answer confidently about code that no longer exists (sql:jsonb flags ~45 sites master has already fixed).
+- **2026-09-04** · claude-opus-5 · 4 files · **logged** · `review/E02-gates-authz`
+  - ran: release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as ✓ 'skipped (offline)'; the one real failure (version consistency) still exits 1
+  - ran: merge-coverage with a missing input lane → throws, exit 1 (fail-closed)
+  - ran: review-inventory: planted a nonexistent path in a session → accepted silently, exit 0
+  - ran: review-inventory: planted an A05 file under an E02 session → A05 shows 1/7 with 'last session —'
+  - **low** scripts/release-gate.ts:183 (and soak, P0) — RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as ✓ and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI — the pattern exists and is not applied here. CORRECTION (found while reading E08, same day): the variable is set nowhere in .github/ or package.json, and release.yml runs the gate with GH_TOKEN — so this is the shape of the escape hatch, not a live gap. Recorded as medium before that was checked. → *logged* (known-gaps.md)
+  - **medium** scripts/release-gate.ts:66 checkCoverage() — reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured. → *logged* (known-gaps.md)
+  - **medium** scripts/review-inventory.ts (session attribution) — `reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section — planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session —', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate. → *logged* (known-gaps.md)
+  - **low** scripts/merge-coverage.ts:57 — nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is. → *logged* (known-gaps.md)
+  - not done: SELF-REVIEW on review-inventory.ts, which I wrote today — the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.
 
 ### E05 — Build, packaging and Studio tooling scripts
 

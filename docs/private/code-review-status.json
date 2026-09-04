@@ -375,6 +375,148 @@
       ],
       "notDone": "Four of the ten files remain unread: merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and is untested. One finding in its own right, not merely an open question: a file-level `biome-ignore-all` also zeroes a rule's count in lint-warning-ratchet, where it reads as an IMPROVEMENT and prompts lowering the baseline \u2014 a gate that would actively reward the defect. And require-sibling, now repaired to demand a corpus, still cannot tell a STALE sibling from a current one: the checkout beside this one is 8 commits behind origin/master, so sibling-scanning gates answer confidently about code that no longer exists (sql:jsonb flags ~45 sites master has already fixed).",
       "verdict": "partial"
+    },
+    {
+      "section": "E02",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/E02-gates-authz",
+      "files": [
+        "scripts/admin-gate-check.ts",
+        "scripts/audit-gates.ts",
+        "scripts/audit-inventory.ts",
+        "scripts/audit-regression-check.ts",
+        "scripts/check-ambient-authority.ts",
+        "scripts/check-env-documented.ts",
+        "scripts/check-fabricated-success.ts",
+        "scripts/check-gate-coverage.ts",
+        "scripts/check-test-leftovers.ts",
+        "scripts/import-boundaries.ts",
+        "scripts/route-collision-check.ts"
+      ],
+      "tests": [],
+      "ran": [
+        "planted 20 violations across 8 gates; every finding below is a planted shape, not a reading",
+        "route-collision-check: 112 files scanned with the sibling, 37 without \u2014 identical success line",
+        "import-boundaries: '.js' deep import \u2192 exit 1; same import without the extension \u2192 exit 0, and it typechecks",
+        "audit-regression-check: both auditLog calls removed \u2192 exit 1; both commented out \u2192 exit 0",
+        "check-fabricated-success: adjacent .catch(() => []) \u2192 exit 1; same 5 lines away \u2192 exit 0; named callback \u2192 exit 0",
+        "admin-gate-check: single-quoted one-line \u2192 exit 1; double-quoted \u2192 exit 0; multi-line call \u2192 exit 0",
+        "check-env-documented: process.env.X \u2192 exit 1; Bun.env.X \u2192 exit 0; destructured \u2192 exit 0",
+        "check-ambient-authority: process.env and node:fs \u2192 exit 1; Bun.env \u2192 exit 0 (probed on a scratch tree, sibling untouched)",
+        "check-test-leftovers: no URL \u2192 exit 1, no schema \u2192 exit 1, real DB \u2192 exit 0 (fail-closed on all three)"
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "scripts/audit-gates.ts (whole set)",
+          "what": "the meta-gate plants ONE shape per gate, so it proves a gate exists, not that it covers its rule. Six of the gates it certifies fail a second shape \u2014 measured below. It already knows the class: check-raw-sql-identifiers has a second case named '(multi-line call)'. The lesson was never generalised.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/route-collision-check.ts:31,112",
+          "what": "walkRouteFiles swallows a missing directory, so an absent sibling silently drops 75 of 112 files and prints the same '\u2705 No route-ordering collisions'. No count in the output distinguishes them. It does not use requireSibling.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/check-ambient-authority.ts",
+          "what": "scans for process.env only; Bun.env gives an extension the same access to DATABASE_URL/BETTER_AUTH_SECRET/FIELD_ENCRYPTION_KEY and is invisible. The runtime is Bun and AGENTS.md tells contributors to prefer Bun APIs. Zero uses today.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/check-gate-coverage.ts:86",
+          "what": "only matches 'bun run X'. Four workflow steps invoke 'bun scripts/X.ts'; three are generators, but packages/studio/scripts/check-contributions-registry.ts calls process.exit(1) in studio.yml and is in neither baseline section nor audit-gates. An unproven gate the ratchet exists to catch.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/audit-inventory.ts",
+          "what": "tests /\\bauditLog\\s*\\(/ against the raw handler slice with no comment stripping, so a commented-out call satisfies the audit requirement \u2014 a false NEGATIVE on the compliance artifact. check-env-documented in the same section strips comments first; the technique is known here.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/admin-gate-check.ts:80-85",
+          "what": "line-by-line scan, so a checkPermission(u,'admin','*') wrapped across lines by the 100-char formatter is invisible; double quotes also escape. The repo's own formatter can defeat it.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/check-fabricated-success.ts:88",
+          "what": "LOOKBACK=4 lines from the query call, and the pattern requires an inline arrow. The same .catch(() => []) five lines away, or extracted to a named fallback, is invisible. Extracting a repeated fallback is ordinary refactoring.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "scripts/check-env-documented.ts:92",
+          "what": "matches process.env.X and process.env['X'] only; Bun.env.X and const {X} = process.env are invisible. Documentation completeness, not access.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "Nothing repaired: every finding is a gate's own regex or scope, and repairing eight gates in the session that found them would land eight unreviewed changes at once. audit-gates.ts read as structure, runner and all 44 case declarations rather than every case body line by line. The 'second shape' holes are unexercised today (0 occurrences of each in engine and sibling) \u2014 verified per finding, so these are holes in a guarantee, not live violations.",
+      "verdict": "logged"
+    },
+    {
+      "section": "E04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/E02-gates-authz",
+      "files": [
+        "scripts/merge-coverage.ts",
+        "scripts/release-gate.ts",
+        "scripts/lib/install-template.ts",
+        "scripts/review-inventory.ts"
+      ],
+      "tests": ["packages/engine/src/tests/unit/gate-coverage-partial-report.test.ts"],
+      "ran": [
+        "release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as \u2713 'skipped (offline)'; the one real failure (version consistency) still exits 1",
+        "merge-coverage with a missing input lane \u2192 throws, exit 1 (fail-closed)",
+        "review-inventory: planted a nonexistent path in a session \u2192 accepted silently, exit 0",
+        "review-inventory: planted an A05 file under an E02 session \u2192 A05 shows 1/7 with 'last session \u2014'"
+      ],
+      "findings": [
+        {
+          "severity": "low",
+          "where": "scripts/release-gate.ts:183 (and soak, P0)",
+          "what": "RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as \u2713 and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI \u2014 the pattern exists and is not applied here. CORRECTION (found while reading E08, same day): the variable is set nowhere in .github/ or package.json, and release.yml runs the gate with GH_TOKEN \u2014 so this is the shape of the escape hatch, not a live gap. Recorded as medium before that was checked.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/release-gate.ts:66 checkCoverage()",
+          "what": "reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "scripts/review-inventory.ts (session attribution)",
+          "what": "`reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section \u2014 planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session \u2014', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "scripts/merge-coverage.ts:57",
+          "what": "nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "SELF-REVIEW on review-inventory.ts, which I wrote today \u2014 the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.",
+      "verdict": "logged"
     }
   ]
 }
