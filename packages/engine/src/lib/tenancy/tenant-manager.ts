@@ -1165,7 +1165,19 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
             -- this role for /api/me, the user list and notification fan-out.
             -- Excluding it took /api/me to a 500. The other four are where the
             -- credentials actually are.
-            AND tablename NOT IN ('session', 'account', 'verification', 'twoFactor')
+            -- passkey joined this list on 2026-09-04, having been missed since
+            -- migration 002 created it. Measured before adding it: inside a tenant
+            -- transaction this role could not read the session token and COULD
+            -- insert a passkey row naming any userId - an attacker-chosen
+            -- authenticator against someone else's account, which is an
+            -- authentication bypass rather than a data leak.
+            --
+            -- The shape is the defect, not the name: this is a denylist over an
+            -- open namespace, and the next Better-Auth table will be granted the
+            -- same way. tests/harness/rls-role-credential-grants.test.ts pins the
+            -- property instead - nothing outside zv_/zvd_ except user - so a
+            -- sixth table fails there rather than arriving in silence.
+            AND tablename NOT IN ('session', 'account', 'verification', 'twoFactor', 'passkey')
         LOOP
           EXECUTE format(
             'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
