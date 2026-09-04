@@ -341,6 +341,60 @@ no lifecycle scripts by default (no `trustedDependencies` is declared).
 `release-gate` is wired so that `publish-release` needs it. The sibling clone
 resolves a paired branch of the same name before falling back to master.
 
+### A04 — tenancy core (2026-09-04, partial)
+
+Four of five files read; `tenant-manager.ts` is only partly read and the section
+stays open. Everything below was produced by probing, not by reading.
+
+**Gap — an unknown `x-tenant-slug` takes the request out of tenant isolation.**
+`resolveTenantFromRequest` returns `getTenantBySlug(slug)` directly for the header
+branch, so a slug that does not exist yields `null`, and `tenantMiddleware`'s
+`else` runs the request with no tenant and no transaction. The subdomain branch
+twelve lines below handles precisely this case, and says why: *"null silently
+disables the tenant GUC, which breaks RLS in the worst possible way (empty reads
++ 500 writes)"*. Priority 1 — the path the Studio uses on every request — never
+got the same fallback.
+
+Proven with the engine's own instrument: `/api/webhooks` with a real slug reports
+**0** unscoped fallbacks; with `x-tenant-slug: no-such-tenant-anywhere` it returns
+**200 and 1 unscoped fallback**, meaning the handler ran on the pool rather than
+inside the tenant transaction.
+
+The consequence is route-dependent, and it was measured rather than assumed. With
+two tenants seeded, the bogus slug returned **only the default tenant's row** —
+`tenantId(c)` falls back to `DEFAULT_TENANT_ID`, so a handler that adds its own
+`tenant_id` predicate contains the damage to the default tenant. A handler relying
+on RLS alone would run as the engine's own role, which in the recommended
+`enforced` deployment is the privileged one. So: proven loss of isolation,
+unproven leak, and which of the two you get depends on the handler.
+
+**Gap — `ZVELTIO_FAIL_CLOSED_TENANT=1` can boot without being applied.**
+`applyFailClosedTenantSetting` wraps its whole body in `try/catch → console.warn`.
+Measured: a non-owner role gets `ERROR: must be owner of database` from
+`ALTER DATABASE … SET`, and that error lands in the same catch as the harmless
+`current_database()` probe. An operator who explicitly asked for contextless
+queries to see zero rows can therefore start an engine where they do not.
+
+The repository already holds the right standard three hundred lines away: an
+unenforceable `zveltio_rls` role is **fatal in production**, with an explicit
+`ZVELTIO_ALLOW_UNENFORCED_RLS` override, and the comment there says exactly why a
+warning is the wrong instrument — *"it scrolls past during a deploy"*. The
+existing unit test pins only the probe failure, not the `ALTER` failure.
+
+**Gap (low) — `encodeTenantSet([])` and `encodeTenantSet(null)` are the same
+string.** Both produce `''`, which the predicate reads as "no set published" and
+answers with the equality fallback. The only paths reaching `[]` are an `org`
+reach and the god branch over an empty `zv_tenants`, so the effect is a narrowing
+to the own unit — the safe direction — but the two states cannot be told apart in
+the GUC.
+
+**Verified clean, and worth recording because it is the answer to the question
+this campaign keeps asking.** `unscoped-fallback.test.ts` carries a **positive
+control**: a second test that produces a fallback on purpose and asserts the
+counter moved. Planting an empty tenant-scoped table set makes that test fail, so
+a zero in the first test cannot be a counter that never ran. Predicted a hole
+here; the code defended itself.
+
 ---
 
 ## 4. Deliberate deferrals
