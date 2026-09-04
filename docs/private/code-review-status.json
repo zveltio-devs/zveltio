@@ -594,6 +594,54 @@
       ],
       "notDone": "Nothing repaired. Verified clean and recorded so nobody re-derives it: `bun audit || true` and the coverage `|| true` are report-then-gate PAIRS, not swallowed enforcement \u2014 the enforcing step sits above each; the three continue-on-error jobs in release.yml are post-release side effects with written reasons; dependabot covers npm AND github-actions and all 14 actions are SHA-pinned; `dependabot-lockfile.yml`'s pull_request_target + contents:write + head-checkout is correctly guarded by a job-level actor check, and Bun runs no lifecycle scripts by default (no trustedDependencies declared) \u2014 a pattern that is usually a vulnerability and is not one here; release-gate is wired so publish-release needs it; the sibling clone resolves a paired branch before falling back to master.",
       "verdict": "logged"
+    },
+    {
+      "section": "A04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/A04-tenancy-core",
+      "files": [
+        "packages/engine/src/lib/tenancy/index.ts",
+        "packages/engine/src/lib/tenancy/fail-closed-tenant.ts",
+        "packages/engine/src/lib/tenancy/tenant-scope.ts",
+        "packages/engine/src/lib/tenancy/tenant-context.ts"
+      ],
+      "tests": [
+        "packages/engine/src/tests/harness/unscoped-fallback.test.ts",
+        "packages/engine/src/tests/unit/fail-closed-tenant.test.ts"
+      ],
+      "ran": [
+        "planted an empty table set into unscoped-fallback.test.ts: 1 of 2 tests FAILS \u2014 the file carries a positive control, so a zero cannot be a counter that never moves. Predicted a hole here and the code defended itself.",
+        "measured, as a non-owner role: ALTER DATABASE ... SET \u2192 'ERROR: must be owner of database'. That error is inside the try/catch in applyFailClosedTenantSetting.",
+        "probed an unknown x-tenant-slug through the harness. /api/collections showed nothing (instance-level table, correctly ignored by the counter) \u2014 the first probe measured nothing and was redone.",
+        "/api/webhooks with a known slug: 200, 0 unscoped fallbacks. With slug 'no-such-tenant-anywhere': 200, **1 unscoped fallback** \u2014 the request ran outside the tenant transaction, on the pool.",
+        "row visibility on that same route, two tenants seeded: the bogus slug returned ONLY the default tenant's row, not the other's \u2014 tenantId(c) falls back to DEFAULT_TENANT_ID, so a handler that filters explicitly contains it."
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "lib/tenancy/tenant-manager.ts:749 resolveTenantFromRequest",
+          "what": "the x-tenant-slug branch returns getTenantBySlug(slug) directly, so an UNKNOWN slug yields null and the middleware's else-branch runs the request with no tenant and no transaction. The subdomain branch twelve lines below handles exactly this case and says why: 'null silently disables the tenant GUC, which breaks RLS in the worst possible way'. Priority 1 \u2014 the path the Studio uses on every request \u2014 never got the same fallback. PROVEN: 1 unscoped fallback on /api/webhooks with a bogus slug, against 0 with a real one. Consequence is route-dependent and I measured it rather than assuming: handlers that add an explicit tenant_id predicate degrade to the DEFAULT tenant (tenantId(c) returns the sentinel), so the route I tested did not leak. A handler relying on RLS alone would run on the pool as the engine's own role, which in the recommended 'enforced' deployment is the privileged one.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "lib/tenancy/fail-closed-tenant.ts:14-38",
+          "what": "the whole body is wrapped in try/catch \u2192 console.warn. Measured: a non-owner role gets 'must be owner of database' from ALTER DATABASE ... SET, and that error is swallowed. So an operator who sets ZVELTIO_FAIL_CLOSED_TENANT=1 \u2014 an explicit request for contextless queries to see zero rows \u2014 can boot with the setting silently not applied. The repository already holds the right standard three hundred lines away: an unenforceable RLS role is FATAL in production with an explicit ZVELTIO_ALLOW_UNENFORCED_RLS override, and the comment there says why a warning is the wrong instrument ('it scrolls past during a deploy'). The existing unit test pins only the current_database() probe failure, not the ALTER failure.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/tenant-scope.ts:150 encodeTenantSet",
+          "what": "encodeTenantSet([]) and encodeTenantSet(null) both produce '', and the file's own docstring says an empty GUC means 'no set published' \u2192 equality fallback. The only path reaching [] is org-reach over an empty zv_tenants (and the god branch in tenant-manager does the same), so the effect is a NARROWING to the own unit \u2014 the safe direction \u2014 but the two states are indistinguishable in the GUC.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit.",
+      "verdict": "partial"
     }
   ]
 }
