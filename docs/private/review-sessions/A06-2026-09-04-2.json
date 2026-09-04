@@ -1,0 +1,17 @@
+{
+  "section": "A06",
+  "date": "2026-09-04",
+  "agent": "claude-opus-5",
+  "branch": "review/A06-permissions",
+  "files": [],
+  "tests": [],
+  "ran": [
+    "read the Casbin model and confirmed deny-by-default holds: `(r.obj == p.obj || (p.obj == '*' && p.act == '*'))` \u2014 an object wildcard counts only when the action is wildcard too, so a partial wildcard grants nothing",
+    "predicted invalidateGodCache leaves the in-process god memo set on a no-Valkey deployment; DISPROVED \u2014 it calls clearLocalPermissionCache(userId) BEFORE the early return, and that branch deletes _localGod. My first read used a sed window that had cut off the function's first line.",
+    "checked the guard structure of both routes: admin.ts applies app.use('*', requireAdmin) before mounting, so permission-routes.ts's 10 handlers are covered by one blanket guard; permissions.ts has its own app.use('*') at line 249 covering the seven handlers after it",
+    "checked /bootstrap, which is registered BEFORE that blanket guard: deliberate, and conditioned \u2014 RECOVERY_TOKEN of at least 32 chars (403 when unset), constant-time comparison, single-use by token fingerprint recorded in zv_settings, the spent-check placed AFTER the match so a refusal leaks nothing, every refusal audited, and its own rate-limit bucket"
+  ],
+  "findings": [],
+  "notDone": "STILL PARTIAL, and the file list says so: only column-permissions.ts and resource-grants.ts were read line by line, and they are recorded in the earlier A06 entry. permissions.ts (997) was read in the parts that decide access \u2014 the model, the adapter, checkPermission, effectivePermissions, the policy-object index, requireInstanceAdmin, isTenantAdmin, isGodUser, resolveUserRole, the three signed caches and the invalidation paths \u2014 but initPermissions' tail, listAllRoles, getUserRoles and effectivePermissions' internals are unread. routes/permissions.ts (435) read at /bootstrap and the policy/role handlers; routes/admin/permission-routes.ts (349) read at its guard structure, its invalidation helper and the first handlers. Ticking those three would claim a completeness this pass does not have.",
+  "verdict": "partial"
+}

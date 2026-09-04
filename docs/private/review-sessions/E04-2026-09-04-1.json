@@ -1,0 +1,64 @@
+{
+  "section": "E04",
+  "date": "2026-09-04",
+  "agent": "claude-opus-5",
+  "branch": "review/E04-gates-coverage-ratchets",
+  "files": [
+    "scripts/any-ratchet.ts",
+    "scripts/lib/any-targets.ts",
+    "scripts/lib/require-sibling.ts",
+    "scripts/suppress-existing-any.ts",
+    "scripts/lint-warning-ratchet.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/unit/gate-any-ratchet-file-level.test.ts",
+    "packages/engine/src/tests/unit/gate-require-sibling-empty.test.ts"
+  ],
+  "ran": [
+    "biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any \u2014 0 diagnostics, so biome honours the file-level form; the same file without it \u2014 1 per any",
+    "any-ratchet over that tree \u2014 'OK \u2014 total suppressions 1137 (baseline 1137)', having counted none of the three",
+    "after the repair, same probe \u2014 FAIL, exit 1, naming the file",
+    "check-fabricated-success against a fabricated root whose sibling directory exists and is EMPTY \u2014 'OK \u2014 0 site(s), baseline allows 0', exit 0",
+    "after the repair \u2014 FAIL exit 1 ('no extension manifest'); with one manifest.json present \u2014 OK exit 0; with ZVELTIO_ALLOW_MISSING_SIBLING=1 \u2014 WARNING + OK",
+    "bun run scripts/suppress-existing-any.ts \u2014 ENOENT at line 43 before the repair; `bun x biome lint --suppress` after, verified to actually write the comment ('Fixed 1 file')",
+    "bun run studio:dev \u2014 'bunx: command not found', exit 127",
+    "all 7 requireSibling gates + any:ratchet + lint:ratchet + lint + format:check after the repairs \u2014 all green",
+    "both new tests against the pre-repair scripts \u2014 2 of 3 fail in each; after \u2014 6 pass",
+    "biome.json exclusion list vs the hand-mirrored regex in lib/any-targets.ts \u2014 33 slugs each, zero divergence today"
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "scripts/any-ratchet.ts:33",
+      "what": "the ratchet counted only `biome-ignore`, while biome also honours `biome-ignore-all` (whole file) and `biome-ignore-start` (range). One comment hid three `any` and the gate reported no change at all \u2014 the debt could grow without moving a count, which is the one thing it promises cannot happen. Counting them is not a repair, because one marker buys an unbounded number; they are refused.",
+      "status": "fixed"
+    },
+    {
+      "severity": "high",
+      "where": "scripts/lib/require-sibling.ts:31",
+      "what": "the guard tested `existsSync(root)`, and an empty directory passes it. With an empty sibling, check-fabricated-success printed the same sentence it prints over a real 51-extension corpus. Affects all 8 gates that call it. Now requires an extension manifest within two levels.",
+      "status": "fixed"
+    },
+    {
+      "severity": "medium",
+      "where": "scripts/suppress-existing-any.ts:45",
+      "what": "spawned `bunx`, which is absent from the Bun install this repository documents \u2014 the codemod threw ENOENT at its first batch and could not run. The campaign's own method doc carries the rule: `bun x`, not `bunx`.",
+      "status": "fixed"
+    },
+    {
+      "severity": "low",
+      "where": "package.json:54 (studio:dev)",
+      "what": "same `bunx` defect: `bun run studio:dev` exits 127 with 'bunx: command not found'. Outside this section's files, so logged rather than fixed.",
+      "status": "logged",
+      "ref": "known-gaps.md \u2014 to be added by the owner of E05/package.json"
+    },
+    {
+      "severity": "low",
+      "where": "scripts/lib/any-targets.ts:97",
+      "what": "`EXCLUDE_SOURCE` is exported 'for the biome.json cross-check'; nothing imports it and no such check exists. The two exclusion lists agree today (33 = 33, verified) but by discipline, not mechanism \u2014 the thing this repository repeatedly says is not enough.",
+      "status": "logged"
+    }
+  ],
+  "notDone": "Five of the ten files are unread: coverage-gate.ts, merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and was not tested. One open question worth a session of its own: a file-level suppression also zeroes a rule's count in lint-warning-ratchet, where it reads as an improvement rather than as invisibility.",
+  "verdict": "partial"
+}

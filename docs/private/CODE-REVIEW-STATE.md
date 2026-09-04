@@ -6,7 +6,7 @@
 > The method — what counts as reviewed — is in
 > [`CODE-REVIEW-CAMPAIGN.md`](./CODE-REVIEW-CAMPAIGN.md). Read it first.
 
-Ledger updated: 2026-09-04
+Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
@@ -14,16 +14,16 @@ Ledger updated: 2026-09-04
 
 *Deny by default, cache invalidation across replicas, hidden versus read-only columns.*
 
-5 of 5 files still unread. Its file list is under [`A06`](#a06--permissions-roles-column-access) below.
+3 of 5 files still unread. Its file list is under [`A06`](#a06--permissions-roles-column-access) below.
 
 After it: A02, A07, A16, A11 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **67 / 656** (10%)
-- Lines in scope: **16,057 / 135,331** (12%)
-- Test files opened by some session: **10 / 860**
+- Files in scope: **69 / 656** (11%)
+- Lines in scope: **16,509 / 135,410** (12%)
+- Test files opened by some session: **11 / 861**
 
 ## Sections
 
@@ -40,11 +40,11 @@ After it: A02, A07, A16, A11 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
+| A02 | Middleware chain | 17 | 2,087 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
-| A04 | Tenancy core | 5 | 1,997 | 5/5 | 2026-09-04 — logged |
+| A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
-| A06 | Permissions, roles, column access | 5 | 2,188 | 0/5 | — |
+| A06 | Permissions, roles, column access | 5 | 2,193 | 2/5 | 2026-09-04 — partial |
 | A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
@@ -113,7 +113,7 @@ After it: A02, A07, A16, A11 …
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,895 | 10/10 | 2026-09-04 — logged |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,921 | 10/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -124,7 +124,7 @@ After it: A02, A07, A16, A11 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 860 | 92,144 | n/a | — |
+| T01 | Test corpus | 861 | 92,252 | n/a | — |
 
 ---
 
@@ -184,7 +184,7 @@ After it: A02, A07, A16, A11 …
 | · | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
 | · | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
 | · | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
-| · | `packages/engine/src/middleware/tenant.ts` | 266 |
+| · | `packages/engine/src/middleware/tenant.ts` | 295 |
 | · | `packages/engine/src/middleware/tracing.ts` | 113 |
 | · | `packages/engine/src/middleware/url-validator.ts` | 1 |
 
@@ -212,7 +212,7 @@ After it: A02, A07, A16, A11 …
 | --- | --- | --: |
 | ✅ | `packages/engine/src/lib/tenancy/fail-closed-tenant.ts` | 40 |
 | ✅ | `packages/engine/src/lib/tenancy/index.ts` | 14 |
-| ✅ | `packages/engine/src/lib/tenancy/tenant-context.ts` | 417 |
+| ✅ | `packages/engine/src/lib/tenancy/tenant-context.ts` | 436 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1374 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-scope.ts` | 152 |
 
@@ -261,12 +261,14 @@ After it: A02, A07, A16, A11 …
   - ran: EXPLAIN on 50 000 rows, both predicate forms: bare current_setting → Bitmap Heap Scan (cost 60.19); (SELECT current_setting(…)) → Index Only Scan (cost 2.51)
   - ran: grepped for guc( — zero call sites
   - ran: ran catch:fabricated against the realtime fail-open: reports 0 site(s), because the .catch is not within 4 lines of a query call
+  - ran: caught prepush lying about my own commit: `bun run prepush` reported OK, and the committed state then FAILED `format:check`. Cause: check:schema runs `bun run format` in WRITE mode, so prepush reformats the working tree and then verifies what it just repaired — not what is committed. Every `prepush OK` in this campaign was about a possibly-reformatted tree rather than the commit about to be pushed.
   - **high** lib/tenancy/rule-operators.ts + rls.ts:284 matchesRlsFilters, via routes/realtime.ts:289 — comparison is textual (String(a) === String(b)), which is right for SQL and for the JSONB snapshots but wrong for the realtime path, where the record comes straight from the write pipeline and a timestamptz is a JS Date. Measured: a rule 'created_at neq static:<iso>' — meant to HIDE rows — keeps false on SQL and the as_of path (row hidden) and true on realtime (row DELIVERED over SSE). Same on numerics: 'score neq static:5.0' hides in SQL, delivers on realtime. eq under-delivers, neq over-delivers, and neq is the operator you reach for to hide something. This is the file whose header records the previous instance of exactly this shape: 'a leak — neq against a NULL column: absent from /api/data, delivered over SSE'. The file unified the DECISIONS; the four appliers still receive different TYPES. → *logged* (known-gaps.md)
   - **medium** routes/realtime.ts:488-489 — the subscription's two authorization lookups both degrade to no-restriction on error: getRlsFilters(...).catch(() => []) means no row filters, getColumnAccess(...).catch(() => null) means no masking (access?.columns ? apply : record at line 293 sends the raw record). Three lines below sits the comment 'a masked field must not arrive over SSE just because it arrived as an event rather than as a response' — the intent is explicit and the error path contradicts it. catch:fabricated reports 0 sites here, because its LOOKBACK is 4 lines from a query call and these are not query calls: the E02 finding about that gate's scope, with a live instance on a security path. → *logged* (known-gaps.md)
   - **medium** lib/tenancy/row-rule-policy.ts:89 valueExpr — the guc() helper that produces the InitPlan form (SELECT current_setting(…)) is never called — zero call sites. The bypass and actor guards are wrapped; the VALUE comparison, the one compared against the column and therefore the one that decides whether an index can be used, is emitted bare. Measured on 50 000 rows: bare gives a Bitmap Heap Scan at cost 60.19, the marked form an Index Only Scan at cost 2.51. The file's own comment measures the same effect at 0,769 ms against 0,257 ms and says 'The row-rule generator was written without it' — the fix landed on two of three sites. → *logged* (known-gaps.md)
   - **low** lib/tenancy/rls.ts:47 resolveValue + 210 — an unrecognised value source resolves to null and the caller does `continue` with the comment 'fail-open for this policy'. In the same file, an unrecognised OPERATOR refuses the query outright ('Refusing the query rather than returning rows the policy was meant to hide'). Same class of unknown, opposite directions. The admin route's Zod refine closes this at the API boundary — added after a rule stored as 'user.id' resolved to nothing — so this is defence in depth plus a residue question for rows written before that refine landed. user_email also resolves to null when the session object carries no email. → *logged* (known-gaps.md)
   - **low** lib/tenancy/rls.ts:423 assertEnforceable — returns early without validating when collection === '*' or when the collection's table does not exist yet, so a wildcard or ahead-of-schema policy can be stored unenforceable — which is the state the read path then fails open on. → *logged* (known-gaps.md)
   - **low** lib/tenancy/entity-access.ts:56 — only the exact string 'deny' denies; anything else — undefined, false, a boolean from a check written as `return record.ownerId === user.id` — is allow. The extensions repo compiles with strict:false, so that mistake is not caught by the author's own typecheck. A throwing check does fail closed (no caller catches). Unexercised today: no extension registers a check, and the ext-harness stub's register() is a no-op, so an extension cannot test one either. → *logged* (known-gaps.md)
+  - **medium** package.json (prepush → check:schema) — `prepush` is documented as the local contract for a pushable tree, and it MUTATES that tree: check:schema runs `bun run format` (write mode) before the later `format:check` step, so an unformatted commit is silently reformatted in the working tree and the chain then passes on the repaired state. Measured on this branch: prepush said OK, the pushed commit failed format:check, and CI's Lint job would have caught what the local contract missed. Root package.json is also in NO campaign section — SOURCE_EXT does not match .json — so the file defining every gate's entry point and the prepush chain itself is outside the review. → *logged* (known-gaps.md)
   - not done: Nothing repaired. The realtime type divergence is the one worth fixing first and it is not a one-liner: either the appliers are handed normalised values, or the in-memory comparison learns the column type — both are decisions about where normalisation belongs. Verified clean and worth recording: signed-cache.ts (namespace-bound HMAC, timingSafeEqual, length-checked, fail-closed on tamper), loadPolicies (tampered cache falls through to the database), and the admin route's Zod refine on filter_value_source.
 
 ### A06 — Permissions, roles, column access
@@ -275,11 +277,29 @@ After it: A02, A07, A16, A11 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
-| · | `packages/engine/src/lib/tenancy/permissions.ts` | 997 |
-| · | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
+| ✅ | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
+| · | `packages/engine/src/lib/tenancy/permissions.ts` | 1002 |
+| ✅ | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
 | · | `packages/engine/src/routes/admin/permission-routes.ts` | 349 |
 | · | `packages/engine/src/routes/permissions.ts` | 435 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 2 files · **partial** · `review/A06-permissions`
+  - ran: proved a privilege escalation end to end and shipped the fix as PR #444 (separate branch): a delegated tenant_admin got /api/admin/rls 403 with a real tenant slug and 200 with an unknown one, because no tenant meant no ALS store and getCurrentDomain() reads that as the root tenant
+  - ran: predicted a cache-poisoning path through checkPermission's UNKNOWN_RESOURCE bucketing and DISPROVED it: every policy write goes through the Casbin adapter, which invalidates the object index, and the routes additionally clear the shared cache
+  - ran: called getColumnAccess with each role value the schema permits: member → column masked; admin → NOT masked; superadmin → not masked; god → MASKED
+  - ran: checked the CHECK constraint on "user".role (001_initial.sql:1160): ('god','admin','manager','member') — so 'admin' is assignable and 'superadmin' is not
+  - ran: checked for scripts/check-extension-resources.ts: it does not exist, and no script scans permissionGate calls
+  - **high** lib/tenancy/column-permissions.ts:24 — getColumnAccess short-circuits on a hardcoded role NAME: `if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), readOnly: new Set() }`. Measured against every value the schema permits on "user".role: member is masked, admin is NOT, god IS masked. So the bypass names a role that is not the most privileged one and omits the one that is, and a user set to 'admin' — a value 001_initial.sql:1160 explicitly allows — sees every hidden column with no policy row expressing it and no way to revoke it short of editing code. This is precisely the pattern getRlsFilters removed, with its comment stating why: 'a string comparison against a role name is invisible, unauditable and impossible to revoke'. 'superadmin' is a dead branch — not in the CHECK constraint, and absent from the rest of the product. → *logged* (known-gaps.md)
+  - **low** lib/tenancy/resource-grants.ts:26 and :66 — the header cites `scripts/check-extension-resources.ts` twice as the gate that fails the build when a permissionGate call names an undeclared resource. That script does not exist, and no script in scripts/ scans permissionGate calls. It is named as one of the two compensating controls for an owner decision (2026-08-30) that removed the frozen KNOWN_EXTENSION_RESOURCES list; the OTHER control is real — listKnownResources collects extensions declaring nothing and names them at boot. So the decision's stated minimum is half-met, and the file asserts a build-time protection that was never built. → *logged* (known-gaps.md)
+  - not done: PARTIAL. permissions.ts (997 lines) read in the parts that decide access — checkPermission, effectivePermissions, requireInstanceAdmin, isTenantAdmin, resolveUserRole, the three signed caches, the policy-object index and the Casbin adapter — but not end to end; initPermissions, the model string, listAllRoles and getUserRoles are unread. routes/permissions.ts (435) and routes/admin/permission-routes.ts (349) were only read where they write policies or invalidate caches. The escalation found here is fixed and out as PR #444; nothing else repaired.
+- **2026-09-04** · claude-opus-5 · 0 files · **partial** · `review/A06-permissions`
+  - ran: read the Casbin model and confirmed deny-by-default holds: `(r.obj == p.obj || (p.obj == '*' && p.act == '*'))` — an object wildcard counts only when the action is wildcard too, so a partial wildcard grants nothing
+  - ran: predicted invalidateGodCache leaves the in-process god memo set on a no-Valkey deployment; DISPROVED — it calls clearLocalPermissionCache(userId) BEFORE the early return, and that branch deletes _localGod. My first read used a sed window that had cut off the function's first line.
+  - ran: checked the guard structure of both routes: admin.ts applies app.use('*', requireAdmin) before mounting, so permission-routes.ts's 10 handlers are covered by one blanket guard; permissions.ts has its own app.use('*') at line 249 covering the seven handlers after it
+  - ran: checked /bootstrap, which is registered BEFORE that blanket guard: deliberate, and conditioned — RECOVERY_TOKEN of at least 32 chars (403 when unset), constant-time comparison, single-use by token fingerprint recorded in zv_settings, the spent-check placed AFTER the match so a refusal leaks nothing, every refusal audited, and its own rate-limit bucket
+  - not done: STILL PARTIAL, and the file list says so: only column-permissions.ts and resource-grants.ts were read line by line, and they are recorded in the earlier A06 entry. permissions.ts (997) was read in the parts that decide access — the model, the adapter, checkPermission, effectivePermissions, the policy-object index, requireInstanceAdmin, isTenantAdmin, isGodUser, resolveUserRole, the three signed caches and the invalidation paths — but initPermissions' tail, listAllRoles, getUserRoles and effectivePermissions' internals are unread. routes/permissions.ts (435) read at /bootstrap and the policy/role handlers; routes/admin/permission-routes.ts (349) read at its guard structure, its invalidation helper and the first handlers. Ticking those three would claim a completeness this pass does not have.
 
 ### A07 — Authentication and identity
 
@@ -1050,6 +1070,27 @@ After it: A02, A07, A16, A11 …
 
 **Sessions**
 
+- **2026-09-04** · claude-opus-5 · 1 files · **repaired** · `review/campaign-setup (working tree — not committed)`
+  - ran: the 13th file, after master's merge reopened E01 at 12/13
+  - ran: check-jsonb-binding on a STALE sibling (8 commits behind): 29 columns, ~45 sites, FAIL — traced to staleness, not a defect. Against origin/master of the extensions (git archive, read-only): OK, 0 sites across 115 tables. CI is green legitimately.
+  - ran: engine-only vs with-sibling: 'OK — 0 site(s) across 29 table(s)' vs 'across 115 table(s)'. The gate had no requireSibling; the only tell was a number nobody reads.
+  - ran: planted 5 value shapes: direct JSON.stringify caught, `as never` suffix caught, TERNARY missed, local variable missed, and a commented-out write CAUGHT (false positive)
+  - ran: planted a JSDoc documenting the wrong form — the house style of every gate header in E01 — and the gate failed on a clean tree
+  - ran: widening the match to a non-anchored JSON.stringify found a REAL live site: packages/engine/src/lib/notifications.ts:21
+  - ran: proved it against the engine's real dialect (BunSqlDialect): old writer → jsonb_typeof=string, metadata ? 'k' = false, metadata->>'k' = NULL, for BOTH the populated and the '{}' empty case; after the repair → object/true/'v'
+  - ran: the FIRST proof used Kysely+pg and reported the old writer as CORRECT — a false negative from the wrong driver, caught only by re-running on the dialect the engine actually constructs
+  - ran: bun test gate-planted-variants + jsonb-notification-binding + gate-numeric-arith — 30 pass, 0 fail; jsonb-notification-binding against the pre-repair writer: 1 pass, 2 fail
+  - ran: all 13 E01 gates on the CI corpus — 13/13 exit 0
+  - ran: typecheck 7/7 (engine a real cache miss — it caught a `sql<T[]>` row type the passing test could not), lint + format clean
+  - **high** packages/engine/src/lib/notifications.ts:21 — sendNotification bound `input.metadata ? JSON.stringify(input.metadata) : '{}'` to the jsonb column zv_notifications.metadata, so every notification stored a jsonb STRING — `metadata->>'k'` NULL, `metadata ? 'k'` false — including the '{}' default. Migration 010 lists this column as double-encoded in 22 of 22 rows and states the rule the family was fixed under: 'The writers are fixed in the same change... repairing the data first would leave new rows arriving in the old shape.' This writer was missed, so the data repair was undone by the next notification. 010 also records that this column, unlike zv_api_keys.scopes, has NO reader-side compensation. → *repaired* (jsonb-notification-binding.test.ts — asserts in SQL, on BunSqlDialect)
+  - **medium** scripts/check-jsonb-binding.ts (value match) — the match was anchored at `^JSON.stringify`, so the ordinary way to write a nullable jsonb column — `col: v ? JSON.stringify(v) : null` — was invisible. That is the shape the live defect above was written in. Widened to search the value, carving out `::text::jsonb`, which IS the correct binding and would otherwise start failing correct code. → *repaired* (gate-planted-variants.test.ts, 2 cases)
+  - **medium** scripts/check-jsonb-binding.ts (comments) — comments were not stripped, so a commented-out write and — worse — a JSDoc DOCUMENTING the wrong form both counted as violations. That is this repository's house style: every E01 gate shows the form it refuses in its own header, and this file has to do it twice (INTERP_OPEN exists for exactly that). The first person to explain this gate in a comment would have turned it red on a clean tree. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **medium** scripts/check-jsonb-binding.ts (corpus) — no requireSibling: without the extensions checkout it scanned the engine alone and printed a confident OK. Same fail-open Block C fixed for five other gates, and it lands harder here — every site in this gate's own history lived in an extension. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **medium** scripts/check-jsonb-binding.ts (file filter) — the only gate in its family that scanned .test.ts files — the other six all exclude them. Consequence beyond noise: a regression test for this defect MUST write the wrong shape to assert PostgreSQL cannot read it, so the only honest test of the binding was one the gate refused. → *repaired* (the fixtures in both new test files)
+  - **low** scripts/check-tenant-boundary.ts, scripts/check-duplicate-table-creators.ts — the two `-- DOWN` cuts deferred from the first session, now applied: both read the rollback half as though it were schema. Verified behaviour-preserving on today's corpus — both verdicts byte-identical before and after. → *repaired* (gate-planted-variants.test.ts, 1 case)
+  - **low** ../zveltio-extensions (local checkout) — the sibling checkout is 8 commits behind origin/master, which makes `sql:jsonb` and every other sibling-scanning gate report failures that do not exist on master. Not a code defect; it needs a pull before any local run is trustworthy. → *logged* (reported to the session holding git)
+  - **medium** scripts/lib/require-sibling.ts:32 (section E04) — inherited by this session's repair — The guard is `if (existsSync(root)) return;`, so an EMPTY sibling directory passes it and the gate prints the same confident OK it prints over the real corpus. Found by the session reviewing E04, confirmed on this branch. It backs eight gates, five of them E01's once check-jsonb-binding is counted — and check-jsonb-binding is the one where it costs most, because that gate derives its jsonb COLUMN SET from both repositories' migrations: a hollow sibling does not just shrink the code scanned, it shrinks the schema being judged, from 115 tables to 29. Nothing measured in either E01 session is affected — both ran with the real sibling present — but the repair recorded above is weaker than 'closed': it refuses an absent path, not an empty one. Being fixed in E04 (manifest required within two levels); not touched here. → *logged* (known-gaps.md §3a)
+  - not done: The two misses I did not close in check-jsonb-binding: a JSON.stringify reaching the column through a local variable, and the raw-value case its own header already declines to claim. Both need type inference, not a wider regex. The `db`-alias blindness in check-tenant-table-on-pool and the ARRAY-literal credit in check-tenant-boundary remain as recorded in the first session — still owner decisions, unchanged. E01 is now 13 of 13. CORRECTION to this session's own reporting: I stated 'lint and format clean' having run `lint` and `format:check` but NOT `lint:ratchet`, which is the gate that counts — it was failing on two warnings from my two test files. `lint` reports warnings and exits 0; the ratchet is what makes them fatal. Caught by the session holding git, who fixed both. Running two of the three gates that protect a change and reporting the result as clean is the same error this section spent the day finding in other people's code.
 - **2026-09-04** · claude-opus-5 · 12 files · **repaired** · `(working tree, docs/unified-chapters — not committed, owner approval pending)`
   - ran: all 12 gates on a clean tree — 12/12 exit 0
   - ran: PLANTED a second violation shape into each of the 12; 9 of the plants stayed green (listed under findings), the audit-gates shapes were all caught
@@ -1077,27 +1118,6 @@ After it: A02, A07, A16, A11 …
   - **medium** scripts/audit-gates.ts (section E02) — observed from here — `bun run audit:gates` exits 1 before planting anything when a `create` probe path already exists, and packages/studio/dist/.zveltio-studio-version is an ordinary local build artifact. So the only proof these twelve gates have is unrunnable in any checkout that has built the Studio. Reported fixed on master after this checkout's base. → *logged* (known-gaps.md §3a)
   - **low** packages/engine/src/lib/data/handlers/list.ts:222-265 (section A12) — observed from here — the virtual-collection branch returns before the 'RLS injection' block, so row rules never apply to a virtual collection; only column permissions do. Found while proving virtual-collection-adapter.ts is not a duplicated rule interpreter. NOT verified against intent — it may be the only thing possible when the rows come from a third party. Written down because it looks identical either way. → *logged* (known-gaps.md §3a)
   - not done: Eleven of the twelve gates still have no test beyond the six variants added here; the T01 backlog for this section is 'a case per gate, not per repair'. The `db`-alias blindness in check-tenant-table-on-pool is diagnosed but not closed — closing it makes the gate fail on insights.ts/flows.ts and needs an owner decision about those routers, not a patch. audit:gates could not be run end to end in this checkout. E01 WILL REOPEN: master carries scripts/check-jsonb-binding.ts, which belongs to this section, so a catch-up merge takes it from 12/12 to 12/13 and the generator hands it back as NEXT — intended, and worth the visit given that gate's subject (zv_api_keys.scopes held as JSON text, where an authorisation check written the natural SQL way denies a key its own scopes). The placement of master's new files was measured twice on 2026-09-04, and the first measurement is worth keeping: they had been reported as placed while four of the five were absent from scripts/review-inventory.ts — an edit script whose multi-entry anchors had been broken by an intervening `check:fix` reformat, so four `replace()` calls returned the string unchanged and exited 0. Reported success that did not happen, inside the campaign that names it as failure class 1. Re-verified after the second attempt, by routing rather than by grep: check-jsonb-binding.ts→E01, check-env-documented.ts→E02, check-extension-i18n-namespaces.ts→E03, backfill-i18n-prefixes.ts→E06 are explicit entries, and lib/jsonb.ts→A08, lib/backup/verify-archive.ts→B10, sdk/src/extension/jsonb.ts→D02, testing/fake-redis.ts→E07, 010_unwrap_double_encoded_jsonb.sql→A10 route correctly by prefix through the real matcher, with nothing unassigned. E06's bare `scripts/` prefix — which would have swallowed a new gate silently and filed it as an ops probe — is now an explicit list, so an unplaced gate fails loudly instead. No git command that changes the tree was run, and nothing is committed.
-- **2026-09-04** · claude-opus-5 · 1 files · **repaired** · `review/campaign-setup (working tree — not committed)`
-  - ran: the 13th file, after master's merge reopened E01 at 12/13
-  - ran: check-jsonb-binding on a STALE sibling (8 commits behind): 29 columns, ~45 sites, FAIL — traced to staleness, not a defect. Against origin/master of the extensions (git archive, read-only): OK, 0 sites across 115 tables. CI is green legitimately.
-  - ran: engine-only vs with-sibling: 'OK — 0 site(s) across 29 table(s)' vs 'across 115 table(s)'. The gate had no requireSibling; the only tell was a number nobody reads.
-  - ran: planted 5 value shapes: direct JSON.stringify caught, `as never` suffix caught, TERNARY missed, local variable missed, and a commented-out write CAUGHT (false positive)
-  - ran: planted a JSDoc documenting the wrong form — the house style of every gate header in E01 — and the gate failed on a clean tree
-  - ran: widening the match to a non-anchored JSON.stringify found a REAL live site: packages/engine/src/lib/notifications.ts:21
-  - ran: proved it against the engine's real dialect (BunSqlDialect): old writer → jsonb_typeof=string, metadata ? 'k' = false, metadata->>'k' = NULL, for BOTH the populated and the '{}' empty case; after the repair → object/true/'v'
-  - ran: the FIRST proof used Kysely+pg and reported the old writer as CORRECT — a false negative from the wrong driver, caught only by re-running on the dialect the engine actually constructs
-  - ran: bun test gate-planted-variants + jsonb-notification-binding + gate-numeric-arith — 30 pass, 0 fail; jsonb-notification-binding against the pre-repair writer: 1 pass, 2 fail
-  - ran: all 13 E01 gates on the CI corpus — 13/13 exit 0
-  - ran: typecheck 7/7 (engine a real cache miss — it caught a `sql<T[]>` row type the passing test could not), lint + format clean
-  - **high** packages/engine/src/lib/notifications.ts:21 — sendNotification bound `input.metadata ? JSON.stringify(input.metadata) : '{}'` to the jsonb column zv_notifications.metadata, so every notification stored a jsonb STRING — `metadata->>'k'` NULL, `metadata ? 'k'` false — including the '{}' default. Migration 010 lists this column as double-encoded in 22 of 22 rows and states the rule the family was fixed under: 'The writers are fixed in the same change... repairing the data first would leave new rows arriving in the old shape.' This writer was missed, so the data repair was undone by the next notification. 010 also records that this column, unlike zv_api_keys.scopes, has NO reader-side compensation. → *repaired* (jsonb-notification-binding.test.ts — asserts in SQL, on BunSqlDialect)
-  - **medium** scripts/check-jsonb-binding.ts (value match) — the match was anchored at `^JSON.stringify`, so the ordinary way to write a nullable jsonb column — `col: v ? JSON.stringify(v) : null` — was invisible. That is the shape the live defect above was written in. Widened to search the value, carving out `::text::jsonb`, which IS the correct binding and would otherwise start failing correct code. → *repaired* (gate-planted-variants.test.ts, 2 cases)
-  - **medium** scripts/check-jsonb-binding.ts (comments) — comments were not stripped, so a commented-out write and — worse — a JSDoc DOCUMENTING the wrong form both counted as violations. That is this repository's house style: every E01 gate shows the form it refuses in its own header, and this file has to do it twice (INTERP_OPEN exists for exactly that). The first person to explain this gate in a comment would have turned it red on a clean tree. → *repaired* (gate-planted-variants.test.ts, 1 case)
-  - **medium** scripts/check-jsonb-binding.ts (corpus) — no requireSibling: without the extensions checkout it scanned the engine alone and printed a confident OK. Same fail-open Block C fixed for five other gates, and it lands harder here — every site in this gate's own history lived in an extension. → *repaired* (gate-planted-variants.test.ts, 1 case)
-  - **medium** scripts/check-jsonb-binding.ts (file filter) — the only gate in its family that scanned .test.ts files — the other six all exclude them. Consequence beyond noise: a regression test for this defect MUST write the wrong shape to assert PostgreSQL cannot read it, so the only honest test of the binding was one the gate refused. → *repaired* (the fixtures in both new test files)
-  - **low** scripts/check-tenant-boundary.ts, scripts/check-duplicate-table-creators.ts — the two `-- DOWN` cuts deferred from the first session, now applied: both read the rollback half as though it were schema. Verified behaviour-preserving on today's corpus — both verdicts byte-identical before and after. → *repaired* (gate-planted-variants.test.ts, 1 case)
-  - **low** ../zveltio-extensions (local checkout) — the sibling checkout is 8 commits behind origin/master, which makes `sql:jsonb` and every other sibling-scanning gate report failures that do not exist on master. Not a code defect; it needs a pull before any local run is trustworthy. → *logged* (reported to the session holding git)
-  - **medium** scripts/lib/require-sibling.ts:32 (section E04) — inherited by this session's repair — The guard is `if (existsSync(root)) return;`, so an EMPTY sibling directory passes it and the gate prints the same confident OK it prints over the real corpus. Found by the session reviewing E04, confirmed on this branch. It backs eight gates, five of them E01's once check-jsonb-binding is counted — and check-jsonb-binding is the one where it costs most, because that gate derives its jsonb COLUMN SET from both repositories' migrations: a hollow sibling does not just shrink the code scanned, it shrinks the schema being judged, from 115 tables to 29. Nothing measured in either E01 session is affected — both ran with the real sibling present — but the repair recorded above is weaker than 'closed': it refuses an absent path, not an empty one. Being fixed in E04 (manifest required within two levels); not touched here. → *logged* (known-gaps.md §3a)
-  - not done: The two misses I did not close in check-jsonb-binding: a JSON.stringify reaching the column through a local variable, and the raw-value case its own header already declines to claim. Both need type inference, not a wider regex. The `db`-alias blindness in check-tenant-table-on-pool and the ARRAY-literal credit in check-tenant-boundary remain as recorded in the first session — still owner decisions, unchanged. E01 is now 13 of 13. CORRECTION to this session's own reporting: I stated 'lint and format clean' having run `lint` and `format:check` but NOT `lint:ratchet`, which is the gate that counts — it was failing on two warnings from my two test files. `lint` reports warnings and exits 0; the ratchet is what makes them fatal. Caught by the session holding git, who fixed both. Running two of the three gates that protect a change and reporting the result as clean is the same error this section spent the day finding in other people's code.
 
 ### E02 — Gates — authorisation, audit, structure
 
@@ -1176,28 +1196,11 @@ After it: A02, A07, A16, A11 …
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
 | ✅ | `scripts/merge-coverage.ts` | 214 |
 | ✅ | `scripts/release-gate.ts` | 350 |
-| ✅ | `scripts/review-inventory.ts` | 1286 |
+| ✅ | `scripts/review-inventory.ts` | 1312 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
 
-- **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/E04-gates-coverage-ratchets`
-  - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
-  - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
-  - ran: after the repair, same probe — FAIL, exit 1, naming the file
-  - ran: check-fabricated-success against a fabricated root whose sibling directory exists and is EMPTY — 'OK — 0 site(s), baseline allows 0', exit 0
-  - ran: after the repair — FAIL exit 1 ('no extension manifest'); with one manifest.json present — OK exit 0; with ZVELTIO_ALLOW_MISSING_SIBLING=1 — WARNING + OK
-  - ran: bun run scripts/suppress-existing-any.ts — ENOENT at line 43 before the repair; `bun x biome lint --suppress` after, verified to actually write the comment ('Fixed 1 file')
-  - ran: bun run studio:dev — 'bunx: command not found', exit 127
-  - ran: all 7 requireSibling gates + any:ratchet + lint:ratchet + lint + format:check after the repairs — all green
-  - ran: both new tests against the pre-repair scripts — 2 of 3 fail in each; after — 6 pass
-  - ran: biome.json exclusion list vs the hand-mirrored regex in lib/any-targets.ts — 33 slugs each, zero divergence today
-  - **high** scripts/any-ratchet.ts:33 — the ratchet counted only `biome-ignore`, while biome also honours `biome-ignore-all` (whole file) and `biome-ignore-start` (range). One comment hid three `any` and the gate reported no change at all — the debt could grow without moving a count, which is the one thing it promises cannot happen. Counting them is not a repair, because one marker buys an unbounded number; they are refused. → *fixed*
-  - **high** scripts/lib/require-sibling.ts:31 — the guard tested `existsSync(root)`, and an empty directory passes it. With an empty sibling, check-fabricated-success printed the same sentence it prints over a real 51-extension corpus. Affects all 8 gates that call it. Now requires an extension manifest within two levels. → *fixed*
-  - **medium** scripts/suppress-existing-any.ts:45 — spawned `bunx`, which is absent from the Bun install this repository documents — the codemod threw ENOENT at its first batch and could not run. The campaign's own method doc carries the rule: `bun x`, not `bunx`. → *fixed*
-  - **low** package.json:54 (studio:dev) — same `bunx` defect: `bun run studio:dev` exits 127 with 'bunx: command not found'. Outside this section's files, so logged rather than fixed. → *logged* (known-gaps.md — to be added by the owner of E05/package.json)
-  - **low** scripts/lib/any-targets.ts:97 — `EXCLUDE_SOURCE` is exported 'for the biome.json cross-check'; nothing imports it and no such check exists. The two exclusion lists agree today (33 = 33, verified) but by discipline, not mechanism — the thing this repository repeatedly says is not enough. → *logged*
-  - not done: Five of the ten files are unread: coverage-gate.ts, merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and was not tested. One open question worth a session of its own: a file-level suppression also zeroes a rule's count in lint-warning-ratchet, where it reads as an improvement rather than as invisibility.
 - **2026-09-04** · claude-opus-5 · 6 files · **partial** · `review/E04-gates-coverage-ratchets`
   - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
   - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
@@ -1233,6 +1236,23 @@ After it: A02, A07, A16, A11 …
   - **medium** scripts/review-inventory.ts (session attribution) — `reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section — planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session —', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate. → *logged* (known-gaps.md)
   - **low** scripts/merge-coverage.ts:57 — nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is. → *logged* (known-gaps.md)
   - not done: SELF-REVIEW on review-inventory.ts, which I wrote today — the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.
+- **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/E04-gates-coverage-ratchets`
+  - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
+  - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
+  - ran: after the repair, same probe — FAIL, exit 1, naming the file
+  - ran: check-fabricated-success against a fabricated root whose sibling directory exists and is EMPTY — 'OK — 0 site(s), baseline allows 0', exit 0
+  - ran: after the repair — FAIL exit 1 ('no extension manifest'); with one manifest.json present — OK exit 0; with ZVELTIO_ALLOW_MISSING_SIBLING=1 — WARNING + OK
+  - ran: bun run scripts/suppress-existing-any.ts — ENOENT at line 43 before the repair; `bun x biome lint --suppress` after, verified to actually write the comment ('Fixed 1 file')
+  - ran: bun run studio:dev — 'bunx: command not found', exit 127
+  - ran: all 7 requireSibling gates + any:ratchet + lint:ratchet + lint + format:check after the repairs — all green
+  - ran: both new tests against the pre-repair scripts — 2 of 3 fail in each; after — 6 pass
+  - ran: biome.json exclusion list vs the hand-mirrored regex in lib/any-targets.ts — 33 slugs each, zero divergence today
+  - **high** scripts/any-ratchet.ts:33 — the ratchet counted only `biome-ignore`, while biome also honours `biome-ignore-all` (whole file) and `biome-ignore-start` (range). One comment hid three `any` and the gate reported no change at all — the debt could grow without moving a count, which is the one thing it promises cannot happen. Counting them is not a repair, because one marker buys an unbounded number; they are refused. → *fixed*
+  - **high** scripts/lib/require-sibling.ts:31 — the guard tested `existsSync(root)`, and an empty directory passes it. With an empty sibling, check-fabricated-success printed the same sentence it prints over a real 51-extension corpus. Affects all 8 gates that call it. Now requires an extension manifest within two levels. → *fixed*
+  - **medium** scripts/suppress-existing-any.ts:45 — spawned `bunx`, which is absent from the Bun install this repository documents — the codemod threw ENOENT at its first batch and could not run. The campaign's own method doc carries the rule: `bun x`, not `bunx`. → *fixed*
+  - **low** package.json:54 (studio:dev) — same `bunx` defect: `bun run studio:dev` exits 127 with 'bunx: command not found'. Outside this section's files, so logged rather than fixed. → *logged* (known-gaps.md — to be added by the owner of E05/package.json)
+  - **low** scripts/lib/any-targets.ts:97 — `EXCLUDE_SOURCE` is exported 'for the biome.json cross-check'; nothing imports it and no such check exists. The two exclusion lists agree today (33 = 33, verified) but by discipline, not mechanism — the thing this repository repeatedly says is not enough. → *logged*
+  - not done: Five of the ten files are unread: coverage-gate.ts, merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and was not tested. One open question worth a session of its own: a file-level suppression also zeroes a rule's count in lint-warning-ratchet, where it reads as an improvement rather than as invisibility.
 
 ### E05 — Build, packaging and Studio tooling scripts
 
@@ -1411,7 +1431,7 @@ After it: A02, A07, A16, A11 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **850** of 860.
+Test files nobody has opened yet: **850** of 861.
 
 | Directory | Unread |
 | --- | --: |
