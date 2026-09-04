@@ -10,20 +10,20 @@ Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **A04 — Tenancy core**
+### → **A05 — RLS policies and row rules**
 
-*The GUC, the request-scoped transaction, the role switch. Every isolation claim rests here.*
+*Predicate shape decides both correctness and the query plan; one interpreter for the rules.*
 
-1 of 5 files still unread. Its file list is under [`A04`](#a04--tenancy-core) below.
+7 of 7 files still unread. Its file list is under [`A05`](#a05--rls-policies-and-row-rules) below.
 
-After it: A05, A06, A02, A07 …
+After it: A06, A02, A07, A16 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **59 / 656** (9%)
-- Lines in scope: **13,181 / 135,331** (10%)
-- Test files opened by some session: **8 / 860**
+- Files in scope: **60 / 656** (9%)
+- Lines in scope: **14,555 / 135,331** (11%)
+- Test files opened by some session: **10 / 860**
 
 ## Sections
 
@@ -42,7 +42,7 @@ After it: A05, A06, A02, A07 …
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
 | A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
-| A04 | Tenancy core | 5 | 1,997 | 4/5 | 2026-09-04 — partial |
+| A04 | Tenancy core | 5 | 1,997 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
 | A06 | Permissions, roles, column access | 5 | 2,188 | 0/5 | — |
 | A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
@@ -213,7 +213,7 @@ After it: A05, A06, A02, A07 …
 | ✅ | `packages/engine/src/lib/tenancy/fail-closed-tenant.ts` | 40 |
 | ✅ | `packages/engine/src/lib/tenancy/index.ts` | 14 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-context.ts` | 417 |
-| · | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1374 |
+| ✅ | `packages/engine/src/lib/tenancy/tenant-manager.ts` | 1374 |
 | ✅ | `packages/engine/src/lib/tenancy/tenant-scope.ts` | 152 |
 
 **Sessions**
@@ -229,6 +229,14 @@ After it: A05, A06, A02, A07 …
   - **medium** lib/tenancy/fail-closed-tenant.ts:14-38 — the whole body is wrapped in try/catch → console.warn. Measured: a non-owner role gets 'must be owner of database' from ALTER DATABASE ... SET, and that error is swallowed. So an operator who sets ZVELTIO_FAIL_CLOSED_TENANT=1 — an explicit request for contextless queries to see zero rows — can boot with the setting silently not applied. The repository already holds the right standard three hundred lines away: an unenforceable RLS role is FATAL in production with an explicit ZVELTIO_ALLOW_UNENFORCED_RLS override, and the comment there says why a warning is the wrong instrument ('it scrolls past during a deploy'). The existing unit test pins only the current_database() probe failure, not the ALTER failure. → *logged* (known-gaps.md)
   - **low** lib/tenancy/tenant-scope.ts:150 encodeTenantSet — encodeTenantSet([]) and encodeTenantSet(null) both produce '', and the file's own docstring says an empty GUC means 'no set published' → equality fallback. The only path reaching [] is org-reach over an empty zv_tenants (and the god branch in tenant-manager does the same), so the effect is a NARROWING to the own unit — the safe direction — but the two states are indistinguishable in the GUC. → *logged* (known-gaps.md)
   - not done: PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit. The suspended-tenant consequence is measured only as far as the unscoped fallback and the 200; the row-level question for a non-god user is open.
+- **2026-09-04** · claude-opus-5 · 1 files · **logged** · `review/A04-tenancy-core`
+  - ran: read the remaining 1345 lines: getDefaultTenant, visibleTenantsFn, applyTenantRLS, both reconcilers, rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache, the tenant lookups, provisionTenantSchema/Environment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS
+  - ran: the passkey grant found here is fixed and merged as PR #441 — separate branch, because it is an authentication bypass rather than a review note
+  - ran: measured: 45 tenant_* schemas accumulated in one test database
+  - ran: proved sql.id('schema.table') quotes the whole string as ONE identifier: SELECT FROM "probe_sch.t" → relation does not exist, while "probe_sch"."t" works
+  - **medium** lib/tenancy/tenant-manager.ts:626 provisionTenantSchema (+ lib/data-quality.ts:377) — the schema-per-tenant machinery is vestigial and looks like isolation it does not provide. provisionTenantSchema creates tenant_<slug> with zvd_collections/zvd_relations/zvd_permissions on every tenant creation (routes/tenants.ts:210), and NOTHING in the data layer reads them — tenantSchema is set by the middleware and consumed by no data route; no search_path is set for them (preview-env sets one for branch schemas, a different feature). 45 such schemas had accumulated in one test database. Its one apparent consumer proves the path is never exercised: runQualityScan takes a tenantSchema and builds `${schema}.zvd_${collection}`, which reaches sql.id() as a single dotted string — measured, that quotes the whole thing as ONE identifier and Postgres answers 'relation does not exist'. The parameter is exposed to extensions through ctx.internals and cannot work. An operator seeing per-tenant schemas would reasonably conclude data is separated by schema; it is row-level in public. (data-quality.ts belongs to A17; recorded here because it is the same finding.) → *logged* (known-gaps.md)
+  - **low** lib/tenancy/tenant-manager.ts:330 reconcileExtensionTenantRLS — DROP POLICY then CREATE POLICY are two separate statements on the pool, not one transaction, so between them the table has RLS enabled and no policy. That is fail-closed — a non-owner sees zero rows — but it is a window in which live traffic on that table reads empty rather than being blocked or correct. → *logged* (known-gaps.md)
+  - not done: Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed — both are larger than a review commit.
 
 ### A05 — RLS policies and row rules
 
@@ -1386,12 +1394,12 @@ After it: A05, A06, A02, A07 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **852** of 860.
+Test files nobody has opened yet: **850** of 860.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 492 |
-| `packages/engine/src/tests/harness` | 282 |
+| `packages/engine/src/tests/harness` | 280 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |
