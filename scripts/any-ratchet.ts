@@ -30,7 +30,35 @@ import { bucketOf, enumerateTargets } from './lib/any-targets.ts';
 
 const ROOT = process.cwd();
 const BASELINE_PATH = join(ROOT, 'quality-gates', 'any-baseline.json');
+/** `lint/suspicious/noExplicitAny`, in pieces — see RANGE_MARKER below. */
+const RULE_PATH = `lint/suspicious/no${'Explicit'}Any`;
+
 const MARKER = /biome-ignore\s+lint\/suspicious\/noExplicitAny/g;
+
+/**
+ * The two file-level spellings, which this ratchet refuses outright.
+ *
+ * Biome accepts `biome-ignore-all` for a WHOLE FILE and `biome-ignore-start` …
+ * `-end` for a range, from a single comment. Both are honoured — measured, not
+ * assumed: a probe file carrying the file-level form for this rule plus three
+ * bare `any` produced zero diagnostics from `biome lint`, while the same file
+ * without it produced one per `any`.
+ *
+ * Counting them is not a repair. A count-based ratchet holds the line only while
+ * one marker equals one violation; the file-level form buys an unbounded number,
+ * so the arithmetic that makes this gate work stops being true. That is why they
+ * are an error rather than a tally: the docstring above promises the debt can
+ * only shrink, and with these spellings available it could grow without moving a
+ * single count. Found during the E04 review, against a ratchet reporting
+ * `OK — total suppressions 1137 (baseline 1137)` over a file where three `any`
+ * had just been hidden.
+ *
+ * Assembled from pieces, and the prose above never spells the rule path after
+ * the marker, for the reason `audit-gates.ts` documents at length: a file that
+ * must NAME a marker must not BE one. Written whole, this constant made the
+ * ratchet fail on itself the first time it ran.
+ */
+const RANGE_MARKER = new RegExp(`biome-ignore-(?:all|start)\\s+${RULE_PATH}`);
 
 type Baseline = {
   generated: string;
@@ -40,8 +68,9 @@ type Baseline = {
 };
 
 /** Count suppression markers per bucket across the enforced file set. */
-function tally(): { counts: Record<string, number>; total: number } {
+function tally(): { counts: Record<string, number>; total: number; ranged: string[] } {
   const counts: Record<string, number> = {};
+  const ranged: string[] = [];
   let total = 0;
   for (const path of enumerateTargets(ROOT)) {
     let content: string;
@@ -50,13 +79,14 @@ function tally(): { counts: Record<string, number>; total: number } {
     } catch {
       continue; // deleted-but-tracked edge case; skip
     }
+    if (RANGE_MARKER.test(content)) ranged.push(path);
     const n = content.match(MARKER)?.length ?? 0;
     if (n === 0) continue;
     const b = bucketOf(path);
     counts[b] = (counts[b] ?? 0) + n;
     total += n;
   }
-  return { counts, total };
+  return { counts, total, ranged };
 }
 
 /** Guard against silently reverting the rule to `off`, which would gut H-01. */
@@ -96,7 +126,20 @@ if (arg === '--verify') {
   process.exit(verifyRuleEnforced() ? 0 : 1);
 }
 
-const { counts, total } = tally();
+const { counts, total, ranged } = tally();
+
+// Before anything else, including `--update`: a file-level suppression must not
+// be baked into a baseline either.
+if (ranged.length > 0) {
+  console.error(
+    '[any-ratchet] FAIL — file-level suppression of noExplicitAny:\n' +
+      ranged.map((p) => `  ${p}`).join('\n') +
+      '\n\n`biome-ignore-all` and `biome-ignore-start` silence the rule for a whole file\n' +
+      'or range from one comment, so they hide an unbounded number of `any` behind a\n' +
+      'count this gate cannot move. Suppress the occurrences individually, or type them.',
+  );
+  process.exit(1);
+}
 
 if (arg === '--update') {
   writeBaseline(counts, total);
