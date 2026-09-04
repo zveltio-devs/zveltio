@@ -295,7 +295,10 @@ Append one object to `sessions` in `code-review-status.json`:
 
 `files` lists what you actually read line by line — that list is the coverage
 number, so listing a file you skimmed corrupts the only measurement this
-campaign has. `verdict` is one of `clean`, `repaired`, `partial`, `blocked`.
+campaign has. `verdict` is one of `clean` (nothing found), `repaired` (found and fixed),
+`logged` (read in full, findings recorded, nothing fixed here — the honest label
+when the repair belongs to another section or would land unreviewed), `partial`,
+`blocked`.
 A `partial` section stays open and the next session continues it; only the files
 you listed count as done.
 
