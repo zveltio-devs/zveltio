@@ -22,7 +22,7 @@ After it: E04, E08, A04, A05 …
 
 - Sections in scope: **60**
 - Files in scope: **19 / 656** (3%)
-- Lines in scope: **4,532 / 135,300** (3%)
+- Lines in scope: **4,532 / 135,301** (3%)
 - Test files opened by some session: **6 / 859**
 
 ## Sections
@@ -40,7 +40,7 @@ After it: E04, E08, A04, A05 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,057 | 0/17 | — |
+| A02 | Middleware chain | 17 | 2,058 | 0/17 | — |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 1,968 | 0/5 | — |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
@@ -170,7 +170,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/route-db.ts` | 49 |
+| · | `packages/engine/src/lib/route-db.ts` | 50 |
 | · | `packages/engine/src/lib/savepoint.ts` | 82 |
 | · | `packages/engine/src/middleware/demo-mode.ts` | 75 |
 | · | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
