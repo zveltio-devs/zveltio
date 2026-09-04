@@ -25,10 +25,27 @@ import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
 const DIRS =
-  targets.length > 0
-    ? targets
-    : [join(ROOT, 'packages'), join(ROOT, 'scripts'), join(ROOT, '..', 'zveltio-extensions')];
+  targets.length > 0 ? targets : [join(ROOT, 'packages'), join(ROOT, 'scripts'), EXT_ROOT];
+
+/**
+ * Whether the sibling was actually there, so the success line can say so.
+ *
+ * This gate does NOT call `requireSibling`, and after measuring it on
+ * 2026-09-04 that stays deliberate: unlike the five gates that do, its subject
+ * is this repository — `packages` and `scripts` — with the extensions repo as an
+ * extra. Refusing to run for a developer who has only this checkout would cost
+ * more than the narrower answer is worth.
+ *
+ * What was not defensible is the SENTENCE. Run from a checkout with no sibling
+ * beside it, the gate printed "OK — no backticks inside SQL template comments"
+ * having never opened half its default corpus — the same "absent corpus read as
+ * clean corpus" the other five were fixed for, arriving through the success
+ * message rather than the exit code. CI's Lint job clones the sibling, so CI was
+ * always honest; `prepush` and every local run were not.
+ */
+const siblingScanned = targets.length > 0 || existsSync(EXT_ROOT);
 
 function tsFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -80,4 +97,11 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
-console.log('[sql-backticks] OK — no backticks inside SQL template comments.');
+console.log(
+  '[sql-backticks] OK — no backticks inside SQL template comments' +
+    (siblingScanned
+      ? '.'
+      : ' in this repository.\n' +
+        `  NOTE: no sibling checkout at ${EXT_ROOT}, so the extensions repo — part of this\n` +
+        "  gate's default corpus — was not scanned. An absent corpus is not a clean one."),
+);

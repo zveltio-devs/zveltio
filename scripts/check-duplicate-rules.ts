@@ -60,7 +60,20 @@ const RULES: Rule[] = [
     // the shape instead. The zones render path spelled it `f.op === 'eq'` and
     // slipped past a version of this rule that only knew the first two names,
     // which is a fair warning about naming the variable rather than the shape.
-    pattern: /\b\w+\.op\s*===\s*['"](?:eq|neq|gt|lt|gte|lte|in|not_in)['"]/,
+    //
+    // The `switch` half was added on 2026-09-04 after planting the same rule
+    // twice: `if (cond.op === 'eq')` was caught, and the identical dispatch
+    // written as `switch (cond.op) { case 'eq': … }` passed this gate AND
+    // `check-rule-interpreters` — which keys on `'not_in'`, the operator such a
+    // copy omits by definition. Between them the two gates had a shape-shaped
+    // hole exactly where the incidents in this header sit: a hand-written
+    // dispatch covering the comparisons only.
+    //
+    // Matching the `case` needs the discriminant nearby to stay narrow, so the
+    // `switch` line itself is what fires — one finding per copy, pointing at the
+    // dispatch rather than at each arm.
+    pattern:
+      /\b\w+\.op\s*===\s*['"](?:eq|neq|gt|lt|gte|lte|in|not_in)['"]|\bswitch\s*\(\s*\w+(?:\.\w+)*\.op\s*\)/,
     canonical: [
       'lib/tenancy/rls.ts',
       'db/dynamic.ts',
@@ -73,6 +86,19 @@ const RULES: Rule[] = [
       // helper (see the `access` map on StreamSub); this is the other, weaker
       // filter sitting next to it.
       'routes/realtime.ts',
+      // Surfaced on 2026-09-04 by widening the pattern to the `switch` form —
+      // a site both this gate and `check-rule-interpreters` had never seen.
+      //
+      // Same answer as `routes/realtime.ts`, for the same reason: `translateQuery`
+      // renders the CALLER'S `?filter=` into query parameters for a third-party
+      // API, not a stored row rule. Verified rather than assumed —
+      // `handlers/list.ts` serves the virtual branch and `return`s from it well
+      // before the "RLS injection" block below it, so no row rule reaches this
+      // function. (That early return means row rules do not apply to virtual
+      // collections AT ALL; only column permissions do. Whether that is the
+      // decision it looks like belongs to whoever reviews the read path — it is
+      // not a question about this gate.)
+      'lib/virtual-collection-adapter.ts',
     ],
     use: '`applyRlsFilters` (SQL) or `matchesRlsFilters` (in memory), or `buildCondition` for one condition',
     because:
