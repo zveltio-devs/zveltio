@@ -42,7 +42,12 @@ for (let i = 0; i < targets.length; i += BATCH) {
   const batch = targets.slice(i, i + BATCH);
   const proc = Bun.spawnSync(
     [
-      'bunx',
+      // `bun x`, not `bunx`. Bun does not install a `bunx` shim in every setup —
+      // it is absent from the one this repository documents — so this spawn threw
+      // ENOENT at the first batch and the codemod could not run at all. The
+      // campaign's own method doc carries the rule: "`bun x`, not `bunx`".
+      'bun',
+      'x',
       'biome',
       'lint',
       '--suppress',
