@@ -594,6 +594,90 @@
       ],
       "notDone": "Nothing repaired. Verified clean and recorded so nobody re-derives it: `bun audit || true` and the coverage `|| true` are report-then-gate PAIRS, not swallowed enforcement \u2014 the enforcing step sits above each; the three continue-on-error jobs in release.yml are post-release side effects with written reasons; dependabot covers npm AND github-actions and all 14 actions are SHA-pinned; `dependabot-lockfile.yml`'s pull_request_target + contents:write + head-checkout is correctly guarded by a job-level actor check, and Bun runs no lifecycle scripts by default (no trustedDependencies declared) \u2014 a pattern that is usually a vulnerability and is not one here; release-gate is wired so publish-release needs it; the sibling clone resolves a paired branch before falling back to master.",
       "verdict": "logged"
+    },
+    {
+      "section": "A04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/A04-tenancy-core",
+      "files": [
+        "packages/engine/src/lib/tenancy/index.ts",
+        "packages/engine/src/lib/tenancy/fail-closed-tenant.ts",
+        "packages/engine/src/lib/tenancy/tenant-scope.ts",
+        "packages/engine/src/lib/tenancy/tenant-context.ts"
+      ],
+      "tests": [
+        "packages/engine/src/tests/harness/unscoped-fallback.test.ts",
+        "packages/engine/src/tests/unit/fail-closed-tenant.test.ts"
+      ],
+      "ran": [
+        "planted an empty table set into unscoped-fallback.test.ts: 1 of 2 tests FAILS \u2014 the file carries a positive control, so a zero cannot be a counter that never moves. Predicted a hole here and the code defended itself.",
+        "measured, as a non-owner role: ALTER DATABASE ... SET \u2192 'ERROR: must be owner of database'. That error is inside the try/catch in applyFailClosedTenantSetting.",
+        "probed an unknown x-tenant-slug through the harness. /api/collections showed nothing (instance-level table, correctly ignored by the counter) \u2014 the first probe measured nothing and was redone.",
+        "/api/webhooks with a known slug: 200, 0 unscoped fallbacks. With slug 'no-such-tenant-anywhere': 200, **1 unscoped fallback** \u2014 the request ran outside the tenant transaction, on the pool.",
+        "row visibility on that same route, two tenants seeded: the bogus slug returned ONLY the default tenant's row, not the other's \u2014 tenantId(c) falls back to DEFAULT_TENANT_ID, so a handler that filters explicitly contains it.",
+        "probed a SUSPENDED tenant: /api/webhooks with its slug returns **200 and 1 unscoped fallback**, not the 403 'Tenant account is suspended' the middleware intends. getTenantBySlug filters status='active', so the suspended row never reaches the 403 branch at middleware/tenant.ts:134 \u2014 that branch is unreachable via the slug path."
+      ],
+      "findings": [
+        {
+          "severity": "high",
+          "where": "lib/tenancy/tenant-manager.ts:749 resolveTenantFromRequest",
+          "what": "the x-tenant-slug branch returns getTenantBySlug(slug) directly, so an UNKNOWN slug yields null and the middleware's else-branch runs the request with no tenant and no transaction. The subdomain branch twelve lines below handles exactly this case and says why: 'null silently disables the tenant GUC, which breaks RLS in the worst possible way'. Priority 1 \u2014 the path the Studio uses on every request \u2014 never got the same fallback. PROVEN: 1 unscoped fallback on /api/webhooks with a bogus slug, against 0 with a real one. Consequence is route-dependent and I measured it rather than assuming: handlers that add an explicit tenant_id predicate degrade to the DEFAULT tenant (tenantId(c) returns the sentinel), so the route I tested did not leak. A handler relying on RLS alone would run on the pool as the engine's own role, which in the recommended 'enforced' deployment is the privileged one. SHARPER TRIGGER, measured after the first write-up: getTenantBySlug filters `status = 'active'`, so a SUSPENDED tenant also yields null and takes the same path \u2014 200 with 1 unscoped fallback instead of the 403 the middleware has for exactly that case. The 403 at middleware/tenant.ts:134 is unreachable via the slug path, because the lookup feeding it already filtered the row out. Suspending a tenant is an ordinary administrative action (non-payment, offboarding) and it does not refuse their requests; it moves them out of tenant isolation. NOT verified: whether a non-god user of the suspended tenant can then read the default tenant's rows \u2014 that depends on each route's own authorization and was not tested.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": "lib/tenancy/fail-closed-tenant.ts:14-38",
+          "what": "the whole body is wrapped in try/catch \u2192 console.warn. Measured: a non-owner role gets 'must be owner of database' from ALTER DATABASE ... SET, and that error is swallowed. So an operator who sets ZVELTIO_FAIL_CLOSED_TENANT=1 \u2014 an explicit request for contextless queries to see zero rows \u2014 can boot with the setting silently not applied. The repository already holds the right standard three hundred lines away: an unenforceable RLS role is FATAL in production with an explicit ZVELTIO_ALLOW_UNENFORCED_RLS override, and the comment there says why a warning is the wrong instrument ('it scrolls past during a deploy'). The existing unit test pins only the current_database() probe failure, not the ALTER failure.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/tenant-scope.ts:150 encodeTenantSet",
+          "what": "encodeTenantSet([]) and encodeTenantSet(null) both produce '', and the file's own docstring says an empty GUC means 'no set published' \u2192 equality fallback. The only path reaching [] is org-reach over an empty zv_tenants (and the god branch in tenant-manager does the same), so the effect is a NARROWING to the own unit \u2014 the safe direction \u2014 but the two states are indistinguishable in the GUC.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit. The suspended-tenant consequence is measured only as far as the unscoped fallback and the 200; the row-level question for a non-god user is open.",
+      "verdict": "partial"
+    },
+    {
+      "section": "A04",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/A04-tenancy-core",
+      "files": ["packages/engine/src/lib/tenancy/tenant-manager.ts"],
+      "tests": [
+        "packages/engine/src/tests/harness/rls-role-credential-grants.test.ts",
+        "packages/engine/src/tests/harness/tenant-apply-rls.test.ts"
+      ],
+      "ran": [
+        "read the remaining 1345 lines: getDefaultTenant, visibleTenantsFn, applyTenantRLS, both reconcilers, rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache, the tenant lookups, provisionTenantSchema/Environment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS",
+        "the passkey grant found here is fixed and merged as PR #441 \u2014 separate branch, because it is an authentication bypass rather than a review note",
+        "measured: 45 tenant_* schemas accumulated in one test database",
+        "proved sql.id('schema.table') quotes the whole string as ONE identifier: SELECT FROM \"probe_sch.t\" \u2192 relation does not exist, while \"probe_sch\".\"t\" works"
+      ],
+      "findings": [
+        {
+          "severity": "medium",
+          "where": "lib/tenancy/tenant-manager.ts:626 provisionTenantSchema (+ lib/data-quality.ts:377)",
+          "what": "the schema-per-tenant machinery is vestigial and looks like isolation it does not provide. provisionTenantSchema creates tenant_<slug> with zvd_collections/zvd_relations/zvd_permissions on every tenant creation (routes/tenants.ts:210), and NOTHING in the data layer reads them \u2014 tenantSchema is set by the middleware and consumed by no data route; no search_path is set for them (preview-env sets one for branch schemas, a different feature). 45 such schemas had accumulated in one test database. Its one apparent consumer proves the path is never exercised: runQualityScan takes a tenantSchema and builds `${schema}.zvd_${collection}`, which reaches sql.id() as a single dotted string \u2014 measured, that quotes the whole thing as ONE identifier and Postgres answers 'relation does not exist'. The parameter is exposed to extensions through ctx.internals and cannot work. An operator seeing per-tenant schemas would reasonably conclude data is separated by schema; it is row-level in public. (data-quality.ts belongs to A17; recorded here because it is the same finding.)",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": "lib/tenancy/tenant-manager.ts:330 reconcileExtensionTenantRLS",
+          "what": "DROP POLICY then CREATE POLICY are two separate statements on the pool, not one transaction, so between them the table has RLS enabled and no policy. That is fail-closed \u2014 a non-owner sees zero rows \u2014 but it is a window in which live traffic on that table reads empty rather than being blocked or correct.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed \u2014 both are larger than a review commit.",
+      "verdict": "logged"
     }
   ]
 }

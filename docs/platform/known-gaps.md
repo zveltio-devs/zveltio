@@ -341,6 +341,98 @@ no lifecycle scripts by default (no `trustedDependencies` is declared).
 `release-gate` is wired so that `publish-release` needs it. The sibling clone
 resolves a paired branch of the same name before falling back to master.
 
+### A04 — tenancy core (2026-09-04, partial)
+
+Four of five files read; `tenant-manager.ts` is only partly read and the section
+stays open. Everything below was produced by probing, not by reading.
+
+**Gap — an unknown `x-tenant-slug` takes the request out of tenant isolation.**
+`resolveTenantFromRequest` returns `getTenantBySlug(slug)` directly for the header
+branch, so a slug that does not exist yields `null`, and `tenantMiddleware`'s
+`else` runs the request with no tenant and no transaction. The subdomain branch
+twelve lines below handles precisely this case, and says why: *"null silently
+disables the tenant GUC, which breaks RLS in the worst possible way (empty reads
++ 500 writes)"*. Priority 1 — the path the Studio uses on every request — never
+got the same fallback.
+
+Proven with the engine's own instrument: `/api/webhooks` with a real slug reports
+**0** unscoped fallbacks; with `x-tenant-slug: no-such-tenant-anywhere` it returns
+**200 and 1 unscoped fallback**, meaning the handler ran on the pool rather than
+inside the tenant transaction.
+
+**A suspended tenant takes the same path, and that is the realistic trigger.**
+`getTenantBySlug` filters `status = 'active'`, so a suspended tenant's slug also
+returns `null`. Measured: `/api/webhooks` with a suspended tenant's slug returns
+**200 with 1 unscoped fallback** — not the `403 Tenant account is suspended` the
+middleware has for exactly this case. That 403, at `middleware/tenant.ts:134`, is
+unreachable through the slug path, because the lookup feeding it already filtered
+the row out. Suspending a tenant is an ordinary administrative action — non-payment,
+offboarding — and it does not refuse those requests; it moves them out of tenant
+isolation and answers 200.
+
+The consequence is route-dependent, and it was measured rather than assumed. With
+two tenants seeded, the bogus slug returned **only the default tenant's row** —
+`tenantId(c)` falls back to `DEFAULT_TENANT_ID`, so a handler that adds its own
+`tenant_id` predicate contains the damage to the default tenant. A handler relying
+on RLS alone would run as the engine's own role, which in the recommended
+`enforced` deployment is the privileged one. So: proven loss of isolation,
+unproven leak, and which of the two you get depends on the handler.
+
+**Gap — `ZVELTIO_FAIL_CLOSED_TENANT=1` can boot without being applied.**
+`applyFailClosedTenantSetting` wraps its whole body in `try/catch → console.warn`.
+Measured: a non-owner role gets `ERROR: must be owner of database` from
+`ALTER DATABASE … SET`, and that error lands in the same catch as the harmless
+`current_database()` probe. An operator who explicitly asked for contextless
+queries to see zero rows can therefore start an engine where they do not.
+
+The repository already holds the right standard three hundred lines away: an
+unenforceable `zveltio_rls` role is **fatal in production**, with an explicit
+`ZVELTIO_ALLOW_UNENFORCED_RLS` override, and the comment there says exactly why a
+warning is the wrong instrument — *"it scrolls past during a deploy"*. The
+existing unit test pins only the probe failure, not the `ALTER` failure.
+
+**Gap (low) — `encodeTenantSet([])` and `encodeTenantSet(null)` are the same
+string.** Both produce `''`, which the predicate reads as "no set published" and
+answers with the equality fallback. The only paths reaching `[]` are an `org`
+reach and the god branch over an empty `zv_tenants`, so the effect is a narrowing
+to the own unit — the safe direction — but the two states cannot be told apart in
+the GUC.
+
+**Gap — the schema-per-tenant machinery is vestigial, and it looks like isolation.**
+`provisionTenantSchema` creates `tenant_<slug>` with its own
+`zvd_collections` / `zvd_relations` / `zvd_permissions` every time a tenant is
+created, and **nothing in the data layer reads them**. `tenantSchema` is set by
+the middleware and consumed by no data route; no `search_path` is set for these
+schemas (the preview-environment middleware sets one for *branch* schemas, a
+different feature). Forty-five of them had accumulated in a single test database.
+
+Its one apparent consumer is the proof that the path has never run:
+`runQualityScan` accepts a `tenantSchema` and builds
+`` `${schema}.zvd_${collection}` ``, which reaches `sql.id()` as one dotted
+string. Measured — `SELECT … FROM "probe_sch.t"` answers *relation does not
+exist*, while `"probe_sch"."t"` works — so the parameter cannot do what it says,
+and it is exposed to extensions through `ctx.internals`.
+
+The cost is not the dead code. An operator who inspects the database and finds a
+schema per tenant will reasonably conclude that tenant data is separated by
+schema. It is not: isolation is row-level, in `public`. Fixing this is an owner
+decision rather than a patch — either the machinery goes, or it is wired up and
+the identifier bug fixed.
+
+**Gap (low) — the extension reconciler drops a policy before creating its
+replacement.** `DROP POLICY` and `CREATE POLICY` run as two statements on the
+pool rather than one transaction, so between them the table has RLS enabled and
+no policy. That is the fail-closed direction — a non-owner sees zero rows — but
+live traffic on that table reads empty for the duration rather than reading
+correctly.
+
+**Verified clean, and worth recording because it is the answer to the question
+this campaign keeps asking.** `unscoped-fallback.test.ts` carries a **positive
+control**: a second test that produces a fallback on purpose and asserts the
+counter moved. Planting an empty tenant-scoped table set makes that test fail, so
+a zero in the first test cannot be a counter that never ran. Predicted a hole
+here; the code defended itself.
+
 ---
 
 ## 4. Deliberate deferrals
