@@ -253,7 +253,9 @@ either.** On the first day, E04 tightened `require-sibling` to reject an empty
 directory, and that was correct — but an E01 fixture built its fake sibling as
 exactly that, so folding the two branches produced a failing test neither
 section had on its own. Neither author was wrong and neither could have seen it
-alone. Whoever merges owns that run.
+alone. Whoever merges owns that run — and it is the two sections' own harness
+files, not the full suite: 30 tests and about a second, which is the property
+that makes a rule get followed.
 
 ---
 
