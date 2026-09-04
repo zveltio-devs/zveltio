@@ -481,8 +481,18 @@ describe('the migration readers grade the half that runs', () => {
         'CREATE TABLE IF NOT EXISTS zz_probe (\n  id uuid PRIMARY KEY,\n  tenant_id uuid NOT NULL\n);\n' +
           '\n-- DOWN\nALTER TABLE zz_probe ENABLE ROW LEVEL SECURITY;\nDROP TABLE zz_probe;\n',
       );
-      // The sibling guard fires before anything else, so give it one.
-      mkdirSync(join(r, '..', 'zveltio-extensions'), { recursive: true });
+      // The sibling guard fires before anything else, so give it one — and a
+      // real one. `require-sibling.ts` was tightened on 2026-09-04 (E04) to
+      // demand an extension manifest within two levels, because an EMPTY
+      // directory passed `existsSync` and every gate behind the guard then
+      // reported its confident OK over nothing. An empty `zveltio-extensions/`
+      // here was enough before that change and is not now, which is the guard
+      // working: this fixture has to look like the repository it stands in for.
+      mkdirSync(join(r, '..', 'zveltio-extensions', 'probe-ext'), { recursive: true });
+      writeFileSync(
+        join(r, '..', 'zveltio-extensions', 'probe-ext', 'manifest.json'),
+        JSON.stringify({ name: 'probe-ext' }),
+      );
       const { code, out } = await run(r, GATE);
       expect(out).toContain('zz_probe');
       expect(out).toContain('no migration enables row level security');

@@ -248,6 +248,13 @@ owner's explicit approval. Branch per section: `review/<section>-<slug>`.
 Every repair needs a test that would have caught the defect. A fix without one
 is a fix that comes back.
 
+**When two sections land together, run both their tests before you believe
+either.** On the first day, E04 tightened `require-sibling` to reject an empty
+directory, and that was correct — but an E01 fixture built its fake sibling as
+exactly that, so folding the two branches produced a failing test neither
+section had on its own. Neither author was wrong and neither could have seen it
+alone. Whoever merges owns that run.
+
 ---
 
 ## Recording a session

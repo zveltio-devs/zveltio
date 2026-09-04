@@ -139,9 +139,7 @@
       "date": "2026-09-04",
       "agent": "claude-opus-5",
       "branch": "review/campaign-setup (working tree \u2014 not committed)",
-      "files": [
-        "scripts/check-jsonb-binding.ts"
-      ],
+      "files": ["scripts/check-jsonb-binding.ts"],
       "tests": [
         "packages/engine/src/tests/harness/gate-planted-variants.test.ts",
         "packages/engine/src/tests/harness/jsonb-notification-binding.test.ts"

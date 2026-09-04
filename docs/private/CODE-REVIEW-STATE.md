@@ -21,9 +21,9 @@ After it: E04, E08, A04, A05 …
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **13 / 656** (2%)
-- Lines in scope: **3,613 / 135,041** (3%)
-- Test files opened by some session: **2 / 855**
+- Files in scope: **18 / 656** (3%)
+- Lines in scope: **4,203 / 135,131** (3%)
+- Test files opened by some session: **5 / 858**
 
 ## Sections
 
@@ -113,7 +113,7 @@ After it: E04, E08, A04, A05 …
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 0/11 | — |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,679 | 0/10 | — |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,769 | 5/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -124,7 +124,7 @@ After it: E04, E08, A04, A05 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 855 | 91,400 | n/a | — |
+| T01 | Test corpus | 858 | 91,811 | n/a | — |
 
 ---
 
@@ -1107,16 +1107,36 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `scripts/any-ratchet.ts` | 143 |
+| ✅ | `scripts/any-ratchet.ts` | 186 |
 | · | `scripts/coverage-gate.ts` | 204 |
-| · | `scripts/lib/any-targets.ts` | 97 |
+| ✅ | `scripts/lib/any-targets.ts` | 97 |
 | · | `scripts/lib/install-template.ts` | 126 |
-| · | `scripts/lib/require-sibling.ts` | 50 |
-| · | `scripts/lint-warning-ratchet.ts` | 137 |
+| ✅ | `scripts/lib/require-sibling.ts` | 92 |
+| ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
 | · | `scripts/merge-coverage.ts` | 214 |
 | · | `scripts/release-gate.ts` | 350 |
 | · | `scripts/review-inventory.ts` | 1285 |
-| · | `scripts/suppress-existing-any.ts` | 73 |
+| ✅ | `scripts/suppress-existing-any.ts` | 78 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/E04-gates-coverage-ratchets`
+  - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
+  - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
+  - ran: after the repair, same probe — FAIL, exit 1, naming the file
+  - ran: check-fabricated-success against a fabricated root whose sibling directory exists and is EMPTY — 'OK — 0 site(s), baseline allows 0', exit 0
+  - ran: after the repair — FAIL exit 1 ('no extension manifest'); with one manifest.json present — OK exit 0; with ZVELTIO_ALLOW_MISSING_SIBLING=1 — WARNING + OK
+  - ran: bun run scripts/suppress-existing-any.ts — ENOENT at line 43 before the repair; `bun x biome lint --suppress` after, verified to actually write the comment ('Fixed 1 file')
+  - ran: bun run studio:dev — 'bunx: command not found', exit 127
+  - ran: all 7 requireSibling gates + any:ratchet + lint:ratchet + lint + format:check after the repairs — all green
+  - ran: both new tests against the pre-repair scripts — 2 of 3 fail in each; after — 6 pass
+  - ran: biome.json exclusion list vs the hand-mirrored regex in lib/any-targets.ts — 33 slugs each, zero divergence today
+  - **high** scripts/any-ratchet.ts:33 — the ratchet counted only `biome-ignore`, while biome also honours `biome-ignore-all` (whole file) and `biome-ignore-start` (range). One comment hid three `any` and the gate reported no change at all — the debt could grow without moving a count, which is the one thing it promises cannot happen. Counting them is not a repair, because one marker buys an unbounded number; they are refused. → *fixed*
+  - **high** scripts/lib/require-sibling.ts:31 — the guard tested `existsSync(root)`, and an empty directory passes it. With an empty sibling, check-fabricated-success printed the same sentence it prints over a real 51-extension corpus. Affects all 8 gates that call it. Now requires an extension manifest within two levels. → *fixed*
+  - **medium** scripts/suppress-existing-any.ts:45 — spawned `bunx`, which is absent from the Bun install this repository documents — the codemod threw ENOENT at its first batch and could not run. The campaign's own method doc carries the rule: `bun x`, not `bunx`. → *fixed*
+  - **low** package.json:54 (studio:dev) — same `bunx` defect: `bun run studio:dev` exits 127 with 'bunx: command not found'. Outside this section's files, so logged rather than fixed. → *logged* (known-gaps.md — to be added by the owner of E05/package.json)
+  - **low** scripts/lib/any-targets.ts:97 — `EXCLUDE_SOURCE` is exported 'for the biome.json cross-check'; nothing imports it and no such check exists. The two exclusion lists agree today (33 = 33, verified) but by discipline, not mechanism — the thing this repository repeatedly says is not enough. → *logged*
+  - not done: Five of the ten files are unread: coverage-gate.ts, merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and was not tested. One open question worth a session of its own: a file-level suppression also zeroes a rule's count in lint-warning-ratchet, where it reads as an improvement rather than as invisibility.
 
 ### E05 — Build, packaging and Studio tooling scripts
 
@@ -1279,7 +1299,7 @@ After it: E04, E08, A04, A05 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **853** of 855.
+Test files nobody has opened yet: **853** of 858.
 
 | Directory | Unread |
 | --- | --: |
