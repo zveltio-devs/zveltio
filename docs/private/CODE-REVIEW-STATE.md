@@ -6,24 +6,24 @@
 > The method — what counts as reviewed — is in
 > [`CODE-REVIEW-CAMPAIGN.md`](./CODE-REVIEW-CAMPAIGN.md). Read it first.
 
-Generated: 2026-09-04T07:53:46.434Z · ledger updated: 2026-09-04
+Generated: 2026-09-04T07:53:46.520Z · ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E01 — Gates — tenancy, SQL and data safety**
+### → **E02 — Gates — authorisation, audit, structure**
 
-*Plant a violation in each. A gate that does not fail on it is not a gate.*
+*Which of these read the sibling repository, and which report clean when they cannot find it.*
 
-12 of 12 files still unread. Its file list is under [`E01`](#e01--gates-tenancy-sql-and-data-safety) below.
+10 of 10 files still unread. Its file list is under [`E02`](#e02--gates-authorisation-audit-structure) below.
 
-After it: E02, E04, E08, A04 …
+After it: E04, E08, A04, A05 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **0 / 646** (0%)
-- Lines in scope: **0 / 132,770** (0%)
-- Test files opened by some session: **0 / 849**
+- Files in scope: **12 / 646** (2%)
+- Lines in scope: **3,099 / 132,770** (2%)
+- Test files opened by some session: **1 / 849**
 
 ## Sections
 
@@ -110,7 +110,7 @@ After it: E02, E04, E08, A04 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| E01 | Gates — tenancy, SQL and data safety | 12 | 3,099 | 0/12 | — |
+| E01 | Gates — tenancy, SQL and data safety | 12 | 3,099 | 12/12 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 10 | 2,308 | 0/10 | — |
 | E03 | Gates — artifact freshness and i18n | 15 | 3,881 | 0/15 | — |
 | E04 | Gates — coverage, ratchets, release | 10 | 2,676 | 0/10 | — |
@@ -990,18 +990,48 @@ After it: E02, E04, E08, A04 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `scripts/check-atomic-writes.ts` | 325 |
-| · | `scripts/check-duplicate-rules.ts` | 200 |
-| · | `scripts/check-duplicate-table-creators.ts` | 189 |
-| · | `scripts/check-insert-schema-match.ts` | 720 |
-| · | `scripts/check-migration-safety.ts` | 262 |
-| · | `scripts/check-numeric-string-arithmetic.ts` | 325 |
-| · | `scripts/check-pooldb-txn-skip.ts` | 102 |
-| · | `scripts/check-raw-sql-identifiers.ts` | 149 |
-| · | `scripts/check-rule-interpreters.ts` | 218 |
-| · | `scripts/check-sql-template-backticks.ts` | 107 |
-| · | `scripts/check-tenant-boundary.ts` | 324 |
-| · | `scripts/check-tenant-table-on-pool.ts` | 178 |
+| ✅ | `scripts/check-atomic-writes.ts` | 325 |
+| ✅ | `scripts/check-duplicate-rules.ts` | 200 |
+| ✅ | `scripts/check-duplicate-table-creators.ts` | 189 |
+| ✅ | `scripts/check-insert-schema-match.ts` | 720 |
+| ✅ | `scripts/check-migration-safety.ts` | 262 |
+| ✅ | `scripts/check-numeric-string-arithmetic.ts` | 325 |
+| ✅ | `scripts/check-pooldb-txn-skip.ts` | 102 |
+| ✅ | `scripts/check-raw-sql-identifiers.ts` | 149 |
+| ✅ | `scripts/check-rule-interpreters.ts` | 218 |
+| ✅ | `scripts/check-sql-template-backticks.ts` | 107 |
+| ✅ | `scripts/check-tenant-boundary.ts` | 324 |
+| ✅ | `scripts/check-tenant-table-on-pool.ts` | 178 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 12 files · **repaired** · `(working tree, docs/unified-chapters — not committed, owner approval pending)`
+  - ran: all 12 gates on a clean tree — 12/12 exit 0
+  - ran: PLANTED a second violation shape into each of the 12; 9 of the plants stayed green (listed under findings), the audit-gates shapes were all caught
+  - ran: built a full engine+54-extension install into zveltio_review_e01 via buildInstallTemplate — 0 migrations failed to apply
+  - ran: GROUND TRUTH: check-tenant-boundary's classification vs pg_class.relrowsecurity on that install — 0 divergences in either direction across 333 tenant-scoped tables (gate says 322 policed; the database agrees exactly)
+  - ran: instrumented check-insert-schema-match: 0 sites skipped for an absent table, 0 migration errors — the '474 sites checked' claim is honest today
+  - ran: bun test src/tests/harness/gate-planted-variants.test.ts — 15 pass, 0 fail; against the pre-repair gates (git show HEAD:) the same file is 7 pass, 8 fail — the 8 that pin the repairs
+  - ran: bun test src/tests/harness/gate-numeric-arith-fails-closed.test.ts — 6 pass, 0 fail
+  - ran: bun run scripts/check-gate-coverage.ts — OK, 43 CI scripts, 39 proved by planting
+  - ran: bun run audit:gates — EXIT 1 BEFORE PLANTING ANYTHING: 'packages/studio/dist/.zveltio-studio-version already exists — refusing to overwrite it with a probe'. The meta-gate is unrunnable in any checkout that has built the Studio.
+  - ran: bun run typecheck — 7/7 successful (engine a cache miss, so really compiled)
+  - ran: bun run lint / format:check / check:test-leftovers — clean
+  - ran: ran all five sibling-scanning gates from a checkout with no sibling: 4 fail closed, check-sql-template-backticks reported an unqualified OK
+  - **high** scripts/check-migration-safety.ts:173 — squawk's exit code was awaited and discarded, and stderr piped and never read, so a linter that could not run produced an empty parse, no findings, and '✅ No upgrade hazards found'. Proved by substituting an unresolvable binary: the gate passed a migration adding a NOT NULL column with no default — the exact hazard audit-gates plants. Same class as the unchecked gzip.exitCode on the backup paths. → *repaired* (gate-planted-variants.test.ts, 3 cases)
+  - **medium** scripts/check-pooldb-txn-skip.ts:47 — quoted paths were extracted from the COMMENTS inside TXN_SKIP_PREFIXES. Planting a pool-backed router plus the line `// '/api/plantpool' is deliberately NOT here` turned the gate green and listed that router in its success line as one of five 'all outside the request transaction'. The real list survives only because its prose quotes paths in backticks. → *repaired* (gate-planted-variants.test.ts, 2 cases)
+  - **medium** scripts/check-tenant-table-on-pool.ts:94 — the scan ran line by line, so `poolDb` followed by `.selectFrom('zv_api_keys')` on the next line — which is what the formatter emits for any chain long enough to wrap — was invisible, while the same violation on one line was caught. → *repaired* (gate-planted-variants.test.ts, 3 cases)
+  - **medium** scripts/check-tenant-table-on-pool.ts (whole file) — the gate matches ZERO sites in the corpus. All four pool-backed routers take the raw pool as the parameter `db`, so nothing under routes/ spells `poolDb.`, and 'none queried on poolDb from a route' has always meant 'there were none to look at'. Unlike check-pooldb-txn-skip it has no blindness guard. Reach is now printed; resolving the alias would make it fail on production code and is an owner decision. → *logged* (known-gaps.md §3a)
+  - **medium** scripts/check-duplicate-rules.ts:63 + scripts/check-rule-interpreters.ts:117 — a fifth hand-written rule interpreter covering eq/neq only — the exact defect shape both headers describe — passed BOTH gates when written as `switch (cond.op) { case 'eq': }`. check-duplicate-rules knew only `===`; check-rule-interpreters keys on `'not_in'`, the operator such a copy omits by definition. Widening the pattern immediately surfaced a real pre-existing site, lib/virtual-collection-adapter.ts:146, which was then verified to be a different question and exempted with the reason. → *repaired* (gate-planted-variants.test.ts, 3 cases)
+  - **medium** scripts/check-rule-interpreters.ts:142 — `text.includes('rule-operators.js')` was satisfied by a COMMENT. A planted fifth applier carrying `// rule-operators.js is the source of truth` was waved through and then counted: '3 file(s) render the operators, all via lib/tenancy/rule-operators.js' — untrue of the file just accepted. Now requires an actual import; both real readers have one. → *repaired* (gate-planted-variants.test.ts, 2 cases)
+  - **low** scripts/check-insert-schema-match.ts:565 — an INSERT into a table no migration creates was skipped silently AND counted among the sites 'checked against their own schema' — the count rose from 474 to 475 for a site compared against nothing. A whole-table typo is worse than the wrong-column defect the gate does catch, and the success line was hiding it. Now counted separately and named; still exit 0, because runtime-created collection tables would otherwise be noise. → *repaired* (no test — the change is a printed line and reproducing it costs a 22s full install; stated in the test file's header)
+  - **low** scripts/check-sql-template-backticks.ts:28 — the one gate in E01 that scans the sibling by default without requiring it: from a checkout with no sibling it printed 'OK — no backticks inside SQL template comments' having scanned half its corpus. CI's Lint job clones the sibling so CI was honest; prepush and every local run were not. Kept runnable (its subject is this repo), but the sentence now says what was not scanned. → *repaired* (gate-planted-variants.test.ts, 2 cases)
+  - **low** scripts/check-atomic-writes.ts:215 — any `.transaction(` in the handler slice suppresses the finding, so a handler that wraps an audit-log write and leaves two real writes unwrapped is skipped. Planted and confirmed. Separating this needs a parser, which the file's own header already argues. → *logged* (known-gaps.md §3a)
+  - **low** scripts/check-tenant-boundary.ts:74,199 — two fail-open paths, both latent and both measured. (a) The whole file is read, DOWN half included, so ENABLE ROW LEVEL SECURITY written in a rollback section counts as policed — every other reader in the repo cuts at the marker; 302/302 tables enable it in the UP half today. (b) Any ARRAY[…] in a file that also creates a tenant_isolation policy credits every name in it; 24 tables get their status only that way. The classification was checked against pg_class.relrowsecurity on a real install and is exactly right — it is the reason it is right that is fragile. → *logged* (known-gaps.md §3a)
+  - **low** scripts/check-duplicate-table-creators.ts:100 — strips `--` comments but not the DOWN section, so a CREATE TABLE written to restore a dropped table reads as a second owner. Over-reports, not under-reports. One file does it today, harmlessly (same owner). → *logged* (known-gaps.md §3a)
+  - **medium** scripts/audit-gates.ts (section E02) — observed from here — `bun run audit:gates` exits 1 before planting anything when a `create` probe path already exists, and packages/studio/dist/.zveltio-studio-version is an ordinary local build artifact. So the only proof these twelve gates have is unrunnable in any checkout that has built the Studio. Reported fixed on master after this checkout's base. → *logged* (known-gaps.md §3a)
+  - **low** packages/engine/src/lib/data/handlers/list.ts:222-265 (section A12) — observed from here — the virtual-collection branch returns before the 'RLS injection' block, so row rules never apply to a virtual collection; only column permissions do. Found while proving virtual-collection-adapter.ts is not a duplicated rule interpreter. NOT verified against intent — it may be the only thing possible when the rows come from a third party. Written down because it looks identical either way. → *logged* (known-gaps.md §3a)
+  - not done: Eleven of the twelve gates still have no test beyond the six variants added here; the T01 backlog for this section is 'a case per gate, not per repair'. The `db`-alias blindness in check-tenant-table-on-pool is diagnosed but not closed — closing it makes the gate fail on insights.ts/flows.ts and needs an owner decision about those routers, not a patch. audit:gates could not be run end to end in this checkout. E01 WILL REOPEN: master carries scripts/check-jsonb-binding.ts, which belongs to this section, so a catch-up merge takes it from 12/12 to 12/13 and the generator hands it back as NEXT — intended, and worth the visit given that gate's subject (zv_api_keys.scopes held as JSON text, where an authorisation check written the natural SQL way denies a key its own scopes). The placement of master's new files was measured twice on 2026-09-04, and the first measurement is worth keeping: they had been reported as placed while four of the five were absent from scripts/review-inventory.ts — an edit script whose multi-entry anchors had been broken by an intervening `check:fix` reformat, so four `replace()` calls returned the string unchanged and exited 0. Reported success that did not happen, inside the campaign that names it as failure class 1. Re-verified after the second attempt, by routing rather than by grep: check-jsonb-binding.ts→E01, check-env-documented.ts→E02, check-extension-i18n-namespaces.ts→E03, backfill-i18n-prefixes.ts→E06 are explicit entries, and lib/jsonb.ts→A08, lib/backup/verify-archive.ts→B10, sdk/src/extension/jsonb.ts→D02, testing/fake-redis.ts→E07, 010_unwrap_double_encoded_jsonb.sql→A10 route correctly by prefix through the real matcher, with nothing unassigned. E06's bare `scripts/` prefix — which would have swallowed a new gate silently and filed it as an ops probe — is now an explicit list, so an unplaced gate fails loudly instead. No git command that changes the tree was run, and nothing is committed.
 
 ### E02 — Gates — authorisation, audit, structure
 
@@ -1218,12 +1248,12 @@ After it: E02, E04, E08, A04 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **849** of 849.
+Test files nobody has opened yet: **848** of 849.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 492 |
-| `packages/engine/src/tests/harness` | 281 |
+| `packages/engine/src/tests/harness` | 280 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |
