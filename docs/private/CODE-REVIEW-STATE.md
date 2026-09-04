@@ -6,24 +6,24 @@
 > The method — what counts as reviewed — is in
 > [`CODE-REVIEW-CAMPAIGN.md`](./CODE-REVIEW-CAMPAIGN.md). Read it first.
 
-Generated: 2026-09-04T07:53:46.520Z · ledger updated: 2026-09-04
+Generated: 2026-09-04T07:54:13.527Z · ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E02 — Gates — authorisation, audit, structure**
+### → **E01 — Gates — tenancy, SQL and data safety**
 
-*Which of these read the sibling repository, and which report clean when they cannot find it.*
+*Plant a violation in each. A gate that does not fail on it is not a gate.*
 
-10 of 10 files still unread. Its file list is under [`E02`](#e02--gates-authorisation-audit-structure) below.
+1 of 13 files still unread. Its file list is under [`E01`](#e01--gates-tenancy-sql-and-data-safety) below.
 
-After it: E04, E08, A04, A05 …
+After it: E02, E04, E08, A04 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **12 / 646** (2%)
-- Lines in scope: **3,099 / 132,770** (2%)
-- Test files opened by some session: **1 / 849**
+- Files in scope: **12 / 656** (2%)
+- Lines in scope: **3,099 / 134,855** (2%)
+- Test files opened by some session: **2 / 855**
 
 ## Sections
 
@@ -31,67 +31,67 @@ After it: E04, E08, A04, A05 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| X01 | Synced from zveltio-extensions | 87 | 8,687 | n/a | — |
-| X02 | Generated artifacts | 4 | 5,947 | n/a | — |
+| X01 | Synced from zveltio-extensions | 84 | 8,866 | n/a | — |
+| X02 | Generated artifacts | 4 | 5,951 | n/a | — |
 | X03 | Archived one-shot scripts | 30 | 6,690 | n/a | — |
 
 ### A — engine core
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| A01 | Boot, app assembly, middleware order | 9 | 2,859 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,053 | 0/17 | — |
-| A03 | Error surface, health, API description | 9 | 2,364 | 0/9 | — |
+| A01 | Boot, app assembly, middleware order | 9 | 2,894 | 0/9 | — |
+| A02 | Middleware chain | 17 | 2,054 | 0/17 | — |
+| A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 1,960 | 0/5 | — |
 | A05 | RLS policies and row rules | 7 | 1,502 | 0/7 | — |
 | A06 | Permissions, roles, column access | 5 | 2,169 | 0/5 | — |
-| A07 | Authentication and identity | 7 | 1,723 | 0/7 | — |
-| A08 | Database layer, pool, dialect, migration runner | 9 | 2,677 | 0/9 | — |
+| A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
+| A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
-| A10 | Schema types and incremental migrations | 9 | 2,631 | 0/9 | — |
+| A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
 | A11 | Data write path | 8 | 2,004 | 0/8 | — |
 | A12 | Data read path | 9 | 1,795 | 0/9 | — |
-| A13 | DDL manager, queue, ghost DDL | 3 | 2,233 | 0/3 | — |
+| A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
-| A15 | Collection, relation and revision routes | 5 | 2,182 | 0/5 | — |
-| A16 | Tenant and admin routes | 5 | 1,887 | 0/5 | — |
-| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,560 | 0/7 | — |
+| A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
+| A16 | Tenant and admin routes | 5 | 1,876 | 0/5 | — |
+| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,566 | 0/7 | — |
 
 ### B — engine subsystems
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| B01 | Extension loading and lifecycle | 7 | 2,066 | 0/7 | — |
+| B01 | Extension loading and lifecycle | 7 | 2,129 | 0/7 | — |
 | B02 | Extension context and host internals | 6 | 2,306 | 0/6 | — |
 | B03 | Worker and WASM isolation | 6 | 2,314 | 0/6 | — |
-| B04 | Marketplace, download, signature, trust | 7 | 2,195 | 0/7 | — |
-| B05 | Manifest, catalog, dependencies, extension migrations | 9 | 1,372 | 0/9 | — |
+| B04 | Marketplace, download, signature, trust | 7 | 2,200 | 0/7 | — |
+| B05 | Manifest, catalog, dependencies, extension migrations | 9 | 1,460 | 0/9 | — |
 | B06 | Realtime, WebSocket, event bus | 5 | 2,153 | 0/5 | — |
 | B07 | Flows and cron | 7 | 2,377 | 0/7 | — |
-| B08 | Webhooks and notifications | 5 | 1,496 | 0/5 | — |
+| B08 | Webhooks and notifications | 5 | 1,501 | 0/5 | — |
 | B09 | Storage, files, media | 14 | 1,888 | 0/14 | — |
-| B10 | Backup, PITR, restore | 4 | 1,673 | 0/4 | — |
+| B10 | Backup, PITR, restore | 5 | 1,833 | 0/5 | — |
 | B11 | Edge functions and script execution | 12 | 1,965 | 0/12 | — |
-| B12 | Insights, saved queries, SQL editor | 3 | 1,736 | 0/3 | — |
+| B12 | Insights, saved queries, SQL editor | 3 | 1,737 | 0/3 | — |
 | B13 | Sync, Electric, runtime infrastructure | 7 | 1,466 | 0/7 | — |
 
 ### C — Studio & client
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| C01 | Studio shell, routing, API client, build config | 24 | 2,549 | 0/24 | — |
-| C02 | SDUI renderer — SchemaPage | 3 | 2,339 | 0/3 | — |
-| C03 | SDUI renderer — layouts | 3 | 1,089 | 0/3 | — |
+| C01 | Studio shell, routing, API client, build config | 24 | 2,569 | 0/24 | — |
+| C02 | SDUI renderer — SchemaPage | 3 | 2,357 | 0/3 | — |
+| C03 | SDUI renderer — layouts | 3 | 1,095 | 0/3 | — |
 | C04 | Components — collections and fields | 7 | 2,230 | 0/7 | — |
-| C05 | Components — common | 34 | 2,683 | 0/34 | — |
+| C05 | Components — common | 34 | 2,720 | 0/34 | — |
 | C06 | Components — layout, navigation, extensions, marketplace | 13 | 1,229 | 0/13 | — |
-| C07 | Admin pages — collections and data | 5 | 2,184 | 0/5 | — |
-| C08 | Admin pages — tenants, permissions, users, RLS, API keys | 6 | 2,725 | 0/6 | — |
+| C07 | Admin pages — collections and data | 5 | 2,197 | 0/5 | — |
+| C08 | Admin pages — tenants, permissions, users, RLS, API keys | 6 | 2,730 | 0/6 | — |
 | C09 | Admin pages — flows, marketplace, schema branches, templates, onboarding | 6 | 3,119 | 0/6 | — |
 | C10 | Admin pages — insights, saved queries, settings, storage, backup | 6 | 2,067 | 0/6 | — |
 | C11 | Admin pages — the rest | 8 | 1,732 | 0/8 | — |
 | C12 | Studio stores, utilities, sanitiser | 12 | 1,331 | 0/12 | — |
-| C13 | Public web host and intranet routes | 13 | 1,430 | 0/13 | — |
+| C13 | Public web host and intranet routes | 13 | 1,431 | 0/13 | — |
 | C14 | Client package | 45 | 2,353 | 0/45 | — |
 
 ### D — SDK, CLI, bindings
@@ -99,8 +99,8 @@ After it: E04, E08, A04, A05 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | D01 | SDK core and codegen | 7 | 1,409 | 0/7 | — |
-| D02 | SDK extension surface | 4 | 1,360 | 0/4 | — |
-| D03 | SDK validation, publishing, build, DDL, RPC | 9 | 2,043 | 0/9 | — |
+| D02 | SDK extension surface | 5 | 1,427 | 0/5 | — |
+| D03 | SDK validation, publishing, build, DDL, RPC | 9 | 2,045 | 0/9 | — |
 | D04 | SDK offline, sync, test harness | 14 | 2,644 | 0/14 | — |
 | D05 | CLI — install, migrate, deploy, keys | 14 | 2,651 | 0/14 | — |
 | D06 | CLI — extension commands | 13 | 2,831 | 0/13 | — |
@@ -110,21 +110,21 @@ After it: E04, E08, A04, A05 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| E01 | Gates — tenancy, SQL and data safety | 12 | 3,099 | 12/12 | 2026-09-04 — repaired |
-| E02 | Gates — authorisation, audit, structure | 10 | 2,308 | 0/10 | — |
-| E03 | Gates — artifact freshness and i18n | 15 | 3,881 | 0/15 | — |
+| E01 | Gates — tenancy, SQL and data safety | 13 | 3,447 | 12/13 | 2026-09-04 — repaired |
+| E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 0/11 | — |
+| E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
 | E04 | Gates — coverage, ratchets, release | 10 | 2,676 | 0/10 | — |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
-| E06 | Operational scripts and probes | 16 | 2,983 | 0/16 | — |
-| E07 | End-to-end suite, shared harness, benchmarks | 33 | 3,329 | 0/33 | — |
-| E08 | CI workflows | 21 | 3,318 | 0/21 | — |
+| E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
+| E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
+| E08 | CI workflows | 21 | 3,415 | 0/21 | — |
 | E09 | Containers, chart, installer, observability | 39 | 4,016 | 0/39 | — |
 
 ### T — tests
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 849 | 90,221 | n/a | — |
+| T01 | Test corpus | 855 | 91,252 | n/a | — |
 
 ---
 
@@ -134,13 +134,13 @@ After it: E04, E08, A04, A05 …
 
 *Destination copies of extension UI. Editing them here is erased by the next sync — they are reviewed in the sibling repository, against its own checklist.*
 
-87 files, 8,687 lines. Not reviewed in this campaign.
+84 files, 8,866 lines. Not reviewed in this campaign.
 
 ### X02 — Generated artifacts
 
 *Never hand-edited. Reviewed indirectly: the section owning the generator answers for what comes out of it, and a freshness gate owns the drift.*
 
-4 files, 5,947 lines. Not reviewed in this campaign.
+4 files, 5,951 lines. Not reviewed in this campaign.
 
 ### X03 — Archived one-shot scripts
 
@@ -155,7 +155,7 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/api-types.ts` | 286 |
-| · | `packages/engine/src/index.ts` | 1562 |
+| · | `packages/engine/src/index.ts` | 1597 |
 | · | `packages/engine/src/lib/service-registry.ts` | 122 |
 | · | `packages/engine/src/lib/startup-guards.ts` | 212 |
 | · | `packages/engine/src/routes/index.ts` | 514 |
@@ -180,7 +180,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/middleware/rate-limit.ts` | 495 |
 | · | `packages/engine/src/middleware/request-log.ts` | 91 |
 | · | `packages/engine/src/middleware/session-prefetch.ts` | 99 |
-| · | `packages/engine/src/middleware/slow-query.ts` | 60 |
+| · | `packages/engine/src/middleware/slow-query.ts` | 61 |
 | · | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
 | · | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
 | · | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
@@ -196,7 +196,7 @@ After it: E04, E08, A04, A05 …
 | --- | --- | --: |
 | · | `packages/engine/src/lib/doc-generator.ts` | 73 |
 | · | `packages/engine/src/lib/health-registry.ts` | 71 |
-| · | `packages/engine/src/lib/introspection.ts` | 220 |
+| · | `packages/engine/src/lib/introspection.ts` | 221 |
 | · | `packages/engine/src/lib/problem.ts` | 269 |
 | · | `packages/engine/src/lib/utils.ts` | 15 |
 | · | `packages/engine/src/lib/version-checker.ts` | 133 |
@@ -249,7 +249,7 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/lib/auth.ts` | 784 |
-| · | `packages/engine/src/lib/security/api-key-hash.ts` | 25 |
+| · | `packages/engine/src/lib/security/api-key-hash.ts` | 31 |
 | · | `packages/engine/src/lib/security/index.ts` | 12 |
 | · | `packages/engine/src/lib/security/keyring.ts` | 214 |
 | · | `packages/engine/src/lib/security/sso-session.ts` | 130 |
@@ -263,14 +263,15 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/db/auto-migrate.ts` | 120 |
-| · | `packages/engine/src/db/bun-sql-dialect.ts` | 720 |
+| · | `packages/engine/src/db/bun-sql-dialect.ts` | 729 |
 | · | `packages/engine/src/db/connection-trace.ts` | 85 |
 | · | `packages/engine/src/db/dynamic-types.ts` | 30 |
-| · | `packages/engine/src/db/dynamic.ts` | 556 |
-| · | `packages/engine/src/db/index.ts` | 278 |
-| · | `packages/engine/src/db/migrate.ts` | 30 |
+| · | `packages/engine/src/db/dynamic.ts` | 560 |
+| · | `packages/engine/src/db/index.ts` | 284 |
+| · | `packages/engine/src/db/migrate.ts` | 36 |
 | · | `packages/engine/src/db/migrations/index.ts` | 750 |
 | · | `packages/engine/src/db/pool-autosize.ts` | 108 |
+| · | `packages/engine/src/lib/jsonb.ts` | 40 |
 
 ### A09 — Base schema (001_initial.sql)
 
@@ -294,7 +295,9 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/db/migrations/sql/007_ext_registry_tenant_unique.sql` | 39 |
 | · | `packages/engine/src/db/migrations/sql/008_single_god.sql` | 68 |
 | · | `packages/engine/src/db/migrations/sql/009_revisions_unwrap_double_encoded.sql` | 98 |
-| · | `packages/engine/src/db/schema.ts` | 1530 |
+| · | `packages/engine/src/db/migrations/sql/010_unwrap_double_encoded_jsonb.sql` | 160 |
+| · | `packages/engine/src/db/migrations/sql/011_unwrap_collections_fields_jsonb.sql` | 85 |
+| · | `packages/engine/src/db/schema.ts` | 1531 |
 
 ### A11 — Data write path
 
@@ -333,7 +336,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/data/ddl-manager.ts` | 1183 |
+| · | `packages/engine/src/lib/data/ddl-manager.ts` | 1184 |
 | · | `packages/engine/src/lib/data/ddl-queue.ts` | 496 |
 | · | `packages/engine/src/lib/data/ghost-ddl.ts` | 554 |
 
@@ -356,9 +359,9 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/routes/collections.ts` | 847 |
+| · | `packages/engine/src/routes/collections.ts` | 848 |
 | · | `packages/engine/src/routes/erd-layout.ts` | 110 |
-| · | `packages/engine/src/routes/relations.ts` | 396 |
+| · | `packages/engine/src/routes/relations.ts` | 397 |
 | · | `packages/engine/src/routes/revisions.ts` | 246 |
 | · | `packages/engine/src/routes/schema-branches.ts` | 583 |
 
@@ -368,10 +371,10 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/routes/admin.ts` | 335 |
+| · | `packages/engine/src/routes/admin.ts` | 330 |
 | · | `packages/engine/src/routes/admin/config-routes.ts` | 250 |
 | · | `packages/engine/src/routes/admin/storage-routes.ts` | 136 |
-| · | `packages/engine/src/routes/admin/system-routes.ts` | 713 |
+| · | `packages/engine/src/routes/admin/system-routes.ts` | 707 |
 | · | `packages/engine/src/routes/tenants.ts` | 453 |
 
 ### A17 — Settings, audit trail, templates, RPC, data quality
@@ -385,7 +388,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/lib/notifications.ts` | 33 |
 | · | `packages/engine/src/lib/system-collections.ts` | 63 |
 | · | `packages/engine/src/routes/rpc.ts` | 199 |
-| · | `packages/engine/src/routes/settings.ts` | 377 |
+| · | `packages/engine/src/routes/settings.ts` | 383 |
 | · | `packages/engine/src/routes/templates.ts` | 402 |
 
 ### B01 — Extension loading and lifecycle
@@ -396,11 +399,11 @@ After it: E04, E08, A04, A05 …
 | --- | --- | --: |
 | · | `packages/engine/src/lib/extensions/activation.ts` | 351 |
 | · | `packages/engine/src/lib/extensions/discovery.ts` | 92 |
-| · | `packages/engine/src/lib/extensions/extension-loader.ts` | 495 |
+| · | `packages/engine/src/lib/extensions/extension-loader.ts` | 544 |
 | · | `packages/engine/src/lib/extensions/extension-paths.ts` | 80 |
-| · | `packages/engine/src/lib/extensions/lifecycle.ts` | 200 |
-| · | `packages/engine/src/lib/extensions/load-phases.ts` | 461 |
-| · | `packages/engine/src/lib/extensions/load.ts` | 387 |
+| · | `packages/engine/src/lib/extensions/lifecycle.ts` | 202 |
+| · | `packages/engine/src/lib/extensions/load-phases.ts` | 462 |
+| · | `packages/engine/src/lib/extensions/load.ts` | 398 |
 
 ### B02 — Extension context and host internals
 
@@ -434,9 +437,9 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/extensions/consent.ts` | 109 |
+| · | `packages/engine/src/lib/extensions/consent.ts` | 110 |
 | · | `packages/engine/src/lib/extensions/extension-download.ts` | 424 |
-| · | `packages/engine/src/lib/extensions/extension-license.ts` | 75 |
+| · | `packages/engine/src/lib/extensions/extension-license.ts` | 79 |
 | · | `packages/engine/src/lib/extensions/extension-marketplace-routes.ts` | 1117 |
 | · | `packages/engine/src/lib/extensions/revocations.ts` | 174 |
 | · | `packages/engine/src/lib/security/registry-keys.ts` | 113 |
@@ -453,7 +456,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/engine/src/lib/extensions/extension-errors.ts` | 40 |
 | · | `packages/engine/src/lib/extensions/extension-registry.ts` | 29 |
 | · | `packages/engine/src/lib/extensions/extension-utils.ts` | 244 |
-| · | `packages/engine/src/lib/extensions/manifest-schema.ts` | 298 |
+| · | `packages/engine/src/lib/extensions/manifest-schema.ts` | 386 |
 | · | `packages/engine/src/lib/extensions/migration-runner.ts` | 216 |
 | · | `packages/engine/src/lib/extensions/npm-install.ts` | 146 |
 | · | `packages/engine/src/lib/peer-deps-allowlist.ts` | 41 |
@@ -492,8 +495,8 @@ After it: E04, E08, A04, A05 …
 | --- | --- | --: |
 | · | `packages/engine/src/lib/push-notifications.ts` | 239 |
 | · | `packages/engine/src/lib/webhook-worker.ts` | 146 |
-| · | `packages/engine/src/lib/webhooks.ts` | 344 |
-| · | `packages/engine/src/routes/notifications.ts` | 403 |
+| · | `packages/engine/src/lib/webhooks.ts` | 345 |
+| · | `packages/engine/src/routes/notifications.ts` | 407 |
 | · | `packages/engine/src/routes/webhooks.ts` | 364 |
 
 ### B09 — Storage, files, media
@@ -523,10 +526,11 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/backup/run-scheduled-backup.ts` | 167 |
-| · | `packages/engine/src/lib/backup/scheduler.ts` | 250 |
+| · | `packages/engine/src/lib/backup/run-scheduled-backup.ts` | 183 |
+| · | `packages/engine/src/lib/backup/scheduler.ts` | 313 |
 | · | `packages/engine/src/lib/backup/upload.ts` | 139 |
-| · | `packages/engine/src/routes/backup.ts` | 1117 |
+| · | `packages/engine/src/lib/backup/verify-archive.ts` | 68 |
+| · | `packages/engine/src/routes/backup.ts` | 1130 |
 
 ### B11 — Edge functions and script execution
 
@@ -553,7 +557,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/routes/insights.ts` | 1013 |
+| · | `packages/engine/src/routes/insights.ts` | 1014 |
 | · | `packages/engine/src/routes/saved-queries.ts` | 610 |
 | · | `packages/engine/src/routes/sql-editor.ts` | 113 |
 
@@ -578,7 +582,7 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/studio/src/hooks.client.ts` | 4 |
-| · | `packages/studio/src/lib/api.ts` | 261 |
+| · | `packages/studio/src/lib/api.ts` | 277 |
 | · | `packages/studio/src/lib/auth.svelte.ts` | 57 |
 | · | `packages/studio/src/lib/config.ts` | 27 |
 | · | `packages/studio/src/lib/denial.ts` | 43 |
@@ -588,7 +592,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/routes/(admin)/+error.svelte` | 46 |
 | · | `packages/studio/src/routes/(admin)/+layout.svelte` | 335 |
 | · | `packages/studio/src/routes/(admin)/+layout.ts` | 40 |
-| · | `packages/studio/src/routes/(admin)/+page.svelte` | 681 |
+| · | `packages/studio/src/routes/(admin)/+page.svelte` | 685 |
 | · | `packages/studio/src/routes/(admin)/[...extPath]/+page.svelte` | 108 |
 | · | `packages/studio/src/routes/(admin)/[...extPath]/+page.ts` | 21 |
 | · | `packages/studio/src/routes/(admin)/extensions/[...path]/+page.svelte` | 54 |
@@ -608,7 +612,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/studio/src/lib/sdui/SchemaPage.svelte` | 1687 |
+| · | `packages/studio/src/lib/sdui/SchemaPage.svelte` | 1705 |
 | · | `packages/studio/src/lib/sdui/types.ts` | 482 |
 | · | `packages/studio/src/lib/sdui/validate.ts` | 170 |
 
@@ -618,7 +622,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/studio/src/lib/sdui/BuilderLayout.svelte` | 487 |
+| · | `packages/studio/src/lib/sdui/BuilderLayout.svelte` | 493 |
 | · | `packages/studio/src/lib/sdui/DetailLayout.svelte` | 424 |
 | · | `packages/studio/src/lib/sdui/SettingsPage.svelte` | 178 |
 
@@ -642,7 +646,7 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/studio/src/lib/components/common/AddressInput.svelte` | 89 |
+| · | `packages/studio/src/lib/components/common/AddressInput.svelte` | 95 |
 | · | `packages/studio/src/lib/components/common/Alert.svelte` | 21 |
 | · | `packages/studio/src/lib/components/common/Breadcrumb.svelte` | 25 |
 | · | `packages/studio/src/lib/components/common/Button.svelte` | 29 |
@@ -654,9 +658,9 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/lib/components/common/DemoBanner.svelte` | 87 |
 | · | `packages/studio/src/lib/components/common/EmptyIllustration.svelte` | 77 |
 | · | `packages/studio/src/lib/components/common/EmptyState.svelte` | 76 |
-| · | `packages/studio/src/lib/components/common/ExportActions.svelte` | 62 |
+| · | `packages/studio/src/lib/components/common/ExportActions.svelte` | 60 |
 | · | `packages/studio/src/lib/components/common/InlineEdit.svelte` | 168 |
-| · | `packages/studio/src/lib/components/common/Input.svelte` | 21 |
+| · | `packages/studio/src/lib/components/common/Input.svelte` | 27 |
 | · | `packages/studio/src/lib/components/common/KeyboardMap.svelte` | 70 |
 | · | `packages/studio/src/lib/components/common/Loading.svelte` | 12 |
 | · | `packages/studio/src/lib/components/common/LoadingSkeleton.svelte` | 89 |
@@ -667,12 +671,12 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/lib/components/common/Pagination.svelte` | 34 |
 | · | `packages/studio/src/lib/components/common/PasskeysSection.svelte` | 230 |
 | · | `packages/studio/src/lib/components/common/PermissionGuard.svelte` | 54 |
-| · | `packages/studio/src/lib/components/common/SchemaForm.svelte` | 185 |
+| · | `packages/studio/src/lib/components/common/SchemaForm.svelte` | 197 |
 | · | `packages/studio/src/lib/components/common/SearchBar.svelte` | 21 |
-| · | `packages/studio/src/lib/components/common/SearchableSelect.svelte` | 142 |
+| · | `packages/studio/src/lib/components/common/SearchableSelect.svelte` | 152 |
 | · | `packages/studio/src/lib/components/common/SectionCard.svelte` | 23 |
 | · | `packages/studio/src/lib/components/common/Slot.svelte` | 49 |
-| · | `packages/studio/src/lib/components/common/Sparkline.svelte` | 67 |
+| · | `packages/studio/src/lib/components/common/Sparkline.svelte` | 72 |
 | · | `packages/studio/src/lib/components/common/StatusBadge.svelte` | 22 |
 | · | `packages/studio/src/lib/components/common/ToastContainer.svelte` | 71 |
 | · | `packages/studio/src/lib/components/common/UpdateBanner.svelte` | 75 |
@@ -707,7 +711,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/routes/(admin)/collections/[name]/+page.svelte` | 381 |
 | · | `packages/studio/src/routes/(admin)/collections/[name]/fields/+page.svelte` | 10 |
 | · | `packages/studio/src/routes/(admin)/collections/[name]/relations/+page.svelte` | 10 |
-| · | `packages/studio/src/routes/(admin)/collections/erd/+page.svelte` | 1178 |
+| · | `packages/studio/src/routes/(admin)/collections/erd/+page.svelte` | 1191 |
 
 ### C08 — Admin pages — tenants, permissions, users, RLS, API keys
 
@@ -718,7 +722,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/routes/(admin)/api-keys/+page.svelte` | 344 |
 | · | `packages/studio/src/routes/(admin)/column-permissions/+page.svelte` | 375 |
 | · | `packages/studio/src/routes/(admin)/permissions/+page.svelte` | 501 |
-| · | `packages/studio/src/routes/(admin)/rls/+page.svelte` | 334 |
+| · | `packages/studio/src/routes/(admin)/rls/+page.svelte` | 339 |
 | · | `packages/studio/src/routes/(admin)/tenants/+page.svelte` | 776 |
 | · | `packages/studio/src/routes/(admin)/users/+page.svelte` | 395 |
 
@@ -791,7 +795,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/studio/src/routes/(client)/+error.svelte` | 46 |
 | · | `packages/studio/src/routes/(client)/+layout.svelte` | 187 |
 | · | `packages/studio/src/routes/(client)/+layout.ts` | 2 |
-| · | `packages/studio/src/routes/(client)/portal-client/[slug]/+page.svelte` | 72 |
+| · | `packages/studio/src/routes/(client)/portal-client/[slug]/+page.svelte` | 73 |
 | · | `packages/studio/src/routes/(client)/portal-client/login/+page.svelte` | 58 |
 | · | `packages/studio/src/routes/(intranet)/+error.svelte` | 46 |
 | · | `packages/studio/src/routes/(intranet)/+layout.svelte` | 282 |
@@ -874,7 +878,8 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/sdk/src/extension/index.ts` | 946 |
+| · | `packages/sdk/src/extension/index.ts` | 947 |
+| · | `packages/sdk/src/extension/jsonb.ts` | 66 |
 | · | `packages/sdk/src/extension/multipart.ts` | 64 |
 | · | `packages/sdk/src/extension/numeric.ts` | 162 |
 | · | `packages/sdk/src/extension/permission-gate.ts` | 188 |
@@ -893,7 +898,7 @@ After it: E04, E08, A04, A05 …
 | · | `packages/sdk/src/studio/slot-owner-registry.ts` | 34 |
 | · | `packages/sdk/src/validate/index.ts` | 848 |
 | · | `packages/sdk/src/validate/migration-parse.ts` | 27 |
-| · | `packages/sdk/src/validate/shared-message-keys.ts` | 216 |
+| · | `packages/sdk/src/validate/shared-message-keys.ts` | 218 |
 
 ### D04 — SDK offline, sync, test harness
 
@@ -994,6 +999,7 @@ After it: E04, E08, A04, A05 …
 | ✅ | `scripts/check-duplicate-rules.ts` | 200 |
 | ✅ | `scripts/check-duplicate-table-creators.ts` | 189 |
 | ✅ | `scripts/check-insert-schema-match.ts` | 720 |
+| · | `scripts/check-jsonb-binding.ts` | 348 |
 | ✅ | `scripts/check-migration-safety.ts` | 262 |
 | ✅ | `scripts/check-numeric-string-arithmetic.ts` | 325 |
 | ✅ | `scripts/check-pooldb-txn-skip.ts` | 102 |
@@ -1040,10 +1046,11 @@ After it: E04, E08, A04, A05 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `scripts/admin-gate-check.ts` | 175 |
-| · | `scripts/audit-gates.ts` | 841 |
+| · | `scripts/audit-gates.ts` | 964 |
 | · | `scripts/audit-inventory.ts` | 206 |
 | · | `scripts/audit-regression-check.ts` | 116 |
 | · | `scripts/check-ambient-authority.ts` | 279 |
+| · | `scripts/check-env-documented.ts` | 204 |
 | · | `scripts/check-fabricated-success.ts` | 192 |
 | · | `scripts/check-gate-coverage.ts` | 175 |
 | · | `scripts/check-test-leftovers.ts` | 73 |
@@ -1059,6 +1066,7 @@ After it: E04, E08, A04, A05 …
 | · | `scripts/check-embedded-deps-fresh.ts` | 206 |
 | · | `scripts/check-embedded-migrations-fresh.ts` | 103 |
 | · | `scripts/check-ext-snapshot-fresh.ts` | 162 |
+| · | `scripts/check-extension-i18n-namespaces.ts` | 208 |
 | · | `scripts/check-extension-i18n-ownership.ts` | 190 |
 | · | `scripts/check-extension-page-ownership.ts` | 187 |
 | · | `scripts/check-extension-sdui-schemas.ts` | 95 |
@@ -1113,9 +1121,10 @@ After it: E04, E08, A04, A05 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
+| · | `scripts/backfill-i18n-prefixes.ts` | 129 |
 | · | `scripts/bench-concurrency.ts` | 86 |
 | · | `scripts/bootstrap-db-role.sh` | 176 |
-| · | `scripts/dr-drill.sh` | 270 |
+| · | `scripts/dr-drill.sh` | 315 |
 | · | `scripts/enable-all-extensions.ts` | 58 |
 | · | `scripts/fire-test.sh` | 94 |
 | · | `scripts/generate-compose.sh` | 362 |
@@ -1167,7 +1176,8 @@ After it: E04, E08, A04, A05 …
 | · | `e2e/tests/zz-tenant.spec.ts` | 64 |
 | · | `e2e/tests/zz-undo-delete.spec.ts` | 134 |
 | · | `e2e/tests/zzz-engine-http.spec.ts` | 81 |
-| · | `packages/engine/src/testing/app-harness.ts` | 202 |
+| · | `packages/engine/src/testing/app-harness.ts` | 208 |
+| · | `packages/engine/src/testing/fake-redis.ts` | 82 |
 | · | `playwright.config.ts` | 97 |
 
 ### E08 — CI workflows
@@ -1183,18 +1193,18 @@ After it: E04, E08, A04, A05 …
 | · | `.github/ISSUE_TEMPLATE/feature_request.yml` | 44 |
 | · | `.github/dependabot.yml` | 63 |
 | · | `.github/workflows/build.yml` | 19 |
-| · | `.github/workflows/ci.yml` | 1102 |
+| · | `.github/workflows/ci.yml` | 1172 |
 | · | `.github/workflows/client.yml` | 50 |
 | · | `.github/workflows/dependabot-lockfile.yml` | 99 |
 | · | `.github/workflows/deprecate-npm.yml` | 47 |
-| · | `.github/workflows/dr-smoke.yml` | 156 |
+| · | `.github/workflows/dr-smoke.yml` | 175 |
 | · | `.github/workflows/e2e.yml` | 117 |
 | · | `.github/workflows/migrate-safety.yml` | 47 |
 | · | `.github/workflows/mutation.yml` | 56 |
 | · | `.github/workflows/publish-npm.yml` | 114 |
 | · | `.github/workflows/release.yml` | 847 |
 | · | `.github/workflows/soak.yml` | 97 |
-| · | `.github/workflows/studio.yml` | 85 |
+| · | `.github/workflows/studio.yml` | 93 |
 | · | `.github/workflows/upgrade-path.yml` | 170 |
 | · | `.github/workflows/version.yml` | 67 |
 
@@ -1248,12 +1258,12 @@ After it: E04, E08, A04, A05 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **848** of 849.
+Test files nobody has opened yet: **853** of 855.
 
 | Directory | Unread |
 | --- | --: |
-| `packages/engine/src/tests/unit` | 492 |
-| `packages/engine/src/tests/harness` | 280 |
+| `packages/engine/src/tests/unit` | 493 |
+| `packages/engine/src/tests/harness` | 282 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |
@@ -1272,6 +1282,8 @@ Test files nobody has opened yet: **848** of 849.
 | `packages/client/tests` | 1 |
 | `packages/engine/src/tests/fixtures` | 1 |
 | `packages/engine/src/tests/unit/fixtures` | 1 |
+| `packages/sdk-react/src` | 1 |
+| `packages/sdk-vue/src` | 1 |
 | `packages/studio/src/lib/components/marketplace` | 1 |
 | `packages/studio/src/lib/sdui` | 1 |
 | `packages/studio/src/lib/utils` | 1 |
