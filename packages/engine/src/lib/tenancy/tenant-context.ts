@@ -123,6 +123,25 @@ export function getCurrentDomain(): string {
 }
 
 /**
+ * The domain, or `null` when no tenant context was ever established.
+ *
+ * `getCurrentDomain()` answers DEFAULT_TENANT_ID for both "we are in the root
+ * tenant" and "nobody opened a store", which is right for authorization DOMAIN
+ * resolution — a background job should read the root tenant's policies — and
+ * wrong for any check that asks WHICH tenant we are in.
+ *
+ * `requireInstanceAdmin` asked the second question with the first spelling, and
+ * that was an escalation: a request whose tenant could not be resolved has no
+ * store, reads as the root tenant, and a delegated `tenant_admin` then passes
+ * the instance-wide gate. Measured 2026-09-04 against `/api/admin/rls` — the
+ * route that manages the row policies — 403 with a real tenant slug and 200
+ * with one that does not exist.
+ */
+export function getCurrentDomainOrNull(): string | null {
+  return store.getStore()?.domain ?? null;
+}
+
+/**
  * Record the current request/job tenant transaction in the ALS store. Called by
  * the tenant middleware (and the job-context factory) right after
  * `withTenantIsolation` opens the transaction. No-op outside a store (boot/CLI).
