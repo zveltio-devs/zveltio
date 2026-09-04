@@ -259,6 +259,11 @@ and the total are not. `audit-gates.ts`, in this repository, already solved the
 same problem the other way — a skipped case is listed separately, repeated in the
 summary and fatal in CI.
 
+**Corrected the same day, while reading E08:** `RELEASE_GATE_SKIP_NETWORK` is
+set nowhere in `.github/` or `package.json`, and `release.yml` runs the gate with
+`GH_TOKEN`. So this is the shape of the escape hatch, not a live gap in the
+pipeline — it was written up before that was checked.
+
 **Gap — the release gate's coverage check never measures.** `checkCoverage()`
 reads `measured` and `target` out of `quality-gates/coverage-baseline.json` and
 compares them **to each other**. Both are hand-maintained in that one file, whose

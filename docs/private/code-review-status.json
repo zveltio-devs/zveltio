@@ -487,9 +487,9 @@
       ],
       "findings": [
         {
-          "severity": "medium",
+          "severity": "low",
           "where": "scripts/release-gate.ts:183 (and soak, P0)",
-          "what": "RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as \u2713 and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI \u2014 the pattern exists and is not applied here.",
+          "what": "RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as \u2713 and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI \u2014 the pattern exists and is not applied here. CORRECTION (found while reading E08, same day): the variable is set nowhere in .github/ or package.json, and release.yml runs the gate with GH_TOKEN \u2014 so this is the shape of the escape hatch, not a live gap. Recorded as medium before that was checked.",
           "status": "logged",
           "ref": "known-gaps.md"
         },
