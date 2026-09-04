@@ -10,19 +10,19 @@ Ledger updated: 2026-09-04
 
 ## Next up
 
-### → **E08 — CI workflows**
+### → **A04 — Tenancy core**
 
-*Which gate actually runs, on which event, and which job is allowed to fail. A gate that runs nowhere is a comment.*
+*The GUC, the request-scoped transaction, the role switch. Every isolation claim rests here.*
 
-21 of 21 files still unread. Its file list is under [`E08`](#e08--ci-workflows) below.
+5 of 5 files still unread. Its file list is under [`A04`](#a04--tenancy-core) below.
 
-After it: A04, A05, A06, A02 …
+After it: A05, A06, A02, A07 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **34 / 656** (5%)
-- Lines in scope: **9,143 / 135,302** (7%)
+- Files in scope: **55 / 656** (8%)
+- Lines in scope: **12,558 / 135,302** (9%)
 - Test files opened by some session: **6 / 859**
 
 ## Sections
@@ -117,7 +117,7 @@ After it: A04, A05, A06, A02 …
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
-| E08 | CI workflows | 21 | 3,415 | 0/21 | — |
+| E08 | CI workflows | 21 | 3,415 | 21/21 | 2026-09-04 — logged |
 | E09 | Containers, chart, installer, observability | 39 | 4,016 | 0/39 | — |
 
 ### T — tests
@@ -1284,27 +1284,43 @@ After it: A04, A05, A06, A02 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `.github/DISCUSSION_TEMPLATE/question.yml` | 34 |
-| · | `.github/DISCUSSION_TEMPLATE/show-and-tell.yml` | 29 |
-| · | `.github/ISSUE_TEMPLATE/bug_report.yml` | 64 |
-| · | `.github/ISSUE_TEMPLATE/config.yml` | 11 |
-| · | `.github/ISSUE_TEMPLATE/feature_request.yml` | 44 |
-| · | `.github/dependabot.yml` | 63 |
-| · | `.github/workflows/build.yml` | 19 |
-| · | `.github/workflows/ci.yml` | 1172 |
-| · | `.github/workflows/client.yml` | 50 |
-| · | `.github/workflows/dependabot-lockfile.yml` | 99 |
-| · | `.github/workflows/deprecate-npm.yml` | 47 |
-| · | `.github/workflows/dr-smoke.yml` | 175 |
-| · | `.github/workflows/e2e.yml` | 117 |
-| · | `.github/workflows/migrate-safety.yml` | 47 |
-| · | `.github/workflows/mutation.yml` | 56 |
-| · | `.github/workflows/publish-npm.yml` | 114 |
-| · | `.github/workflows/release.yml` | 847 |
-| · | `.github/workflows/soak.yml` | 97 |
-| · | `.github/workflows/studio.yml` | 93 |
-| · | `.github/workflows/upgrade-path.yml` | 170 |
-| · | `.github/workflows/version.yml` | 67 |
+| ✅ | `.github/DISCUSSION_TEMPLATE/question.yml` | 34 |
+| ✅ | `.github/DISCUSSION_TEMPLATE/show-and-tell.yml` | 29 |
+| ✅ | `.github/ISSUE_TEMPLATE/bug_report.yml` | 64 |
+| ✅ | `.github/ISSUE_TEMPLATE/config.yml` | 11 |
+| ✅ | `.github/ISSUE_TEMPLATE/feature_request.yml` | 44 |
+| ✅ | `.github/dependabot.yml` | 63 |
+| ✅ | `.github/workflows/build.yml` | 19 |
+| ✅ | `.github/workflows/ci.yml` | 1172 |
+| ✅ | `.github/workflows/client.yml` | 50 |
+| ✅ | `.github/workflows/dependabot-lockfile.yml` | 99 |
+| ✅ | `.github/workflows/deprecate-npm.yml` | 47 |
+| ✅ | `.github/workflows/dr-smoke.yml` | 175 |
+| ✅ | `.github/workflows/e2e.yml` | 117 |
+| ✅ | `.github/workflows/migrate-safety.yml` | 47 |
+| ✅ | `.github/workflows/mutation.yml` | 56 |
+| ✅ | `.github/workflows/publish-npm.yml` | 114 |
+| ✅ | `.github/workflows/release.yml` | 847 |
+| ✅ | `.github/workflows/soak.yml` | 97 |
+| ✅ | `.github/workflows/studio.yml` | 93 |
+| ✅ | `.github/workflows/upgrade-path.yml` | 170 |
+| ✅ | `.github/workflows/version.yml` | 67 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 21 files · **logged** · `review/E08-ci-workflows`
+  - ran: mapped every workflow's triggers: 21 files, 15 workflows
+  - ran: cross-referenced all 56 scripts/*.ts against pull_request workflows — 44 run on a PR, 2 only at release time (release-gate, sync-engine-version), 10 referenced by no workflow (one-shots, probes, codemods; none are gates)
+  - ran: read every `continue-on-error` and `|| true` site in context rather than by grep
+  - ran: checked whether RELEASE_GATE_SKIP_NETWORK is set anywhere in .github/ or package.json — it is not
+  - ran: checked bunx availability on the documented install: absent
+  - ran: checked trustedDependencies (none declared) against the pull_request_target job's exposure
+  - **medium** .github/workflows/e2e.yml:3 — E2E runs on `push: branches: [master]` and workflow_dispatch only — never on pull_request. A PR can break every Playwright spec and merge green; the signal arrives after the merge, on master. → *logged* (known-gaps.md)
+  - **medium** .github/workflows/build.yml:17, e2e.yml:63 — both run `bun install` without --frozen-lockfile, so the job that validates `bun run build` and the browser suite may resolve dependency versions the lockfile does not pin. Every other workflow uses the flag; dependabot-lockfile.yml omits it legitimately because it exists to rewrite the lockfile. → *logged* (known-gaps.md)
+  - **low** .github/workflows/release.yml:824 sync-extensions — continue-on-error: true on a job whose only action is a fire-and-forget createDispatchEvent to the extensions repo. Nothing verifies the dispatch was received or the downstream sync succeeded, and the failure renders neutral rather than red — so a release can complete green with the extension registry a version behind. The trade (an infra flake must not lose a release; beta.9 was lost that way) is right; the detection is missing. → *logged* (known-gaps.md)
+  - **low** .github/workflows/client.yml:47, studio.yml:54 — `bunx svelte-kit sync`, against this repo's own rule (`bun x`, AGENTS.md). Verified absent from the documented Bun install; E04 logged the same defect in suppress-existing-any.ts, where it threw ENOENT. e2e.yml uses `bun x` correctly in three places, so this is an incomplete fix rather than ignorance — and it means those two steps cannot be reproduced locally on a machine set up as documented. → *logged* (known-gaps.md)
+  - **low** .github/workflows/ci.yml (Smoke test auth endpoint) — the step contains only curl calls that echo their output, two with `|| true`, and no assertion — it cannot fail. A reader scanning the log sees a passing smoke test. `bun audit` in the same file is explicitly named 'Report all advisories (informational)' and paired with a gating step, so the repository already knows how to name a diagnostic. → *logged* (known-gaps.md)
+  - not done: Nothing repaired. Verified clean and recorded so nobody re-derives it: `bun audit || true` and the coverage `|| true` are report-then-gate PAIRS, not swallowed enforcement — the enforcing step sits above each; the three continue-on-error jobs in release.yml are post-release side effects with written reasons; dependabot covers npm AND github-actions and all 14 actions are SHA-pinned; `dependabot-lockfile.yml`'s pull_request_target + contents:write + head-checkout is correctly guarded by a job-level actor check, and Bun runs no lifecycle scripts by default (no trustedDependencies declared) — a pattern that is usually a vulnerability and is not one here; release-gate is wired so publish-release needs it; the sibling clone resolves a paired branch before falling back to master.
 
 ### E09 — Containers, chart, installer, observability
 

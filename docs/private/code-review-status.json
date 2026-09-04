@@ -517,6 +517,83 @@
       ],
       "notDone": "SELF-REVIEW on review-inventory.ts, which I wrote today \u2014 the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.",
       "verdict": "logged"
+    },
+    {
+      "section": "E08",
+      "date": "2026-09-04",
+      "agent": "claude-opus-5",
+      "branch": "review/E08-ci-workflows",
+      "files": [
+        ".github/DISCUSSION_TEMPLATE/question.yml",
+        ".github/DISCUSSION_TEMPLATE/show-and-tell.yml",
+        ".github/ISSUE_TEMPLATE/bug_report.yml",
+        ".github/ISSUE_TEMPLATE/config.yml",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+        ".github/dependabot.yml",
+        ".github/workflows/build.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/client.yml",
+        ".github/workflows/dependabot-lockfile.yml",
+        ".github/workflows/deprecate-npm.yml",
+        ".github/workflows/dr-smoke.yml",
+        ".github/workflows/e2e.yml",
+        ".github/workflows/migrate-safety.yml",
+        ".github/workflows/mutation.yml",
+        ".github/workflows/publish-npm.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/soak.yml",
+        ".github/workflows/studio.yml",
+        ".github/workflows/upgrade-path.yml",
+        ".github/workflows/version.yml"
+      ],
+      "tests": [],
+      "ran": [
+        "mapped every workflow's triggers: 21 files, 15 workflows",
+        "cross-referenced all 56 scripts/*.ts against pull_request workflows \u2014 44 run on a PR, 2 only at release time (release-gate, sync-engine-version), 10 referenced by no workflow (one-shots, probes, codemods; none are gates)",
+        "read every `continue-on-error` and `|| true` site in context rather than by grep",
+        "checked whether RELEASE_GATE_SKIP_NETWORK is set anywhere in .github/ or package.json \u2014 it is not",
+        "checked bunx availability on the documented install: absent",
+        "checked trustedDependencies (none declared) against the pull_request_target job's exposure"
+      ],
+      "findings": [
+        {
+          "severity": "medium",
+          "where": ".github/workflows/e2e.yml:3",
+          "what": "E2E runs on `push: branches: [master]` and workflow_dispatch only \u2014 never on pull_request. A PR can break every Playwright spec and merge green; the signal arrives after the merge, on master.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "medium",
+          "where": ".github/workflows/build.yml:17, e2e.yml:63",
+          "what": "both run `bun install` without --frozen-lockfile, so the job that validates `bun run build` and the browser suite may resolve dependency versions the lockfile does not pin. Every other workflow uses the flag; dependabot-lockfile.yml omits it legitimately because it exists to rewrite the lockfile.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": ".github/workflows/release.yml:824 sync-extensions",
+          "what": "continue-on-error: true on a job whose only action is a fire-and-forget createDispatchEvent to the extensions repo. Nothing verifies the dispatch was received or the downstream sync succeeded, and the failure renders neutral rather than red \u2014 so a release can complete green with the extension registry a version behind. The trade (an infra flake must not lose a release; beta.9 was lost that way) is right; the detection is missing.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": ".github/workflows/client.yml:47, studio.yml:54",
+          "what": "`bunx svelte-kit sync`, against this repo's own rule (`bun x`, AGENTS.md). Verified absent from the documented Bun install; E04 logged the same defect in suppress-existing-any.ts, where it threw ENOENT. e2e.yml uses `bun x` correctly in three places, so this is an incomplete fix rather than ignorance \u2014 and it means those two steps cannot be reproduced locally on a machine set up as documented.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        },
+        {
+          "severity": "low",
+          "where": ".github/workflows/ci.yml (Smoke test auth endpoint)",
+          "what": "the step contains only curl calls that echo their output, two with `|| true`, and no assertion \u2014 it cannot fail. A reader scanning the log sees a passing smoke test. `bun audit` in the same file is explicitly named 'Report all advisories (informational)' and paired with a gating step, so the repository already knows how to name a diagnostic.",
+          "status": "logged",
+          "ref": "known-gaps.md"
+        }
+      ],
+      "notDone": "Nothing repaired. Verified clean and recorded so nobody re-derives it: `bun audit || true` and the coverage `|| true` are report-then-gate PAIRS, not swallowed enforcement \u2014 the enforcing step sits above each; the three continue-on-error jobs in release.yml are post-release side effects with written reasons; dependabot covers npm AND github-actions and all 14 actions are SHA-pinned; `dependabot-lockfile.yml`'s pull_request_target + contents:write + head-checkout is correctly guarded by a job-level actor check, and Bun runs no lifecycle scripts by default (no trustedDependencies declared) \u2014 a pattern that is usually a vulnerability and is not one here; release-gate is wired so publish-release needs it; the sibling clone resolves a paired branch before falling back to master.",
+      "verdict": "logged"
     }
   ]
 }
