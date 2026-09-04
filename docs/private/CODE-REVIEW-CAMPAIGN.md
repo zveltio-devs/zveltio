@@ -342,6 +342,42 @@ it — edit `ORDER` and say why in `notDone`, so the order stays legible.
 
 ---
 
+## The parallel reading pass
+
+A second audit ran on the same tree on the day this campaign opened, with a
+different shape: ten thematic sessions, one living document,
+[`../../AUDIT.md`](../../AUDIT.md). It produced 111 observations and five
+repairs, all five now on this branch (`d12b6480`, `333db6b6`, `e92fdc42`), and
+two of them closed known-gaps entries that had been open for days — hidden
+columns being writable, and the DDL identifiers in `tenant-manager.ts`.
+
+**Use it as a map, not as coverage.** Its observations are code reading; its
+verification blocks run lint, typecheck and test suites, which prove the tree
+builds, not that the described behaviour was exercised. No section is ticked in
+`CODE-REVIEW-STATE.md` on its account, and that is deliberate — ticking them
+would record 111 unrun claims as verified work and destroy the only measurement
+this campaign has.
+
+Where it is worth reading before you start a section:
+
+| AUDIT.md session | Sections it read into |
+|---|---|
+| 1 — bootstrap & request lifecycle | `A01`, `A02`, `A03` |
+| 2 — tenancy, RLS & security | `A04`, `A05`, `A06` |
+| 3 — data layer | `A11`, `A12`, `A13` |
+| 4 — extensions & sandbox | `B01`–`B05` |
+| 5 — auth & sessions | `A07` |
+| 6 — background services | `B06`, `B07`, `B08` |
+| 7 — storage & AI | `B09` |
+| 8 — Studio & SDUI | `C01`–`C03` |
+| 9 — SDK & CLI | `D01`–`D07` |
+| 10 — extensions catalog | the sibling repository, `X01` here |
+
+Its open TODOs are the cheapest leads a section can start from — they name what
+the reader noticed and did not chase.
+
+---
+
 ## What this campaign does not cover
 
 - **The 56 first-party extensions.** They live in `../zveltio-extensions` and
