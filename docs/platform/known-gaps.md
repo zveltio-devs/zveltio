@@ -360,6 +360,16 @@ Proven with the engine's own instrument: `/api/webhooks` with a real slug report
 **200 and 1 unscoped fallback**, meaning the handler ran on the pool rather than
 inside the tenant transaction.
 
+**A suspended tenant takes the same path, and that is the realistic trigger.**
+`getTenantBySlug` filters `status = 'active'`, so a suspended tenant's slug also
+returns `null`. Measured: `/api/webhooks` with a suspended tenant's slug returns
+**200 with 1 unscoped fallback** — not the `403 Tenant account is suspended` the
+middleware has for exactly this case. That 403, at `middleware/tenant.ts:134`, is
+unreachable through the slug path, because the lookup feeding it already filtered
+the row out. Suspending a tenant is an ordinary administrative action — non-payment,
+offboarding — and it does not refuse those requests; it moves them out of tenant
+isolation and answers 200.
+
 The consequence is route-dependent, and it was measured rather than assumed. With
 two tenants seeded, the bogus slug returned **only the default tenant's row** —
 `tenantId(c)` falls back to `DEFAULT_TENANT_ID`, so a handler that adds its own
