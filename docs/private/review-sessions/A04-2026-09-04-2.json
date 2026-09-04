@@ -1,0 +1,35 @@
+{
+  "section": "A04",
+  "date": "2026-09-04",
+  "agent": "claude-opus-5",
+  "branch": "review/A04-tenancy-core",
+  "files": ["packages/engine/src/lib/tenancy/tenant-manager.ts"],
+  "tests": [
+    "packages/engine/src/tests/harness/rls-role-credential-grants.test.ts",
+    "packages/engine/src/tests/harness/tenant-apply-rls.test.ts"
+  ],
+  "ran": [
+    "read the remaining 1345 lines: getDefaultTenant, visibleTenantsFn, applyTenantRLS, both reconcilers, rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache, the tenant lookups, provisionTenantSchema/Environment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS",
+    "the passkey grant found here is fixed and merged as PR #441 \u2014 separate branch, because it is an authentication bypass rather than a review note",
+    "measured: 45 tenant_* schemas accumulated in one test database",
+    "proved sql.id('schema.table') quotes the whole string as ONE identifier: SELECT FROM \"probe_sch.t\" \u2192 relation does not exist, while \"probe_sch\".\"t\" works"
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "lib/tenancy/tenant-manager.ts:626 provisionTenantSchema (+ lib/data-quality.ts:377)",
+      "what": "the schema-per-tenant machinery is vestigial and looks like isolation it does not provide. provisionTenantSchema creates tenant_<slug> with zvd_collections/zvd_relations/zvd_permissions on every tenant creation (routes/tenants.ts:210), and NOTHING in the data layer reads them \u2014 tenantSchema is set by the middleware and consumed by no data route; no search_path is set for them (preview-env sets one for branch schemas, a different feature). 45 such schemas had accumulated in one test database. Its one apparent consumer proves the path is never exercised: runQualityScan takes a tenantSchema and builds `${schema}.zvd_${collection}`, which reaches sql.id() as a single dotted string \u2014 measured, that quotes the whole thing as ONE identifier and Postgres answers 'relation does not exist'. The parameter is exposed to extensions through ctx.internals and cannot work. An operator seeing per-tenant schemas would reasonably conclude data is separated by schema; it is row-level in public. (data-quality.ts belongs to A17; recorded here because it is the same finding.)",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    },
+    {
+      "severity": "low",
+      "where": "lib/tenancy/tenant-manager.ts:330 reconcileExtensionTenantRLS",
+      "what": "DROP POLICY then CREATE POLICY are two separate statements on the pool, not one transaction, so between them the table has RLS enabled and no policy. That is fail-closed \u2014 a non-owner sees zero rows \u2014 but it is a window in which live traffic on that table reads empty rather than being blocked or correct.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed \u2014 both are larger than a review commit.",
+  "verdict": "logged"
+}

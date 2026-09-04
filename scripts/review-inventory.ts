@@ -59,6 +59,7 @@ type Ledger = { updated: string; sessions: SessionEntry[] };
 
 const STATUS_JSON = 'docs/private/code-review-status.json';
 const OUTPUT_MD = 'docs/private/CODE-REVIEW-STATE.md';
+const SESSIONS_DIR = 'docs/private/review-sessions';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section map. Ordered: first match wins, so narrow entries precede prefixes.
@@ -1055,9 +1056,34 @@ async function main() {
     bySection.get(s.id)!.push(f);
   }
 
-  const ledger: Ledger = await Bun.file(STATUS_JSON)
+  // One file per session, not one array for all of them.
+  //
+  // The single `code-review-status.json` conflicted on EVERY section branch —
+  // four times in the first day — because each section appends to the same
+  // array, and each resolution was a hand-merge of a findings document. A
+  // hand-merge that happens on every branch eventually drops a section.
+  //
+  // A directory has no such conflict: two branches write two filenames. The old
+  // file is still read when present, so an in-flight branch that has not
+  // migrated is not lost.
+  const sessions: SessionEntry[] = [];
+  let updated = 'never';
+  const legacy = await Bun.file(STATUS_JSON)
     .json()
-    .catch(() => ({ updated: 'never', sessions: [] }));
+    .catch(() => null);
+  if (legacy?.sessions) {
+    sessions.push(...(legacy.sessions as SessionEntry[]));
+    updated = legacy.updated ?? updated;
+  }
+  for (const f of await Array.fromAsync(new Bun.Glob('*.json').scan(SESSIONS_DIR)).catch(
+    () => [] as string[],
+  )) {
+    const one = await Bun.file(`${SESSIONS_DIR}/${f}`)
+      .json()
+      .catch(() => null);
+    if (one?.section) sessions.push(one as SessionEntry);
+  }
+  const ledger: Ledger = { updated, sessions };
 
   const sessionsBySection = new Map<string, SessionEntry[]>();
   const reviewed = new Set<string>();

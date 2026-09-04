@@ -261,7 +261,8 @@ that makes a rule get followed.
 
 ## Recording a session
 
-Append one object to `sessions` in `code-review-status.json`:
+Write **one file per session** under `docs/private/review-sessions/`, named
+`<section>-<date>-<n>.json`, holding a single object:
 
 ```jsonc
 {
@@ -301,6 +302,12 @@ when the repair belongs to another section or would land unreviewed), `partial`,
 `blocked`.
 A `partial` section stays open and the next session continues it; only the files
 you listed count as done.
+
+A file per session, rather than one array for all of them, because the single
+ledger conflicted on **every** section branch — four times on the first day — and
+each resolution was a hand-merge of a findings document. A hand-merge that
+happens on every branch eventually drops a section. Two branches writing two
+filenames do not conflict at all.
 
 Then run `bun run review:inventory`. If it exits non-zero, a tracked file
 matches no section — place it in `scripts/review-inventory.ts` before finishing.
