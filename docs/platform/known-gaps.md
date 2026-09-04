@@ -499,6 +499,16 @@ typecheck. A *throwing* check does fail closed. Unexercised today — no extensi
 registers one, and the test harness stub's `register()` is a no-op, so an
 extension cannot test one either.
 
+**Gap — `prepush` reformats the tree it is checking, and root `package.json` is
+in no section.** The chain is documented as the local contract for a pushable
+tree; `check:schema` runs `bun run format` in **write** mode before the later
+`format:check`, so an unformatted commit is silently repaired in the working tree
+and the chain passes on the repaired state. Measured while closing this section:
+`prepush` reported OK, the commit that was then pushed failed `format:check`, and
+only CI would have caught it. Separately, root `package.json` — which defines the
+prepush chain and every gate's entry point — matches no section's file pattern,
+so it is outside the campaign entirely.
+
 **Verified clean.** `signed-cache.ts` binds the HMAC to namespace and key, uses
 `timingSafeEqual` behind a length check, and decodes a tampered entry to `null`
 so the caller asks the database. `loadPolicies` falls through to the database on
