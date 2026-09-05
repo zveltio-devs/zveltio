@@ -400,12 +400,34 @@ class KyselyCasbinAdapter {
   async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
-    // 4-token policies (p: sub,dom,obj,act) — match all provided columns.
-    await sql`
-      DELETE FROM zvd_permissions
-      WHERE ptype = ${ptype} AND v0 = ${rule[0] ?? null} AND v1 = ${rule[1] ?? null}
-        AND v2 = ${rule[2] ?? null} AND v3 = ${rule[3] ?? null}
-    `.execute(_db);
+    // An absent column is matched with IS NULL, not `= NULL`.
+    //
+    // This used to compare v0..v3 unconditionally, which is right for a `p`
+    // rule (sub, dom, obj, act — four values) and wrong for every `g` rule,
+    // which carries three. The fourth comparison became `v3 = NULL`, and in SQL
+    // that is never true, so the DELETE removed nothing at all.
+    //
+    // Casbin removes the rule from the in-memory model either way, so
+    // revocation LOOKED like it worked and kept working until the next policy
+    // load. Measured against the real table:
+    //
+    //   granted owner        → table: tenant_owner
+    //   demoted to member    → table: tenant_member, tenant_owner
+    //     in memory now: owner=false member=true
+    //   after a restart      → owner=true  member=true
+    //
+    // Three routes revoke this way: removing a member from a tenant, changing a
+    // member's role (which deletes every prior grant before adding the new one),
+    // and removing a role-inheritance edge. The effect rule is `some(allow)`, so
+    // once the old row comes back the widest grant wins and the demotion is
+    // undone.
+    const conditions = [sql`ptype = ${ptype}`];
+    for (let i = 0; i < 6; i++) {
+      const column = sql.ref(`v${i}`);
+      const value = rule[i];
+      conditions.push(value === undefined ? sql`${column} IS NULL` : sql`${column} = ${value}`);
+    }
+    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
   }
 
   async removeFilteredPolicy(
