@@ -128,8 +128,30 @@ export function rpcRoutes(db: Database, auth: any): Hono {
 
       return c.json({ data: result.rows });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Function execution failed';
-      return c.json({ error: msg }, 500);
+      // The database's own words do not go back to the caller.
+      //
+      // Measured: an RPC function that violated a unique constraint answered
+      // `duplicate key value violates unique constraint
+      // "zvd_rpc_secretish_email_key"` — the table, the constraint and thus the
+      // column, handed to whoever may call the function. `required_role` on the
+      // whitelist can be `member`, so that is not necessarily an administrator.
+      //
+      // The caller gets the generic sentence and the trace id the envelope
+      // already carries; the message and its SQLSTATE go to the log, where an
+      // operator can match them by that id.
+      //
+      // A first version returned the SQLSTATE in the body as well, on the
+      // argument that `42883 undefined function` tells a developer the class of
+      // failure without naming a database object. Measured, it never arrived:
+      // `ProblemDetails` is a fixed SDK contract and the normaliser drops fields
+      // outside it. The comment claiming otherwise would have outlived the
+      // behaviour by exactly as long as nobody checked.
+      //
+      // SQLSTATE arrives on `errno`, not `code`, on this driver.
+      const sqlState = (err as { errno?: string; code?: string })?.errno;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[rpc] ${fn.function_name} failed${sqlState ? ` (${sqlState})` : ''}:`, message);
+      return c.json({ error: 'Function execution failed' }, 500);
     }
   });
 
