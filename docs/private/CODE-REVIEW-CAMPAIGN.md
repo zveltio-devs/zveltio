@@ -220,7 +220,38 @@ query you are suspicious about; do not reason about it.
 - Tests that dial the real registry: run with `REGISTRY_URL=http://127.0.0.1:9`
   or a 5-second fetch becomes a 5-second timeout in a different file each run.
 
-### 13. Frontend-specific (Track C)
+### 13. A test that passes for the wrong reason
+
+The dominant failure this campaign has found — four independent instances on
+2026-09-05 alone, in two repositories, by two sessions.
+
+- Thirty engine tests called `runQualityScan` with no tenant and passed **because
+  of** the root-tenant default they should have caught. They encoded the defect.
+- `hydrate.test.ts` stayed green (47/47) with the `zvd_` prefix guard removed —
+  the exact shape of the 2026-08-16 vulnerability. A registry check upstream
+  carried the tests; what the prefix defends is the case the registry cannot.
+- `oauth-flow.test.ts` stayed green after a config table moved, because the
+  migration had adopted a row an earlier run seeded. It only failed on a database
+  built from zero.
+- `demo-mode-blocked-paths.test.ts` was green while the middleware was fully
+  bypassable, because it handed the middleware a hand-built `{ req: { url,
+  method } }` with no `req.path` — it measured the pattern list, not the gate.
+
+The tell is the same each time: the test exercises a **path near** the guard
+rather than the guard, so something else upstream produces the expected answer.
+
+**The method that finds it is cheap and should be routine, not reserved for
+suspicion: remove the guard, demand the test fail, put it back.** One edit, one
+run, one revert. A check that passes with the fix removed is not evidence, and
+"the suite is green" says nothing about which of its assumptions is load-bearing.
+
+Two failure modes of the method itself, both met here: a revert that breaks the
+file's *syntax* makes every test fail for that reason and proves nothing — the
+failure must be the named case, not an unnamed hook. And an anchor that no longer
+matches (auto-formatting moves code between writing the revert and running it)
+silently reverts nothing, so assert the anchor occurs exactly once.
+
+### 14. Frontend-specific (Track C)
 
 Svelte 5 runes only; `$effect` loops; unsanitised HTML (`{@html}`) against
 `lib/sanitize.ts`; API calls that bypass `$lib/api.js`; permission guards that
