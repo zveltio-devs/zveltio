@@ -134,7 +134,15 @@ const SECTIONS: Section[] = [
     track: 'A — engine core',
     title: 'Middleware chain',
     focus: 'Tenant resolution, rate limits, auth gates, and the handover to the request-scoped DB.',
-    match: [`${E}middleware/`, `${E}lib/route-db.ts`, `${E}lib/savepoint.ts`],
+    match: [
+      `${E}middleware/`,
+      `${E}lib/route-db.ts`,
+      `${E}lib/savepoint.ts`,
+      // Extracted out of `middleware/rate-limit.ts` in #450 so the audit writers
+      // could share the resolver. It answers a middleware question and its
+      // callers are all in this section.
+      `${E}lib/security/client-ip.ts`,
+    ],
   },
   {
     id: 'A03',
