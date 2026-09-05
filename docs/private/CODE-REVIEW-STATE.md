@@ -16,14 +16,14 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 3 of 5 files still unread. Its file list is under [`A06`](#a06--permissions-roles-column-access) below.
 
-After it: A02, A07, A16, A11 …
+After it: A07, A16, A11, A08 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **74 / 656** (11%)
-- Lines in scope: **16,846 / 135,410** (12%)
-- Test files opened by some session: **11 / 861**
+- Files in scope: **86 / 656** (13%)
+- Lines in scope: **18,607 / 135,421** (14%)
+- Test files opened by some session: **12 / 861**
 
 ## Sections
 
@@ -40,7 +40,7 @@ After it: A02, A07, A16, A11 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,087 | 5/17 | 2026-09-04 — partial |
+| A02 | Middleware chain | 17 | 2,087 | 17/17 | 2026-09-04 — partial |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
@@ -113,7 +113,7 @@ After it: A02, A07, A16, A11 …
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,921 | 10/10 | 2026-09-04 — partial |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,932 | 10/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -170,26 +170,41 @@ After it: A02, A07, A16, A11 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/route-db.ts` | 50 |
-| · | `packages/engine/src/lib/savepoint.ts` | 82 |
-| · | `packages/engine/src/middleware/demo-mode.ts` | 75 |
-| · | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
+| ✅ | `packages/engine/src/lib/route-db.ts` | 50 |
+| ✅ | `packages/engine/src/lib/savepoint.ts` | 82 |
+| ✅ | `packages/engine/src/middleware/demo-mode.ts` | 75 |
+| ✅ | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
 | ✅ | `packages/engine/src/middleware/extension-auth-gate.ts` | 153 |
-| · | `packages/engine/src/middleware/god-audit.ts` | 122 |
+| ✅ | `packages/engine/src/middleware/god-audit.ts` | 122 |
 | ✅ | `packages/engine/src/middleware/preview-env.ts` | 75 |
-| · | `packages/engine/src/middleware/rate-limit.ts` | 495 |
-| · | `packages/engine/src/middleware/request-log.ts` | 91 |
-| · | `packages/engine/src/middleware/session-prefetch.ts` | 99 |
-| · | `packages/engine/src/middleware/slow-query.ts` | 61 |
+| ✅ | `packages/engine/src/middleware/rate-limit.ts` | 495 |
+| ✅ | `packages/engine/src/middleware/request-log.ts` | 91 |
+| ✅ | `packages/engine/src/middleware/session-prefetch.ts` | 99 |
+| ✅ | `packages/engine/src/middleware/slow-query.ts` | 61 |
 | ✅ | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
 | ✅ | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
-| · | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
-| · | `packages/engine/src/middleware/tenant.ts` | 295 |
-| · | `packages/engine/src/middleware/tracing.ts` | 113 |
+| ✅ | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
+| ✅ | `packages/engine/src/middleware/tenant.ts` | 295 |
+| ✅ | `packages/engine/src/middleware/tracing.ts` | 113 |
 | ✅ | `packages/engine/src/middleware/url-validator.ts` | 1 |
 
 **Sessions**
 
+- **2026-09-05** · claude-opus-5 · 12 files · **clean** · `review/A02-middleware-2`
+  - ran: drove the real rate-limit middleware with a different junk X-Real-IP per request under TRUSTED_PROXY=true: five 200s against a limit of two. Every distinct string is its own bucket, so the limit was absent, not weakened. X-Forwarded-For was pattern-checked; X-Real-IP was not.
+  - ran: measured the fallback limiter's per-request cost against store size, one request per unique identifier: 0.0081 ms at 5_000, 1.5539 ms at 20_000, 2.9354 ms at 40_000, 2.1674 ms at 80_000. After removing the size trigger: 0.0075 / 0.0058 / 0.0061 / 0.0061. Heap measured separately at 19.5 MB (5_000) to 32.8 MB (100_000), so memory was never the risk the comment named.
+  - ran: drove demoModeMiddleware through a real Hono app with twelve path forms. POST /api/admin/%73ql and POST /api/%61dmin/sql reached the handler while the plain spelling was refused 451. Compared c.req.path against new URL(c.req.url).pathname across six forms to establish why: the router decodes each segment once, the raw pathname does not.
+  - ran: checked all 37 registered /api and /ext mounts against TXN_SKIP_PREFIXES for a startsWith match without a segment boundary: only /api/openapi.json under /api/openapi, which is intended.
+  - ran: queried the catalogue for tables carrying tenant_id without RLS (30 real tables) and confirmed zvd_collections and zvd_relations carry no tenant_id at all, which is the premise the four schema routers skip the tenant transaction on.
+  - ran: ran check-tenant-table-on-pool's own regex and table list against middleware/: three pool queries, one of them on the tenant-scoped zv_tenant_usage, reached through the alias `quotaDb` that the regex does not match.
+  - **high** middleware/rate-limit.ts resolveClientIp — under TRUSTED_PROXY, X-Real-IP was taken verbatim as the rate-limit identity, so varying it per request gave unlimited buckets. The operator warning named only X-Forwarded-For as the header the edge must strip. → *repaired* (#447)
+  - **medium** middleware/rate-limit.ts memoryRateLimit — MAX_STORE_SIZE could not bound the store (the sweep drops only expired entries) but forced a full-map scan on every request once past 5_000 live entries, a ~250x rise in the cost of the check that is meant to protect the instance. → *repaired* (#447)
+  - **high** middleware/demo-mode.ts — matched on the raw URL pathname while the router matched on the decoded path, so one percent-encoded letter in a literal segment defeated every rule, including the SQL editor and downloading a database dump. The existing suite stayed green because it handed the middleware a hand-built context with no req.path. → *repaired* (#448)
+  - **medium** middleware/god-audit.ts, middleware/request-log.ts — both read x-forwarded-for / x-real-ip with no TRUSTED_PROXY check and no validation, and write the result to zv_audit_log and zv_request_logs. rate-limit.ts refuses to trust those same headers without the flag. The god audit is the accountability mechanism for the role that bypasses every permission check, and the IP it records can be chosen by whoever is being audited. → *logged* (known-gaps.md)
+  - **medium** middleware/tenant-quota.ts — returns next() when getCache() is null, so a tenant's daily API quota is not enforced at all on an install without Valkey. The header presents the cache as a fast path, which reads as an optimisation; the effect is absence. → *logged* (known-gaps.md)
+  - **low** scripts/check-tenant-table-on-pool.ts — scans routes/ only. Its documented reason for excluding lib/ (the handle is spelled `db` there) does not apply to middleware/, which holds three pool queries. Extending the directory alone would still miss the one tenant-scoped case, because it is reached through the alias `quotaDb`. → *logged* (known-gaps.md)
+  - **low** lib/worker-extension-host.ts:646 — computes a worker route's path from the raw URL and strips '/ext/<name>' by string replace, so a percent-encoded extension name leaves the prefix in place and the worker receives the whole path. Fails closed (the extension 404s) but is the same host/consumer disagreement as demo-mode. → *logged* (known-gaps.md)
+  - not done: Section closed, 17 of 17 files. The audit-log IP defect is found but not yet repaired: the fix belongs on top of #447, which touches the client-IP resolver the three call sites should share, so shipping it before that merges would conflict by construction. enrich-denial names up to three granters and includes grants held at '*', so an instance-wide admin's name reaches users of every tenant — recorded as a disclosure decision written down in denial.ts, not as an accident.
 - **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/A02-middleware`
   - ran: probed the /ext/* gate's prefix check with seven path forms — //ext/, /ext//, /EXT/, /ext/./, /ext/x/../, and percent-encoded /%65xt/. Hono normalises and decodes BEFORE middleware: every form that reached the handler was seen by the gate with the correct prefix, and the ones that were not seen 404'd. No bypass.
   - ran: measured zv_schema_branches: rls=false, forced=false, policies=0, tenant_id columns=0
@@ -1207,7 +1222,7 @@ After it: A02, A07, A16, A11 …
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
 | ✅ | `scripts/merge-coverage.ts` | 214 |
 | ✅ | `scripts/release-gate.ts` | 350 |
-| ✅ | `scripts/review-inventory.ts` | 1312 |
+| ✅ | `scripts/review-inventory.ts` | 1323 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
@@ -1442,11 +1457,11 @@ After it: A02, A07, A16, A11 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **850** of 861.
+Test files nobody has opened yet: **849** of 861.
 
 | Directory | Unread |
 | --- | --: |
-| `packages/engine/src/tests/unit` | 492 |
+| `packages/engine/src/tests/unit` | 491 |
 | `packages/engine/src/tests/harness` | 280 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
