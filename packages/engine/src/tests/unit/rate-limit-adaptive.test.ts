@@ -8,12 +8,8 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  escalationSeconds,
-  ipMatches,
-  normalizeIp,
-  parseCidrList,
-} from '../../middleware/rate-limit.js';
+import { escalationSeconds, ipMatches, parseCidrList } from '../../middleware/rate-limit.js';
+import { normalizeIp } from '../../lib/security/index.js';
 
 describe('normalizeIp', () => {
   it('unwraps the IPv4-mapped IPv6 form Bun reports for IPv4 peers', () => {
