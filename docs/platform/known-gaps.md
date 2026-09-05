@@ -571,7 +571,7 @@ reaches the database through the Casbin adapter, which drops the memo and the
 index on each call *"whichever route or boot task called it"*, and the routes
 clear the shared cache as well. Two independent defences.
 
-### A02 — the middleware chain (2026-09-04, partial)
+### A02 — the middleware chain (2026-09-05, closed 17/17)
 
 Five of seventeen files. The escalation this chain carried is fixed and on
 master; what follows is what else the reading found.
@@ -607,6 +607,93 @@ resolves to it. That is correct for the single-tenant model the comment cites. I
 is worth a decision for the hierarchical multi-tenant market this product targets,
 where the root tenant holds a real organisation's data and every authenticated
 user of every subordinate unit can reach it by sending no header at all.
+
+#### The remaining twelve files (2026-09-05)
+
+Two security controls in this chain did not do what they said. Both are fixed
+with a test that discriminates, each in its own pull request.
+
+**Fixed (#447) — the rate limit could be switched off by a header.**
+`X-Forwarded-For` was always pattern-checked before it was believed; `X-Real-IP`
+was read verbatim under `TRUSTED_PROXY` and used as the bucket key. Measured
+against a limit of two: a client sending a different junk `X-Real-IP` per request
+answered 200 five times, because every distinct string is its own bucket. Not a
+weaker limit — the absence of one. The middleware's own warning to operators
+named only `X-Forwarded-For`, so following it literally left the hole open.
+
+**Fixed (#447) — `MAX_STORE_SIZE` bounded nothing and cost everything.** The
+fallback limiter's sweep drops only expired entries, so the size trigger deleted
+exactly what the timer would have deleted anyway. What it did do was run a
+full-map scan on *every* request once the store passed 5 000 live entries.
+Measured, one request per unique identifier: 0.0081 ms/request at 5 000 rising to
+2.1 ms at 80 000, flat at 0.006 ms after the fix. Heap was never the issue
+(~20 MB at 100 000), so the comment named the wrong risk. This is the no-cache
+path — the default shape of a small self-hosted install.
+
+**Fixed (#448) — one percent-encoded letter walked past every demo-mode rule.**
+The gate matched on `new URL(c.req.url).pathname` while the router matched on
+Hono's decoded path. `POST /api/admin/%73ql` ran the SQL editor;
+`POST /api/b%61ckup` took a database dump. On a demo instance — public sign-up,
+visitors given room to explore — that list *is* the boundary. The existing suite
+was green throughout because it handed the middleware a literal
+`{ req: { url, method } }`, an object with no `req.path`: it measured the pattern
+list, not the gate.
+
+Worth keeping side by side: `tenant.ts` asks the same question about the same
+kind of list and answers it correctly, matching `TXN_SKIP_PREFIXES` against
+`c.req.path`. Same directory, same decision, two answers.
+
+**Gap — the audit trail records an IP the caller chooses.** `god-audit.ts` and
+`request-log.ts` both take `x-forwarded-for` / `x-real-ip` with no
+`TRUSTED_PROXY` check and no validation, and write the result to `zv_audit_log`
+and `zv_request_logs`. `rate-limit.ts` refuses to trust exactly those headers
+without the flag, in the same directory. The god audit is the accountability
+mechanism for the one role that bypasses every permission check, and the IP it
+records can be set by whoever is being audited. (`tracing.ts` does the same for
+`net.peer.ip`, which is telemetry and matters less.) Not yet fixed — the change
+belongs on top of #447, which touches the resolver these three should share.
+
+**Gap — a tenant's daily quota is not enforced without a cache.**
+`tenantQuota` returns `next()` when `getCache()` is null, so on an install with
+no Valkey the quota does not exist. The header says "uses a Redis counter as the
+fast path", which reads as an optimisation; the effect is absence, not
+degradation. Same install shape as the rate-limit fallback above.
+
+**Gap in a gate — `check-tenant-table-on-pool` stops at `routes/`.** Its own
+documentation explains why it does not scan `lib/`: there the unscoped handle is
+spelled `db`, so the gate would catch nothing or drown. That reasoning does not
+apply to `middleware/`, which holds three pool queries and names the handle
+`poolDb` twice. Measured with the gate's own regex and its own table list: one of
+the three touches a tenant-scoped table (`zv_tenant_usage`).
+
+It is correct today — the write sets `tenant_id` explicitly. But note what
+extending the directory alone would achieve: that one call site is reached
+through an alias, `const quotaDb = poolDb ?? db`, which the gate's regex does not
+match. The gate would gain a directory and still report clean over the only case
+in it.
+
+**Low — the worker host hands extensions an undecoded path.**
+`lib/worker-extension-host.ts:646` computes a worker route's path as
+`new URL(c.req.raw.url).pathname.replace('/ext/<name>', '')`. With the extension
+name percent-encoded, the replace does not match and the worker receives the
+whole path instead of the suffix. Not an escalation — the extension 404s — but it
+is the same disagreement between what the host routed and what the consumer sees.
+
+**Verified clean, with the measurement.**
+
+- `TXN_SKIP_PREFIXES` is a `startsWith` list, so a mount could skip the tenant
+  transaction by accident. Checked all 37 registered mounts: the only one that
+  matches without a segment boundary is `/api/openapi.json` under `/api/openapi`,
+  which is intended.
+- The four schema routers skip the transaction on the stated grounds that they
+  touch instance-level metadata. Confirmed against a live catalogue:
+  `zvd_collections` and `zvd_relations` carry no `tenant_id` at all.
+- `enrich-denial` names up to three people who can grant access. It scopes to the
+  current domain, but deliberately includes grants held at `*`, so on a
+  multi-tenant install an instance-wide admin's name is offered to users of every
+  tenant. Names only, capped at three, and the trade-off is written down in
+  `denial.ts` — recorded here because it is a disclosure decision, not an
+  accident.
 
 ---
 
