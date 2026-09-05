@@ -10,6 +10,7 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { requireInstanceAdmin } from '../../lib/tenancy/index.js';
 import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/index.js';
+import { auditLog } from '../../lib/audit.js';
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 
 const SETTINGS_KEY = 'storage_config';
@@ -84,6 +85,15 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
       .execute();
     // The in-memory overlay keeps the plaintext secret so the driver can auth.
     setStorageOverlay(overlay);
+    // The keys that changed, never their values: the overlay carries a secret
+    // and this row is readable by anyone who can read the audit trail.
+    await auditLog(db, {
+      type: 'settings.changed',
+      userId: user?.id,
+      resourceType: 'storage_config',
+      metadata: { driver: storageConfig().driver, fields: Object.keys(overlay).sort() },
+    });
+
     return c.json({ ok: true, driver: storageConfig().driver });
   });
 
