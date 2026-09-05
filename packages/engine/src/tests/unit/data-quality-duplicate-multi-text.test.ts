@@ -50,7 +50,14 @@ describe('duplicate detection — multiple text fields', () => {
     db.fail(/similarity\(a\."email"/, new Error('function similarity does not exist'));
     db.when(/similarity\(a\."nickname"/, [{ id1: 'a1', id2: 'a2', sim: 0.93, value1: 'alice' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -70,7 +77,14 @@ describe('duplicate detection — multiple text fields', () => {
     db.when(/similarity\(a\."nickname"/, [{ id1: 'n1', id2: 'n2', sim: 0.92, value1: 'bob' }]);
     db.when(/similarity\(a\."bio"/, []);
 
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
