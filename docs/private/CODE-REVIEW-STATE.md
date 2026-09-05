@@ -10,19 +10,19 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **E01 — Gates — tenancy, SQL and data safety**
+### → **A16 — Tenant and admin routes**
 
-*Plant a violation in each. A gate that does not fail on it is not a gate.*
+*The privileged surface: a guard on every route, an audit entry on every privileged write.*
 
-1 of 14 files still unread. Its file list is under [`E01`](#e01--gates-tenancy-sql-and-data-safety) below.
+2 of 5 files still unread. Its file list is under [`A16`](#a16--tenant-and-admin-routes) below.
 
-After it: A16, A11, A08, A09 …
+After it: A11, A08, A09, A10 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **107 / 658** (16%)
-- Lines in scope: **24,937 / 135,987** (18%)
+- Files in scope: **108 / 658** (16%)
+- Lines in scope: **25,055 / 136,030** (18%)
 - Test files opened by some session: **27 / 874**
 
 ## Sections
@@ -110,8 +110,8 @@ After it: A16, A11, A08, A09 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| E01 | Gates — tenancy, SQL and data safety | 14 | 3,688 | 13/14 | 2026-09-04 — repaired |
-| E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
+| E01 | Gates — tenancy, SQL and data safety | 14 | 3,688 | 14/14 | 2026-09-04 — repaired |
+| E02 | Gates — authorisation, audit, structure | 11 | 2,678 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
 | E04 | Gates — coverage, ratchets, release | 10 | 2,943 | 10/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
@@ -1157,7 +1157,7 @@ After it: A16, A11, A08, A09 …
 | ✅ | `scripts/check-insert-schema-match.ts` | 720 |
 | ✅ | `scripts/check-jsonb-binding.ts` | 471 |
 | ✅ | `scripts/check-migration-safety.ts` | 262 |
-| · | `scripts/check-no-nul-bytes.ts` | 75 |
+| ✅ | `scripts/check-no-nul-bytes.ts` | 75 |
 | ✅ | `scripts/check-numeric-string-arithmetic.ts` | 325 |
 | ✅ | `scripts/check-pooldb-txn-skip.ts` | 102 |
 | ✅ | `scripts/check-raw-sql-identifiers.ts` | 149 |
@@ -1168,6 +1168,14 @@ After it: A16, A11, A08, A09 …
 
 **Sessions**
 
+- **2026-09-05** · claude-opus-5 · 1 files · **clean** · `review/E01-gates`
+  - ran: matched E01's file list against audit-gates.ts, by gate name and by the `covers:` list wrapper cases declare: all 13 gates listed on this branch are exercised, none uncovered.
+  - ran: ran audit:gates with a database: 43/43 caught their violation, with one case skipped — check-studio-embed-freshness, whose plant path is a build artefact that exists on any machine where the Studio has been built.
+  - ran: added a replace mode and measured it both ways on the same machine: artefact present, caught its violation and the checksum is unchanged; artefact absent, caught its violation and nothing was left behind. 44/44 either way.
+  - ran: proved the new case discriminates by making check-studio-embed-freshness inert: the meta-gate reported STAYED GREEN on a planted violation, 43/44, decoration — and 44/44 when restored.
+  - **medium** scripts/audit-gates.ts — check-studio-embed-freshness could never be proved on a machine where the Studio had been built, which is every machine where a stale embed is possible. The collision rule skipped it, so it was exercised only on a fresh checkout. A first fix inverted that — requiring the file meant CI skipped it instead, and a skip is fatal there. → *repaired* (#467)
+  - **low** method, not code — audit:gates run without TEST_DATABASE_URL reports check-insert-schema-match as decoration. The gate needs a database and its own case comment predicts this failure mode. My invocation was the fault; recorded so the next reader does not file it. → *logged* (known-gaps.md)
+  - not done: Section closed against its own bar: every gate it lists is exercised by a planted violation, and the one that could not be is now provable everywhere. What is NOT done is a unit test per gate — the T01 backlog's 'a case per gate, not per repair' — and the two check-jsonb-binding misses recorded on 2026-09-04 are unchanged.
 - **2026-09-04** · claude-opus-5 · 1 files · **repaired** · `review/campaign-setup (working tree — not committed)`
   - ran: the 13th file, after master's merge reopened E01 at 12/13
   - ran: check-jsonb-binding on a STALE sibling (8 commits behind): 29 columns, ~45 sites, FAIL — traced to staleness, not a defect. Against origin/master of the extensions (git archive, read-only): OK, 0 sites across 115 tables. CI is green legitimately.
@@ -1224,7 +1232,7 @@ After it: A16, A11, A08, A09 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | ✅ | `scripts/admin-gate-check.ts` | 175 |
-| ✅ | `scripts/audit-gates.ts` | 964 |
+| ✅ | `scripts/audit-gates.ts` | 1007 |
 | ✅ | `scripts/audit-inventory.ts` | 206 |
 | ✅ | `scripts/audit-regression-check.ts` | 116 |
 | ✅ | `scripts/check-ambient-authority.ts` | 279 |

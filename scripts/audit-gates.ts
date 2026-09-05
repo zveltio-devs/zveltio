@@ -40,7 +40,20 @@ type Case = {
    * open a new one — `check-i18n-core` is the case. The original is held in
    * memory and written back byte for byte, so the file is untouched either way.
    */
-  mode?: 'create' | 'append';
+  /**
+   * `replace` runs whether or not the path is already there: it stands in for an
+   * existing file and puts it back byte for byte, and creates then removes one
+   * when there is none.
+   *
+   * It exists because a build artefact is present on every developer machine and
+   * absent in CI, and either half alone leaves the case unproved somewhere.
+   * `create` skipped it locally under the collision rule — so the gate was
+   * proved only on a fresh checkout, the one place a stale embed cannot happen.
+   * A first version of `replace` inverted that exactly: it required the file, so
+   * CI skipped it instead, and a skip is fatal there. Both halves, or the case
+   * is decoration on one machine or the other.
+   */
+  mode?: 'create' | 'append' | 'replace';
   /**
    * Scripts this case exercises INDIRECTLY, when the command runs a wrapper
    * rather than the gate itself. Two cases need a wrapper: one has to seed a
@@ -318,6 +331,13 @@ const CASES: Case[] = [
     gate: 'check-studio-embed-freshness',
     cmd: 'REQUIRE_STUDIO_DIST=1 bun run scripts/check-studio-embed-freshness.ts',
     file: 'packages/studio/dist/.zveltio-studio-version',
+    // `replace`, because this path EXISTS on every machine where anyone has
+    // built the Studio — which is every machine where this gate matters. Under
+    // the collision rule it was skipped there and proved only on a fresh
+    // checkout, so the one environment that could not exercise it was the
+    // developer's own. The original is read before the plant and written back
+    // afterwards, the same way `append` already does.
+    mode: 'replace',
     body: '0.0.0-planted\n',
   },
   {
@@ -847,6 +867,9 @@ const skipped: { gate: string; file: string; why: string }[] = [];
 for (let i = CASES.length - 1; i >= 0; i--) {
   const c = CASES[i]!;
   const appends = c.mode === 'append';
+  // A `replace` case never collides: it puts back whatever it found, and
+  // creates then removes when it found nothing.
+  if (c.mode === 'replace') continue;
   if (!appends && existsSync(c.file)) {
     skipped.push({ gate: c.gate, file: c.file, why: 'already exists' });
     CASES.splice(i, 1);
@@ -864,11 +887,21 @@ for (const s of skipped) {
 }
 if (skipped.length > 0) console.error('');
 
+// Which `replace` paths were already on disk, answered BEFORE anything is
+// planted. Asked afterwards it would always be yes, since the probe recreates
+// them either way.
+const preExisting = new Set(
+  CASES.filter((c) => c.mode === 'replace' && existsSync(c.file)).map((c) => c.file),
+);
+
 let caught = 0;
 const missed: string[] = [];
 
 for (const c of CASES) {
-  const original = c.mode === 'append' ? readFileSync(c.file, 'utf8') : null;
+  const original =
+    (c.mode === 'append' || c.mode === 'replace') && existsSync(c.file)
+      ? readFileSync(c.file, 'utf8')
+      : null;
   // Which ancestors this probe is about to create, deepest last. The file header
   // promises nothing is left behind, and for two months that was true only of
   // the FILE: `mkdirSync(…, { recursive: true })` created parents that nothing
@@ -882,7 +915,10 @@ for (const c of CASES) {
     if (dirname(d) === d) break;
   }
   mkdirSync(dirname(c.file), { recursive: true });
-  writeFileSync(c.file, original === null ? c.body : original + c.body);
+  writeFileSync(
+    c.file,
+    c.mode === 'replace' ? c.body : original === null ? c.body : original + c.body,
+  );
   let failed = false;
   let output = '';
   try {
@@ -933,9 +969,16 @@ for (const c of CASES) {
 // Files AND the directories that held them. The file half of this check has
 // been here all along and passed the whole time the run was leaving empty
 // parents behind, which is what a check on half a promise buys you.
-const leftovers = CASES.filter((c) => c.mode !== 'append' && existsSync(c.file)).map((c) => c.file);
+// A `replace` path is a leftover only if it was NOT there to begin with — the
+// case restores what it found, and counting a restoration as a leftover would
+// report the tidy-up as the failure. `preExisting` is recorded before any plant
+// is written, which is the only moment the answer is still true.
+const leftovers = CASES.filter(
+  (c) =>
+    c.mode !== 'append' && !(c.mode === 'replace' && preExisting.has(c.file)) && existsSync(c.file),
+).map((c) => c.file);
 for (const c of CASES) {
-  if (c.mode === 'append') continue;
+  if (c.mode === 'append' || (c.mode === 'replace' && preExisting.has(c.file))) continue;
   const dir = dirname(c.file);
   if (existsSync(dir) && readdirSync(dir).length === 0) leftovers.push(`${dir}/ (empty)`);
 }
