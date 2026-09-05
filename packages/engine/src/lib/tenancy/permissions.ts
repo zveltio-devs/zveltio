@@ -671,7 +671,7 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
     try {
       const raw = await cache.get(cacheKey);
       if (raw !== null) {
-        const decoded = _decodeRolesCache(userId, raw);
+        const decoded = _decodeRolesCache(cacheKey, userId, raw);
         if (decoded !== null && decoded.length === 1) return decoded[0]!;
       }
     } catch {
@@ -694,7 +694,7 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
     _localRole.set(userId, { value: role, at: Date.now() });
     if (cache) {
       try {
-        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
+        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(cacheKey, userId, [role]));
       } catch {
         /* cache unavailable */
       }
@@ -918,27 +918,43 @@ export async function isTenantAdmin(userId: string): Promise<boolean> {
  * SHA-256 hex is always exactly 64 characters, so the last 65 bytes
  * (`:` + 64 hex) are unambiguous regardless of the JSON content.
  */
-function _rolesHmac(userId: string, rolesJson: string): string {
+function _rolesHmac(cacheKey: string, userId: string, rolesJson: string): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret)
     throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign roles cache entry');
-  return createHmac('sha256', secret).update(`roles:${userId}:${rolesJson}`).digest('hex');
+  // The KEY is signed, not just the user and the value.
+  //
+  // These entries live under two different keys — `roles:<domain>:<user>` and
+  // `urole:<user>` — and the signature used to cover only the user and the JSON.
+  // So a value this engine wrote for one key verified under any other: an
+  // attacker with cache write access, which is the threat these HMACs exist for,
+  // could copy a user's `roles:<tenantA>:<user>` entry to
+  // `roles:<tenantB>:<user>` and the copy would pass verification, carrying
+  // their tenant-A roles into tenant B. The user id is bound, so this never
+  // crossed between people — it crossed between tenants, which is the boundary
+  // the product is built on.
+  //
+  // `_permHmac`, forty lines up, signs its full key already. This is the same
+  // decision, made the same way, in the function that spans domains.
+  return createHmac('sha256', secret)
+    .update(`roles:${cacheKey}:${userId}:${rolesJson}`)
+    .digest('hex');
 }
 
-function _encodeRolesCache(userId: string, roles: string[]): string {
+function _encodeRolesCache(cacheKey: string, userId: string, roles: string[]): string {
   const json = JSON.stringify(roles);
-  return `${json}:${_rolesHmac(userId, json)}`;
+  return `${json}:${_rolesHmac(cacheKey, userId, json)}`;
 }
 
 /** Returns the roles array if HMAC is valid, `null` if tampered / malformed. */
-function _decodeRolesCache(userId: string, raw: string): string[] | null {
+function _decodeRolesCache(cacheKey: string, userId: string, raw: string): string[] | null {
   // HMAC is always 64 hex chars; separator is ':'
   const HMAC_LEN = 64;
   if (raw.length < HMAC_LEN + 2) return null; // at minimum '[]' + ':' + 64 chars
   const storedHmac = raw.slice(raw.length - HMAC_LEN);
   const json = raw.slice(0, raw.length - HMAC_LEN - 1); // strip ':' + hmac
   try {
-    const expected = Buffer.from(_rolesHmac(userId, json), 'hex');
+    const expected = Buffer.from(_rolesHmac(cacheKey, userId, json), 'hex');
     const stored = Buffer.from(storedHmac, 'hex');
     if (stored.length !== expected.length) return null;
     if (!timingSafeEqual(stored, expected)) return null;
@@ -977,7 +993,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
       const cached = await cache.get(cacheKey);
       if (cached !== null) {
         // Verify HMAC — null means tampered, fall through to DB (fail-closed)
-        const decoded = _decodeRolesCache(userId, cached);
+        const decoded = _decodeRolesCache(cacheKey, userId, cached);
         if (decoded !== null) return decoded;
       }
     } catch {
@@ -995,7 +1011,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
       // SETEX  — O(1): write HMAC-signed roles under a single key.
       // SADD   — O(1): register this key in the per-user tracking Set.
       // EXPIRE — O(1): keeps the tracking Set TTL aligned with its contents.
-      await cache.setex(cacheKey, ROLE_CACHE_TTL, _encodeRolesCache(userId, roles));
+      await cache.setex(cacheKey, ROLE_CACHE_TTL, _encodeRolesCache(cacheKey, userId, roles));
       await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
       await cache.expire(`user:perm-keys:${userId}`, ROLE_CACHE_TTL + 60);
     } catch {
