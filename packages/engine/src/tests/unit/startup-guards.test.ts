@@ -8,12 +8,19 @@ import { assertProductionConfig, productionGuardViolations } from '../../lib/sta
  * up failing for reasons unrelated to what it names.
  */
 const CACHE = 'redis://:pw@cache:6379';
+/**
+ * The same reasoning as CACHE, one guard later: every case below is about ONE
+ * control, so each supplies a base URL and the BETTER_AUTH_URL guard stays out
+ * of its way.
+ */
+const BASE = 'https://app.example.com';
 
 describe('productionGuardViolations', () => {
   it('refuses production with the extension auth gate disabled', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
       VALKEY_URL: CACHE,
+      BETTER_AUTH_URL: BASE,
       ZVELTIO_EXT_AUTH_GATE: '0',
     });
     expect(v).toHaveLength(1);
@@ -24,7 +31,12 @@ describe('productionGuardViolations', () => {
   // permanently in the deployment template to stop it being a nuisance.
   it.each(['development', 'test', undefined])('leaves NODE_ENV=%s alone', (NODE_ENV) => {
     expect(
-      productionGuardViolations({ NODE_ENV, VALKEY_URL: CACHE, ZVELTIO_EXT_AUTH_GATE: '0' }),
+      productionGuardViolations({
+        NODE_ENV,
+        VALKEY_URL: CACHE,
+        BETTER_AUTH_URL: BASE,
+        ZVELTIO_EXT_AUTH_GATE: '0',
+      }),
     ).toEqual([]);
   });
 
@@ -36,6 +48,7 @@ describe('productionGuardViolations', () => {
       productionGuardViolations({
         NODE_ENV: 'production',
         VALKEY_URL: CACHE,
+        BETTER_AUTH_URL: BASE,
         ZVELTIO_EXT_AUTH_GATE: value,
       }),
     ).toEqual([]);
@@ -45,6 +58,7 @@ describe('productionGuardViolations', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
       VALKEY_URL: CACHE,
+      BETTER_AUTH_URL: BASE,
       CORS_ORIGINS: '*',
     });
     expect(v).toHaveLength(1);
@@ -57,6 +71,7 @@ describe('productionGuardViolations', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
       VALKEY_URL: CACHE,
+      BETTER_AUTH_URL: BASE,
       CORS_ORIGINS: 'https://app.example.com, *, https://admin.example.com',
     });
     expect(v).toHaveLength(1);
@@ -66,7 +81,12 @@ describe('productionGuardViolations', () => {
   // trustedOrigins falls back. Failing it would block ordinary installs.
   it.each([undefined, '', 'https://app.example.com'])('accepts CORS_ORIGINS=%p', (CORS_ORIGINS) => {
     expect(
-      productionGuardViolations({ NODE_ENV: 'production', VALKEY_URL: CACHE, CORS_ORIGINS }),
+      productionGuardViolations({
+        NODE_ENV: 'production',
+        VALKEY_URL: CACHE,
+        BETTER_AUTH_URL: BASE,
+        CORS_ORIGINS,
+      }),
     ).toEqual([]);
   });
 
@@ -74,13 +94,29 @@ describe('productionGuardViolations', () => {
   // production misconfiguration, because every shipped install path provides one
   // and the fallbacks degrade security in silence.
   it('passes a clean production environment', () => {
-    expect(productionGuardViolations({ NODE_ENV: 'production', VALKEY_URL: CACHE })).toEqual([]);
+    expect(
+      productionGuardViolations({
+        NODE_ENV: 'production',
+        VALKEY_URL: CACHE,
+        BETTER_AUTH_URL: BASE,
+      }),
+    ).toEqual([]);
+  });
+
+  // Unset does not fail anything — it rewrites every absolute URL the engine
+  // emits, including the link in a password-reset mail, which then arrives well
+  // formed and pointing at localhost.
+  it('refuses production without a base URL', () => {
+    const v = productionGuardViolations({ NODE_ENV: 'production', VALKEY_URL: CACHE });
+    expect(v).toHaveLength(1);
+    expect(v[0]!.variable).toBe('BETTER_AUTH_URL');
   });
 
   it('reports every violation at once', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
       VALKEY_URL: CACHE,
+      BETTER_AUTH_URL: BASE,
       ZVELTIO_EXT_AUTH_GATE: '0',
       CORS_ORIGINS: '*',
     });
@@ -97,6 +133,7 @@ describe('assertProductionConfig', () => {
         assertProductionConfig({
           NODE_ENV: 'production',
           VALKEY_URL: CACHE,
+          BETTER_AUTH_URL: BASE,
           ZVELTIO_EXT_AUTH_GATE: '0',
         }),
       ).toThrow(/ZVELTIO_EXT_AUTH_GATE/);
@@ -107,7 +144,7 @@ describe('assertProductionConfig', () => {
 
   it('is silent when there is nothing to say', () => {
     expect(() =>
-      assertProductionConfig({ NODE_ENV: 'production', VALKEY_URL: CACHE }),
+      assertProductionConfig({ NODE_ENV: 'production', VALKEY_URL: CACHE, BETTER_AUTH_URL: BASE }),
     ).not.toThrow();
   });
 });
