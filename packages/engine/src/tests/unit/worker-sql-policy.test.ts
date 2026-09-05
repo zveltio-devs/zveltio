@@ -93,6 +93,53 @@ describe('assertWorkerSqlAllowed — what stays permitted', () => {
     // 'zvd_x' must not be read as an engine table — the third char is 'd'.
     expect(allowed('SELECT * FROM zvd_zv_weird')).toBe(true);
   });
+
+  // ── Words after FROM and JOIN that are not tables ────────────────────────
+  //
+  // Found by running this policy over every raw statement the first-party
+  // extensions actually ship: it refused `lateral`, `now`, `date`,
+  // `start_date` and `invoice_date`, none of which is a table. A gate that
+  // names a table nobody wrote is a gate whose next report is not believed.
+
+  it('reads JOIN LATERAL as a subquery, not a table called lateral', () => {
+    // `hr/employees` ships exactly this shape.
+    expect(allowed('SELECT e.id FROM zvd_employees e LEFT JOIN LATERAL (SELECT 1) x ON true')).toBe(
+      true,
+    );
+  });
+
+  it('also handles LATERAL over a set-returning function', () => {
+    // The form with no parenthesis directly after the keyword. Written after a
+    // first attempt to prove the LATERAL rule failed to discriminate: with the
+    // subquery form alone, the function-call rule below already covered it, so
+    // the rule looked necessary while doing nothing.
+    expect(allowed('SELECT * FROM zvd_orders o JOIN LATERAL generate_series(1, 3) g ON true')).toBe(
+      true,
+    );
+  });
+
+  it('does not read a function call after FROM as a table', () => {
+    expect(allowed('SELECT * FROM zvd_orders WHERE created_at > now()')).toBe(true);
+    expect(allowed('SELECT EXTRACT(YEAR FROM now()) FROM zvd_orders')).toBe(true);
+  });
+
+  it("does not read EXTRACT's keyword argument as a table", () => {
+    // `EXTRACT(EPOCH FROM start_date)` — the word after FROM is a column.
+    expect(allowed('SELECT EXTRACT(EPOCH FROM start_date) FROM zvd_leave')).toBe(true);
+    expect(allowed("SELECT TRIM(BOTH ' ' FROM name) FROM zvd_contacts")).toBe(true);
+    expect(allowed('SELECT SUBSTRING(code FROM 2) FROM zvd_items')).toBe(true);
+  });
+
+  it('still refuses an engine table inside such a statement', () => {
+    // The relaxations above must not become a hiding place: a real table
+    // reference elsewhere in the same statement is still read.
+    expect(
+      allowed(
+        'SELECT EXTRACT(EPOCH FROM start_date) FROM "session" JOIN LATERAL (SELECT 1) x ON true',
+      ),
+    ).toBe(false);
+    expect(allowed('SELECT * FROM zvd_orders WHERE id IN (SELECT id FROM "user")')).toBe(false);
+  });
 });
 
 describe('assertWorkerSqlAllowed — hiding places', () => {
