@@ -748,6 +748,87 @@ that site either way; the count was wrong for a day. In a tree where the same
 basename lives in two directories, filtering on the basename hides the thing
 being looked for.
 
+### A07 — authentication and identity (2026-09-05, partial)
+
+**Gap — the extension sandbox has a second door, and it is wide open.** The
+table allowlist wraps Kysely's query-builder entry points. A raw `sql` template
+does not go through them: it asks the handle for its executor and calls
+`executeQuery` on that. Measured through the real proxy, with an extension
+holding no grants at all:
+
+    selectFrom('session')                    refused
+    selectFrom('zv_api_keys')                refused
+    sql`SELECT token FROM session`           READ
+    sql`SELECT id FROM zv_api_keys`          READ
+    sql`SELECT token FROM zv_invitations`    READ
+    sql`UPDATE "user" SET role='god'`        accepted
+
+`session.token` is a live bearer credential for any account including the god
+user; the last line is self-promotion. The comment in `extension-context.ts`
+documents the measurement that closed the builder path — this is the other one.
+It affects in-process extensions, which is every first-party one; worker
+extensions go through `assertWorkerSqlAllowed`.
+
+**The fix is written and measured, and is not filed as a pull request, because
+the hole is load-bearing.** Guarding `getExecutor` (not `executeQuery` — measured;
+a guard on the handle's own method sits beside the path rather than on it) and
+delegating to `assertWorkerSqlAllowed` refuses all four lines above while every
+legitimate shape still passes: builder queries, granted tables, CTEs, interpolated
+`sql` fragments.
+
+Running that policy over all 1170 raw statements the first-party extensions ship
+says what closing it costs — **18 extensions**, and not by accident:
+
+| extension | tables outside its own namespace |
+|---|---|
+| `auth/saml` | `session`, `user` — deletes other sessions on SSO login |
+| `auth/ldap` | `session`, `user`, `zv_audit_log` |
+| `auth/scim` | `account`, `session`, `user`, `zv_tenants`, `zv_tenant_users` |
+| `compliance/gdpr` | `account`, `session`, `twofactor`, `user`, `zv_api_keys`, `zv_audit_log`, `zv_notifications` — right to erasure |
+| `storage/cloud`, `ai` | `user` |
+| `analytics/dashboard` | `user`, `zv_audit_log`, `zv_settings`, `zv_tenant_users`, `pg_class` |
+| `communications/mail` | `zv_settings` |
+| `developer/database`, `integrations/migrators`, `geospatial/postgis`, `content/pages` | `information_schema.*`, `pg_*` — schema browsing and migration |
+
+They use raw SQL *because* the builder path refuses them. So this is not a repair,
+it is a decision: which of these get an explicit grant, under which capability,
+and whether catalogue reads become a capability of their own. That decision is the
+owner's, and the code change should land with it rather than before it.
+
+**Gap — invitation tokens are stored in plaintext.** `zv_invitations.token` holds
+the 32 random bytes the invitation email carries, and the table has no RLS and no
+policy while carrying a `tenant_id` (measured). `zveltio_rls` holds SELECT on it.
+The same codebase hashes password-reset and e-mail-verification tokens, and the
+recovery token, with the argument written at `verification: storeIdentifier` —
+"the token itself, readable by anything that can read one table". The argument
+applies here and was not applied. Not reachable through the API today: there is no
+endpoint that lists invitations, only lookup by token. Hashing them at rest
+invalidates invitations already in flight unless a second column carries the
+transition, which is why it is written down rather than changed.
+
+**Low — the legacy scrypt path compares by `!==`.** `verifyPassword` compares the
+derived key against the stored one with a plain string comparison, while the
+recovery token in `routes/permissions.ts` uses a constant-time helper and the
+signed caches use `timingSafeEqual`. The attacker supplies the password, not the
+digest, so there is no practical oracle here — recorded because the file is
+careful about exactly this everywhere else, and the path is scheduled for removal
+anyway.
+
+**Verified clean.**
+
+- Account creation has one chokepoint, and it is the right one: a `before` hook on
+  the `user` insert rather than a URL pattern, so magic-link and OAuth are covered
+  by construction. The two legitimate in-process paths announce themselves through
+  an AsyncLocalStorage flag, and `withAuthorizedUserCreation` is **not** exposed to
+  extensions.
+- `createBetterAuthSession` — "log anyone in" — is reachable from extensions, and
+  is gated behind the `auth:session` capability the manifest must declare.
+- `hashApiKey` is HMAC under `BETTER_AUTH_SECRET`, single-sited, with the dead
+  `SECRET_KEY` fallback already removed.
+
+Still unread in this section: `keyring.ts` beyond its structure, and
+`routes/users.ts` outside the invitation endpoints.
+
 ---
 
 ## 4. Deliberate deferrals
