@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { sql } from 'kysely';
+import { sql, type ExpressionBuilder } from 'kysely';
 import type { Database } from '../../db/index.js';
+import type { DbSchema } from '../../db/schema.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
@@ -714,28 +715,35 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     // search. Without it a `%` or `_` typed into the box is a wildcard, so
     // searching for a literal `/api/v1/_internal` quietly matches far more than
     // it names.
-    // biome-ignore lint/suspicious/noExplicitAny: Kysely's builder type differs between select and count
-    const withFilters = <T extends { where: any }>(q: T): T => {
-      let out = q;
-      if (path) out = out.where('path', 'like', `%${escapeLike(path)}%`);
-      if (status) out = out.where('status', '=', parseInt(status));
-      if (method) out = out.where('method', '=', method.toUpperCase());
-      if (user_id) out = out.where('user_id', '=', user_id);
-      return out;
+    // One expression, handed to both queries. A generic "apply the filters to a
+    // builder" helper needs the two builder types to be one type and they are
+    // not, which is how the first version of this reached for `any` — and the
+    // ratchet refused it, correctly: the value has a type, the helper just did
+    // not want to name it.
+    const conditions = (eb: ExpressionBuilder<DbSchema, 'zv_request_logs'>) => {
+      const parts = [
+        ...(path ? [eb('path', 'like', `%${escapeLike(path)}%`)] : []),
+        ...(status ? [eb('status', '=', parseInt(status))] : []),
+        ...(method ? [eb('method', '=', method.toUpperCase())] : []),
+        ...(user_id ? [eb('user_id', '=', user_id)] : []),
+      ];
+      return eb.and(parts);
     };
 
     const [logs, total] = await Promise.all([
-      withFilters(
-        db
-          .selectFrom('zv_request_logs')
-          .selectAll()
-          .orderBy('created_at', 'desc')
-          .limit(parsedLimit)
-          .offset(offset),
-      ).execute(),
-      withFilters(
-        db.selectFrom('zv_request_logs').select((eb) => eb.fn.count('id').as('count')),
-      ).executeTakeFirst(),
+      db
+        .selectFrom('zv_request_logs')
+        .selectAll()
+        .where(conditions)
+        .orderBy('created_at', 'desc')
+        .limit(parsedLimit)
+        .offset(offset)
+        .execute(),
+      db
+        .selectFrom('zv_request_logs')
+        .select((eb) => eb.fn.count('id').as('count'))
+        .where(conditions)
+        .executeTakeFirst(),
     ]);
 
     return c.json({ logs, total: Number(total?.count ?? 0) });
