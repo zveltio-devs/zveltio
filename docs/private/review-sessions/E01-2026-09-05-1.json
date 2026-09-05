@@ -1,0 +1,32 @@
+{
+  "section": "E01",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/E01-gates",
+  "files": ["scripts/check-no-nul-bytes.ts"],
+  "tests": [],
+  "ran": [
+    "matched E01's file list against audit-gates.ts, by gate name and by the `covers:` list wrapper cases declare: all 13 gates listed on this branch are exercised, none uncovered.",
+    "ran audit:gates with a database: 43/43 caught their violation, with one case skipped — check-studio-embed-freshness, whose plant path is a build artefact that exists on any machine where the Studio has been built.",
+    "added a replace mode and measured it both ways on the same machine: artefact present, caught its violation and the checksum is unchanged; artefact absent, caught its violation and nothing was left behind. 44/44 either way.",
+    "proved the new case discriminates by making check-studio-embed-freshness inert: the meta-gate reported STAYED GREEN on a planted violation, 43/44, decoration — and 44/44 when restored."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "scripts/audit-gates.ts",
+      "what": "check-studio-embed-freshness could never be proved on a machine where the Studio had been built, which is every machine where a stale embed is possible. The collision rule skipped it, so it was exercised only on a fresh checkout. A first fix inverted that — requiring the file meant CI skipped it instead, and a skip is fatal there.",
+      "status": "repaired",
+      "ref": "#467"
+    },
+    {
+      "severity": "low",
+      "where": "method, not code",
+      "what": "audit:gates run without TEST_DATABASE_URL reports check-insert-schema-match as decoration. The gate needs a database and its own case comment predicts this failure mode. My invocation was the fault; recorded so the next reader does not file it.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "Section closed against its own bar: every gate it lists is exercised by a planted violation, and the one that could not be is now provable everywhere. What is NOT done is a unit test per gate — the T01 backlog's 'a case per gate, not per repair' — and the two check-jsonb-binding misses recorded on 2026-09-04 are unchanged.",
+  "verdict": "clean"
+}
