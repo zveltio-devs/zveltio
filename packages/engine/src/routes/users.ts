@@ -159,7 +159,29 @@ export function usersRoutes(
       // Update Casbin role if changed
       if (role) {
         const e = await getEnforcer();
-        await e.deleteRolesForUser(userId);
+        // Scoped to the global domain, because that is the only thing this
+        // route changes.
+        //
+        // `deleteRolesForUser(userId)` with no domain removes EVERY role grant
+        // the user holds, in every tenant. So setting somebody's global column
+        // to `member` also stripped their `tenant_owner` in one firm and their
+        // `tenant_member` in another — grants this endpoint never mentions, and
+        // an audit line that records only `new_role`.
+        //
+        // That is the same conflation the comment on the schema below warns
+        // about: `user.role` and a Casbin role are two vocabularies, and an
+        // earlier round already fixed one bug caused by treating them as one.
+        //
+        // It used not to show. The adapter's DELETE could not match a three-value
+        // grant, so the removal happened in memory and the rows came back at the
+        // next policy load; the route looked like it only touched the global
+        // role. #451 and #455 made those deletes reach the database, which made
+        // this real. Measured, before and after:
+        //
+        //   before          tenant_owner@firmA, tenant_member@firmB
+        //   PATCH member    member@*                              ← memberships gone
+        //   with a domain   member@*, tenant_owner@firmA, tenant_member@firmB
+        await e.deleteRolesForUser(userId, '*');
         await e.addRoleForUser(userId, role, '*');
         await invalidateUserPermCache(userId);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
