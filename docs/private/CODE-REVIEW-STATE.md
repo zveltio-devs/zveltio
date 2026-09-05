@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A06 — Permissions, roles, column access**
+### → **A07 — Authentication and identity**
 
-*Deny by default, cache invalidation across replicas, hidden versus read-only columns.*
+*Sessions, API keys, SSO, key material. Revocation must reach every replica.*
 
-3 of 5 files still unread. Its file list is under [`A06`](#a06--permissions-roles-column-access) below.
+7 of 7 files still unread. Its file list is under [`A07`](#a07--authentication-and-identity) below.
 
-After it: A07, A16, A11, A08 …
+After it: A16, A11, A08, A09 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **86 / 656** (13%)
-- Lines in scope: **18,607 / 135,421** (14%)
-- Test files opened by some session: **12 / 861**
+- Files in scope: **90 / 657** (14%)
+- Lines in scope: **20,518 / 135,547** (15%)
+- Test files opened by some session: **15 / 864**
 
 ## Sections
 
@@ -40,12 +40,12 @@ After it: A07, A16, A11, A08 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,087 | 17/17 | 2026-09-04 — partial |
+| A02 | Middleware chain | 18 | 2,179 | 18/18 | 2026-09-05 — clean |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
-| A06 | Permissions, roles, column access | 5 | 2,193 | 2/5 | 2026-09-04 — partial |
-| A07 | Authentication and identity | 7 | 1,729 | 0/7 | — |
+| A06 | Permissions, roles, column access | 5 | 2,218 | 5/5 | 2026-09-04 — partial |
+| A07 | Authentication and identity | 7 | 1,730 | 0/7 | — |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
@@ -113,7 +113,7 @@ After it: A07, A16, A11, A08 …
 | E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,635 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,932 | 10/10 | 2026-09-04 — partial |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,940 | 10/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -124,7 +124,7 @@ After it: A07, A16, A11, A08 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 861 | 92,252 | n/a | — |
+| T01 | Test corpus | 864 | 92,560 | n/a | — |
 
 ---
 
@@ -172,20 +172,21 @@ After it: A07, A16, A11, A08 …
 | --- | --- | --: |
 | ✅ | `packages/engine/src/lib/route-db.ts` | 50 |
 | ✅ | `packages/engine/src/lib/savepoint.ts` | 82 |
-| ✅ | `packages/engine/src/middleware/demo-mode.ts` | 75 |
+| ✅ | `packages/engine/src/lib/security/client-ip.ts` | 119 |
+| ✅ | `packages/engine/src/middleware/demo-mode.ts` | 93 |
 | ✅ | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
 | ✅ | `packages/engine/src/middleware/extension-auth-gate.ts` | 153 |
-| ✅ | `packages/engine/src/middleware/god-audit.ts` | 122 |
+| ✅ | `packages/engine/src/middleware/god-audit.ts` | 129 |
 | ✅ | `packages/engine/src/middleware/preview-env.ts` | 75 |
-| ✅ | `packages/engine/src/middleware/rate-limit.ts` | 495 |
-| ✅ | `packages/engine/src/middleware/request-log.ts` | 91 |
+| ✅ | `packages/engine/src/middleware/rate-limit.ts` | 439 |
+| ✅ | `packages/engine/src/middleware/request-log.ts` | 94 |
 | ✅ | `packages/engine/src/middleware/session-prefetch.ts` | 99 |
 | ✅ | `packages/engine/src/middleware/slow-query.ts` | 61 |
 | ✅ | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
 | ✅ | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
 | ✅ | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
 | ✅ | `packages/engine/src/middleware/tenant.ts` | 295 |
-| ✅ | `packages/engine/src/middleware/tracing.ts` | 113 |
+| ✅ | `packages/engine/src/middleware/tracing.ts` | 114 |
 | ✅ | `packages/engine/src/middleware/url-validator.ts` | 1 |
 
 **Sessions**
@@ -213,6 +214,9 @@ After it: A07, A16, A11, A08 …
   - **medium** middleware/preview-env.ts + zv_schema_branches — the preview-token lookup selects on `preview_token` alone — no tenant predicate — and the table carries NO tenant_id, NO row-level security and NO policy, measured. So the token is a bearer credential bound to no tenant, and presenting it sets `SET LOCAL search_path` to that branch's schema for the request while the tenant GUC still says whoever presented it. NOT verified: whether that yields a cross-tenant read, which depends on the branch schema's own tables — no branch schema existed in the verification database, and every non-public schema that does exist carries no RLS at all. → *logged* (known-gaps.md)
   - **low** middleware/url-validator.ts — a 0-byte file, tracked by git, imported by nothing, sitting beside the real SSRF guard at lib/security/url-validator.ts. A reader grepping middleware/ for url-validator finds a file and concludes the middleware exists. → *logged* (known-gaps.md)
   - not done: PARTIAL, 5 of 17 files. Read: url-validator (empty), tenant-guard, extension-auth-gate, tenant-membership, preview-env. tenant.ts was read substantially while proving the escalation now fixed in #444, but not end to end, so it is not ticked. Unread: rate-limit (495), tenant-quota, session-prefetch, god-audit, enrich-denial, tracing, request-log, demo-mode (header only), slow-query, route-db, savepoint. Raised for the owner rather than logged as a defect: tenant-membership deliberately skips the membership check for the DEFAULT tenant, and a request with no slug resolves to it — correct for the single-tenant model the comment cites, and worth a decision for the hierarchical multi-tenant market the product targets, where the root tenant holds a real organisation's data.
+- **2026-09-05** · claude-opus-5 · 1 files · **clean** · `fix/audit-trail-client-ip`
+  - ran: the file did not exist when A02 was closed at 17/17: #450 extracted it out of middleware/rate-limit.ts so god-audit, request-log, tracing and the recovery endpoint could share one resolver instead of reading the proxy headers raw. Its contents were read line by line in this section before the move, and again while moving them.
+  - not done: Nothing outstanding for this file. Recorded as its own entry rather than folded into the earlier one because a file that appears mid-campaign should be visible as an addition, not absorbed into a count that was taken before it existed.
 
 ### A03 — Error surface, health, API description
 
@@ -304,10 +308,10 @@ After it: A07, A16, A11, A08 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | ✅ | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
-| · | `packages/engine/src/lib/tenancy/permissions.ts` | 1002 |
+| ✅ | `packages/engine/src/lib/tenancy/permissions.ts` | 1024 |
 | ✅ | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
-| · | `packages/engine/src/routes/admin/permission-routes.ts` | 349 |
-| · | `packages/engine/src/routes/permissions.ts` | 435 |
+| ✅ | `packages/engine/src/routes/admin/permission-routes.ts` | 349 |
+| ✅ | `packages/engine/src/routes/permissions.ts` | 438 |
 
 **Sessions**
 
@@ -320,6 +324,20 @@ After it: A07, A16, A11, A08 …
   - **high** lib/tenancy/column-permissions.ts:24 — getColumnAccess short-circuits on a hardcoded role NAME: `if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), readOnly: new Set() }`. Measured against every value the schema permits on "user".role: member is masked, admin is NOT, god IS masked. So the bypass names a role that is not the most privileged one and omits the one that is, and a user set to 'admin' — a value 001_initial.sql:1160 explicitly allows — sees every hidden column with no policy row expressing it and no way to revoke it short of editing code. This is precisely the pattern getRlsFilters removed, with its comment stating why: 'a string comparison against a role name is invisible, unauditable and impossible to revoke'. 'superadmin' is a dead branch — not in the CHECK constraint, and absent from the rest of the product. → *logged* (known-gaps.md)
   - **low** lib/tenancy/resource-grants.ts:26 and :66 — the header cites `scripts/check-extension-resources.ts` twice as the gate that fails the build when a permissionGate call names an undeclared resource. That script does not exist, and no script in scripts/ scans permissionGate calls. It is named as one of the two compensating controls for an owner decision (2026-08-30) that removed the frozen KNOWN_EXTENSION_RESOURCES list; the OTHER control is real — listKnownResources collects extensions declaring nothing and names them at boot. So the decision's stated minimum is half-met, and the file asserts a build-time protection that was never built. → *logged* (known-gaps.md)
   - not done: PARTIAL. permissions.ts (997 lines) read in the parts that decide access — checkPermission, effectivePermissions, requireInstanceAdmin, isTenantAdmin, resolveUserRole, the three signed caches, the policy-object index and the Casbin adapter — but not end to end; initPermissions, the model string, listAllRoles and getUserRoles are unread. routes/permissions.ts (435) and routes/admin/permission-routes.ts (349) were only read where they write policies or invalidate caches. The escalation found here is fixed and out as PR #444; nothing else repaired.
+- **2026-09-05** · claude-opus-5 · 3 files · **clean** · `review/A06-close`
+  - ran: drove the real enforcer against the real policy table: granted tenant_owner, demoted the way routes/tenants.ts does it, and reloaded. Before the fix the table held both roles and the reload restored owner=true.
+  - ran: measured which keys invalidateGodCache drops, against a live Valkey: god: was deleted, urole: survived signed and valid, and resolveUserRole still answered 'god'.
+  - ran: transplanted a signed roles entry from one tenant's cache key to another's and called getUserRoles in the second tenant: before the fix it answered ["tenant_owner"] for a user holding nothing there.
+  - ran: built A→B and B→C role inheritance and asked the hierarchy route to add C→A: allowed, and casbin then resolved A's implicit roles as [B, C, A] in 0 ms — no hang, but every role in the loop holds every other.
+  - ran: called removeFilteredGroupingPolicy(1, role) on a live table: the model dropped the assignment and the row stayed.
+  - ran: measured the engine's own DB catalogue for the tables the enforcer reads, and re-ran every check on a session-owned database created for this work rather than the shared zveltio_test.
+  - **high** lib/tenancy/permissions.ts KyselyCasbinAdapter.removePolicy — compared v0..v3 whatever the rule carried, so a three-value `g` grant became `v3 = NULL` and the DELETE removed nothing. Revoking or demoting a role looked right in memory and came back at the next policy load. Four routes revoke this way. → *repaired* (#451)
+  - **high** lib/tenancy/permissions.ts invalidateGodCache — dropped `god:<id>` and left `urole:<id>`, which holds the same fact under another name. resolveUserRole kept answering 'god' for the rest of a 300 s TTL, and routes/rpc.ts turns that string into an unconditional authorization bypass. The only caller is the recovery flow, whose premise is that the previous holder has lost control. → *repaired* (#452)
+  - **medium** lib/tenancy/permissions.ts _rolesHmac — signed the user and the value but not the key, so a cached roles entry verified under any key. The user id was bound, so it never crossed between people — it crossed between tenants, under the very threat model (cache write access) these HMACs exist for. → *repaired* (#453)
+  - **medium** routes/admin/permission-routes.ts POST /roles/hierarchy — refused circular inheritance by asking the parent's DIRECT roles, so it caught a two-role loop and nothing longer. A three-role loop was accepted and every role in it silently acquired the others' permissions, while the inheritance tree showed three ordinary edges. → *repaired* (#454)
+  - **medium** lib/tenancy/permissions.ts KyselyCasbinAdapter.removeFilteredPolicy — ignored fieldIndex and pinned values to v0..v3, so casbin's "every g rule whose SECOND column is this role" deleted `v0 = role` instead — nothing. Same shape as removePolicy. Visible consequence: DELETE /api/admin/roles/:id left every holder's assignment behind, so recreating a role with the same name silently restored its old membership. → *repaired* (#455)
+  - **low** routes/permissions.ts — the admin gate is `app.use('*')` registered AFTER the /bootstrap route, which is what keeps recovery reachable without a session. Correct and deliberate, but nothing in the file says the order carries that meaning; moving the middleware up would gate recovery behind the login nobody can perform. → *logged* (known-gaps.md)
+  - not done: Section closed, 5 of 5 files. The two read on 2026-09-04 (column-permissions.ts, resource-grants.ts) are recorded in the earlier entries; this one covers the remaining three, each end to end. The column-masking finding from that session is still open and is not this section's to close. Not attempted here: a migration to clean up grants that earlier revocations failed to delete — #451 stops the leak from here on, but any instance that ever revoked or demoted a role still holds those rows, and they are live at every boot. That is an owner decision, not a code fix.
 - **2026-09-04** · claude-opus-5 · 0 files · **partial** · `review/A06-permissions`
   - ran: read the Casbin model and confirmed deny-by-default holds: `(r.obj == p.obj || (p.obj == '*' && p.act == '*'))` — an object wildcard counts only when the action is wildcard too, so a partial wildcard grants nothing
   - ran: predicted invalidateGodCache leaves the in-process god memo set on a no-Valkey deployment; DISPROVED — it calls clearLocalPermissionCache(userId) BEFORE the early return, and that branch deletes _localGod. My first read used a sed window that had cut off the function's first line.
@@ -335,7 +353,7 @@ After it: A07, A16, A11, A08 …
 | --- | --- | --: |
 | · | `packages/engine/src/lib/auth.ts` | 784 |
 | · | `packages/engine/src/lib/security/api-key-hash.ts` | 31 |
-| · | `packages/engine/src/lib/security/index.ts` | 12 |
+| · | `packages/engine/src/lib/security/index.ts` | 13 |
 | · | `packages/engine/src/lib/security/keyring.ts` | 214 |
 | · | `packages/engine/src/lib/security/sso-session.ts` | 130 |
 | · | `packages/engine/src/routes/auth.ts` | 236 |
@@ -1222,7 +1240,7 @@ After it: A07, A16, A11, A08 …
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
 | ✅ | `scripts/merge-coverage.ts` | 214 |
 | ✅ | `scripts/release-gate.ts` | 350 |
-| ✅ | `scripts/review-inventory.ts` | 1323 |
+| ✅ | `scripts/review-inventory.ts` | 1331 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
@@ -1457,7 +1475,7 @@ After it: A07, A16, A11, A08 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **849** of 861.
+Test files nobody has opened yet: **849** of 864.
 
 | Directory | Unread |
 | --- | --: |

@@ -1,0 +1,14 @@
+{
+  "section": "A02",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "fix/audit-trail-client-ip",
+  "files": ["packages/engine/src/lib/security/client-ip.ts"],
+  "tests": ["packages/engine/src/tests/unit/audit-client-ip.test.ts"],
+  "ran": [
+    "the file did not exist when A02 was closed at 17/17: #450 extracted it out of middleware/rate-limit.ts so god-audit, request-log, tracing and the recovery endpoint could share one resolver instead of reading the proxy headers raw. Its contents were read line by line in this section before the move, and again while moving them."
+  ],
+  "findings": [],
+  "notDone": "Nothing outstanding for this file. Recorded as its own entry rather than folded into the earlier one because a file that appears mid-campaign should be visible as an addition, not absorbed into a count that was taken before it existed.",
+  "verdict": "clean"
+}
