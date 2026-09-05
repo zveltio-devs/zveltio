@@ -433,15 +433,38 @@ class KyselyCasbinAdapter {
   async removeFilteredPolicy(
     _sec: string,
     ptype: string,
-    _fieldIndex: number,
+    fieldIndex: number,
     ...fieldValues: (string | undefined)[]
   ): Promise<void> {
+    clearLocalPermissionCache();
+    invalidatePolicyObjectIndex();
+    // `fieldIndex` says which column the first value belongs to.
+    //
+    // It used to be ignored — the parameter was even named `_fieldIndex` — and
+    // the values were pinned to v0, v1, v2, v3 whatever the caller meant. Casbin
+    // uses this to ask questions like "every `g` rule whose SECOND column is this
+    // role", which is how a role is taken away from everyone holding it. Asked
+    // that way, this deleted `WHERE v0 = <role>` instead, which normally matches
+    // nothing.
+    //
+    // The model updates either way, so the removal looked like it worked.
+    // Measured, `removeFilteredGroupingPolicy(1, role)` on a live table:
+    //
+    //   before                      table: user→role   memory: ["role"]
+    //   after                       table: user→role   memory: []
+    //
+    // Same shape as the `= NULL` comparison in `removePolicy`: right in memory,
+    // untouched in the database, and back after the next policy load.
+    //
+    // An empty string is casbin's "any value in this column", so it is skipped
+    // exactly like an absent one.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const conditions: any[] = [sql`ptype = ${ptype}`];
-    if (fieldValues[0] !== undefined) conditions.push(sql`v0 = ${fieldValues[0]}`);
-    if (fieldValues[1] !== undefined) conditions.push(sql`v1 = ${fieldValues[1]}`);
-    if (fieldValues[2] !== undefined) conditions.push(sql`v2 = ${fieldValues[2]}`);
-    if (fieldValues[3] !== undefined) conditions.push(sql`v3 = ${fieldValues[3]}`);
+    fieldValues.forEach((value, offset) => {
+      const column = fieldIndex + offset;
+      if (value === undefined || value === '' || column < 0 || column > 5) return;
+      conditions.push(sql`${sql.ref(`v${column}`)} = ${value}`);
+    });
 
     await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
   }
