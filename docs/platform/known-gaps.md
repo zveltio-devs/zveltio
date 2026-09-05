@@ -858,6 +858,78 @@ independently of their test. The SP-initiated flow fails separately because the
 extension builds a fresh SAML instance per request and the in-memory cache holding
 the request id is not shared between `/login` and `/callback`.
 
+### A16 — tenant and admin routes (2026-09-05, partial)
+
+The section asks two questions — a guard on every route, an audit entry on every
+privileged write — and both were measured rather than read for.
+
+**Fixed (#463) — the tenant surface wrote no audit trail at all.**
+`routes/tenants.ts` held no `auditLog` call in 453 lines that create firms,
+suspend them, grant `tenant_owner` inside one and take it away again. Across the
+whole privileged surface, writes with no audit entry went from **11 of 29 to 4**,
+and the four left are not privileged writes.
+
+**Verified clean — every route on this surface refuses an anonymous caller.**
+All 59, driven anonymously against the real app rather than read: 401 or 403
+throughout. Worth doing live: the `admin/*` sub-routers rely on a `use('*')`
+registered in `adminRoutes` before they are mounted, and a middleware registered
+after a route does not apply to it — the demo-mode defect earlier the same day
+was exactly that shape.
+
+**Gap (low) — validation runs before authorization on `routes/tenants.ts`.**
+Driven as an ordinary authenticated member:
+
+    POST /api/tenants, empty body   → 400, with the schema's complaint
+    POST /api/tenants, valid body   → 403
+
+So the guard is sound; it simply runs second. An unauthorized member can map the
+request schema of privileged endpoints by probing them, and five routes answer
+something other than 401/403/404 for that reason. Not an escalation, and not
+repaired here: the fix touches six handlers, and `GET /api/tenants/me` is
+deliberately member-accessible, so a blanket mount-level guard is not the shape.
+Recorded because the surface has two guard shapes — `adminRoutes` guards at the
+mount, `tenants.ts` inside each handler — and the next handler added to the
+second shape is the one that will do work before its check.
+
+Still unread in this section: `admin/system-routes.ts` (707 lines) end to end,
+and `routes/admin.ts` outside its guards and API-key routes.
+
+### A property every error path in the engine depends on (2026-09-05)
+
+Measured on `withTenantIsolation`, the primitive every `/api/*` and `/ext/*`
+request runs inside:
+
+    handler writes, then RETURNS an error   → the write is COMMITTED
+    handler writes, then THROWS             → the write is rolled back
+
+So `return c.json({ error: … }, 400)` is not an undo. A handler that has already
+written something and then answers that the request failed leaves that write
+behind. Only a throw unwinds the transaction.
+
+This came from the extensions session, where it was not hypothetical: a SAML
+callback claimed an assertion id for replay protection, then hit a `!email` check
+that answered 400 by returning. The id stayed claimed. An identity provider with
+a misconfigured attribute mapping burned the assertion, the operator fixed the
+mapping, and the user retrying the same assertion was told it had already been
+used — a replay guard turned into a lockout, curable only by waiting for the
+provider to mint a new assertion. Worse than the defect it was added to prevent.
+
+**No engine instance is claimed here, and the reason is worth recording.** A
+static sweep over all 248 route handlers found 24 with a write followed by an
+error return, but reading them showed the dominant shape is harmless — `const row
+= await db.updateTable(…).returningAll().executeTakeFirst(); if (!row) return
+404`, where the update matched nothing and there is nothing to roll back — and at
+least one flagged handler (`collections.ts POST /:name/fields`) has all of its
+error returns *before* any write. The instrument is too coarse to convert into a
+list, so it produced candidates and not findings.
+
+What the property does change is how to read every future handler in this
+campaign. `check:atomic-writes` asks whether several writes belong in one
+transaction; this asks something different and narrower — whether a single
+completed write survives an answer that says the request failed. Where a handler
+takes an irreversible action (claiming a token, consuming a nonce, spending a
+quota) before it has finished validating, a `return` is the wrong verb.
+
 ---
 
 ## 4. Deliberate deferrals
