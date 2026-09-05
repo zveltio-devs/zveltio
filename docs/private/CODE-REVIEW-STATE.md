@@ -21,16 +21,9 @@ After it: A11, A08, A09, A10 …
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **100 / 657** (15%)
-- Lines in scope: **23,300 / 135,843** (17%)
-- Test files opened by some session: **23 / 870**
-
-## ⛔ UNASSIGNED — the campaign has a hole
-
-These tracked files match no section. Add them to `scripts/review-inventory.ts`
-before claiming any coverage number below.
-
-- `scripts/check-no-nul-bytes.ts`
+- Files in scope: **108 / 658** (16%)
+- Lines in scope: **25,055 / 136,030** (18%)
+- Test files opened by some session: **27 / 874**
 
 ## Sections
 
@@ -61,8 +54,8 @@ before claiming any coverage number below.
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
-| A16 | Tenant and admin routes | 5 | 1,941 | 3/5 | 2026-09-05 — partial |
-| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,600 | 0/7 | — |
+| A16 | Tenant and admin routes | 5 | 1,973 | 3/5 | 2026-09-05 — partial |
+| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,677 | 7/7 | 2026-09-05 — clean |
 
 ### B — engine subsystems
 
@@ -117,10 +110,10 @@ before claiming any coverage number below.
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| E01 | Gates — tenancy, SQL and data safety | 13 | 3,613 | 13/13 | 2026-09-04 — repaired |
+| E01 | Gates — tenancy, SQL and data safety | 14 | 3,688 | 14/14 | 2026-09-04 — repaired |
 | E02 | Gates — authorisation, audit, structure | 11 | 2,678 | 11/11 | 2026-09-04 — logged |
 | E03 | Gates — artifact freshness and i18n | 16 | 4,089 | 0/16 | — |
-| E04 | Gates — coverage, ratchets, release | 10 | 2,940 | 10/10 | 2026-09-04 — partial |
+| E04 | Gates — coverage, ratchets, release | 10 | 2,943 | 10/10 | 2026-09-04 — partial |
 | E05 | Build, packaging and Studio tooling scripts | 11 | 1,440 | 0/11 | — |
 | E06 | Operational scripts and probes | 17 | 3,157 | 0/17 | — |
 | E07 | End-to-end suite, shared harness, benchmarks | 34 | 3,417 | 0/34 | — |
@@ -131,7 +124,7 @@ before claiming any coverage number below.
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 870 | 93,162 | n/a | — |
+| T01 | Test corpus | 874 | 93,677 | n/a | — |
 
 ---
 
@@ -510,7 +503,7 @@ before claiming any coverage number below.
 | · | `packages/engine/src/routes/admin.ts` | 330 |
 | ✅ | `packages/engine/src/routes/admin/config-routes.ts` | 250 |
 | ✅ | `packages/engine/src/routes/admin/storage-routes.ts` | 146 |
-| · | `packages/engine/src/routes/admin/system-routes.ts` | 707 |
+| · | `packages/engine/src/routes/admin/system-routes.ts` | 739 |
 | ✅ | `packages/engine/src/routes/tenants.ts` | 508 |
 
 **Sessions**
@@ -530,13 +523,29 @@ before claiming any coverage number below.
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/audit.ts` | 109 |
-| · | `packages/engine/src/lib/data-quality.ts` | 394 |
-| · | `packages/engine/src/lib/notifications.ts` | 50 |
-| · | `packages/engine/src/lib/system-collections.ts` | 63 |
-| · | `packages/engine/src/routes/rpc.ts` | 199 |
-| · | `packages/engine/src/routes/settings.ts` | 383 |
-| · | `packages/engine/src/routes/templates.ts` | 402 |
+| ✅ | `packages/engine/src/lib/audit.ts` | 109 |
+| ✅ | `packages/engine/src/lib/data-quality.ts` | 418 |
+| ✅ | `packages/engine/src/lib/notifications.ts` | 50 |
+| ✅ | `packages/engine/src/lib/system-collections.ts` | 63 |
+| ✅ | `packages/engine/src/routes/rpc.ts` | 221 |
+| ✅ | `packages/engine/src/routes/settings.ts` | 414 |
+| ✅ | `packages/engine/src/routes/templates.ts` | 402 |
+
+**Sessions**
+
+- **2026-09-05** · claude-opus-5 · 7 files · **clean** · `review/A17-audit`
+  - ran: drove a failing RPC through the real route and read the body: the raw Postgres message, naming the table and the constraint, reached the caller.
+  - ran: checked every writer of export.executed across the engine and all 56 extensions: none.
+  - ran: measured zv_audit_log, zv_settings and zvd_rpc_functions for tenant columns and RLS, and drove /api/collections as an ordinary member to confirm the system-collection listing is admin-only.
+  - ran: probed /api/templates/:id/install with five prefixes including `a"; DROP TABLE zv_tenants; --`: all invalid forms answered 400, so the double body read is a smell rather than a bypass.
+  - ran: traced runQualityScan's only production caller to a four-argument call, so every scan opened withTenantIsolation(root) whatever firm triggered it.
+  - ran: counted tenant_id column defaults against the catalogue: 30 of 30 resolve to the root tenant when the GUC is absent or empty, 16 of them NOT NULL.
+  - **medium** routes/admin/system-routes.ts GET /audit/export — handed out up to 50 000 audit rows and wrote nothing down, while export.executed sat in the event union with no writer anywhere. → *repaired* (#466)
+  - **medium** routes/rpc.ts — returned the raw Postgres error to the caller, disclosing table, constraint and column names to anyone whose role may call the function. → *repaired* (#466)
+  - **medium** routes/settings.ts — no audit call at all, in the file that writes registration_enabled. → *repaired* (#466)
+  - **high** lib/data-quality.ts runQualityScan — tenantId defaulted to the root tenant and the only production caller omits it, so every scan read root's rows and returned issues describing root's records to whichever firm asked. Thirty tests passed because of the default. → *repaired* (#466)
+  - **medium** the schema, 30 tables — every tenant_id column default resolves to the root tenant when the GUC is absent or empty, and a GUC survives as '' after SET LOCAL + COMMIT, so an insert on a lapsed connection is silently attributed to root. Deliberate and systemic; a migration and a product decision, not a repair. → *logged* (known-gaps.md)
+  - not done: Section closed, 7 of 7 files. The schema-level root default is written down rather than changed: thirty column defaults is a migration and a decision about what an unattributed row should mean. Recorded together with the three code-level instances found the same day, because the shape is what keeps producing defects rather than any one of its instances.
 
 ### B01 — Extension loading and lifecycle
 
@@ -1148,6 +1157,7 @@ before claiming any coverage number below.
 | ✅ | `scripts/check-insert-schema-match.ts` | 720 |
 | ✅ | `scripts/check-jsonb-binding.ts` | 471 |
 | ✅ | `scripts/check-migration-safety.ts` | 262 |
+| ✅ | `scripts/check-no-nul-bytes.ts` | 75 |
 | ✅ | `scripts/check-numeric-string-arithmetic.ts` | 325 |
 | ✅ | `scripts/check-pooldb-txn-skip.ts` | 102 |
 | ✅ | `scripts/check-raw-sql-identifiers.ts` | 149 |
@@ -1158,6 +1168,14 @@ before claiming any coverage number below.
 
 **Sessions**
 
+- **2026-09-05** · claude-opus-5 · 1 files · **clean** · `review/E01-gates`
+  - ran: matched E01's file list against audit-gates.ts, by gate name and by the `covers:` list wrapper cases declare: all 13 gates listed on this branch are exercised, none uncovered.
+  - ran: ran audit:gates with a database: 43/43 caught their violation, with one case skipped — check-studio-embed-freshness, whose plant path is a build artefact that exists on any machine where the Studio has been built.
+  - ran: added a replace mode and measured it both ways on the same machine: artefact present, caught its violation and the checksum is unchanged; artefact absent, caught its violation and nothing was left behind. 44/44 either way.
+  - ran: proved the new case discriminates by making check-studio-embed-freshness inert: the meta-gate reported STAYED GREEN on a planted violation, 43/44, decoration — and 44/44 when restored.
+  - **medium** scripts/audit-gates.ts — check-studio-embed-freshness could never be proved on a machine where the Studio had been built, which is every machine where a stale embed is possible. The collision rule skipped it, so it was exercised only on a fresh checkout. A first fix inverted that — requiring the file meant CI skipped it instead, and a skip is fatal there. → *repaired* (#467)
+  - **low** method, not code — audit:gates run without TEST_DATABASE_URL reports check-insert-schema-match as decoration. The gate needs a database and its own case comment predicts this failure mode. My invocation was the fault; recorded so the next reader does not file it. → *logged* (known-gaps.md)
+  - not done: Section closed against its own bar: every gate it lists is exercised by a planted violation, and the one that could not be is now provable everywhere. What is NOT done is a unit test per gate — the T01 backlog's 'a case per gate, not per repair' — and the two check-jsonb-binding misses recorded on 2026-09-04 are unchanged.
 - **2026-09-04** · claude-opus-5 · 1 files · **repaired** · `review/campaign-setup (working tree — not committed)`
   - ran: the 13th file, after master's merge reopened E01 at 12/13
   - ran: check-jsonb-binding on a STALE sibling (8 commits behind): 29 columns, ~45 sites, FAIL — traced to staleness, not a defect. Against origin/master of the extensions (git archive, read-only): OK, 0 sites across 115 tables. CI is green legitimately.
@@ -1284,7 +1302,7 @@ before claiming any coverage number below.
 | ✅ | `scripts/lint-warning-ratchet.ts` | 137 |
 | ✅ | `scripts/merge-coverage.ts` | 214 |
 | ✅ | `scripts/release-gate.ts` | 350 |
-| ✅ | `scripts/review-inventory.ts` | 1331 |
+| ✅ | `scripts/review-inventory.ts` | 1334 |
 | ✅ | `scripts/suppress-existing-any.ts` | 78 |
 
 **Sessions**
@@ -1519,7 +1537,7 @@ before claiming any coverage number below.
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **847** of 870.
+Test files nobody has opened yet: **847** of 874.
 
 | Directory | Unread |
 | --- | --: |
