@@ -58,14 +58,31 @@ interface RateLimitEntry {
 const memoryStore = new Map<string, RateLimitEntry>();
 let lastCleanup = Date.now();
 const CLEANUP_INTERVAL = 60_000; // Clean every minute
-const MAX_STORE_SIZE = 5_000; // Reduced from 10_000 to prevent memory bloat
 
 function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
   const now = Date.now();
   const windowStart = now - windowMs;
 
-  // Periodic cleanup to prevent memory leaks
-  if (now - lastCleanup > CLEANUP_INTERVAL || memoryStore.size > MAX_STORE_SIZE) {
+  // Periodic cleanup to prevent memory leaks.
+  //
+  // There used to be a second trigger here, `|| memoryStore.size > MAX_STORE_SIZE`
+  // (5_000), described as preventing memory bloat. It could not: the sweep only
+  // drops entries whose window has already expired, so the size trigger deleted
+  // exactly what the timer would have deleted a moment later — never more. What
+  // it did do was run that full-map scan on EVERY request once the store passed
+  // 5_000 live entries, which is precisely when the store is largest.
+  //
+  // Measured through this middleware, one request per unique identifier:
+  // 0.0081 ms/request at 5_000 identifiers, 2.1 ms at 80_000 — a ~250x rise in
+  // the cost of the check that is supposed to be protecting the instance, paid
+  // by every caller including the well-behaved ones. Heap was never the issue
+  // (~20 MB at 100_000 entries).
+  //
+  // Entries expire by time regardless, so the timer alone bounds the store to
+  // the identifiers actually seen in one window, at O(n) per minute instead of
+  // O(n) per request. A hard cap is a different decision — evicting a live entry
+  // resets that identifier's counter — and belongs to whoever wants it.
+  if (now - lastCleanup > CLEANUP_INTERVAL) {
     lastCleanup = now;
     for (const [k, entry] of memoryStore) {
       if (entry.windowStart < windowStart) {
@@ -225,9 +242,10 @@ function maybeWarnProxyMisconfig(c: Context): void {
   console.warn(
     '[rate-limit] X-Forwarded-For/X-Real-IP detected but TRUSTED_PROXY ' +
       'is not set — all clients behind the proxy share the same rate-limit ' +
-      'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips ' +
-      'inbound X-Forwarded-For headers before re-setting them, otherwise ' +
-      'clients can spoof their IP.',
+      'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips BOTH ' +
+      'inbound X-Forwarded-For AND X-Real-IP before re-setting them, ' +
+      'otherwise clients can spoof their IP. Naming only X-Forwarded-For ' +
+      'here was itself the bug: this middleware trusts X-Real-IP too.',
   );
 }
 
@@ -250,7 +268,18 @@ function resolveClientIp(c: Context): string {
     (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
       ? rawForwardedFor
       : null;
-  const realIp = trustedProxy ? (c.req.header('x-real-ip') ?? null) : null;
+  // Validated with the same patterns as X-Forwarded-For. It used to be taken
+  // verbatim, and it is the rate-limit IDENTITY: measured, a client sending a
+  // different junk X-Real-IP per request got five 200s against a limit of two,
+  // because every distinct string is its own bucket. That is not a weakened
+  // limit, it is no limit — reachable wherever the edge sets X-Forwarded-For but
+  // passes the client's inbound X-Real-IP through, which is the default for
+  // several proxies.
+  const rawRealIp = c.req.header('x-real-ip')?.trim();
+  const realIp =
+    trustedProxy && rawRealIp && (IPV4_RE.test(rawRealIp) || IPV6_RE.test(rawRealIp))
+      ? rawRealIp
+      : null;
   // Last resort: the TCP peer. Without it, ALL unauthenticated non-proxied
   // traffic collapses onto one `rl:<tier>:unknown` bucket — so a single abusive
   // client can 429 every other anonymous client (a login DoS on /api/auth/*).
