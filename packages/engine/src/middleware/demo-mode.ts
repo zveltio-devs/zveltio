@@ -57,7 +57,25 @@ export function demoModeMiddleware() {
   }
 
   return async (c: Context, next: Next) => {
-    const path = new URL(c.req.url).pathname;
+    // `c.req.path`, NOT `new URL(c.req.url).pathname`. The two disagree, and the
+    // router uses this one: Hono decodes each segment once before matching, so
+    // the raw pathname still carries the escapes.
+    //
+    // Measured, with DEMO_MODE=true:
+    //   POST /api/admin/sql      → 451, blocked
+    //   POST /api/admin/%73ql    → handler ran
+    //   POST /api/%61dmin/sql    → handler ran
+    //
+    // One encoded letter anywhere in a literal segment and the gate stops
+    // seeing the route it is guarding, while the router still reaches it. That
+    // defeats every rule in the list, including the SQL editor and downloading
+    // a database dump. Matching the string the router matched on is what makes
+    // the two agree by construction rather than by care.
+    //
+    // Double-encoding does not reopen it: `%2573ql` stays literal in `c.req.path`
+    // — and the router does not reach the route either, so there is nothing to
+    // guard. `%2F` likewise stays escaped, so no rule's segment boundaries move.
+    const path = c.req.path;
     const method = c.req.method.toUpperCase();
     for (const rule of BLOCKED_PATHS) {
       if (rule.method === method && rule.pattern.test(path)) {
