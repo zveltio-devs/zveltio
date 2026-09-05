@@ -1,0 +1,47 @@
+{
+  "section": "A07",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/A07-auth-2",
+  "files": [
+    "packages/engine/src/lib/auth.ts",
+    "packages/engine/src/lib/security/keyring.ts",
+    "packages/engine/src/routes/users.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/unit/startup-guards.test.ts",
+    "packages/engine/src/tests/harness/patch-user-role-scope.test.ts"
+  ],
+  "ran": [
+    "read lib/auth.ts end to end: the registration chokepoint, password hashing and the scrypt migration, session revocation across cache and database, cookie and trusted-origin configuration, every social provider, the 2FA/magic-link/passkey plugins, and the getSession wrapper.",
+    "measured what PATCH /api/users/:id does to a user holding tenant_owner in one tenant and tenant_member in another: every grant deleted, permanently, because #451 and #455 made the adapter's DELETE actually reach the table. Scoping the reset to the '*' domain keeps both memberships.",
+    "traced BETTER_AUTH_URL through baseURL: passkey origin, the trusted-origin fallback, and the links Better Auth writes into reset, verification and magic-link mail. No startup guard covers it.",
+    "verified a peer session's five engine findings independently rather than accepting them: assertWorkerSqlAllowed has exactly one caller (the worker bridge) and all 56 manifests are (default inline); SAVEPOINT is refused while RELEASE SAVEPOINT is allowed; developer/database issues DROP ROLE and ALTER TABLE ... DISABLE ROW LEVEL SECURITY through sql.raw.",
+    "checked the peer's SAML claim against the dependency: node-saml 3.1.2 stores `options.validateInResponseTo || false` and tests it for truth, while auth/saml passes the 4.x string 'ifPresent'. Truthy means always require InResponseTo, so IdP-initiated SSO can only be rejected."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "routes/users.ts PATCH /:id",
+      "what": "reset Casbin roles with deleteRolesForUser(userId) and no domain, so changing the global column deleted every per-tenant membership the user held. Invisible until #451 and #455 made those deletes reach the database — a repair that changed the blast radius of a route it did not touch.",
+      "status": "repaired",
+      "ref": "#461"
+    },
+    {
+      "severity": "medium",
+      "where": "lib/startup-guards.ts",
+      "what": "BETTER_AUTH_URL unset does not fail, it rewrites: baseURL falls back to http://localhost:<port> and every absolute URL is built from it, including the links in password-reset mail. The guard named three dangerous settings and missed the silent one.",
+      "status": "repaired",
+      "ref": "#460"
+    },
+    {
+      "severity": "low",
+      "where": "lib/security/keyring.ts decryptWithKeyring",
+      "what": "for the enc:v1: envelope it picks the key from the caller's argument rather than from the envelope, which is the principle the function states for the other two formats. No consequence today — no caller writes a field envelope under the mail keyring — but the exception is unstated.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "Section closed, 7 of 7 files. Two findings remain the owner's rather than this section's: the raw-SQL hole in the extension sandbox (repair written and measured, refuses 26 first-party extensions, so it needs a grants decision first) and plaintext invitation tokens. The peer session's SAML finding — SSO non-functional in both flows — is extension-side and carried up separately.",
+  "verdict": "clean"
+}

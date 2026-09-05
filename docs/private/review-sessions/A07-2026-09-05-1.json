@@ -1,0 +1,54 @@
+{
+  "section": "A07",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/A07-auth-2",
+  "files": [
+    "packages/engine/src/routes/auth.ts",
+    "packages/engine/src/lib/security/sso-session.ts",
+    "packages/engine/src/lib/security/api-key-hash.ts",
+    "packages/engine/src/lib/security/index.ts"
+  ],
+  "tests": ["packages/engine/src/tests/unit/worker-sql-policy.test.ts"],
+  "ran": [
+    "drove createRestrictedDb with an extension holding no grants: selectFrom('session') and selectFrom('zv_api_keys') refused, while sql`SELECT token FROM session`, sql`SELECT id FROM zv_api_keys`, sql`SELECT token FROM zv_invitations` and sql`UPDATE \"user\" SET role='god'` all went through.",
+    "instrumented a proxy to log every property a raw sql template touches on the handle: exactly one, `getExecutor`. A first guard on `executeQuery` changed nothing, which is how that was found.",
+    "wrote the guard, confirmed all four escapes refused and that builder queries, explicitly granted tables, own-namespace tables, CTEs, joins, insert+returning and interpolated sql fragments all still pass.",
+    "ran assertWorkerSqlAllowed over all 1170 raw statements the first-party extensions ship: 18 extensions reference tables outside their own namespace, most of them legitimately.",
+    "the same scan found the policy refusing `lateral`, `now`, `date`, `start_date` and `invoice_date` — none of them tables. Fixed in #457.",
+    "measured zv_invitations: no RLS, no policy, tenant_id present, and zveltio_rls holds SELECT/INSERT/UPDATE/DELETE on it.",
+    "corrected an environment mistake that had been reported all day as a pre-existing test failure: the harness needs NODE_ENV=test, which CI sets. With it the suite is 1072 pass / 0 fail, not 1071/1."
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "lib/extensions/extension-context.ts createRestrictedDb",
+      "what": "the table allowlist guards the query-builder entry points only; a raw `sql` template reaches the database through getExecutor and is unchecked. An extension with no grants read session.token and zv_api_keys and ran UPDATE \"user\" SET role='god'. The fix is written and measured but refuses 18 first-party extensions that use the path legitimately, so it is an owner decision about grants rather than a repair.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    },
+    {
+      "severity": "medium",
+      "where": "zv_invitations",
+      "what": "invitation tokens stored in plaintext in a table with no RLS and no policy, while the same codebase hashes reset, verification and recovery tokens with an argument that applies here verbatim. Not reachable through the API today — there is no listing endpoint.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    },
+    {
+      "severity": "low",
+      "where": "lib/auth.ts verifyPassword",
+      "what": "the legacy scrypt branch compares the derived key with `!==` while the rest of the codebase uses constant-time comparison for secrets. No practical oracle — the attacker supplies the password, not the digest.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    },
+    {
+      "severity": "medium",
+      "where": "lib/extensions/worker-sql-policy.ts tableReferences",
+      "what": "read `LATERAL`, function calls after FROM, and EXTRACT/TRIM/SUBSTRING keyword arguments as table names, refusing ordinary first-party SQL and naming tables that do not exist.",
+      "status": "repaired",
+      "ref": "#457"
+    }
+  ],
+  "notDone": "PARTIAL. lib/auth.ts read at the parts that decide identity — the registration chokepoint, password hashing and verification, the session and cookie configuration — but not end to end. keyring.ts read at its structure only. routes/users.ts read at the invitation endpoints only. The raw-SQL finding took the session's remaining time, and it is worth more than the line count it cost.",
+  "verdict": "partial"
+}

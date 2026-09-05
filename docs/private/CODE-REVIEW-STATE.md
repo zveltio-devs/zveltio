@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A07 — Authentication and identity**
+### → **A16 — Tenant and admin routes**
 
-*Sessions, API keys, SSO, key material. Revocation must reach every replica.*
+*The privileged surface: a guard on every route, an audit entry on every privileged write.*
 
-7 of 7 files still unread. Its file list is under [`A07`](#a07--authentication-and-identity) below.
+5 of 5 files still unread. Its file list is under [`A16`](#a16--tenant-and-admin-routes) below.
 
-After it: A16, A11, A08, A09 …
+After it: A11, A08, A09, A10 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **90 / 657** (14%)
-- Lines in scope: **20,518 / 135,547** (15%)
-- Test files opened by some session: **15 / 864**
+- Files in scope: **97 / 657** (15%)
+- Lines in scope: **22,296 / 135,636** (16%)
+- Test files opened by some session: **19 / 866**
 
 ## Sections
 
@@ -44,8 +44,8 @@ After it: A16, A11, A08, A09 …
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
-| A06 | Permissions, roles, column access | 5 | 2,218 | 5/5 | 2026-09-04 — partial |
-| A07 | Authentication and identity | 7 | 1,730 | 0/7 | — |
+| A06 | Permissions, roles, column access | 5 | 2,266 | 5/5 | 2026-09-04 — partial |
+| A07 | Authentication and identity | 7 | 1,730 | 7/7 | 2026-09-05 — clean |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
@@ -63,7 +63,7 @@ After it: A16, A11, A08, A09 …
 | --- | --- | --: | --: | --: | --- |
 | B01 | Extension loading and lifecycle | 7 | 2,129 | 0/7 | — |
 | B02 | Extension context and host internals | 6 | 2,306 | 0/6 | — |
-| B03 | Worker and WASM isolation | 6 | 2,314 | 0/6 | — |
+| B03 | Worker and WASM isolation | 6 | 2,355 | 0/6 | — |
 | B04 | Marketplace, download, signature, trust | 7 | 2,200 | 0/7 | — |
 | B05 | Manifest, catalog, dependencies, extension migrations | 9 | 1,460 | 0/9 | — |
 | B06 | Realtime, WebSocket, event bus | 5 | 2,153 | 0/5 | — |
@@ -124,7 +124,7 @@ After it: A16, A11, A08, A09 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 864 | 92,560 | n/a | — |
+| T01 | Test corpus | 866 | 92,786 | n/a | — |
 
 ---
 
@@ -308,9 +308,9 @@ After it: A16, A11, A08, A09 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | ✅ | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
-| ✅ | `packages/engine/src/lib/tenancy/permissions.ts` | 1024 |
+| ✅ | `packages/engine/src/lib/tenancy/permissions.ts` | 1047 |
 | ✅ | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
-| ✅ | `packages/engine/src/routes/admin/permission-routes.ts` | 349 |
+| ✅ | `packages/engine/src/routes/admin/permission-routes.ts` | 374 |
 | ✅ | `packages/engine/src/routes/permissions.ts` | 438 |
 
 **Sessions**
@@ -351,13 +351,39 @@ After it: A16, A11, A08, A09 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/auth.ts` | 784 |
-| · | `packages/engine/src/lib/security/api-key-hash.ts` | 31 |
-| · | `packages/engine/src/lib/security/index.ts` | 13 |
-| · | `packages/engine/src/lib/security/keyring.ts` | 214 |
-| · | `packages/engine/src/lib/security/sso-session.ts` | 130 |
-| · | `packages/engine/src/routes/auth.ts` | 236 |
-| · | `packages/engine/src/routes/users.ts` | 322 |
+| ✅ | `packages/engine/src/lib/auth.ts` | 784 |
+| ✅ | `packages/engine/src/lib/security/api-key-hash.ts` | 31 |
+| ✅ | `packages/engine/src/lib/security/index.ts` | 13 |
+| ✅ | `packages/engine/src/lib/security/keyring.ts` | 214 |
+| ✅ | `packages/engine/src/lib/security/sso-session.ts` | 130 |
+| ✅ | `packages/engine/src/routes/auth.ts` | 236 |
+| ✅ | `packages/engine/src/routes/users.ts` | 322 |
+
+**Sessions**
+
+- **2026-09-05** · claude-opus-5 · 4 files · **partial** · `review/A07-auth-2`
+  - ran: drove createRestrictedDb with an extension holding no grants: selectFrom('session') and selectFrom('zv_api_keys') refused, while sql`SELECT token FROM session`, sql`SELECT id FROM zv_api_keys`, sql`SELECT token FROM zv_invitations` and sql`UPDATE "user" SET role='god'` all went through.
+  - ran: instrumented a proxy to log every property a raw sql template touches on the handle: exactly one, `getExecutor`. A first guard on `executeQuery` changed nothing, which is how that was found.
+  - ran: wrote the guard, confirmed all four escapes refused and that builder queries, explicitly granted tables, own-namespace tables, CTEs, joins, insert+returning and interpolated sql fragments all still pass.
+  - ran: ran assertWorkerSqlAllowed over all 1170 raw statements the first-party extensions ship: 18 extensions reference tables outside their own namespace, most of them legitimately.
+  - ran: the same scan found the policy refusing `lateral`, `now`, `date`, `start_date` and `invoice_date` — none of them tables. Fixed in #457.
+  - ran: measured zv_invitations: no RLS, no policy, tenant_id present, and zveltio_rls holds SELECT/INSERT/UPDATE/DELETE on it.
+  - ran: corrected an environment mistake that had been reported all day as a pre-existing test failure: the harness needs NODE_ENV=test, which CI sets. With it the suite is 1072 pass / 0 fail, not 1071/1.
+  - **high** lib/extensions/extension-context.ts createRestrictedDb — the table allowlist guards the query-builder entry points only; a raw `sql` template reaches the database through getExecutor and is unchecked. An extension with no grants read session.token and zv_api_keys and ran UPDATE "user" SET role='god'. The fix is written and measured but refuses 18 first-party extensions that use the path legitimately, so it is an owner decision about grants rather than a repair. → *logged* (known-gaps.md)
+  - **medium** zv_invitations — invitation tokens stored in plaintext in a table with no RLS and no policy, while the same codebase hashes reset, verification and recovery tokens with an argument that applies here verbatim. Not reachable through the API today — there is no listing endpoint. → *logged* (known-gaps.md)
+  - **low** lib/auth.ts verifyPassword — the legacy scrypt branch compares the derived key with `!==` while the rest of the codebase uses constant-time comparison for secrets. No practical oracle — the attacker supplies the password, not the digest. → *logged* (known-gaps.md)
+  - **medium** lib/extensions/worker-sql-policy.ts tableReferences — read `LATERAL`, function calls after FROM, and EXTRACT/TRIM/SUBSTRING keyword arguments as table names, refusing ordinary first-party SQL and naming tables that do not exist. → *repaired* (#457)
+  - not done: PARTIAL. lib/auth.ts read at the parts that decide identity — the registration chokepoint, password hashing and verification, the session and cookie configuration — but not end to end. keyring.ts read at its structure only. routes/users.ts read at the invitation endpoints only. The raw-SQL finding took the session's remaining time, and it is worth more than the line count it cost.
+- **2026-09-05** · claude-opus-5 · 3 files · **clean** · `review/A07-auth-2`
+  - ran: read lib/auth.ts end to end: the registration chokepoint, password hashing and the scrypt migration, session revocation across cache and database, cookie and trusted-origin configuration, every social provider, the 2FA/magic-link/passkey plugins, and the getSession wrapper.
+  - ran: measured what PATCH /api/users/:id does to a user holding tenant_owner in one tenant and tenant_member in another: every grant deleted, permanently, because #451 and #455 made the adapter's DELETE actually reach the table. Scoping the reset to the '*' domain keeps both memberships.
+  - ran: traced BETTER_AUTH_URL through baseURL: passkey origin, the trusted-origin fallback, and the links Better Auth writes into reset, verification and magic-link mail. No startup guard covers it.
+  - ran: verified a peer session's five engine findings independently rather than accepting them: assertWorkerSqlAllowed has exactly one caller (the worker bridge) and all 56 manifests are (default inline); SAVEPOINT is refused while RELEASE SAVEPOINT is allowed; developer/database issues DROP ROLE and ALTER TABLE ... DISABLE ROW LEVEL SECURITY through sql.raw.
+  - ran: checked the peer's SAML claim against the dependency: node-saml 3.1.2 stores `options.validateInResponseTo || false` and tests it for truth, while auth/saml passes the 4.x string 'ifPresent'. Truthy means always require InResponseTo, so IdP-initiated SSO can only be rejected.
+  - **medium** routes/users.ts PATCH /:id — reset Casbin roles with deleteRolesForUser(userId) and no domain, so changing the global column deleted every per-tenant membership the user held. Invisible until #451 and #455 made those deletes reach the database — a repair that changed the blast radius of a route it did not touch. → *repaired* (#461)
+  - **medium** lib/startup-guards.ts — BETTER_AUTH_URL unset does not fail, it rewrites: baseURL falls back to http://localhost:<port> and every absolute URL is built from it, including the links in password-reset mail. The guard named three dangerous settings and missed the silent one. → *repaired* (#460)
+  - **low** lib/security/keyring.ts decryptWithKeyring — for the enc:v1: envelope it picks the key from the caller's argument rather than from the envelope, which is the principle the function states for the other two formats. No consequence today — no caller writes a field envelope under the mail keyring — but the exception is unstated. → *logged* (known-gaps.md)
+  - not done: Section closed, 7 of 7 files. Two findings remain the owner's rather than this section's: the raw-SQL hole in the extension sandbox (repair written and measured, refuses 26 first-party extensions, so it needs a grants decision first) and plaintext invitation tokens. The peer session's SAML finding — SSO non-functional in both flows — is extension-side and carried up separately.
 
 ### A08 — Database layer, pool, dialect, migration runner
 
@@ -528,7 +554,7 @@ After it: A16, A11, A08, A09 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/lib/extensions/extension-sandbox.ts` | 270 |
-| · | `packages/engine/src/lib/extensions/worker-sql-policy.ts` | 300 |
+| · | `packages/engine/src/lib/extensions/worker-sql-policy.ts` | 341 |
 | · | `packages/engine/src/lib/wasm-extension-host.ts` | 309 |
 | · | `packages/engine/src/lib/worker-extension-host.ts` | 902 |
 | · | `packages/engine/src/lib/worker-extension-protocol.ts` | 196 |
@@ -1475,11 +1501,11 @@ After it: A16, A11, A08, A09 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **849** of 864.
+Test files nobody has opened yet: **847** of 866.
 
 | Directory | Unread |
 | --- | --: |
-| `packages/engine/src/tests/unit` | 491 |
+| `packages/engine/src/tests/unit` | 489 |
 | `packages/engine/src/tests/harness` | 280 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
