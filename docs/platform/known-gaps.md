@@ -571,6 +571,43 @@ reaches the database through the Casbin adapter, which drops the memo and the
 index on each call *"whichever route or boot task called it"*, and the routes
 clear the shared cache as well. Two independent defences.
 
+### A02 — the middleware chain (2026-09-04, partial)
+
+Five of seventeen files. The escalation this chain carried is fixed and on
+master; what follows is what else the reading found.
+
+**Gap — a preview token is bound to no tenant.** `previewEnvMiddleware` selects
+on `preview_token` alone, with no tenant predicate, and `zv_schema_branches`
+carries **no `tenant_id`, no row-level security and no policy** — measured. So the
+token is a bearer credential belonging to nobody in particular, and presenting it
+sets `SET LOCAL search_path` to that branch's schema for the request while the
+tenant GUC still names whoever presented it.
+
+Not verified, and it decides the severity: whether that yields a cross-tenant
+read depends on the branch schema's own tables. No branch schema existed in the
+verification database — and every non-public schema that does exist carries no
+RLS at all, which is not reassuring but is not the same measurement.
+
+**Gap (low) — a 0-byte `middleware/url-validator.ts`.** Tracked by git, imported
+by nothing, sitting beside the real SSRF guard at `lib/security/url-validator.ts`.
+Someone grepping `middleware/` for it finds a file and concludes the middleware
+exists.
+
+**Verified clean — the `/ext/*` gate cannot be walked around by path shape.**
+The gate applies on `path.startsWith('/ext/')`, which is the classic place a
+bypass hides. Seven forms were tried — `//ext/`, `/ext//`, `/EXT/`, `/ext/./`,
+`/ext/x/../`, and percent-encoded `/%65xt/`. Hono normalises and decodes *before*
+middleware runs: every form that reached the handler was seen by the gate with the
+correct prefix, and the forms the gate did not see returned 404 without reaching
+anything.
+
+**For the owner, not filed as a defect.** `tenantMembershipMiddleware` skips the
+membership check entirely for the default tenant, and a request with no slug
+resolves to it. That is correct for the single-tenant model the comment cites. It
+is worth a decision for the hierarchical multi-tenant market this product targets,
+where the root tenant holds a real organisation's data and every authenticated
+user of every subordinate unit can reach it by sending no header at all.
+
 ---
 
 ## 4. Deliberate deferrals
