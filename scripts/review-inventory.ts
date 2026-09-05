@@ -764,6 +764,9 @@ const SECTIONS: Section[] = [
       'scripts/check-atomic-writes.ts',
       'scripts/check-raw-sql-identifiers.ts',
       'scripts/check-sql-template-backticks.ts',
+      // Added 2026-09-05, after a NUL byte in the sibling repository was found to
+      // make grep skip a 1658-line file in silence.
+      'scripts/check-no-nul-bytes.ts',
       'scripts/check-numeric-string-arithmetic.ts',
       'scripts/check-insert-schema-match.ts',
       'scripts/check-duplicate-table-creators.ts',
