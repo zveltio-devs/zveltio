@@ -858,6 +858,42 @@ independently of their test. The SP-initiated flow fails separately because the
 extension builds a fresh SAML instance per request and the in-memory cache holding
 the request id is not shared between `/login` and `/callback`.
 
+### A16 — tenant and admin routes (2026-09-05, partial)
+
+The section asks two questions — a guard on every route, an audit entry on every
+privileged write — and both were measured rather than read for.
+
+**Fixed (#463) — the tenant surface wrote no audit trail at all.**
+`routes/tenants.ts` held no `auditLog` call in 453 lines that create firms,
+suspend them, grant `tenant_owner` inside one and take it away again. Across the
+whole privileged surface, writes with no audit entry went from **11 of 29 to 4**,
+and the four left are not privileged writes.
+
+**Verified clean — every route on this surface refuses an anonymous caller.**
+All 59, driven anonymously against the real app rather than read: 401 or 403
+throughout. Worth doing live: the `admin/*` sub-routers rely on a `use('*')`
+registered in `adminRoutes` before they are mounted, and a middleware registered
+after a route does not apply to it — the demo-mode defect earlier the same day
+was exactly that shape.
+
+**Gap (low) — validation runs before authorization on `routes/tenants.ts`.**
+Driven as an ordinary authenticated member:
+
+    POST /api/tenants, empty body   → 400, with the schema's complaint
+    POST /api/tenants, valid body   → 403
+
+So the guard is sound; it simply runs second. An unauthorized member can map the
+request schema of privileged endpoints by probing them, and five routes answer
+something other than 401/403/404 for that reason. Not an escalation, and not
+repaired here: the fix touches six handlers, and `GET /api/tenants/me` is
+deliberately member-accessible, so a blanket mount-level guard is not the shape.
+Recorded because the surface has two guard shapes — `adminRoutes` guards at the
+mount, `tenants.ts` inside each handler — and the next handler added to the
+second shape is the one that will do work before its check.
+
+Still unread in this section: `admin/system-routes.ts` (707 lines) end to end,
+and `routes/admin.ts` outside its guards and API-key routes.
+
 ---
 
 ## 4. Deliberate deferrals
