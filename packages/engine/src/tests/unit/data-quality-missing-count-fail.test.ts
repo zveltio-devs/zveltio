@@ -42,7 +42,14 @@ describe('missing-data detection — COUNT failure', () => {
     const db = setup('contacts', fields);
     db.fail(/SELECT COUNT\(\*\)::text AS total/i, new Error('relation does not exist'));
 
-    await runQualityScan(db.kysely as unknown as Database, 'contacts', 'missing_data', 'user-1');
+    await runQualityScan(
+      db.kysely as unknown as Database,
+      'contacts',
+      'missing_data',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(db.executed(/WITH missing/)).toHaveLength(0);
