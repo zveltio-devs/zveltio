@@ -14,16 +14,16 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 *The privileged surface: a guard on every route, an audit entry on every privileged write.*
 
-5 of 5 files still unread. Its file list is under [`A16`](#a16--tenant-and-admin-routes) below.
+2 of 5 files still unread. Its file list is under [`A16`](#a16--tenant-and-admin-routes) below.
 
 After it: A11, A08, A09, A10 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **97 / 657** (15%)
-- Lines in scope: **22,296 / 135,636** (16%)
-- Test files opened by some session: **19 / 866**
+- Files in scope: **100 / 657** (15%)
+- Lines in scope: **23,257 / 135,800** (17%)
+- Test files opened by some session: **23 / 870**
 
 ## Sections
 
@@ -39,13 +39,13 @@ After it: A11, A08, A09, A10 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
+| A01 | Boot, app assembly, middleware order | 9 | 2,932 | 0/9 | — |
 | A02 | Middleware chain | 18 | 2,179 | 18/18 | 2026-09-05 — clean |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
-| A06 | Permissions, roles, column access | 5 | 2,266 | 5/5 | 2026-09-04 — partial |
-| A07 | Authentication and identity | 7 | 1,730 | 7/7 | 2026-09-05 — clean |
+| A06 | Permissions, roles, column access | 5 | 2,301 | 5/5 | 2026-09-04 — partial |
+| A07 | Authentication and identity | 7 | 1,752 | 7/7 | 2026-09-05 — clean |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
@@ -54,8 +54,8 @@ After it: A11, A08, A09, A10 …
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
-| A16 | Tenant and admin routes | 5 | 1,876 | 0/5 | — |
-| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,583 | 0/7 | — |
+| A16 | Tenant and admin routes | 5 | 1,941 | 3/5 | 2026-09-05 — partial |
+| A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,600 | 0/7 | — |
 
 ### B — engine subsystems
 
@@ -124,7 +124,7 @@ After it: A11, A08, A09, A10 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 866 | 92,786 | n/a | — |
+| T01 | Test corpus | 870 | 93,162 | n/a | — |
 
 ---
 
@@ -157,7 +157,7 @@ After it: A11, A08, A09, A10 …
 | · | `packages/engine/src/api-types.ts` | 286 |
 | · | `packages/engine/src/index.ts` | 1610 |
 | · | `packages/engine/src/lib/service-registry.ts` | 122 |
-| · | `packages/engine/src/lib/startup-guards.ts` | 212 |
+| · | `packages/engine/src/lib/startup-guards.ts` | 237 |
 | · | `packages/engine/src/routes/index.ts` | 514 |
 | · | `packages/engine/src/types/hono-vars.d.ts` | 18 |
 | · | `packages/engine/src/types/pdfkit.d.ts` | 33 |
@@ -308,7 +308,7 @@ After it: A11, A08, A09, A10 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | ✅ | `packages/engine/src/lib/tenancy/column-permissions.ts` | 156 |
-| ✅ | `packages/engine/src/lib/tenancy/permissions.ts` | 1047 |
+| ✅ | `packages/engine/src/lib/tenancy/permissions.ts` | 1082 |
 | ✅ | `packages/engine/src/lib/tenancy/resource-grants.ts` | 251 |
 | ✅ | `packages/engine/src/routes/admin/permission-routes.ts` | 374 |
 | ✅ | `packages/engine/src/routes/permissions.ts` | 438 |
@@ -357,7 +357,7 @@ After it: A11, A08, A09, A10 …
 | ✅ | `packages/engine/src/lib/security/keyring.ts` | 214 |
 | ✅ | `packages/engine/src/lib/security/sso-session.ts` | 130 |
 | ✅ | `packages/engine/src/routes/auth.ts` | 236 |
-| ✅ | `packages/engine/src/routes/users.ts` | 322 |
+| ✅ | `packages/engine/src/routes/users.ts` | 344 |
 
 **Sessions**
 
@@ -501,10 +501,21 @@ After it: A11, A08, A09, A10 …
 | ✓ | File | Lines |
 | --- | --- | --: |
 | · | `packages/engine/src/routes/admin.ts` | 330 |
-| · | `packages/engine/src/routes/admin/config-routes.ts` | 250 |
-| · | `packages/engine/src/routes/admin/storage-routes.ts` | 136 |
+| ✅ | `packages/engine/src/routes/admin/config-routes.ts` | 250 |
+| ✅ | `packages/engine/src/routes/admin/storage-routes.ts` | 146 |
 | · | `packages/engine/src/routes/admin/system-routes.ts` | 707 |
-| · | `packages/engine/src/routes/tenants.ts` | 453 |
+| ✅ | `packages/engine/src/routes/tenants.ts` | 508 |
+
+**Sessions**
+
+- **2026-09-05** · claude-opus-5 · 4 files · **partial** · `review/A16-close`
+  - ran: enumerated every privileged write across routes/tenants.ts, routes/admin.ts and routes/admin/*, and counted those whose handler contains no auditLog call: 11 of 29 before, 4 of 29 after, and the four remaining are not privileged writes.
+  - ran: confirmed zv_audit_log.event_type is plain text with no CHECK constraint, so the five new tenant event types need no migration.
+  - ran: drove all 59 routes on the privileged surface anonymously against the real app: 401 or 403 throughout, none reached a handler.
+  - ran: drove the same 59 as an ordinary authenticated member: five answered something other than 401/403/404, all of them because zValidator runs before the authorization check. With a valid body the same route answers 403, which is what proves the guard itself is sound.
+  - **medium** routes/tenants.ts — no audit entry on any privileged write — creating a tenant, suspending one, granting or revoking tenant membership with a role — while routes/permissions.ts audits the same act on its own endpoint. → *repaired* (#463)
+  - **low** routes/tenants.ts — zValidator runs before the authorization check, so an unauthorized member receives the schema's complaint (400) rather than a refusal. The guard is sound — a valid body answers 403 — but the surface carries two guard shapes and the second one authorizes after doing work. → *logged* (known-gaps.md)
+  - not done: PARTIAL. Both of the section's questions are answered across the whole surface by measurement, and the audit half is repaired. What is not done is line-by-line reading: admin/system-routes.ts (707 lines) and routes/admin.ts outside its guards and API-key routes. The ordering finding is logged rather than repaired because the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape used by adminRoutes does not transfer.
 
 ### A17 — Settings, audit trail, templates, RPC, data quality
 
@@ -512,7 +523,7 @@ After it: A11, A08, A09, A10 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/audit.ts` | 92 |
+| · | `packages/engine/src/lib/audit.ts` | 109 |
 | · | `packages/engine/src/lib/data-quality.ts` | 394 |
 | · | `packages/engine/src/lib/notifications.ts` | 50 |
 | · | `packages/engine/src/lib/system-collections.ts` | 63 |
@@ -1501,7 +1512,7 @@ After it: A11, A08, A09, A10 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **847** of 866.
+Test files nobody has opened yet: **847** of 870.
 
 | Directory | Unread |
 | --- | --: |

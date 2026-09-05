@@ -1,0 +1,37 @@
+{
+  "section": "A16",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/A16-close",
+  "files": [
+    "packages/engine/src/routes/tenants.ts",
+    "packages/engine/src/routes/admin/storage-routes.ts",
+    "packages/engine/src/routes/admin/config-routes.ts",
+    "packages/engine/src/routes/admin/permission-routes.ts"
+  ],
+  "tests": ["packages/engine/src/tests/harness/tenant-routes-audit.test.ts"],
+  "ran": [
+    "enumerated every privileged write across routes/tenants.ts, routes/admin.ts and routes/admin/*, and counted those whose handler contains no auditLog call: 11 of 29 before, 4 of 29 after, and the four remaining are not privileged writes.",
+    "confirmed zv_audit_log.event_type is plain text with no CHECK constraint, so the five new tenant event types need no migration.",
+    "drove all 59 routes on the privileged surface anonymously against the real app: 401 or 403 throughout, none reached a handler.",
+    "drove the same 59 as an ordinary authenticated member: five answered something other than 401/403/404, all of them because zValidator runs before the authorization check. With a valid body the same route answers 403, which is what proves the guard itself is sound."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "routes/tenants.ts",
+      "what": "no audit entry on any privileged write — creating a tenant, suspending one, granting or revoking tenant membership with a role — while routes/permissions.ts audits the same act on its own endpoint.",
+      "status": "repaired",
+      "ref": "#463"
+    },
+    {
+      "severity": "low",
+      "where": "routes/tenants.ts",
+      "what": "zValidator runs before the authorization check, so an unauthorized member receives the schema's complaint (400) rather than a refusal. The guard is sound — a valid body answers 403 — but the surface carries two guard shapes and the second one authorizes after doing work.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "PARTIAL. Both of the section's questions are answered across the whole surface by measurement, and the audit half is repaired. What is not done is line-by-line reading: admin/system-routes.ts (707 lines) and routes/admin.ts outside its guards and API-key routes. The ordering finding is logged rather than repaired because the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape used by adminRoutes does not transfer.",
+  "verdict": "partial"
+}
