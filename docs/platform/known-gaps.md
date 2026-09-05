@@ -695,6 +695,59 @@ is the same disagreement between what the host routed and what the consumer sees
   `denial.ts` — recorded here because it is a disclosure decision, not an
   accident.
 
+### A06 — permissions, roles, column access (2026-09-05, closed 5/5)
+
+Five defects, all repaired with a test that discriminates. Three of them are the
+same shape: a privilege that was taken away in memory and left in the database or
+the cache, so the removal looked like it worked until the next reload.
+
+**Fixed (#451) — revoking a role never reached the table.** The Casbin adapter
+compared `v0..v3` whatever the rule carried; a `g` grant has three values, so the
+fourth comparison became `v3 = NULL` and the DELETE removed nothing. Measured:
+demote an owner to member, restart, they are an owner again — and the effect rule
+is `some(allow)`, so the widest surviving grant wins. Four routes revoke this way.
+
+**Fixed (#455) — the same adapter ignored `fieldIndex`.** Casbin uses it to ask
+"every `g` rule whose SECOND column is this role", which is how a role is taken
+back from everyone holding it; the adapter deleted `v0 = role` instead. Visible
+consequence: deleting a custom role left every holder's assignment behind, so
+recreating a role with the same name silently restored its old membership.
+
+**Fixed (#452) — a demoted god kept a full RPC bypass for five minutes.**
+`invalidateGodCache` dropped `god:<id>` and left `urole:<id>`, which holds the
+same fact under another name; `resolveUserRole` kept answering `god`, and
+`routes/rpc.ts` turns that string into an unconditional allow. Its only caller is
+the recovery flow, whose premise is that the previous holder has lost control.
+
+**Fixed (#453) — the roles cache signature did not bind its key.** So an entry
+written for one tenant verified under another tenant's key. The user id was
+bound, so it never crossed between people — it crossed between tenants, under the
+very threat model (cache write access) those HMACs exist for.
+
+**Fixed (#454) — circular inheritance was refused only two roles deep.** A
+three-role loop was accepted, and every role in it silently acquired the others'
+permissions while the inheritance tree showed three ordinary edges.
+
+**Gap (low) — an ordering that carries meaning and does not say so.** In
+`routes/permissions.ts` the admin gate is `app.use('*')` registered *after* the
+`/bootstrap` route, which is what keeps recovery reachable without a session.
+Correct and deliberate; nothing in the file says the order is load-bearing.
+Moving the middleware up would gate recovery behind the login nobody can perform.
+
+**For the owner — #451 stops the leak, it does not clean up.** Any instance that
+ever revoked or demoted a role still holds those rows, and they are live at every
+boot. A report comparing `zv_tenant_users.role` against the `g` grants per tenant
+would name exactly who holds more than the interface says. That is a migration
+and an owner decision, which is why no pull request carries it.
+
+**Method note.** The inventory of revocation call sites first came back as three
+because the grep carried `grep -v "permissions.ts:"` — meant to drop the file
+being read, `lib/tenancy/permissions.ts`, and it also dropped
+`routes/permissions.ts`, a different file with the same basename. The fix covers
+that site either way; the count was wrong for a day. In a tree where the same
+basename lives in two directories, filtering on the basename hides the thing
+being looked for.
+
 ---
 
 ## 4. Deliberate deferrals

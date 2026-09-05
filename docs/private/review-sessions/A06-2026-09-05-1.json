@@ -1,0 +1,72 @@
+{
+  "section": "A06",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/A06-close",
+  "files": [
+    "packages/engine/src/lib/tenancy/permissions.ts",
+    "packages/engine/src/routes/permissions.ts",
+    "packages/engine/src/routes/admin/permission-routes.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/harness/casbin-revoke-persistence.test.ts",
+    "packages/engine/src/tests/integration/god-cache-invalidation.integration.test.ts",
+    "packages/engine/src/tests/integration/roles-cache-domain-binding.integration.test.ts",
+    "packages/engine/src/tests/harness/role-hierarchy-cycle.test.ts",
+    "packages/engine/src/tests/harness/casbin-filtered-fieldindex.test.ts"
+  ],
+  "ran": [
+    "drove the real enforcer against the real policy table: granted tenant_owner, demoted the way routes/tenants.ts does it, and reloaded. Before the fix the table held both roles and the reload restored owner=true.",
+    "measured which keys invalidateGodCache drops, against a live Valkey: god: was deleted, urole: survived signed and valid, and resolveUserRole still answered 'god'.",
+    "transplanted a signed roles entry from one tenant's cache key to another's and called getUserRoles in the second tenant: before the fix it answered [\"tenant_owner\"] for a user holding nothing there.",
+    "built A→B and B→C role inheritance and asked the hierarchy route to add C→A: allowed, and casbin then resolved A's implicit roles as [B, C, A] in 0 ms — no hang, but every role in the loop holds every other.",
+    "called removeFilteredGroupingPolicy(1, role) on a live table: the model dropped the assignment and the row stayed.",
+    "measured the engine's own DB catalogue for the tables the enforcer reads, and re-ran every check on a session-owned database created for this work rather than the shared zveltio_test."
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "lib/tenancy/permissions.ts KyselyCasbinAdapter.removePolicy",
+      "what": "compared v0..v3 whatever the rule carried, so a three-value `g` grant became `v3 = NULL` and the DELETE removed nothing. Revoking or demoting a role looked right in memory and came back at the next policy load. Four routes revoke this way.",
+      "status": "repaired",
+      "ref": "#451"
+    },
+    {
+      "severity": "high",
+      "where": "lib/tenancy/permissions.ts invalidateGodCache",
+      "what": "dropped `god:<id>` and left `urole:<id>`, which holds the same fact under another name. resolveUserRole kept answering 'god' for the rest of a 300 s TTL, and routes/rpc.ts turns that string into an unconditional authorization bypass. The only caller is the recovery flow, whose premise is that the previous holder has lost control.",
+      "status": "repaired",
+      "ref": "#452"
+    },
+    {
+      "severity": "medium",
+      "where": "lib/tenancy/permissions.ts _rolesHmac",
+      "what": "signed the user and the value but not the key, so a cached roles entry verified under any key. The user id was bound, so it never crossed between people — it crossed between tenants, under the very threat model (cache write access) these HMACs exist for.",
+      "status": "repaired",
+      "ref": "#453"
+    },
+    {
+      "severity": "medium",
+      "where": "routes/admin/permission-routes.ts POST /roles/hierarchy",
+      "what": "refused circular inheritance by asking the parent's DIRECT roles, so it caught a two-role loop and nothing longer. A three-role loop was accepted and every role in it silently acquired the others' permissions, while the inheritance tree showed three ordinary edges.",
+      "status": "repaired",
+      "ref": "#454"
+    },
+    {
+      "severity": "medium",
+      "where": "lib/tenancy/permissions.ts KyselyCasbinAdapter.removeFilteredPolicy",
+      "what": "ignored fieldIndex and pinned values to v0..v3, so casbin's \"every g rule whose SECOND column is this role\" deleted `v0 = role` instead — nothing. Same shape as removePolicy. Visible consequence: DELETE /api/admin/roles/:id left every holder's assignment behind, so recreating a role with the same name silently restored its old membership.",
+      "status": "repaired",
+      "ref": "#455"
+    },
+    {
+      "severity": "low",
+      "where": "routes/permissions.ts",
+      "what": "the admin gate is `app.use('*')` registered AFTER the /bootstrap route, which is what keeps recovery reachable without a session. Correct and deliberate, but nothing in the file says the order carries that meaning; moving the middleware up would gate recovery behind the login nobody can perform.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "Section closed, 5 of 5 files. The two read on 2026-09-04 (column-permissions.ts, resource-grants.ts) are recorded in the earlier entries; this one covers the remaining three, each end to end. The column-masking finding from that session is still open and is not this section's to close. Not attempted here: a migration to clean up grants that earlier revocations failed to delete — #451 stops the leak from here on, but any instance that ever revoked or demoted a role still holds those rows, and they are live at every boot. That is an owner decision, not a code fix.",
+  "verdict": "clean"
+}
