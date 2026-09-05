@@ -894,6 +894,42 @@ second shape is the one that will do work before its check.
 Still unread in this section: `admin/system-routes.ts` (707 lines) end to end,
 and `routes/admin.ts` outside its guards and API-key routes.
 
+### A property every error path in the engine depends on (2026-09-05)
+
+Measured on `withTenantIsolation`, the primitive every `/api/*` and `/ext/*`
+request runs inside:
+
+    handler writes, then RETURNS an error   → the write is COMMITTED
+    handler writes, then THROWS             → the write is rolled back
+
+So `return c.json({ error: … }, 400)` is not an undo. A handler that has already
+written something and then answers that the request failed leaves that write
+behind. Only a throw unwinds the transaction.
+
+This came from the extensions session, where it was not hypothetical: a SAML
+callback claimed an assertion id for replay protection, then hit a `!email` check
+that answered 400 by returning. The id stayed claimed. An identity provider with
+a misconfigured attribute mapping burned the assertion, the operator fixed the
+mapping, and the user retrying the same assertion was told it had already been
+used — a replay guard turned into a lockout, curable only by waiting for the
+provider to mint a new assertion. Worse than the defect it was added to prevent.
+
+**No engine instance is claimed here, and the reason is worth recording.** A
+static sweep over all 248 route handlers found 24 with a write followed by an
+error return, but reading them showed the dominant shape is harmless — `const row
+= await db.updateTable(…).returningAll().executeTakeFirst(); if (!row) return
+404`, where the update matched nothing and there is nothing to roll back — and at
+least one flagged handler (`collections.ts POST /:name/fields`) has all of its
+error returns *before* any write. The instrument is too coarse to convert into a
+list, so it produced candidates and not findings.
+
+What the property does change is how to read every future handler in this
+campaign. `check:atomic-writes` asks whether several writes belong in one
+transaction; this asks something different and narrower — whether a single
+completed write survives an answer that says the request failed. Where a handler
+takes an irreversible action (claiming a token, consuming a nonce, spending a
+quota) before it has finished validating, a `return` is the wrong verb.
+
 ---
 
 ## 4. Deliberate deferrals
