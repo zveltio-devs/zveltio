@@ -256,11 +256,41 @@ function tableReferences(code: string): TableRef[] {
   const ENTRY = new RegExp(`^\\s*(${IDENT_SRC})(?:\\s*\\.\\s*(${IDENT_SRC}))?`, 'i');
   // A word that ends the list. `FROM a, b WHERE …` stops at WHERE; without this
   // the alias-and-comma walk below would run into the rest of the statement.
+  // `lateral` joins the list because `JOIN LATERAL (SELECT …)` names no table:
+  // the word is a keyword and the parenthesis is a subquery, whose own FROM is
+  // matched on its own. Read as an identifier it became a table called
+  // `lateral`, and `hr/employees` — which uses `LEFT JOIN LATERAL` — was refused
+  // with a message naming a table that does not exist. A reserved word can only
+  // be a real table name when quoted, and a quoted one starts with `"`, which
+  // this does not match.
   const STOP =
-    /^\s*(?:where|group|order|having|limit|offset|on|using|union|intersect|except|returning|set|values|window|for|left|right|inner|outer|full|cross|natural|join|select|as)\b/i;
+    /^\s*(?:where|group|order|having|limit|offset|on|using|union|intersect|except|returning|set|values|window|for|left|right|inner|outer|full|cross|natural|join|select|as|lateral)\b/i;
+
+  // `FROM` is not always a table list. SQL spells several functions with
+  // keyword arguments — `EXTRACT(YEAR FROM now())`, `SUBSTRING(x FROM 2)`,
+  // `TRIM(BOTH ' ' FROM name)` — and the word after that FROM is an expression.
+  // Read as a table it produced refusals naming `now`, `date`, `start_date` and
+  // `invoice_date`, none of which is a table and all of which appear in ordinary
+  // first-party SQL.
+  const KEYWORD_ARG_FN = /(?:extract|substring|trim|position|overlay)\s*\($/i;
+  /** Is this offset inside the parentheses of one of those functions? */
+  function insideKeywordArgFn(at: number): boolean {
+    let depth = 0;
+    for (let i = at - 1; i >= 0; i--) {
+      const ch = code[i];
+      if (ch === ')') depth++;
+      else if (ch === '(') {
+        if (depth === 0) return KEYWORD_ARG_FN.test(code.slice(Math.max(0, i - 12), i + 1));
+        depth--;
+      }
+    }
+    return false;
+  }
 
   const out: TableRef[] = [];
   for (const intro of code.matchAll(INTRO)) {
+    const keyword = intro[0].toLowerCase();
+    if (keyword === 'from' && insideKeywordArgFn(intro.index!)) continue;
     let rest = code.slice(intro.index! + intro[0].length);
 
     // Comma-separated lists, which the first version of this missed entirely:
@@ -277,6 +307,17 @@ function tableReferences(code: string): TableRef[] {
 
       const m = ENTRY.exec(rest);
       if (!m) break;
+      // After FROM or JOIN, an identifier followed directly by `(` is a function
+      // call, not a table — `FROM now()`, `FROM generate_series(1, 10)`.
+      //
+      // Only after those two. `INSERT INTO zv_scim_tokens (name) VALUES ($1)`
+      // puts the column list in exactly that position, and reading it as a
+      // function let an engine table straight through. The existing suite caught
+      // that on the first run of this change, which is what the case for
+      // `zv_scim_tokens` in it is for.
+      if ((keyword === 'from' || keyword === 'join') && /^\s*\(/.test(rest.slice(m[0].length))) {
+        break;
+      }
       // A subquery (`FROM (SELECT …`) has a parenthesis here, not an identifier,
       // so ENTRY does not match and its own FROM is picked up separately.
       const first = unquote(m[1]!);
