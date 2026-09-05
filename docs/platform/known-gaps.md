@@ -1005,6 +1005,42 @@ data.
   the listing is admin-only, so nothing is exposed — but the file reads as though
   session tokens were browsable, which is worth knowing before someone wires the
   data route to it.
+### E01 — the gates themselves (2026-09-05, closed)
+
+The section's bar is stated in its own focus line: *plant a violation in each; a
+gate that does not fail on it is not a gate.* Measured against
+`scripts/audit-gates.ts` rather than assumed — every gate E01 lists is exercised
+by a case there, checked by matching the section's file list against the
+meta-gate's `gate:` and `covers:` entries. **Nothing uncovered.**
+
+**Fixed (#467) — one gate could not be proved on any machine where it mattered.**
+The plant path for `check-studio-embed-freshness` is
+`packages/studio/dist/.zveltio-studio-version`, a build artefact present wherever
+anyone has built the Studio. The collision rule skipped the case there, so the
+gate was proved only on a fresh checkout — the one environment in which a stale
+embed cannot happen. A `replace` mode now stands in for the file and restores it
+byte for byte, and creates then removes one when there is none. 44 of 44 gates
+prove themselves in a normal run, where it was 43 with one permanently unproved.
+
+The first attempt at that fix inverted the hole rather than closing it: it
+required the file, so CI — a fresh checkout — skipped the case instead, and a
+skip is fatal there. Both halves, or the case is decoration on one machine or the
+other.
+
+**A false report of mine, worth recording because the meta-gate predicted it.**
+My first run said `❌ decoration, not a gate: check-insert-schema-match`. It is
+not: that gate builds the real schema and needs a database, and I had run without
+`TEST_DATABASE_URL`. The comment on that case says a missing database makes it
+"fail loudly as decoration, which is the right direction to fail in" — so the
+meta-gate was behaving as designed and my invocation was the fault. With a
+database, 43/43 before the fix and 44/44 after.
+
+**What remains, and it is not this section's bar.** The gates are proved to catch
+a planted violation; most still have no unit test of their own, which is the T01
+backlog's "a case per gate, not per repair". Two known misses in
+`check-jsonb-binding` — a `JSON.stringify` reaching the column through a local
+variable, and the raw-value case its own header declines to claim — were recorded
+on 2026-09-04 and are unchanged.
 
 ---
 
