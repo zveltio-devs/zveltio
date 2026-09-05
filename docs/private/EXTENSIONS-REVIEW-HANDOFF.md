@@ -109,12 +109,32 @@ The extension table sandbox guards Kysely's query-builder entry points. A raw
 extension holding no grants at all: `sql\`SELECT token FROM session\` **reads**,
 and `sql\`UPDATE "user" SET role='god'\` **is accepted**.
 
-The engine-side fix is written and works, but it refuses **18 extensions** that
-use that path legitimately. So the extensions-side job is to prepare the ground
-so the engine fix can land:
+The engine-side fix is written and works, but it refuses extensions that use that
+path legitimately. So the extensions-side job is to prepare the ground so the
+engine fix can land.
 
-Running `assertWorkerSqlAllowed` over all **1170** raw statements shipped, these
-reach outside their own namespace:
+**Corrected 2026-09-05, by measurement from the extensions session.** The first
+count here said 18, from a scan that passed the policy no `allowedTables` at all.
+The real figure against the gate as it stands is **26 extensions, and 19 of them
+fail on their own data** — because `assertWorkerSqlAllowed` consults neither
+`EXTENSION_TABLE_GRANTS` nor the tables an extension's own migrations create. Its
+rule is strictly `zvd_*` or `zv_<ext>_*`, and `register.ts` already explains why
+that does not hold: 109 of roughly 300 extension tables are named after the
+feature, not the folder.
+
+Two consequences, and they change the plan:
+
+- **Remedy 2 below does not work against the gate as written.** Adding an
+  `EXTENSION_TABLE_GRANTS` entry changes nothing, because the gate does not read
+  that registry. Teaching it to is a precondition, not a follow-up.
+- **Order matters.** Guarding the inline path before the gate honours granted and
+  migration-created tables is a large regression, not a partial fix.
+
+Also measured there: the gate is called from exactly one place — the worker
+bridge — and all 56 manifests are `(default inline)`. So today it guards a path
+nobody travels, while the path everyone uses is unguarded.
+
+These reach outside their own namespace:
 
 | extension | tables outside its own namespace | why |
 |---|---|---|
@@ -125,7 +145,21 @@ reach outside their own namespace:
 | `storage/cloud`, `ai` | `user` | |
 | `analytics/dashboard` | `user`, `zv_audit_log`, `zv_settings`, `zv_tenant_users`, `pg_class` | |
 | `communications/mail` | `zv_settings` | |
-| `developer/database`, `integrations/migrators`, `geospatial/postgis`, `content/pages` | `information_schema.*`, `pg_*` | schema browsing |
+| `integrations/migrators`, `geospatial/postgis`, `content/pages` | `information_schema.*`, `pg_*` | schema browsing |
+| `developer/database` | `information_schema.*`, `pg_*`, **and DDL through `sql.raw`** | see below — not browsing |
+
+**`developer/database` is in a category of its own.** An earlier version of this
+document filed it under schema browsing. It is not: it issues `CREATE ROLE`,
+`DROP ROLE`, `CREATE FUNCTION` from user input, and
+`ALTER TABLE … DISABLE ROW LEVEL SECURITY` — through `sql.raw`, which no scan of
+tagged templates sees. An extension that can turn off the row-level security the
+tenant boundary rests on is not a browser, and it should not be reasoned about
+alongside one.
+
+`sql.raw` is worth understanding precisely, because the two guards differ on it: a
+STATIC inventory cannot see those statements at all, while a runtime guard on the
+handle does see the compiled text, resolved table names included. So the runtime
+fix covers `FROM ${sql.raw(table)}`; the inventory never will.
 
 For each one the question is the same and has three possible answers:
 
