@@ -19,7 +19,8 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
-import { normalizeIp, rateLimit } from '../middleware/rate-limit.js';
+import { rateLimit } from '../middleware/rate-limit.js';
+import { clientIpForAudit } from '../lib/security/index.js';
 
 /**
  * The settings key recording that a recovery token has been spent.
@@ -93,10 +94,12 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
   );
 
   app.post('/bootstrap', async (c) => {
-    // For the record only — the limiter does its own identification, including
-    // the TRUSTED_PROXY handling that decides whether a forwarded header may be
-    // believed at all. This is best-effort attribution in the audit trail.
-    const ip = normalizeIp(c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip')) ?? null;
+    // The same identification the limiter does, including the TRUSTED_PROXY
+    // handling that decides whether a forwarded header may be believed at all.
+    // It used to be "best-effort attribution" reading the header directly, which
+    // on the one endpoint whose refusals ARE the attack meant the attacker wrote
+    // the address in their own record.
+    const ip = clientIpForAudit(c);
 
     /** Every refusal is logged. A failed attempt here is the attack, not noise. */
     const refuse = async (reason: string, status: 401 | 403 | 404 | 409, detail?: string) => {

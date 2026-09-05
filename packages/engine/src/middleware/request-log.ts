@@ -1,6 +1,7 @@
 import { onAfterCommit } from '../lib/tenancy/index.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
+import { clientIpForAudit } from '../lib/security/index.js';
 
 // Log /api/* requests to zv_request_logs (fire-and-forget, non-fatal).
 // Skips health, metrics, and auth endpoints to reduce noise.
@@ -77,7 +78,9 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
           status: c.res.status,
           duration_ms: duration,
           user_id: user?.id ?? null,
-          ip: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null,
+          // Resolved rather than copied: the whole X-Forwarded-For chain used
+          // to be stored verbatim, unvalidated, from any caller.
+          ip: clientIpForAudit(c),
           user_agent: c.req.header('user-agent') ?? null,
         })
         .execute()
