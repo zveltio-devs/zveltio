@@ -595,8 +595,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     // The filters are recorded, not the rows: what was asked for is the useful
     // fact, and copying the export into the table it exports would double it on
     // every run.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-    const exporter = c.get('user' as never) as any;
+    const exporter = c.get('user') as RequestUser | undefined;
     await auditLog(db, {
       type: 'export.executed',
       userId: exporter?.id,
