@@ -9,7 +9,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { DEFAULT_TENANT_ID, withTenantIsolation } from './tenancy/index.js';
+import { getCurrentDomainOrNull, withTenantIsolation } from './tenancy/index.js';
 
 export type IssueType =
   | 'duplicate'
@@ -364,8 +364,32 @@ export async function runQualityScan(
   scanType: 'duplicates' | 'anomalies' | 'missing_data' | 'normalization' | 'full',
   userId: string,
   tenantSchema?: string,
-  tenantId: string = DEFAULT_TENANT_ID,
+  /**
+   * The firm whose data is being scanned. Taken from the request when the caller
+   * does not name one — NOT defaulted to the root tenant.
+   *
+   * It used to default to `DEFAULT_TENANT_ID`, and the only production caller
+   * passes four arguments. So every quality scan on the instance opened
+   * `withTenantIsolation(root)` whatever firm asked for it: the scan read the
+   * ROOT tenant's rows, and the issues handed back carried root's record ids and
+   * field values in their descriptions. Neither `zv_quality_scans` nor
+   * `zv_quality_issues` has a `tenant_id` to have caught it afterwards.
+   *
+   * A default is the wrong shape for this parameter. Absence of a tenant is not
+   * the root tenant, it is a bug — the same mistake has been found three times
+   * in this codebase in one day, each time as a value quietly resolving to root.
+   * So the fallback reads the request's own domain and refuses when there is
+   * none, rather than picking a firm on the caller's behalf.
+   */
+  tenantId?: string,
 ): Promise<string> {
+  const scanTenant = tenantId ?? getCurrentDomainOrNull();
+  if (!scanTenant) {
+    throw new Error(
+      'runQualityScan needs a tenant: none was given and the call is not inside a request. ' +
+        'Refusing rather than scanning the root tenant, which is what a default would have done.',
+    );
+  }
   const scan = await db
     .insertInto('zv_quality_scans')
     .values({ collection, scan_type: scanType, status: 'running', triggered_by: userId })
@@ -379,7 +403,7 @@ export async function runQualityScan(
   // The scan reads FORCE-RLS'd collection rows, so it must run inside a tenant
   // transaction (the GUC), or it sees zero rows. Holds one connection for the
   // scan duration — acceptable for an infrequent admin-triggered background op.
-  withTenantIsolation(tenantId, (trx) =>
+  withTenantIsolation(scanTenant, (trx) =>
     runScanAsync(trx, scanId, collection, tableName, scanType),
   ).catch((err) => {
     console.error(`Quality scan ${scanId} failed:`, err);
