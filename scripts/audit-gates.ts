@@ -40,7 +40,13 @@ type Case = {
    * open a new one — `check-i18n-core` is the case. The original is held in
    * memory and written back byte for byte, so the file is untouched either way.
    */
-  mode?: 'create' | 'append';
+  /**
+   * `replace` stands in for a file that already exists and puts it back byte for
+   * byte afterwards. It is what `create` cannot do: a plant path that exists on
+   * every machine where the gate matters — a build artefact — was skipped under
+   * the collision rule and therefore proved only on a fresh checkout.
+   */
+  mode?: 'create' | 'append' | 'replace';
   /**
    * Scripts this case exercises INDIRECTLY, when the command runs a wrapper
    * rather than the gate itself. Two cases need a wrapper: one has to seed a
@@ -318,6 +324,13 @@ const CASES: Case[] = [
     gate: 'check-studio-embed-freshness',
     cmd: 'REQUIRE_STUDIO_DIST=1 bun run scripts/check-studio-embed-freshness.ts',
     file: 'packages/studio/dist/.zveltio-studio-version',
+    // `replace`, because this path EXISTS on every machine where anyone has
+    // built the Studio — which is every machine where this gate matters. Under
+    // the collision rule it was skipped there and proved only on a fresh
+    // checkout, so the one environment that could not exercise it was the
+    // developer's own. The original is read before the plant and written back
+    // afterwards, the same way `append` already does.
+    mode: 'replace',
     body: '0.0.0-planted\n',
   },
   {
@@ -847,6 +860,19 @@ const skipped: { gate: string; file: string; why: string }[] = [];
 for (let i = CASES.length - 1; i >= 0; i--) {
   const c = CASES[i]!;
   const appends = c.mode === 'append';
+  // A `replace` case is allowed to meet an existing file: that is its whole
+  // point, and it restores what it found.
+  if (c.mode === 'replace') {
+    if (!existsSync(c.file)) {
+      skipped.push({
+        gate: c.gate,
+        file: c.file,
+        why: 'does not exist, so a replace probe has nothing to stand in for',
+      });
+      CASES.splice(i, 1);
+    }
+    continue;
+  }
   if (!appends && existsSync(c.file)) {
     skipped.push({ gate: c.gate, file: c.file, why: 'already exists' });
     CASES.splice(i, 1);
@@ -868,7 +894,8 @@ let caught = 0;
 const missed: string[] = [];
 
 for (const c of CASES) {
-  const original = c.mode === 'append' ? readFileSync(c.file, 'utf8') : null;
+  const original =
+    c.mode === 'append' || c.mode === 'replace' ? readFileSync(c.file, 'utf8') : null;
   // Which ancestors this probe is about to create, deepest last. The file header
   // promises nothing is left behind, and for two months that was true only of
   // the FILE: `mkdirSync(…, { recursive: true })` created parents that nothing
@@ -882,7 +909,10 @@ for (const c of CASES) {
     if (dirname(d) === d) break;
   }
   mkdirSync(dirname(c.file), { recursive: true });
-  writeFileSync(c.file, original === null ? c.body : original + c.body);
+  writeFileSync(
+    c.file,
+    c.mode === 'replace' ? c.body : original === null ? c.body : original + c.body,
+  );
   let failed = false;
   let output = '';
   try {
@@ -933,9 +963,14 @@ for (const c of CASES) {
 // Files AND the directories that held them. The file half of this check has
 // been here all along and passed the whole time the run was leaving empty
 // parents behind, which is what a check on half a promise buys you.
-const leftovers = CASES.filter((c) => c.mode !== 'append' && existsSync(c.file)).map((c) => c.file);
+// `replace` is excluded for the same reason `append` is: its path existed
+// before the probe and exists after it, byte for byte. Counting it as a leftover
+// would report the restoration as the failure.
+const leftovers = CASES.filter(
+  (c) => c.mode !== 'append' && c.mode !== 'replace' && existsSync(c.file),
+).map((c) => c.file);
 for (const c of CASES) {
-  if (c.mode === 'append') continue;
+  if (c.mode === 'append' || c.mode === 'replace') continue;
   const dir = dirname(c.file);
   if (existsSync(dir) && readdirSync(dir).length === 0) leftovers.push(`${dir}/ (empty)`);
 }
