@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import { propagation, context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { resolveClientIp } from '../lib/security/index.js';
 
 // No-op when OTel is not configured — zero overhead in production without OTEL_EXPORTER_OTLP_ENDPOINT
 const isEnabled = () => !!process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -35,7 +36,7 @@ export function tracingMiddleware(): MiddlewareHandler {
             'http.url': c.req.url,
             'http.route': c.req.path,
             'http.user_agent': c.req.header('user-agent') ?? '',
-            'net.peer.ip': c.req.header('x-forwarded-for') ?? '',
+            'net.peer.ip': resolveClientIp(c),
           },
         },
         parentCtx,
