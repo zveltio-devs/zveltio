@@ -21,8 +21,8 @@ After it: A02, A07, A16, A11 …
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **69 / 656** (11%)
-- Lines in scope: **16,509 / 135,410** (12%)
+- Files in scope: **74 / 656** (11%)
+- Lines in scope: **16,846 / 135,410** (12%)
 - Test files opened by some session: **11 / 861**
 
 ## Sections
@@ -40,7 +40,7 @@ After it: A02, A07, A16, A11 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,907 | 0/9 | — |
-| A02 | Middleware chain | 17 | 2,087 | 0/17 | — |
+| A02 | Middleware chain | 17 | 2,087 | 5/17 | 2026-09-04 — partial |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
 | A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
@@ -174,19 +174,30 @@ After it: A02, A07, A16, A11 …
 | · | `packages/engine/src/lib/savepoint.ts` | 82 |
 | · | `packages/engine/src/middleware/demo-mode.ts` | 75 |
 | · | `packages/engine/src/middleware/enrich-denial.ts` | 111 |
-| · | `packages/engine/src/middleware/extension-auth-gate.ts` | 153 |
+| ✅ | `packages/engine/src/middleware/extension-auth-gate.ts` | 153 |
 | · | `packages/engine/src/middleware/god-audit.ts` | 122 |
-| · | `packages/engine/src/middleware/preview-env.ts` | 75 |
+| ✅ | `packages/engine/src/middleware/preview-env.ts` | 75 |
 | · | `packages/engine/src/middleware/rate-limit.ts` | 495 |
 | · | `packages/engine/src/middleware/request-log.ts` | 91 |
 | · | `packages/engine/src/middleware/session-prefetch.ts` | 99 |
 | · | `packages/engine/src/middleware/slow-query.ts` | 61 |
-| · | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
-| · | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
+| ✅ | `packages/engine/src/middleware/tenant-guard.ts` | 43 |
+| ✅ | `packages/engine/src/middleware/tenant-membership.ts` | 65 |
 | · | `packages/engine/src/middleware/tenant-quota.ts` | 156 |
 | · | `packages/engine/src/middleware/tenant.ts` | 295 |
 | · | `packages/engine/src/middleware/tracing.ts` | 113 |
-| · | `packages/engine/src/middleware/url-validator.ts` | 1 |
+| ✅ | `packages/engine/src/middleware/url-validator.ts` | 1 |
+
+**Sessions**
+
+- **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/A02-middleware`
+  - ran: probed the /ext/* gate's prefix check with seven path forms — //ext/, /ext//, /EXT/, /ext/./, /ext/x/../, and percent-encoded /%65xt/. Hono normalises and decodes BEFORE middleware: every form that reached the handler was seen by the gate with the correct prefix, and the ones that were not seen 404'd. No bypass.
+  - ran: measured zv_schema_branches: rls=false, forced=false, policies=0, tenant_id columns=0
+  - ran: measured every non-public schema in the verification database: 3 tables each, 0 with RLS
+  - ran: tried to prove a tenant-B member can operate in the default tenant; the probe picked /api/webhooks, which is an admin route and answers 401 to any member regardless of tenant. Instrument wrong, claim withdrawn — the design question below stands on the code, which is explicit.
+  - **medium** middleware/preview-env.ts + zv_schema_branches — the preview-token lookup selects on `preview_token` alone — no tenant predicate — and the table carries NO tenant_id, NO row-level security and NO policy, measured. So the token is a bearer credential bound to no tenant, and presenting it sets `SET LOCAL search_path` to that branch's schema for the request while the tenant GUC still says whoever presented it. NOT verified: whether that yields a cross-tenant read, which depends on the branch schema's own tables — no branch schema existed in the verification database, and every non-public schema that does exist carries no RLS at all. → *logged* (known-gaps.md)
+  - **low** middleware/url-validator.ts — a 0-byte file, tracked by git, imported by nothing, sitting beside the real SSRF guard at lib/security/url-validator.ts. A reader grepping middleware/ for url-validator finds a file and concludes the middleware exists. → *logged* (known-gaps.md)
+  - not done: PARTIAL, 5 of 17 files. Read: url-validator (empty), tenant-guard, extension-auth-gate, tenant-membership, preview-env. tenant.ts was read substantially while proving the escalation now fixed in #444, but not end to end, so it is not ticked. Unread: rate-limit (495), tenant-quota, session-prefetch, god-audit, enrich-denial, tracing, request-log, demo-mode (header only), slow-query, route-db, savepoint. Raised for the owner rather than logged as a defect: tenant-membership deliberately skips the membership check for the DEFAULT tenant, and a request with no slug resolves to it — correct for the single-tenant model the comment cites, and worth a decision for the hierarchical multi-tenant market the product targets, where the root tenant holds a real organisation's data.
 
 ### A03 — Error surface, health, API description
 

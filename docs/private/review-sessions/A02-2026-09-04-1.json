@@ -1,0 +1,38 @@
+{
+  "section": "A02",
+  "date": "2026-09-04",
+  "agent": "claude-opus-5",
+  "branch": "review/A02-middleware",
+  "files": [
+    "packages/engine/src/middleware/url-validator.ts",
+    "packages/engine/src/middleware/tenant-guard.ts",
+    "packages/engine/src/middleware/extension-auth-gate.ts",
+    "packages/engine/src/middleware/tenant-membership.ts",
+    "packages/engine/src/middleware/preview-env.ts"
+  ],
+  "tests": [],
+  "ran": [
+    "probed the /ext/* gate's prefix check with seven path forms \u2014 //ext/, /ext//, /EXT/, /ext/./, /ext/x/../, and percent-encoded /%65xt/. Hono normalises and decodes BEFORE middleware: every form that reached the handler was seen by the gate with the correct prefix, and the ones that were not seen 404'd. No bypass.",
+    "measured zv_schema_branches: rls=false, forced=false, policies=0, tenant_id columns=0",
+    "measured every non-public schema in the verification database: 3 tables each, 0 with RLS",
+    "tried to prove a tenant-B member can operate in the default tenant; the probe picked /api/webhooks, which is an admin route and answers 401 to any member regardless of tenant. Instrument wrong, claim withdrawn \u2014 the design question below stands on the code, which is explicit."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "middleware/preview-env.ts + zv_schema_branches",
+      "what": "the preview-token lookup selects on `preview_token` alone \u2014 no tenant predicate \u2014 and the table carries NO tenant_id, NO row-level security and NO policy, measured. So the token is a bearer credential bound to no tenant, and presenting it sets `SET LOCAL search_path` to that branch's schema for the request while the tenant GUC still says whoever presented it. NOT verified: whether that yields a cross-tenant read, which depends on the branch schema's own tables \u2014 no branch schema existed in the verification database, and every non-public schema that does exist carries no RLS at all.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    },
+    {
+      "severity": "low",
+      "where": "middleware/url-validator.ts",
+      "what": "a 0-byte file, tracked by git, imported by nothing, sitting beside the real SSRF guard at lib/security/url-validator.ts. A reader grepping middleware/ for url-validator finds a file and concludes the middleware exists.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "PARTIAL, 5 of 17 files. Read: url-validator (empty), tenant-guard, extension-auth-gate, tenant-membership, preview-env. tenant.ts was read substantially while proving the escalation now fixed in #444, but not end to end, so it is not ticked. Unread: rate-limit (495), tenant-quota, session-prefetch, god-audit, enrich-denial, tracing, request-log, demo-mode (header only), slow-query, route-db, savepoint. Raised for the owner rather than logged as a defect: tenant-membership deliberately skips the membership check for the DEFAULT tenant, and a request with no slug resolves to it \u2014 correct for the single-tenant model the comment cites, and worth a decision for the hierarchical multi-tenant market the product targets, where the root tenant holds a real organisation's data.",
+  "verdict": "partial"
+}
