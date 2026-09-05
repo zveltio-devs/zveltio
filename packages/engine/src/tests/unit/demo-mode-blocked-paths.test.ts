@@ -15,22 +15,31 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { Hono } from 'hono';
 import { demoModeMiddleware } from '../../middleware/demo-mode.js';
 
-/** Run the middleware over a request and report whether it was refused. */
+/**
+ * Run the middleware inside a real Hono app and report whether it refused.
+ *
+ * This used to hand the middleware a literal `{ req: { url, method } }`. That
+ * object has no `req.path`, so the suite could only ever exercise the raw URL —
+ * and the raw URL was the bug: the router matches on Hono's decoded path, the
+ * gate matched on the undecoded one, and `POST /api/admin/%73ql` ran the SQL
+ * editor while every case below stayed green. A stand-in context measured the
+ * pattern list; it could not measure the gate.
+ */
 async function blocked(method: string, path: string): Promise<boolean> {
   process.env.DEMO_MODE = 'true';
-  const mw = demoModeMiddleware();
+  const app = new Hono();
+  app.use('*', demoModeMiddleware());
   let reachedHandler = false;
-  const c = {
-    req: { url: `http://demo.zveltio.com${path}`, method },
-    json: (body: unknown, status?: number) => ({ body, status }),
-  } as any;
-  const res = await mw(c, async () => {
+  app.all('*', (c) => {
     reachedHandler = true;
+    return c.text('ran');
   });
+  const res = await app.request(`http://demo.zveltio.com${path}`, { method });
   delete process.env.DEMO_MODE;
-  return !reachedHandler && res !== undefined;
+  return !reachedHandler && res.status === 451;
 }
 
 describe('demo mode', () => {
@@ -69,14 +78,28 @@ describe('demo mode', () => {
     expect(await blocked('GET', '/api/backup')).toBe(false);
   });
 
+  it('blocks the same routes reached through a percent-encoded segment', async () => {
+    // Hono decodes each segment once before routing, so all of these reach
+    // exactly the handler their plain spelling reaches. The gate has to be
+    // looking at the same string the router looked at, or one escaped letter
+    // walks past every rule in the list.
+    expect(await blocked('POST', '/api/admin/%73ql')).toBe(true);
+    expect(await blocked('POST', '/api/%61dmin/sql')).toBe(true);
+    expect(await blocked('POST', '/api/b%61ckup')).toBe(true);
+    expect(await blocked('GET', '/api/backup/abc-123/%64ownload')).toBe(true);
+    expect(await blocked('PATCH', '/api/%75sers/u-1')).toBe(true);
+  });
+
   it('does nothing at all when demo mode is off', async () => {
     delete process.env.DEMO_MODE;
-    const mw = demoModeMiddleware();
+    const app = new Hono();
+    app.use('*', demoModeMiddleware());
     let reached = false;
-    const c = { req: { url: 'http://x/api/backup', method: 'POST' } } as any;
-    await mw(c, async () => {
+    app.all('*', (c) => {
       reached = true;
+      return c.text('ran');
     });
+    await app.request('http://x/api/backup', { method: 'POST' });
     expect(reached).toBe(true);
   });
 });
