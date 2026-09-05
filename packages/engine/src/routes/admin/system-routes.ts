@@ -6,6 +6,7 @@ import type { Database } from '../../db/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
+import { escapeLike } from '../../lib/data/index.js';
 import { hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -699,24 +700,42 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = db
-      .selectFrom('zv_request_logs')
-      .selectAll()
-      .orderBy('created_at', 'desc')
-      .limit(parsedLimit)
-      .offset(offset);
-
-    if (path) query = query.where('path', 'like', `%${path}%`);
-    if (status) query = query.where('status', '=', parseInt(status));
-    if (method) query = query.where('method', '=', method.toUpperCase());
-    if (user_id) query = query.where('user_id', '=', user_id);
+    // One place that decides what "matching" means, applied to the rows and to
+    // the count.
+    //
+    // The count used to be an unfiltered `count(id)` over the whole table while
+    // the list was filtered. Filter by `status=500` on an instance with forty
+    // thousand logged requests and the response said `total: 40000` beside three
+    // rows, so the caller paged through empty pages looking for the rest. A
+    // total that does not describe the list it accompanies is worse than no
+    // total: the reader has no way to tell it is wrong.
+    //
+    // `escapeLike` on the path, which `routes/users.ts` already does for its own
+    // search. Without it a `%` or `_` typed into the box is a wildcard, so
+    // searching for a literal `/api/v1/_internal` quietly matches far more than
+    // it names.
+    // biome-ignore lint/suspicious/noExplicitAny: Kysely's builder type differs between select and count
+    const withFilters = <T extends { where: any }>(q: T): T => {
+      let out = q;
+      if (path) out = out.where('path', 'like', `%${escapeLike(path)}%`);
+      if (status) out = out.where('status', '=', parseInt(status));
+      if (method) out = out.where('method', '=', method.toUpperCase());
+      if (user_id) out = out.where('user_id', '=', user_id);
+      return out;
+    };
 
     const [logs, total] = await Promise.all([
-      query.execute(),
-      db
-        .selectFrom('zv_request_logs')
-        .select((eb) => eb.fn.count('id').as('count'))
-        .executeTakeFirst(),
+      withFilters(
+        db
+          .selectFrom('zv_request_logs')
+          .selectAll()
+          .orderBy('created_at', 'desc')
+          .limit(parsedLimit)
+          .offset(offset),
+      ).execute(),
+      withFilters(
+        db.selectFrom('zv_request_logs').select((eb) => eb.fn.count('id').as('count')),
+      ).executeTakeFirst(),
     ]);
 
     return c.json({ logs, total: Number(total?.count ?? 0) });
