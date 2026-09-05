@@ -55,6 +55,8 @@ describe('runQualityScan — the normalization sample cannot be read', () => {
         COLLECTION,
         'full',
         '00000000-0000-4000-8000-00000000u5e1'.replace('u5e1', '0001'),
+        undefined,
+        '00000000-0000-0000-0000-0000000000aa',
       );
       await db.waitFor(/update "zv_quality_scans" set/);
     } finally {

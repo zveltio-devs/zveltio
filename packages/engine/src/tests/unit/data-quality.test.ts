@@ -51,7 +51,14 @@ afterEach(() => {
 describe('runQualityScan — lifecycle', () => {
   it('returns the scan id immediately and marks the scan completed', async () => {
     const db = setup('contacts', []);
-    const scanId = await runQualityScan(asDb(db), 'contacts', 'full', 'user-1');
+    const scanId = await runQualityScan(
+      asDb(db),
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     expect(scanId).toBe(SCAN_ID);
 
     const end = await awaitScanEnd(db);
@@ -63,23 +70,44 @@ describe('runQualityScan — lifecycle', () => {
   it('throws when the scan record cannot be created', async () => {
     const db = new CannedDb(); // no insert handler → returningAll yields no row
     initTenantManager(asDb(db));
-    await expect(runQualityScan(asDb(db), 'contacts', 'full', 'user-1')).rejects.toThrow(
-      'Failed to create quality scan record',
-    );
+    await expect(
+      runQualityScan(
+        asDb(db),
+        'contacts',
+        'full',
+        'user-1',
+        undefined,
+        '00000000-0000-0000-0000-0000000000aa',
+      ),
+    ).rejects.toThrow('Failed to create quality scan record');
   });
 
   it('marks the scan failed when the scan body throws', async () => {
     const db = setup('contacts', []);
     db.fail(/set_config/, new Error('tenant guc exploded'));
 
-    await runQualityScan(asDb(db), 'contacts', 'full', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
     expect(end.parameters).toContain('failed');
   });
 
   it('scopes the scan to the tenant schema when one is passed', async () => {
     const db = setup('contacts', [{ name: 'email', type: 'email' }]);
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1', 't_acme');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      't_acme',
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const dupQueries = db.executed(/similarity/);
@@ -113,7 +141,14 @@ describe('duplicate detection', () => {
     db.when(/similarity\(a\."email"/, [{ id1: 'r1', id2: 'r2', sim: 0.95, value1: 'a@x.com' }]);
     // count query: 0 records → missing-data short-circuits; no outliers rows
 
-    await runQualityScan(asDb(db), 'contacts', 'full', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -126,7 +161,14 @@ describe('duplicate detection', () => {
 
   it('emits no issues and completes when nothing matches', async () => {
     const db = setup('contacts', fields);
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
@@ -140,7 +182,14 @@ describe('duplicate detection', () => {
     db.fail(/similarity\(a\."email"/, new Error('function similarity does not exist'));
     db.when(/similarity\(a\."name"/, [{ id1: 'r3', id2: 'r4', sim: 0.91, value1: 'Ann' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -162,7 +211,14 @@ describe('missing-data detection', () => {
     db.when(/WITH missing[\s\S]*"email"/i, [{ count: '40', sample_ids: ['m1', 'm2'] }]);
     db.when(/WITH missing[\s\S]*"phone"/i, [{ count: '0', sample_ids: null }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'missing_data', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'missing_data',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -181,7 +237,14 @@ describe('missing-data detection', () => {
     db.when(/WITH missing[\s\S]*"email"/i, [{ count: '10', sample_ids: ['m1'] }]); // 10% → ignored
     db.when(/WITH missing[\s\S]*"phone"/i, [{ count: '55', sample_ids: ['p1'] }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'missing_data', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'missing_data',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -194,7 +257,14 @@ describe('missing-data detection', () => {
     const db = setup('contacts', fields);
     db.when(/SELECT COUNT\(\*\)::text AS total/i, [{ total: '0' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'missing_data', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'missing_data',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/WITH missing/)).toHaveLength(0);
@@ -211,7 +281,14 @@ describe('missing-data detection', () => {
     db.fail(/WITH missing[\s\S]*"broken"/i, new Error('column broken does not exist'));
     db.when(/WITH missing[\s\S]*"email"/i, [{ count: '30', sample_ids: ['e1'] }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'missing_data', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'missing_data',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -235,7 +312,14 @@ describe('outlier detection', () => {
       { id: 'o2', value: '480' },
     ]);
 
-    await runQualityScan(asDb(db), 'orders', 'anomalies', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'orders',
+      'anomalies',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -252,7 +336,14 @@ describe('outlier detection', () => {
     const db = setup('orders', fields);
     db.when(/AVG\("amount"/, [{ avg: '100', stddev: '0', min: '100', max: '100' }]);
 
-    await runQualityScan(asDb(db), 'orders', 'anomalies', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'orders',
+      'anomalies',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/ABS\("amount"/)).toHaveLength(0);
@@ -285,7 +376,14 @@ describe('AI normalization pass', () => {
       ),
     );
 
-    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);
@@ -300,7 +398,14 @@ describe('AI normalization pass', () => {
     const db = setup('contacts', fields);
     db.when(/select \* from "zvd_contacts" limit/, [{ id: 's1', phone: 'x' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
@@ -312,7 +417,14 @@ describe('AI normalization pass', () => {
     db.when(/select \* from "zvd_contacts" limit/, [{ id: 's1', phone: 'x' }]);
     serviceRegistry.registerAs('engine', 'ai.providers', fakeAiProvider('sorry, no JSON here'));
 
-    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
@@ -327,7 +439,14 @@ describe('AI normalization pass', () => {
       fakeAiProvider('Issues: [{not valid json}]'),
     );
 
-    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
@@ -345,7 +464,14 @@ describe('AI normalization pass', () => {
       }),
     });
 
-    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(chatCalled).toBe(false);
@@ -360,7 +486,14 @@ describe('scan-type routing', () => {
 
   it('duplicates scan runs only the duplicate detector', async () => {
     const db = setup('contacts', fields);
-    await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/similarity/).length).toBeGreaterThan(0);
@@ -373,7 +506,14 @@ describe('scan-type routing', () => {
     const db = setup('contacts', fields);
     db.when(/SELECT COUNT\(\*\)::text AS total/i, [{ total: '10' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'full', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     expect(db.executed(/similarity/).length).toBeGreaterThan(0);
@@ -386,7 +526,14 @@ describe('scan-type routing', () => {
     const db = setup('contacts', []);
     db.when(/SELECT COUNT\(\*\)::text AS count/i, [{ count: '1234' }]);
 
-    await runQualityScan(asDb(db), 'contacts', 'full', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
     expect(end.parameters).toContain(1234);
   });

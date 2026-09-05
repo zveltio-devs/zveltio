@@ -35,7 +35,14 @@ describe('runQualityScan — issues insert failure', () => {
     db.when(/similarity\(a\."email"/, [{ id1: 'r1', id2: 'r2', sim: 0.92, value1: 'a@x.com' }]);
     db.fail(/insert into "zv_quality_issues"/, new Error('disk full'));
 
-    await runQualityScan(db.kysely as unknown as Database, 'contacts', 'duplicates', 'user-1');
+    await runQualityScan(
+      db.kysely as unknown as Database,
+      'contacts',
+      'duplicates',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(end.parameters).toContain('completed');
