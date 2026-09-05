@@ -12,6 +12,7 @@
 import { onAfterCommit } from '../lib/tenancy/index.js';
 import { createMiddleware } from 'hono/factory';
 import { isGodUser } from '../lib/tenancy/index.js';
+import { clientIpForAudit } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 
 async function logGodAction(
@@ -90,10 +91,16 @@ export function godAuditMiddleware(poolDb: Database) {
         !!user?.id && (user.role === 'god' || (await isGodUser(user.id).catch(() => false)));
       if (isGod && user) {
         const durationMs = Date.now() - start;
-        const ip =
-          c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-          c.req.header('x-real-ip') ??
-          null;
+        // Resolved, not read off the headers.
+        //
+        // This row is the accountability record for the one role that bypasses
+        // every permission check, and it used to take `x-forwarded-for` /
+        // `x-real-ip` at face value with no `TRUSTED_PROXY` check — so the
+        // subject of the audit chose what the audit said about them. The rate
+        // limiter three files away already refuses those headers without the
+        // flag; there is no reading on which the limiter should be more careful
+        // than the audit trail.
+        const ip = clientIpForAudit(c);
 
         // Fire-and-forget AND deferred until the COMMIT.
         //

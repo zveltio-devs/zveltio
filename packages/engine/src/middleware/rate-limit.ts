@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono';
 import { getCache } from '../lib/runtime/index.js';
+import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
@@ -202,98 +203,12 @@ export function resetIpListsForTests(): void {
   _denyList = null;
 }
 
-/**
- * Normalise a peer address to a bare IPv4 when it is an IPv4-mapped IPv6
- * (`::ffff:127.0.0.1`), which is what Bun reports for IPv4 clients. Without this
- * the CIDR lists never match and every mapped client gets its own odd bucket key.
- */
-export function normalizeIp(raw: string | undefined | null): string | undefined {
-  if (!raw) return undefined;
-  const s = raw.trim();
-  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s);
-  return m ? m[1] : s;
-}
-
 interface RateLimitConfig {
   windowMs: number;
   max: number;
   keyPrefix: string;
   message?: string;
   db?: Database;
-}
-
-// One-shot warning per process if a deployment looks like it's behind a
-// proxy (forwarded headers present) but TRUSTED_PROXY isn't set. Without
-// the env var, the middleware ignores the forwarded IP and every client
-// behind that proxy shares the same rate-limit bucket — which means one
-// abusive client can DoS everyone else, or one well-behaved client gets
-// blocked because another behind the same proxy is hammering.
-let _proxyHintWarned = false;
-function maybeWarnProxyMisconfig(c: Context): void {
-  if (_proxyHintWarned) return;
-  if (process.env.TRUSTED_PROXY === 'true') return;
-  const hasFwd = !!(
-    c.req.header('x-forwarded-for') ||
-    c.req.header('x-real-ip') ||
-    c.req.header('forwarded')
-  );
-  if (!hasFwd) return;
-  _proxyHintWarned = true;
-  console.warn(
-    '[rate-limit] X-Forwarded-For/X-Real-IP detected but TRUSTED_PROXY ' +
-      'is not set — all clients behind the proxy share the same rate-limit ' +
-      'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips BOTH ' +
-      'inbound X-Forwarded-For AND X-Real-IP before re-setting them, ' +
-      'otherwise clients can spoof their IP. Naming only X-Forwarded-For ' +
-      'here was itself the bug: this middleware trusts X-Real-IP too.',
-  );
-}
-
-/**
- * Client IP, honouring proxy headers ONLY behind TRUSTED_PROXY (otherwise any
- * client could spoof its identity and dodge the limit). Extracted so the IP
- * allow/deny lists can be consulted before any cache work.
- */
-function resolveClientIp(c: Context): string {
-  maybeWarnProxyMisconfig(c);
-  const trustedProxy = process.env.TRUSTED_PROXY === 'true';
-  const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
-  // Strict octets: a looser \d{1,3} would accept 999.999.999.999 and waste
-  // rate-limit slots on bogus identifiers.
-  const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
-  const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
-  const forwardedIp =
-    trustedProxy &&
-    rawForwardedFor &&
-    (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
-      ? rawForwardedFor
-      : null;
-  // Validated with the same patterns as X-Forwarded-For. It used to be taken
-  // verbatim, and it is the rate-limit IDENTITY: measured, a client sending a
-  // different junk X-Real-IP per request got five 200s against a limit of two,
-  // because every distinct string is its own bucket. That is not a weakened
-  // limit, it is no limit — reachable wherever the edge sets X-Forwarded-For but
-  // passes the client's inbound X-Real-IP through, which is the default for
-  // several proxies.
-  const rawRealIp = c.req.header('x-real-ip')?.trim();
-  const realIp =
-    trustedProxy && rawRealIp && (IPV4_RE.test(rawRealIp) || IPV6_RE.test(rawRealIp))
-      ? rawRealIp
-      : null;
-  // Last resort: the TCP peer. Without it, ALL unauthenticated non-proxied
-  // traffic collapses onto one `rl:<tier>:unknown` bucket — so a single abusive
-  // client can 429 every other anonymous client (a login DoS on /api/auth/*).
-  //
-  // Bun hands `{ server }` to fetch (see Bun.serve in index.ts) and exposes the
-  // peer via `server.requestIP(req)`. The previous `env.ip` / `env.incoming`
-  // reads are Node-adapter shapes and were ALWAYS undefined here, so this
-  // protection silently did nothing. Node shape kept as a fallback.
-  // biome-ignore lint/suspicious/noExplicitAny: hono env is adapter-specific
-  const env = c.env as any;
-  const connectionIp: string | undefined =
-    normalizeIp(env?.server?.requestIP?.(c.req.raw)?.address) ??
-    normalizeIp(env?.incoming?.socket?.remoteAddress);
-  return forwardedIp || realIp || connectionIp || 'unknown';
 }
 
 export function rateLimit(config: RateLimitConfig) {
