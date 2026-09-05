@@ -275,8 +275,23 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
 
       const e = await getEnforcer();
-      // Check for circular inheritance
-      const parentRoles = await e.getRolesForUser(parent);
+      // Circular inheritance, at any depth.
+      //
+      // This used to ask `getRolesForUser(parent)` — the roles the parent holds
+      // DIRECTLY — which catches `A inherits B` followed by `B inherits A` and
+      // nothing longer. Measured: with A→B and B→C already in place, closing the
+      // loop with C→A was allowed, and casbin then resolved A's implicit roles
+      // as [B, C, A].
+      //
+      // The consequence is not a crash; casbin walks a cycle without looping.
+      // It is that every role in the loop silently acquires every other role's
+      // permissions, while the inheritance tree the administrator reads shows
+      // three ordinary edges and says nothing about the loop they close.
+      //
+      // `getImplicitRolesForUser` resolves the whole chain, so it refuses a loop
+      // of any length. Checked that it does not over-refuse: a fresh `D inherits
+      // A`, which closes nothing, stays allowed.
+      const parentRoles = await e.getImplicitRolesForUser(parent, '*');
       if (parentRoles.includes(child)) {
         return c.json(
           { error: `Circular inheritance: "${parent}" already inherits from "${child}"` },
