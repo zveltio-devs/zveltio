@@ -580,6 +580,39 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       )
       .join('\n');
 
+    // Reading the trail in bulk is itself an event on the trail.
+    //
+    // This route hands out up to 50 000 audit rows — every login failure, every
+    // permission change, every god action on the instance, with the acting user
+    // and address on each. It is the widest single read of the security record
+    // there is, and it was the one privileged action leaving no mark of its own.
+    // A reviewer asking "who has taken a copy of this" had nothing to look at.
+    //
+    // `export.executed` already existed in the event union and had no writer
+    // anywhere — engine or extensions — so anyone filtering for it concluded no
+    // export had ever happened. This is the writer it was declared for.
+    //
+    // The filters are recorded, not the rows: what was asked for is the useful
+    // fact, and copying the export into the table it exports would double it on
+    // every run.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    const exporter = c.get('user' as never) as any;
+    await auditLog(db, {
+      type: 'export.executed',
+      userId: exporter?.id,
+      resourceType: 'audit_log',
+      metadata: {
+        rows: rows.length,
+        truncated: rows.length >= AUDIT_EXPORT_MAX,
+        filters: {
+          user_id: user_id ?? null,
+          event_type: event_type ?? null,
+          from: from ?? null,
+          to: to ?? null,
+        },
+      },
+    });
+
     const stamp = new Date().toISOString().slice(0, 10);
     return c.text(`${header}\n${body}\n`, 200, {
       'Content-Type': 'text/csv; charset=utf-8',
