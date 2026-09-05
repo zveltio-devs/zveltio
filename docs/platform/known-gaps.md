@@ -748,7 +748,7 @@ that site either way; the count was wrong for a day. In a tree where the same
 basename lives in two directories, filtering on the basename hides the thing
 being looked for.
 
-### A07 — authentication and identity (2026-09-05, partial)
+### A07 — authentication and identity (2026-09-05, closed 7/7)
 
 **Gap — the extension sandbox has a second door, and it is wide open.** The
 table allowlist wraps Kysely's query-builder entry points. A raw `sql` template
@@ -826,8 +826,37 @@ anyway.
 - `hashApiKey` is HMAC under `BETTER_AUTH_SECRET`, single-sited, with the dead
   `SECRET_KEY` fallback already removed.
 
-Still unread in this section: `keyring.ts` beyond its structure, and
-`routes/users.ts` outside the invitation endpoints.
+**Fixed (#461) — changing a global role deleted every tenant membership.**
+`PATCH /api/users/:id` reset Casbin roles with no domain, so setting somebody's
+`user.role` to `member` also stripped their `tenant_owner` in one firm and their
+`tenant_member` in another, with an audit line recording only `new_role`. It was
+invisible until #451 and #455 made the adapter's DELETE reach the table: a repair
+that changed the blast radius of a route it did not touch. Recorded that way on
+purpose — it is the second-order cost of the three revocation fixes, and the kind
+of thing a campaign should be able to say about itself.
+
+**Fixed (#460) — the production guard missed the setting that rewrites emailed
+links.** An unset `BETTER_AUTH_URL` fails nothing; `baseURL` falls back to
+`http://localhost:<port>` and every absolute URL is built from it, including the
+link in a password-reset mail. The send succeeds, the link is well formed, the
+account stays locked out.
+
+**Low — `keyring.ts` states a principle it does not follow once.**
+`decryptWithKeyring` picks the key from the envelope rather than the caller's
+word for it, which is what stops a wrong keyring name producing a confusing
+failure — except for the `enc:v1:` envelope, where it uses the caller's argument.
+No consequence today, because nothing writes a field envelope under the mail
+keyring. The exception is simply unstated.
+
+**From the extensions session, verified here, and not this repository's to fix:**
+SAML SSO is non-functional in both flows. `auth/saml` passes node-saml's 4.x
+`validateInResponseTo: 'ifPresent'` while the installed version is 3.1.2, where
+that option is coerced with `options.validateInResponseTo || false` and tested for
+truth — so any truthy value means "always require", and an IdP-initiated response
+has no `InResponseTo` by construction. Confirmed against the installed dependency
+independently of their test. The SP-initiated flow fails separately because the
+extension builds a fresh SAML instance per request and the in-memory cache holding
+the request id is not shared between `/login` and `/callback`.
 
 ---
 
