@@ -1081,7 +1081,18 @@ async function main() {
     const one = await Bun.file(`${SESSIONS_DIR}/${f}`)
       .json()
       .catch(() => null);
-    if (one?.section) sessions.push(one as SessionEntry);
+    if (!one?.section) continue;
+    // A ledger entry missing `files` used to reach the loop below and come back
+    // as `undefined is not an object (evaluating 's.files')` — a stack trace
+    // naming the generator, with nothing naming the file that caused it. Written
+    // by hand once per session, so a missing field is the ordinary case, not the
+    // exotic one; say which file and what is absent.
+    if (!Array.isArray(one.files)) {
+      console.error(`[review-inventory] ${SESSIONS_DIR}/${f} has no "files" array.`);
+      console.error('Every session entry must list the files it read, even if empty.');
+      process.exit(1);
+    }
+    sessions.push(one as SessionEntry);
   }
   const ledger: Ledger = { updated, sessions };
 
