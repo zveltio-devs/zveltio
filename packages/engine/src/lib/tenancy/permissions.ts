@@ -752,8 +752,27 @@ export async function invalidateGodCache(userId: string): Promise<void> {
   const cache = getCache();
   if (!cache) return;
   try {
-    // O(1) — DEL on a single, fully-qualified key.
-    await cache.del(`god:${userId}`);
+    // BOTH keys, because both cache the same fact under different names.
+    //
+    // `god:<id>` answers "is this user god"; `urole:<id>` answers "what is this
+    // user's role", and `resolveUserRole` reads it. Only the first was dropped,
+    // so the second kept saying `god` for the rest of its 300 s TTL. Measured
+    // against a live Valkey, demoting a god and then invalidating:
+    //
+    //   cached           → god:=set     urole:=["god"]
+    //   after invalidate → god:=absent  urole:=["god"]
+    //   resolveUserRole  → god
+    //
+    // That is not a stale display. `routes/rpc.ts` passes `resolveUserRole`
+    // straight into `userHasRole`, which returns true unconditionally for
+    // `'god'` — so the demoted holder keeps a full RPC bypass for five minutes.
+    // The one caller of this function is the recovery flow, whose entire premise
+    // is that the previous holder has lost control.
+    //
+    // The in-process copies were already cleared above; Valkey is shared, so
+    // leaving it behind affects every instance including this one, which reads
+    // the shared value the moment its own 5 s memo lapses.
+    await cache.del(`god:${userId}`, `urole:${userId}`);
   } catch {
     /* cache unavailable */
   }
