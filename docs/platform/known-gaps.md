@@ -930,6 +930,82 @@ completed write survives an answer that says the request failed. Where a handler
 takes an irreversible action (claiming a token, consuming a nonce, spending a
 quota) before it has finished validating, a `return` is the wrong verb.
 
+### A17 — the audit writer, settings, templates, RPC (2026-09-05, closed 7/7)
+
+**Fixed (#466), four of them.**
+
+*Exporting the security record left no mark on it.* `GET /api/admin/audit/export`
+hands out up to 50 000 audit rows and was the one privileged action writing
+nothing down. `export.executed` already existed in the event union with no writer
+anywhere, engine or extensions, so a reviewer filtering for it concluded no
+export had ever happened.
+
+*A failed RPC handed the caller the database's own words.* Measured:
+`duplicate key value violates unique constraint "zvd_rpc_secretish_email_key"` —
+the table, the constraint and therefore the column, to whoever may call the
+function, and `required_role` can be `member`.
+
+*Instance settings changed with no trace.* `routes/settings.ts` held no audit
+call at all, in a file whose writable set includes `registration_enabled` — the
+flag deciding whether anyone on the internet may create an account — under a
+comment reading "Feature toggles (non-security)".
+
+*Every data-quality scan ran in the root tenant.* `runQualityScan` defaulted
+`tenantId` to `DEFAULT_TENANT_ID` and its only production caller passes four
+arguments, so a scan triggered from any firm read the ROOT tenant's rows and
+handed back issues carrying root's record ids and field values. Thirty existing
+tests passed *because* of that default: they encoded the defect.
+
+**The pattern behind three of the day's findings, and it is in the schema too.**
+
+Absence of a tenant resolving to the root tenant has now been found three times
+in code in a single day — `requireInstanceAdmin` reading a missing store as root,
+an unresolvable tenant slug served without one, and the scan above. Measured
+against the catalogue, it is also the house style at the schema level:
+
+    tenant_id columns with a default                            30
+    …whose default resolves to the root tenant when the GUC is
+      absent or empty                                           30
+    …of those, NOT NULL, so the default actually decides        16
+
+The default is `COALESCE(NULLIF(current_setting('zveltio.current_tenant', true),
+''), '<root>'::uuid)` — the empty-string case was thought about, and root was
+chosen as the answer. That is deliberate, and it interacts badly with something
+already recorded here: **a GUC survives as `''` after `SET LOCAL` + `COMMIT`, so
+the absence of a tenant is not detectable at the point of insert.** Any INSERT on
+a connection whose GUC has lapsed is attributed to the root tenant, silently and
+without error.
+
+Not filed as a defect and not changed: thirty column defaults is a migration and
+a product decision about what an unattributed row should be. Recorded because the
+same shape keeps producing defects one layer up, and because "it fails closed"
+is not what this does — it fails into the tenant that holds the instance's own
+data.
+
+**Verified clean, with the measurement.**
+
+- `zv_audit_log` has no `tenant_id` and no RLS, and only an instance admin reads
+  it — consistent. Worth a decision for the hierarchical model: a firm's own
+  administrators cannot see their own audit trail at all.
+- `zv_settings` is `PRIMARY KEY (key)` with no tenant column. All four engine
+  writers are instance-level by nature and every write path is behind
+  `requireInstanceAdmin`; the public read route sits before the guard
+  deliberately and is double-protected by an `is_public` flag **and** a
+  whitelist.
+- `zvd_rpc_functions` is an instance-level whitelist, writable only by an
+  instance admin. RPC bodies execute on `reqDb(c)`, so the caller's isolation
+  applies to operator-authored SQL.
+- `routes/templates.ts` reads its body twice — once validated, once raw — and
+  uses the raw one. Probed with five prefixes including
+  `a"; DROP TABLE zv_tenants; --`: all four invalid forms answered 400, because
+  `zValidator` refuses them before the handler runs. A smell, not a defect; it
+  becomes one the day someone removes the validator.
+- `lib/system-collections.ts` declares `session` with a `token` field as a
+  browsable collection. `/api/data/session` answers 404 even to a god session and
+  the listing is admin-only, so nothing is exposed — but the file reads as though
+  session tokens were browsable, which is worth knowing before someone wires the
+  data route to it.
+
 ---
 
 ## 4. Deliberate deferrals

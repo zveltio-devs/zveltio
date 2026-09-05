@@ -44,7 +44,14 @@ describe('outlier detection — stats query failure', () => {
     db.when(/AVG\("score"/, [{ avg: '10', stddev: '2', min: '5', max: '20' }]);
     db.when(/ABS\("score"/, [{ id: 's1', value: '99' }]);
 
-    await runQualityScan(asDb(db), 'orders', 'anomalies', 'user-1');
+    await runQualityScan(
+      asDb(db),
+      'orders',
+      'anomalies',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     await awaitScanEnd(db);
 
     const inserts = db.executed(/insert into "zv_quality_issues"/);

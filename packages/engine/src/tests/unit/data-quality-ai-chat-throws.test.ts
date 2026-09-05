@@ -50,7 +50,14 @@ describe('AI normalization — provider failure', () => {
       }),
     });
 
-    await runQualityScan(db.kysely as unknown as Database, 'contacts', 'normalization', 'user-1');
+    await runQualityScan(
+      db.kysely as unknown as Database,
+      'contacts',
+      'normalization',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);

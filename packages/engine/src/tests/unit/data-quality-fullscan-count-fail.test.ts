@@ -45,7 +45,14 @@ describe('runQualityScan — full scan COUNT failure', () => {
     const db = setup('contacts', fields);
     db.fail(/SELECT COUNT\(\*\)::text AS count FROM/i, new Error('permission denied'));
 
-    await runQualityScan(db.kysely as unknown as Database, 'contacts', 'full', 'user-1');
+    await runQualityScan(
+      db.kysely as unknown as Database,
+      'contacts',
+      'full',
+      'user-1',
+      undefined,
+      '00000000-0000-0000-0000-0000000000aa',
+    );
     const end = await awaitScanEnd(db);
 
     expect(end.parameters).toContain('failed');
