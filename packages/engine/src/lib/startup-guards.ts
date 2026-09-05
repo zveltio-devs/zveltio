@@ -124,6 +124,31 @@ export function productionGuardViolations(
     });
   }
 
+  // BETTER_AUTH_URL unset does not fail — it rewrites.
+  //
+  // `baseURL` falls back to `http://localhost:${PORT}`, and everything downstream
+  // is built from it: the passkey relying-party id and origin, the trusted-origin
+  // list when CORS_ORIGINS is also unset, and — the one with real consequence —
+  // the links Better Auth puts in the mail it sends. A password-reset e-mail then
+  // carries `http://localhost:3000/...`, which reaches the person who asked for it
+  // and cannot work for them. Nothing errors: the send succeeds, the link is well
+  // formed, and the account stays locked out.
+  //
+  // The other two entries here are settings whose absence is dangerous. This one
+  // is a setting whose absence is silent, which is why it belongs beside them
+  // rather than in a warning nobody reads at boot.
+  if (!env.BETTER_AUTH_URL) {
+    violations.push({
+      variable: 'BETTER_AUTH_URL',
+      message:
+        'unset, so the engine builds every absolute URL from `http://localhost:<port>`. ' +
+        'That is the address written into password-reset, e-mail-verification and ' +
+        'magic-link mail — links that arrive well formed and cannot work — and it is ' +
+        'also the passkey relying-party origin and, when CORS_ORIGINS is unset, the ' +
+        'trusted-origin list. Set BETTER_AUTH_URL to the URL browsers actually use.',
+    });
+  }
+
   return violations;
 }
 
