@@ -1,0 +1,68 @@
+{
+  "section": "A17",
+  "date": "2026-09-05",
+  "agent": "claude-opus-5",
+  "branch": "review/A17-audit",
+  "files": [
+    "packages/engine/src/lib/audit.ts",
+    "packages/engine/src/routes/settings.ts",
+    "packages/engine/src/lib/system-collections.ts",
+    "packages/engine/src/lib/notifications.ts",
+    "packages/engine/src/routes/templates.ts",
+    "packages/engine/src/routes/rpc.ts",
+    "packages/engine/src/lib/data-quality.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/harness/audit-export-self-audit.test.ts",
+    "packages/engine/src/tests/harness/rpc-error-disclosure.test.ts",
+    "packages/engine/src/tests/harness/settings-audit.test.ts",
+    "packages/engine/src/tests/unit/quality-scan-tenant.test.ts"
+  ],
+  "ran": [
+    "drove a failing RPC through the real route and read the body: the raw Postgres message, naming the table and the constraint, reached the caller.",
+    "checked every writer of export.executed across the engine and all 56 extensions: none.",
+    "measured zv_audit_log, zv_settings and zvd_rpc_functions for tenant columns and RLS, and drove /api/collections as an ordinary member to confirm the system-collection listing is admin-only.",
+    "probed /api/templates/:id/install with five prefixes including `a\"; DROP TABLE zv_tenants; --`: all invalid forms answered 400, so the double body read is a smell rather than a bypass.",
+    "traced runQualityScan's only production caller to a four-argument call, so every scan opened withTenantIsolation(root) whatever firm triggered it.",
+    "counted tenant_id column defaults against the catalogue: 30 of 30 resolve to the root tenant when the GUC is absent or empty, 16 of them NOT NULL."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "routes/admin/system-routes.ts GET /audit/export",
+      "what": "handed out up to 50 000 audit rows and wrote nothing down, while export.executed sat in the event union with no writer anywhere.",
+      "status": "repaired",
+      "ref": "#466"
+    },
+    {
+      "severity": "medium",
+      "where": "routes/rpc.ts",
+      "what": "returned the raw Postgres error to the caller, disclosing table, constraint and column names to anyone whose role may call the function.",
+      "status": "repaired",
+      "ref": "#466"
+    },
+    {
+      "severity": "medium",
+      "where": "routes/settings.ts",
+      "what": "no audit call at all, in the file that writes registration_enabled.",
+      "status": "repaired",
+      "ref": "#466"
+    },
+    {
+      "severity": "high",
+      "where": "lib/data-quality.ts runQualityScan",
+      "what": "tenantId defaulted to the root tenant and the only production caller omits it, so every scan read root's rows and returned issues describing root's records to whichever firm asked. Thirty tests passed because of the default.",
+      "status": "repaired",
+      "ref": "#466"
+    },
+    {
+      "severity": "medium",
+      "where": "the schema, 30 tables",
+      "what": "every tenant_id column default resolves to the root tenant when the GUC is absent or empty, and a GUC survives as '' after SET LOCAL + COMMIT, so an insert on a lapsed connection is silently attributed to root. Deliberate and systemic; a migration and a product decision, not a repair.",
+      "status": "logged",
+      "ref": "known-gaps.md"
+    }
+  ],
+  "notDone": "Section closed, 7 of 7 files. The schema-level root default is written down rather than changed: thirty column defaults is a migration and a decision about what an unattributed row should mean. Recorded together with the three code-level instances found the same day, because the shape is what keeps producing defects rather than any one of its instances.",
+  "verdict": "clean"
+}
