@@ -46,7 +46,24 @@ export type AuditEventType =
   | 'approval.cancelled'
   | 'api_key.rate_limit_set'
   | 'api_key.rate_limit_removed'
-  | 'export.executed';
+  | 'export.executed'
+  // Tenant lifecycle and membership.
+  //
+  // `routes/tenants.ts` held no audit call at all: creating a firm, suspending
+  // one, granting somebody `tenant_owner` inside it and taking it away again all
+  // happened with no trace, while `routes/permissions.ts` audited the same act —
+  // granting a role — on its own endpoint. One act, two routes, one of them
+  // invisible.
+  //
+  // Their own types rather than folding them into `permission.granted`: someone
+  // asking who was given the run of a firm should be able to filter for that,
+  // not read every permission event ever written looking for the ones that were
+  // about membership.
+  | 'tenant.created'
+  | 'tenant.updated'
+  | 'tenant.member_added'
+  | 'tenant.member_removed'
+  | 'tenant.rls_enabled';
 
 export interface AuditEvent {
   type: AuditEventType;

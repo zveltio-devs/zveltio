@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { auditLog } from '../lib/audit.js';
 // requireInstanceAdmin, not checkPermission: every route here is instance-level
 // administration (create/suspend tenants, move members between them). The old
 // gate asked for ('tenants','manage'), but the tenant_admin policy is
@@ -226,6 +227,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       await invalidateTenantCache(data.slug, tenant.id, adminUserId);
     }
 
+    await auditLog(db, {
+      type: 'tenant.created',
+      userId: user?.id,
+      resourceId: tenant.id,
+      resourceType: 'tenant',
+      metadata: { slug: data.slug, name: data.name, owner_user_id: adminUserId ?? null },
+    });
+
     return c.json({ tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] }, 201);
   });
 
@@ -265,6 +274,21 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     if (!updated) return c.json({ error: 'Tenant not found' }, 404);
     await invalidateTenantCache(updated.slug, updated.id);
+
+    // The field NAMES, and the status when it moved. `status` is the one that
+    // decides whether every request for this firm is answered at all, so a
+    // suspension should be answerable from the trail rather than inferred from
+    // the row's current value.
+    await auditLog(db, {
+      type: 'tenant.updated',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'tenant',
+      metadata: {
+        fields: Object.keys(updateData).filter((k) => k !== 'updated_at'),
+        ...(body.status !== undefined ? { status: body.status } : {}),
+      },
+    });
 
     return c.json({ tenant: updated });
   });
@@ -323,6 +347,13 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     try {
       await enableRLS(tableName);
+      await auditLog(db, {
+        type: 'tenant.rls_enabled',
+        userId: user?.id,
+        resourceId: tableName,
+        resourceType: 'collection',
+        metadata: { tenant_id: c.req.param('id'), collection },
+      });
       return c.json({ success: true, table: tableName, rls: 'enabled' });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
@@ -352,6 +383,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     await provisionEnvironment(tenant.id, tenant.slug, slug, name, false);
 
     const schemaName = `tenant_${tenant.slug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}_${slug}`;
+    await auditLog(db, {
+      type: 'tenant.updated',
+      userId: user?.id,
+      resourceId: c.req.param('id'),
+      resourceType: 'tenant_environment',
+      metadata: { schema: schemaName },
+    });
+
     return c.json({ success: true, schema: schemaName }, 201);
   });
 
@@ -416,6 +455,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     await invalidateUserPermCache(target.id);
     await invalidateTenantCache(tenant.slug, tenantId, target.id);
 
+    await auditLog(db, {
+      type: 'tenant.member_added',
+      userId: user.id,
+      resourceId: target.id,
+      resourceType: 'tenant_member',
+      metadata: { tenant_id: tenantId, tenant_slug: tenant.slug, role, user_email },
+    });
+
     return c.json({ success: true, user_id: target.id, role }, 201);
   });
 
@@ -445,6 +492,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       .where('id', '=', tenantId)
       .executeTakeFirst();
     if (tenant) await invalidateTenantCache(tenant.slug, tenantId, targetId);
+
+    await auditLog(db, {
+      type: 'tenant.member_removed',
+      userId: user.id,
+      resourceId: targetId,
+      resourceType: 'tenant_member',
+      metadata: { tenant_id: tenantId, tenant_slug: tenant?.slug ?? null },
+    });
 
     return c.json({ success: true });
   });
