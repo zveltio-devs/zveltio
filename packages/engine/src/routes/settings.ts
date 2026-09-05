@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { auditLog } from '../lib/audit.js';
 
 /**
  * Settings whose value is a credential and must never be read back.
@@ -213,6 +214,10 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);
     }
+    // Published on the context so the handlers below can name the actor. The
+    // guard already resolved the session; asking again per handler would be a
+    // second lookup for a fact this middleware is holding.
+    c.set('user', session.user);
     await next();
   });
 
@@ -330,6 +335,25 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         )
         .execute();
 
+      // The key, never the value.
+      //
+      // This file held no audit call at all, and the writable set includes
+      // `registration_enabled` — the flag deciding whether anyone on the
+      // internet may create an account — under a comment reading "Feature
+      // toggles (non-security)". Turning that on left no trace anywhere.
+      //
+      // The value stays out: the same set carries `smtp_host` and its
+      // neighbours, and the audit table is readable by anyone who can read the
+      // audit table. What changed and who changed it is the answerable question;
+      // the value is still in `zv_settings` for anyone entitled to read it.
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: (c.get('user') as { id?: string } | undefined)?.id,
+        resourceId: key,
+        resourceType: 'setting',
+        metadata: { key, is_public: is_public ?? null },
+      });
+
       return c.json({ success: true, key, value });
     },
   );
@@ -376,6 +400,13 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         )
         .execute();
     }
+    await auditLog(db, {
+      type: 'settings.changed',
+      userId: (c.get('user') as { id?: string } | undefined)?.id,
+      resourceType: 'setting',
+      metadata: { keys: Object.keys(body).sort(), bulk: true },
+    });
+
     return c.json({ success: true, updated: Object.keys(body) });
   });
 
