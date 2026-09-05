@@ -115,8 +115,12 @@ engine fix can land.
 
 **Corrected 2026-09-05, by measurement from the extensions session.** The first
 count here said 18, from a scan that passed the policy no `allowedTables` at all.
-The real figure against the gate as it stands is **26 extensions, and 19 of them
-fail on their own data** — because `assertWorkerSqlAllowed` consults neither
+The real figure against the gate as it stands is **26 extensions**. Of those, 19
+have at least one refusal on a table their own migrations created or that is
+already granted to them, and **13 are refused for no other reason** — the two
+sets overlap by seven. (An earlier version of this correction gave 19 for the
+second figure as well, which overstated it.) The cause is that
+`assertWorkerSqlAllowed` consults neither
 `EXTENSION_TABLE_GRANTS` nor the tables an extension's own migrations create. Its
 rule is strictly `zvd_*` or `zv_<ext>_*`, and `register.ts` already explains why
 that does not hold: 109 of roughly 300 extension tables are named after the
