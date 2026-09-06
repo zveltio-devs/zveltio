@@ -110,8 +110,25 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   });
 
   const tid = getTenantId(c);
+  // Awaited, as the single-record path already does.
+  //
+  // Not awaiting looked like the cheap choice — these are side effects and the
+  // rows are written. But `afterWrite` hands the request's transaction to
+  // `triggerDataFlows`, and an un-awaited call races the commit and loses:
+  // measured, every bulk create logged `trigger "insert" … did not run its
+  // automations: Transaction is already committed`, while the same write through
+  // `POST /api/data/:collection` and through `PATCH` was clean.
+  //
+  // So automations never fired for records created in a batch — which is
+  // precisely when an import or a sync uses this endpoint, and the operator sees
+  // the single-record case work. The failure announced itself in the log and
+  // nowhere else.
+  //
+  // The cost is that the response waits for the fan-out of a batch rather than a
+  // row. That is the same cost the single path already pays, and the alternative
+  // is a side effect whose handle is gone before it runs.
   for (const record of created) {
-    afterWrite(effectiveDb, {
+    await afterWrite(effectiveDb, {
       collection,
       recordId: record.id,
       action: 'create',
@@ -229,8 +246,10 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   });
 
   const tid = getTenantId(c);
+  // Awaited, for the reason recorded on the create path above: an un-awaited
+  // call hands `triggerDataFlows` a transaction that commits before it runs.
   for (const record of updated) {
-    afterWrite(effectiveDb, {
+    await afterWrite(effectiveDb, {
       collection,
       recordId: record.id,
       action: 'update',
@@ -322,8 +341,10 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
       .execute();
 
     const tid = getTenantId(c);
+    // Awaited, for the reason recorded on the create path above: an un-awaited
+    // call hands `triggerDataFlows` a transaction that commits before it runs.
     for (const record of allowed) {
-      afterWrite(effectiveDb, {
+      await afterWrite(effectiveDb, {
         collection,
         recordId: record.id,
         action: 'delete',
