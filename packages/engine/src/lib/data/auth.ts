@@ -234,10 +234,24 @@ export async function checkAccess(
         );
         return false;
       }
-      const match = scopes.find((s) => s.collection === collection || s.collection === '*');
-      if (!match) return false;
-      if (!match.actions.includes(action) && !match.actions.includes('*')) return false;
-      return true;
+      // EVERY matching entry, not the first one.
+      //
+      // This was `scopes.find(...)`, which stops at the first entry naming the
+      // collection or `*` and then decides on that one alone. So
+      // `[{"collection":"*","actions":["read"]},
+      //   {"collection":"posts","actions":["create"]}]`
+      // refused `create` on posts -- the wildcard matched first, did not carry
+      // the action, and the explicit grant below it was never read. The same two
+      // entries in the other order allowed it. Measured, both.
+      //
+      // Scopes are a list of grants, and a list of grants is a union: nothing in
+      // the admin UI or the stored shape suggests that writing a broad read
+      // permission first takes away the specific ones under it. An operator
+      // adding `{"collection":"*","actions":["read"]}` to an existing key to
+      // widen its reads would have silently narrowed everything else.
+      const matches = scopes.filter((s) => s.collection === collection || s.collection === '*');
+      if (matches.length === 0) return false;
+      return matches.some((m) => m.actions.includes(action) || m.actions.includes('*'));
     }
     // No `scopes` value at all (a NULL column) says the same thing an empty list
     // says: nothing was granted.
