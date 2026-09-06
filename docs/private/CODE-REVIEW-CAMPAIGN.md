@@ -288,7 +288,42 @@ the next reader can tell "this code is safe" from "this code was safe in August"
 And after any fix, re-run the measurement that found the defect: a second copy
 answers the same probe the same way, which is how the twin above was found.
 
-### 15. Frontend-specific (Track C)
+### 15. Correct in isolation, wrong in composition
+
+The file under review is right. The cost lands somewhere that never mentions it.
+No amount of reading the file finds this, which is why all three instances here
+were found by something else.
+
+- A `</script>` inside a `//` comment closed the script block, so a Svelte
+  component exported nothing. Correct-looking source; it only becomes a component
+  once the Studio syncs it, so the consuming side was the only side that could
+  compile it.
+- A test harness turned unknown `ctx.internals` members into stubs returning
+  `undefined`. Guards that refuse by THROWING then resolved silently, so a guard
+  on a caller-supplied URL was inert and no test could tell.
+- One sanitiser installed a hook on the `dompurify` module singleton. Every other
+  `DOMPurify.sanitize` in the same bundle inherited it, so a CMS page lost a
+  `style="…url(…)"` for the life of the tab once a different feature had
+  rendered.
+
+**The three questions to ask in advance**, rather than three gates to trip over
+afterwards:
+
+- does this file change something SHARED — a singleton, a global hook, a
+  registry, a prototype?
+- is this file compiled, parsed or executed SOMEWHERE ELSE?
+- does this file make something UNREACHABLE for a test?
+
+**How it differs from class 14.** A twin is a second copy, and a copy can be
+grepped for. Here there is no copy — there is a *consumer you have to think of*.
+
+**And the reason they survive: all three failed SAFE.** The comment stripped more
+markup, the stub refused more requests, the hook removed more styles. A control
+that over-refuses produces no error and no complaint, only a feature quietly
+doing less than it should. A safe failure direction is why the defect lasts, not
+a reason to rank it lower.
+
+### 16. Frontend-specific (Track C)
 
 Svelte 5 runes only; `$effect` loops; unsanitised HTML (`{@html}`) against
 `lib/sanitize.ts`; API calls that bypass `$lib/api.js`; permission guards that
