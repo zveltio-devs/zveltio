@@ -299,10 +299,16 @@ async function downloadAttachment(attId: string, filename: string): Promise<void
 const safeBody = $derived.by(() => {
   if (!selected) return '';
   // See studio/src/lib/sanitize.ts. What used to be here removed a literal
-  // <script>…</script> and nothing else, and the result went to {@html}: 11 of
+  // script element and nothing else, and the result went to {@html}: 11 of
   // 12 measured payloads survived, including `<img src=x onerror=…>`. The
   // attacker for this sink is anyone who can send mail to a user of the
   // instance — no account, no permission, no prior access.
+  //
+  // The sentence above once spelled that tag out. A closing script tag inside a
+  // `//` comment still CLOSES THE SCRIPT BLOCK: an HTML tokenizer never sees the
+  // comment, only the tag, so everything after it parsed as markup and the
+  // component exported nothing. It is a tokenizer rule, not a Svelte or a biome
+  // one, and it will bite any tool that reads this file.
   if (selected.body_html) return safeMailHtml(selected.body_html, showImages);
   return `<pre style="white-space:pre-wrap;font:inherit">${safeMailText(selected.body_text)}</pre>`;
 });
