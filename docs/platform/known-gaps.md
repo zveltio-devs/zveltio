@@ -1189,6 +1189,99 @@ new migration.
   check — it skips 001 by design, which is correct and worth knowing: this file
   has never been linted by that gate.
 
+### A10 — schema types and the incremental migrations (2026-09-06, closed 11/11)
+
+Ten migrations and `schema.ts`, read against a database built from the whole
+chain. The three properties this section exists to check are clean; everything
+found is at a seam no gate looks at.
+
+**Gap (high) — the engine holds the third `ON CONFLICT` that the ai extension's
+migration said there were only two of.** `lib/cloud/document-indexer.ts` upserts
+into `zvd_ai_embeddings` with `ON CONFLICT (collection, record_id, field)`. The
+extension's migration 006 replaced that unique constraint with
+`UNIQUE (tenant_id, collection, record_id, field)` during the tenant-unique-keys
+campaign, and its own comment states: *"The `ON CONFLICT` clauses move with the
+constraints. There are two, both in this extension."* Reproduced on a live table
+— the engine's exact statement, before and after the swap:
+
+    before ai/006 → INSERT 0 1
+    after  ai/006 → ERROR: there is no unique or exclusion constraint
+                    matching the ON CONFLICT specification   (42P10)
+
+The call site wraps it in `catch { console.error }`, so cloud document indexing
+stops working silently on any install carrying `ai` at 006 or later. `zvd_ai_embeddings`
+exists only when that extension is installed, which is also what supplies the
+embedding provider, so the guard above the statement is sound — the constraint is
+what moved. Neither `schema-drift-check.ts` nor `check-insert-schema-match.ts`
+inspects an inference target, so both gates pass with this live. The repair is the
+tenant column in the target (and in the insert), plus a check that pins inference
+targets against `pg_constraint` the way the insert gate pins column lists.
+
+**Gap (medium) — deleting a record comment is quadratic.**
+`zv_record_comments.parent_id` is a self-referencing FK with `ON DELETE CASCADE`
+and no index, so every delete runs
+`DELETE FROM ONLY zv_record_comments WHERE $1 = parent_id` as a sequential scan.
+Found by accident, cleaning up a 200,000-row seed, and then measured on 195,000
+rows:
+
+    5 000 deletes, no index on parent_id     61.5 s
+    5 000 deletes, with index on parent_id    0.083 s
+
+740×, and it grows with the table. The catalogue says 22 FKs in the schema have
+no index on their referencing column, but the other 21 point at `"user"` and are
+paid only when a user row is deleted; this one fires in ordinary use. The column
+is declared in `001_initial.sql`, so the index belongs in a new migration.
+
+**Gap (medium) — the batched unwrap migrations are not batched.** 009, 010 and
+011 each loop 5,000 rows at a time, and 009 gives the reason: *"this table grows
+without bound and one `UPDATE` over all of it would hold row locks for the length
+of a full rewrite. 5 000 rows at a time, committed per batch by the loop."*
+Nothing is committed per batch. The runner wraps each migration in one
+transaction unless the file carries `-- NO TRANSACTION` — none of the three does —
+and a PL/pgSQL `DO` block cannot `COMMIT` inside an outer transaction anyway.
+Measured: 12,000 seeded rows, three batches, **one** distinct `xmin` afterwards.
+The locks are held for the whole run exactly as an unbatched `UPDATE` would hold
+them, which is the one thing the shape was chosen to avoid.
+
+**Gap (low) — 004's `-- DOWN` cannot run.**
+`DROP FUNCTION zveltio_visible_tenants()` is refused: every policy the migration
+rewrote depends on it. Same class as the A09 finding on 001's DOWN, reachable for
+the same reason (#471). It would also leave `zveltio_tenant_scope_ok` defined over
+a function that no longer exists, since a SQL function body carries no dependency.
+
+**Gap (low) — 25 declared tables that no engine migration creates.** `DbSchema`
+types the ten `zv_mail_*`, six `zv_ai_*`/`zvd_ai_*`, the four retired
+`zvd_portal_*`/`zvd_collection_views`, `zv_ddl_jobs` (dropped by 001) and
+`zv_webhooks`/`zv_webhook_deliveries` (the live tables are `zvd_*`). Kysely then
+certifies a query against a table that is not there — the precedent is
+`zv_flow_dlq`, which 001 records as exactly this shape. Only one such query
+exists today, and it is the first finding above. Two comments drifted with them:
+`lib/data/ddl-queue.ts` says `zv_ddl_jobs` "is preserved for historical queries"
+where 001 drops it, and `routes/webhooks.ts` says "`zv_webhooks` carries
+`tenant_id` and a policy" where the live table is `zvd_webhooks` and carries no
+policy at all.
+
+**Verified clean, with the measurement.**
+
+- **`schema.ts` against the real columns: 0 drift.** 90 declared tables, 72 live,
+  and of the 65 that exist not one declares a column the database does not have.
+- **0 `bigint`/`numeric` columns typed as anything but `PgNumeric` or `string`**,
+  and **0 columns declared `Generated`/optional that are `NOT NULL` with no
+  default** — the two type traps the file's own header documents.
+- **003 and 005 hold on a real plan, not in their comments.** 200,000 rows, as the
+  product runs it: `InitPlan 1`, `Parallel Seq Scan`, `Workers Planned: 2`,
+  22 ms. Every function an RLS policy depends on still reports
+  `proparallel = 's'`, so the `CREATE OR REPLACE` chain 004 warns about did not
+  undo 003.
+- **The policy rewrite both 004 and 005 assert really happened:** all five
+  policies on a fresh engine database carry
+  `tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])` with
+  `zveltio_tenant_write_ok(tenant_id)`, and none is left on the old combined
+  predicate.
+- 002 (passkey), 006 (`account.issuer` + backfill, with a `RAISE EXCEPTION` if any
+  credential row is left NULL), 007 (`NULLS NOT DISTINCT` per-tenant unique) and
+  008 (one-god trigger) each land as described; 31 harness tests over them pass.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
