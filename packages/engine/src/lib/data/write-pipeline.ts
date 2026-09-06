@@ -234,7 +234,20 @@ export function mapPgError(
 ): { status: ContentfulStatusCode; body: Record<string, unknown> } | null {
   if (!err) return null;
   const e = err as Record<string, unknown>;
-  const code = String((e.code as string | undefined) ?? (e.errno as string | undefined) ?? '');
+  // `errno` FIRST. Bun.SQL puts a generic marker in `code` --
+  // `ERR_POSTGRES_SERVER_ERROR` -- and the real SQLSTATE in `errno`, so `code ??
+  // errno` never reached `errno` and every `code === '23505'` test below was
+  // dead. What kept this mapper working was the message regexes beside each one;
+  // the SQLSTATEs without a regex that matches (42501 outside the English
+  // "row-level security" phrasing, 23514) fell through to a 500. The literal was
+  // also handed to the caller as `code`.
+  //
+  // `problem.ts` documents the same trap for its own 22P02 branch and reads both
+  // fields. `isRlsRefusal`, forty lines below, reads `errno ?? code`. This was
+  // the one place that read them the other way round.
+  const raw = String((e.errno as string | undefined) ?? (e.code as string | undefined) ?? '');
+  // Only a real SQLSTATE -- five characters, letters and digits -- is a code.
+  const code = /^[0-9A-Z]{5}$/.test(raw) ? raw : '';
   const message = String((e.message as string | undefined) ?? '');
   const detail = String((e.detail as string | undefined) ?? '');
   const constraint = String(

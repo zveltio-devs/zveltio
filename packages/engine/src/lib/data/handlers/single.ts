@@ -483,7 +483,17 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
       recordId: id,
       action: 'update',
       data: record,
-      delta: body,
+      // `finalPatch`, not `body`. The raw body is the one copy of the write
+      // that has not been through `processInput`, so for a field declared
+      // `encrypted: true` the column went to disk as `enc:v1:...` while the
+      // revision kept what it was encrypted from, in the clear, on every PATCH.
+      // Measured: the column matched `enc:v1:`, the delta held the plaintext.
+      //
+      // It is also the more truthful delta. The body is what the caller asked
+      // for; `finalPatch` is what was written -- after column-access filtering
+      // and after a `record.beforeUpdate` hook has had its say. The audit UI
+      // labels this field "what changed".
+      delta: finalPatch,
       userId: user.id,
       tenantId: getTenantId(c),
     });
@@ -553,19 +563,26 @@ export async function deleteRecord(c: Context, db: Database): Promise<Response> 
     throw err;
   }
 
-  const deleted = await tracedQuery(`${tableName}.delete`, () =>
-    dynamicDelete(effectiveDb, tableName, id),
-  );
-  if (!deleted) return c.json({ error: 'Record not found' }, 404);
+  // Wrapped, like create, replace and patch above. Delete has its own
+  // constraint to hit -- a foreign key from a child row -- and unwrapped it
+  // escaped as a 500 saying nothing, where the same violation on the other three
+  // routes answers 422 and names the field.
+  const result = await handlePgErrors(c, async () => {
+    const deleted = await tracedQuery(`${tableName}.delete`, () =>
+      dynamicDelete(effectiveDb, tableName, id),
+    );
+    if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
-  await afterWrite(effectiveDb, {
-    collection,
-    recordId: id,
-    action: 'delete',
-    data: existing,
-    userId: user.id,
-    tenantId: getTenantId(c),
+    await afterWrite(effectiveDb, {
+      collection,
+      recordId: id,
+      action: 'delete',
+      data: existing,
+      userId: user.id,
+      tenantId: getTenantId(c),
+    });
+
+    return c.json({ success: true, id });
   });
-
-  return c.json({ success: true, id });
+  return result as Response;
 }
