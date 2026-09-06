@@ -257,8 +257,26 @@ export async function initDatabase(): Promise<Database> {
     }
   }
 
-  // Run core migrations
-  await runCoreMigrations(_db);
+  // The tracking table, not the migrations.
+  //
+  // This used to call the runner here, which made three things untrue at once:
+  //
+  //  - `MIGRATIONS_AUTO=false` did not opt out. It skips `autoMigrate`, and
+  //    `autoMigrate` is the SECOND time the runner is reached on the boot path;
+  //    by then this call had applied everything. Measured on a virgin database
+  //    with the flag set: 72 tables.
+  //  - the advisory lock in `auto-migrate.ts` protected the second pass. Its
+  //    premise -- "multiple engine replicas starting simultaneously can't race
+  //    the migration runner" -- was false for the pass that does the work, which
+  //    ran here with no lock at all.
+  //  - `assertChainCompatible` refused an incompatible chain AFTER that chain
+  //    had been applied. A guard against a squashed database ran second.
+  //
+  // Every caller that needs a migrated schema already asks for one: `index.ts`
+  // and the test harness call `autoMigrate(db)` on the next line, and the CLI
+  // (`db/migrate.ts`) calls `runMigrations` directly on a `createDb()` handle,
+  // which never came through here.
+  await ensureMigrationsTable(_db);
 
   return _db;
 }
@@ -268,8 +286,8 @@ export function getDb(): Database {
   return _db;
 }
 
-async function runCoreMigrations(db: Database): Promise<void> {
-  // Create migrations tracking table
+/** The runner writes here, so it has to exist before the runner runs. */
+async function ensureMigrationsTable(db: Database): Promise<void> {
   await db.schema
     .createTable('zv_migrations')
     .ifNotExists()
@@ -277,8 +295,4 @@ async function runCoreMigrations(db: Database): Promise<void> {
     .addColumn('name', 'text', (col) => col.notNull().unique())
     .addColumn('ran_at', 'timestamptz', (col) => col.notNull().defaultTo(new Date()))
     .execute();
-
-  // Core migrations list
-  const migrations = await import('./migrations/index.js');
-  await migrations.runPending(db);
 }
