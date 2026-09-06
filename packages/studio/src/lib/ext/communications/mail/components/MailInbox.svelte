@@ -17,6 +17,7 @@ import {
   X,
 } from '@lucide/svelte';
 import { api } from '$lib/api.js';
+import { safeMailHtml, safeMailText } from '../lib/sanitize.js';
 import { m } from '$lib/i18n.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 
@@ -260,7 +261,13 @@ async function sendMail(): Promise<void> {
       account_id: accountId,
       to,
       subject: composeSubject.trim(),
-      body_html: `<p>${composeBody.replace(/\n/g, '<br>')}</p>`,
+      // Escaped before it becomes markup. The compose box is a textarea — plain
+      // text — and this wrapped it in <p> without escaping anything, so a user
+      // typing `a < b`, or replying to a message whose quoted text contains an
+      // angle bracket, sent HTML the recipient's client had to guess at. Not a
+      // hole in this Studio (the value is the user's own), but the outgoing mail
+      // is wrong and it is the sender who looks careless.
+      body_html: `<p>${safeMailText(composeBody).replace(/\n/g, '<br>')}</p>`,
       body_text: composeBody,
       reply_to_message_id: replyToId ?? undefined,
     });
@@ -291,15 +298,13 @@ async function downloadAttachment(attId: string, filename: string): Promise<void
 
 const safeBody = $derived.by(() => {
   if (!selected) return '';
-  if (selected.body_html) {
-    // Strip scripts; optionally neutralize remote images until user opts in.
-    let html = selected.body_html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
-    if (!showImages) {
-      html = html.replace(/\s(src|srcset)=["']https?:\/\/[^"']+["']/gi, ' data-blocked-$1="$2"');
-    }
-    return html;
-  }
-  return `<pre style="white-space:pre-wrap;font:inherit">${(selected.body_text ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</pre>`;
+  // See studio/src/lib/sanitize.ts. What used to be here removed a literal
+  // <script>…</script> and nothing else, and the result went to {@html}: 11 of
+  // 12 measured payloads survived, including `<img src=x onerror=…>`. The
+  // attacker for this sink is anyone who can send mail to a user of the
+  // instance — no account, no permission, no prior access.
+  if (selected.body_html) return safeMailHtml(selected.body_html, showImages);
+  return `<pre style="white-space:pre-wrap;font:inherit">${safeMailText(selected.body_text)}</pre>`;
 });
 
 $effect(() => {
