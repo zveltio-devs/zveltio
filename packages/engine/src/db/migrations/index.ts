@@ -696,9 +696,23 @@ export async function rollbackMigration(
   targetVersion: number,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    // Both modes, like `runPending` and `listShippedMigrations` above.
+    //
+    // This was the third reader of the migration set and the only one that read
+    // the directory unconditionally. In a compiled binary that directory does
+    // not exist -- which is the entire reason `EMBEDDED_MIGRATIONS` is generated
+    // -- so `scanSync` threw ENOENT, the outer catch turned it into
+    // `{ success: false, error: 'ENOENT ...' }`, and `zveltio rollback` failed
+    // every time on the artifact that actually ships. Measured: scanSync on a
+    // missing directory throws rather than returning nothing.
     const migrationsDir = join(import.meta.dir, 'sql');
+    const fromDir = await dirExists(migrationsDir);
+    const readMigration = (filename: string): Promise<string> =>
+      fromDir
+        ? Bun.file(join(migrationsDir, filename)).text()
+        : Promise.resolve(EMBEDDED_MIGRATIONS[filename]);
 
-    const allFiles = listSqlFilesSync(migrationsDir)
+    const allFiles = (fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS))
       .map((f) => ({
         filename: f,
         version: parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
@@ -711,7 +725,7 @@ export async function rollbackMigration(
     }
 
     for (const file of allFiles) {
-      const content = await Bun.file(join(migrationsDir, file.filename)).text();
+      const content = await readMigration(file.filename);
       const { down } = parseMigrationFile(content);
 
       if (!down) {
