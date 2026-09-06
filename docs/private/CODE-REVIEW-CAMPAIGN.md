@@ -251,7 +251,79 @@ failure must be the named case, not an unnamed hook. And an anchor that no longe
 matches (auto-formatting moves code between writing the revert and running it)
 silently reverts nothing, so assert the anchor occurs exactly once.
 
-### 14. Frontend-specific (Track C)
+### 14. A closed finding protects the code that was read, not the file name
+
+A finding is closed against the lines somebody looked at. It says nothing about a
+second copy, or about code written afterwards that reaches the same sink.
+
+Three instances so far, and one of them is from a repair made during this
+campaign:
+
+- The two API-key revocation handlers are twins with the same body. The first was
+  fixed, and the probe still answered 200 — because `/api/admin/api-keys/:id` and
+  `/api/api-keys/:id` are served by different routers. Found only by re-measuring
+  after the fix rather than by reading it.
+- `communications/mail` rendered inbound email with `{@html}` behind a regex that
+  stripped a literal `<script>` and nothing else. Eleven of twelve payloads
+  survived. It exists BECAUSE a "mail iframe XSS" claim was correctly dismissed
+  on 2026-08-02 — and the component that reintroduced it, as `{@html}` rather
+  than an iframe, was written three weeks later.
+- The `::jsonb` double-encoding class was repaired across a family of writers and
+  `lib/notifications.ts` was missed, so the data repair in migration 010 was
+  undone by the next notification.
+
+**A variant worth naming, because it is easier to catch and was not caught.** The
+twin is not always in another file. Four times in this campaign the correct
+pattern and the broken one sat a few lines apart in the same function or the same
+file: `PATCH /production/:id/start` doing `WHERE id = … AND status = 'draft'
+RETURNING *` two handlers above a `complete` that read then wrote; the
+single-record write path awaiting `afterWrite` while the bulk path beside it did
+not; the two API-key revocation handlers. Proximity reads as consistency. A file
+that gets one case right is where nobody looks for the case it gets wrong.
+
+**What follows for the method.** When a repair is made, ask what else has the
+same shape and go and look — a grep for the sink, not for the file, and then a
+read of the neighbours. When a finding is dismissed, record what was examined, so
+the next reader can tell "this code is safe" from "this code was safe in August".
+And after any fix, re-run the measurement that found the defect: a second copy
+answers the same probe the same way, which is how the twin above was found.
+
+### 15. Correct in isolation, wrong in composition
+
+The file under review is right. The cost lands somewhere that never mentions it.
+No amount of reading the file finds this, which is why all three instances here
+were found by something else.
+
+- A `</script>` inside a `//` comment closed the script block, so a Svelte
+  component exported nothing. Correct-looking source; it only becomes a component
+  once the Studio syncs it, so the consuming side was the only side that could
+  compile it.
+- A test harness turned unknown `ctx.internals` members into stubs returning
+  `undefined`. Guards that refuse by THROWING then resolved silently, so a guard
+  on a caller-supplied URL was inert and no test could tell.
+- One sanitiser installed a hook on the `dompurify` module singleton. Every other
+  `DOMPurify.sanitize` in the same bundle inherited it, so a CMS page lost a
+  `style="…url(…)"` for the life of the tab once a different feature had
+  rendered.
+
+**The three questions to ask in advance**, rather than three gates to trip over
+afterwards:
+
+- does this file change something SHARED — a singleton, a global hook, a
+  registry, a prototype?
+- is this file compiled, parsed or executed SOMEWHERE ELSE?
+- does this file make something UNREACHABLE for a test?
+
+**How it differs from class 14.** A twin is a second copy, and a copy can be
+grepped for. Here there is no copy — there is a *consumer you have to think of*.
+
+**And the reason they survive: all three failed SAFE.** The comment stripped more
+markup, the stub refused more requests, the hook removed more styles. A control
+that over-refuses produces no error and no complaint, only a feature quietly
+doing less than it should. A safe failure direction is why the defect lasts, not
+a reason to rank it lower.
+
+### 16. Frontend-specific (Track C)
 
 Svelte 5 runes only; `$effect` loops; unsanitised HTML (`{@html}`) against
 `lib/sanitize.ts`; API calls that bypass `$lib/api.js`; permission guards that

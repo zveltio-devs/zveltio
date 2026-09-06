@@ -93,9 +93,15 @@ d('api-keys/invitations tenant isolation (in-process)', () => {
       method: 'DELETE',
       headers: { cookie },
     });
-    // The handler returns success (idempotent), but the scoped UPDATE matched no
-    // rows, so the foreign key stays active.
-    expect(res.status).toBe(200);
+    // 404, not 200. The handler used to answer success whatever the scoped
+    // UPDATE matched, which on a REVOCATION is the dangerous direction to be
+    // wrong in: an administrator who believes a leaked credential is dead stops
+    // looking for it. It now reports what it did.
+    //
+    // The same 404 covers "not yours" and "does not exist", so it still tells a
+    // caller nothing about whether the id names a real key in another firm —
+    // which is the property this case was written for and which has not changed.
+    expect(res.status).toBe(404);
     const row = await db
       .selectFrom('zv_api_keys')
       .select('is_active')

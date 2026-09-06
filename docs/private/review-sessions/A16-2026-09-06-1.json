@@ -1,0 +1,46 @@
+{
+  "section": "A16",
+  "date": "2026-09-06",
+  "agent": "claude-opus-5",
+  "branch": "review/A16-system-routes",
+  "files": [
+    "packages/engine/src/routes/admin.ts",
+    "packages/engine/src/routes/admin/system-routes.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/harness/admin-logs-filter.test.ts",
+    "packages/engine/src/tests/harness/api-key-revoke-honesty.test.ts"
+  ],
+  "ran": [
+    "drove a revocation of a random UUID against both API-key surfaces: 200 with `success: true` on each, while the key stayed live. After the fix, 404 on both, a real key still revokes, and no audit row is written for a revocation that did not happen.",
+    "measured GET /api/admin/logs with a filter: the list was filtered and the count was not, so total described the whole table.",
+    "probed POST /explain: disabled in production, fixed statement shape, identifiers through sql.table/sql.ref — not an arbitrary-SQL surface.",
+    "read the API-key validation path: a key issued in one firm and presented with another firm's slug is refused, with root-tenant keys acting anywhere as a documented decision.",
+    "found my own rls-role-credential-grants test failing once an extension with unprefixed tables existed in the database, and narrowed its rule to credential tables rather than to a naming convention."
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "routes/admin.ts and routes/admin/system-routes.ts",
+      "what": "both API-key revocation handlers answered success whatever the scoped UPDATE matched, and wrote an audit entry either way. A revocation that revoked nothing read as done.",
+      "status": "repaired",
+      "ref": "#468"
+    },
+    {
+      "severity": "low",
+      "where": "routes/admin/system-routes.ts GET /logs",
+      "what": "filtered the rows and counted the whole table, so the total described a different list; the path filter also reached a LIKE pattern unescaped.",
+      "status": "repaired",
+      "ref": "#468"
+    },
+    {
+      "severity": "medium",
+      "where": "tests/harness/rls-role-credential-grants.test.ts",
+      "what": "my own test asserted a naming convention rather than the property it names, so it passed only on a database with no extension carrying unprefixed tables. Narrowed to credential tables.",
+      "status": "repaired",
+      "ref": "#468"
+    }
+  ],
+  "notDone": "Section closed, 5 of 5. The validation-before-authorization ordering on routes/tenants.ts stays logged rather than repaired, for the reason recorded on 2026-09-05: the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape adminRoutes uses does not transfer.",
+  "verdict": "clean"
+}

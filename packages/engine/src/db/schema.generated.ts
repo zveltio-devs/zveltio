@@ -4115,6 +4115,13 @@ export interface ZvdLocalesTable {
   tenant_id: string | null;
 }
 
+export interface ZvdMailConfigTable {
+  tenant_id: Generated<string>;
+  config: unknown;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvdMileageEntriesTable {
   id: Generated<string>;
   report_id: string | null;
@@ -4885,6 +4892,13 @@ export interface ZvdSamlConfigTable {
   config: unknown;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface ZvdSamlConsumedAssertionsTable {
+  tenant_id: Generated<string>;
+  assertion_id: string;
+  consumed_at: Generated<Date>;
+  expires_at: Date;
 }
 
 export interface ZvdSamlIdpMetadataTable {
@@ -5747,6 +5761,7 @@ export interface DbSchema {
   zvd_leave_requests: ZvdLeaveRequestsTable;
   zvd_leave_types: ZvdLeaveTypesTable;
   zvd_locales: ZvdLocalesTable;
+  zvd_mail_config: ZvdMailConfigTable;
   zvd_mileage_entries: ZvdMileageEntriesTable;
   zvd_milestones: ZvdMilestonesTable;
   zvd_onboarding_tasks: ZvdOnboardingTasksTable;
@@ -5802,6 +5817,7 @@ export interface DbSchema {
   zvd_salary_history: ZvdSalaryHistoryTable;
   zvd_saml_attribute_mappings: ZvdSamlAttributeMappingsTable;
   zvd_saml_config: ZvdSamlConfigTable;
+  zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
   zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
   zvd_saml_login_log: ZvdSamlLoginLogTable;
   zvd_stock_levels: ZvdStockLevelsTable;

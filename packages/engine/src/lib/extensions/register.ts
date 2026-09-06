@@ -234,7 +234,25 @@ export async function buildAllowedTables(
 ): Promise<Set<string>> {
   const engineTables = await engineOwnedTables();
   const granted = new Set((EXTENSION_TABLE_GRANTS[extName] ?? []).map((t) => t.toLowerCase()));
-  const tables = new Set<string>();
+  // The grants SEED the set. They used not to.
+  //
+  // `granted` was read in exactly one place — the guard below, which suppresses
+  // the warning on a `CREATE TABLE` the extension already wrote — and never
+  // added to `tables`. So a granted engine table that the extension does not
+  // itself CREATE never entered the allowlist, and `createRestrictedDb` refused
+  // it: `permitted` is the `zvd_` prefix, or the owned prefix, or
+  // `allowedTables.has(...)`, and the grant reached none of the three.
+  //
+  // Measured over the whole registry: 5 of 18 entries reached the allowlist and
+  // 13 did not — and every one of the five is a table the extension also
+  // CREATEs, which is why it worked, and why it would have worked without the
+  // grant too. The list was doing nothing it was written to do.
+  //
+  // The comment above has the rule backwards for the same reason: it says an
+  // entry may be removed only where the extension does not create the table,
+  // because there the entry is "the only thing standing". Those are precisely
+  // the inert ones.
+  const tables = new Set<string>(granted);
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   for (const p of migrationPaths) {
     try {
