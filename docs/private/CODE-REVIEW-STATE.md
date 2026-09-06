@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A09 — Base schema (001_initial.sql)**
+### → **A10 — Schema types and incremental migrations**
 
-*Every table in one file: FORCE RLS, tenant column, unique keys carrying tenant_id, indexes matching the access patterns. Read it against a live database, not alone.*
+*Kysely types against the real columns, and the upgrade path from an instance installed before the squash.*
 
-1 of 1 files still unread. Its file list is under [`A09`](#a09--base-schema-001-initial-sql) below.
+11 of 11 files still unread. Its file list is under [`A10`](#a10--schema-types-and-incremental-migrations) below.
 
-After it: A10, A12, A13, A14 …
+After it: A12, A13, A14, A15 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **128 / 658** (19%)
-- Lines in scope: **31,149 / 136,343** (23%)
-- Test files opened by some session: **33 / 882**
+- Files in scope: **129 / 658** (20%)
+- Lines in scope: **35,361 / 136,343** (26%)
+- Test files opened by some session: **38 / 885**
 
 ## Sections
 
@@ -40,21 +40,21 @@ After it: A10, A12, A13, A14 …
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
 | A01 | Boot, app assembly, middleware order | 9 | 2,932 | 0/9 | — |
-| A02 | Middleware chain | 18 | 2,179 | 18/18 | 2026-09-05 — clean |
+| A02 | Middleware chain | 18 | 2,179 | 18/18 | 2026-09-04 — partial |
 | A03 | Error surface, health, API description | 9 | 2,365 | 0/9 | — |
-| A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — logged |
+| A04 | Tenancy core | 5 | 2,016 | 5/5 | 2026-09-04 — partial |
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
 | A06 | Permissions, roles, column access | 5 | 2,301 | 5/5 | 2026-09-04 — partial |
-| A07 | Authentication and identity | 7 | 1,752 | 7/7 | 2026-09-05 — clean |
+| A07 | Authentication and identity | 7 | 1,752 | 7/7 | 2026-09-05 — partial |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,845 | 10/10 | 2026-09-06 — repaired |
-| A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
+| A09 | Base schema (001_initial.sql) | 1 | 4,212 | 1/1 | 2026-09-06 — logged |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
 | A11 | Data write path | 8 | 2,125 | 8/8 | 2026-09-06 — repaired |
 | A12 | Data read path | 9 | 1,795 | 0/9 | — |
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,152 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
-| A16 | Tenant and admin routes | 5 | 2,028 | 5/5 | 2026-09-06 — clean |
+| A16 | Tenant and admin routes | 5 | 2,028 | 5/5 | 2026-09-05 — partial |
 | A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,677 | 7/7 | 2026-09-05 — clean |
 
 ### B — engine subsystems
@@ -124,7 +124,7 @@ After it: A10, A12, A13, A14 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 882 | 94,462 | n/a | — |
+| T01 | Test corpus | 885 | 94,710 | n/a | — |
 
 ---
 
@@ -191,6 +191,9 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
+- **2026-09-05** · claude-opus-5 · 1 files · **clean** · `fix/audit-trail-client-ip`
+  - ran: the file did not exist when A02 was closed at 17/17: #450 extracted it out of middleware/rate-limit.ts so god-audit, request-log, tracing and the recovery endpoint could share one resolver instead of reading the proxy headers raw. Its contents were read line by line in this section before the move, and again while moving them.
+  - not done: Nothing outstanding for this file. Recorded as its own entry rather than folded into the earlier one because a file that appears mid-campaign should be visible as an addition, not absorbed into a count that was taken before it existed.
 - **2026-09-05** · claude-opus-5 · 12 files · **clean** · `review/A02-middleware-2`
   - ran: drove the real rate-limit middleware with a different junk X-Real-IP per request under TRUSTED_PROXY=true: five 200s against a limit of two. Every distinct string is its own bucket, so the limit was absent, not weakened. X-Forwarded-For was pattern-checked; X-Real-IP was not.
   - ran: measured the fallback limiter's per-request cost against store size, one request per unique identifier: 0.0081 ms at 5_000, 1.5539 ms at 20_000, 2.9354 ms at 40_000, 2.1674 ms at 80_000. After removing the size trigger: 0.0075 / 0.0058 / 0.0061 / 0.0061. Heap measured separately at 19.5 MB (5_000) to 32.8 MB (100_000), so memory was never the risk the comment named.
@@ -214,9 +217,6 @@ After it: A10, A12, A13, A14 …
   - **medium** middleware/preview-env.ts + zv_schema_branches — the preview-token lookup selects on `preview_token` alone — no tenant predicate — and the table carries NO tenant_id, NO row-level security and NO policy, measured. So the token is a bearer credential bound to no tenant, and presenting it sets `SET LOCAL search_path` to that branch's schema for the request while the tenant GUC still says whoever presented it. NOT verified: whether that yields a cross-tenant read, which depends on the branch schema's own tables — no branch schema existed in the verification database, and every non-public schema that does exist carries no RLS at all. → *logged* (known-gaps.md)
   - **low** middleware/url-validator.ts — a 0-byte file, tracked by git, imported by nothing, sitting beside the real SSRF guard at lib/security/url-validator.ts. A reader grepping middleware/ for url-validator finds a file and concludes the middleware exists. → *logged* (known-gaps.md)
   - not done: PARTIAL, 5 of 17 files. Read: url-validator (empty), tenant-guard, extension-auth-gate, tenant-membership, preview-env. tenant.ts was read substantially while proving the escalation now fixed in #444, but not end to end, so it is not ticked. Unread: rate-limit (495), tenant-quota, session-prefetch, god-audit, enrich-denial, tracing, request-log, demo-mode (header only), slow-query, route-db, savepoint. Raised for the owner rather than logged as a defect: tenant-membership deliberately skips the membership check for the DEFAULT tenant, and a request with no slug resolves to it — correct for the single-tenant model the comment cites, and worth a decision for the hierarchical multi-tenant market the product targets, where the root tenant holds a real organisation's data.
-- **2026-09-05** · claude-opus-5 · 1 files · **clean** · `fix/audit-trail-client-ip`
-  - ran: the file did not exist when A02 was closed at 17/17: #450 extracted it out of middleware/rate-limit.ts so god-audit, request-log, tracing and the recovery endpoint could share one resolver instead of reading the proxy headers raw. Its contents were read line by line in this section before the move, and again while moving them.
-  - not done: Nothing outstanding for this file. Recorded as its own entry rather than folded into the earlier one because a file that appears mid-campaign should be visible as an addition, not absorbed into a count that was taken before it existed.
 
 ### A03 — Error surface, health, API description
 
@@ -248,6 +248,14 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
+- **2026-09-04** · claude-opus-5 · 1 files · **logged** · `review/A04-tenancy-core`
+  - ran: read the remaining 1345 lines: getDefaultTenant, visibleTenantsFn, applyTenantRLS, both reconcilers, rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache, the tenant lookups, provisionTenantSchema/Environment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS
+  - ran: the passkey grant found here is fixed and merged as PR #441 — separate branch, because it is an authentication bypass rather than a review note
+  - ran: measured: 45 tenant_* schemas accumulated in one test database
+  - ran: proved sql.id('schema.table') quotes the whole string as ONE identifier: SELECT FROM "probe_sch.t" → relation does not exist, while "probe_sch"."t" works
+  - **medium** lib/tenancy/tenant-manager.ts:626 provisionTenantSchema (+ lib/data-quality.ts:377) — the schema-per-tenant machinery is vestigial and looks like isolation it does not provide. provisionTenantSchema creates tenant_<slug> with zvd_collections/zvd_relations/zvd_permissions on every tenant creation (routes/tenants.ts:210), and NOTHING in the data layer reads them — tenantSchema is set by the middleware and consumed by no data route; no search_path is set for them (preview-env sets one for branch schemas, a different feature). 45 such schemas had accumulated in one test database. Its one apparent consumer proves the path is never exercised: runQualityScan takes a tenantSchema and builds `${schema}.zvd_${collection}`, which reaches sql.id() as a single dotted string — measured, that quotes the whole thing as ONE identifier and Postgres answers 'relation does not exist'. The parameter is exposed to extensions through ctx.internals and cannot work. An operator seeing per-tenant schemas would reasonably conclude data is separated by schema; it is row-level in public. (data-quality.ts belongs to A17; recorded here because it is the same finding.) → *logged* (known-gaps.md)
+  - **low** lib/tenancy/tenant-manager.ts:330 reconcileExtensionTenantRLS — DROP POLICY then CREATE POLICY are two separate statements on the pool, not one transaction, so between them the table has RLS enabled and no policy. That is fail-closed — a non-owner sees zero rows — but it is a window in which live traffic on that table reads empty rather than being blocked or correct. → *logged* (known-gaps.md)
+  - not done: Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed — both are larger than a review commit.
 - **2026-09-04** · claude-opus-5 · 4 files · **partial** · `review/A04-tenancy-core`
   - ran: planted an empty table set into unscoped-fallback.test.ts: 1 of 2 tests FAILS — the file carries a positive control, so a zero cannot be a counter that never moves. Predicted a hole here and the code defended itself.
   - ran: measured, as a non-owner role: ALTER DATABASE ... SET → 'ERROR: must be owner of database'. That error is inside the try/catch in applyFailClosedTenantSetting.
@@ -259,14 +267,6 @@ After it: A10, A12, A13, A14 …
   - **medium** lib/tenancy/fail-closed-tenant.ts:14-38 — the whole body is wrapped in try/catch → console.warn. Measured: a non-owner role gets 'must be owner of database' from ALTER DATABASE ... SET, and that error is swallowed. So an operator who sets ZVELTIO_FAIL_CLOSED_TENANT=1 — an explicit request for contextless queries to see zero rows — can boot with the setting silently not applied. The repository already holds the right standard three hundred lines away: an unenforceable RLS role is FATAL in production with an explicit ZVELTIO_ALLOW_UNENFORCED_RLS override, and the comment there says why a warning is the wrong instrument ('it scrolls past during a deploy'). The existing unit test pins only the current_database() probe failure, not the ALTER failure. → *logged* (known-gaps.md)
   - **low** lib/tenancy/tenant-scope.ts:150 encodeTenantSet — encodeTenantSet([]) and encodeTenantSet(null) both produce '', and the file's own docstring says an empty GUC means 'no set published' → equality fallback. The only path reaching [] is org-reach over an empty zv_tenants (and the god branch in tenant-manager does the same), so the effect is a NARROWING to the own unit — the safe direction — but the two states are indistinguishable in the GUC. → *logged* (known-gaps.md)
   - not done: PARTIAL. tenant-manager.ts (1345 lines) is NOT read end to end: I read the header, the function map, withTenantIsolation, isSingleUnitReach, initRlsEnforcementRole, resolveTenantFromRequest, invalidateTenantCache and getTenantDb. Unread: getDefaultTenant, visibleTenantsFn, applyTenantRLS and both reconcilers (reviewed as a diff earlier today, which is not the same thing), rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache helpers, getTenantBySlug/ById, getUserTenants, provisionTenantSchema, provisionEnvironment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS. Nothing repaired: the header-fallback fix touches request routing for every install and wants its own change with a harness test, not a tail-end commit. The suspended-tenant consequence is measured only as far as the unscoped fallback and the 200; the row-level question for a non-god user is open.
-- **2026-09-04** · claude-opus-5 · 1 files · **logged** · `review/A04-tenancy-core`
-  - ran: read the remaining 1345 lines: getDefaultTenant, visibleTenantsFn, applyTenantRLS, both reconcilers, rlsBootFailure, warnIfDbRoleBypassesRls, the HMAC cache, the tenant lookups, provisionTenantSchema/Environment, resolveEnvironment, ensureRlsEnforcementRole, enableRLS
-  - ran: the passkey grant found here is fixed and merged as PR #441 — separate branch, because it is an authentication bypass rather than a review note
-  - ran: measured: 45 tenant_* schemas accumulated in one test database
-  - ran: proved sql.id('schema.table') quotes the whole string as ONE identifier: SELECT FROM "probe_sch.t" → relation does not exist, while "probe_sch"."t" works
-  - **medium** lib/tenancy/tenant-manager.ts:626 provisionTenantSchema (+ lib/data-quality.ts:377) — the schema-per-tenant machinery is vestigial and looks like isolation it does not provide. provisionTenantSchema creates tenant_<slug> with zvd_collections/zvd_relations/zvd_permissions on every tenant creation (routes/tenants.ts:210), and NOTHING in the data layer reads them — tenantSchema is set by the middleware and consumed by no data route; no search_path is set for them (preview-env sets one for branch schemas, a different feature). 45 such schemas had accumulated in one test database. Its one apparent consumer proves the path is never exercised: runQualityScan takes a tenantSchema and builds `${schema}.zvd_${collection}`, which reaches sql.id() as a single dotted string — measured, that quotes the whole thing as ONE identifier and Postgres answers 'relation does not exist'. The parameter is exposed to extensions through ctx.internals and cannot work. An operator seeing per-tenant schemas would reasonably conclude data is separated by schema; it is row-level in public. (data-quality.ts belongs to A17; recorded here because it is the same finding.) → *logged* (known-gaps.md)
-  - **low** lib/tenancy/tenant-manager.ts:330 reconcileExtensionTenantRLS — DROP POLICY then CREATE POLICY are two separate statements on the pool, not one transaction, so between them the table has RLS enabled and no policy. That is fail-closed — a non-owner sees zero rows — but it is a window in which live traffic on that table reads empty rather than being blocked or correct. → *logged* (known-gaps.md)
-  - not done: Section now complete at 5/5. Nothing repaired in this pass; the one repair the section produced (the passkey grant) went out as its own PR and is merged. The per-tenant-schema finding needs an owner decision rather than a patch: either the machinery is removed, or it is wired up and the broken sql.id path fixed — both are larger than a review commit.
 
 ### A05 — RLS policies and row rules
 
@@ -315,15 +315,6 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
-- **2026-09-04** · claude-opus-5 · 2 files · **partial** · `review/A06-permissions`
-  - ran: proved a privilege escalation end to end and shipped the fix as PR #444 (separate branch): a delegated tenant_admin got /api/admin/rls 403 with a real tenant slug and 200 with an unknown one, because no tenant meant no ALS store and getCurrentDomain() reads that as the root tenant
-  - ran: predicted a cache-poisoning path through checkPermission's UNKNOWN_RESOURCE bucketing and DISPROVED it: every policy write goes through the Casbin adapter, which invalidates the object index, and the routes additionally clear the shared cache
-  - ran: called getColumnAccess with each role value the schema permits: member → column masked; admin → NOT masked; superadmin → not masked; god → MASKED
-  - ran: checked the CHECK constraint on "user".role (001_initial.sql:1160): ('god','admin','manager','member') — so 'admin' is assignable and 'superadmin' is not
-  - ran: checked for scripts/check-extension-resources.ts: it does not exist, and no script scans permissionGate calls
-  - **high** lib/tenancy/column-permissions.ts:24 — getColumnAccess short-circuits on a hardcoded role NAME: `if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), readOnly: new Set() }`. Measured against every value the schema permits on "user".role: member is masked, admin is NOT, god IS masked. So the bypass names a role that is not the most privileged one and omits the one that is, and a user set to 'admin' — a value 001_initial.sql:1160 explicitly allows — sees every hidden column with no policy row expressing it and no way to revoke it short of editing code. This is precisely the pattern getRlsFilters removed, with its comment stating why: 'a string comparison against a role name is invisible, unauditable and impossible to revoke'. 'superadmin' is a dead branch — not in the CHECK constraint, and absent from the rest of the product. → *logged* (known-gaps.md)
-  - **low** lib/tenancy/resource-grants.ts:26 and :66 — the header cites `scripts/check-extension-resources.ts` twice as the gate that fails the build when a permissionGate call names an undeclared resource. That script does not exist, and no script in scripts/ scans permissionGate calls. It is named as one of the two compensating controls for an owner decision (2026-08-30) that removed the frozen KNOWN_EXTENSION_RESOURCES list; the OTHER control is real — listKnownResources collects extensions declaring nothing and names them at boot. So the decision's stated minimum is half-met, and the file asserts a build-time protection that was never built. → *logged* (known-gaps.md)
-  - not done: PARTIAL. permissions.ts (997 lines) read in the parts that decide access — checkPermission, effectivePermissions, requireInstanceAdmin, isTenantAdmin, resolveUserRole, the three signed caches, the policy-object index and the Casbin adapter — but not end to end; initPermissions, the model string, listAllRoles and getUserRoles are unread. routes/permissions.ts (435) and routes/admin/permission-routes.ts (349) were only read where they write policies or invalidate caches. The escalation found here is fixed and out as PR #444; nothing else repaired.
 - **2026-09-05** · claude-opus-5 · 3 files · **clean** · `review/A06-close`
   - ran: drove the real enforcer against the real policy table: granted tenant_owner, demoted the way routes/tenants.ts does it, and reloaded. Before the fix the table held both roles and the reload restored owner=true.
   - ran: measured which keys invalidateGodCache drops, against a live Valkey: god: was deleted, urole: survived signed and valid, and resolveUserRole still answered 'god'.
@@ -344,6 +335,15 @@ After it: A10, A12, A13, A14 …
   - ran: checked the guard structure of both routes: admin.ts applies app.use('*', requireAdmin) before mounting, so permission-routes.ts's 10 handlers are covered by one blanket guard; permissions.ts has its own app.use('*') at line 249 covering the seven handlers after it
   - ran: checked /bootstrap, which is registered BEFORE that blanket guard: deliberate, and conditioned — RECOVERY_TOKEN of at least 32 chars (403 when unset), constant-time comparison, single-use by token fingerprint recorded in zv_settings, the spent-check placed AFTER the match so a refusal leaks nothing, every refusal audited, and its own rate-limit bucket
   - not done: STILL PARTIAL, and the file list says so: only column-permissions.ts and resource-grants.ts were read line by line, and they are recorded in the earlier A06 entry. permissions.ts (997) was read in the parts that decide access — the model, the adapter, checkPermission, effectivePermissions, the policy-object index, requireInstanceAdmin, isTenantAdmin, isGodUser, resolveUserRole, the three signed caches and the invalidation paths — but initPermissions' tail, listAllRoles, getUserRoles and effectivePermissions' internals are unread. routes/permissions.ts (435) read at /bootstrap and the policy/role handlers; routes/admin/permission-routes.ts (349) read at its guard structure, its invalidation helper and the first handlers. Ticking those three would claim a completeness this pass does not have.
+- **2026-09-04** · claude-opus-5 · 2 files · **partial** · `review/A06-permissions`
+  - ran: proved a privilege escalation end to end and shipped the fix as PR #444 (separate branch): a delegated tenant_admin got /api/admin/rls 403 with a real tenant slug and 200 with an unknown one, because no tenant meant no ALS store and getCurrentDomain() reads that as the root tenant
+  - ran: predicted a cache-poisoning path through checkPermission's UNKNOWN_RESOURCE bucketing and DISPROVED it: every policy write goes through the Casbin adapter, which invalidates the object index, and the routes additionally clear the shared cache
+  - ran: called getColumnAccess with each role value the schema permits: member → column masked; admin → NOT masked; superadmin → not masked; god → MASKED
+  - ran: checked the CHECK constraint on "user".role (001_initial.sql:1160): ('god','admin','manager','member') — so 'admin' is assignable and 'superadmin' is not
+  - ran: checked for scripts/check-extension-resources.ts: it does not exist, and no script scans permissionGate calls
+  - **high** lib/tenancy/column-permissions.ts:24 — getColumnAccess short-circuits on a hardcoded role NAME: `if (role === 'admin' || role === 'superadmin') return { hidden: new Set(), readOnly: new Set() }`. Measured against every value the schema permits on "user".role: member is masked, admin is NOT, god IS masked. So the bypass names a role that is not the most privileged one and omits the one that is, and a user set to 'admin' — a value 001_initial.sql:1160 explicitly allows — sees every hidden column with no policy row expressing it and no way to revoke it short of editing code. This is precisely the pattern getRlsFilters removed, with its comment stating why: 'a string comparison against a role name is invisible, unauditable and impossible to revoke'. 'superadmin' is a dead branch — not in the CHECK constraint, and absent from the rest of the product. → *logged* (known-gaps.md)
+  - **low** lib/tenancy/resource-grants.ts:26 and :66 — the header cites `scripts/check-extension-resources.ts` twice as the gate that fails the build when a permissionGate call names an undeclared resource. That script does not exist, and no script in scripts/ scans permissionGate calls. It is named as one of the two compensating controls for an owner decision (2026-08-30) that removed the frozen KNOWN_EXTENSION_RESOURCES list; the OTHER control is real — listKnownResources collects extensions declaring nothing and names them at boot. So the decision's stated minimum is half-met, and the file asserts a build-time protection that was never built. → *logged* (known-gaps.md)
+  - not done: PARTIAL. permissions.ts (997 lines) read in the parts that decide access — checkPermission, effectivePermissions, requireInstanceAdmin, isTenantAdmin, resolveUserRole, the three signed caches, the policy-object index and the Casbin adapter — but not end to end; initPermissions, the model string, listAllRoles and getUserRoles are unread. routes/permissions.ts (435) and routes/admin/permission-routes.ts (349) were only read where they write policies or invalidate caches. The escalation found here is fixed and out as PR #444; nothing else repaired.
 
 ### A07 — Authentication and identity
 
@@ -361,6 +361,16 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
+- **2026-09-05** · claude-opus-5 · 3 files · **clean** · `review/A07-auth-2`
+  - ran: read lib/auth.ts end to end: the registration chokepoint, password hashing and the scrypt migration, session revocation across cache and database, cookie and trusted-origin configuration, every social provider, the 2FA/magic-link/passkey plugins, and the getSession wrapper.
+  - ran: measured what PATCH /api/users/:id does to a user holding tenant_owner in one tenant and tenant_member in another: every grant deleted, permanently, because #451 and #455 made the adapter's DELETE actually reach the table. Scoping the reset to the '*' domain keeps both memberships.
+  - ran: traced BETTER_AUTH_URL through baseURL: passkey origin, the trusted-origin fallback, and the links Better Auth writes into reset, verification and magic-link mail. No startup guard covers it.
+  - ran: verified a peer session's five engine findings independently rather than accepting them: assertWorkerSqlAllowed has exactly one caller (the worker bridge) and all 56 manifests are (default inline); SAVEPOINT is refused while RELEASE SAVEPOINT is allowed; developer/database issues DROP ROLE and ALTER TABLE ... DISABLE ROW LEVEL SECURITY through sql.raw.
+  - ran: checked the peer's SAML claim against the dependency: node-saml 3.1.2 stores `options.validateInResponseTo || false` and tests it for truth, while auth/saml passes the 4.x string 'ifPresent'. Truthy means always require InResponseTo, so IdP-initiated SSO can only be rejected.
+  - **medium** routes/users.ts PATCH /:id — reset Casbin roles with deleteRolesForUser(userId) and no domain, so changing the global column deleted every per-tenant membership the user held. Invisible until #451 and #455 made those deletes reach the database — a repair that changed the blast radius of a route it did not touch. → *repaired* (#461)
+  - **medium** lib/startup-guards.ts — BETTER_AUTH_URL unset does not fail, it rewrites: baseURL falls back to http://localhost:<port> and every absolute URL is built from it, including the links in password-reset mail. The guard named three dangerous settings and missed the silent one. → *repaired* (#460)
+  - **low** lib/security/keyring.ts decryptWithKeyring — for the enc:v1: envelope it picks the key from the caller's argument rather than from the envelope, which is the principle the function states for the other two formats. No consequence today — no caller writes a field envelope under the mail keyring — but the exception is unstated. → *logged* (known-gaps.md)
+  - not done: Section closed, 7 of 7 files. Two findings remain the owner's rather than this section's: the raw-SQL hole in the extension sandbox (repair written and measured, refuses 26 first-party extensions, so it needs a grants decision first) and plaintext invitation tokens. The peer session's SAML finding — SSO non-functional in both flows — is extension-side and carried up separately.
 - **2026-09-05** · claude-opus-5 · 4 files · **partial** · `review/A07-auth-2`
   - ran: drove createRestrictedDb with an extension holding no grants: selectFrom('session') and selectFrom('zv_api_keys') refused, while sql`SELECT token FROM session`, sql`SELECT id FROM zv_api_keys`, sql`SELECT token FROM zv_invitations` and sql`UPDATE "user" SET role='god'` all went through.
   - ran: instrumented a proxy to log every property a raw sql template touches on the handle: exactly one, `getExecutor`. A first guard on `executeQuery` changed nothing, which is how that was found.
@@ -374,16 +384,6 @@ After it: A10, A12, A13, A14 …
   - **low** lib/auth.ts verifyPassword — the legacy scrypt branch compares the derived key with `!==` while the rest of the codebase uses constant-time comparison for secrets. No practical oracle — the attacker supplies the password, not the digest. → *logged* (known-gaps.md)
   - **medium** lib/extensions/worker-sql-policy.ts tableReferences — read `LATERAL`, function calls after FROM, and EXTRACT/TRIM/SUBSTRING keyword arguments as table names, refusing ordinary first-party SQL and naming tables that do not exist. → *repaired* (#457)
   - not done: PARTIAL. lib/auth.ts read at the parts that decide identity — the registration chokepoint, password hashing and verification, the session and cookie configuration — but not end to end. keyring.ts read at its structure only. routes/users.ts read at the invitation endpoints only. The raw-SQL finding took the session's remaining time, and it is worth more than the line count it cost.
-- **2026-09-05** · claude-opus-5 · 3 files · **clean** · `review/A07-auth-2`
-  - ran: read lib/auth.ts end to end: the registration chokepoint, password hashing and the scrypt migration, session revocation across cache and database, cookie and trusted-origin configuration, every social provider, the 2FA/magic-link/passkey plugins, and the getSession wrapper.
-  - ran: measured what PATCH /api/users/:id does to a user holding tenant_owner in one tenant and tenant_member in another: every grant deleted, permanently, because #451 and #455 made the adapter's DELETE actually reach the table. Scoping the reset to the '*' domain keeps both memberships.
-  - ran: traced BETTER_AUTH_URL through baseURL: passkey origin, the trusted-origin fallback, and the links Better Auth writes into reset, verification and magic-link mail. No startup guard covers it.
-  - ran: verified a peer session's five engine findings independently rather than accepting them: assertWorkerSqlAllowed has exactly one caller (the worker bridge) and all 56 manifests are (default inline); SAVEPOINT is refused while RELEASE SAVEPOINT is allowed; developer/database issues DROP ROLE and ALTER TABLE ... DISABLE ROW LEVEL SECURITY through sql.raw.
-  - ran: checked the peer's SAML claim against the dependency: node-saml 3.1.2 stores `options.validateInResponseTo || false` and tests it for truth, while auth/saml passes the 4.x string 'ifPresent'. Truthy means always require InResponseTo, so IdP-initiated SSO can only be rejected.
-  - **medium** routes/users.ts PATCH /:id — reset Casbin roles with deleteRolesForUser(userId) and no domain, so changing the global column deleted every per-tenant membership the user held. Invisible until #451 and #455 made those deletes reach the database — a repair that changed the blast radius of a route it did not touch. → *repaired* (#461)
-  - **medium** lib/startup-guards.ts — BETTER_AUTH_URL unset does not fail, it rewrites: baseURL falls back to http://localhost:<port> and every absolute URL is built from it, including the links in password-reset mail. The guard named three dangerous settings and missed the silent one. → *repaired* (#460)
-  - **low** lib/security/keyring.ts decryptWithKeyring — for the enc:v1: envelope it picks the key from the caller's argument rather than from the envelope, which is the principle the function states for the other two formats. No consequence today — no caller writes a field envelope under the mail keyring — but the exception is unstated. → *logged* (known-gaps.md)
-  - not done: Section closed, 7 of 7 files. Two findings remain the owner's rather than this section's: the raw-SQL hole in the extension sandbox (repair written and measured, refuses 26 first-party extensions, so it needs a grants decision first) and plaintext invitation tokens. The peer session's SAML finding — SSO non-functional in both flows — is extension-side and carried up separately.
 
 ### A08 — Database layer, pool, dialect, migration runner
 
@@ -430,7 +430,26 @@ After it: A10, A12, A13, A14 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/db/migrations/sql/001_initial.sql` | 4212 |
+| ✅ | `packages/engine/src/db/migrations/sql/001_initial.sql` | 4212 |
+
+**Sessions**
+
+- **2026-09-06** · claude-opus-5 · 1 files · **logged** · `review/A09-base-schema`
+  - ran: built a purpose-made database (zveltio_review_a09) and applied the whole chain 001..011 from a virgin state, then read the file against that database rather than alone
+  - ran: counted RLS: 001 issues 4 ENABLE and 4 FORCE statements and creates 3 policies; live, 6 tables carry RLS (zv_edge_functions, zv_edge_function_logs, zvd_insight_saved_queries forced; session, account, verification, twoFactor enabled and deliberately not forced) and 5 policies exist -- every other table's isolation is installed at boot by the reconciler, not by this file
+  - ran: counted unique keys that omit tenant_id on a table that has one: 2 of 21 (zv_api_keys.key_hash, zv_invitations.token), both global-by-design credential lookups reached before tenant resolution
+  - ran: counted tenant_id columns after the full chain: 21 columns, 17 carrying the COALESCE(NULLIF(current_setting('zveltio.current_tenant',true),'')::uuid, root) default, 6 NOT NULL -- the absence-resolves-to-root shape, measured again and left alone as an owner decision
+  - ran: checked index cover: every table with tenant_id has an index leading on tenant_id (zero exceptions)
+  - ran: measured the zveltio_worker grant path on a live table: created a zvd_ table the way DDLManager does and asked has_table_privilege -- worker false, flow_reader false, rls true -- then SET LOCAL ROLE zveltio_worker and read it: permission denied for table zvd_probe_new
+  - ran: grepped both repositories for grantWorkerSqlAccess(), the function 001 names as the create-time grant: it does not exist; grantFlowReaderSelect() does and is called at ddl-manager.ts:460
+  - ran: executed the file's own DOWN section against the migrated database, first inside a rolled-back transaction (aborts at the first failure) and then statement by statement to enumerate the rest
+  - ran: checked pg_default_acl: ALTER DEFAULT PRIVILEGES names zveltio_rls only, so no later-created table reaches zveltio_worker by that route either
+  - ran: verified the zv_encrypted_fields view is absent on a fresh install (its guard tests for zv_collections; the table is zvd_collections) and that nothing in either repository reads it -- already recorded in migration 011
+  - ran: ran the schema gates: check:schema, check:schema-snapshot, check:table-owners, check:raw-sql, sql:backticks, sql:numeric-arith, sql:jsonb, catch:fabricated -- all pass; scripts/check-migration-safety.ts reports no new or changed migrations
+  - ran: ran the three harness tests that touch these roles: 13 pass, 0 fail -- and none of them would have failed on the worker-grant defect, which is why it is measured above rather than asserted there
+  - **high** packages/engine/src/db/migrations/sql/001_initial.sql (043 stanza) + packages/engine/src/lib/data/ddl-manager.ts — zveltio_worker is granted DML on the zvd_ tables that exist when the migration runs, and its comment says 'New ones are granted at create time; see grantWorkerSqlAccess() beside grantFlowReaderSelect()'. grantWorkerSqlAccess does not exist. DDLManager calls only grantFlowReaderSelect, and ALTER DEFAULT PRIVILEGES names zveltio_rls alone, so a collection created after install reaches the worker role by no path at all. Measured on a live database: has_table_privilege(zveltio_worker, new zvd_ table, SELECT) is false and a query under SET LOCAL ROLE zveltio_worker answers 'permission denied for table'. The bridge catches a failing SET ROLE and falls back to zveltio_rls, but SET ROLE succeeds here -- it is the query that fails -- so a worker-isolated extension breaks on exactly the collections it exists to serve. The flow_reader half of the same design is correct, which is what makes the asymmetry invisible when reading. → *logged*
+  - **medium** packages/engine/src/db/migrations/sql/001_initial.sql, DOWN section — the DOWN of the baseline neither completes nor cleans up. Executed against a database built by the file's own UP: it aborts at 'DROP ROLE IF EXISTS zveltio_worker' (role cannot be dropped, privileges for schema public depend on it), and run past that, six statements fail on dependent objects (zvd_panel_cache -> zv_panels, zv_panels -> zv_dashboards, zv_flow_dlq -> zv_flows, zv_tenant_transfers -> zv_tenants, zv_flows -> user) and 26 of the 72 tables are left standing, along with zveltio_rls, zveltio_flow_reader and the zveltio_tenant_scope_ok overloads. Tables created by the folded-in later migrations -- zv_flow_dlq, zv_invitations, zv_erd_layouts, the backup trio, the zvd_ insights set, zvd_column_permissions, zvd_push_tokens, zvd_rls_policies, zvd_rpc_functions, zv_request_logs, zv_audit_log, zv_roles -- have no DROP at all. This has been unreachable until now: rollbackMigration listed migrations/sql/ unconditionally and failed in every compiled binary (repaired in #471), so the DOWN of 001 has never run. → *logged*
+  - **low** packages/engine/src/db/migrations/sql/001_initial.sql (041 stanza) — idx_zv_revisions_lookup is byte-identical to idx_zv_revisions_record created in the 004 stanza of the same file -- both btree (collection, record_id, created_at DESC). Confirmed on the live database: zv_revisions carries seven indexes, two of them the same index. It is the table every record write appends to, so the cost is paid on every write for nothing. → *logged*
 
 ### A10 — Schema types and incremental migrations
 
@@ -552,14 +571,6 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
-- **2026-09-05** · claude-opus-5 · 4 files · **partial** · `review/A16-close`
-  - ran: enumerated every privileged write across routes/tenants.ts, routes/admin.ts and routes/admin/*, and counted those whose handler contains no auditLog call: 11 of 29 before, 4 of 29 after, and the four remaining are not privileged writes.
-  - ran: confirmed zv_audit_log.event_type is plain text with no CHECK constraint, so the five new tenant event types need no migration.
-  - ran: drove all 59 routes on the privileged surface anonymously against the real app: 401 or 403 throughout, none reached a handler.
-  - ran: drove the same 59 as an ordinary authenticated member: five answered something other than 401/403/404, all of them because zValidator runs before the authorization check. With a valid body the same route answers 403, which is what proves the guard itself is sound.
-  - **medium** routes/tenants.ts — no audit entry on any privileged write — creating a tenant, suspending one, granting or revoking tenant membership with a role — while routes/permissions.ts audits the same act on its own endpoint. → *repaired* (#463)
-  - **low** routes/tenants.ts — zValidator runs before the authorization check, so an unauthorized member receives the schema's complaint (400) rather than a refusal. The guard is sound — a valid body answers 403 — but the surface carries two guard shapes and the second one authorizes after doing work. → *logged* (known-gaps.md)
-  - not done: PARTIAL. Both of the section's questions are answered across the whole surface by measurement, and the audit half is repaired. What is not done is line-by-line reading: admin/system-routes.ts (707 lines) and routes/admin.ts outside its guards and API-key routes. The ordering finding is logged rather than repaired because the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape used by adminRoutes does not transfer.
 - **2026-09-06** · claude-opus-5 · 2 files · **clean** · `review/A16-system-routes`
   - ran: drove a revocation of a random UUID against both API-key surfaces: 200 with `success: true` on each, while the key stayed live. After the fix, 404 on both, a real key still revokes, and no audit row is written for a revocation that did not happen.
   - ran: measured GET /api/admin/logs with a filter: the list was filtered and the count was not, so total described the whole table.
@@ -570,6 +581,14 @@ After it: A10, A12, A13, A14 …
   - **low** routes/admin/system-routes.ts GET /logs — filtered the rows and counted the whole table, so the total described a different list; the path filter also reached a LIKE pattern unescaped. → *repaired* (#468)
   - **medium** tests/harness/rls-role-credential-grants.test.ts — my own test asserted a naming convention rather than the property it names, so it passed only on a database with no extension carrying unprefixed tables. Narrowed to credential tables. → *repaired* (#468)
   - not done: Section closed, 5 of 5. The validation-before-authorization ordering on routes/tenants.ts stays logged rather than repaired, for the reason recorded on 2026-09-05: the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape adminRoutes uses does not transfer.
+- **2026-09-05** · claude-opus-5 · 4 files · **partial** · `review/A16-close`
+  - ran: enumerated every privileged write across routes/tenants.ts, routes/admin.ts and routes/admin/*, and counted those whose handler contains no auditLog call: 11 of 29 before, 4 of 29 after, and the four remaining are not privileged writes.
+  - ran: confirmed zv_audit_log.event_type is plain text with no CHECK constraint, so the five new tenant event types need no migration.
+  - ran: drove all 59 routes on the privileged surface anonymously against the real app: 401 or 403 throughout, none reached a handler.
+  - ran: drove the same 59 as an ordinary authenticated member: five answered something other than 401/403/404, all of them because zValidator runs before the authorization check. With a valid body the same route answers 403, which is what proves the guard itself is sound.
+  - **medium** routes/tenants.ts — no audit entry on any privileged write — creating a tenant, suspending one, granting or revoking tenant membership with a role — while routes/permissions.ts audits the same act on its own endpoint. → *repaired* (#463)
+  - **low** routes/tenants.ts — zValidator runs before the authorization check, so an unauthorized member receives the schema's complaint (400) rather than a refusal. The guard is sound — a valid body answers 403 — but the surface carries two guard shapes and the second one authorizes after doing work. → *logged* (known-gaps.md)
+  - not done: PARTIAL. Both of the section's questions are answered across the whole surface by measurement, and the audit half is repaired. What is not done is line-by-line reading: admin/system-routes.ts (707 lines) and routes/admin.ts outside its guards and API-key routes. The ordering finding is logged rather than repaired because the fix touches six handlers and GET /api/tenants/me is deliberately member-accessible, so the mount-level shape used by adminRoutes does not transfer.
 
 ### A17 — Settings, audit trail, templates, RPC, data quality
 
@@ -1361,6 +1380,16 @@ After it: A10, A12, A13, A14 …
 
 **Sessions**
 
+- **2026-09-04** · claude-opus-5 · 4 files · **logged** · `review/E02-gates-authz`
+  - ran: release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as ✓ 'skipped (offline)'; the one real failure (version consistency) still exits 1
+  - ran: merge-coverage with a missing input lane → throws, exit 1 (fail-closed)
+  - ran: review-inventory: planted a nonexistent path in a session → accepted silently, exit 0
+  - ran: review-inventory: planted an A05 file under an E02 session → A05 shows 1/7 with 'last session —'
+  - **low** scripts/release-gate.ts:183 (and soak, P0) — RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as ✓ and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI — the pattern exists and is not applied here. CORRECTION (found while reading E08, same day): the variable is set nowhere in .github/ or package.json, and release.yml runs the gate with GH_TOKEN — so this is the shape of the escape hatch, not a live gap. Recorded as medium before that was checked. → *logged* (known-gaps.md)
+  - **medium** scripts/release-gate.ts:66 checkCoverage() — reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured. → *logged* (known-gaps.md)
+  - **medium** scripts/review-inventory.ts (session attribution) — `reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section — planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session —', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate. → *logged* (known-gaps.md)
+  - **low** scripts/merge-coverage.ts:57 — nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is. → *logged* (known-gaps.md)
+  - not done: SELF-REVIEW on review-inventory.ts, which I wrote today — the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.
 - **2026-09-04** · claude-opus-5 · 6 files · **partial** · `review/E04-gates-coverage-ratchets`
   - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
   - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
@@ -1386,16 +1415,6 @@ After it: A10, A12, A13, A14 …
   - **medium** scripts/coverage-gate.ts (--update) — --update reset `gated` to the GATED constant, silently removing `routes` from enforcement, dropped `floor`/`floorNote`, and overwrote the baseline's honest provenance with a fixed sentence about the unit suite. The repair policy forbids editing a baseline to make a gate pass; the gate's own --update did it. Decisions are now preserved and `source` names the report actually graded. → *fixed*
   - **low** scripts/coverage-gate.ts (printTable) — the `[gated]` tag came from the GATED constant while enforcement iterated baseline.gated, so the table printed `lib [gated]`, left `routes` untagged, and the gate then failed on `routes` one line below. Now reads the baseline. → *fixed*
   - not done: Four of the ten files remain unread: merge-coverage.ts, release-gate.ts, lib/install-template.ts and review-inventory.ts. lint-warning-ratchet.ts was read and exercised but nothing was planted against it; its `ran` guard is the right shape and is untested. One finding in its own right, not merely an open question: a file-level `biome-ignore-all` also zeroes a rule's count in lint-warning-ratchet, where it reads as an IMPROVEMENT and prompts lowering the baseline — a gate that would actively reward the defect. And require-sibling, now repaired to demand a corpus, still cannot tell a STALE sibling from a current one: the checkout beside this one is 8 commits behind origin/master, so sibling-scanning gates answer confidently about code that no longer exists (sql:jsonb flags ~45 sites master has already fixed).
-- **2026-09-04** · claude-opus-5 · 4 files · **logged** · `review/E02-gates-authz`
-  - ran: release-gate with RELEASE_GATE_SKIP_NETWORK=1 on a stable version: 3 of 7 checks render as ✓ 'skipped (offline)'; the one real failure (version consistency) still exits 1
-  - ran: merge-coverage with a missing input lane → throws, exit 1 (fail-closed)
-  - ran: review-inventory: planted a nonexistent path in a session → accepted silently, exit 0
-  - ran: review-inventory: planted an A05 file under an E02 session → A05 shows 1/7 with 'last session —'
-  - **low** scripts/release-gate.ts:183 (and soak, P0) — RELEASE_GATE_SKIP_NETWORK=1 returns ok:true for 'required CI green', 'latest soak green' and 'no open P0 issues'. They print as ✓ and the summary says 'all 7 checks passed' having verified four. audit-gates, in the same repo, treats a skipped case as loud, listed separately and fatal in CI — the pattern exists and is not applied here. CORRECTION (found while reading E08, same day): the variable is set nowhere in .github/ or package.json, and release.yml runs the gate with GH_TOKEN — so this is the shape of the escape hatch, not a live gap. Recorded as medium before that was checked. → *logged* (known-gaps.md)
-  - **medium** scripts/release-gate.ts:66 checkCoverage() — reads `measured` and `target` from quality-gates/coverage-baseline.json and compares them to each other. It never measures. Both numbers are hand-maintained in one file whose own notes record the record going stale three times (2026-08-19, 08-23, 09-03). The check that gates a stable release can pass on a number nobody has re-measured. → *logged* (known-gaps.md)
-  - **medium** scripts/review-inventory.ts (session attribution) — `reviewed` is a flat global set of every path in every session's `files`, so the session's declared `section` is not enforced. A path recorded under the wrong section still ticks its real section — planted: an A05 file under an E02 entry left A05 reading 1/7 with 'last session —', a section partly reviewed by nobody. A path that exists in no section, or does not exist at all, is accepted silently. The coverage number this campaign rests on accepts input it does not validate. → *logged* (known-gaps.md)
-  - **low** scripts/merge-coverage.ts:57 — nonExecutableLines() reads today's source to decide which lines of an lcov are non-executable, with no check that the lcov and the working tree are the same commit. A stale lcov is filtered against shifted line numbers. The direction is not guaranteed conservative the way a missing source file is. → *logged* (known-gaps.md)
-  - not done: SELF-REVIEW on review-inventory.ts, which I wrote today — the weakest kind, and the finding above is mine to have avoided. It should be re-read by another session. Nothing repaired: the release-gate findings are decisions about how a skip should read, and the generator fix belongs to whoever re-reads it independently. install-template.ts interpolates `dbName` into DROP/CREATE DATABASE without validation; the two callers pass module constants, so it is a consistency note against the sql.id() standard set in d12b6480, not a finding.
 - **2026-09-04** · claude-opus-5 · 5 files · **partial** · `review/E04-gates-coverage-ratchets`
   - ran: biome lint on a probe carrying `biome-ignore-all` for noExplicitAny + three bare any — 0 diagnostics, so biome honours the file-level form; the same file without it — 1 per any
   - ran: any-ratchet over that tree — 'OK — total suppressions 1137 (baseline 1137)', having counted none of the three
@@ -1591,12 +1610,12 @@ After it: A10, A12, A13, A14 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **849** of 882.
+Test files nobody has opened yet: **847** of 885.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 490 |
-| `packages/engine/src/tests/harness` | 281 |
+| `packages/engine/src/tests/harness` | 279 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |

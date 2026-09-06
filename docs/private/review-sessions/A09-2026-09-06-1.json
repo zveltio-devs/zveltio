@@ -1,0 +1,51 @@
+{
+  "section": "A09",
+  "date": "2026-09-06",
+  "agent": "claude-opus-5",
+  "branch": "review/A09-base-schema",
+  "files": ["packages/engine/src/db/migrations/sql/001_initial.sql"],
+  "tests": [
+    "packages/engine/src/tests/harness/rls-role-credential-grants.test.ts",
+    "packages/engine/src/tests/harness/flow-query-db-role.test.ts",
+    "packages/engine/src/tests/harness/ddl-tenant-default-guard.test.ts"
+  ],
+  "ran": [
+    "built a purpose-made database (zveltio_review_a09) and applied the whole chain 001..011 from a virgin state, then read the file against that database rather than alone",
+    "counted RLS: 001 issues 4 ENABLE and 4 FORCE statements and creates 3 policies; live, 6 tables carry RLS (zv_edge_functions, zv_edge_function_logs, zvd_insight_saved_queries forced; session, account, verification, twoFactor enabled and deliberately not forced) and 5 policies exist -- every other table's isolation is installed at boot by the reconciler, not by this file",
+    "counted unique keys that omit tenant_id on a table that has one: 2 of 21 (zv_api_keys.key_hash, zv_invitations.token), both global-by-design credential lookups reached before tenant resolution",
+    "counted tenant_id columns after the full chain: 21 columns, 17 carrying the COALESCE(NULLIF(current_setting('zveltio.current_tenant',true),'')::uuid, root) default, 6 NOT NULL -- the absence-resolves-to-root shape, measured again and left alone as an owner decision",
+    "checked index cover: every table with tenant_id has an index leading on tenant_id (zero exceptions)",
+    "measured the zveltio_worker grant path on a live table: created a zvd_ table the way DDLManager does and asked has_table_privilege -- worker false, flow_reader false, rls true -- then SET LOCAL ROLE zveltio_worker and read it: permission denied for table zvd_probe_new",
+    "grepped both repositories for grantWorkerSqlAccess(), the function 001 names as the create-time grant: it does not exist; grantFlowReaderSelect() does and is called at ddl-manager.ts:460",
+    "executed the file's own DOWN section against the migrated database, first inside a rolled-back transaction (aborts at the first failure) and then statement by statement to enumerate the rest",
+    "checked pg_default_acl: ALTER DEFAULT PRIVILEGES names zveltio_rls only, so no later-created table reaches zveltio_worker by that route either",
+    "verified the zv_encrypted_fields view is absent on a fresh install (its guard tests for zv_collections; the table is zvd_collections) and that nothing in either repository reads it -- already recorded in migration 011",
+    "ran the schema gates: check:schema, check:schema-snapshot, check:table-owners, check:raw-sql, sql:backticks, sql:numeric-arith, sql:jsonb, catch:fabricated -- all pass; scripts/check-migration-safety.ts reports no new or changed migrations",
+    "ran the three harness tests that touch these roles: 13 pass, 0 fail -- and none of them would have failed on the worker-grant defect, which is why it is measured above rather than asserted there"
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "packages/engine/src/db/migrations/sql/001_initial.sql (043 stanza) + packages/engine/src/lib/data/ddl-manager.ts",
+      "what": "zveltio_worker is granted DML on the zvd_ tables that exist when the migration runs, and its comment says 'New ones are granted at create time; see grantWorkerSqlAccess() beside grantFlowReaderSelect()'. grantWorkerSqlAccess does not exist. DDLManager calls only grantFlowReaderSelect, and ALTER DEFAULT PRIVILEGES names zveltio_rls alone, so a collection created after install reaches the worker role by no path at all. Measured on a live database: has_table_privilege(zveltio_worker, new zvd_ table, SELECT) is false and a query under SET LOCAL ROLE zveltio_worker answers 'permission denied for table'. The bridge catches a failing SET ROLE and falls back to zveltio_rls, but SET ROLE succeeds here -- it is the query that fails -- so a worker-isolated extension breaks on exactly the collections it exists to serve. The flow_reader half of the same design is correct, which is what makes the asymmetry invisible when reading.",
+      "status": "logged",
+      "why_not_fixed": "the repair is in ddl-manager.ts (section A13), not in this section's file, and needs a harness test that creates a collection and asserts the grant"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/db/migrations/sql/001_initial.sql, DOWN section",
+      "what": "the DOWN of the baseline neither completes nor cleans up. Executed against a database built by the file's own UP: it aborts at 'DROP ROLE IF EXISTS zveltio_worker' (role cannot be dropped, privileges for schema public depend on it), and run past that, six statements fail on dependent objects (zvd_panel_cache -> zv_panels, zv_panels -> zv_dashboards, zv_flow_dlq -> zv_flows, zv_tenant_transfers -> zv_tenants, zv_flows -> user) and 26 of the 72 tables are left standing, along with zveltio_rls, zveltio_flow_reader and the zveltio_tenant_scope_ok overloads. Tables created by the folded-in later migrations -- zv_flow_dlq, zv_invitations, zv_erd_layouts, the backup trio, the zvd_ insights set, zvd_column_permissions, zvd_push_tokens, zvd_rls_policies, zvd_rpc_functions, zv_request_logs, zv_audit_log, zv_roles -- have no DROP at all. This has been unreachable until now: rollbackMigration listed migrations/sql/ unconditionally and failed in every compiled binary (repaired in #471), so the DOWN of 001 has never run.",
+      "status": "logged",
+      "why_not_fixed": "001 is a shipped migration whose checksum is verified at every boot; editing it reports a mismatch on every existing install, which is the exact reason this file exists as a squash. The repair is a later migration or a rollback path that does not depend on this DOWN -- an owner decision, not a review edit."
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/db/migrations/sql/001_initial.sql (041 stanza)",
+      "what": "idx_zv_revisions_lookup is byte-identical to idx_zv_revisions_record created in the 004 stanza of the same file -- both btree (collection, record_id, created_at DESC). Confirmed on the live database: zv_revisions carries seven indexes, two of them the same index. It is the table every record write appends to, so the cost is paid on every write for nothing.",
+      "status": "logged",
+      "why_not_fixed": "same shipped-checksum constraint as above; a DROP INDEX belongs in a new migration"
+    }
+  ],
+  "verdict": "logged",
+  "notes": "Read end to end, UP (lines 1-3824) and DOWN (3826-4212). The file is 77 CREATE TABLEs and 49 folded migrations, and its commentary is unusually load-bearing: several stanzas explain exactly why a thing is shaped the way it is (029/047 tenant predicate, 044 ENABLE-not-FORCE on the Better-Auth tables, 030 the enforcement role). Two of the three findings are places where that commentary describes a mechanism that is not there."
+}
