@@ -38,16 +38,44 @@ describe.skipIf(!URL)('zveltio_rls grants stay inside the engine namespace', () 
     ({ db } = await getTestApp());
   });
 
-  it('holds no grant on a table outside zv_/zvd_ except the ones named here', async () => {
-    const rows = await sql<{ table_name: string }>`
-      SELECT DISTINCT table_name FROM information_schema.role_table_grants
+  it('holds no grant on a credential table', async () => {
+    // The rule used to be "nothing outside `zv_`/`zvd_`", which was wrong and
+    // took an installed extension to show. Extension tables are NOT all
+    // prefixed: `operations/traceability` creates `trace_lots`,
+    // `trace_suppliers` and fourteen more, and 109 of roughly 300 extension
+    // tables are named after the feature rather than the folder. Those grants
+    // are correct — an extension cannot read its own data without them — so the
+    // old rule failed on any install carrying such an extension, and passed here
+    // only because this database had none. A test that turns green on the
+    // absence of an extension is not testing the property it names.
+    //
+    // The property that actually matters is narrower and does not move: the role
+    // every tenant transaction drops into must hold nothing on a table that
+    // stores a credential. Those tables are known by name, they are the ones
+    // migration 044 left without RLS on purpose, and a new one appearing in a
+    // Better-Auth upgrade is exactly what this should fail on.
+    const CREDENTIAL_TABLES = ['session', 'account', 'verification', 'twoFactor', 'passkey'];
+    const rows = await sql<{ table_name: string; privilege_type: string }>`
+      SELECT DISTINCT table_name, privilege_type
+        FROM information_schema.role_table_grants
        WHERE grantee = 'zveltio_rls'
          AND table_schema = 'public'
-         AND table_name !~ '^(zv_|zvd_)'
-       ORDER BY table_name
+         AND table_name = ANY(${CREDENTIAL_TABLES})
+       ORDER BY table_name, privilege_type
     `.execute(db);
-    const unexpected = rows.rows.map((r) => r.table_name).filter((t) => !DELIBERATE.has(t));
-    expect(unexpected).toEqual([]);
+    expect(rows.rows.map((r) => `${r.table_name}:${r.privilege_type}`)).toEqual([]);
+  }, 60_000);
+
+  it('still holds the one unprefixed grant that is deliberate', async () => {
+    // `user` is granted on purpose — it holds no credential, the password is in
+    // `account` and the token in `session` — and the reason is recorded at the
+    // grant site. Pinned so the check above cannot be satisfied by a role that
+    // has simply been granted nothing at all.
+    const rows = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM information_schema.role_table_grants
+       WHERE grantee = 'zveltio_rls' AND table_schema = 'public' AND table_name = 'user'
+    `.execute(db);
+    expect(rows.rows[0]!.n).toBeGreaterThan(0);
   }, 60_000);
 
   it('cannot read a session token or write a passkey', async () => {

@@ -242,12 +242,29 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Revoke API key
   app.delete('/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db
+    // What the UPDATE actually matched decides the answer.
+    //
+    // This returned `{ success: true }` unconditionally. An id that does not
+    // exist, or one belonging to another firm — the tenant predicate below is
+    // deliberate and stays — answered "done" while the key stayed live. On a
+    // REVOCATION that is the dangerous direction to be wrong in: an
+    // administrator who believes a leaked credential is dead stops looking for
+    // it. Measured before the change: revoking a random UUID answered 200.
+    //
+    // The audit entry moved below the check for the same reason. A trail of
+    // revocations that did not happen is worse than a gap, because it is read as
+    // evidence.
+    const revoked = await db
       .updateTable('zv_api_keys')
       .set({ is_active: false })
       .where('id', '=', keyId)
       .where('tenant_id', '=', getCurrentDomain())
-      .execute();
+      .executeTakeFirst();
+
+    if (!revoked.numUpdatedRows) {
+      return c.json({ error: 'API key not found' }, 404);
+    }
+
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
