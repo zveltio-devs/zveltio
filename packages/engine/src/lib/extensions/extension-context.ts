@@ -118,9 +118,32 @@ export function createRestrictedDb(
       // with the request that triggered it.
       if (prop === 'transaction' && isTenantTransaction(target)) {
         return () => {
+          // Refuse what this shim cannot honour, rather than accept it silently.
+          //
+          // Both settings used to return the builder and do nothing. An
+          // extension writing `.setAccessMode('read only')` got a read-write
+          // transaction and no error — a safety expectation quietly unmet — and
+          // one relying on `setIsolationLevel('serializable')` for a
+          // read-modify-write got the default and a race it had explicitly asked
+          // not to have.
+          //
+          // Neither can be honoured here by construction: this JOINS the
+          // request's transaction rather than opening one, and the isolation
+          // level and access mode of a transaction are fixed when it begins.
+          // Nothing in the 56 first-party extensions calls either today, so this
+          // breaks nobody now and stops the first caller from believing it.
+          const refuse = (what: string): never => {
+            throw new Error(
+              `Extension "${extName}" called ${what}() on ctx.db.transaction(), which joins ` +
+                `the request's existing transaction rather than opening one. Its isolation ` +
+                `level and access mode were fixed when the request began and cannot be ` +
+                `changed here. Accepting the call and ignoring it would give you the opposite ` +
+                `of what you asked for, silently.`,
+            );
+          };
           const builder = {
-            setIsolationLevel: () => builder,
-            setAccessMode: () => builder,
+            setIsolationLevel: () => refuse('setIsolationLevel'),
+            setAccessMode: () => refuse('setAccessMode'),
             execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> => fn(target),
           };
           return builder;
