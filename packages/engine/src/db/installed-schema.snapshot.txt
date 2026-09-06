@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 385
+# tables: 387
 
 table account
   col accessToken                    text
@@ -5260,6 +5260,15 @@ table zvd_locales
   rls enabled forced
   pol tenant_isolation_zvd_locales FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
+table zvd_mail_config
+  col config                         jsonb NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  pk  zvd_mail_config_pkey PRIMARY KEY (tenant_id)
+  rls enabled forced
+  pol tenant_isolation_zvd_mail_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+
 table zvd_mileage_entries
   col amount                         numeric
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -6218,6 +6227,15 @@ table zvd_saml_config
   pk  zvd_saml_config_pkey PRIMARY KEY (tenant_id)
   rls enabled forced
   pol tenant_isolation_zvd_saml_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+
+table zvd_saml_consumed_assertions
+  col assertion_id                   text NOT NULL
+  col consumed_at                    timestamp with time zone NOT NULL DEFAULT now()
+  col expires_at                     timestamp with time zone NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  pk  zvd_saml_consumed_assertions_pkey PRIMARY KEY (tenant_id, assertion_id)
+  rls enabled forced
+  pol tenant_isolation_zvd_saml_consumed_assertions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_saml_idp_metadata
   col entity_id                      text NOT NULL

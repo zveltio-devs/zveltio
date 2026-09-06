@@ -41,10 +41,32 @@ const ALLOWED_ATTRS = [
  * stripped entirely rather than trusted. That degrades the first paint of a
  * server-rendered page to plain text instead of shipping unsanitised markup,
  * which is the right way round.
+ *
+ * That was true only for WELL-FORMED markup. `replace(/<[^>]*>/g, '')` needs a
+ * closing `>` to match, so an UNCLOSED tag passed through untouched — and an
+ * HTML parser closes one for you at the end of a document. Measured on the
+ * shipped expression:
+ *
+ *   '<img src=x onerror=alert(1)>'  -> ''                              stripped
+ *   '<img src=x onerror=alert(1)'   -> '<img src=x onerror=alert(1)'   INTACT
+ *   'Hello <svg onload=alert(1)'    -> 'Hello <svg onload=alert(1)'    INTACT
+ *
+ * On the public site this is defence in depth — the engine's `sanitize-html`
+ * has already parsed the same content structurally, on write and again on the
+ * public read path, and would have dropped these. But `safeHtml` is exported
+ * from this client bundle for third-party SvelteKit apps to import, and its
+ * contract is "returns HTML safe to hand to {@html}". A caller handing it
+ * unsanitised content — the case the function exists for — got a bypass.
+ *
+ * Complete tags are still removed, so well-formed input renders as before. What
+ * is left over is escaped rather than deleted: `a < b` stays readable, and a
+ * dangling `<img …` becomes text instead of an element.
  */
 export function safeHtml(html: unknown): string {
   if (typeof html !== 'string' || html.length === 0) return '';
-  if (typeof window === 'undefined') return html.replace(/<[^>]*>/g, '');
+  if (typeof window === 'undefined') {
+    return html.replace(/<[^>]*>/g, '').replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'));
+  }
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: ALLOWED_ATTRS,

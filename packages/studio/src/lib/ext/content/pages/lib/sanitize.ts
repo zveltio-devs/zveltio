@@ -15,15 +15,38 @@ import DOMPurify from 'dompurify';
 // DOMPurify keeps safe-scheme url() otherwise. Matches the engine's per-property
 // CSS validation. Registered once (hooks are global) in a DOM context.
 const DANGEROUS_STYLE = /url\(|expression\(|@import|javascript:|\/\*/i;
-let _styleHookAdded = false;
-function ensureStyleHook(): void {
-  if (_styleHookAdded || typeof window === 'undefined') return;
-  _styleHookAdded = true;
-  DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+
+/**
+ * Our OWN DOMPurify, not the shared module singleton.
+ *
+ * `addHook` registers on the instance, and `import DOMPurify from 'dompurify'`
+ * is ONE instance for the whole tab — `hooks` lives inside `createDOMPurify`'s
+ * closure (purify.cjs.js:528). So the hook below ran for every caller in the
+ * Studio bundle, including `content/pages/client/sanitize.ts`, which allows
+ * `style` deliberately because a hero block carries
+ * `style="background-image: url(/img/hero.jpg)"`.
+ *
+ * Opening the page builder therefore changed how the PUBLIC renderer treated
+ * styles for the rest of the session — correct on a fresh load, wrong after
+ * visiting the builder, correct again after a refresh.
+ *
+ * This is a preview of an author's own draft, so stripping `url()` here is
+ * right; doing it to everything else in the tab is not. Calling the default
+ * export as a function returns a fresh instance with its own hooks, built once
+ * and cached because the factory re-derives its configuration from the window on
+ * every call.
+ */
+let _purify: ReturnType<typeof DOMPurify> | null = null;
+function purifier(): ReturnType<typeof DOMPurify> {
+  if (_purify) return _purify;
+  const instance = DOMPurify(window);
+  instance.addHook('uponSanitizeAttribute', (_node, data) => {
     if (data.attrName === 'style' && DANGEROUS_STYLE.test(data.attrValue)) {
       data.keepAttr = false;
     }
   });
+  _purify = instance;
+  return instance;
 }
 
 const ALLOWED_TAGS = [
@@ -79,8 +102,7 @@ const ALLOWED_ATTRS = [
 export function safeHtml(html: unknown): string {
   if (typeof html !== 'string' || html.length === 0) return '';
   if (typeof window === 'undefined') return html.replace(/<[^>]*>/g, '');
-  ensureStyleHook();
-  return DOMPurify.sanitize(html, {
+  return purifier().sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: ALLOWED_ATTRS,
     ADD_ATTR: ['rel'],
