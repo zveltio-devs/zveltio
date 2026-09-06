@@ -272,12 +272,21 @@ campaign:
   `lib/notifications.ts` was missed, so the data repair in migration 010 was
   undone by the next notification.
 
+**A variant worth naming, because it is easier to catch and was not caught.** The
+twin is not always in another file. Four times in this campaign the correct
+pattern and the broken one sat a few lines apart in the same function or the same
+file: `PATCH /production/:id/start` doing `WHERE id = … AND status = 'draft'
+RETURNING *` two handlers above a `complete` that read then wrote; the
+single-record write path awaiting `afterWrite` while the bulk path beside it did
+not; the two API-key revocation handlers. Proximity reads as consistency. A file
+that gets one case right is where nobody looks for the case it gets wrong.
+
 **What follows for the method.** When a repair is made, ask what else has the
-same shape and go and look — a grep for the sink, not for the file. When a
-finding is dismissed, record what was examined, so the next reader can tell
-"this code is safe" from "this code was safe in August". And after any fix,
-re-run the measurement that found the defect: a second copy answers the same
-probe the same way, which is how the twin above was found.
+same shape and go and look — a grep for the sink, not for the file, and then a
+read of the neighbours. When a finding is dismissed, record what was examined, so
+the next reader can tell "this code is safe" from "this code was safe in August".
+And after any fix, re-run the measurement that found the defect: a second copy
+answers the same probe the same way, which is how the twin above was found.
 
 ### 15. Frontend-specific (Track C)
 
