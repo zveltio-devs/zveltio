@@ -3,9 +3,7 @@
   "date": "2026-09-06",
   "agent": "claude-opus-5",
   "branch": "review/A09-base-schema",
-  "files": [
-    "packages/engine/src/db/migrations/sql/001_initial.sql"
-  ],
+  "files": ["packages/engine/src/db/migrations/sql/001_initial.sql"],
   "tests": [
     "packages/engine/src/tests/harness/rls-role-credential-grants.test.ts",
     "packages/engine/src/tests/harness/flow-query-db-role.test.ts",
