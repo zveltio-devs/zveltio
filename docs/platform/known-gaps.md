@@ -1106,6 +1106,89 @@ contract.
 
 ---
 
+### A09 — the base schema, read against a live database (2026-09-06, closed 1/1)
+
+One file, 4,212 lines: 77 `CREATE TABLE`s and 49 folded migrations. Read end to
+end and measured against a database built from it, which is the only way three
+of these were visible.
+
+**Gap (high) — `zveltio_worker` is granted nothing on any collection created
+after install.** The 043 stanza grants the worker role DML on the `zvd_` tables
+that exist when the migration runs, and says of the rest: *"New ones are granted
+at create time; see `grantWorkerSqlAccess()` beside `grantFlowReaderSelect()`."*
+`grantWorkerSqlAccess` does not exist in either repository. `DDLManager` calls
+`grantFlowReaderSelect` and nothing else (`ddl-manager.ts:460`), and
+`ALTER DEFAULT PRIVILEGES` names `zveltio_rls` alone, so there is no second
+route either. Measured:
+
+    has_table_privilege('zveltio_worker', <new zvd_ table>, 'SELECT')  → false
+    SET LOCAL ROLE zveltio_worker; SELECT … → permission denied for table
+
+The bridge in `worker-extension-host.ts` falls back to `zveltio_rls` when
+`SET LOCAL ROLE` *throws* — but the role exists, so the `SET` succeeds and the
+query is what fails. A worker-isolated extension therefore breaks on exactly the
+collections it exists to serve, and only on installs where the collection was
+created after the migration ran, which is every real install. The `flow_reader`
+half of the same design is correct and was verified alongside it; the asymmetry
+is what makes this invisible to reading. Repair belongs in A13
+(`ddl-manager.ts`), with a harness test that creates a collection and asserts the
+grant — the existing role tests pass with the defect in place.
+
+**Gap (medium) — the baseline's `-- DOWN` neither completes nor cleans up.**
+Executed against a database built by its own UP. It aborts at
+`DROP ROLE IF EXISTS zveltio_worker` ("role cannot be dropped because some
+objects depend on it — privileges for schema public"). Driven past that, six
+statements fail on dependent objects (`zvd_panel_cache`→`zv_panels`,
+`zv_panels`→`zv_dashboards`, `zv_flow_dlq`→`zv_flows`,
+`zv_tenant_transfers`→`zv_tenants`, `zv_flows`→`user`) and **26 of the 72 tables
+are left standing**, along with both remaining roles and the
+`zveltio_tenant_scope_ok` overloads. Everything the folded-in later migrations
+created — `zv_flow_dlq`, `zv_invitations`, `zv_erd_layouts`, the backup trio, the
+`zvd_` insights set, `zvd_column_permissions`, `zvd_push_tokens`,
+`zvd_rls_policies`, `zvd_rpc_functions`, `zv_request_logs`, `zv_audit_log`,
+`zv_roles` — has no `DROP` at all. This was unreachable until yesterday:
+`rollbackMigration` listed `migrations/sql/` unconditionally and failed in every
+compiled binary (repaired in #471). Not repaired here, and not repairable here:
+001 is a shipped migration whose checksum is verified at every boot, and editing
+it reports a mismatch on every existing install — the reason the squash exists.
+A later migration, or a rollback path that does not depend on this DOWN, is an
+owner call.
+
+**Gap (low) — one index exists twice.** `idx_zv_revisions_lookup` (041 stanza) is
+byte-identical to `idx_zv_revisions_record` (004 stanza): both
+`btree (collection, record_id, created_at DESC)`. `zv_revisions` carries seven
+indexes on a live install, two of them the same index, on the table every record
+write appends to. Same shipped-checksum constraint; a `DROP INDEX` belongs in a
+new migration.
+
+**Verified clean, with the measurement.**
+
+- **Unique keys carry `tenant_id`,** with two deliberate exceptions out of 21
+  tenant-scoped tables: `zv_api_keys.key_hash` and `zv_invitations.token`. Both
+  are credential lookups reached *before* tenant resolution, so global uniqueness
+  is the correct shape and the file says so.
+- **Every table with a `tenant_id` has an index leading on it** — no exceptions.
+- **The root-tenant default was measured again, not changed:** 21 `tenant_id`
+  columns, 17 carrying the `COALESCE(NULLIF(current_setting(…),''), root)`
+  default, 6 `NOT NULL`. Absence of a tenant context resolves to the root tenant.
+  Recorded as an owner decision (see A04/A08), not repaired.
+- **RLS in this file is small and deliberate:** 4 `ENABLE`, 4 `FORCE`, 3
+  policies. Live, six tables carry RLS — three forced (`zv_edge_functions`,
+  `zv_edge_function_logs`, `zvd_insight_saved_queries`) and four enabled without
+  `FORCE` (`session`, `account`, `verification`, `twoFactor`), which is the 044
+  design: the owner connection stays unbound so Better-Auth keeps working, and
+  every other role sees zero rows with no policy present. Every other table's
+  isolation is installed at boot by the reconciler, not here.
+- `zv_encrypted_fields` is never created on a fresh install — its guard tests for
+  `zv_collections` where the table is `zvd_collections` — and nothing reads it.
+  Already recorded in migration 011; noted here only so the next reader does not
+  re-find it.
+- Gates: `check:schema`, `check:schema-snapshot`, `check:table-owners`,
+  `check:raw-sql`, `sql:backticks`, `sql:numeric-arith`, `sql:jsonb`,
+  `catch:fabricated` all pass, and `check-migration-safety.ts` reports nothing to
+  check — it skips 001 by design, which is correct and worth knowing: this file
+  has never been linted by that gate.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
