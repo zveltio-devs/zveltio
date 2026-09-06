@@ -858,7 +858,7 @@ independently of their test. The SP-initiated flow fails separately because the
 extension builds a fresh SAML instance per request and the in-memory cache holding
 the request id is not shared between `/login` and `/callback`.
 
-### A16 — tenant and admin routes (2026-09-05, partial)
+### A16 — tenant and admin routes (2026-09-06, closed 5/5)
 
 The section asks two questions — a guard on every route, an audit entry on every
 privileged write — and both were measured rather than read for.
@@ -891,8 +891,45 @@ Recorded because the surface has two guard shapes — `adminRoutes` guards at th
 mount, `tenants.ts` inside each handler — and the next handler added to the
 second shape is the one that will do work before its check.
 
-Still unread in this section: `admin/system-routes.ts` (707 lines) end to end,
-and `routes/admin.ts` outside its guards and API-key routes.
+#### The last two files (2026-09-06)
+
+**Fixed (#468) — a revocation that revoked nothing answered "done".** Both API-key
+surfaces are twins with the same body, and both returned `{ success: true }`
+whatever the scoped UPDATE matched. Measured: revoking a random UUID answered
+200. On a revocation that is the dangerous direction — an administrator who
+believes a leaked credential is dead stops looking for it — and the audit entry
+was written either way, so the trail carried revocations that had not happened.
+The tenant predicate is unchanged and the same 404 covers "not yours" and "does
+not exist", so nothing new is disclosed about another firm's ids.
+
+**Fixed (#468) — the request-log total described a different list.** `GET
+/api/admin/logs` filtered the rows and counted the whole table, so a filter by
+`status=500` answered `total: 40000` beside three rows. The path filter also
+reached a LIKE pattern unescaped while `routes/users.ts` escapes its own search
+with the helper that exists for it.
+
+**A test of mine that was wrong, and what showed it.**
+`rls-role-credential-grants.test.ts` asserted that `zveltio_rls` holds nothing
+outside `zv_`/`zvd_` except `user`. Extension tables are not all prefixed —
+`operations/traceability` alone creates sixteen `trace_*` tables, and roughly a
+third of extension tables are named after the feature rather than the folder.
+Those grants are correct; an extension cannot read its own data without them. The
+rule therefore failed on any install carrying such an extension and passed here
+only because the verification database had none. **A test that turns green on the
+absence of an extension is not testing the property it names.** Narrowed to the
+one that does not move: the role every tenant transaction drops into holds
+nothing on a credential table.
+
+**Verified clean, with the measurement.**
+
+- API keys are minted through the shared `hashApiKey` on both surfaces, listed
+  and revoked under a tenant predicate, and every write is audited. A key issued
+  in one firm and sent with another firm's slug is refused, with root-tenant keys
+  acting anywhere as a documented decision.
+- `POST /explain` is disabled in production, builds a fixed statement shape and
+  passes identifiers through `sql.table`/`sql.ref` — not an arbitrary-SQL surface.
+- `/logs` and `/slow-queries` read tables with no `tenant_id`, and both are
+  instance-admin only, which is consistent.
 
 ### A property every error path in the engine depends on (2026-09-05)
 
@@ -1041,6 +1078,31 @@ backlog's "a case per gate, not per repair". Two known misses in
 `check-jsonb-binding` — a `JSON.stringify` reaching the column through a local
 variable, and the raw-value case its own header declines to claim — were recorded
 on 2026-09-04 and are unchanged.
+
+### A decision to revisit, not a defect to fix (2026-09-05)
+
+`ctx.db.transaction()` on an extension's handle joins the request's transaction
+rather than opening one. The builder it returns accepts `setIsolationLevel` and
+`setAccessMode` and **ignores both**, returning itself so the chain an extension
+would naturally write keeps working.
+
+Neither can be honoured here by construction: a transaction's isolation level and
+access mode are fixed when it begins, and this joins one already open. So an
+extension writing `.setAccessMode('read only')` gets a read-write transaction and
+no error, and one relying on `setIsolationLevel('serializable')` for a
+read-modify-write gets the default and the race it explicitly asked not to have.
+
+**Reported as a defect and withdrawn as one.** The behaviour is pinned by a test —
+`extension-db-transaction-join.test.ts`, "accepts the builder chain an extension
+would write" — so it is a deliberate trade: not crashing on the natural Kysely
+chain, at the cost of a setting quietly meaning nothing. Making it throw was
+written, tested and reverted, because reversing a pinned decision on a reviewer's
+own judgement is not a repair.
+
+Recorded so the trade is visible where the other findings are. Nothing in the 56
+first-party extensions calls either method today — measured — so the cost is
+entirely in the future, and the choice belongs to whoever owns the extension
+contract.
 
 ---
 

@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { sql } from 'kysely';
+import { sql, type ExpressionBuilder } from 'kysely';
 import type { Database } from '../../db/index.js';
+import type { DbSchema } from '../../db/schema.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
+import { escapeLike } from '../../lib/data/index.js';
 import { hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -181,12 +183,23 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // DELETE /api-keys/:id — Revoke API key
   app.delete('/api-keys/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db
+    // What the UPDATE matched decides the answer — see the twin of this handler
+    // in `routes/admin.ts`, which had the identical shape. Both said
+    // `{ success: true }` for an id that does not exist or belongs to another
+    // firm, while the key stayed live. On a revocation that is the dangerous
+    // direction: an administrator who believes a leaked credential is dead stops
+    // looking for it.
+    const revoked = await db
       .updateTable('zv_api_keys')
       .set({ is_active: false })
       .where('id', '=', keyId)
       .where('tenant_id', '=', tenantId(c))
-      .execute();
+      .executeTakeFirst();
+
+    if (!revoked.numUpdatedRows) {
+      return c.json({ error: 'API key not found' }, 404);
+    }
+
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
@@ -699,23 +712,48 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = db
-      .selectFrom('zv_request_logs')
-      .selectAll()
-      .orderBy('created_at', 'desc')
-      .limit(parsedLimit)
-      .offset(offset);
-
-    if (path) query = query.where('path', 'like', `%${path}%`);
-    if (status) query = query.where('status', '=', parseInt(status));
-    if (method) query = query.where('method', '=', method.toUpperCase());
-    if (user_id) query = query.where('user_id', '=', user_id);
+    // One place that decides what "matching" means, applied to the rows and to
+    // the count.
+    //
+    // The count used to be an unfiltered `count(id)` over the whole table while
+    // the list was filtered. Filter by `status=500` on an instance with forty
+    // thousand logged requests and the response said `total: 40000` beside three
+    // rows, so the caller paged through empty pages looking for the rest. A
+    // total that does not describe the list it accompanies is worse than no
+    // total: the reader has no way to tell it is wrong.
+    //
+    // `escapeLike` on the path, which `routes/users.ts` already does for its own
+    // search. Without it a `%` or `_` typed into the box is a wildcard, so
+    // searching for a literal `/api/v1/_internal` quietly matches far more than
+    // it names.
+    // One expression, handed to both queries. A generic "apply the filters to a
+    // builder" helper needs the two builder types to be one type and they are
+    // not, which is how the first version of this reached for `any` — and the
+    // ratchet refused it, correctly: the value has a type, the helper just did
+    // not want to name it.
+    const conditions = (eb: ExpressionBuilder<DbSchema, 'zv_request_logs'>) => {
+      const parts = [
+        ...(path ? [eb('path', 'like', `%${escapeLike(path)}%`)] : []),
+        ...(status ? [eb('status', '=', parseInt(status))] : []),
+        ...(method ? [eb('method', '=', method.toUpperCase())] : []),
+        ...(user_id ? [eb('user_id', '=', user_id)] : []),
+      ];
+      return eb.and(parts);
+    };
 
     const [logs, total] = await Promise.all([
-      query.execute(),
+      db
+        .selectFrom('zv_request_logs')
+        .selectAll()
+        .where(conditions)
+        .orderBy('created_at', 'desc')
+        .limit(parsedLimit)
+        .offset(offset)
+        .execute(),
       db
         .selectFrom('zv_request_logs')
         .select((eb) => eb.fn.count('id').as('count'))
+        .where(conditions)
         .executeTakeFirst(),
     ]);
 

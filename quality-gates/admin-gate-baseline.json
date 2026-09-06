@@ -1,12 +1,11 @@
 {
   "_what": "Bare `checkPermission(x, 'admin', '*')` sites in the extensions repo, per file. May shrink, never grow.",
-  "_why": "The bare form reads as an instance gate and behaves as a tenant-scoped one, so a tenant_admin passes it. Each site is either an instance operation or a tenant-scoped override and only its author knows which — there is no bulk answer, so they are frozen and new ones are refused.",
+  "_why": "The bare form reads as an instance gate and behaves as a tenant-scoped one, so a tenant_admin passes it. Each site is either an instance operation or a tenant-scoped override and only its author knows which \u2014 there is no bulk answer, so they are frozen and new ones are refused.",
   "_how_to_fix": "Use `requireInstanceAdmin(uid)` for instance-wide operations or `isTenantAdmin(uid)` for tenant-scoped ones. Both are on the extension context; four extensions already use them.",
   "_regenerate": "bun run scripts/admin-gate-check.ts --update",
   "counts": {
     "content/drafts/engine/routes.ts": 7,
     "content/document-templates/engine/routes.ts": 1,
-    "content/pages/engine/editor.ts": 2,
     "content/documents/engine/routes.ts": 7,
     "data/export/engine/routes.ts": 1,
     "data/import/engine/routes.ts": 1,
