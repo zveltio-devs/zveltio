@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A11 — Data write path**
+### → **A08 — Database layer, pool, dialect, migration runner**
 
-*Reserved fields, tenant_id arriving in a body, hooks, and what a `return` inside a transaction commits.*
+*Connection accounting, transaction boundaries, prepared-plan invalidation.*
 
-8 of 8 files still unread. Its file list is under [`A11`](#a11--data-write-path) below.
+10 of 10 files still unread. Its file list is under [`A08`](#a08--database-layer-pool-dialect-migration-runner) below.
 
-After it: A08, A09, A10, A12 …
+After it: A09, A10, A12, A13 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **110 / 658** (17%)
-- Lines in scope: **26,179 / 136,103** (19%)
-- Test files opened by some session: **29 / 877**
+- Files in scope: **118 / 658** (18%)
+- Lines in scope: **28,304 / 136,224** (21%)
+- Test files opened by some session: **29 / 878**
 
 ## Sections
 
@@ -31,8 +31,8 @@ After it: A08, A09, A10, A12 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| X01 | Synced from zveltio-extensions | 84 | 8,866 | n/a | — |
-| X02 | Generated artifacts | 4 | 5,951 | n/a | — |
+| X01 | Synced from zveltio-extensions | 85 | 9,294 | n/a | — |
+| X02 | Generated artifacts | 4 | 5,967 | n/a | — |
 | X03 | Archived one-shot scripts | 30 | 6,690 | n/a | — |
 
 ### A — engine core
@@ -49,7 +49,7 @@ After it: A08, A09, A10, A12 …
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
-| A11 | Data write path | 8 | 2,004 | 0/8 | — |
+| A11 | Data write path | 8 | 2,125 | 8/8 | 2026-09-06 — repaired |
 | A12 | Data read path | 9 | 1,795 | 0/9 | — |
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
@@ -124,7 +124,7 @@ After it: A08, A09, A10, A12 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 877 | 93,927 | n/a | — |
+| T01 | Test corpus | 878 | 94,055 | n/a | — |
 
 ---
 
@@ -134,13 +134,13 @@ After it: A08, A09, A10, A12 …
 
 *Destination copies of extension UI. Editing them here is erased by the next sync — they are reviewed in the sibling repository, against its own checklist.*
 
-84 files, 8,866 lines. Not reviewed in this campaign.
+85 files, 9,294 lines. Not reviewed in this campaign.
 
 ### X02 — Generated artifacts
 
 *Never hand-edited. Reviewed indirectly: the section owning the generator answers for what comes out of it, and a freshness gate owns the drift.*
 
-4 files, 5,951 lines. Not reviewed in this campaign.
+4 files, 5,967 lines. Not reviewed in this campaign.
 
 ### X03 — Archived one-shot scripts
 
@@ -434,14 +434,36 @@ After it: A08, A09, A10, A12 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/data/auth.ts` | 248 |
-| · | `packages/engine/src/lib/data/handlers/bulk.ts` | 348 |
-| · | `packages/engine/src/lib/data/handlers/single.ts` | 571 |
-| · | `packages/engine/src/lib/data/import-logs-contract.ts` | 104 |
-| · | `packages/engine/src/lib/data/index.ts` | 46 |
-| · | `packages/engine/src/lib/data/types.ts` | 73 |
-| · | `packages/engine/src/lib/data/write-pipeline.ts` | 551 |
-| · | `packages/engine/src/routes/data.ts` | 63 |
+| ✅ | `packages/engine/src/lib/data/auth.ts` | 262 |
+| ✅ | `packages/engine/src/lib/data/handlers/bulk.ts` | 425 |
+| ✅ | `packages/engine/src/lib/data/handlers/single.ts` | 588 |
+| ✅ | `packages/engine/src/lib/data/import-logs-contract.ts` | 104 |
+| ✅ | `packages/engine/src/lib/data/index.ts` | 46 |
+| ✅ | `packages/engine/src/lib/data/types.ts` | 73 |
+| ✅ | `packages/engine/src/lib/data/write-pipeline.ts` | 564 |
+| ✅ | `packages/engine/src/routes/data.ts` | 63 |
+
+**Sessions**
+
+- **2026-09-06** · claude-opus-5 · 8 files · **repaired** · `review/A11-write-path-full`
+  - ran: counted every guard the single-record write path applies and compared it, guard by guard, against the bulk path: RLS filters (both), entity-access (both), queryAlterRegistry.applyAll (7 sites, NONE in bulk.ts)
+  - ran: counted handlePgErrors call sites: 3, all in single.ts (create/replace/patch) — not delete, not any bulk handler
+  - ran: measured the query-alter gap end to end: registered an alter hiding a row, confirmed GET /:id answers 404 for it, then rewrote it through PATCH /bulk and deleted it through DELETE /bulk
+  - ran: measured the revision delta against a field declared encrypted:true — column matched enc:v1:, zv_revisions.delta held the plaintext
+  - ran: measured a duplicate through POST /:collection (409) against the same duplicate through POST /bulk (500), and a foreign key refusing DELETE /:id (500)
+  - ran: read the actual 409 body rather than assuming mapPgError shaped it — found the RFC 7807 envelope and, in it, code=ERR_POSTGRES_SERVER_ERROR, which located the SQLSTATE-source defect
+  - ran: measured api-key scope selection with the same two grants in both orders: false one way, true the other
+  - ran: confirmed ddl-queue.test.ts's 3 failures in the combined run are test-order pollution and not this branch: it passes alone on this branch and alone on master
+  - ran: checked the extension-facing surface of queryAlterRegistry (ctx.queryAlter) to confirm alters are a live authorization mechanism, not a dormant one
+  - **high** packages/engine/src/lib/data/handlers/bulk.ts (bulkUpdate before-row, bulkDelete existing) — the bulk endpoints applied RLS filters and entity-access — mirroring the single-record path, with comments saying so — and did not apply queryAlterRegistry.applyAll, the third guard on the same SELECT. Extensions register alters for tenant isolation and soft-delete, so PATCH /bulk and DELETE /bulk reached rows GET/PATCH/DELETE /:id answer 404 for. Measured both. → *repaired*
+  - **high** packages/engine/src/lib/data/handlers/single.ts patchRecord (afterWrite delta) — PATCH recorded `delta: body` — the raw request body, read before processInput and therefore before maybeEncrypt. For a field declared encrypted:true the column went to disk as enc:v1:... while zv_revisions kept what it was encrypted from, in the clear, on every PATCH. Now records finalPatch, which is also the truthful delta: after column-access filtering and after a beforeUpdate hook has had its say. → *repaired*
+  - **medium** packages/engine/src/lib/data/write-pipeline.ts mapPgError — read the SQLSTATE as `e.code ?? e.errno`. Bun.SQL puts the literal ERR_POSTGRES_SERVER_ERROR in `code` and the real SQLSTATE in `errno`, so `code` never reached `errno` and every `code === '23505'` test in the mapper was dead — what kept it working was the message regex beside each branch, and the literal was published to the caller as `code`. problem.ts documents this exact trap for its own 22P02 branch; isRlsRefusal forty lines below reads errno first. This was the one place that read them the other way round. → *repaired*
+  - **medium** packages/engine/src/lib/data/handlers/single.ts deleteRecord, handlers/bulk.ts (all three) — handlePgErrors wrapped create, replace and patch and nothing else, so a foreign key refusing a delete and a duplicate inside a batch escaped as 500 with no field and no code — the same violation through POST /:collection answers 409 and names the column. All four now wrapped. → *repaired*
+  - **medium** packages/engine/src/lib/data/auth.ts checkAccess — API-key scopes were resolved with scopes.find(...), so the first entry naming the collection or '*' decided alone. [{'*':['read']},{'posts':['create']}] refused create on posts; the same two entries reversed allowed it. A list of grants is a union — an operator widening a key's reads with a wildcard entry would have silently narrowed everything else. Now every matching entry is considered. → *repaired*
+  - **low** packages/engine/src/lib/data/handlers/bulk.ts — a constraint violation still rolls the whole batch back rather than landing in the per-row `errors` array the endpoint is built around. Postgres has aborted the transaction by the time the throw leaves runAtomic; per-row recovery needs a SAVEPOINT around each row, which changes what the endpoint promises. Named in the code, not changed here. → *logged*
+  - **low** packages/engine/src/lib/data/write-pipeline.ts afterWrite (comment at the emitAsync call) — routes/sync.ts calls afterWrite without awaiting it, so listeners on the sync push path still run detached against a transaction that commits under them — the same defect this call site fixed for the API path. Already written down in the code; belongs to A-sync, not here. → *logged*
+  - **low** packages/engine/src/tests/unit/ddl-queue.test.ts — 3 of its cases fail in a combined `bun test packages/engine/src/tests` run and pass alone, on this branch and on master alike — another test starts the DDL queue and leaves it running. Pre-existing test-order pollution, not a product defect. → *logged*
+  - not done: Verified clean and recorded so nobody re-derives it: processInput fails CLOSED on an unresolvable field type and on a validation-rule evaluation error, both with the reasoning written down; validateApiKey compares the key's tenant to the request's and publishes the actor to the database itself rather than trusting callers; an empty or absent scope list is deny-all; every single-record write filters writable fields by column access, including PUT; the time-travel read applies entity-access, row policies and column access; authorship travels as system columns rather than through a payload a hook could rewrite; import-logs-contract.ts asserts its interpolated column name against its own literal list before use. Not changed and still open: validateApiKey's tenant comparison is skipped entirely when the request resolved no tenant — the 'absence of a tenant resolves to root' shape this campaign has now met five times, and an owner decision rather than a patch.
 
 ### A12 — Data read path
 
@@ -1547,12 +1569,12 @@ After it: A08, A09, A10, A12 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **848** of 877.
+Test files nobody has opened yet: **849** of 878.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 490 |
-| `packages/engine/src/tests/harness` | 280 |
+| `packages/engine/src/tests/harness` | 281 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |

@@ -1,0 +1,85 @@
+{
+  "section": "A11",
+  "date": "2026-09-06",
+  "agent": "claude-opus-5",
+  "branch": "review/A11-write-path-full",
+  "files": [
+    "packages/engine/src/lib/data/write-pipeline.ts",
+    "packages/engine/src/lib/data/handlers/single.ts",
+    "packages/engine/src/lib/data/handlers/bulk.ts",
+    "packages/engine/src/lib/data/auth.ts",
+    "packages/engine/src/lib/data/types.ts",
+    "packages/engine/src/lib/data/index.ts",
+    "packages/engine/src/lib/data/import-logs-contract.ts",
+    "packages/engine/src/routes/data.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/harness/bulk-query-alter.test.ts",
+    "packages/engine/src/tests/harness/revision-delta-plaintext.test.ts",
+    "packages/engine/src/tests/harness/write-pg-error-mapping.test.ts",
+    "packages/engine/src/tests/unit/api-key-scope-order.test.ts"
+  ],
+  "ran": [
+    "counted every guard the single-record write path applies and compared it, guard by guard, against the bulk path: RLS filters (both), entity-access (both), queryAlterRegistry.applyAll (7 sites, NONE in bulk.ts)",
+    "counted handlePgErrors call sites: 3, all in single.ts (create/replace/patch) — not delete, not any bulk handler",
+    "measured the query-alter gap end to end: registered an alter hiding a row, confirmed GET /:id answers 404 for it, then rewrote it through PATCH /bulk and deleted it through DELETE /bulk",
+    "measured the revision delta against a field declared encrypted:true — column matched enc:v1:, zv_revisions.delta held the plaintext",
+    "measured a duplicate through POST /:collection (409) against the same duplicate through POST /bulk (500), and a foreign key refusing DELETE /:id (500)",
+    "read the actual 409 body rather than assuming mapPgError shaped it — found the RFC 7807 envelope and, in it, code=ERR_POSTGRES_SERVER_ERROR, which located the SQLSTATE-source defect",
+    "measured api-key scope selection with the same two grants in both orders: false one way, true the other",
+    "confirmed ddl-queue.test.ts's 3 failures in the combined run are test-order pollution and not this branch: it passes alone on this branch and alone on master",
+    "checked the extension-facing surface of queryAlterRegistry (ctx.queryAlter) to confirm alters are a live authorization mechanism, not a dormant one"
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "packages/engine/src/lib/data/handlers/bulk.ts (bulkUpdate before-row, bulkDelete existing)",
+      "what": "the bulk endpoints applied RLS filters and entity-access — mirroring the single-record path, with comments saying so — and did not apply queryAlterRegistry.applyAll, the third guard on the same SELECT. Extensions register alters for tenant isolation and soft-delete, so PATCH /bulk and DELETE /bulk reached rows GET/PATCH/DELETE /:id answer 404 for. Measured both.",
+      "status": "repaired"
+    },
+    {
+      "severity": "high",
+      "where": "packages/engine/src/lib/data/handlers/single.ts patchRecord (afterWrite delta)",
+      "what": "PATCH recorded `delta: body` — the raw request body, read before processInput and therefore before maybeEncrypt. For a field declared encrypted:true the column went to disk as enc:v1:... while zv_revisions kept what it was encrypted from, in the clear, on every PATCH. Now records finalPatch, which is also the truthful delta: after column-access filtering and after a beforeUpdate hook has had its say.",
+      "status": "repaired"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/lib/data/write-pipeline.ts mapPgError",
+      "what": "read the SQLSTATE as `e.code ?? e.errno`. Bun.SQL puts the literal ERR_POSTGRES_SERVER_ERROR in `code` and the real SQLSTATE in `errno`, so `code` never reached `errno` and every `code === '23505'` test in the mapper was dead — what kept it working was the message regex beside each branch, and the literal was published to the caller as `code`. problem.ts documents this exact trap for its own 22P02 branch; isRlsRefusal forty lines below reads errno first. This was the one place that read them the other way round.",
+      "status": "repaired"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/lib/data/handlers/single.ts deleteRecord, handlers/bulk.ts (all three)",
+      "what": "handlePgErrors wrapped create, replace and patch and nothing else, so a foreign key refusing a delete and a duplicate inside a batch escaped as 500 with no field and no code — the same violation through POST /:collection answers 409 and names the column. All four now wrapped.",
+      "status": "repaired"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/lib/data/auth.ts checkAccess",
+      "what": "API-key scopes were resolved with scopes.find(...), so the first entry naming the collection or '*' decided alone. [{'*':['read']},{'posts':['create']}] refused create on posts; the same two entries reversed allowed it. A list of grants is a union — an operator widening a key's reads with a wildcard entry would have silently narrowed everything else. Now every matching entry is considered.",
+      "status": "repaired"
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/lib/data/handlers/bulk.ts",
+      "what": "a constraint violation still rolls the whole batch back rather than landing in the per-row `errors` array the endpoint is built around. Postgres has aborted the transaction by the time the throw leaves runAtomic; per-row recovery needs a SAVEPOINT around each row, which changes what the endpoint promises. Named in the code, not changed here.",
+      "status": "logged"
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/lib/data/write-pipeline.ts afterWrite (comment at the emitAsync call)",
+      "what": "routes/sync.ts calls afterWrite without awaiting it, so listeners on the sync push path still run detached against a transaction that commits under them — the same defect this call site fixed for the API path. Already written down in the code; belongs to A-sync, not here.",
+      "status": "logged"
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/tests/unit/ddl-queue.test.ts",
+      "what": "3 of its cases fail in a combined `bun test packages/engine/src/tests` run and pass alone, on this branch and on master alike — another test starts the DDL queue and leaves it running. Pre-existing test-order pollution, not a product defect.",
+      "status": "logged"
+    }
+  ],
+  "notDone": "Verified clean and recorded so nobody re-derives it: processInput fails CLOSED on an unresolvable field type and on a validation-rule evaluation error, both with the reasoning written down; validateApiKey compares the key's tenant to the request's and publishes the actor to the database itself rather than trusting callers; an empty or absent scope list is deny-all; every single-record write filters writable fields by column access, including PUT; the time-travel read applies entity-access, row policies and column access; authorship travels as system columns rather than through a payload a hook could rewrite; import-logs-contract.ts asserts its interpolated column name against its own literal list before use. Not changed and still open: validateApiKey's tenant comparison is skipped entirely when the request resolved no tenant — the 'absence of a tenant resolves to root' shape this campaign has now met five times, and an owner decision rather than a patch.",
+  "verdict": "repaired"
+}
