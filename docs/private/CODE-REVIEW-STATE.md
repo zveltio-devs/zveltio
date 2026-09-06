@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A08 — Database layer, pool, dialect, migration runner**
+### → **A09 — Base schema (001_initial.sql)**
 
-*Connection accounting, transaction boundaries, prepared-plan invalidation.*
+*Every table in one file: FORCE RLS, tenant column, unique keys carrying tenant_id, indexes matching the access patterns. Read it against a live database, not alone.*
 
-10 of 10 files still unread. Its file list is under [`A08`](#a08--database-layer-pool-dialect-migration-runner) below.
+1 of 1 files still unread. Its file list is under [`A09`](#a09--base-schema-001-initial-sql) below.
 
-After it: A09, A10, A12, A13 …
+After it: A10, A12, A13, A14 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **118 / 658** (18%)
-- Lines in scope: **28,304 / 136,224** (21%)
-- Test files opened by some session: **29 / 878**
+- Files in scope: **128 / 658** (19%)
+- Lines in scope: **31,149 / 136,343** (23%)
+- Test files opened by some session: **33 / 882**
 
 ## Sections
 
@@ -46,13 +46,13 @@ After it: A09, A10, A12, A13 …
 | A05 | RLS policies and row rules | 7 | 1,502 | 7/7 | 2026-09-04 — logged |
 | A06 | Permissions, roles, column access | 5 | 2,301 | 5/5 | 2026-09-04 — partial |
 | A07 | Authentication and identity | 7 | 1,752 | 7/7 | 2026-09-05 — clean |
-| A08 | Database layer, pool, dialect, migration runner | 10 | 2,742 | 0/10 | — |
+| A08 | Database layer, pool, dialect, migration runner | 10 | 2,845 | 10/10 | 2026-09-06 — repaired |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 0/1 | — |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
 | A11 | Data write path | 8 | 2,125 | 8/8 | 2026-09-06 — repaired |
 | A12 | Data read path | 9 | 1,795 | 0/9 | — |
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
-| A14 | Field types, validation, field encryption | 6 | 2,136 | 0/6 | — |
+| A14 | Field types, validation, field encryption | 6 | 2,152 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
 | A16 | Tenant and admin routes | 5 | 2,028 | 5/5 | 2026-09-06 — clean |
 | A17 | Settings, audit trail, templates, RPC, data quality | 7 | 1,677 | 7/7 | 2026-09-05 — clean |
@@ -124,7 +124,7 @@ After it: A09, A10, A12, A13 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 878 | 94,055 | n/a | — |
+| T01 | Test corpus | 882 | 94,462 | n/a | — |
 
 ---
 
@@ -391,16 +391,38 @@ After it: A09, A10, A12, A13 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/db/auto-migrate.ts` | 120 |
-| · | `packages/engine/src/db/bun-sql-dialect.ts` | 729 |
-| · | `packages/engine/src/db/connection-trace.ts` | 85 |
-| · | `packages/engine/src/db/dynamic-types.ts` | 30 |
-| · | `packages/engine/src/db/dynamic.ts` | 560 |
-| · | `packages/engine/src/db/index.ts` | 284 |
-| · | `packages/engine/src/db/migrate.ts` | 36 |
-| · | `packages/engine/src/db/migrations/index.ts` | 750 |
-| · | `packages/engine/src/db/pool-autosize.ts` | 108 |
-| · | `packages/engine/src/lib/jsonb.ts` | 40 |
+| ✅ | `packages/engine/src/db/auto-migrate.ts` | 120 |
+| ✅ | `packages/engine/src/db/bun-sql-dialect.ts` | 740 |
+| ✅ | `packages/engine/src/db/connection-trace.ts` | 85 |
+| ✅ | `packages/engine/src/db/dynamic-types.ts` | 30 |
+| ✅ | `packages/engine/src/db/dynamic.ts` | 624 |
+| ✅ | `packages/engine/src/db/index.ts` | 298 |
+| ✅ | `packages/engine/src/db/migrate.ts` | 36 |
+| ✅ | `packages/engine/src/db/migrations/index.ts` | 764 |
+| ✅ | `packages/engine/src/db/pool-autosize.ts` | 108 |
+| ✅ | `packages/engine/src/lib/jsonb.ts` | 40 |
+
+**Sessions**
+
+- **2026-09-06** · claude-opus-5 · 10 files · **repaired** · `review/A08-db-layer`
+  - ran: traced both migration entry points on the boot path: initDatabase -> runCoreMigrations -> runPending (no lock) at index.ts:1118, then autoMigrate (lock, MIGRATIONS_AUTO, assertChainCompatible) at index.ts:1130
+  - ran: measured the opt-out on a purpose-built virgin database: MIGRATIONS_AUTO=false applied migrations and created 72 tables; after the change, 1
+  - ran: measured the normal path on a second virgin database to confirm the schema still lands: 72 tables
+  - ran: read lib/jsonb.ts's four measured binding forms, then measured the dynamic write path against them: a `json` field stored jsonb_typeof=string for an object AND for an array, ->>'a' NULL, ? 'a' false
+  - ran: re-measured after the fix: object -> jsonb_typeof=object with ->>'a'=1, array -> jsonb_typeof=array
+  - ran: counted the three jsonb-backed field types (json, file, image) and checked which had a stringifying deserialize -- only `json` did, which is why the other two were unaffected
+  - ran: counted every reader of the migration set: three functions call listSqlFilesSync, two branch on EMBEDDED_MIGRATIONS for the compiled binary, one did not
+  - ran: measured Bun.Glob.scanSync on a missing directory: it throws ENOENT rather than returning nothing, which is what turned the third reader into a silent failure
+  - ran: checked whether anything asks for a read-only transaction before flagging the dialect's ignored accessMode: nothing in production does
+  - ran: confirmed the 3 ddl-queue failures in a combined run are the same pre-existing test-order pollution recorded in A11, not this branch
+  - **high** packages/engine/src/db/index.ts initDatabase — initDatabase ran the migration runner itself, and autoMigrate -- which holds the pg advisory lock, which MIGRATIONS_AUTO gates, and which calls assertChainCompatible -- is reached AFTER it on the boot path. So the documented opt-out did not opt out (measured: 72 tables on a virgin database with the flag set), the advisory lock protected a second pass that had nothing left to do, and the guard against a squashed or edited chain ran after that chain had been applied. initDatabase now creates only the tracking table. → *repaired*
+  - **high** packages/engine/src/db/dynamic.ts (dynamicInsert, dynamicUpdate) + field-types/index.ts (json) — every `json` field on every dynamic collection was stored as a jsonb STRING rather than a JSON value: jsonb_typeof said `string`, payload->>'a' was NULL and payload ? 'a' was false, for objects and arrays alike. So every jsonb operator, index and filter over a `json` field was inert. Nothing complained because the field type's `serialize` parses the string back on the way out, so the API round-trip looked correct. Root cause was the type's `deserialize` stringifying; the binding is now dynamic.ts's job, from the catalogue, for raw callers too. → *repaired*
+  - **medium** packages/engine/src/db/migrations/index.ts rollbackMigration — the third reader of the migration set listed migrations/sql/ unconditionally, where runPending and listShippedMigrations both branch on EMBEDDED_MIGRATIONS. In a compiled binary that directory does not exist -- the reason the embedded set is generated at all -- and Bun.Glob.scanSync throws ENOENT rather than returning nothing, so the outer catch turned it into a plain { success: false } and `zveltio rollback` failed on every shipped artifact. → *repaired*
+  - **medium** packages/engine/src/db/bun-sql-dialect.ts executeQuery — the 0A000 recovery -- retry then simple-query fallback, written to close 8 failures in 19 E2E runs -- tested `err.code === '0A000'`, and this driver keeps the SQLSTATE in `errno` while `code` holds ERR_POSTGRES_SERVER_ERROR. The primary detector was dead and the whole mechanism hung on the message regex beside it. Campaign failure class 16, in the file next door to where that class was named; migrations/index.ts documents the same trap correctly forty lines from here. Now reads errno first. → *repaired*
+  - **low** packages/engine/src/db/migrations/index.ts applyMigration — the zv_schema_versions row is written on the pool AFTER the migration's transaction commits, so a crash in between leaves an applied migration unrecorded and it re-runs on the next boot -- which the code acknowledges ("a chronic failure means the next run will re-apply the same migration, which can break idempotence"). Writing it inside the transaction would make it all-or-nothing for the transactional path. Not changed here: it alters what a partially-successful upgrade does, which is an owner-visible change on the upgrade path. → *logged*
+  - **low** packages/engine/src/db/bun-sql-dialect.ts beginTransaction — TransactionSettings.accessMode is ignored -- only isolationLevel is applied. Nothing in production asks for a read-only transaction today (checked), so this is a latent gap rather than a live defect: a future `setAccessMode('read only')` would silently get read-write. → *logged*
+  - **low** packages/engine/src/db/dynamic.ts buildCondition (like, ilike) — the LIKE/ILIKE branches wrap the caller's value in % without escaping % or _ inside it, so a filter value containing them acts as a wildcard. `escapeLike` exists and is used on the admin log route. Only widens the caller's own result set within what RLS already allows, hence low. → *logged*
+  - not done: Verified clean and recorded so nobody re-derives it: reserveWithTimeout releases the late-arriving connection rather than leaking it, and the pool-query deadline sits deliberately ABOVE statement_timeout so nothing is abandoned mid-flight; the `primary` flag stops a createDb() instance from taking the engine's pool handles, and destroy() clears them guarded by identity; release() rolls back a connection abandoned mid-transaction rather than returning the downgraded role to the pool; the advisory lock in auto-migrate is taken and released on ONE pinned connection; assertChainCompatible and applyMigration both read the SQLSTATE from errno correctly; splitSqlStatements handles dollar-quoting, both comment forms and nesting; sanitizeIdentifier throws rather than stripping; RESERVED keeps tenant_id out of the payload independently of how the database is configured; pool-autosize asks the database rather than measuring the engine's host, and declares the one number it cannot know. Not changed: the accessMode gap and the LIKE escaping above, and the migration-record atomicity, all logged.
 
 ### A09 — Base schema (001_initial.sql)
 
@@ -497,7 +519,7 @@ After it: A09, A10, A12, A13 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/field-types/index.ts` | 866 |
+| · | `packages/engine/src/field-types/index.ts` | 882 |
 | · | `packages/engine/src/lib/data/field-crypto.ts` | 181 |
 | · | `packages/engine/src/lib/data/field-type-conversions.ts` | 123 |
 | · | `packages/engine/src/lib/data/field-type-registry.ts` | 301 |
@@ -1569,7 +1591,7 @@ After it: A09, A10, A12, A13 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **849** of 878.
+Test files nobody has opened yet: **849** of 882.
 
 | Directory | Unread |
 | --- | --: |

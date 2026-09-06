@@ -614,9 +614,19 @@ class BunSqlSmartConnection implements DatabaseConnection {
       // single retry only succeeds if the next acquire happens to land on a
       // different connection. We retry once with prepared, then fall back to
       // simple-query (no prepare, no cache) which can never hit this issue.
-      const e = err as { code?: string; message?: string } | undefined;
+      // `errno` carries the SQLSTATE on this driver; `code` carries the generic
+      // marker `ERR_POSTGRES_SERVER_ERROR`. Reading only `code` made this test
+      // always false, so the whole 0A000 recovery below -- retry, then
+      // simple-query fallback, written to close 8 failures in 19 E2E runs --
+      // hung on the message regex beside it. It worked, which is why nobody
+      // noticed; it would stop working the moment the server's message text
+      // differed. `ERR_POSTGRES_CONNECTION_CLOSED` in `release()` below is
+      // genuinely a `code`, and stays one.
+      const e = err as { code?: string; errno?: string; message?: string } | undefined;
       const isCachedPlan =
-        e?.code === '0A000' || /cached plan must not change result type/i.test(e?.message ?? '');
+        e?.errno === '0A000' ||
+        e?.code === '0A000' ||
+        /cached plan must not change result type/i.test(e?.message ?? '');
       if (!isCachedPlan) throw err;
 
       // Inside a transaction the retry cannot work, and trying destroys the
@@ -650,8 +660,9 @@ class BunSqlSmartConnection implements DatabaseConnection {
       try {
         return await runPrepared();
       } catch (err2) {
-        const e2 = err2 as { code?: string; message?: string } | undefined;
+        const e2 = err2 as { code?: string; errno?: string; message?: string } | undefined;
         const stillCached =
+          e2?.errno === '0A000' ||
           e2?.code === '0A000' ||
           /cached plan must not change result type/i.test(e2?.message ?? '');
         if (!stillCached) throw err2;
