@@ -1042,6 +1042,31 @@ backlog's "a case per gate, not per repair". Two known misses in
 variable, and the raw-value case its own header declines to claim — were recorded
 on 2026-09-04 and are unchanged.
 
+### A decision to revisit, not a defect to fix (2026-09-05)
+
+`ctx.db.transaction()` on an extension's handle joins the request's transaction
+rather than opening one. The builder it returns accepts `setIsolationLevel` and
+`setAccessMode` and **ignores both**, returning itself so the chain an extension
+would naturally write keeps working.
+
+Neither can be honoured here by construction: a transaction's isolation level and
+access mode are fixed when it begins, and this joins one already open. So an
+extension writing `.setAccessMode('read only')` gets a read-write transaction and
+no error, and one relying on `setIsolationLevel('serializable')` for a
+read-modify-write gets the default and the race it explicitly asked not to have.
+
+**Reported as a defect and withdrawn as one.** The behaviour is pinned by a test —
+`extension-db-transaction-join.test.ts`, "accepts the builder chain an extension
+would write" — so it is a deliberate trade: not crashing on the natural Kysely
+chain, at the cost of a setting quietly meaning nothing. Making it throw was
+written, tested and reverted, because reversing a pinned decision on a reviewer's
+own judgement is not a repair.
+
+Recorded so the trade is visible where the other findings are. Nothing in the 56
+first-party extensions calls either method today — measured — so the cost is
+entirely in the future, and the choice belongs to whoever owns the extension
+contract.
+
 ---
 
 ## 4. Deliberate deferrals
