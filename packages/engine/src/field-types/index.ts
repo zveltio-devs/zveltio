@@ -159,7 +159,23 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     db: { columnType: 'jsonb' },
     api: {
       serialize: (v) => (typeof v === 'string' ? JSON.parse(v) : v),
-      deserialize: (v) => (typeof v === 'object' ? JSON.stringify(v) : v),
+      // No `deserialize`. It used to be
+      // `(v) => (typeof v === 'object' ? JSON.stringify(v) : v)`, which handed
+      // the write path a JSON STRING for a `jsonb` column -- and a string
+      // parameter is stored as a jsonb string containing JSON text, not as the
+      // value. Measured on a real collection: `jsonb_typeof` said `string`,
+      // `payload->>'a'` was NULL and `payload ? 'a'` was false, for an object
+      // and for an array alike. Every jsonb operator, index and filter over a
+      // `json` field was therefore inert.
+      //
+      // Nothing complained because `serialize` above parses the string back on
+      // the way out, so the API round-trip looked correct while the column held
+      // something no query could reach. `lib/jsonb.ts` records the same four
+      // forms measured against this driver.
+      //
+      // `file` and `image` -- the other two jsonb types -- never had one, which
+      // is why they were unaffected. The binding itself is `dynamic.ts`'s job
+      // now, for every caller rather than only the ones that come through here.
       filterOperators: ['is_null', 'is_not_null'],
     },
     typescript: { inputType: 'Record<string, any>', outputType: 'Record<string, any>' },
