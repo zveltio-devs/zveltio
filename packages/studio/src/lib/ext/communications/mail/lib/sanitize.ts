@@ -48,15 +48,45 @@ import DOMPurify from 'dompurify';
  */
 export const DANGEROUS_STYLE = /url\(|expression\(|@import|javascript:|behavior:|-moz-binding/i;
 
-let _styleHookAdded = false;
-function ensureStyleHook(): void {
-  if (_styleHookAdded || typeof window === 'undefined') return;
-  _styleHookAdded = true;
-  DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+/**
+ * Our OWN DOMPurify, not the shared module singleton.
+ *
+ * `import DOMPurify from 'dompurify'` is one instance for the whole tab, and
+ * `addHook` is registered on it — `hooks` lives inside `createDOMPurify`'s
+ * closure (purify.cjs.js:528), so a hook added here runs for every caller in the
+ * bundle, for the life of the page.
+ *
+ * Three files in this Studio import that specifier: this one, the CMS builder
+ * preview, and `content/pages/client/sanitize.ts`. The last of those allows
+ * `style` on purpose — a hero block carries
+ * `style="background-image: url(/img/hero.jpg)"` — and installs no hook of its
+ * own. So opening the mail pane silently changed how CMS pages render for the
+ * rest of the session: correct on a fresh load, wrong after visiting a different
+ * feature, correct again after a refresh. Close to unreproducible from a bug
+ * report.
+ *
+ * The failure direction is safe — it strips more, not less — which is exactly
+ * why it would have gone unnoticed.
+ *
+ * Calling the default export as a function returns a fresh instance with its own
+ * hooks (`const DOMPurify = root => createDOMPurify(root)`, purify.cjs.js:428).
+ * Built once and cached: the factory re-derives its whole configuration from the
+ * window each call.
+ *
+ * Reported by the session reviewing the synced Studio bundle, who could see
+ * across the two extensions in a way neither repository's gates can.
+ */
+let _purify: ReturnType<typeof DOMPurify> | null = null;
+function purifier(): ReturnType<typeof DOMPurify> {
+  if (_purify) return _purify;
+  const instance = DOMPurify(window);
+  instance.addHook('uponSanitizeAttribute', (_node, data) => {
     if (data.attrName === 'style' && DANGEROUS_STYLE.test(data.attrValue)) {
       data.keepAttr = false;
     }
   });
+  _purify = instance;
+  return instance;
 }
 
 export const ALLOWED_TAGS = [
@@ -115,8 +145,7 @@ export function safeMailHtml(html: unknown, showImages: boolean): string {
       .replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'));
   }
 
-  ensureStyleHook();
-  const fragment = DOMPurify.sanitize(html, {
+  const fragment = purifier().sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: ALLOWED_ATTRS,
     ADD_ATTR: ['rel'],
