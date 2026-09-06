@@ -183,12 +183,23 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // DELETE /api-keys/:id — Revoke API key
   app.delete('/api-keys/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db
+    // What the UPDATE matched decides the answer — see the twin of this handler
+    // in `routes/admin.ts`, which had the identical shape. Both said
+    // `{ success: true }` for an id that does not exist or belongs to another
+    // firm, while the key stayed live. On a revocation that is the dangerous
+    // direction: an administrator who believes a leaked credential is dead stops
+    // looking for it.
+    const revoked = await db
       .updateTable('zv_api_keys')
       .set({ is_active: false })
       .where('id', '=', keyId)
       .where('tenant_id', '=', tenantId(c))
-      .execute();
+      .executeTakeFirst();
+
+    if (!revoked.numUpdatedRows) {
+      return c.json({ error: 'API key not found' }, 404);
+    }
+
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
