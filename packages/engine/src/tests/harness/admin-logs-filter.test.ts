@@ -52,6 +52,20 @@ d('GET /api/admin/logs filters (in-process)', () => {
     return (await res.json()) as { logs: Array<{ path: string }>; total: number };
   }
 
+  it('answers the unfiltered listing, which is the common call', async () => {
+    // No query parameters at all. The filter expression is then `eb.and([])`,
+    // and whether an empty conjunction is legal SQL is the LIBRARY's decision,
+    // not this route's — Kysely special-cases it today. Pinned because nothing
+    // else here exercises the default path: every other case in this file passes
+    // a filter, so a dependency bump that stopped special-casing it would break
+    // the most common request with the suite still green.
+    const res = await app.request('/api/admin/logs?limit=5', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { logs: unknown[]; total: number };
+    expect(Array.isArray(body.logs)).toBe(true);
+    expect(typeof body.total).toBe('number');
+  });
+
   it('counts what it returns, not the whole table', async () => {
     const body = await get(`path=${encodeURIComponent(tag)}&status=500&limit=100`);
     expect(body.logs.length).toBe(1);
