@@ -323,7 +323,48 @@ that over-refuses produces no error and no complaint, only a feature quietly
 doing less than it should. A safe failure direction is why the defect lasts, not
 a reason to rank it lower.
 
-### 16. Frontend-specific (Track C)
+### 16. A fallback that hides the death of the path it backs up
+
+`mapPgError` compared `err.code` against seven SQLSTATEs. On this driver `code`
+is always the literal `ERR_POSTGRES_SERVER_ERROR` and the SQLSTATE is in `errno`,
+so **all seven comparisons were dead** — and the function still worked, because
+each branch also carried a message regex:
+
+```ts
+if (code === '23505' || /duplicate key value/i.test(message)) { ... }
+//   ^^^^^^^^^^^^^^^ dead        ^^^^^^^^^^^^^^^^^^^^^^^^^^ the only live half
+```
+
+Duplicates answered 409. Foreign keys answered 422. Nothing looked wrong, and no
+test could have said otherwise, because the observable behaviour was right in
+every case the regex happened to cover. What was lost was the cases it did not:
+`42501` outside the English "row-level security" phrasing, `23514` without the
+words "check constraint" — those fell through to a 500. And the dead read's value
+was published to the caller as the error `code`.
+
+**Why this class is worth its own entry.** Classes 9 and 12 cover a branch that
+never runs and a test that cannot fail. This is neither: the branch runs, the
+test passes, the feature works. A belt-and-braces pair where the belt is severed
+looks exactly like a working belt for as long as the braces hold.
+
+**How to find it.** Wherever a condition is `A || B` and either half alone would
+satisfy the test you would write, the test proves nothing about A. Ask what value
+A actually reads, at runtime, on this driver, in this version — and if the answer
+is not obvious from the file, measure it rather than reading it.
+
+The measurement here took one assertion: read the error body the route already
+returns and look at what is in it. `code: "ERR_POSTGRES_SERVER_ERROR"` was
+sitting in the response the whole time.
+
+**And the neighbour that already knew.** `problem.ts` documents this exact trap
+in a comment — *"Bun.SQL puts a generic string in `code` and the real SQLSTATE in
+`errno` — so check both"* — and `isRlsRefusal`, forty lines below the defect,
+reads `errno` first. The knowledge was in the repository, twice, within one
+file's reach of the code that lacked it. That is class 14 seen from the other
+end: a finding closed correctly in two places, and a third place that was never
+looked at because the first two made the subject feel handled.
+
+### 17. Frontend-specific (Track C)
 
 Svelte 5 runes only; `$effect` loops; unsanitised HTML (`{@html}`) against
 `lib/sanitize.ts`; API calls that bypass `$lib/api.js`; permission guards that
