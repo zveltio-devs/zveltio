@@ -30,6 +30,7 @@ d('bulk writes fire their automations (in-process)', () => {
   const coll = `probe_bflow_${tag}`;
   let flowId = '';
 
+  // The hook does real DDL through a queue; the default 5 s is not its budget.
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
@@ -43,7 +44,22 @@ d('bulk writes fire their automations (in-process)', () => {
       }),
     });
     expect([200, 201, 202]).toContain(made.status);
-    await Bun.sleep(600);
+
+    // Wait for the TABLE, not for a duration.
+    //
+    // Collection creation answers 202 and the DDL runs on a queue, so a fixed
+    // sleep is a guess about someone else's scheduler. At 600 ms this hook
+    // failed at exactly 5000 ms — bun's default — on a loaded machine while
+    // passing in CI, which is the shape of a test that will fail for everyone
+    // eventually and for nobody reproducibly.
+    for (let i = 0; i < 100; i++) {
+      const seen = await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = ${`zvd_${coll}`}
+      `.execute(db);
+      if (seen.rows[0]!.n > 0) break;
+      await Bun.sleep(100);
+    }
 
     const flow = await sql<{ id: string }>`
       INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
@@ -51,7 +67,7 @@ d('bulk writes fire their automations (in-process)', () => {
       RETURNING id::text AS id
     `.execute(db);
     flowId = flow.rows[0]!.id;
-  });
+  }, 60_000);
 
   afterAll(async () => {
     if (flowId) {
