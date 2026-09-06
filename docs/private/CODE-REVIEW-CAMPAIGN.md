@@ -251,7 +251,35 @@ failure must be the named case, not an unnamed hook. And an anchor that no longe
 matches (auto-formatting moves code between writing the revert and running it)
 silently reverts nothing, so assert the anchor occurs exactly once.
 
-### 14. Frontend-specific (Track C)
+### 14. A closed finding protects the code that was read, not the file name
+
+A finding is closed against the lines somebody looked at. It says nothing about a
+second copy, or about code written afterwards that reaches the same sink.
+
+Three instances so far, and one of them is from a repair made during this
+campaign:
+
+- The two API-key revocation handlers are twins with the same body. The first was
+  fixed, and the probe still answered 200 — because `/api/admin/api-keys/:id` and
+  `/api/api-keys/:id` are served by different routers. Found only by re-measuring
+  after the fix rather than by reading it.
+- `communications/mail` rendered inbound email with `{@html}` behind a regex that
+  stripped a literal `<script>` and nothing else. Eleven of twelve payloads
+  survived. It exists BECAUSE a "mail iframe XSS" claim was correctly dismissed
+  on 2026-08-02 — and the component that reintroduced it, as `{@html}` rather
+  than an iframe, was written three weeks later.
+- The `::jsonb` double-encoding class was repaired across a family of writers and
+  `lib/notifications.ts` was missed, so the data repair in migration 010 was
+  undone by the next notification.
+
+**What follows for the method.** When a repair is made, ask what else has the
+same shape and go and look — a grep for the sink, not for the file. When a
+finding is dismissed, record what was examined, so the next reader can tell
+"this code is safe" from "this code was safe in August". And after any fix,
+re-run the measurement that found the defect: a second copy answers the same
+probe the same way, which is how the twin above was found.
+
+### 15. Frontend-specific (Track C)
 
 Svelte 5 runes only; `$effect` loops; unsanitised HTML (`{@html}`) against
 `lib/sanitize.ts`; API calls that bypass `$lib/api.js`; permission guards that
