@@ -1,0 +1,81 @@
+{
+  "section": "A10",
+  "date": "2026-09-06",
+  "agent": "claude-opus-5",
+  "branch": "review/A10-schema-types",
+  "files": [
+    "packages/engine/src/db/migrations/sql/002_passkey.sql",
+    "packages/engine/src/db/migrations/sql/003_rls_parallel_safe.sql",
+    "packages/engine/src/db/migrations/sql/004_tenancy_hierarchy.sql",
+    "packages/engine/src/db/migrations/sql/005_rls_initplan_predicate.sql",
+    "packages/engine/src/db/migrations/sql/006_better_auth_account_issuer.sql",
+    "packages/engine/src/db/migrations/sql/007_ext_registry_tenant_unique.sql",
+    "packages/engine/src/db/migrations/sql/008_single_god.sql",
+    "packages/engine/src/db/migrations/sql/009_revisions_unwrap_double_encoded.sql",
+    "packages/engine/src/db/migrations/sql/010_unwrap_double_encoded_jsonb.sql",
+    "packages/engine/src/db/migrations/sql/011_unwrap_collections_fields_jsonb.sql",
+    "packages/engine/src/db/schema.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/harness/tenancy-hierarchy.test.ts",
+    "packages/engine/src/tests/harness/god-enforced-by-database.test.ts",
+    "packages/engine/src/tests/harness/jsonb-binding.test.ts",
+    "packages/engine/src/tests/harness/jsonb-notification-binding.test.ts",
+    "packages/engine/src/tests/harness/row-rules-in-database.test.ts"
+  ],
+  "ran": [
+    "applied the whole chain to a purpose-made database (zveltio_review_a10) and compared every DbSchema declaration against information_schema: 90 declared tables, 72 live, 0 declared columns missing from a table that exists",
+    "checked the same catalogue for the two type traps the file documents: 0 bigint/numeric columns typed as anything but PgNumeric or string, and 0 columns declared Generated or optional that are NOT NULL with no default",
+    "listed the 25 declared tables that do not exist on a fresh engine install, then grepped every one for a non-test reader: exactly one is queried (zvd_ai_embeddings, from lib/cloud/document-indexer.ts)",
+    "read that query against the ai extension's own migrations and found its ON CONFLICT target no longer exists; reproduced the failure on a live table -- created zvd_ai_embeddings per ai/001, ran the engine's exact upsert (ok), applied ai/006's constraint swap, ran it again: ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+    "verified 003 and 005 on a real plan rather than from their comments: 200 000 rows, as the product runs it (transaction, SET LOCAL ROLE zveltio_rls, transaction-local GUC) -- InitPlan 1, Parallel Seq Scan, Workers Planned: 2, 22 ms",
+    "counted the policy rewrite 004 and 005 each assert: all 5 policies on a fresh engine database carry `tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])` and `zveltio_tenant_write_ok(tenant_id)`, none left on the old combined predicate",
+    "checked the PARALLEL SAFE markers survived the CREATE OR REPLACE chain 004 warns about: every function an RLS policy depends on reports proparallel = 's' in pg_proc",
+    "measured the batching claim in 009/010/011: seeded 12 000 double-encoded zv_revisions rows, ran 009's loop, and counted distinct xmin afterwards -- 1, so the three batches are one transaction",
+    "read the migration runner to confirm why: it wraps each file in a single Kysely transaction unless the file says `-- NO TRANSACTION`, and none of the three does",
+    "executed 004's DOWN inside a rolled-back transaction: ERROR: cannot drop function zveltio_visible_tenants() because other objects depend on it (policy tenant_isolation_zv_record_comments)",
+    "measured the unindexed self-FK found while cleaning up the 200 000-row seed: 5 000 deletes took 61.5 s with no index on zv_record_comments.parent_id and 0.083 s with one -- 740x, and quadratic in the size of the table",
+    "asked the catalogue for the whole class: 22 foreign keys in the schema have no index on their referencing column, 21 of which point at \"user\" and are only paid when a user row is deleted",
+    "ran the gates: check:schema, check:schema-snapshot, check:table-owners, check:raw-sql, sql:backticks, sql:numeric-arith, sql:jsonb, catch:fabricated, scripts/schema-drift-check.ts and scripts/check-insert-schema-match.ts -- all pass, including with the ON CONFLICT defect live",
+    "ran the five harness tests that touch these migrations: 31 pass, 0 fail"
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "where": "packages/engine/src/lib/cloud/document-indexer.ts (the zvd_ai_embeddings upsert)",
+      "what": "the engine upserts with ON CONFLICT (collection, record_id, field). The ai extension's migration 006 replaced that unique constraint with UNIQUE (tenant_id, collection, record_id, field) as part of the tenant-unique-keys campaign, and its own comment says 'There are two [ON CONFLICT clauses], both in this extension'. There is a third, in the engine. Reproduced on a live table: the upsert succeeds before the swap and fails after it with 42P10, 'there is no unique or exclusion constraint matching the ON CONFLICT specification'. The call site wraps the statement in catch { console.error }, so cloud document indexing stops working silently on every install carrying ai at 006 or later. Neither schema-drift-check nor check-insert-schema-match looks at ON CONFLICT inference targets, so both pass with it live.",
+      "status": "logged",
+      "why_not_fixed": "the file is outside this section (B09/storage), the repair spans two repositories, and it needs a test that pins the inference target against the constraint rather than the column list"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/db/migrations/sql/001_initial.sql (012_record_comments stanza) -- found from A10, the table is A09's",
+      "what": "zv_record_comments.parent_id is a self-referencing foreign key with ON DELETE CASCADE and no index. Every delete makes Postgres run DELETE FROM ONLY zv_record_comments WHERE $1 = parent_id as a sequential scan, so deleting comments is quadratic in the size of the table. Measured on 195 000 rows: 5 000 deletes took 61.5 s without the index and 0.083 s with it. This is not a rare-path cost like the other 21 unindexed FKs in the schema -- those reference \"user\" and are paid only when a user is deleted; this one fires on ordinary comment deletion.",
+      "status": "logged",
+      "why_not_fixed": "the column is declared in 001_initial.sql, a shipped migration whose checksum is verified at boot; the index belongs in a new migration"
+    },
+    {
+      "severity": "medium",
+      "where": "packages/engine/src/db/migrations/sql/009, 010 and 011",
+      "what": "all three unwrap loops are batched at 5 000 rows, and 009 states the reason: 'this table grows without bound and one UPDATE over all of it would hold row locks for the length of a full rewrite. 5 000 rows at a time, committed per batch by the loop.' No batch is committed. The runner wraps every migration in one transaction unless the file carries `-- NO TRANSACTION`, none of the three does, and a PL/pgSQL DO block cannot COMMIT inside an outer transaction in any case. Measured: 12 000 seeded rows, three batches, one distinct xmin afterwards. So the locks are held for the whole run exactly as an unbatched UPDATE would, and the mitigation an operator would count on before running this against a large zv_revisions is not there.",
+      "status": "logged",
+      "why_not_fixed": "shipped migrations; the fix is a procedure plus `-- NO TRANSACTION`, which changes the failure semantics of the migration and is an owner decision"
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/db/migrations/sql/004_tenancy_hierarchy.sql, DOWN section",
+      "what": "004's DOWN cannot run: DROP FUNCTION zveltio_visible_tenants() is refused because every rewritten policy depends on it. Executed against a database built by its own UP. Same class as the A09 finding on 001's DOWN, and reachable for the same reason (#471 repaired rollbackMigration). It would also leave zveltio_tenant_scope_ok defined over a function that no longer exists, since a SQL function body carries no dependency.",
+      "status": "logged",
+      "why_not_fixed": "shipped migration; and the rollback path itself is the thing to decide, not this one file"
+    },
+    {
+      "severity": "low",
+      "where": "packages/engine/src/db/schema.ts (DbSchema) and two comments",
+      "what": "DbSchema declares 25 tables that no engine migration creates: the ten zv_mail_*, six zv_ai_*/zvd_ai_*, the four retired zvd_portal_*/zvd_collection_views, zv_ddl_jobs (dropped by 001), and zv_webhooks/zv_webhook_deliveries (the live tables are zvd_*). Kysely then certifies a query against a table that is not there -- the precedent is zv_flow_dlq, which 001 records as exactly this. Only one such query exists today and it is the finding above. Two comments have drifted with them: lib/data/ddl-queue.ts says the zv_ddl_jobs table 'is preserved for historical queries' where 001 drops it, and routes/webhooks.ts says 'zv_webhooks carries tenant_id and a policy' where the live table is zvd_webhooks and it has no policy at all.",
+      "status": "logged",
+      "why_not_fixed": "removing a declaration is a typecheck change across both repositories, and the mail/ai entries are how extension-owned tables are typed today -- worth a decision, not a review edit"
+    }
+  ],
+  "verdict": "logged",
+  "notes": "Read all eleven files end to end. The three mechanical properties this section exists to check -- declared columns against real ones, numeric typing, and Generated against defaults -- are clean on every table that exists, which is the part the gates do cover. Everything found is at a seam the gates do not look at: an ON CONFLICT target, a lock claim, a DOWN section, and declarations for tables nobody creates."
+}

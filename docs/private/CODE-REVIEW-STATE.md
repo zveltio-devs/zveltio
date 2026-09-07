@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A10 — Schema types and incremental migrations**
+### → **A12 — Data read path**
 
-*Kysely types against the real columns, and the upgrade path from an instance installed before the squash.*
+*Filter parsing, plan shape, cache keys that must carry the tenant, N+1 in the loader.*
 
-11 of 11 files still unread. Its file list is under [`A10`](#a10--schema-types-and-incremental-migrations) below.
+9 of 9 files still unread. Its file list is under [`A12`](#a12--data-read-path) below.
 
-After it: A12, A13, A14, A15 …
+After it: A13, A14, A15, A01 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **129 / 658** (20%)
-- Lines in scope: **35,361 / 136,343** (26%)
-- Test files opened by some session: **38 / 885**
+- Files in scope: **140 / 658** (21%)
+- Lines in scope: **38,238 / 136,343** (28%)
+- Test files opened by some session: **42 / 885**
 
 ## Sections
 
@@ -48,7 +48,7 @@ After it: A12, A13, A14, A15 …
 | A07 | Authentication and identity | 7 | 1,752 | 7/7 | 2026-09-05 — partial |
 | A08 | Database layer, pool, dialect, migration runner | 10 | 2,845 | 10/10 | 2026-09-06 — repaired |
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 1/1 | 2026-09-06 — logged |
-| A10 | Schema types and incremental migrations | 11 | 2,877 | 0/11 | — |
+| A10 | Schema types and incremental migrations | 11 | 2,877 | 11/11 | 2026-09-06 — logged |
 | A11 | Data write path | 8 | 2,125 | 8/8 | 2026-09-06 — repaired |
 | A12 | Data read path | 9 | 1,795 | 0/9 | — |
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
@@ -457,17 +457,40 @@ After it: A12, A13, A14, A15 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/db/migrations/sql/002_passkey.sql` | 48 |
-| · | `packages/engine/src/db/migrations/sql/003_rls_parallel_safe.sql` | 44 |
-| · | `packages/engine/src/db/migrations/sql/004_tenancy_hierarchy.sql` | 634 |
-| · | `packages/engine/src/db/migrations/sql/005_rls_initplan_predicate.sql` | 117 |
-| · | `packages/engine/src/db/migrations/sql/006_better_auth_account_issuer.sql` | 53 |
-| · | `packages/engine/src/db/migrations/sql/007_ext_registry_tenant_unique.sql` | 39 |
-| · | `packages/engine/src/db/migrations/sql/008_single_god.sql` | 68 |
-| · | `packages/engine/src/db/migrations/sql/009_revisions_unwrap_double_encoded.sql` | 98 |
-| · | `packages/engine/src/db/migrations/sql/010_unwrap_double_encoded_jsonb.sql` | 160 |
-| · | `packages/engine/src/db/migrations/sql/011_unwrap_collections_fields_jsonb.sql` | 85 |
-| · | `packages/engine/src/db/schema.ts` | 1531 |
+| ✅ | `packages/engine/src/db/migrations/sql/002_passkey.sql` | 48 |
+| ✅ | `packages/engine/src/db/migrations/sql/003_rls_parallel_safe.sql` | 44 |
+| ✅ | `packages/engine/src/db/migrations/sql/004_tenancy_hierarchy.sql` | 634 |
+| ✅ | `packages/engine/src/db/migrations/sql/005_rls_initplan_predicate.sql` | 117 |
+| ✅ | `packages/engine/src/db/migrations/sql/006_better_auth_account_issuer.sql` | 53 |
+| ✅ | `packages/engine/src/db/migrations/sql/007_ext_registry_tenant_unique.sql` | 39 |
+| ✅ | `packages/engine/src/db/migrations/sql/008_single_god.sql` | 68 |
+| ✅ | `packages/engine/src/db/migrations/sql/009_revisions_unwrap_double_encoded.sql` | 98 |
+| ✅ | `packages/engine/src/db/migrations/sql/010_unwrap_double_encoded_jsonb.sql` | 160 |
+| ✅ | `packages/engine/src/db/migrations/sql/011_unwrap_collections_fields_jsonb.sql` | 85 |
+| ✅ | `packages/engine/src/db/schema.ts` | 1531 |
+
+**Sessions**
+
+- **2026-09-06** · claude-opus-5 · 11 files · **logged** · `review/A10-schema-types`
+  - ran: applied the whole chain to a purpose-made database (zveltio_review_a10) and compared every DbSchema declaration against information_schema: 90 declared tables, 72 live, 0 declared columns missing from a table that exists
+  - ran: checked the same catalogue for the two type traps the file documents: 0 bigint/numeric columns typed as anything but PgNumeric or string, and 0 columns declared Generated or optional that are NOT NULL with no default
+  - ran: listed the 25 declared tables that do not exist on a fresh engine install, then grepped every one for a non-test reader: exactly one is queried (zvd_ai_embeddings, from lib/cloud/document-indexer.ts)
+  - ran: read that query against the ai extension's own migrations and found its ON CONFLICT target no longer exists; reproduced the failure on a live table -- created zvd_ai_embeddings per ai/001, ran the engine's exact upsert (ok), applied ai/006's constraint swap, ran it again: ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification
+  - ran: verified 003 and 005 on a real plan rather than from their comments: 200 000 rows, as the product runs it (transaction, SET LOCAL ROLE zveltio_rls, transaction-local GUC) -- InitPlan 1, Parallel Seq Scan, Workers Planned: 2, 22 ms
+  - ran: counted the policy rewrite 004 and 005 each assert: all 5 policies on a fresh engine database carry `tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])` and `zveltio_tenant_write_ok(tenant_id)`, none left on the old combined predicate
+  - ran: checked the PARALLEL SAFE markers survived the CREATE OR REPLACE chain 004 warns about: every function an RLS policy depends on reports proparallel = 's' in pg_proc
+  - ran: measured the batching claim in 009/010/011: seeded 12 000 double-encoded zv_revisions rows, ran 009's loop, and counted distinct xmin afterwards -- 1, so the three batches are one transaction
+  - ran: read the migration runner to confirm why: it wraps each file in a single Kysely transaction unless the file says `-- NO TRANSACTION`, and none of the three does
+  - ran: executed 004's DOWN inside a rolled-back transaction: ERROR: cannot drop function zveltio_visible_tenants() because other objects depend on it (policy tenant_isolation_zv_record_comments)
+  - ran: measured the unindexed self-FK found while cleaning up the 200 000-row seed: 5 000 deletes took 61.5 s with no index on zv_record_comments.parent_id and 0.083 s with one -- 740x, and quadratic in the size of the table
+  - ran: asked the catalogue for the whole class: 22 foreign keys in the schema have no index on their referencing column, 21 of which point at "user" and are only paid when a user row is deleted
+  - ran: ran the gates: check:schema, check:schema-snapshot, check:table-owners, check:raw-sql, sql:backticks, sql:numeric-arith, sql:jsonb, catch:fabricated, scripts/schema-drift-check.ts and scripts/check-insert-schema-match.ts -- all pass, including with the ON CONFLICT defect live
+  - ran: ran the five harness tests that touch these migrations: 31 pass, 0 fail
+  - **high** packages/engine/src/lib/cloud/document-indexer.ts (the zvd_ai_embeddings upsert) — the engine upserts with ON CONFLICT (collection, record_id, field). The ai extension's migration 006 replaced that unique constraint with UNIQUE (tenant_id, collection, record_id, field) as part of the tenant-unique-keys campaign, and its own comment says 'There are two [ON CONFLICT clauses], both in this extension'. There is a third, in the engine. Reproduced on a live table: the upsert succeeds before the swap and fails after it with 42P10, 'there is no unique or exclusion constraint matching the ON CONFLICT specification'. The call site wraps the statement in catch { console.error }, so cloud document indexing stops working silently on every install carrying ai at 006 or later. Neither schema-drift-check nor check-insert-schema-match looks at ON CONFLICT inference targets, so both pass with it live. → *logged*
+  - **medium** packages/engine/src/db/migrations/sql/001_initial.sql (012_record_comments stanza) -- found from A10, the table is A09's — zv_record_comments.parent_id is a self-referencing foreign key with ON DELETE CASCADE and no index. Every delete makes Postgres run DELETE FROM ONLY zv_record_comments WHERE $1 = parent_id as a sequential scan, so deleting comments is quadratic in the size of the table. Measured on 195 000 rows: 5 000 deletes took 61.5 s without the index and 0.083 s with it. This is not a rare-path cost like the other 21 unindexed FKs in the schema -- those reference "user" and are paid only when a user is deleted; this one fires on ordinary comment deletion. → *logged*
+  - **medium** packages/engine/src/db/migrations/sql/009, 010 and 011 — all three unwrap loops are batched at 5 000 rows, and 009 states the reason: 'this table grows without bound and one UPDATE over all of it would hold row locks for the length of a full rewrite. 5 000 rows at a time, committed per batch by the loop.' No batch is committed. The runner wraps every migration in one transaction unless the file carries `-- NO TRANSACTION`, none of the three does, and a PL/pgSQL DO block cannot COMMIT inside an outer transaction in any case. Measured: 12 000 seeded rows, three batches, one distinct xmin afterwards. So the locks are held for the whole run exactly as an unbatched UPDATE would, and the mitigation an operator would count on before running this against a large zv_revisions is not there. → *logged*
+  - **low** packages/engine/src/db/migrations/sql/004_tenancy_hierarchy.sql, DOWN section — 004's DOWN cannot run: DROP FUNCTION zveltio_visible_tenants() is refused because every rewritten policy depends on it. Executed against a database built by its own UP. Same class as the A09 finding on 001's DOWN, and reachable for the same reason (#471 repaired rollbackMigration). It would also leave zveltio_tenant_scope_ok defined over a function that no longer exists, since a SQL function body carries no dependency. → *logged*
+  - **low** packages/engine/src/db/schema.ts (DbSchema) and two comments — DbSchema declares 25 tables that no engine migration creates: the ten zv_mail_*, six zv_ai_*/zvd_ai_*, the four retired zvd_portal_*/zvd_collection_views, zv_ddl_jobs (dropped by 001), and zv_webhooks/zv_webhook_deliveries (the live tables are zvd_*). Kysely then certifies a query against a table that is not there -- the precedent is zv_flow_dlq, which 001 records as exactly this. Only one such query exists today and it is the finding above. Two comments have drifted with them: lib/data/ddl-queue.ts says the zv_ddl_jobs table 'is preserved for historical queries' where 001 drops it, and routes/webhooks.ts says 'zv_webhooks carries tenant_id and a policy' where the live table is zvd_webhooks and it has no policy at all. → *logged*
 
 ### A11 — Data write path
 
@@ -1610,12 +1633,12 @@ After it: A12, A13, A14, A15 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **847** of 885.
+Test files nobody has opened yet: **843** of 885.
 
 | Directory | Unread |
 | --- | --: |
 | `packages/engine/src/tests/unit` | 490 |
-| `packages/engine/src/tests/harness` | 279 |
+| `packages/engine/src/tests/harness` | 275 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |
