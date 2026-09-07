@@ -114,7 +114,7 @@
       "name": "@zveltio/sdk",
       "version": "3.0.0-beta.64",
       "dependencies": {
-        "idb": "^8.0.0",
+        "idb": "^8.0.3",
       },
       "devDependencies": {
         "@testcontainers/postgresql": "^11.14.0",
