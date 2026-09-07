@@ -10,20 +10,20 @@ Ledger updated: migrated to docs/private/review-sessions/
 
 ## Next up
 
-### → **A12 — Data read path**
+### → **A13 — DDL manager, queue, ghost DDL**
 
-*Filter parsing, plan shape, cache keys that must carry the tenant, N+1 in the loader.*
+*Identifier quoting, two creators for one table, orphans left behind by a failed run.*
 
-9 of 9 files still unread. Its file list is under [`A12`](#a12--data-read-path) below.
+3 of 3 files still unread. Its file list is under [`A13`](#a13--ddl-manager-queue-ghost-ddl) below.
 
-After it: A13, A14, A15, A01 …
+After it: A14, A15, A01, A03 …
 
 ## Progress
 
 - Sections in scope: **60**
-- Files in scope: **140 / 658** (21%)
-- Lines in scope: **38,238 / 136,343** (28%)
-- Test files opened by some session: **42 / 885**
+- Files in scope: **149 / 658** (23%)
+- Lines in scope: **40,043 / 136,353** (29%)
+- Test files opened by some session: **67 / 885**
 
 ## Sections
 
@@ -50,7 +50,7 @@ After it: A13, A14, A15, A01 …
 | A09 | Base schema (001_initial.sql) | 1 | 4,212 | 1/1 | 2026-09-06 — logged |
 | A10 | Schema types and incremental migrations | 11 | 2,877 | 11/11 | 2026-09-06 — logged |
 | A11 | Data write path | 8 | 2,125 | 8/8 | 2026-09-06 — repaired |
-| A12 | Data read path | 9 | 1,795 | 0/9 | — |
+| A12 | Data read path | 9 | 1,805 | 9/9 | 2026-09-07 — repaired |
 | A13 | DDL manager, queue, ghost DDL | 3 | 2,234 | 0/3 | — |
 | A14 | Field types, validation, field encryption | 6 | 2,152 | 0/6 | — |
 | A15 | Collection, relation and revision routes | 5 | 2,184 | 0/5 | — |
@@ -124,7 +124,7 @@ After it: A13, A14, A15, A01 …
 
 | # | Section | Files | Lines | Reviewed | Last session |
 | --- | --- | --: | --: | --: | --- |
-| T01 | Test corpus | 885 | 94,710 | n/a | — |
+| T01 | Test corpus | 885 | 94,730 | n/a | — |
 
 ---
 
@@ -535,15 +535,37 @@ After it: A13, A14, A15, A01 …
 
 | ✓ | File | Lines |
 | --- | --- | --: |
-| · | `packages/engine/src/lib/data/handlers/list.ts` | 479 |
-| · | `packages/engine/src/lib/data/query-alter.ts` | 108 |
-| · | `packages/engine/src/lib/data/query-cache.ts` | 160 |
-| · | `packages/engine/src/lib/data/query-parse.ts` | 172 |
-| · | `packages/engine/src/lib/data/query-utils.ts` | 9 |
-| · | `packages/engine/src/lib/data/shape.ts` | 249 |
-| · | `packages/engine/src/lib/data/time-travel-count.ts` | 125 |
-| · | `packages/engine/src/lib/graphql-dataloader.ts` | 184 |
-| · | `packages/engine/src/lib/virtual-collection-adapter.ts` | 309 |
+| ✅ | `packages/engine/src/lib/data/handlers/list.ts` | 479 |
+| ✅ | `packages/engine/src/lib/data/query-alter.ts` | 108 |
+| ✅ | `packages/engine/src/lib/data/query-cache.ts` | 160 |
+| ✅ | `packages/engine/src/lib/data/query-parse.ts` | 182 |
+| ✅ | `packages/engine/src/lib/data/query-utils.ts` | 9 |
+| ✅ | `packages/engine/src/lib/data/shape.ts` | 249 |
+| ✅ | `packages/engine/src/lib/data/time-travel-count.ts` | 125 |
+| ✅ | `packages/engine/src/lib/graphql-dataloader.ts` | 184 |
+| ✅ | `packages/engine/src/lib/virtual-collection-adapter.ts` | 309 |
+
+**Sessions**
+
+- **2026-09-07** · claude-opus-5 · 9 files · **repaired** · `review/A12-data-read-path`
+  - ran: bun test (24 A12 unit files), baseline before any edit — 141 pass, 0 fail
+  - ran: bun test (26 files incl. 2 harness), after the fix — 148 pass, 0 fail
+  - ran: HTTP probe via the in-process harness, GET /api/data/<coll>?cursor=<base64url>: 'nope' 200, 123 200, [] 200, true 200, null 500 — the defect, measured at the boundary rather than on the helper
+  - ran: guard-removal check on the repair: deleted only the new non-object guard in decodeCursor (file still compiles), reran query-parse.property.test.ts — 'never throws on arbitrary strings' FAILS after 25 runs, 'output is null or well-formed' FAILS after 33; guard restored, both pass
+  - ran: EXPLAIN (ANALYZE) on 200 000 rows, index (created_at DESC) — OR keyset form: Index Scan + Filter, Rows Removed by Filter 100001, 11,449 ms; row-comparison form: Index Cond, Rows Removed 1, 0,069 ms (166x). With a composite (created_at DESC, id DESC): 10,951 ms vs 0,031 ms
+  - ran: psql: pg_indexes on a dynamic zvd_ table — only idx_<t>_created_at and idx_<t>_tenant_created exist, no (sort, id) composite; so the row-comparison repair does not depend on new DDL
+  - ran: bun run check:tenant-on-pool — clean
+  - ran: bun run check:atomic-writes — clean
+  - ran: bun run catch:fabricated — clean
+  - ran: bun run typecheck (engine) — clean
+  - ran: bun run check:fix / format:check — clean
+  - **medium** lib/data/query-parse.ts:170 (decodeCursor) — A cursor whose payload is the JSON literal `null` parses successfully, escapes the catch, and throws a TypeError on the property read — GET /:collection?cursor=bnVsbA answers 500 on fully client-controlled input, while every other malformed payload falls back to offset paging. Twenty-five lines above, parseFilters guards the identical shape with a comment naming this exact failure. → *repaired* (known-gaps.md §A12)
+  - **medium** tests/unit/query-parse.property.test.ts:110 — The fuzz suite asserts decodeCursor 'never throws on arbitrary strings' over 600 runs and was green while it threw: fc.string()/fc.base64String() reach valid JSON only by accident and never produced the encoding of `null`. Generator now encodes JSON literals, and the assertion fails in 25 runs with the guard removed. → *repaired* (known-gaps.md §A12)
+  - **medium** lib/data/handlers/list.ts:334-344 — The keyset predicate is built in the OR form, which Postgres cannot seek on: at offset 100 000 it discards 100 001 rows through a Filter, 11,449 ms against 0,069 ms for the row-comparison form on the same shipped index. The cursor path reproduces the OFFSET cost its own comment says it avoids, and the gap grows with page depth. → *logged* (known-gaps.md §A12)
+  - **low** lib/graphql-dataloader.ts:29 — createCollectionLoader catches every error and returns null per key, so a failed query is indistinguishable from a missing row and the aborted transaction resurfaces elsewhere. Log the failure with the table name. → *logged* (known-gaps.md §A12)
+  - **low** lib/data/handlers/list.ts:231 — The virtual-source filter loop destructures Object.entries(value)[0] without the guard parseFilters has; ?filter={"a":{}} throws into a catch annotated 'invalid JSON — skip', dropping the remaining filters and returning a BROADER result set with a 200. → *logged* (known-gaps.md §A12)
+  - **low** lib/virtual-collection-adapter.ts:261 — virtualCreate POSTs to source_url while virtualList GETs source_url + list_endpoint, so reads and creates address different URLs on any source configured with a list_endpoint. Possibly intended; nothing states it. Belongs to A11. → *logged* (known-gaps.md §A12)
+  - not done: The keyset OR-form rewrite is measured but not applied: it changes the SQL of the hottest read path on both order branches over a runtime-resolved sql.ref(sortField) of unknown column type, and wants a deep-page correctness fixture of its own rather than a ride-along on a parser fix. The harness needs ZVELTIO_REGISTRATION_ENABLED=1 on a database built from zero — createGodSession signs up over HTTP and the self-registration gate defaults closed, so a harness suite on a fresh review database fails in beforeAll until that is set; worth putting in the campaign setup notes.
 
 ### A13 — DDL manager, queue, ghost DDL
 
@@ -1633,12 +1655,12 @@ After it: A13, A14, A15, A01 …
 
 *Reviewed inside the owning section, not on its own: every session records which test files it opened. What stays unrecorded is the backlog nobody has read.*
 
-Test files nobody has opened yet: **843** of 885.
+Test files nobody has opened yet: **818** of 885.
 
 | Directory | Unread |
 | --- | --: |
-| `packages/engine/src/tests/unit` | 490 |
-| `packages/engine/src/tests/harness` | 275 |
+| `packages/engine/src/tests/unit` | 466 |
+| `packages/engine/src/tests/harness` | 274 |
 | `packages/engine/src/tests/integration` | 30 |
 | `packages/studio/src/lib/components/common` | 8 |
 | `packages/cli/src/lib` | 5 |

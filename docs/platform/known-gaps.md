@@ -1282,6 +1282,106 @@ policy at all.
   credential row is left NULL), 007 (`NULLS NOT DISTINCT` per-tenant unique) and
   008 (one-god trigger) each land as described; 31 harness tests over them pass.
 
+### A12 — the data read path (2026-09-07, closed 9/9)
+
+Nine files, 1,795 lines: filter parsing, the query-result cache, the keyset and
+offset list paths, response shaping, the time-travel count, the virtual-source
+adapter and the GraphQL loader helpers. One defect repaired here; the rest are
+logged below.
+
+**Repaired (medium) — a cursor holding the JSON literal `null` answered 500.**
+`decodeCursor` documents that a malformed cursor returns `null` so the list
+handler falls back to offset paging, and every malformed shape took that path
+except one. `JSON.parse` succeeds on every JSON literal, not only on objects, so
+a payload of `null` never reached the `catch`; the guard below it then read
+`.id` off `null` and threw a `TypeError` out of a pure parsing function, which
+`routes/data.ts` — which wraps the handler in nothing — turned into a 500 on
+input the client fully controls. Measured at the HTTP boundary, one collection,
+five payloads:
+
+    ?cursor=Im5vcGUi   ("nope")  → 200      ?cursor=W10       ([])     → 200
+    ?cursor=MTIz       (123)     → 200      ?cursor=dHJ1ZQ    (true)   → 200
+    ?cursor=bnVsbA     (null)    → 500
+
+The neighbouring case in the same file is the reason this is worth naming.
+Twenty-five lines above, `parseFilters` carries an explicit guard for the
+identical shape, with a comment saying why — *"guard before destructuring or it
+throws a TypeError (→ a 500 on a malformed-but-plausible filter)"*. The same
+author, the same file, the same failure mode, one function apart: class 14's
+proximity variant, where the file that gets one case right is where nobody looks
+for the case it gets wrong.
+
+**And the fuzz suite that could not have caught it.**
+`query-parse.property.test.ts` asserts `decodeCursor` *never throws on arbitrary
+strings*, over 600 generated cases, and was green throughout. Its generators are
+`fc.string()` and `fc.base64String()`, which produce a string that base64-decodes
+to valid JSON only by accident and never produced the six bytes encoding `null`.
+The invariant was exactly right and the generator could not reach it. Repaired by
+moving the encoding inside the generator (`fc.constantFrom('null', 'true', '0',
+'"str"', '[]', …).map(b64)` plus `fc.jsonValue()`); with the guard removed the
+suite now fails in 25 runs, so the assertion is load-bearing.
+
+**Gap (medium) — the cursor path reproduces the cost it exists to avoid.**
+`handlers/list.ts:334-344` builds the keyset predicate in the `OR` form,
+`(sort < v) OR (sort = v AND id < id)`, under a comment that says the cursor
+path *"avoids OFFSET cost on large tables"*. Postgres cannot turn that form into
+an index seek: it scans from the top of the index and discards every row before
+the cursor. Measured, 200 000 rows, on the index dynamic tables actually get
+(`idx_<table>_created_at` on `(created_at DESC)`), paging at offset 100 000:
+
+    OR form (shipped)            Filter, Rows Removed by Filter: 100001   11,449 ms
+    row-comparison `(a,b) < (x,y)`  Index Cond, Rows Removed by Filter: 1   0,069 ms
+
+166x, and the gap grows with page depth, which is the property the cursor path
+was added to remove. With a composite `(created_at DESC, id DESC)` the row form
+reaches 0,031 ms, but that index is not needed for the repair — the seek already
+happens on the shipped one. Not repaired here: it rewrites the SQL of the
+hottest read path, both order branches, over a runtime-resolved `sql.ref(sortField)`
+whose column type is not known at build time, and that wants its own session with
+a deep-page correctness fixture rather than a ride-along on a parser fix.
+
+**Gap (low) — `createCollectionLoader` reports "no such row" for a failed query.**
+`graphql-dataloader.ts:29` catches everything and returns `keys.map(() => null)`,
+so a permission error, a dropped column or an aborted transaction is
+indistinguishable from a row that does not exist, and GraphQL renders it as a
+null field rather than an error. The batch is one statement, so in Postgres the
+failure also poisons the surrounding transaction and resurfaces later somewhere
+unrelated — the pattern known-gaps §2 already describes. Keep the fallback if a
+500 is not wanted, but log the failure with the table name. The exports here are
+extension-facing (`ctx.internals`), not dead: the engine mounts no GraphQL route,
+so `checkQueryDepth` / `checkQueryWidth` are advisory helpers an extension has to
+call, and whether the shipped GraphQL extension calls them is a question for the
+sibling repository.
+
+**Gap (low) — the virtual-source filter loop drops the filters it cannot parse,
+silently.** `handlers/list.ts:231` destructures `Object.entries(value)[0]`
+without the guard `parseFilters` has for the same shape, so `?filter={"a":{}}`
+throws inside the loop; the `catch` at 237 is annotated *"invalid JSON — skip"*
+and swallows it. The filters parsed before the throw are kept and the rest are
+dropped, so the caller receives a **broader** result set than they asked for,
+with a 200 and no indication. Same class as the repaired defect, on the path that
+does not reach a database.
+
+**Observation, not a defect — `virtualCreate` ignores `list_endpoint`.**
+`virtual-collection-adapter.ts:261` POSTs to `config.source_url` directly while
+`virtualList` GETs `source_url + list_endpoint`. For any virtual source
+configured with a `list_endpoint`, reads and creates address different URLs.
+That may well be intended — create and list are not obliged to share a path —
+but nothing in the file says so, and the asymmetry is invisible at the call site.
+Belongs to whoever owns the write path (A11), noted here because it was read here.
+
+**Checked and found sound**, so that the next reader can tell "safe" from "not
+looked at": the query-result cache key namespaces the tenant outside the hash and
+hashes `user.id`, and an API key's identity is the synthetic `apikey:<uuid>`, so
+neither a tenant switch nor an auth-type switch collides on a key; the
+time-travel count key serialises the resolved row rules, so a changed rule lands
+on a different key by construction; column access is applied on the time-travel
+and virtual paths as well as the live one; `applyExpand` gates the second
+collection on both `checkPermission` and the target's row policies; and the
+cursor branch runs filters through the same `buildCondition` and the same
+`queryAlterRegistry.applyAll` as the offset branch, so neither RLS nor an
+extension's narrowing is bypassed by adding `?cursor=`.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |

@@ -1,0 +1,104 @@
+{
+  "section": "A12",
+  "date": "2026-09-07",
+  "agent": "claude-opus-5",
+  "branch": "review/A12-data-read-path",
+  "files": [
+    "packages/engine/src/lib/data/handlers/list.ts",
+    "packages/engine/src/lib/data/query-parse.ts",
+    "packages/engine/src/lib/data/query-cache.ts",
+    "packages/engine/src/lib/data/query-alter.ts",
+    "packages/engine/src/lib/data/query-utils.ts",
+    "packages/engine/src/lib/data/shape.ts",
+    "packages/engine/src/lib/data/time-travel-count.ts",
+    "packages/engine/src/lib/graphql-dataloader.ts",
+    "packages/engine/src/lib/virtual-collection-adapter.ts"
+  ],
+  "tests": [
+    "packages/engine/src/tests/unit/query-parse.test.ts",
+    "packages/engine/src/tests/unit/query-parse-more.test.ts",
+    "packages/engine/src/tests/unit/query-parse.property.test.ts",
+    "packages/engine/src/tests/unit/query-parse-bracket-gt.test.ts",
+    "packages/engine/src/tests/unit/query-parse-bracket-lt.test.ts",
+    "packages/engine/src/tests/unit/query-parse-bracket-neq.test.ts",
+    "packages/engine/src/tests/unit/query-parse-bracket-null.test.ts",
+    "packages/engine/src/tests/unit/query-parse-buildAllowedCols-json.test.ts",
+    "packages/engine/src/tests/unit/query-parse-in-json.test.ts",
+    "packages/engine/src/tests/unit/query-parse-lt-lte.test.ts",
+    "packages/engine/src/tests/unit/query-cache.test.ts",
+    "packages/engine/src/tests/unit/query-cache-backend-failure.test.ts",
+    "packages/engine/src/tests/unit/time-travel-count.test.ts",
+    "packages/engine/src/tests/unit/data-shape.test.ts",
+    "packages/engine/src/tests/unit/data-shape-expand.test.ts",
+    "packages/engine/src/tests/unit/data-shape-expand-label-fallbacks.test.ts",
+    "packages/engine/src/tests/unit/data-shape-encrypted.test.ts",
+    "packages/engine/src/tests/unit/data-handlers-list-unit.test.ts",
+    "packages/engine/src/tests/unit/list-entity-access.test.ts",
+    "packages/engine/src/tests/unit/virtual-collection-adapter.test.ts",
+    "packages/engine/src/tests/unit/virtual-collection-unknown-operator.test.ts",
+    "packages/engine/src/tests/unit/graphql-dataloader-loader.test.ts",
+    "packages/engine/src/tests/unit/graphql-depth.test.ts",
+    "packages/engine/src/tests/unit/graphql-query-width.test.ts",
+    "packages/engine/src/tests/harness/data-list-cursor-filter-keyset.test.ts",
+    "packages/engine/src/tests/harness/data-list-cursor-malformed.test.ts"
+  ],
+  "ran": [
+    "bun test (24 A12 unit files), baseline before any edit — 141 pass, 0 fail",
+    "bun test (26 files incl. 2 harness), after the fix — 148 pass, 0 fail",
+    "HTTP probe via the in-process harness, GET /api/data/<coll>?cursor=<base64url>: 'nope' 200, 123 200, [] 200, true 200, null 500 — the defect, measured at the boundary rather than on the helper",
+    "guard-removal check on the repair: deleted only the new non-object guard in decodeCursor (file still compiles), reran query-parse.property.test.ts — 'never throws on arbitrary strings' FAILS after 25 runs, 'output is null or well-formed' FAILS after 33; guard restored, both pass",
+    "EXPLAIN (ANALYZE) on 200 000 rows, index (created_at DESC) — OR keyset form: Index Scan + Filter, Rows Removed by Filter 100001, 11,449 ms; row-comparison form: Index Cond, Rows Removed 1, 0,069 ms (166x). With a composite (created_at DESC, id DESC): 10,951 ms vs 0,031 ms",
+    "psql: pg_indexes on a dynamic zvd_ table — only idx_<t>_created_at and idx_<t>_tenant_created exist, no (sort, id) composite; so the row-comparison repair does not depend on new DDL",
+    "bun run check:tenant-on-pool — clean",
+    "bun run check:atomic-writes — clean",
+    "bun run catch:fabricated — clean",
+    "bun run typecheck (engine) — 0 errors, but only after `bun run build` in packages/sdk: a fresh worktree reports 186 errors in unrelated test files because @zveltio/sdk/testing has no built types yet, which reads exactly like a broken tree and is not one",
+    "bun x biome check on the four changed files — no fixes applied"
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "where": "lib/data/query-parse.ts:170 (decodeCursor)",
+      "what": "A cursor whose payload is the JSON literal `null` parses successfully, escapes the catch, and throws a TypeError on the property read — GET /:collection?cursor=bnVsbA answers 500 on fully client-controlled input, while every other malformed payload falls back to offset paging. Twenty-five lines above, parseFilters guards the identical shape with a comment naming this exact failure.",
+      "status": "repaired",
+      "ref": "known-gaps.md §A12"
+    },
+    {
+      "severity": "medium",
+      "where": "tests/unit/query-parse.property.test.ts:110",
+      "what": "The fuzz suite asserts decodeCursor 'never throws on arbitrary strings' over 600 runs and was green while it threw: fc.string()/fc.base64String() reach valid JSON only by accident and never produced the encoding of `null`. Generator now encodes JSON literals, and the assertion fails in 25 runs with the guard removed.",
+      "status": "repaired",
+      "ref": "known-gaps.md §A12"
+    },
+    {
+      "severity": "medium",
+      "where": "lib/data/handlers/list.ts:334-344",
+      "what": "The keyset predicate is built in the OR form, which Postgres cannot seek on: at offset 100 000 it discards 100 001 rows through a Filter, 11,449 ms against 0,069 ms for the row-comparison form on the same shipped index. The cursor path reproduces the OFFSET cost its own comment says it avoids, and the gap grows with page depth.",
+      "status": "logged",
+      "ref": "known-gaps.md §A12"
+    },
+    {
+      "severity": "low",
+      "where": "lib/graphql-dataloader.ts:29",
+      "what": "createCollectionLoader catches every error and returns null per key, so a failed query is indistinguishable from a missing row and the aborted transaction resurfaces elsewhere. Log the failure with the table name.",
+      "status": "logged",
+      "ref": "known-gaps.md §A12"
+    },
+    {
+      "severity": "low",
+      "where": "lib/data/handlers/list.ts:231",
+      "what": "The virtual-source filter loop destructures Object.entries(value)[0] without the guard parseFilters has; ?filter={\"a\":{}} throws into a catch annotated 'invalid JSON — skip', dropping the remaining filters and returning a BROADER result set with a 200.",
+      "status": "logged",
+      "ref": "known-gaps.md §A12"
+    },
+    {
+      "severity": "low",
+      "where": "lib/virtual-collection-adapter.ts:261",
+      "what": "virtualCreate POSTs to source_url while virtualList GETs source_url + list_endpoint, so reads and creates address different URLs on any source configured with a list_endpoint. Possibly intended; nothing states it. Belongs to A11.",
+      "status": "logged",
+      "ref": "known-gaps.md §A12"
+    }
+  ],
+  "notDone": "The keyset OR-form rewrite is measured but not applied: it changes the SQL of the hottest read path on both order branches over a runtime-resolved sql.ref(sortField) of unknown column type, and wants a deep-page correctness fixture of its own rather than a ride-along on a parser fix. The harness needs ZVELTIO_REGISTRATION_ENABLED=1 on a database built from zero — createGodSession signs up over HTTP and the self-registration gate defaults closed, so a harness suite on a fresh review database fails in beforeAll until that is set; worth putting in the campaign setup notes.",
+  "verdict": "repaired"
+}
