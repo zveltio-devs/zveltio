@@ -107,10 +107,30 @@ describe('parseFilters — fuzz invariants', () => {
   });
 });
 
+/**
+ * A cursor is base64url-encoded JSON, so the interesting inputs are the ones
+ * that DECODE to valid JSON — and `fc.string()` / `fc.base64String()` produce
+ * those only by accident. They never produced the six bytes that encode the
+ * literal `null`, which is why this suite stayed green for 600 runs while
+ * `decodeCursor` threw a TypeError on it and the list route answered 500.
+ *
+ * Encoding the payload here puts the JSON literals inside the generator, so
+ * "never throws" is an invariant the suite can actually falsify.
+ */
+const b64 = (raw: string) => Buffer.from(raw).toString('base64url');
+const arbCursor = fc.oneof(
+  fc.string(),
+  fc.base64String(),
+  // JSON that parses but is not a `{ id, val }` object — every one of these is a
+  // malformed cursor and must take the offset fallback rather than throw.
+  fc.constantFrom('null', 'true', 'false', '0', '123', '"str"', '[]', '[1,2]', '{}').map(b64),
+  fc.jsonValue().map((v) => b64(JSON.stringify(v))),
+);
+
 describe('decodeCursor — fuzz invariants', () => {
   test('never throws on arbitrary strings', () => {
     fc.assert(
-      fc.property(fc.oneof(fc.string(), fc.base64String(), fc.constant(undefined)), (s) => {
+      fc.property(fc.oneof(arbCursor, fc.constant(undefined)), (s) => {
         decodeCursor(s);
         return true;
       }),
@@ -120,7 +140,7 @@ describe('decodeCursor — fuzz invariants', () => {
 
   test('output is null or a well-formed { id, val }', () => {
     fc.assert(
-      fc.property(fc.oneof(fc.string(), fc.base64String()), (s) => {
+      fc.property(arbCursor, (s) => {
         const r = decodeCursor(s);
         if (r !== null) {
           expect(typeof r.id).toBe('string');

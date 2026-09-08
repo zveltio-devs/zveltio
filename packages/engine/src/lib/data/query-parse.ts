@@ -160,13 +160,23 @@ export interface DecodedCursor {
  * offset pagination). */
 export function decodeCursor(cursor: string | undefined): DecodedCursor | null {
   if (!cursor) return null;
-  let decoded: { id: string; val: JsonValue } = { id: '', val: null };
+  let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString());
   } catch {
     /* malformed cursor — fall through to offset path */
     return null;
   }
-  if (decoded.id && decoded.val !== undefined) return decoded;
+  // `JSON.parse` succeeds on every JSON literal, not only on objects, so the
+  // parse landing in the `try` says nothing about the shape. A string, a number,
+  // an array and a boolean all reach the property read below harmlessly — but
+  // `null` does not: reading `.id` off it throws a TypeError out of a pure
+  // parsing function, and the list route answers 500 on a cursor the client
+  // fully controls (`?cursor=bnVsbA`). Every one of those payloads is a
+  // malformed cursor by this function's contract, so all of them take the same
+  // offset fallback.
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) return null;
+  const { id, val } = decoded as { id?: unknown; val?: JsonValue };
+  if (typeof id === 'string' && id && val !== undefined) return { id, val };
   return null;
 }
