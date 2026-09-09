@@ -40,7 +40,12 @@ for (const root of roots) {
   // Tracked files under the protected path. `ls-files` reports the index, which
   // is what a push would carry — not the working tree, where the files are
   // meant to stay.
-  const tracked = (await $`git -C ${root} ls-files -- ${PROTECTED}`.text().catch(() => '')).trim();
+  // `Bun.spawnSync` rather than the `$` shell: this repository's TypeScript
+  // config does not see `$` as an export of `bun`, and every other gate here
+  // spawns git the same way.
+  const tracked = new TextDecoder()
+    .decode(Bun.spawnSync(['git', '-C', root, 'ls-files', '--', PROTECTED]).stdout)
+    .trim();
 
   if (tracked) {
     const files = tracked.split('\n').filter(Boolean);
@@ -62,10 +67,11 @@ for (const root of roots) {
   // by grepping `.gitignore`, so any mechanism counts: the repository's own
   // file, a parent's, or the global one.
   const probe = `${PROTECTED}__gate_probe__.md`;
-  const ignored = await $`git -C ${root} check-ignore -q ${probe}`
-    .quiet()
-    .then(() => true)
-    .catch(() => false);
+  const ignored =
+    Bun.spawnSync(['git', '-C', root, 'check-ignore', '-q', probe], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    }).exitCode === 0;
 
   if (!ignored) {
     console.error(
