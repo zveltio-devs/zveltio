@@ -200,6 +200,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       getDb(c, db),
       collection,
       await resolveUserRole(user),
+      user.id,
     );
     const page = pageRows.rows
       .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data))
@@ -251,6 +252,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         getDb(c, db),
         collection,
         await resolveUserRole(user),
+        user.id,
       );
       return c.json({
         records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
@@ -407,7 +409,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     result.records = result.records.filter((_, i) => decisions[i] === true);
   }
 
-  const colAccess = await getColumnAccess(getDb(c, db), collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(getDb(c, db), collection, await resolveUserRole(user), user.id);
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
   ).map((r) => applyColumnAccess(r, colAccess));

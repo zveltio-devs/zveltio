@@ -422,6 +422,18 @@ export interface ExtensionInternals<DB = unknown> {
   getColumnAccess: (
     collection: string,
     role: string,
+    /**
+     * The acting user's id. Optional, and additive — omitting it means no
+     * exemption, which is the refusing direction, so an extension written
+     * against the two-argument form keeps working and keeps masking.
+     *
+     * Pass it to have the host resolve `data:view_all_columns` for that
+     * identity. That permission is how "god sees everything" is expressed for
+     * columns: `checkPermission` returns true for a god user before consulting
+     * any policy, and everything else is deny-by-default. Without the id there
+     * is no identity to resolve it for, so even a god is masked.
+     */
+    userId?: string,
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   /** The Casbin role behind a user — what `getColumnAccess` keys on. */
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;

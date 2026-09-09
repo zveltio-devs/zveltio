@@ -102,7 +102,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       return c.json({ error: 'Record not found' }, 404);
     }
 
-    const ttColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+    const ttColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
     return c.json({
       record: applyColumnAccess(data as Record<string, unknown>, ttColAccess),
       time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
@@ -117,7 +117,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       if (!record) return c.json({ error: 'Record not found' }, 404);
       // Column permissions apply to virtual collections too — hide columns the
       // role can't read instead of proxying them through verbatim.
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
       return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
@@ -159,7 +159,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     return c.json({ error: 'Record not found' }, 404);
   }
 
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const serializedRecord = applyColumnAccess(
     await serializeRecord(record, collectionDef),
     colAccess,
@@ -206,7 +206,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
     try {
       const body = await c.req.json();
       // Column-level write permission applies to virtual writes too.
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -227,7 +227,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   const { errors, processed } = await processInput(body, collectionDef);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const { data: allowedData, blocked: blockedCreate } = filterWritableFields(
     processed,
     colAccessCreate,
@@ -299,7 +299,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   if (virtualConfigPut) {
     try {
       const body = await c.req.json();
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -324,7 +324,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // Without this, PUT was an escalation hole: a role denied write access to a
   // column could still overwrite it via replace, since POST and PATCH block it
   // but PUT did not.
-  const colAccessPut = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccessPut = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const { data: allowedPut, blocked: blockedPut } = filterWritableFields(processed, colAccessPut);
   if (blockedPut.length > 0) {
     return c.json({ error: `Fields are read-only for your role: ${blockedPut.join(', ')}` }, 403);
@@ -406,7 +406,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   if (virtualConfigPatch) {
     try {
       const body = await c.req.json();
-      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -427,7 +427,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   const { errors, processed } = await processInput(body, collectionDef, true);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
     processed,
     colAccessPatch,

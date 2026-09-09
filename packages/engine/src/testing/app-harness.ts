@@ -29,7 +29,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { invalidateGodCache } from '../lib/tenancy/index.js';
+import {
+  getEnforcer,
+  invalidateGodCache,
+  invalidateUserPermCache,
+} from '../lib/tenancy/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -175,6 +179,99 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
     throw new Error(`harness sign-in returned no cookie: ${signIn.status} ${await signIn.text()}`);
   }
   return cookie;
+}
+
+/**
+ * A signed-in user who is NOT god, plus its id.
+ *
+ * Needed because `createGodSession` is the only session most harness suites
+ * have, and god is exempt from access controls by design — so a suite that
+ * drives a restriction through a god session cannot observe the restriction.
+ * The column-permission suites did exactly that. They passed while
+ * `getColumnAccess` masked god (a bug: the exemption named `admin`, and `god`
+ * fell through to being masked), and began failing the moment the exemption
+ * became a permission that god actually holds. The tests were green because of
+ * the defect they were meant to catch.
+ *
+ * `role` defaults to `member`, the least privileged grade the CHECK constraint
+ * on `"user".role` permits. Pass `admin` to prove an instance admin is subject
+ * to the same restrictions as anyone else — which is the point of this
+ * engine's single-privileged-role design.
+ *
+ * Returns the id as well as the cookie because column and row rules are keyed
+ * by identity, and a test that plants a rule needs to name the subject.
+ */
+export async function createMemberSession(
+  app: Hono,
+  db: Database,
+  opts: {
+    role?: 'member' | 'manager' | 'admin';
+    /**
+     * Collections this user may act on, and how. Required for almost every
+     * test: `checkAccess` resolves `checkPermission(user.id, collection,
+     * action)` and the engine is deny-by-default, so a member with no policy is
+     * refused 403 — which looks nothing like the masking a column test is
+     * trying to observe, and is easy to misread as the restriction working.
+     *
+     * Granted per user rather than per role so a suite cannot leak authority
+     * into another suite through a shared role name.
+     */
+    grants?: Array<{ collection: string; actions: string[] }>;
+  } = {},
+): Promise<{ cookie: string; userId: string; email: string }> {
+  const role = opts.role ?? 'member';
+  const email = `harness-${role}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
+  const password = 'HarnessMember123!';
+
+  const signUp = await app.request('/api/auth/sign-up/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name: `Harness ${role}` }),
+  });
+  if (!signUp.ok && signUp.status !== 200 && signUp.status !== 201) {
+    throw new Error(`harness sign-up failed: ${signUp.status} ${await signUp.text()}`);
+  }
+
+  // No god demotion here, deliberately: this helper must be usable alongside
+  // `createGodSession` in the same suite, which is how a test shows that the
+  // same rule binds one identity and not the other.
+  const row = await sql<{ id: string }>`
+    UPDATE "user" SET role = ${role} WHERE email = ${email} RETURNING id
+  `.execute(db);
+  const userId = row.rows[0]?.id;
+  if (!userId) throw new Error(`harness could not find the ${role} it just created`);
+
+  // Same reason as in `createGodSession`: the role is written in raw SQL behind
+  // `isGodUser`'s in-process cache, which the sign-up request has already
+  // populated for this account.
+  await invalidateGodCache(userId);
+
+  if (opts.grants?.length) {
+    const enforcer = await getEnforcer();
+    for (const grant of opts.grants) {
+      for (const action of grant.actions) {
+        await enforcer.addPolicy(userId, '*', grant.collection, action);
+      }
+    }
+    // `checkPermission` memoises per user; the policies were just added behind
+    // that memo.
+    await invalidateUserPermCache(userId);
+  }
+
+  const signIn = await app.request('/api/auth/sign-in/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const cookie = (signIn.headers.get('set-cookie') ?? '')
+    .split(',')
+    .map((c) => c.split(';')[0]!.trim())
+    .filter(Boolean)
+    .join('; ');
+  if (!cookie) {
+    throw new Error(`harness sign-in returned no cookie: ${signIn.status} ${await signIn.text()}`);
+  }
+  return { cookie, userId, email };
 }
 
 /**
