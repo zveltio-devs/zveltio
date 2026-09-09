@@ -1106,6 +1106,282 @@ contract.
 
 ---
 
+### A09 — the base schema, read against a live database (2026-09-06, closed 1/1)
+
+One file, 4,212 lines: 77 `CREATE TABLE`s and 49 folded migrations. Read end to
+end and measured against a database built from it, which is the only way three
+of these were visible.
+
+**Gap (high) — `zveltio_worker` is granted nothing on any collection created
+after install.** The 043 stanza grants the worker role DML on the `zvd_` tables
+that exist when the migration runs, and says of the rest: *"New ones are granted
+at create time; see `grantWorkerSqlAccess()` beside `grantFlowReaderSelect()`."*
+`grantWorkerSqlAccess` does not exist in either repository. `DDLManager` calls
+`grantFlowReaderSelect` and nothing else (`ddl-manager.ts:460`), and
+`ALTER DEFAULT PRIVILEGES` names `zveltio_rls` alone, so there is no second
+route either. Measured:
+
+    has_table_privilege('zveltio_worker', <new zvd_ table>, 'SELECT')  → false
+    SET LOCAL ROLE zveltio_worker; SELECT … → permission denied for table
+
+The bridge in `worker-extension-host.ts` falls back to `zveltio_rls` when
+`SET LOCAL ROLE` *throws* — but the role exists, so the `SET` succeeds and the
+query is what fails. A worker-isolated extension therefore breaks on exactly the
+collections it exists to serve, and only on installs where the collection was
+created after the migration ran, which is every real install. The `flow_reader`
+half of the same design is correct and was verified alongside it; the asymmetry
+is what makes this invisible to reading. Repair belongs in A13
+(`ddl-manager.ts`), with a harness test that creates a collection and asserts the
+grant — the existing role tests pass with the defect in place.
+
+**Gap (medium) — the baseline's `-- DOWN` neither completes nor cleans up.**
+Executed against a database built by its own UP. It aborts at
+`DROP ROLE IF EXISTS zveltio_worker` ("role cannot be dropped because some
+objects depend on it — privileges for schema public"). Driven past that, six
+statements fail on dependent objects (`zvd_panel_cache`→`zv_panels`,
+`zv_panels`→`zv_dashboards`, `zv_flow_dlq`→`zv_flows`,
+`zv_tenant_transfers`→`zv_tenants`, `zv_flows`→`user`) and **26 of the 72 tables
+are left standing**, along with both remaining roles and the
+`zveltio_tenant_scope_ok` overloads. Everything the folded-in later migrations
+created — `zv_flow_dlq`, `zv_invitations`, `zv_erd_layouts`, the backup trio, the
+`zvd_` insights set, `zvd_column_permissions`, `zvd_push_tokens`,
+`zvd_rls_policies`, `zvd_rpc_functions`, `zv_request_logs`, `zv_audit_log`,
+`zv_roles` — has no `DROP` at all. This was unreachable until yesterday:
+`rollbackMigration` listed `migrations/sql/` unconditionally and failed in every
+compiled binary (repaired in #471). Not repaired here, and not repairable here:
+001 is a shipped migration whose checksum is verified at every boot, and editing
+it reports a mismatch on every existing install — the reason the squash exists.
+A later migration, or a rollback path that does not depend on this DOWN, is an
+owner call.
+
+**Gap (low) — one index exists twice.** `idx_zv_revisions_lookup` (041 stanza) is
+byte-identical to `idx_zv_revisions_record` (004 stanza): both
+`btree (collection, record_id, created_at DESC)`. `zv_revisions` carries seven
+indexes on a live install, two of them the same index, on the table every record
+write appends to. Same shipped-checksum constraint; a `DROP INDEX` belongs in a
+new migration.
+
+**Verified clean, with the measurement.**
+
+- **Unique keys carry `tenant_id`,** with two deliberate exceptions out of 21
+  tenant-scoped tables: `zv_api_keys.key_hash` and `zv_invitations.token`. Both
+  are credential lookups reached *before* tenant resolution, so global uniqueness
+  is the correct shape and the file says so.
+- **Every table with a `tenant_id` has an index leading on it** — no exceptions.
+- **The root-tenant default was measured again, not changed:** 21 `tenant_id`
+  columns, 17 carrying the `COALESCE(NULLIF(current_setting(…),''), root)`
+  default, 6 `NOT NULL`. Absence of a tenant context resolves to the root tenant.
+  Recorded as an owner decision (see A04/A08), not repaired.
+- **RLS in this file is small and deliberate:** 4 `ENABLE`, 4 `FORCE`, 3
+  policies. Live, six tables carry RLS — three forced (`zv_edge_functions`,
+  `zv_edge_function_logs`, `zvd_insight_saved_queries`) and four enabled without
+  `FORCE` (`session`, `account`, `verification`, `twoFactor`), which is the 044
+  design: the owner connection stays unbound so Better-Auth keeps working, and
+  every other role sees zero rows with no policy present. Every other table's
+  isolation is installed at boot by the reconciler, not here.
+- `zv_encrypted_fields` is never created on a fresh install — its guard tests for
+  `zv_collections` where the table is `zvd_collections` — and nothing reads it.
+  Already recorded in migration 011; noted here only so the next reader does not
+  re-find it.
+- Gates: `check:schema`, `check:schema-snapshot`, `check:table-owners`,
+  `check:raw-sql`, `sql:backticks`, `sql:numeric-arith`, `sql:jsonb`,
+  `catch:fabricated` all pass, and `check-migration-safety.ts` reports nothing to
+  check — it skips 001 by design, which is correct and worth knowing: this file
+  has never been linted by that gate.
+
+### A10 — schema types and the incremental migrations (2026-09-06, closed 11/11)
+
+Ten migrations and `schema.ts`, read against a database built from the whole
+chain. The three properties this section exists to check are clean; everything
+found is at a seam no gate looks at.
+
+**Gap (high) — the engine holds the third `ON CONFLICT` that the ai extension's
+migration said there were only two of.** `lib/cloud/document-indexer.ts` upserts
+into `zvd_ai_embeddings` with `ON CONFLICT (collection, record_id, field)`. The
+extension's migration 006 replaced that unique constraint with
+`UNIQUE (tenant_id, collection, record_id, field)` during the tenant-unique-keys
+campaign, and its own comment states: *"The `ON CONFLICT` clauses move with the
+constraints. There are two, both in this extension."* Reproduced on a live table
+— the engine's exact statement, before and after the swap:
+
+    before ai/006 → INSERT 0 1
+    after  ai/006 → ERROR: there is no unique or exclusion constraint
+                    matching the ON CONFLICT specification   (42P10)
+
+The call site wraps it in `catch { console.error }`, so cloud document indexing
+stops working silently on any install carrying `ai` at 006 or later. `zvd_ai_embeddings`
+exists only when that extension is installed, which is also what supplies the
+embedding provider, so the guard above the statement is sound — the constraint is
+what moved. Neither `schema-drift-check.ts` nor `check-insert-schema-match.ts`
+inspects an inference target, so both gates pass with this live. The repair is the
+tenant column in the target (and in the insert), plus a check that pins inference
+targets against `pg_constraint` the way the insert gate pins column lists.
+
+**Gap (medium) — deleting a record comment is quadratic.**
+`zv_record_comments.parent_id` is a self-referencing FK with `ON DELETE CASCADE`
+and no index, so every delete runs
+`DELETE FROM ONLY zv_record_comments WHERE $1 = parent_id` as a sequential scan.
+Found by accident, cleaning up a 200,000-row seed, and then measured on 195,000
+rows:
+
+    5 000 deletes, no index on parent_id     61.5 s
+    5 000 deletes, with index on parent_id    0.083 s
+
+740×, and it grows with the table. The catalogue says 22 FKs in the schema have
+no index on their referencing column, but the other 21 point at `"user"` and are
+paid only when a user row is deleted; this one fires in ordinary use. The column
+is declared in `001_initial.sql`, so the index belongs in a new migration.
+
+**Gap (medium) — the batched unwrap migrations are not batched.** 009, 010 and
+011 each loop 5,000 rows at a time, and 009 gives the reason: *"this table grows
+without bound and one `UPDATE` over all of it would hold row locks for the length
+of a full rewrite. 5 000 rows at a time, committed per batch by the loop."*
+Nothing is committed per batch. The runner wraps each migration in one
+transaction unless the file carries `-- NO TRANSACTION` — none of the three does —
+and a PL/pgSQL `DO` block cannot `COMMIT` inside an outer transaction anyway.
+Measured: 12,000 seeded rows, three batches, **one** distinct `xmin` afterwards.
+The locks are held for the whole run exactly as an unbatched `UPDATE` would hold
+them, which is the one thing the shape was chosen to avoid.
+
+**Gap (low) — 004's `-- DOWN` cannot run.**
+`DROP FUNCTION zveltio_visible_tenants()` is refused: every policy the migration
+rewrote depends on it. Same class as the A09 finding on 001's DOWN, reachable for
+the same reason (#471). It would also leave `zveltio_tenant_scope_ok` defined over
+a function that no longer exists, since a SQL function body carries no dependency.
+
+**Gap (low) — 25 declared tables that no engine migration creates.** `DbSchema`
+types the ten `zv_mail_*`, six `zv_ai_*`/`zvd_ai_*`, the four retired
+`zvd_portal_*`/`zvd_collection_views`, `zv_ddl_jobs` (dropped by 001) and
+`zv_webhooks`/`zv_webhook_deliveries` (the live tables are `zvd_*`). Kysely then
+certifies a query against a table that is not there — the precedent is
+`zv_flow_dlq`, which 001 records as exactly this shape. Only one such query
+exists today, and it is the first finding above. Two comments drifted with them:
+`lib/data/ddl-queue.ts` says `zv_ddl_jobs` "is preserved for historical queries"
+where 001 drops it, and `routes/webhooks.ts` says "`zv_webhooks` carries
+`tenant_id` and a policy" where the live table is `zvd_webhooks` and carries no
+policy at all.
+
+**Verified clean, with the measurement.**
+
+- **`schema.ts` against the real columns: 0 drift.** 90 declared tables, 72 live,
+  and of the 65 that exist not one declares a column the database does not have.
+- **0 `bigint`/`numeric` columns typed as anything but `PgNumeric` or `string`**,
+  and **0 columns declared `Generated`/optional that are `NOT NULL` with no
+  default** — the two type traps the file's own header documents.
+- **003 and 005 hold on a real plan, not in their comments.** 200,000 rows, as the
+  product runs it: `InitPlan 1`, `Parallel Seq Scan`, `Workers Planned: 2`,
+  22 ms. Every function an RLS policy depends on still reports
+  `proparallel = 's'`, so the `CREATE OR REPLACE` chain 004 warns about did not
+  undo 003.
+- **The policy rewrite both 004 and 005 assert really happened:** all five
+  policies on a fresh engine database carry
+  `tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[])` with
+  `zveltio_tenant_write_ok(tenant_id)`, and none is left on the old combined
+  predicate.
+- 002 (passkey), 006 (`account.issuer` + backfill, with a `RAISE EXCEPTION` if any
+  credential row is left NULL), 007 (`NULLS NOT DISTINCT` per-tenant unique) and
+  008 (one-god trigger) each land as described; 31 harness tests over them pass.
+
+### A12 — the data read path (2026-09-07, closed 9/9)
+
+Nine files, 1,795 lines: filter parsing, the query-result cache, the keyset and
+offset list paths, response shaping, the time-travel count, the virtual-source
+adapter and the GraphQL loader helpers. One defect repaired here; the rest are
+logged below.
+
+**Repaired (medium) — a cursor holding the JSON literal `null` answered 500.**
+`decodeCursor` documents that a malformed cursor returns `null` so the list
+handler falls back to offset paging, and every malformed shape took that path
+except one. `JSON.parse` succeeds on every JSON literal, not only on objects, so
+a payload of `null` never reached the `catch`; the guard below it then read
+`.id` off `null` and threw a `TypeError` out of a pure parsing function, which
+`routes/data.ts` — which wraps the handler in nothing — turned into a 500 on
+input the client fully controls. Measured at the HTTP boundary, one collection,
+five payloads:
+
+    ?cursor=Im5vcGUi   ("nope")  → 200      ?cursor=W10       ([])     → 200
+    ?cursor=MTIz       (123)     → 200      ?cursor=dHJ1ZQ    (true)   → 200
+    ?cursor=bnVsbA     (null)    → 500
+
+The neighbouring case in the same file is the reason this is worth naming.
+Twenty-five lines above, `parseFilters` carries an explicit guard for the
+identical shape, with a comment saying why — *"guard before destructuring or it
+throws a TypeError (→ a 500 on a malformed-but-plausible filter)"*. The same
+author, the same file, the same failure mode, one function apart: class 14's
+proximity variant, where the file that gets one case right is where nobody looks
+for the case it gets wrong.
+
+**And the fuzz suite that could not have caught it.**
+`query-parse.property.test.ts` asserts `decodeCursor` *never throws on arbitrary
+strings*, over 600 generated cases, and was green throughout. Its generators are
+`fc.string()` and `fc.base64String()`, which produce a string that base64-decodes
+to valid JSON only by accident and never produced the six bytes encoding `null`.
+The invariant was exactly right and the generator could not reach it. Repaired by
+moving the encoding inside the generator (`fc.constantFrom('null', 'true', '0',
+'"str"', '[]', …).map(b64)` plus `fc.jsonValue()`); with the guard removed the
+suite now fails in 25 runs, so the assertion is load-bearing.
+
+**Gap (medium) — the cursor path reproduces the cost it exists to avoid.**
+`handlers/list.ts:334-344` builds the keyset predicate in the `OR` form,
+`(sort < v) OR (sort = v AND id < id)`, under a comment that says the cursor
+path *"avoids OFFSET cost on large tables"*. Postgres cannot turn that form into
+an index seek: it scans from the top of the index and discards every row before
+the cursor. Measured, 200 000 rows, on the index dynamic tables actually get
+(`idx_<table>_created_at` on `(created_at DESC)`), paging at offset 100 000:
+
+    OR form (shipped)            Filter, Rows Removed by Filter: 100001   11,449 ms
+    row-comparison `(a,b) < (x,y)`  Index Cond, Rows Removed by Filter: 1   0,069 ms
+
+166x, and the gap grows with page depth, which is the property the cursor path
+was added to remove. With a composite `(created_at DESC, id DESC)` the row form
+reaches 0,031 ms, but that index is not needed for the repair — the seek already
+happens on the shipped one. Not repaired here: it rewrites the SQL of the
+hottest read path, both order branches, over a runtime-resolved `sql.ref(sortField)`
+whose column type is not known at build time, and that wants its own session with
+a deep-page correctness fixture rather than a ride-along on a parser fix.
+
+**Gap (low) — `createCollectionLoader` reports "no such row" for a failed query.**
+`graphql-dataloader.ts:29` catches everything and returns `keys.map(() => null)`,
+so a permission error, a dropped column or an aborted transaction is
+indistinguishable from a row that does not exist, and GraphQL renders it as a
+null field rather than an error. The batch is one statement, so in Postgres the
+failure also poisons the surrounding transaction and resurfaces later somewhere
+unrelated — the pattern known-gaps §2 already describes. Keep the fallback if a
+500 is not wanted, but log the failure with the table name. The exports here are
+extension-facing (`ctx.internals`), not dead: the engine mounts no GraphQL route,
+so `checkQueryDepth` / `checkQueryWidth` are advisory helpers an extension has to
+call, and whether the shipped GraphQL extension calls them is a question for the
+sibling repository.
+
+**Gap (low) — the virtual-source filter loop drops the filters it cannot parse,
+silently.** `handlers/list.ts:231` destructures `Object.entries(value)[0]`
+without the guard `parseFilters` has for the same shape, so `?filter={"a":{}}`
+throws inside the loop; the `catch` at 237 is annotated *"invalid JSON — skip"*
+and swallows it. The filters parsed before the throw are kept and the rest are
+dropped, so the caller receives a **broader** result set than they asked for,
+with a 200 and no indication. Same class as the repaired defect, on the path that
+does not reach a database.
+
+**Observation, not a defect — `virtualCreate` ignores `list_endpoint`.**
+`virtual-collection-adapter.ts:261` POSTs to `config.source_url` directly while
+`virtualList` GETs `source_url + list_endpoint`. For any virtual source
+configured with a `list_endpoint`, reads and creates address different URLs.
+That may well be intended — create and list are not obliged to share a path —
+but nothing in the file says so, and the asymmetry is invisible at the call site.
+Belongs to whoever owns the write path (A11), noted here because it was read here.
+
+**Checked and found sound**, so that the next reader can tell "safe" from "not
+looked at": the query-result cache key namespaces the tenant outside the hash and
+hashes `user.id`, and an API key's identity is the synthetic `apikey:<uuid>`, so
+neither a tenant switch nor an auth-type switch collides on a key; the
+time-travel count key serialises the resolved row rules, so a changed rule lands
+on a different key by construction; column access is applied on the time-travel
+and virtual paths as well as the live one; `applyExpand` gates the second
+collection on both `checkPermission` and the target's row policies; and the
+cursor branch runs filters through the same `buildCondition` and the same
+`queryAlterRegistry.applyAll` as the offset branch, so neither RLS nor an
+extension's narrowing is bypassed by adding `?cursor=`.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
