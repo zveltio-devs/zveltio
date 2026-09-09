@@ -33,7 +33,7 @@
     "@hono/zod-validator": "^0.9.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
-    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
     "@types/pg": "^8.23.1",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.7.2",
