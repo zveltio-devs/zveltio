@@ -8,7 +8,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkallro_${Date.now()}`;
@@ -17,11 +22,17 @@ d('bulk create all read-only errors (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
+  let memberCookie = '';
   let colPermId = '';
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    // Deny-by-default: without an explicit grant this user is refused 403,
+    // which is not the restriction under test and reads like a pass.
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
+    }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
       fields: [
@@ -68,7 +79,7 @@ d('bulk create all read-only errors (in-process)', () => {
   it('returns 207 with created 0 when every row includes a read-only field', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
+      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
       body: JSON.stringify({
         records: [
           { title: 'a', secret: 'x' },

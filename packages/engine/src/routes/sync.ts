@@ -439,7 +439,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           c.get('authType') ?? 'session',
         );
         // Column permissions likewise: `selectAll()` shipped forbidden columns.
-        const pullColAccess = await getColumnAccess(db, collectionShortName, user.role);
+        const pullColAccess = await getColumnAccess(db, collectionShortName, user.role, user.id);
         const pullQuery = pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
           .selectFrom(collection as any)

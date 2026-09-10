@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -25,12 +30,18 @@ d('virtual create response column mask (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
+  let memberCookie = '';
   let originalFetch: typeof fetch;
   let colPermId = '';
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    // Deny-by-default: without an explicit grant this user is refused 403,
+    // which is not the restriction under test and reads like a pass.
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
+    }));
 
     await db
       .insertInto('zvd_collections')
@@ -102,7 +113,7 @@ d('virtual create response column mask (in-process)', () => {
 
     const res = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
+      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
       body: JSON.stringify({ title: 'ok' }),
     });
     expect(res.status).toBe(201);

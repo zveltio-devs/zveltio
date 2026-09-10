@@ -413,8 +413,13 @@ export function buildExtensionInternals(): ExtensionInternals {
       applyRlsFilters(query, filters as Parameters<typeof applyRlsFilters>[1]),
     // The handle is the host's to choose: column permissions are instance
     // configuration, not tenant rows.
-    getColumnAccess: (collection: string, role: string) =>
-      getColumnAccess(getDb(), collection, role),
+    // `userId` is additive and optional: an extension built against the older
+    // three-argument signature keeps working, and gets no exemption, which is
+    // the refusing direction. Pass the acting user's id to have the host
+    // resolve `data:view_all_columns` for them — that is how a god sees every
+    // column through an extension, the same way it does through the data API.
+    getColumnAccess: (collection: string, role: string, userId?: string) =>
+      getColumnAccess(getDb(), collection, role, userId),
     resolveUserRole,
     getSingleTenantId,
     isTenantAdmin,

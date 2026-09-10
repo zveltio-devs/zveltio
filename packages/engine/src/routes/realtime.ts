@@ -486,7 +486,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
       access.set(col, {
         rls: await getRlsFilters(col, user, authType).catch(() => []),
-        columns: await getColumnAccess(_db, col, role).catch(() => null),
+        columns: await getColumnAccess(_db, col, role, user.id).catch(() => null),
       });
     }
 
