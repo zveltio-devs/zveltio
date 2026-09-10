@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 387
+# tables: 388
 
 table account
   col accessToken                    text
@@ -5597,6 +5597,20 @@ table zvd_permissions
   col v5                             text
   pk  zvd_permissions_pkey PRIMARY KEY (id)
   idx idx_zvd_permissions_policy_unique UNIQUE (ptype, COALESCE(v0, ''::text), COALESCE(v1, ''::text), COALESCE(v2, ''::text), COALESCE(v3, ''::text))
+
+table zvd_permissions_pruned_012
+  col created_at                     timestamp with time zone
+  col id                             uuid NOT NULL
+  col membership                     text
+  col pruned_at                      timestamp with time zone NOT NULL DEFAULT now()
+  col ptype                          text NOT NULL
+  col v0                             text
+  col v1                             text
+  col v2                             text
+  col v3                             text
+  col v4                             text
+  col v5                             text
+  pk  zvd_permissions_pruned_012_pkey PRIMARY KEY (id)
 
 table zvd_plan_changes
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

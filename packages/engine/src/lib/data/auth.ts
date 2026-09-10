@@ -117,16 +117,24 @@ export async function validateApiKey(
   // pre-existing key to root, so a strict match would refuse working keys on
   // upgrade, and a root-tenant key is already an instance-level credential. The
   // reported attack — one ordinary tenant's key reaching another — is refused.
+  //
+  // A request that resolved NO tenant is a request acting in the root tenant,
+  // and is compared as such. It is not a request exempt from the comparison.
+  // The distinction was worth a privilege escalation: this check used to carry
+  // a `requestTenantId &&` clause, so `null` skipped it entirely and an
+  // ordinary tenant's key authenticated — while `tenantId()` in route-db.ts,
+  // which every downstream reader uses, resolves the same absence to
+  // DEFAULT_TENANT_ID. Two derivations of "the request's tenant" disagreed
+  // about the same request, and the permissive one guarded the door. Absent is
+  // root here too, so the two now agree, and they agree in the direction that
+  // refuses.
   const keyTenantId = (apiKey as { tenant_id?: string | null }).tenant_id ?? null;
-  if (
-    keyTenantId &&
-    keyTenantId !== DEFAULT_TENANT_ID &&
-    requestTenantId &&
-    keyTenantId !== requestTenantId
-  ) {
+  const actingTenantId = requestTenantId ?? DEFAULT_TENANT_ID;
+  if (keyTenantId && keyTenantId !== DEFAULT_TENANT_ID && keyTenantId !== actingTenantId) {
     console.warn(
       `[api-key] refused: key ${apiKey.id} belongs to tenant ${keyTenantId} but the ` +
-        `request is acting in ${requestTenantId}`,
+        `request is acting in ${actingTenantId}` +
+        (requestTenantId === null ? ' (no tenant resolved; treated as root)' : ''),
     );
     return null;
   }
