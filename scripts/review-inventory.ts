@@ -796,6 +796,10 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
+      // Added 2026-09-10, with the history rewrite that removed `docs/private/`
+      // from this public repository. Reads the sibling when asked, which is
+      // this section's focus, and its CI job is in E08.
+      'scripts/check-private-docs-untracked.ts',
     ],
   },
   {
