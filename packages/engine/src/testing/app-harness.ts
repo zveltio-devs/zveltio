@@ -29,11 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import {
-  getEnforcer,
-  invalidateGodCache,
-  invalidateUserPermCache,
-} from '../lib/tenancy/index.js';
+import { getEnforcer, invalidateGodCache, invalidateUserPermCache } from '../lib/tenancy/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 

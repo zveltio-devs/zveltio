@@ -409,7 +409,12 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     result.records = result.records.filter((_, i) => decisions[i] === true);
   }
 
-  const colAccess = await getColumnAccess(getDb(c, db), collection, await resolveUserRole(user), user.id);
+  const colAccess = await getColumnAccess(
+    getDb(c, db),
+    collection,
+    await resolveUserRole(user),
+    user.id,
+  );
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
   ).map((r) => applyColumnAccess(r, colAccess));

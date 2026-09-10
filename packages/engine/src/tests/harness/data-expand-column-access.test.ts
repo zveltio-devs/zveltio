@@ -139,7 +139,9 @@ d('expand column access (in-process)', () => {
   });
 
   it('list expand hides an unreadable column on the related collection', async () => {
-    const res = await app.request(`/api/data/${CHILD}?expand=parent`, { headers: { cookie: memberCookie } });
+    const res = await app.request(`/api/data/${CHILD}?expand=parent`, {
+      headers: { cookie: memberCookie },
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { records: Record<string, unknown>[] };
     const row = body.records.find((r) => r.id === childId);

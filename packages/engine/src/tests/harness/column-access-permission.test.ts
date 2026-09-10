@@ -53,9 +53,8 @@ d('column access is exempted by permission, not by role name', () => {
     // harness for one rather than inserting a second — which is refused with
     // "this instance already has a god".
     await createGodSession(app, db);
-    god = (
-      await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)
-    ).rows[0]!.id;
+    god = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god' LIMIT 1`.execute(db))
+      .rows[0]!.id;
 
     await sql`
       INSERT INTO zvd_column_permissions (collection_name, column_name, role, can_read, can_write)
@@ -87,9 +86,7 @@ d('column access is exempted by permission, not by role name', () => {
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLL}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM "user" WHERE id IN (${MEMBER}, ${GRANTED})`
-      .execute(db)
-      .catch(() => {});
+    await sql`DELETE FROM "user" WHERE id IN (${MEMBER}, ${GRANTED})`.execute(db).catch(() => {});
   });
 
   it('exempts god, who holds every permission', async () => {
