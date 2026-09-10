@@ -4386,6 +4386,20 @@ export interface ZvdPermissionsTable {
   created_at: Generated<Date>;
 }
 
+export interface ZvdPermissionsPruned012Table {
+  id: Generated<string>;
+  ptype: string;
+  v0: string | null;
+  v1: string | null;
+  v2: string | null;
+  v3: string | null;
+  v4: string | null;
+  v5: string | null;
+  created_at: Date | null;
+  membership: string | null;
+  pruned_at: Generated<Date>;
+}
+
 export interface ZvdPlanChangesTable {
   id: Generated<string>;
   subscriber_id: string;
@@ -5780,6 +5794,7 @@ export interface DbSchema {
   zvd_performance_cycles: ZvdPerformanceCyclesTable;
   zvd_performance_reviews: ZvdPerformanceReviewsTable;
   zvd_permissions: ZvdPermissionsTable;
+  zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
   zvd_plan_changes: ZvdPlanChangesTable;
   zvd_pos_cash_movements: ZvdPosCashMovementsTable;
   zvd_pos_customers: ZvdPosCustomersTable;
