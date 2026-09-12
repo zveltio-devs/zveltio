@@ -1382,6 +1382,62 @@ cursor branch runs filters through the same `buildCondition` and the same
 `queryAlterRegistry.applyAll` as the offset branch, so neither RLS nor an
 extension's narrowing is bypassed by adding `?cursor=`.
 
+### A14 — field types, validation, field encryption (2026-09-12, closed 6/6)
+
+Six files, 2,161 lines: the core field-type registry (`field-types/index.ts`),
+DDL/default rendering and the crypto/conversion/numeric/validation helpers it
+leans on. One defect repaired here; the rest is what was checked and found
+sound.
+
+**Repaired (medium) — `FIELD_ENCRYPTION_KEY` rotation without a restart did
+not work, contradicting the comment that says it does.** `field-crypto.ts`
+reads the env var lazily on purpose ("lets an operator rotate the key without
+a restart"), but `getKey()` cached the imported `CryptoKey` unconditionally on
+first use (`if (_key) return _key;`) and never rechecked the env var. Measured:
+encrypt under key A, rotate `FIELD_ENCRYPTION_KEY` to key B with no process
+restart, encrypt again — the second ciphertext still decrypts only under raw
+key A, not key B. Invisible from inside the module, because the same stale key
+also decrypts anything it just encrypted with itself; the test added
+(`field-crypto-key-rotation.test.ts`) decrypts independently with WebCrypto
+using the *second* key's raw hex to tell the two apart. Fixed by caching the
+key together with the hex string that produced it and re-importing when the
+env var no longer matches. Reverted the fix and confirmed the named test fails
+before it and passes after.
+
+Twin check: `lib/security/keyring.ts` (out of section) reads its three named
+keys per call with no `_key`-style cache and gets rotation right already — its
+own comment points back at field-crypto "for the why" without having copied
+the caching bug. Nothing else in `src/lib`/`src/routes` caches a `CryptoKey`
+across calls.
+
+**Blocked (one check only) — `sql:numeric-arith` cannot run to a real pass
+here.** The gate needs `amount`/`tax_amount`/`total_amount` columns that come
+from `finance/invoicing`'s extension migration. Booting a scratch engine
+against this section's database with `ZVELTIO_EXTENSIONS_PATH` set loaded
+`crm`, `forms`, `billing`, `sms` but not `finance` — the loader only resolves
+one path segment per extension id, and `finance` is a namespace directory
+(`finance/invoicing`, `finance/quotes`), not `finance/engine/index.js`. Getting
+this extension loaded is a loader-configuration question outside this
+section's files; the gate reports its own reason for failing rather than a
+false pass, which is the property that matters. `check:raw-sql`,
+`sql:backticks` and `catch:fabricated` all ran clean against this section.
+
+**Checked and found sound**: `renderSqlDefault` (field-type-registry.ts) quotes
+every non-numeric, non-boolean, non-whitelisted default and doubles embedded
+quotes — the injection this function used to have is closed and the allowlist
+of bare SQL expressions is exact; `field-type-conversions.ts`'s `resolveConversion`
+never emits a conversion for the relation types and always routes a
+caller-supplied column name through a quoted identifier; the `password` field
+type's `isPasswordHash` matches every algorithm `Bun.password.hash` can
+produce (argon2id today), not the old bcrypt-only prefix, so a re-submitted
+hash is never re-hashed; `validation-engine.ts`'s expression evaluator rejects
+`__proto__`/`constructor`/`prototype` tokens and, independently, refuses any
+variable name other than `value` after parsing — either check alone would
+still leave the other; and `getRuleGroups`'s `to_regclass` probe (not a
+`SELECT ... FROM` on a possibly-missing table) cannot raise `42P01`, so a
+missing `zvd_validation_rule_groups` table never aborts the caller's
+transaction, verified against a live database.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
