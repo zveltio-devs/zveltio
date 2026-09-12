@@ -23,8 +23,7 @@ import { toJsonb } from '../lib/jsonb.js';
  * defensively here also recovers any branch already written that way before
  * this fix, with no migration needed.
  */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
-function parseChanges(value: unknown): any[] {
+function parseChanges(value: unknown) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
     try {
