@@ -669,13 +669,17 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           // ── 1) Type change ────────────────────────────────────────────
           if (newType && newType !== fieldDef.type) {
             if (!fieldTypeRegistry.has(newType)) {
-              return c.json({ error: `Unknown field type: "${newType}"` }, 400);
+              // `return` here would be a return from THIS callback, captured by
+              // `.execute()`'s promise and discarded — not from the outer route
+              // handler. Throwing is what actually reaches the `catch` below and
+              // turns into an HTTP error instead of a silent no-op 200.
+              throw new Error(`Unknown field type: "${newType}"`);
             }
             const targetDef = fieldTypeRegistry.get(newType)!;
             const targetSqlType = targetDef.db.columnType;
             const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
             if (!conv.ok) {
-              return c.json({ error: conv.reason }, 400);
+              throw new Error(conv.reason);
             }
             await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
             updatedFieldShape = { ...updatedFieldShape, type: newType };

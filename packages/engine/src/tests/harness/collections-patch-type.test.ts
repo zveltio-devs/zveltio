@@ -59,4 +59,35 @@ d('collections field type change (in-process)', () => {
     `.execute(db);
     expect(cols.rows[0]?.udt_name).toBe('text');
   });
+
+  // The type-change branch used to validate inside a `db.transaction().execute(async (trx) => {...})`
+  // callback and `return c.json(...)` on failure — a return captured by the
+  // transaction's own promise and discarded, not by the outer route handler,
+  // so an invalid request fell through to the unconditional 200 success
+  // response below it with the field silently left unchanged.
+  it('PATCH with an unknown new_type answers 400, not a silent 200', async () => {
+    const res = await app.request(`/api/collections/${COLLECTION}/fields/contact`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ new_type: 'not_a_real_type' }),
+    });
+    expect(res.status).toBe(400);
+
+    const row = await DDLManager.getCollection(db, COLLECTION);
+    const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
+    expect(fields.find((f: { name: string }) => f.name === 'contact')?.type).toBe('email');
+  });
+
+  it('PATCH converting to a relation type answers 400, not a silent 200', async () => {
+    const res = await app.request(`/api/collections/${COLLECTION}/fields/contact`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ new_type: 'm2o' }),
+    });
+    expect(res.status).toBe(400);
+
+    const row = await DDLManager.getCollection(db, COLLECTION);
+    const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
+    expect(fields.find((f: { name: string }) => f.name === 'contact')?.type).toBe('email');
+  });
 });

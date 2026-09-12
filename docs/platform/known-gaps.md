@@ -1434,6 +1434,108 @@ stages to account for.
 **Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
 `zv_quality_issues`, `zv_quality_scans` — each its own iteration.
 
+### A15 — collection, relation and revision routes (2026-09-12, closed 5/5)
+
+Five files, 2,184 lines: `routes/collections.ts`, `routes/erd-layout.ts`,
+`routes/relations.ts`, `routes/revisions.ts`, `routes/schema-branches.ts` —
+the routes that change user schema at runtime, and revision revert. Two
+defects repaired here; the rest is what was checked and found sound.
+
+**Repaired (high) — `PATCH /:name/fields/:field` answered 200 success on an
+invalid `new_type`, leaving the field silently unchanged.** The type-change
+branch validated inside `await db.transaction().execute(async (trx) => {
+... })` and did `return c.json({ error: ... }, 400)` on failure. That
+`return` is captured by the transaction callback's own promise — discarded
+by `.execute()` — not by the outer route handler, which falls through
+unconditionally to `return c.json({ success: true, field: ..., actions: []
+})` right after the `await`. Measured: `PATCH .../fields/contact` with
+`new_type: "not_a_real_type"` and with `new_type: "m2o"` (relation
+conversion, rejected by `resolveConversion`) both answered `200
+{"success":true,...}` with the column's type unchanged in both metadata and
+`information_schema`. `collections-patch-type.test.ts` only exercised the
+valid-conversion path, so nothing caught it. Fixed by throwing instead of
+returning — the existing outer `catch` already turns a thrown `Error` into
+the intended 400 with the same message. Reverted and confirmed the two named
+tests fail before the fix and pass after; the pre-existing valid-conversion
+test in the same file was unaffected by the revert or the fix.
+
+Twin check: `relations.ts`'s two `db.transaction().execute(...)` helpers
+(`addFieldToCollection`, `removeFieldFromCollection`) do not return early
+with an HTTP response from inside the callback — the only instance of this
+shape in the section was the one fixed.
+
+**Repaired (high) — `zv_schema_branches.changes` was written with a bare
+`JSON.stringify(...)` instead of `toJsonb()` (`lib/jsonb.ts`), the exact
+double-encoding class that column already exists to prevent.** `changes` is
+a jsonb ARRAY column; `POST /:id/changes` did `SET changes =
+${JSON.stringify([...currentChanges, newChange])}`, which stores a jsonb
+STRING whose text is the array's JSON rather than the array. Measured: after
+one `POST /:id/changes` call, `SELECT changes ...` came back as a JS string
+(`typeof === 'string'`, `Array.isArray === false`). `POST /:id/merge` reads
+that value as `branch.changes || []` with no defensive parse and does `for
+(const change of changes)` — over a string, that iterates individual
+characters, so `change.type` is always `undefined`, nothing matches the
+`add_collection`/`add_field`/`remove_field` branches, and the loop finishes
+with `applied: []` and `errors: []`. The branch is then marked `status:
+'merged'` regardless, so a queued schema change is silently dropped and the
+merge reports "0 changes. 0 errors." as if there had been nothing queued.
+Fixed the writer with `toJsonb()`, and added a `parseChanges()` helper used
+on all three reads of the column (`POST /changes`, `POST /merge`, `GET
+/diff`) so a branch already written the broken way — no migration exists for
+this — recovers instead of continuing to no-op. Reverted and confirmed the
+named test fails (asserts `Array.isArray` and that the queued change to a
+nonexistent collection surfaces as a real merge error) before the fix and
+passes after.
+
+**Gate found fail-open on the exact pattern above.** `sql:jsonb`
+(`scripts/check-jsonb-binding.ts`) exists specifically to catch
+`JSON.stringify(v)` bound to a jsonb column, and reported `0 site(s)` with
+the bug both present and fixed — verified directly by reverting the fix and
+re-running the gate. Its own header says why: it parses the Kysely
+`insertInto(...).values({...})` / `updateTable(...).set({...})` object-literal
+shape, and `schema-branches.ts` writes `changes` through a raw `sql` tagged
+template, a shape the gate does not look at. `scripts/check-jsonb-binding.ts`
+is outside this section — logging rather than widening it, since I can't
+verify what else the gate's scope decision was resting on. `db/dynamic.ts`
+and `lib/audit.ts` both bind jsonb correctly through the raw-`sql` path
+already (`${JSON.stringify(v)}::text::jsonb`), so the miss is specific to
+this one call site's absence of that suffix, not to raw `sql` templates in
+general.
+
+**Logged, not fixed (out of section) — two more sites match the same wrong
+shape `${JSON.stringify(v)}::jsonb` (stringify-then-cast, which `lib/jsonb.ts`
+documents as still wrong: the driver has already encoded the parameter as
+JSON, so the cast re-wraps a jsonb string rather than parsing one) — found by
+the `sql:jsonb` gate-scope grep above, not executed/measured this session:**
+- `routes/saved-queries.ts:438` (`INSERT ... VALUES (..., ${JSON.stringify(data.config)}::jsonb, ...)`, `zv_saved_queries.config` is jsonb) and `:537` (`updates.config = JSON.stringify(data.config)`, later passed to a `.set()`).
+- `lib/flows/flow-executor.ts:523` and `:614` (`zv_flow_runs.trigger_data` / `.output`, both jsonb).
+
+**Checked and found sound.** `erd-layout.ts`: user-scoped by `user_id` inside
+`db.transaction().execute()` with no early return from the callback;
+`DELETE /` already carries a prior fix for the `numDeletedRows` always-0n
+trap (comment in place, counts from `.returning().length`). `relations.ts`:
+FK direction (source vs. target table) matches the create-time direction on
+delete for m2o/o2m/m2m; the two internal transaction helpers return nothing
+from inside `.execute()`. `revisions.ts`: revert strips
+`id/created_at/updated_at/tenant_id/search_vector/embedding/created_by`
+before writing, and `updated_by` travels as a call argument rather than
+through the payload so `RESERVED` can't silently drop it; tenant filter
+present on every query. `schema-branches.ts`'s `POST /:id/review` already
+carries a prior fix (comment in place) for a `.catch(() => {})` that used to
+swallow the review-insert failure independently of the status update.
+`rowCountOrAssumeLarge` fails toward the safe (online, Ghost DDL) path on an
+unknown count, per its own comment and confirmed by the merge test above
+(nonexistent table → `Infinity` → Ghost DDL attempted, not a blind
+`ALTER TABLE`).
+
+**Noted, not a defect.** `POST /:id/merge` marks `status: 'merged'`
+unconditionally, even when every queued change fails (`errors.length ===
+changes.length`) — there's no retry path once that happens. This is a
+behavior/contract question (should a fully-failed merge stay `open` for
+retry?) rather than a clear bug with an unambiguous correct answer, so it's
+noted here rather than repaired; changing it changes what callers can
+observe about `/merge`'s contract.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
