@@ -2324,11 +2324,11 @@ export interface ZvStorageQuotasTable {
   quota_bytes: Generated<number>;
   used_bytes: Generated<number>;
   updated_at: Generated<Date>;
-  id: Generated<string>;
+  id: Generated<string | null>;
   role_name: string | null;
   max_file_size_bytes: Generated<number>;
   allowed_extensions: Generated<string[]>;
-  created_by: string;
+  created_by: string | null;
   created_at: Generated<Date>;
   tenant_id: string | null;
 }
