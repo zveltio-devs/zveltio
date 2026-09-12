@@ -74,15 +74,6 @@ const ACCEPTED = new Map<string, string>([
     'Same extension, same pattern: `created_at` arrives by ALTER in its 001. Nothing ' +
       'it reads depends on the CREATE winning.',
   ],
-  [
-    'zv_storage_quotas',
-    'Three creators — engine, content/media and storage/cloud — and the two ' +
-      'extensions declare byte-identical shapes because they are two halves of one ' +
-      'feature. All six columns their code needs (`id`, `role_name`, ' +
-      '`max_file_size_bytes`, `allowed_extensions`, `created_by`, `created_at`) are ' +
-      "added by ALTER in both. `used_bytes` comes from the engine's shape. Verified " +
-      'against a live install: the table carries all eleven columns.',
-  ],
 ]);
 
 /** `CREATE TABLE [IF NOT EXISTS] [schema.]name`, comments already stripped. */
