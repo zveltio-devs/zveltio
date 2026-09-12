@@ -1434,6 +1434,64 @@ stages to account for.
 **Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
 `zv_quality_issues`, `zv_quality_scans` — each its own iteration.
 
+### A01 — boot, app assembly, middleware order (2026-09-12, closed 9/9)
+
+Nine files: `api-types.ts`, `index.ts`, `lib/service-registry.ts`,
+`lib/startup-guards.ts`, `routes/index.ts`, three `.d.ts` fixtures, and
+`version.ts`. One defect repaired.
+
+**Repaired (medium) — most real traffic was invisible to the request-count
+and Prometheus metrics.** `buildHonoApp()`'s counting `app.use('*', ...)`
+middleware sat directly above the `/metrics` route, registered AFTER
+`registerCoreRoutes()` had already mounted the entire `/api/*` + `/ext/*`
+surface and after the plain `/health` route. Hono composes matched handlers
+in registration order: a route that returns without calling `next()` never
+reaches a `next()`-based middleware registered later for the same path.
+Measured live (own scratch engine, own database): hitting `/api/health`,
+`/api/settings` and `/api/extensions` left `zveltio_requests_total` and
+`http_requests_total` completely unchanged, while a request that fell
+through to the `/api/*` 404 guard (registered after the old middleware
+position) was counted every time. In effect, almost the entire product's
+real traffic was blind to the counters the ops dashboards read — only 404s,
+the SPA fallback, and self-scrapes of `/metrics` were ever counted. The
+middleware's own skip-list (`/metrics`, `/health`, `/api/health/ready`) reads
+as though the author believed every other path reached this code, including
+`/api/extensions`, named in the very same comment as traffic that should
+count; it never did, for a reason unrelated to that list. Fixed by moving the
+middleware to before `registerCoreRoutes()` so it wraps every route; verified
+live before/after and with a new discriminating harness test
+(`request-metrics-coverage.test.ts` — fails without the fix, passes with it).
+
+**Checked and found sound, so the next reader can tell "safe" from "not
+looked at":** the documented middleware order (trailing-slash redirect →
+logger → problem envelope → body limits → CORS → session prefetch → tenant
+middleware → tenant membership → extension auth gate → extension rate limit
+→ routes) matches what actually executes, and `registerCoreRoutes()`'s own
+internal ordering (tracing, demo-mode, auth-specific rate limits, tenant
+quota, god-audit, request-log, preview-env, all before any `app.route()`
+call in that function) does not repeat the class this section's one defect
+belongs to. `_createAppForTests()` deliberately runs a reduced boot sequence
+(documented in its own header) and does not populate `_tenantScopedTables`
+or run the extension/grant-reconciliation steps `bootstrap()` runs after the
+parallel block — that only disarms an opt-in diagnostic counter
+(`ZVELTIO_STRICT_TENANT_SCOPE=1`), not RLS enforcement itself, and no test in
+the tree currently exercises that counter either way. Graceful shutdown
+(`cronRunner.stop()`, awaited `realtimeBus().stop()`, `_server?.stop()`) —
+flagged incomplete by the earlier AUDIT.md pass — is present and correct in
+the current tree; that TODO is stale. `productionGuardViolations` and its
+tests were read and cross-checked against every guard it names — all four
+(`ZVELTIO_EXT_AUTH_GATE`, `VALKEY_URL`, `CORS_ORIGINS`, `BETTER_AUTH_URL`)
+fire on the case they document and none on the cases they explicitly accept.
+
+**Not chased — cosmetic doc drift, not behaviour.** `routes/index.ts`'s
+header comment still lists `/api/ai/*` as a core route; AI moved to the `ai`
+extension. Left alone as a one-line documentation fix outside repair scope.
+
+**T01 leftovers.** No dedicated test exercises `injectCspNonce`, the
+static-file directory-traversal guard in `serveStaticFile`, or
+`trailingSlashRedirect`; all three were read line-by-line without finding a
+defect, but nothing in the suite would catch a regression in them.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |

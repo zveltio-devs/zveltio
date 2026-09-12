@@ -723,6 +723,38 @@ async function buildHonoApp(): Promise<Hono> {
   // client can't hammer extension routes. Generous cap — SDUI bursts are fine.
   app.use('/ext/*', extRateLimit);
 
+  // Request-count + Prometheus metrics — registered BEFORE any route so it
+  // wraps every one of them (core, marketplace, extension, `/health`,
+  // `/metrics` itself, the 404 guards, the SPA catch-all). It used to sit
+  // right above `/metrics`, AFTER `registerCoreRoutes()` had already mounted
+  // the entire `/api/*` and `/ext/*` surface and after the `/health` route —
+  // Hono composes matched handlers in registration order, so a route that
+  // returns without calling `next()` never reaches a `next()`-based
+  // middleware registered later for the same path. Measured live: hitting
+  // `/api/health`, `/api/settings` and `/api/extensions` left
+  // `zveltio_requests_total` and `http_requests_total` completely unchanged,
+  // while a path that falls through to the `/api/*` 404 guard (registered
+  // after the old position) was counted every time.
+  app.use('*', async (c, next) => {
+    _totalRequestCount++;
+    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
+    // app-traffic metrics the overview dashboard shows.
+    const p = c.req.path;
+    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
+      await next();
+      return;
+    }
+    const start = performance.now();
+    const method = c.req.method;
+    try {
+      await next();
+    } finally {
+      const seconds = (performance.now() - start) / 1000;
+      httpRequests.inc({ method, status: String(c.res.status) });
+      httpRequestDuration.observe({ method }, seconds);
+    }
+  });
+
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth });
 
@@ -905,25 +937,6 @@ rm studio.tar.gz</pre>
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
-  app.use('*', async (c, next) => {
-    _totalRequestCount++;
-    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
-    // app-traffic metrics the overview dashboard shows.
-    const p = c.req.path;
-    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
-      await next();
-      return;
-    }
-    const start = performance.now();
-    const method = c.req.method;
-    try {
-      await next();
-    } finally {
-      const seconds = (performance.now() - start) / 1000;
-      httpRequests.inc({ method, status: String(c.res.status) });
-      httpRequestDuration.observe({ method }, seconds);
-    }
-  });
   app.get('/metrics', async (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {
