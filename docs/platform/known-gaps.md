@@ -1783,6 +1783,108 @@ retry?) rather than a clear bug with an unambiguous correct answer, so it's
 noted here rather than repaired; changing it changes what callers can
 observe about `/merge`'s contract.
 
+### B02 — extension context and host internals (2026-09-13, closed 6/6)
+
+*The handle handed to an extension: what it can reach, versus what the type
+says it can.* Six files, 2,324 lines: `capabilities.ts`, `config.ts`,
+`extension-context.ts`, `index.ts`, `internals.ts`, `register.ts`.
+
+**Repaired (high) — the table allowlist only checked the FROM table, not a
+JOIN, an array/callback table expression, or the result of `withSchema`.**
+`createRestrictedDb`'s entry check (`extension-context.ts`) ran once, on
+`selectFrom`/`insertInto`/etc.'s first argument, and had three separate ways
+past it, each confirmed live against a real database with an extension
+holding no capability and no table grant:
+
+  - `ctx.db.selectFrom('zvd_x').innerJoin('session', ...)` — join methods
+    (`innerJoin`, `leftJoin`, …) are not in `QUERY_METHODS`, so a join tacked
+    onto an otherwise-permitted query reached Postgres uninspected. Returned
+    `session.token`, a live bearer credential.
+  - `ctx.db.selectFrom(['session'])` and
+    `ctx.db.selectFrom((eb) => eb.selectFrom('session')...)` — a non-string
+    table argument was normalized to `''`, and the permitted-check read
+    `baseTable === ''` as "nothing named, nothing to refuse" rather than
+    refusing it. Both returned `session.token`.
+  - `ctx.db.withSchema('public').selectFrom('session')` — `withSchema`
+    validates the schema name only and then returned the RAW, unwrapped
+    query creator from Kysely; nothing re-checked a table selected off it.
+    Returned `session.token`.
+
+  Fixed by: an `isPermittedTable` helper that refuses a non-string/empty
+  table instead of defaulting it to permitted; a `guardJoins` proxy that
+  wraps every query-builder result so a join chained onto it is checked the
+  same way the FROM table was; and `restrictQueryEntry`, which `withSchema`
+  now recurses into so its result is guarded exactly like the top-level
+  `Database` rather than handed back raw. Six new tests in
+  `extension-context-security.test.ts` (array, callback, JOIN-refused,
+  JOIN-permitted, withSchema-refused, withSchema-permitted); the join and
+  array/callback cases were confirmed to fail on the pre-fix code (reverted,
+  ran, 4 failed exactly on the new cases, restored). 65/65 existing
+  `extension-context*`/`restricted-db-hooks` tests still pass; 187/187 across
+  the section's full related-test corpus; `tsc --noEmit` and `biome check`
+  clean.
+
+**Logged, not fixed (critical) — `ctx.internals.withTenantIsolation` is a
+complete, ungated cross-tenant escape hatch, stronger than `ctx.adminDb` and
+requiring no capability at all.** `internals.ts` exposes the engine's
+`withTenantIsolation(tenantId, fn)` (`tenant-manager.ts`) straight through to
+every extension as `ctx.internals.withTenantIsolation`, and it is absent from
+`INTERNALS_CAPABILITY` in `capabilities.ts` — the map `gateInternals` (and
+`extension-capabilities.test.ts`'s own "gates the members that carry real
+authority" pin) uses to decide what needs a declared capability. Two defects
+compound:
+
+  1. `tenantId` is a caller-supplied string with no check that it belongs to
+     the calling extension's request/job. The function's own contract is
+     "the tenant has to come from wherever the work was enqueued" — it
+     trusts the caller entirely.
+  2. The `trx` handed to `fn` is the RAW engine `Database`, not wrapped by
+     `createRestrictedDb` — no table allowlist at all, unlike `ctx.adminDb`
+     (which requires `db:admin` AND still runs every query through
+     `createRestrictedDb`).
+
+  Confirmed live (real PostgreSQL 18, `initRlsEnforcementRole` run first so
+  `zveltio_rls` is actually enforced, not bypassed as superuser): seeded a
+  scratch `zvd_*` table with 2 rows for tenant A and 1 for tenant B via
+  `withTenantIsolation` itself (the legitimate path); built the exact bag
+  `gateInternals('probe-ext', buildExtensionInternals(), [], [])` produces
+  for an extension declaring **zero** capabilities; while executing inside a
+  normal tenant-A request (`ctx.db` correctly scoped to A, per the passing
+  `extension-ctx-db-isolation.integration.test.ts`), called
+  `ctx.internals.withTenantIsolation('<tenant-B-id>', fn)` and read
+  `[{"title":"B-SECRET-1"}]` — tenant B's row, from a tenant-A request, no
+  capability declared.
+
+  **Not fixed here.** The obvious fix — add `withTenantIsolation:
+  'db:admin'` to `INTERNALS_CAPABILITY` — breaks two real, currently-shipping
+  first-party extensions: `data/export` and `data/import`
+  (`zveltio-extensions/data/{export,import}/engine/routes.ts`) both call
+  `ctx.internals.withTenantIsolation` today to scope their own background
+  jobs to the job's own tenant, and their manifests declare only the
+  no-op legacy label `"database"` — not `db:admin`. Gating universally
+  would 403 both extensions' background jobs on the next load. The
+  underlying design question — should this require `db:admin` (and those
+  two manifests gain it), or should the host instead verify `tenantId`
+  against the tenant the calling job/request actually belongs to — is an
+  owner decision that touches manifests in the sibling repository, outside
+  this section's files. Repro is the probe script described above (not
+  checked in); rerun by seeding a `zvd_*` table under RLS, calling the
+  exported `initRlsEnforcementRole` first, and building the internals bag
+  with an empty capability list.
+
+**Checked and found sound.** `buildExtensionConfig`/`namespacedEnv`
+(`config.ts`) expose only `ZVELTIO_EXT_<NAME>_*`, frozen, per extension —
+matches the one other `process.env`-isolation rule this codebase has.
+`gateInternals` throws at CALL time (not property-access time), which
+matters because extensions destructure `ctx.internals` at module scope.
+`EXTENSION_TABLE_GRANTS`'s grants now seed `buildAllowedTables`'s set (fixed
+2026-09-10, see the entry above) — no longer inert. `db:admin`'s `adminDb`
+is correctly denied-by-default (`createDeniedAdminDb`) and, when granted,
+still passes through `createRestrictedDb` — the contrast that is what
+surfaced the `withTenantIsolation` gap above. No test-harness internals stub
+of the kind that hid a guard in B03/`extension-sandbox.test.ts` exists for
+this section's files — `gateInternals` is exercised against real objects
+directly.
 ### B01 — extension loading and lifecycle (2026-09-13, closed 7/7)
 
 Seven files, 2,129 lines: `extension-loader.ts`, `load.ts`, `load-phases.ts`,

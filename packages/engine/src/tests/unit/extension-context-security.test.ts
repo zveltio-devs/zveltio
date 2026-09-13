@@ -146,4 +146,121 @@ describe('createRestrictedDb — withSchema', () => {
       expect(() => rdb.withSchema(schema as never)).toThrow(/only work in the public schema/);
     }
   });
+
+  /**
+   * `withSchema('public')` used to hand back the RAW, unwrapped query creator
+   * — the guard below only checks the schema name, and nothing re-wrapped
+   * what it returned. Confirmed live against a real database:
+   * `ctx.db.withSchema('public').selectFrom('session')` returned the same
+   * bearer token `selectFrom('session')` alone is refused for.
+   */
+  function schemaSelectStub() {
+    const seen: string[] = [];
+    return {
+      seen,
+      db: {
+        withSchema: (_s: string) => ({
+          selectFrom: (t: string) => {
+            seen.push(t);
+            return { execute: async () => [] };
+          },
+        }),
+      },
+    };
+  }
+
+  it('still refuses a forbidden table selected after withSchema', () => {
+    const { db } = schemaSelectStub();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    expect(() =>
+      (
+        rdb.withSchema('public' as never) as never as { selectFrom: (t: string) => unknown }
+      ).selectFrom('session'),
+    ).toThrow(/attempted to access table/);
+  });
+
+  it('still allows a permitted table selected after withSchema', () => {
+    const { db, seen } = schemaSelectStub();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    (
+      rdb.withSchema('public' as never) as never as { selectFrom: (t: string) => unknown }
+    ).selectFrom('zvd_contacts');
+    expect(seen).toEqual(['zvd_contacts']);
+  });
+});
+
+/**
+ * A non-string table expression — an array of tables, or a derived-table
+ * callback — used to be normalized to `''` and the permitted-check then read
+ * `baseTable === ''` as "nothing named, nothing to refuse". Confirmed live:
+ * `ctx.db.selectFrom(['session'])` and
+ * `ctx.db.selectFrom((eb) => eb.selectFrom('session')...)` both read a real
+ * bearer token through that gap. An empty/non-string table must be REFUSED,
+ * not defaulted to permitted.
+ */
+describe('createRestrictedDb — non-string table expressions', () => {
+  it('refuses an array table expression', () => {
+    const { db } = makeStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    expect(() => rdb.selectFrom(['session'] as never)).toThrow(ExtensionSecurityError);
+  });
+
+  it('refuses a derived-table callback', () => {
+    const { db } = makeStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    expect(() => rdb.selectFrom(((eb: unknown) => eb) as never)).toThrow(ExtensionSecurityError);
+  });
+});
+
+/**
+ * `selectFrom` and friends only checked the FROM table; a JOIN chained onto
+ * the returned builder reached Postgres uninspected because join methods
+ * (`innerJoin`, `leftJoin`, ...) are not in `QUERY_METHODS`. Confirmed live: a
+ * permitted base table joined to `session` returned a real bearer token to an
+ * extension with no capability and no grant on `session`.
+ */
+describe('createRestrictedDb — JOIN guard', () => {
+  function makeJoinStubDb() {
+    const calls: string[] = [];
+    function builder(): {
+      innerJoin: (t: string, ...rest: unknown[]) => unknown;
+      execute: () => Promise<unknown[]>;
+    } {
+      return {
+        innerJoin: (t: string, ...rest: unknown[]) => {
+          calls.push(`innerJoin:${t}`);
+          return builder();
+        },
+        execute: async () => [],
+      };
+    }
+    const db = {
+      selectFrom(table: string) {
+        calls.push(`selectFrom:${table}`);
+        return builder();
+      },
+    };
+    return { db, calls };
+  }
+
+  it('refuses a JOIN to a table outside the allowlist', () => {
+    const { db } = makeJoinStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    const joinable = rdb.selectFrom('zvd_contacts' as never) as never as {
+      innerJoin: (t: string, ...rest: unknown[]) => unknown;
+    };
+    expect(() => joinable.innerJoin('session', 'session.userId', 'zvd_contacts.id')).toThrow(
+      /Joined tables are restricted/,
+    );
+  });
+
+  it('allows a JOIN to a permitted table', () => {
+    const { db, calls } = makeJoinStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms');
+    const joinable = rdb.selectFrom('zvd_contacts' as never) as never as {
+      innerJoin: (t: string, ...rest: unknown[]) => unknown;
+    };
+    joinable.innerJoin('zvd_orders', 'zvd_orders.contactId', 'zvd_contacts.id');
+    expect(calls).toContain('innerJoin:zvd_orders');
+  });
 });
