@@ -93,4 +93,21 @@ describe('extension migration table guard', () => {
     const f = migrationFile('CREATE TABLE IF NOT EXISTS zv_probe_items (id uuid primary key);');
     await expect(runExtensionMigrations(ext('probe', [f]), db())).resolves.toBeUndefined();
   });
+
+  it('refuses ALTER TABLE ONLY against a protected engine table', async () => {
+    // `ALTER TABLE [IF EXISTS] [ONLY] name` is valid Postgres. Without an
+    // allowance for "ONLY" between the optional clauses and the name, the
+    // guard's `(\w+)` captured "ONLY" itself — a string that is never an
+    // engine table — so it checked whether "only" was protected instead of
+    // the real target, `zv_migrations`, and let the statement through.
+    const f = migrationFile('ALTER TABLE ONLY zv_migrations DROP COLUMN down_sql;');
+    await expect(runExtensionMigrations(ext('probe', [f]), db())).rejects.toThrow(
+      /alters or drops engine table\(s\) zv_migrations/,
+    );
+  });
+
+  it('refuses ALTER TABLE IF EXISTS ONLY, schema-qualified', async () => {
+    const f = migrationFile('ALTER TABLE IF EXISTS ONLY public.zv_tenants ADD COLUMN x text;');
+    await expect(runExtensionMigrations(ext('probe', [f]), db())).rejects.toThrow(/zv_tenants/);
+  });
 });
