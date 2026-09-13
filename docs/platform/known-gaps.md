@@ -74,10 +74,13 @@ without breaking `CREATE EXTENSION` is the open part.
 Every other key under `/files/*` requires a valid signature.
 
 **By design — worker isolation is a guard-rail, not a sandbox.** It is a
-separate process with a restricted SQL allowlist, a reserved connection with a
-statement timeout, and a database role with no grants on the Better-Auth tables.
-It has not been adversarially tested. Treat untrusted community extensions
-accordingly. WASM isolation exists as an option and is
+separate thread (`Bun.Worker`, not a subprocess — OS memory is shared with the
+engine, only the V8 heap is isolated) with a restricted SQL allowlist, a
+reserved connection with a statement timeout, and a database role with no
+grants on the Better-Auth tables. Now adversarially tested — see
+[B03](#b03--worker-and-wasm-isolation-2026-09-13-closed-66) — and one real gap
+found and fixed there. Treat untrusted community extensions accordingly. WASM
+isolation exists as an option and is
 [deliberately deferred](#4-deliberate-deferrals) as the default.
 
 ---
@@ -1624,6 +1627,85 @@ still leave the other; and `getRuleGroups`'s `to_regclass` probe (not a
 missing `zvd_validation_rule_groups` table never aborts the caller's
 transaction, verified against a live database.
 
+### B03 — worker and WASM isolation (2026-09-13, closed 6/6)
+
+**What was measured** (live PostgreSQL 18, `zveltio_worker` role created by
+migration 001's embedded `043_worker_sql_role.sql` block, `SET LOCAL ROLE
+zveltio_worker` from a second `psql` session against a scratch database):
+
+- **Gap, found and fixed — `LOCK` was not in `worker-sql-policy.ts`'s refused
+  forms.** `LOCK TABLE zvd_x IN ACCESS EXCLUSIVE MODE` names no table in a
+  `FROM`/`JOIN`/`INTO`/`UPDATE` position, so the allowlist scan never saw it,
+  and Postgres grants a table lock — any mode — to a role holding only the
+  `SELECT`/`INSERT`/`UPDATE`/`DELETE` the worker role already has on `zvd_*`.
+  Measured live: `zveltio_worker` acquired an `ACCESS EXCLUSIVE` lock on
+  `zvd_collections` with only its ordinary DML grant, and a concurrent
+  `SELECT` from a second connection blocked for the lock's full duration.
+  Since `zvd_*` tables are one physical table shared by every tenant (RLS
+  filters rows, it does not split storage), a single untrusted worker-isolated
+  extension could freeze every tenant's access to a collection for the length
+  of the bridge's statement timeout (10s), repeatably. Fixed by adding `LOCK`
+  to the refused-forms list in `worker-sql-policy.ts`, with a regression test
+  that fails before the fix and passes after (revert verified: the named case
+  flips from fail to pass, no other test moves).
+- **Checked and NOT a gap — `COPY`, `TRUNCATE`, `ALTER`, `GRANT`.** None of
+  these is recognised by the JS parser either (same blind spot as `LOCK`:
+  the table name isn't in a position the scanner reads), but all four are
+  refused by Postgres itself: `zveltio_worker` holds no `TRUNCATE` grant, no
+  ownership (`ALTER`, `GRANT`), and `session`/`user`/`account`/`verification`/
+  `twoFactor` are explicitly `REVOKE ALL`'d from it, so `COPY "session" TO
+  STDOUT` and `TRUNCATE zv_api_keys` both fail with `permission denied` —
+  verified live, not assumed from reading. This is the documented design (the
+  parser advises, the database enforces); `LOCK` was the one case where the
+  worker's own legitimate DML grant was already sufficient, so the database
+  backstop didn't apply.
+- **`hasCapability`/`policyFor` (`extension-sandbox.ts`) — live, not dead
+  code**, unlike the pre-`capabilities.ts` policy the class-15 entry above
+  describes. Its only caller is `wasm-extension-host.ts`, which is wired into
+  `extension-loader.ts` behind `manifest.runtime === 'wasm'` — checked by
+  reference, not assumed.
+- **`wasm-extension-host.ts`'s `db_query`/`db_execute`/`fetch_*`/`env_read`/
+  `fs_*` imports are stubs that return 0**, documented as such in the file's
+  own header. Not a "reported success that did not happen": nothing claims
+  these work, and no manifest can select `runtime: wasm` and reach a real
+  extension today (memory: WASM adoption is v2.0-and-later, [deliberately
+  deferred](#4-deliberate-deferrals)).
+- **`worker-extension-fetch-guard.test.ts` is exemplary for class 15**: it
+  spawns the actual generated worker bundle (`gen-worker-source.ts`'s output)
+  in a real `Bun.Worker` rather than importing the guard function directly —
+  the failure mode this campaign has seen elsewhere (a correct guard that
+  never makes it into the shipped bundle) is structurally excluded here.
+
+**Not fixed, logged for the section that owns the file** — `lib/flows/
+flow-executor.ts` (**B07**, unreviewed at time of writing) has the same twin:
+its `query_db` step blocks writes with `SET TRANSACTION READ ONLY` plus a
+`DANGEROUS_PATTERNS` denylist that does not mention `LOCK` either. Measured
+live: `LOCK TABLE … IN ACCESS EXCLUSIVE MODE` succeeds inside a `READ ONLY`
+transaction under `zveltio_flow_reader`-equivalent privileges — Postgres does
+not treat locking as a write for this purpose. Same DoS shape, different
+bridge; out of this section's files, left for B07's session to fix or accept.
+
+**Test-honesty note, not a production defect.** `extension-sandbox.test.ts`'s
+"applies EXTENSION_POLICIES_JSON overrides on top of defaults" test is
+`expect(true).toBe(true)` — the module reads the env var once at import time
+(`const _overrides = loadOverrides()`), so no in-process test can exercise the
+override path without a fresh module instance, and the test says so in its
+own comment rather than pretending otherwise. The override-merge behavior of
+`policyFor()` itself is therefore unverified by the suite; `parsePolicyOverrides`
+(the parsing half) is separately and genuinely tested in
+`extension-sandbox-policies-json.test.ts`. Left as a T01 leftover rather than
+fixed — would need a subprocess or dynamic-import-based harness, which is a
+bigger change than this session's repair budget.
+
+**Files:** `extension-sandbox.ts`, `worker-sql-policy.ts`, `wasm-extension-
+host.ts`, `worker-extension-host.ts`, `worker-extension-protocol.ts`,
+`worker-extension-runtime.ts`. **Tests opened:** all 20 files under
+`packages/engine/src/tests/unit/{extension-sandbox,wasm-extension-host,worker-
+extension-host,worker-extension-fetch-guard,worker-sql-policy}*.test.ts` (134
+tests) plus `extension-sandbox-policies-json.test.ts`, all judged against "would
+this fail if the behaviour broke" — one placeholder found (above), the rest
+exercise real behavior (including two that spawn a real `Bun.Worker` running
+the shipped generated bundle rather than stubbing it).
 ### A01 — boot, app assembly, middleware order (2026-09-12, closed 9/9)
 
 Nine files: `api-types.ts`, `index.ts`, `lib/service-registry.ts`,
@@ -1850,6 +1932,108 @@ extension stopped declaring and grandfathers only a `null` (never-recorded)
 grant, not an explicit empty one; `BUILTIN_KEYS`' hex pubkey round-trips to 32
 bytes and matches what `signature-required-default.test.ts` pins as always
 present.
+### B02 — extension context and host internals (2026-09-13, closed 6/6)
+
+*The handle handed to an extension: what it can reach, versus what the type
+says it can.* Six files, 2,324 lines: `capabilities.ts`, `config.ts`,
+`extension-context.ts`, `index.ts`, `internals.ts`, `register.ts`.
+
+**Repaired (high) — the table allowlist only checked the FROM table, not a
+JOIN, an array/callback table expression, or the result of `withSchema`.**
+`createRestrictedDb`'s entry check (`extension-context.ts`) ran once, on
+`selectFrom`/`insertInto`/etc.'s first argument, and had three separate ways
+past it, each confirmed live against a real database with an extension
+holding no capability and no table grant:
+
+  - `ctx.db.selectFrom('zvd_x').innerJoin('session', ...)` — join methods
+    (`innerJoin`, `leftJoin`, …) are not in `QUERY_METHODS`, so a join tacked
+    onto an otherwise-permitted query reached Postgres uninspected. Returned
+    `session.token`, a live bearer credential.
+  - `ctx.db.selectFrom(['session'])` and
+    `ctx.db.selectFrom((eb) => eb.selectFrom('session')...)` — a non-string
+    table argument was normalized to `''`, and the permitted-check read
+    `baseTable === ''` as "nothing named, nothing to refuse" rather than
+    refusing it. Both returned `session.token`.
+  - `ctx.db.withSchema('public').selectFrom('session')` — `withSchema`
+    validates the schema name only and then returned the RAW, unwrapped
+    query creator from Kysely; nothing re-checked a table selected off it.
+    Returned `session.token`.
+
+  Fixed by: an `isPermittedTable` helper that refuses a non-string/empty
+  table instead of defaulting it to permitted; a `guardJoins` proxy that
+  wraps every query-builder result so a join chained onto it is checked the
+  same way the FROM table was; and `restrictQueryEntry`, which `withSchema`
+  now recurses into so its result is guarded exactly like the top-level
+  `Database` rather than handed back raw. Six new tests in
+  `extension-context-security.test.ts` (array, callback, JOIN-refused,
+  JOIN-permitted, withSchema-refused, withSchema-permitted); the join and
+  array/callback cases were confirmed to fail on the pre-fix code (reverted,
+  ran, 4 failed exactly on the new cases, restored). 65/65 existing
+  `extension-context*`/`restricted-db-hooks` tests still pass; 187/187 across
+  the section's full related-test corpus; `tsc --noEmit` and `biome check`
+  clean.
+
+**Logged, not fixed (critical) — `ctx.internals.withTenantIsolation` is a
+complete, ungated cross-tenant escape hatch, stronger than `ctx.adminDb` and
+requiring no capability at all.** `internals.ts` exposes the engine's
+`withTenantIsolation(tenantId, fn)` (`tenant-manager.ts`) straight through to
+every extension as `ctx.internals.withTenantIsolation`, and it is absent from
+`INTERNALS_CAPABILITY` in `capabilities.ts` — the map `gateInternals` (and
+`extension-capabilities.test.ts`'s own "gates the members that carry real
+authority" pin) uses to decide what needs a declared capability. Two defects
+compound:
+
+  1. `tenantId` is a caller-supplied string with no check that it belongs to
+     the calling extension's request/job. The function's own contract is
+     "the tenant has to come from wherever the work was enqueued" — it
+     trusts the caller entirely.
+  2. The `trx` handed to `fn` is the RAW engine `Database`, not wrapped by
+     `createRestrictedDb` — no table allowlist at all, unlike `ctx.adminDb`
+     (which requires `db:admin` AND still runs every query through
+     `createRestrictedDb`).
+
+  Confirmed live (real PostgreSQL 18, `initRlsEnforcementRole` run first so
+  `zveltio_rls` is actually enforced, not bypassed as superuser): seeded a
+  scratch `zvd_*` table with 2 rows for tenant A and 1 for tenant B via
+  `withTenantIsolation` itself (the legitimate path); built the exact bag
+  `gateInternals('probe-ext', buildExtensionInternals(), [], [])` produces
+  for an extension declaring **zero** capabilities; while executing inside a
+  normal tenant-A request (`ctx.db` correctly scoped to A, per the passing
+  `extension-ctx-db-isolation.integration.test.ts`), called
+  `ctx.internals.withTenantIsolation('<tenant-B-id>', fn)` and read
+  `[{"title":"B-SECRET-1"}]` — tenant B's row, from a tenant-A request, no
+  capability declared.
+
+  **Not fixed here.** The obvious fix — add `withTenantIsolation:
+  'db:admin'` to `INTERNALS_CAPABILITY` — breaks two real, currently-shipping
+  first-party extensions: `data/export` and `data/import`
+  (`zveltio-extensions/data/{export,import}/engine/routes.ts`) both call
+  `ctx.internals.withTenantIsolation` today to scope their own background
+  jobs to the job's own tenant, and their manifests declare only the
+  no-op legacy label `"database"` — not `db:admin`. Gating universally
+  would 403 both extensions' background jobs on the next load. The
+  underlying design question — should this require `db:admin` (and those
+  two manifests gain it), or should the host instead verify `tenantId`
+  against the tenant the calling job/request actually belongs to — is an
+  owner decision that touches manifests in the sibling repository, outside
+  this section's files. Repro is the probe script described above (not
+  checked in); rerun by seeding a `zvd_*` table under RLS, calling the
+  exported `initRlsEnforcementRole` first, and building the internals bag
+  with an empty capability list.
+
+**Checked and found sound.** `buildExtensionConfig`/`namespacedEnv`
+(`config.ts`) expose only `ZVELTIO_EXT_<NAME>_*`, frozen, per extension —
+matches the one other `process.env`-isolation rule this codebase has.
+`gateInternals` throws at CALL time (not property-access time), which
+matters because extensions destructure `ctx.internals` at module scope.
+`EXTENSION_TABLE_GRANTS`'s grants now seed `buildAllowedTables`'s set (fixed
+2026-09-10, see the entry above) — no longer inert. `db:admin`'s `adminDb`
+is correctly denied-by-default (`createDeniedAdminDb`) and, when granted,
+still passes through `createRestrictedDb` — the contrast that is what
+surfaced the `withTenantIsolation` gap above. No test-harness internals stub
+of the kind that hid a guard in B03/`extension-sandbox.test.ts` exists for
+this section's files — `gateInternals` is exercised against real objects
+directly.
 ### B01 — extension loading and lifecycle (2026-09-13, closed 7/7)
 
 Seven files, 2,129 lines: `extension-loader.ts`, `load.ts`, `load-phases.ts`,
