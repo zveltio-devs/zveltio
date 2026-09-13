@@ -1500,57 +1500,73 @@ cursor branch runs filters through the same `buildCondition` and the same
 `queryAlterRegistry.applyAll` as the offset branch, so neither RLS nor an
 extension's narrowing is bypassed by adding `?cursor=`.
 
-### B02 — `zv_storage_quotas`: three creators reduced to one (2026-09-10, retired)
+### B05 — manifest, catalog, dependencies, extension migrations (2026-09-13, closed 9/9)
 
-**What was measured** (live PostgreSQL 18, scratch databases built by applying
-the real migration files in a transaction each, as the runner does):
+Nine files: the manifest v2 Zod schema + studio-page embedding, the versioned
+extension catalogue, the single-slot extension registry, the peerDependency
+installer + npm allow-list, the core-dep provisioner, and the extension
+migration runner's table-ownership guard. Two defects repaired here, both
+found by measuring the guard rather than reading it — per the campaign's own
+rule, neither would have been found by reading.
 
-- Three creators: the engine's `001_initial.sql` (`user_id` PK with FK to
-  `"user"`, `quota_bytes`, `used_bytes`, `updated_at`), plus byte-identical
-  richer CREATEs in `content/media/001` and `storage/cloud/001` (`id` PK,
-  UNIQUE keys, a CHECK). The engine migrates first on every boot, so the
-  extensions' CREATE never applied anywhere: both extension orders converge
-  on the engine shape plus the extensions' own enrichment ALTERs — eleven
-  columns, PK `user_id`, the FK, no UNIQUE/CHECK from the losing CREATE.
-- The hypothetical extension-first shape (PK `id`, UNIQUEs, CHECK, no
-  `used_bytes`, no FK) exists in no database; the extension route code has
-  always run against the engine-first shape.
+**Repaired (high) — `ALTER TABLE ONLY <table>` bypassed the migration
+table-ownership guard.** `assertMigrationTablesAllowed` in
+`migration-runner.ts` refuses an extension migration that `ALTER`s or `DROP`s
+an engine table it does not own — the one door left unlocked after worker
+isolation, since migrations run as the database owner, in the main thread,
+before `load.ts` picks inline vs. worker. Its regex required the table name
+immediately after an optional `IF EXISTS`, with no allowance for the `ONLY`
+keyword Postgres permits there (`ALTER TABLE [IF EXISTS] [ONLY] name`).
+Measured directly: given `ALTER TABLE ONLY zv_migrations DROP COLUMN
+down_sql;`, `(\w+)` captured `"ONLY"` — a string that is never an engine
+table — so the guard checked whether `"only"` was protected (never true)
+instead of the real target and let the statement through unexamined. Fixed by
+adding `(?:ONLY\s+)?` between the `IF EXISTS` clause and the table name;
+verified with the standard revert-confirm-restore cycle and two new
+regression tests in `migration-table-guard.test.ts`. No twin: grepped the
+whole tree for the same regex shape, only one copy exists.
 
-**The repair.** The engine owns the table — `checkStorageQuota` reads it on
-the core upload path (`POST /api/storage/upload`), so an engine-only install
-must keep creating it. The two extensions stopped redeclaring it; their
-idempotent `ADD COLUMN IF NOT EXISTS` enrichment stays and is all that ever
-ran. No engine migration was needed (nothing about the engine's CREATE
-changes), no data moves, and there is no contract stage: nothing is dropped.
-The `ACCEPTED` entry in `check-duplicate-table-creators.ts` is removed, and
-re-adding a CREATE in either extension was verified to fail the gate by
-naming both owners. Fresh databases built with the edited migrations are
-column-for-column identical to the pre-change shape, in both extension
-orders, and for `content/media` standalone.
+**Repaired (high, found already in progress) — an unvalidated peerDependency
+name let a package's "already installed?" filesystem check answer wrongly.**
+`npm-install.ts` resolves each declared peer to a directory under the
+extensions `node_modules` and asks `existsSync` before deciding what to
+install. An unvalidated name containing a path separator (e.g. `"../pwn"`)
+resolved to a directory that always exists — an ancestor of that
+`node_modules` — so the peer was silently marked "already installed" and
+skipped, which meant that when it was the extension's only declared peer, the
+function returned before either the name-shape check or the platform
+allow-list further down ever ran for it. Fixed by validating every declared
+peer's name against `SAFE_PACKAGE_NAME` before any path is derived from it,
+unconditionally, ahead of the existence check. Verified the same way: the
+guard neutered, the named regression test failing (2/8), restored, 8/8.
 
-**What stays, deliberately.** The `EXTENSION_TABLE_GRANTS` entries for
-`content/media` and `storage/cloud` are now the *only* thing standing:
-neither extension creates the table anymore, so `buildAllowedTables` refuses
-it without the grant. A harness test
-(`extension-storage-quotas-grant.test.ts`) proves both extensions reach the
-table through the real `createRestrictedDb` with `zv_api_keys` refused as
-the positive control — and fails when the grant is removed (verified).
+**Gap (medium, logged not fixed) — the extension migration runner still has
+no general DDL safety linter.** `assertMigrationTablesAllowed` answers one
+question only — does this migration touch a table the extension does not
+own — and answers it well now. It says nothing about locking DDL without a
+timeout, a type change that rewrites a large table, a missing
+`CONCURRENTLY`, or any of the classes `check-migration-safety.ts` (squawk)
+catches for the engine's own migrations. That gate does not run over
+extension SQL at all. Out of scope for a narrow repair — it is a new gate,
+not a fix to an existing one — and belongs with E01 (gates) or as its own
+follow-up, not folded into this session's table-guard fix.
 
-**Mixed-version safety.** Old engine + new extension bundles: engine 001
-still creates the table, ALTERs enrich — identical to today. New engine +
-old bundles: the engine change is gate/comments/test only, and the old
-bundles' `CREATE IF NOT EXISTS` still no-ops. No window in either
-direction. Not the circular-block case: both repos are green independently;
-merge extensions first, then the engine PR (engine CI needs the extensions
-side merged, or a paired branch of the same name).
-
-**Rollback.** Restore the two CREATE blocks (one `git checkout` per file).
-They never applied on any install, so restoring them changes nothing — and
-no rows were touched at any point, so there is nothing written between
-stages to account for.
-
-**Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
-`zv_quality_issues`, `zv_quality_scans` — each its own iteration.
+**Checked and found sound**, so the next reader can tell "safe" from "not
+looked at": `ManifestSchema`'s `capabilityContract`/`permissions` fields
+reject unknown capabilities rather than accepting free-form strings (the
+exact class of defect §3 elsewhere in this document names for a different
+field); `embedPageSchemas`' `join(extDir, 'studio', p.schema)` takes its path
+segment from the extension's own manifest, authored by the same party as the
+extension's code, so it adds no capability beyond what an in-process
+extension already has; `getExtensionCatalog`'s override path
+(`ZVELTIO_CATALOG_PATH` / `<extDir>/catalog.json`) fails closed to the
+bundled catalogue on a malformed file, with a warning, rather than silently
+serving an empty list; `extension-deps.ts`'s core-package tarball fetch
+targets a hardcoded four-package list (never extension-supplied), so it
+carries no injection surface comparable to the peer-install path; and
+`withExtensionLock`'s advisory-lock design (xact-scoped, not session-scoped)
+matches the documented beta.25 incident write-up in `extension-utils.ts` —
+nothing here contradicts it.
 
 ### A14 — field types, validation, field encryption (2026-09-12, closed 6/6)
 

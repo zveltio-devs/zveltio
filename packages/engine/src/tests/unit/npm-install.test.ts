@@ -46,6 +46,19 @@ describe('installExtensionNpmDependencies', () => {
     ).rejects.toThrow(/allow-list/i);
   });
 
+  it('rejects a path-traversal peer name even though its folder resolves to something that already exists', async () => {
+    // "../pwn" contains a path separator SAFE_PACKAGE_NAME must reject. Before
+    // validation ran ahead of the "already installed?" filesystem check, this
+    // name resolved (via `join(extNodeModules, "..")`) to `extBase` itself —
+    // a directory that always exists — so the peer was silently treated as
+    // "already installed", `toInstall` stayed empty, and the function returned
+    // before the SAFE_PACKAGE_NAME / allow-list checks ever ran.
+    mkdirSync(join(extBase, 'node_modules'), { recursive: true });
+    await expect(installExtensionNpmDependencies('evil', { '../pwn': '*' })).rejects.toThrow(
+      /unsafe peerDependency/i,
+    );
+  });
+
   it('installs missing allow-listed peers via bun add', async () => {
     const originalSpawn = Bun.spawn;
     Bun.spawn = ((cmd: string[]) => {

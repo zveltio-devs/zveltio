@@ -29,8 +29,28 @@ export async function installExtensionNpmDependencies(
   // correctly whether running as a compiled binary, in dev, or inside Docker.
   const workspaceRoot = resolveExtensionsBase();
 
+  // SECURITY: reject a package NAME shape that isn't a plain npm identifier
+  // before anything below derives a filesystem path from it. This must run
+  // over EVERY declared peer, unconditionally, before the "already installed?"
+  // check further down — that check resolves `pkg` into a directory name and
+  // asks `existsSync`, and an unvalidated `pkg` containing a path separator
+  // (e.g. "../pwn") resolved to a directory that always exists (an ancestor of
+  // `extNodeModules`). That marked the peer "already installed" and skipped it
+  // from `toInstall`, so when it was the only declared peer the function
+  // returned before the allow-list check further down ever ran for it —
+  // silently, with no error surfaced.
+  const SAFE_PACKAGE_NAME = /^(@[a-z0-9-_]+\/)?[a-z0-9-_.]+$/;
+  for (const pkg of Object.keys(peerDeps)) {
+    if (!SAFE_PACKAGE_NAME.test(pkg)) {
+      throw new Error(
+        `Extension "${extName}" declared unsafe peerDependency: "${pkg}@${peerDeps[pkg]}". ` +
+          `Only scoped/unscoped npm package names with semver ranges are allowed.`,
+      );
+    }
+  }
+
   const extNodeModules = join(workspaceRoot, 'node_modules');
-  const toInstall: string[] = [];
+  const pending: Array<{ pkg: string; versionRange: string }> = [];
   for (const [pkg, versionRange] of Object.entries(peerDeps)) {
     // Check via Bun's module resolution first, then fall back to a direct filesystem check
     // against the extensions node_modules (import.meta.resolve runs in engine binary context
@@ -39,16 +59,46 @@ export async function installExtensionNpmDependencies(
     // the engine's bundle context and would find engine-bundled packages
     // (hono, zod, etc.) even though they're not available to dynamically
     // imported extension files that look up from their own directory.
+    // Safe to derive the folder from `pkg` here: SAFE_PACKAGE_NAME above has
+    // already rejected any name containing a path separator outside the
+    // single `@scope/name` form.
     const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
     const alreadyInstalled = existsSync(join(extNodeModules, pkgFolder));
-    if (!alreadyInstalled) {
-      const spec =
-        versionRange && versionRange !== '*' ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}` : pkg;
-      toInstall.push(spec);
+    if (!alreadyInstalled) pending.push({ pkg, versionRange });
+  }
+
+  if (pending.length === 0) return;
+
+  // SECURITY: validate version ranges and enforce the platform allow-list for
+  // every peer that is actually about to be installed — i.e. before spawning
+  // `bun add` / `npm install`. A malicious manifest.json could otherwise inject
+  // shell metacharacters via the version range, or pull in an arbitrary
+  // unreviewed npm package (a supply-chain vector); an unknown package cannot
+  // be auto-installed — a publisher must request inclusion in
+  // peer-deps-allowlist.ts via PR review. Scoped to `pending` (peers not yet
+  // satisfied on disk), not every declared peer, so a peer already satisfied —
+  // e.g. a core dep like `hono` also declared as a peerDependency — doesn't
+  // have to additionally appear on the allow-list.
+  const SAFE_VERSION = /^[\d.*^~>=<| -]+$/;
+  for (const { pkg, versionRange } of pending) {
+    if (!SAFE_VERSION.test(versionRange)) {
+      throw new Error(
+        `Extension "${extName}" declared unsafe peerDependency: "${pkg}@${versionRange}". ` +
+          `Only scoped/unscoped npm package names with semver ranges are allowed.`,
+      );
+    }
+    if (!isPackageAllowed(pkg)) {
+      throw new Error(
+        `Extension "${extName}" declared disallowed peerDependency: "${pkg}". ` +
+          `Only packages on the platform allow-list may be auto-installed. ` +
+          `See packages/engine/src/lib/peer-deps-allowlist.ts to request inclusion.`,
+      );
     }
   }
 
-  if (toInstall.length === 0) return;
+  const toInstall = pending.map(({ pkg, versionRange }) =>
+    versionRange && versionRange !== '*' ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}` : pkg,
+  );
 
   // Ensure a package.json exists in the install dir so `bun add` works.
   const pkgJsonPath = join(workspaceRoot, 'package.json');
@@ -65,29 +115,6 @@ export async function installExtensionNpmDependencies(
         2,
       ),
     );
-  }
-
-  // SECURITY: validate package names and version ranges before spawning bun add.
-  // A malicious manifest.json could inject shell metacharacters or use non-registry
-  // protocols (file:, git:, link:) to run arbitrary code or access the filesystem.
-  const SAFE_PACKAGE_NAME = /^(@[a-z0-9-_]+\/)?[a-z0-9-_.]+$/;
-  const SAFE_VERSION = /^[\d.*^~>=<| -]+$/;
-  for (const [pkg, ver] of Object.entries(peerDeps)) {
-    if (!SAFE_PACKAGE_NAME.test(pkg) || !SAFE_VERSION.test(ver)) {
-      throw new Error(
-        `Extension "${extName}" declared unsafe peerDependency: "${pkg}@${ver}". ` +
-          `Only scoped/unscoped npm package names with semver ranges are allowed.`,
-      );
-    }
-    // SECURITY: enforce platform allow-list. Unknown packages cannot be auto-installed
-    // — a publisher must request inclusion in peer-deps-allowlist.ts via PR review.
-    if (!isPackageAllowed(pkg)) {
-      throw new Error(
-        `Extension "${extName}" declared disallowed peerDependency: "${pkg}". ` +
-          `Only packages on the platform allow-list may be auto-installed. ` +
-          `See packages/engine/src/lib/peer-deps-allowlist.ts to request inclusion.`,
-      );
-    }
   }
 
   console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
