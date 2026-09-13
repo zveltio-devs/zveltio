@@ -169,6 +169,87 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(res.status).toBe(401);
   });
 
+  // Installing, enabling, disabling, uninstalling, configuring or licensing an
+  // extension puts new code on the instance or spends money — every one of
+  // these handlers guards on `requireGod`, but nothing exercised that guard: the
+  // harness suite (marketplace.test.ts) deliberately drives every route AS a
+  // god user to measure handler coverage, and every other test in this file
+  // authenticates as 'u-god'. Confirmed the gap first: forcing requireGod to
+  // return true for any session left this file's other 34 tests all green.
+  it('refuses every god-gated mutation route to an authenticated non-god user', async () => {
+    getSessionSpy.mockResolvedValue({ user: { id: 'u-nobody' } } as never);
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    const app = mountRoutes(db, extBase);
+    const opts = { ...adminHeaders, 'Content-Type': 'application/json' };
+
+    const install = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/install`, {
+      method: 'POST',
+      headers: opts,
+      body: '{}',
+    });
+    expect(install.status).toBe(401);
+
+    const enable = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/enable`, {
+      method: 'POST',
+      headers: opts,
+      body: '{}',
+    });
+    expect(enable.status).toBe(401);
+
+    const disable = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/disable`, {
+      method: 'POST',
+      headers: opts,
+      body: '{}',
+    });
+    expect(disable.status).toBe(401);
+
+    const uninstall = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/uninstall`, {
+      method: 'POST',
+      headers: opts,
+      body: '{}',
+    });
+    expect(uninstall.status).toBe(401);
+
+    const config = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/config`, {
+      method: 'PUT',
+      headers: opts,
+      body: '{}',
+    });
+    expect(config.status).toBe(401);
+
+    const approve = await app.request(
+      `/api/marketplace/${CATALOG_ENTRY.name}/approve-capabilities`,
+      { method: 'POST', headers: opts, body: '{}' },
+    );
+    expect(approve.status).toBe(401);
+
+    const licenseSet = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'POST',
+      headers: opts,
+      body: JSON.stringify({ license_key: 'x' }),
+    });
+    expect(licenseSet.status).toBe(401);
+
+    const licenseDelete = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    expect(licenseDelete.status).toBe(401);
+
+    const rotate = await app.request('/api/admin/license/rotate', {
+      method: 'POST',
+      headers: adminHeaders,
+    });
+    expect(rotate.status).toBe(401);
+
+    const enableAll = await app.request('/api/marketplace/enable-all', {
+      method: 'POST',
+      headers: opts,
+      body: '{}',
+    });
+    expect(enableAll.status).toBe(401);
+  });
+
   it('GET /api/marketplace merges catalog with registry rows', async () => {
     writeExtOnDisk(extBase, CATALOG_ENTRY.name);
     db.when(/from "zv_extension_registry"/i, [

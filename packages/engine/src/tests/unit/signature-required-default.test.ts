@@ -7,9 +7,16 @@
  * did not sign, so requiring signatures would have blocked every install. That
  * is fixed; this pins the resulting default so it cannot silently regress to
  * opt-in.
+ *
+ * This imports the real gate from extension-download.ts rather than
+ * reimplementing the expression: a local copy pins itself, not the shipped
+ * code, and stays green through a regression in the actual line. Verified by
+ * flipping the real `signaturesRequired()` to `=== 'true'` — this file failed
+ * (5/5) — then reverting.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
+import { signaturesRequired } from '../../lib/extensions/extension-download.js';
 
 const KEY = 'REQUIRE_EXTENSION_SIGNATURES';
 const original = process.env[KEY];
@@ -18,11 +25,6 @@ afterEach(() => {
   if (original === undefined) delete process.env[KEY];
   else process.env[KEY] = original;
 });
-
-/** The gate as implemented in extension-download.ts. */
-function signaturesRequired(): boolean {
-  return process.env[KEY] !== 'false';
-}
 
 describe('REQUIRE_EXTENSION_SIGNATURES default', () => {
   it('requires signatures when the variable is unset', () => {

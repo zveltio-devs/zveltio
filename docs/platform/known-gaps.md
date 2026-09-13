@@ -1865,6 +1865,73 @@ retry?) rather than a clear bug with an unambiguous correct answer, so it's
 noted here rather than repaired; changing it changes what callers can
 observe about `/merge`'s contract.
 
+### B04 — marketplace, download, signature, trust (2026-09-13, closed 7/7)
+
+Seven files, ~2,200 lines: capability consent (`consent.ts`), license-key and
+license-audit helpers, the marketplace HTTP surface (install / enable /
+disable / uninstall / config / license / approve-capabilities / per-firm
+activation), the registry download-and-extract client, revocation checking,
+and Ed25519 signature verification with its trusted-key list.
+
+**Repaired (medium) — the test that pins "signatures required by default"
+tested its own copy of the gate, not the shipped one.**
+`signature-required-default.test.ts` declared a local
+`function signaturesRequired() { return process.env[KEY] !== 'false' }`
+instead of importing anything from `extension-download.ts`, where the real
+gate lives inline inside `verifyArchiveSignature` (not exported). Flipping the
+real gate to `=== 'true'` — the exact historical regression this file's own
+docstring describes — left all 5 of its tests green. Fixed by exporting the
+gate as `signaturesRequired()` from `extension-download.ts` and having the
+test import and call it; re-broke the real function and confirmed 2/5 tests
+now fail, then reverted. The actual shipped behaviour was never unprotected —
+`extension-download-package.test.ts`'s "refuses an unsigned archive by
+DEFAULT" test drives the real `downloadExtension` and would have caught a
+regression — but the file that claims to own the default pinned nothing.
+
+**Repaired (low) — `getLicenseKey` swallowed a failed settings read with no
+log at all.** Class-2 shape: `catch { return undefined; }`, no `console.warn`,
+so a transient DB hiccup during a paid extension's download silently sends no
+`Authorization` header and the registry's 401 is the only trace. Added a
+`console.warn` naming the extension and the underlying error; behaviour
+(swallow and return `undefined`) is unchanged and intentional — a licensing
+lookup failing must not block the request — only the silence is fixed.
+
+**Repaired (medium) — no test refused a god-gated mutation route to an
+authenticated-but-not-god user.** `install`, `enable`, `disable`, `uninstall`,
+`config`, `approve-capabilities`, the two license routes and
+`admin/license/rotate` all guard on `requireGod`, which is correct in the
+code. But every existing test either has no session (401, tests the "no
+session" arm only) or authenticates as `u-god` — including the harness file
+(`marketplace.test.ts`), which says outright in its own docstring that it
+"drives every route as a god user" because its purpose is handler-body
+coverage, not authorisation. Confirmed the gap by forcing `requireGod` to
+`return true` for any session: the existing 34 unit tests and the two harness
+files (94 tests total) all stayed green. Added one test authenticating as a
+non-god, non-admin user and asserting 401 on all nine routes; re-broke
+`requireGod` and confirmed the new test fails, then reverted. `setActivation`
+(the per-firm `activate`/`deactivate` pair, gated on `isTenantAdmin` rather
+than `requireGod`) already has this coverage in
+`ext-activation-boundary.test.ts:233` and was not touched.
+
+**Checked and found sound:** revocation fails OPEN on an unreachable registry
+(air-gapped installs boot) but a list already fetched keeps refusing after the
+registry drops — verified live via the load-path tests, which go through
+`loadExtensionFromDir` rather than `checkRevoked` directly; the failed-fetch
+cooldown (60s) means an unreachable registry costs one dial, not one per
+extension, counted directly rather than timed; archive digest pinning refuses
+a re-publish under an existing version even when the registry's own declared
+hash and signature both agree with the new bytes (the scenario the two-layer
+check can't see on its own); the zip-slip/symlink guard walks the staged tree
+before adopting it; `setActivation` resolves the tenant from
+`tenantMiddleware`'s result, never the `x-tenant-id` header, closing the
+specific cross-tenant toggle this codebase has had before; `approve-capabilities`
+refuses to grant anything not currently declared in the on-disk manifest, and
+requires the caller to name the exact set rather than "whatever it asks for
+now"; the consent intersection (`resolveCapabilities`) drops a capability the
+extension stopped declaring and grandfathers only a `null` (never-recorded)
+grant, not an explicit empty one; `BUILTIN_KEYS`' hex pubkey round-trips to 32
+bytes and matches what `signature-required-default.test.ts` pins as always
+present.
 ### B02 — extension context and host internals (2026-09-13, closed 6/6)
 
 *The handle handed to an extension: what it can reach, versus what the type
