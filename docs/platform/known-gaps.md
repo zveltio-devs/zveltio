@@ -36,6 +36,23 @@ the pool afterwards) has not been chosen.
 `/api/edge-functions` moved into extensions. The 410 carries a forwarding
 address deliberately, so an old client learns what happened.
 
+**Gap — a backup schedule's `retention_count` is accepted, stored and shown,
+and enforced by nothing.** `POST /api/backup/schedules` validates and persists
+`retention_count` (`zv_backup_schedules.retention_count`, default 7) and
+`PATCH` lets it be edited; `GET /schedules` returns it. No code anywhere reads
+the column. The only pruning that exists — `cleanupOldBackups`, a hardcoded
+top-20-by-`created_at`, global across every schedule — is now called from
+`runScheduledBackup` (`lib/backup/run-scheduled-backup.ts`) after a completed
+dump, having previously run only from the one-off `POST /api/backup` button; a
+firing cron schedule or a manual trigger no longer accumulates rows in
+`zv_backups` and files under `BACKUP_DIR` without limit (measured live before
+the fix: 5 successful scheduled runs left 5 rows and 5 files, uncapped).
+Giving a schedule's own `retention_count` effect needs `zv_backups` to carry a
+`schedule_id` it does not have today, so backups from different schedules (or
+the ad-hoc button) can be told apart before pruning — a migration and an
+insert-path change wider than `lib/backup/`, logged rather than built here.
+Reviewed 2026-09-13, section B10.
+
 ---
 
 ## 2. Multi-tenancy and security
@@ -340,6 +357,23 @@ correctly guarded: the job-level actor check admits only Dependabot, and Bun run
 no lifecycle scripts by default (no `trustedDependencies` is declared).
 `release-gate` is wired so that `publish-release` needs it. The sibling clone
 resolves a paired branch of the same name before falling back to master.
+
+**E08 closed 2026-09-12 — last file, `private-docs.yml`, verified clean.** The
+gate it runs, `scripts/check-private-docs-untracked.ts`, was measured against
+both failure modes it names in its own comment, not just read: force-adding a
+file under `docs/private/` (`git add -f`) made the gate fail with the correct
+file list, and removing the `docs/private/` line from `.gitignore` made it
+fail with the correct "not ignored" message. Both reverted after. The
+"`CI checks each repository in its own job`" claim in the script's docstring
+is real — `zveltio-extensions` carries its own `.github/workflows/private-docs.yml`
+running the same script against itself, not a second invocation from here.
+`git ls-files`'s exit code is not checked (only its stdout), so a root that
+does not exist reports a misleading "not ignored" message instead of "root
+missing" — but the only roots this workflow ever passes are `.` in each
+repository, which always exist, so this is not reachable from CI input; not
+logged as a gap. The `import { $ } from 'bun'` in the script is unused (it
+explains in a comment why it switched to `Bun.spawnSync` and never removed
+the import) — a lint nit, too trivial to log.
 
 ### A04 — tenancy core (2026-09-04, partial)
 
@@ -694,6 +728,90 @@ is the same disagreement between what the host routed and what the consumer sees
   tenant. Names only, capped at three, and the trade-off is written down in
   `denial.ts` — recorded here because it is a disclosure decision, not an
   accident.
+
+### A03 — error surface, health, API description (2026-09-13, closed 9/9)
+
+**Fixed — `GET /api/health/:subsystem` gave any authenticated member the
+reconnaissance `/api/health/deep` is gated to keep from them.** `/deep`
+requires `requireInstanceAdmin` and its own comment says why: it "enumerates
+every subsystem an operator runs — database, cache, object storage, message
+bus, each extension's own probe — with its failure text," which is
+reconnaissance an ordinary member has no use for. `/:subsystem`, ten lines
+below, checked only `requireAuth` — any session at all — and answers the
+identical per-subsystem data one name at a time (`database`, `storage`,
+`extensions`, any `ext:<name>:<check>`), including extension failure text.
+Measured live: a freshly signed-up, non-admin member got `403` from `/deep`
+and `200` from `/database`, `/storage` and `/extensions` individually. Fixed
+by adding the same `requireAdmin` gate to `/:subsystem` in
+`routes/health.ts`; the existing harness suite only ever drove this route
+with a god session, so it could not have caught the gap (class 13 shape —
+the test exercised the path near the guard, not the guard). Added
+`GET /api/health/deep → 403 for an authenticated non-admin member` and the
+`/:subsystem` equivalent to `health-routes.test.ts`, both against a real
+`createMemberSession`; reverting the fix makes the new `/:subsystem` case
+fail (`403` expected, `200` received) while the pre-existing cases stay
+green. `routes/openapi.ts`'s spec for this path corrected to say "instance
+admin required" and gained a `403` response entry, matching what `/deep`'s
+entry already said.
+
+**Verified clean — `mapPgError`'s class-16 shape does not repeat here.**
+`problem.ts:162-163` checks both `err.code` and `String(err.errno)` for
+`22P02` (Bun.SQL puts the SQLSTATE in `errno`, not `code`), and
+`problem-invalid-parameter.test.ts` pins both the Bun.SQL and node-pg shapes
+plus a control case that an unrelated error stays a 500. This is the file
+the campaign document names as already knowing the trap.
+
+**Verified clean — no leaked internals in the unified error envelope.**
+`problemOnError`'s catch-all never surfaces a thrown error's own message
+(`problem-envelope.test.ts` pins that a thrown `Error('internal secret
+detail...')` never reaches the response body); `HTTPException` messages are
+surfaced deliberately because they are developer-set at the throw site, not
+driver/DB text. `GET /api/health` (public) carries no engine/schema/runtime
+detail — pinned by the integration suite.
+
+**Verified clean — BYOD introspection's platform-table denylist-that-isn't.**
+`isPlatformTable` enumerates Better-Auth's unprefixed tables (`user`,
+`session`, `account`, `verification`, `twoFactor`, `passkey`) in addition to
+the four prefixes, case-insensitively.
+`introspection-covers-engine-tables.test.ts` reads every `CREATE TABLE` out
+of the actual migrations and fails if any of them is not refused — an
+enumeration that rots is caught by CI, not by the next audit.
+
+**Not done — the OpenAPI spec's own production admin-gate
+(`isTenantAdmin`, prod-only) has no test at any effort level.** The harness
+always runs `NODE_ENV=test`, so `openapi.test.ts` never exercises the
+`inProd` branch. Standing up the branch live requires a production-config
+boot (Valkey, etc. — `assertProductionConfig` in `startup-guards.ts`, a
+different section's file), which this session did not do. The code mirrors
+`health.ts`'s already-measured pattern (`getSession` → role check → 401/403)
+closely enough to be plausible, but "reads correct" is exactly the standard
+this campaign rejects — flagging rather than closing it.
+
+**Verified clean, with the measurement — `getNextDocumentNumber`'s counter
+increment is a single atomic `UPDATE ... RETURNING`,** not a read-then-write;
+`doc-generator.test.ts` pins both the found-row and no-row-returned paths.
+`renderTemplate` HTML-escapes every substituted value before it reaches
+generated HTML/PDF; pinned against a `<script>` payload.
+
+**Logged, not fixed — `lib/utils.ts:generateId` has a modulo bias.**
+`randomValues[i] % chars.length` over a 256-value byte and a 62-character
+alphabet is not uniform (characters 0-39 are ~1/256 more likely than 40-61).
+Not a defect against this function's actual use (IDs, not secrets — no test
+claims uniformity), so left as-is rather than swapped for rejection sampling
+inside this section; noted in case a caller ever treats this as
+security-relevant randomness.
+
+**T01 note — `routes/gone.ts` has no dedicated test file.** Read in full: a
+23-line `app.all('*')` that always throws a `problem('gone', 410, ...)`. No
+defect found; small enough that a missing test is a coverage gap, not a risk,
+so left for the T01 pass rather than added here.
+
+files read in full: `packages/engine/src/lib/doc-generator.ts`,
+`packages/engine/src/lib/health-registry.ts`,
+`packages/engine/src/lib/introspection.ts`, `packages/engine/src/lib/problem.ts`,
+`packages/engine/src/lib/utils.ts`, `packages/engine/src/lib/version-checker.ts`,
+`packages/engine/src/routes/gone.ts`, `packages/engine/src/routes/health.ts`,
+`packages/engine/src/routes/openapi.ts`.
 
 ### A06 — permissions, roles, column access (2026-09-05, closed 5/5)
 
@@ -1382,57 +1500,231 @@ cursor branch runs filters through the same `buildCondition` and the same
 `queryAlterRegistry.applyAll` as the offset branch, so neither RLS nor an
 extension's narrowing is bypassed by adding `?cursor=`.
 
-### B02 — `zv_storage_quotas`: three creators reduced to one (2026-09-10, retired)
+### B05 — manifest, catalog, dependencies, extension migrations (2026-09-13, closed 9/9)
 
-**What was measured** (live PostgreSQL 18, scratch databases built by applying
-the real migration files in a transaction each, as the runner does):
+Nine files: the manifest v2 Zod schema + studio-page embedding, the versioned
+extension catalogue, the single-slot extension registry, the peerDependency
+installer + npm allow-list, the core-dep provisioner, and the extension
+migration runner's table-ownership guard. Two defects repaired here, both
+found by measuring the guard rather than reading it — per the campaign's own
+rule, neither would have been found by reading.
 
-- Three creators: the engine's `001_initial.sql` (`user_id` PK with FK to
-  `"user"`, `quota_bytes`, `used_bytes`, `updated_at`), plus byte-identical
-  richer CREATEs in `content/media/001` and `storage/cloud/001` (`id` PK,
-  UNIQUE keys, a CHECK). The engine migrates first on every boot, so the
-  extensions' CREATE never applied anywhere: both extension orders converge
-  on the engine shape plus the extensions' own enrichment ALTERs — eleven
-  columns, PK `user_id`, the FK, no UNIQUE/CHECK from the losing CREATE.
-- The hypothetical extension-first shape (PK `id`, UNIQUEs, CHECK, no
-  `used_bytes`, no FK) exists in no database; the extension route code has
-  always run against the engine-first shape.
+**Repaired (high) — `ALTER TABLE ONLY <table>` bypassed the migration
+table-ownership guard.** `assertMigrationTablesAllowed` in
+`migration-runner.ts` refuses an extension migration that `ALTER`s or `DROP`s
+an engine table it does not own — the one door left unlocked after worker
+isolation, since migrations run as the database owner, in the main thread,
+before `load.ts` picks inline vs. worker. Its regex required the table name
+immediately after an optional `IF EXISTS`, with no allowance for the `ONLY`
+keyword Postgres permits there (`ALTER TABLE [IF EXISTS] [ONLY] name`).
+Measured directly: given `ALTER TABLE ONLY zv_migrations DROP COLUMN
+down_sql;`, `(\w+)` captured `"ONLY"` — a string that is never an engine
+table — so the guard checked whether `"only"` was protected (never true)
+instead of the real target and let the statement through unexamined. Fixed by
+adding `(?:ONLY\s+)?` between the `IF EXISTS` clause and the table name;
+verified with the standard revert-confirm-restore cycle and two new
+regression tests in `migration-table-guard.test.ts`. No twin: grepped the
+whole tree for the same regex shape, only one copy exists.
 
-**The repair.** The engine owns the table — `checkStorageQuota` reads it on
-the core upload path (`POST /api/storage/upload`), so an engine-only install
-must keep creating it. The two extensions stopped redeclaring it; their
-idempotent `ADD COLUMN IF NOT EXISTS` enrichment stays and is all that ever
-ran. No engine migration was needed (nothing about the engine's CREATE
-changes), no data moves, and there is no contract stage: nothing is dropped.
-The `ACCEPTED` entry in `check-duplicate-table-creators.ts` is removed, and
-re-adding a CREATE in either extension was verified to fail the gate by
-naming both owners. Fresh databases built with the edited migrations are
-column-for-column identical to the pre-change shape, in both extension
-orders, and for `content/media` standalone.
+**Repaired (high, found already in progress) — an unvalidated peerDependency
+name let a package's "already installed?" filesystem check answer wrongly.**
+`npm-install.ts` resolves each declared peer to a directory under the
+extensions `node_modules` and asks `existsSync` before deciding what to
+install. An unvalidated name containing a path separator (e.g. `"../pwn"`)
+resolved to a directory that always exists — an ancestor of that
+`node_modules` — so the peer was silently marked "already installed" and
+skipped, which meant that when it was the extension's only declared peer, the
+function returned before either the name-shape check or the platform
+allow-list further down ever ran for it. Fixed by validating every declared
+peer's name against `SAFE_PACKAGE_NAME` before any path is derived from it,
+unconditionally, ahead of the existence check. Verified the same way: the
+guard neutered, the named regression test failing (2/8), restored, 8/8.
 
-**What stays, deliberately.** The `EXTENSION_TABLE_GRANTS` entries for
-`content/media` and `storage/cloud` are now the *only* thing standing:
-neither extension creates the table anymore, so `buildAllowedTables` refuses
-it without the grant. A harness test
-(`extension-storage-quotas-grant.test.ts`) proves both extensions reach the
-table through the real `createRestrictedDb` with `zv_api_keys` refused as
-the positive control — and fails when the grant is removed (verified).
+**Gap (medium, logged not fixed) — the extension migration runner still has
+no general DDL safety linter.** `assertMigrationTablesAllowed` answers one
+question only — does this migration touch a table the extension does not
+own — and answers it well now. It says nothing about locking DDL without a
+timeout, a type change that rewrites a large table, a missing
+`CONCURRENTLY`, or any of the classes `check-migration-safety.ts` (squawk)
+catches for the engine's own migrations. That gate does not run over
+extension SQL at all. Out of scope for a narrow repair — it is a new gate,
+not a fix to an existing one — and belongs with E01 (gates) or as its own
+follow-up, not folded into this session's table-guard fix.
 
-**Mixed-version safety.** Old engine + new extension bundles: engine 001
-still creates the table, ALTERs enrich — identical to today. New engine +
-old bundles: the engine change is gate/comments/test only, and the old
-bundles' `CREATE IF NOT EXISTS` still no-ops. No window in either
-direction. Not the circular-block case: both repos are green independently;
-merge extensions first, then the engine PR (engine CI needs the extensions
-side merged, or a paired branch of the same name).
+**Checked and found sound**, so the next reader can tell "safe" from "not
+looked at": `ManifestSchema`'s `capabilityContract`/`permissions` fields
+reject unknown capabilities rather than accepting free-form strings (the
+exact class of defect §3 elsewhere in this document names for a different
+field); `embedPageSchemas`' `join(extDir, 'studio', p.schema)` takes its path
+segment from the extension's own manifest, authored by the same party as the
+extension's code, so it adds no capability beyond what an in-process
+extension already has; `getExtensionCatalog`'s override path
+(`ZVELTIO_CATALOG_PATH` / `<extDir>/catalog.json`) fails closed to the
+bundled catalogue on a malformed file, with a warning, rather than silently
+serving an empty list; `extension-deps.ts`'s core-package tarball fetch
+targets a hardcoded four-package list (never extension-supplied), so it
+carries no injection surface comparable to the peer-install path; and
+`withExtensionLock`'s advisory-lock design (xact-scoped, not session-scoped)
+matches the documented beta.25 incident write-up in `extension-utils.ts` —
+nothing here contradicts it.
 
-**Rollback.** Restore the two CREATE blocks (one `git checkout` per file).
-They never applied on any install, so restoring them changes nothing — and
-no rows were touched at any point, so there is nothing written between
-stages to account for.
+### A14 — field types, validation, field encryption (2026-09-12, closed 6/6)
 
-**Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
-`zv_quality_issues`, `zv_quality_scans` — each its own iteration.
+Six files, 2,161 lines: the core field-type registry (`field-types/index.ts`),
+DDL/default rendering and the crypto/conversion/numeric/validation helpers it
+leans on. One defect repaired here; the rest is what was checked and found
+sound.
+
+**Repaired (medium) — `FIELD_ENCRYPTION_KEY` rotation without a restart did
+not work, contradicting the comment that says it does.** `field-crypto.ts`
+reads the env var lazily on purpose ("lets an operator rotate the key without
+a restart"), but `getKey()` cached the imported `CryptoKey` unconditionally on
+first use (`if (_key) return _key;`) and never rechecked the env var. Measured:
+encrypt under key A, rotate `FIELD_ENCRYPTION_KEY` to key B with no process
+restart, encrypt again — the second ciphertext still decrypts only under raw
+key A, not key B. Invisible from inside the module, because the same stale key
+also decrypts anything it just encrypted with itself; the test added
+(`field-crypto-key-rotation.test.ts`) decrypts independently with WebCrypto
+using the *second* key's raw hex to tell the two apart. Fixed by caching the
+key together with the hex string that produced it and re-importing when the
+env var no longer matches. Reverted the fix and confirmed the named test fails
+before it and passes after.
+
+Twin check: `lib/security/keyring.ts` (out of section) reads its three named
+keys per call with no `_key`-style cache and gets rotation right already — its
+own comment points back at field-crypto "for the why" without having copied
+the caching bug. Nothing else in `src/lib`/`src/routes` caches a `CryptoKey`
+across calls.
+
+**Blocked (one check only) — `sql:numeric-arith` cannot run to a real pass
+here.** The gate needs `amount`/`tax_amount`/`total_amount` columns that come
+from `finance/invoicing`'s extension migration. Booting a scratch engine
+against this section's database with `ZVELTIO_EXTENSIONS_PATH` set loaded
+`crm`, `forms`, `billing`, `sms` but not `finance` — the loader only resolves
+one path segment per extension id, and `finance` is a namespace directory
+(`finance/invoicing`, `finance/quotes`), not `finance/engine/index.js`. Getting
+this extension loaded is a loader-configuration question outside this
+section's files; the gate reports its own reason for failing rather than a
+false pass, which is the property that matters. `check:raw-sql`,
+`sql:backticks` and `catch:fabricated` all ran clean against this section.
+
+**Checked and found sound**: `renderSqlDefault` (field-type-registry.ts) quotes
+every non-numeric, non-boolean, non-whitelisted default and doubles embedded
+quotes — the injection this function used to have is closed and the allowlist
+of bare SQL expressions is exact; `field-type-conversions.ts`'s `resolveConversion`
+never emits a conversion for the relation types and always routes a
+caller-supplied column name through a quoted identifier; the `password` field
+type's `isPasswordHash` matches every algorithm `Bun.password.hash` can
+produce (argon2id today), not the old bcrypt-only prefix, so a re-submitted
+hash is never re-hashed; `validation-engine.ts`'s expression evaluator rejects
+`__proto__`/`constructor`/`prototype` tokens and, independently, refuses any
+variable name other than `value` after parsing — either check alone would
+still leave the other; and `getRuleGroups`'s `to_regclass` probe (not a
+`SELECT ... FROM` on a possibly-missing table) cannot raise `42P01`, so a
+missing `zvd_validation_rule_groups` table never aborts the caller's
+transaction, verified against a live database.
+
+### A15 — collection, relation and revision routes (2026-09-12, closed 5/5)
+
+Five files, 2,184 lines: `routes/collections.ts`, `routes/erd-layout.ts`,
+`routes/relations.ts`, `routes/revisions.ts`, `routes/schema-branches.ts` —
+the routes that change user schema at runtime, and revision revert. Two
+defects repaired here; the rest is what was checked and found sound.
+
+**Repaired (high) — `PATCH /:name/fields/:field` answered 200 success on an
+invalid `new_type`, leaving the field silently unchanged.** The type-change
+branch validated inside `await db.transaction().execute(async (trx) => {
+... })` and did `return c.json({ error: ... }, 400)` on failure. That
+`return` is captured by the transaction callback's own promise — discarded
+by `.execute()` — not by the outer route handler, which falls through
+unconditionally to `return c.json({ success: true, field: ..., actions: []
+})` right after the `await`. Measured: `PATCH .../fields/contact` with
+`new_type: "not_a_real_type"` and with `new_type: "m2o"` (relation
+conversion, rejected by `resolveConversion`) both answered `200
+{"success":true,...}` with the column's type unchanged in both metadata and
+`information_schema`. `collections-patch-type.test.ts` only exercised the
+valid-conversion path, so nothing caught it. Fixed by throwing instead of
+returning — the existing outer `catch` already turns a thrown `Error` into
+the intended 400 with the same message. Reverted and confirmed the two named
+tests fail before the fix and pass after; the pre-existing valid-conversion
+test in the same file was unaffected by the revert or the fix.
+
+Twin check: `relations.ts`'s two `db.transaction().execute(...)` helpers
+(`addFieldToCollection`, `removeFieldFromCollection`) do not return early
+with an HTTP response from inside the callback — the only instance of this
+shape in the section was the one fixed.
+
+**Repaired (high) — `zv_schema_branches.changes` was written with a bare
+`JSON.stringify(...)` instead of `toJsonb()` (`lib/jsonb.ts`), the exact
+double-encoding class that column already exists to prevent.** `changes` is
+a jsonb ARRAY column; `POST /:id/changes` did `SET changes =
+${JSON.stringify([...currentChanges, newChange])}`, which stores a jsonb
+STRING whose text is the array's JSON rather than the array. Measured: after
+one `POST /:id/changes` call, `SELECT changes ...` came back as a JS string
+(`typeof === 'string'`, `Array.isArray === false`). `POST /:id/merge` reads
+that value as `branch.changes || []` with no defensive parse and does `for
+(const change of changes)` — over a string, that iterates individual
+characters, so `change.type` is always `undefined`, nothing matches the
+`add_collection`/`add_field`/`remove_field` branches, and the loop finishes
+with `applied: []` and `errors: []`. The branch is then marked `status:
+'merged'` regardless, so a queued schema change is silently dropped and the
+merge reports "0 changes. 0 errors." as if there had been nothing queued.
+Fixed the writer with `toJsonb()`, and added a `parseChanges()` helper used
+on all three reads of the column (`POST /changes`, `POST /merge`, `GET
+/diff`) so a branch already written the broken way — no migration exists for
+this — recovers instead of continuing to no-op. Reverted and confirmed the
+named test fails (asserts `Array.isArray` and that the queued change to a
+nonexistent collection surfaces as a real merge error) before the fix and
+passes after.
+
+**Gate found fail-open on the exact pattern above.** `sql:jsonb`
+(`scripts/check-jsonb-binding.ts`) exists specifically to catch
+`JSON.stringify(v)` bound to a jsonb column, and reported `0 site(s)` with
+the bug both present and fixed — verified directly by reverting the fix and
+re-running the gate. Its own header says why: it parses the Kysely
+`insertInto(...).values({...})` / `updateTable(...).set({...})` object-literal
+shape, and `schema-branches.ts` writes `changes` through a raw `sql` tagged
+template, a shape the gate does not look at. `scripts/check-jsonb-binding.ts`
+is outside this section — logging rather than widening it, since I can't
+verify what else the gate's scope decision was resting on. `db/dynamic.ts`
+and `lib/audit.ts` both bind jsonb correctly through the raw-`sql` path
+already (`${JSON.stringify(v)}::text::jsonb`), so the miss is specific to
+this one call site's absence of that suffix, not to raw `sql` templates in
+general.
+
+**Logged, not fixed (out of section) — two more sites match the same wrong
+shape `${JSON.stringify(v)}::jsonb` (stringify-then-cast, which `lib/jsonb.ts`
+documents as still wrong: the driver has already encoded the parameter as
+JSON, so the cast re-wraps a jsonb string rather than parsing one) — found by
+the `sql:jsonb` gate-scope grep above, not executed/measured this session:**
+- `routes/saved-queries.ts:438` (`INSERT ... VALUES (..., ${JSON.stringify(data.config)}::jsonb, ...)`, `zv_saved_queries.config` is jsonb) and `:537` (`updates.config = JSON.stringify(data.config)`, later passed to a `.set()`).
+- `lib/flows/flow-executor.ts:523` and `:614` (`zv_flow_runs.trigger_data` / `.output`, both jsonb).
+
+**Checked and found sound.** `erd-layout.ts`: user-scoped by `user_id` inside
+`db.transaction().execute()` with no early return from the callback;
+`DELETE /` already carries a prior fix for the `numDeletedRows` always-0n
+trap (comment in place, counts from `.returning().length`). `relations.ts`:
+FK direction (source vs. target table) matches the create-time direction on
+delete for m2o/o2m/m2m; the two internal transaction helpers return nothing
+from inside `.execute()`. `revisions.ts`: revert strips
+`id/created_at/updated_at/tenant_id/search_vector/embedding/created_by`
+before writing, and `updated_by` travels as a call argument rather than
+through the payload so `RESERVED` can't silently drop it; tenant filter
+present on every query. `schema-branches.ts`'s `POST /:id/review` already
+carries a prior fix (comment in place) for a `.catch(() => {})` that used to
+swallow the review-insert failure independently of the status update.
+`rowCountOrAssumeLarge` fails toward the safe (online, Ghost DDL) path on an
+unknown count, per its own comment and confirmed by the merge test above
+(nonexistent table → `Infinity` → Ghost DDL attempted, not a blind
+`ALTER TABLE`).
+
+**Noted, not a defect.** `POST /:id/merge` marks `status: 'merged'`
+unconditionally, even when every queued change fails (`errors.length ===
+changes.length`) — there's no retry path once that happens. This is a
+behavior/contract question (should a fully-failed merge stay `open` for
+retry?) rather than a clear bug with an unambiguous correct answer, so it's
+noted here rather than repaired; changing it changes what callers can
+observe about `/merge`'s contract.
 
 ### B04 — marketplace, download, signature, trust (2026-09-13, closed 7/7)
 

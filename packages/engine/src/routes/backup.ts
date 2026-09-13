@@ -8,7 +8,7 @@ import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenanc
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { getStorage } from '../lib/storage/index.js';
-import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { cleanupOldBackups, runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
 import { verifyArchive } from '../lib/backup/verify-archive.js';
 import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
@@ -1103,28 +1103,4 @@ function formatBytes(bytes: unknown): string {
   // and concatenate the word "undefined" into the answer.
   const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((n / k ** i).toFixed(2))} ${sizes[i]}`;
-}
-
-async function cleanupOldBackups(db: Database): Promise<void> {
-  try {
-    const oldBackups = await sql<{ id: string; filename: string }>`
-      SELECT id::text, filename FROM zv_backups
-      WHERE status = 'completed'
-      ORDER BY created_at DESC
-      OFFSET 20
-    `.execute(db);
-
-    for (const backup of oldBackups.rows) {
-      if (!backup.filename.includes('..') && !backup.filename.includes('/')) {
-        const filepath = `${BACKUP_DIR}/${backup.filename}`;
-        if (await Bun.file(filepath).exists()) {
-          const rmProc = Bun.spawn(['rm', '-f', filepath]);
-          await rmProc.exited;
-        }
-      }
-      await sql`DELETE FROM zv_backups WHERE id = ${backup.id}`.execute(db);
-    }
-  } catch (err) {
-    console.error('Failed to cleanup old backups:', err);
-  }
 }
