@@ -1434,6 +1434,86 @@ stages to account for.
 **Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
 `zv_quality_issues`, `zv_quality_scans` — each its own iteration.
 
+### B01 — extension loading and lifecycle (2026-09-13, closed 7/7)
+
+Seven files, 2,129 lines: `extension-loader.ts`, `load.ts`, `load-phases.ts`,
+`activation.ts`, `lifecycle.ts`, `discovery.ts`, `extension-paths.ts`. Two
+defects repaired, both on the same feature; the rest checked and found sound.
+
+**Repaired (high) — dev-reload dropped the extension instead of reloading
+it.** `POST /__zveltio_dev_reload` → `reloadExtensionFromDisk` cleared
+`loader.loaded`/`loader.modules` for the named extension and then called
+`triggerReload`, on the assumption that the resulting rebuild would re-import
+it. It does not: `buildHonoApp` (`index.ts`) only *re-registers* extensions
+still present in `loader.loaded`, via the cached module — it never calls
+`loadExtension` for anything missing. Deleting the entry first therefore
+guaranteed the rebuild would skip it. Measured live (scratch engine, :3200,
+`ZVELTIO_EXTENSION_DEV_RELOAD=1`): loaded a fixture extension, hit
+`/__zveltio_dev_reload`, and its route went from 200 to 404 with the endpoint
+itself reporting `{"ok":false,"error":"extension failed to load — check
+engine logs"}` — with no load ever attempted, so there was nothing in the
+logs to check. `dev-reload.test.ts`'s "clears module state ... triggers
+reload" test passed throughout by hand-simulating the rebuild re-adding the
+extension to `loaded` (`onReload: async () => { deps.loaded.add('forms') }`)
+— exactly what the real callback does not do; class 13, a test that passes
+for the wrong reason. Fixed by having `reloadExtensionFromDisk` call
+`loadDynamic` (the same helper the enable-extension route already uses) to
+actually re-import onto the live `app` before triggering the rebuild;
+`registerDevEndpoints`/`reloadExtensionFromDisk`'s signatures now take `app`
+to make that possible. Regression test added (edits the fixture between two
+loads and asserts the second sees the edit), reverted (fails at the named
+assertion, "Expected: 2, Received: 1" — not a syntax break), reapplied.
+
+**Repaired (high) — the dev-reload cache-buster does not bust anything.**
+Fixing the above surfaced a second, independent defect in the same feature.
+`load.ts`'s unbundled-import branch appends `?v=<timestamp>` to the import
+URL "to force a fresh read of edited source" (comment, pre-existing). It
+doesn't: Bun's dynamic `import()` caches by resolved pathname and ignores
+query strings and fragments — verified directly (`bun 1.3.14`, outside this
+codebase): two `import()` calls against the same file with different `?v=`
+or `#` suffixes both returned the *first* call's module, even after the file
+was rewritten in between. So even with the first fix applied, live
+measurement showed the reload endpoint answering `{"ok":true}` while the
+route kept serving the pre-edit response (`v:1` after editing to `v:2`) —
+reported success that did not happen, worse than the original failure
+because it now looks like it worked. A distinct resolved *path* does bust
+the cache (also verified live). Fixed by copying the entry file to a
+dot-prefixed sibling in the same directory (same folder, so relative imports
+and the `node_modules` walk-up the neighbouring comment already documents
+still resolve identically) with a unique per-load suffix, importing that,
+and deleting it immediately after — with a sweep for a leftover copy from an
+interrupted previous reload before adding a new one. Re-verified live after
+the fix: edit → reload (`{"ok":true}`) → route serves the new code, twice in
+a row, no leftover files. Regression test added (asserts a second
+`loadExtensionFromDir` call picks up an edited entry file and leaves no
+`zveltio-dev-reload` artefact behind), reverted (fails at the named
+assertion), reapplied. No twin found — grepped the engine tree for the same
+`?v=` / cache-busted-import-URL shape; this was the only site.
+
+**Checked and found sound.** `activation.ts`'s per-tenant/per-firm gate
+(`extensionActivationGate`, `activationMiddlewareFor`, `guardHandler`,
+`guardEventHandler`, `guardScheduleHandler`) fails OPEN on a database error
+(deliberate — activation is a preference, not an authorization decision, and
+every downstream authz check still runs) and fails CLOSED (404, same as an
+uninstalled extension) when the DB answers `is_enabled = false`; the
+in-flight map correctly collapses a concurrent-cold-cache burst into one
+query per tenant per extension, so it does not reproduce the
+`DB_POOL_MAX`/second-connection shape from the transaction-boundary
+incident. `unloadExtension` (`lifecycle.ts`) does stop a worker-isolated
+extension's `Bun.Worker` and does drop its `/ext/*` public-route exemptions
+before returning — both are past fixes (per their own comments) that this
+session re-confirmed are still wired, not regressions to re-report.
+`topoSortExtensions` (`discovery.ts`) continues loading a dependent whose
+declared dependency is outside the planned set (logs a warning, does not
+skip it) — the function's own top-of-file JSDoc says "the dependent
+extension is skipped", which is stale relative to the code and the warning
+text it emits; noted here as a doc-only mismatch, not a behaviour defect.
+`enforcePublisherTier` (`load-phases.ts`) is hoisted above the WASM/worker
+runtime branch (2026-09 fix, per its own comment) so a community-tier
+manifest cannot dodge the worker-isolation requirement by declaring
+`runtime: "wasm"`; confirmed the gate still runs for that branch by reading
+the call order, not just the comment.
+
 ## 4. Deliberate deferrals
 
 | Deferred | Why | What would change it |
