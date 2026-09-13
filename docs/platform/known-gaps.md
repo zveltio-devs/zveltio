@@ -1706,6 +1706,63 @@ tests) plus `extension-sandbox-policies-json.test.ts`, all judged against "would
 this fail if the behaviour broke" — one placeholder found (above), the rest
 exercise real behavior (including two that spawn a real `Bun.Worker` running
 the shipped generated bundle rather than stubbing it).
+### A01 — boot, app assembly, middleware order (2026-09-12, closed 9/9)
+
+Nine files: `api-types.ts`, `index.ts`, `lib/service-registry.ts`,
+`lib/startup-guards.ts`, `routes/index.ts`, three `.d.ts` fixtures, and
+`version.ts`. One defect repaired.
+
+**Repaired (medium) — most real traffic was invisible to the request-count
+and Prometheus metrics.** `buildHonoApp()`'s counting `app.use('*', ...)`
+middleware sat directly above the `/metrics` route, registered AFTER
+`registerCoreRoutes()` had already mounted the entire `/api/*` + `/ext/*`
+surface and after the plain `/health` route. Hono composes matched handlers
+in registration order: a route that returns without calling `next()` never
+reaches a `next()`-based middleware registered later for the same path.
+Measured live (own scratch engine, own database): hitting `/api/health`,
+`/api/settings` and `/api/extensions` left `zveltio_requests_total` and
+`http_requests_total` completely unchanged, while a request that fell
+through to the `/api/*` 404 guard (registered after the old middleware
+position) was counted every time. In effect, almost the entire product's
+real traffic was blind to the counters the ops dashboards read — only 404s,
+the SPA fallback, and self-scrapes of `/metrics` were ever counted. The
+middleware's own skip-list (`/metrics`, `/health`, `/api/health/ready`) reads
+as though the author believed every other path reached this code, including
+`/api/extensions`, named in the very same comment as traffic that should
+count; it never did, for a reason unrelated to that list. Fixed by moving the
+middleware to before `registerCoreRoutes()` so it wraps every route; verified
+live before/after and with a new discriminating harness test
+(`request-metrics-coverage.test.ts` — fails without the fix, passes with it).
+
+**Checked and found sound, so the next reader can tell "safe" from "not
+looked at":** the documented middleware order (trailing-slash redirect →
+logger → problem envelope → body limits → CORS → session prefetch → tenant
+middleware → tenant membership → extension auth gate → extension rate limit
+→ routes) matches what actually executes, and `registerCoreRoutes()`'s own
+internal ordering (tracing, demo-mode, auth-specific rate limits, tenant
+quota, god-audit, request-log, preview-env, all before any `app.route()`
+call in that function) does not repeat the class this section's one defect
+belongs to. `_createAppForTests()` deliberately runs a reduced boot sequence
+(documented in its own header) and does not populate `_tenantScopedTables`
+or run the extension/grant-reconciliation steps `bootstrap()` runs after the
+parallel block — that only disarms an opt-in diagnostic counter
+(`ZVELTIO_STRICT_TENANT_SCOPE=1`), not RLS enforcement itself, and no test in
+the tree currently exercises that counter either way. Graceful shutdown
+(`cronRunner.stop()`, awaited `realtimeBus().stop()`, `_server?.stop()`) —
+flagged incomplete by the earlier AUDIT.md pass — is present and correct in
+the current tree; that TODO is stale. `productionGuardViolations` and its
+tests were read and cross-checked against every guard it names — all four
+(`ZVELTIO_EXT_AUTH_GATE`, `VALKEY_URL`, `CORS_ORIGINS`, `BETTER_AUTH_URL`)
+fire on the case they document and none on the cases they explicitly accept.
+
+**Not chased — cosmetic doc drift, not behaviour.** `routes/index.ts`'s
+header comment still lists `/api/ai/*` as a core route; AI moved to the `ai`
+extension. Left alone as a one-line documentation fix outside repair scope.
+
+**T01 leftovers.** No dedicated test exercises `injectCspNonce`, the
+static-file directory-traversal guard in `serveStaticFile`, or
+`trailingSlashRedirect`; all three were read line-by-line without finding a
+defect, but nothing in the suite would catch a regression in them.
 ### A15 — collection, relation and revision routes (2026-09-12, closed 5/5)
 
 Five files, 2,184 lines: `routes/collections.ts`, `routes/erd-layout.ts`,
@@ -1807,6 +1864,188 @@ behavior/contract question (should a fully-failed merge stay `open` for
 retry?) rather than a clear bug with an unambiguous correct answer, so it's
 noted here rather than repaired; changing it changes what callers can
 observe about `/merge`'s contract.
+
+### B02 — extension context and host internals (2026-09-13, closed 6/6)
+
+*The handle handed to an extension: what it can reach, versus what the type
+says it can.* Six files, 2,324 lines: `capabilities.ts`, `config.ts`,
+`extension-context.ts`, `index.ts`, `internals.ts`, `register.ts`.
+
+**Repaired (high) — the table allowlist only checked the FROM table, not a
+JOIN, an array/callback table expression, or the result of `withSchema`.**
+`createRestrictedDb`'s entry check (`extension-context.ts`) ran once, on
+`selectFrom`/`insertInto`/etc.'s first argument, and had three separate ways
+past it, each confirmed live against a real database with an extension
+holding no capability and no table grant:
+
+  - `ctx.db.selectFrom('zvd_x').innerJoin('session', ...)` — join methods
+    (`innerJoin`, `leftJoin`, …) are not in `QUERY_METHODS`, so a join tacked
+    onto an otherwise-permitted query reached Postgres uninspected. Returned
+    `session.token`, a live bearer credential.
+  - `ctx.db.selectFrom(['session'])` and
+    `ctx.db.selectFrom((eb) => eb.selectFrom('session')...)` — a non-string
+    table argument was normalized to `''`, and the permitted-check read
+    `baseTable === ''` as "nothing named, nothing to refuse" rather than
+    refusing it. Both returned `session.token`.
+  - `ctx.db.withSchema('public').selectFrom('session')` — `withSchema`
+    validates the schema name only and then returned the RAW, unwrapped
+    query creator from Kysely; nothing re-checked a table selected off it.
+    Returned `session.token`.
+
+  Fixed by: an `isPermittedTable` helper that refuses a non-string/empty
+  table instead of defaulting it to permitted; a `guardJoins` proxy that
+  wraps every query-builder result so a join chained onto it is checked the
+  same way the FROM table was; and `restrictQueryEntry`, which `withSchema`
+  now recurses into so its result is guarded exactly like the top-level
+  `Database` rather than handed back raw. Six new tests in
+  `extension-context-security.test.ts` (array, callback, JOIN-refused,
+  JOIN-permitted, withSchema-refused, withSchema-permitted); the join and
+  array/callback cases were confirmed to fail on the pre-fix code (reverted,
+  ran, 4 failed exactly on the new cases, restored). 65/65 existing
+  `extension-context*`/`restricted-db-hooks` tests still pass; 187/187 across
+  the section's full related-test corpus; `tsc --noEmit` and `biome check`
+  clean.
+
+**Logged, not fixed (critical) — `ctx.internals.withTenantIsolation` is a
+complete, ungated cross-tenant escape hatch, stronger than `ctx.adminDb` and
+requiring no capability at all.** `internals.ts` exposes the engine's
+`withTenantIsolation(tenantId, fn)` (`tenant-manager.ts`) straight through to
+every extension as `ctx.internals.withTenantIsolation`, and it is absent from
+`INTERNALS_CAPABILITY` in `capabilities.ts` — the map `gateInternals` (and
+`extension-capabilities.test.ts`'s own "gates the members that carry real
+authority" pin) uses to decide what needs a declared capability. Two defects
+compound:
+
+  1. `tenantId` is a caller-supplied string with no check that it belongs to
+     the calling extension's request/job. The function's own contract is
+     "the tenant has to come from wherever the work was enqueued" — it
+     trusts the caller entirely.
+  2. The `trx` handed to `fn` is the RAW engine `Database`, not wrapped by
+     `createRestrictedDb` — no table allowlist at all, unlike `ctx.adminDb`
+     (which requires `db:admin` AND still runs every query through
+     `createRestrictedDb`).
+
+  Confirmed live (real PostgreSQL 18, `initRlsEnforcementRole` run first so
+  `zveltio_rls` is actually enforced, not bypassed as superuser): seeded a
+  scratch `zvd_*` table with 2 rows for tenant A and 1 for tenant B via
+  `withTenantIsolation` itself (the legitimate path); built the exact bag
+  `gateInternals('probe-ext', buildExtensionInternals(), [], [])` produces
+  for an extension declaring **zero** capabilities; while executing inside a
+  normal tenant-A request (`ctx.db` correctly scoped to A, per the passing
+  `extension-ctx-db-isolation.integration.test.ts`), called
+  `ctx.internals.withTenantIsolation('<tenant-B-id>', fn)` and read
+  `[{"title":"B-SECRET-1"}]` — tenant B's row, from a tenant-A request, no
+  capability declared.
+
+  **Not fixed here.** The obvious fix — add `withTenantIsolation:
+  'db:admin'` to `INTERNALS_CAPABILITY` — breaks two real, currently-shipping
+  first-party extensions: `data/export` and `data/import`
+  (`zveltio-extensions/data/{export,import}/engine/routes.ts`) both call
+  `ctx.internals.withTenantIsolation` today to scope their own background
+  jobs to the job's own tenant, and their manifests declare only the
+  no-op legacy label `"database"` — not `db:admin`. Gating universally
+  would 403 both extensions' background jobs on the next load. The
+  underlying design question — should this require `db:admin` (and those
+  two manifests gain it), or should the host instead verify `tenantId`
+  against the tenant the calling job/request actually belongs to — is an
+  owner decision that touches manifests in the sibling repository, outside
+  this section's files. Repro is the probe script described above (not
+  checked in); rerun by seeding a `zvd_*` table under RLS, calling the
+  exported `initRlsEnforcementRole` first, and building the internals bag
+  with an empty capability list.
+
+**Checked and found sound.** `buildExtensionConfig`/`namespacedEnv`
+(`config.ts`) expose only `ZVELTIO_EXT_<NAME>_*`, frozen, per extension —
+matches the one other `process.env`-isolation rule this codebase has.
+`gateInternals` throws at CALL time (not property-access time), which
+matters because extensions destructure `ctx.internals` at module scope.
+`EXTENSION_TABLE_GRANTS`'s grants now seed `buildAllowedTables`'s set (fixed
+2026-09-10, see the entry above) — no longer inert. `db:admin`'s `adminDb`
+is correctly denied-by-default (`createDeniedAdminDb`) and, when granted,
+still passes through `createRestrictedDb` — the contrast that is what
+surfaced the `withTenantIsolation` gap above. No test-harness internals stub
+of the kind that hid a guard in B03/`extension-sandbox.test.ts` exists for
+this section's files — `gateInternals` is exercised against real objects
+directly.
+### B01 — extension loading and lifecycle (2026-09-13, closed 7/7)
+
+Seven files, 2,129 lines: `extension-loader.ts`, `load.ts`, `load-phases.ts`,
+`activation.ts`, `lifecycle.ts`, `discovery.ts`, `extension-paths.ts`. Two
+defects repaired, both on the same feature; the rest checked and found sound.
+
+**Repaired (high) — dev-reload dropped the extension instead of reloading
+it.** `POST /__zveltio_dev_reload` → `reloadExtensionFromDisk` cleared
+`loader.loaded`/`loader.modules` for the named extension and then called
+`triggerReload`, on the assumption that the resulting rebuild would re-import
+it. It does not: `buildHonoApp` (`index.ts`) only *re-registers* extensions
+still present in `loader.loaded`, via the cached module — it never calls
+`loadExtension` for anything missing. Deleting the entry first therefore
+guaranteed the rebuild would skip it. Measured live (scratch engine, :3200,
+`ZVELTIO_EXTENSION_DEV_RELOAD=1`): loaded a fixture extension, hit
+`/__zveltio_dev_reload`, and its route went from 200 to 404 with the endpoint
+itself reporting `{"ok":false,"error":"extension failed to load — check
+engine logs"}` — with no load ever attempted, so there was nothing in the
+logs to check. `dev-reload.test.ts`'s "clears module state ... triggers
+reload" test passed throughout by hand-simulating the rebuild re-adding the
+extension to `loaded` (`onReload: async () => { deps.loaded.add('forms') }`)
+— exactly what the real callback does not do; class 13, a test that passes
+for the wrong reason. Fixed by having `reloadExtensionFromDisk` call
+`loadDynamic` (the same helper the enable-extension route already uses) to
+actually re-import onto the live `app` before triggering the rebuild;
+`registerDevEndpoints`/`reloadExtensionFromDisk`'s signatures now take `app`
+to make that possible. Regression test added (edits the fixture between two
+loads and asserts the second sees the edit), reverted (fails at the named
+assertion, "Expected: 2, Received: 1" — not a syntax break), reapplied.
+
+**Repaired (high) — the dev-reload cache-buster does not bust anything.**
+Fixing the above surfaced a second, independent defect in the same feature.
+`load.ts`'s unbundled-import branch appends `?v=<timestamp>` to the import
+URL "to force a fresh read of edited source" (comment, pre-existing). It
+doesn't: Bun's dynamic `import()` caches by resolved pathname and ignores
+query strings and fragments — verified directly (`bun 1.3.14`, outside this
+codebase): two `import()` calls against the same file with different `?v=`
+or `#` suffixes both returned the *first* call's module, even after the file
+was rewritten in between. So even with the first fix applied, live
+measurement showed the reload endpoint answering `{"ok":true}` while the
+route kept serving the pre-edit response (`v:1` after editing to `v:2`) —
+reported success that did not happen, worse than the original failure
+because it now looks like it worked. A distinct resolved *path* does bust
+the cache (also verified live). Fixed by copying the entry file to a
+dot-prefixed sibling in the same directory (same folder, so relative imports
+and the `node_modules` walk-up the neighbouring comment already documents
+still resolve identically) with a unique per-load suffix, importing that,
+and deleting it immediately after — with a sweep for a leftover copy from an
+interrupted previous reload before adding a new one. Re-verified live after
+the fix: edit → reload (`{"ok":true}`) → route serves the new code, twice in
+a row, no leftover files. Regression test added (asserts a second
+`loadExtensionFromDir` call picks up an edited entry file and leaves no
+`zveltio-dev-reload` artefact behind), reverted (fails at the named
+assertion), reapplied. No twin found — grepped the engine tree for the same
+`?v=` / cache-busted-import-URL shape; this was the only site.
+
+**Checked and found sound.** `activation.ts`'s per-tenant/per-firm gate
+(`extensionActivationGate`, `activationMiddlewareFor`, `guardHandler`,
+`guardEventHandler`, `guardScheduleHandler`) fails OPEN on a database error
+(deliberate — activation is a preference, not an authorization decision, and
+every downstream authz check still runs) and fails CLOSED (404, same as an
+uninstalled extension) when the DB answers `is_enabled = false`; the
+in-flight map correctly collapses a concurrent-cold-cache burst into one
+query per tenant per extension, so it does not reproduce the
+`DB_POOL_MAX`/second-connection shape from the transaction-boundary
+incident. `unloadExtension` (`lifecycle.ts`) does stop a worker-isolated
+extension's `Bun.Worker` and does drop its `/ext/*` public-route exemptions
+before returning — both are past fixes (per their own comments) that this
+session re-confirmed are still wired, not regressions to re-report.
+`topoSortExtensions` (`discovery.ts`) continues loading a dependent whose
+declared dependency is outside the planned set (logs a warning, does not
+skip it) — the function's own top-of-file JSDoc says "the dependent
+extension is skipped", which is stale relative to the code and the warning
+text it emits; noted here as a doc-only mismatch, not a behaviour defect.
+`enforcePublisherTier` (`load-phases.ts`) is hoisted above the WASM/worker
+runtime branch (2026-09 fix, per its own comment) so a community-tier
+manifest cannot dodge the worker-isolation requirement by declaring
+`runtime: "wasm"`; confirmed the gate still runs for that branch by reading
+the call order, not just the comment.
 
 ## 4. Deliberate deferrals
 
