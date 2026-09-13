@@ -8,7 +8,12 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -16,10 +21,12 @@ d('health routes (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie: string;
+  let memberCookie: string;
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    ({ cookie: memberCookie } = await createMemberSession(app, db, { role: 'member' }));
   });
 
   it('GET /api/health is public and reports ok + demo_mode', async () => {
@@ -71,5 +78,19 @@ d('health routes (in-process)', () => {
   it('GET /api/health/deep → 401 anonymous', async () => {
     const res = await app.request('/api/health/deep');
     expect(res.status).toBe(401);
+  });
+
+  it('GET /api/health/deep → 403 for an authenticated non-admin member', async () => {
+    const res = await app.request('/api/health/deep', { headers: { cookie: memberCookie } });
+    expect(res.status).toBe(403);
+  });
+
+  // /:subsystem is /deep's per-subsystem breakdown and must carry the same
+  // instance-admin gate — otherwise a plain member gets the reconnaissance
+  // /deep refuses them, one subsystem at a time (measured live: 403 from
+  // /deep, 200 from /database, /storage, /extensions before this test).
+  it('GET /api/health/:subsystem → 403 for an authenticated non-admin member', async () => {
+    const res = await app.request('/api/health/database', { headers: { cookie: memberCookie } });
+    expect(res.status).toBe(403);
   });
 });
