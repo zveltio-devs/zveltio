@@ -26,6 +26,8 @@ const PAYLOAD = 'PGDMP fake dump bytes\n';
 const INSERT_BACKUP = /INSERT INTO zv_backups/i;
 const UPDATE_BACKUP = /UPDATE zv_backups/i;
 const UPDATE_SCHEDULE = /UPDATE zv_backup_schedules/i;
+// Unique to cleanupOldBackups's SELECT — nothing else in this path queries an OFFSET.
+const CLEANUP_SELECT = /OFFSET 20/i;
 
 // Imported after BACKUP_DIR is set: the module reads it once, at load.
 let runScheduledBackup: typeof import('../../lib/backup/run-scheduled-backup.js').runScheduledBackup;
@@ -373,5 +375,44 @@ describe('runScheduledBackup — the wiring itself', () => {
     expect(dump.result.stdout).toBeDefined();
     expect(gzip.opts.stdin).toBe(dump.result.stdout);
     expect(calls.indexOf(dump)).toBeLessThan(calls.indexOf(gzip));
+  });
+});
+
+describe('runScheduledBackup — retention', () => {
+  // Measured live against a real database before this was wired in: five
+  // successful runs through this function left five rows in `zv_backups` and
+  // five files on disk, with nothing capping either — the cron scheduler and
+  // the manual trigger route both call this function and neither pruned.
+  // Only `POST /api/backup`'s one-off button called `cleanupOldBackups`.
+
+  it('prunes old backups after a successful scheduled run', async () => {
+    const spy = fakeSpawn();
+    const db = cannedDb();
+
+    await runScheduledBackup(db.kysely as unknown as Database, {
+      scheduleId: 'sched-retain-ok',
+      scheduleName: 'Nightly',
+      target: target(),
+      actorId: null,
+    });
+    spy.mockRestore();
+
+    expect(db.executed(CLEANUP_SELECT).length).toBe(1);
+  });
+
+  it('does not run the prune query after a failed run', async () => {
+    const spy = fakeSpawn({ dumpExit: 1, stderr: 'pg_dump: error: connection refused' });
+    const db = cannedDb();
+
+    const out = await runScheduledBackup(db.kysely as unknown as Database, {
+      scheduleId: 'sched-retain-fail',
+      scheduleName: 'Nightly',
+      target: target(),
+      actorId: null,
+    });
+    spy.mockRestore();
+
+    expect(out.status).toBe('failed');
+    expect(db.executed(CLEANUP_SELECT).length).toBe(0);
   });
 });

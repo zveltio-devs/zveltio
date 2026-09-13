@@ -36,6 +36,23 @@ the pool afterwards) has not been chosen.
 `/api/edge-functions` moved into extensions. The 410 carries a forwarding
 address deliberately, so an old client learns what happened.
 
+**Gap — a backup schedule's `retention_count` is accepted, stored and shown,
+and enforced by nothing.** `POST /api/backup/schedules` validates and persists
+`retention_count` (`zv_backup_schedules.retention_count`, default 7) and
+`PATCH` lets it be edited; `GET /schedules` returns it. No code anywhere reads
+the column. The only pruning that exists — `cleanupOldBackups`, a hardcoded
+top-20-by-`created_at`, global across every schedule — is now called from
+`runScheduledBackup` (`lib/backup/run-scheduled-backup.ts`) after a completed
+dump, having previously run only from the one-off `POST /api/backup` button; a
+firing cron schedule or a manual trigger no longer accumulates rows in
+`zv_backups` and files under `BACKUP_DIR` without limit (measured live before
+the fix: 5 successful scheduled runs left 5 rows and 5 files, uncapped).
+Giving a schedule's own `retention_count` effect needs `zv_backups` to carry a
+`schedule_id` it does not have today, so backups from different schedules (or
+the ad-hoc button) can be told apart before pruning — a migration and an
+insert-path change wider than `lib/backup/`, logged rather than built here.
+Reviewed 2026-09-13, section B10.
+
 ---
 
 ## 2. Multi-tenancy and security
