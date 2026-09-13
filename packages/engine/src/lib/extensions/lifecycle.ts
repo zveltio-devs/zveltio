@@ -157,12 +157,11 @@ export async function loadDynamic(loader: ExtensionLoader, name: string, app: Ho
 }
 
 /**
- * Dev-only: drop the cached module + scoped state for `name`, then trigger
- * a full app rebuild. The rebuild's `loadExtension` re-imports with the
- * cache-buster query string, picking up edits on disk. Returns the load
- * status so the `zveltio extension dev` watcher can surface failures back
- * to the developer's terminal instead of leaving the engine running on
- * stale code.
+ * Dev-only: drop the cached module + scoped state for `name`, re-import it
+ * from disk onto the live app, then trigger a full app rebuild so the fresh
+ * module is also wired into the next `_currentApp`. Returns the load status
+ * so the `zveltio extension dev` watcher can surface failures back to the
+ * developer's terminal instead of leaving the engine running on stale code.
  *
  * Scope-cleanup matches what `disable` does:
  *   - module cache, loaded map, lastLoadError
@@ -170,12 +169,28 @@ export async function loadDynamic(loader: ExtensionLoader, name: string, app: Ho
  *   - cronRunner schedules
  *
  * NOT cleaned (intentionally): migrations already applied. SQL changes
- * still require an explicit migration file — this method only re-imports
- * `engine/index.ts`.
+ * still require an explicit migration file — `runExtensionMigrations` skips
+ * anything already recorded in `zv_migrations`.
+ *
+ * `triggerReload`'s callback (`buildHonoApp`) only RE-REGISTERS extensions
+ * already present in `loader.loaded` via `reRegisterExtension`, which reads
+ * from the cached module — it never imports anything from disk. Deleting
+ * `name` from `loaded`/`modules` above and then only calling `triggerReload`
+ * (the pre-fix behaviour) therefore dropped the extension instead of
+ * reloading it: the rebuild would skip it entirely, `isActive(name)` would
+ * stay false, and every dev-reload would report "extension failed to load"
+ * with nothing actually attempted. `loadDynamic` — the same helper the
+ * enable-extension route uses — performs the real disk import and mounts
+ * routes directly onto `app` (the live, currently-served instance, captured
+ * by the dev-reload endpoint's closure), which is what actually makes the
+ * edited code live. `triggerReload` afterwards folds the now-fresh cached
+ * module into the next full rebuild too, the same order the enable route
+ * follows.
  */
 export async function reloadExtensionFromDisk(
   loader: ExtensionLoader,
   name: string,
+  app: Hono,
   triggerReload: (reason: string) => Promise<void>,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!loader.modules.has(name) && !loader.loaded.has(name)) {
@@ -192,6 +207,11 @@ export async function reloadExtensionFromDisk(
   queryAlterRegistry.unregisterAll(name);
   entityAccessRegistry.unregisterAll(name);
   cronRunner.unregisterAll(name);
+  try {
+    await loadDynamic(loader, name, app);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
   await triggerReload(`dev-reload:${name}`);
   if (loader.lastLoadError.has(name)) {
     return { ok: false, error: loader.lastLoadError.get(name)! };
