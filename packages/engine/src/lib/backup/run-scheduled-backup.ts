@@ -34,6 +34,47 @@ export interface ScheduledBackupOutcome {
 }
 
 /**
+ * Delete every completed backup past the newest 20, row and file both.
+ *
+ * The only caller of this used to be `POST /api/backup` — the one-off "back up
+ * now" button. `runScheduledBackup`, which both the cron scheduler and
+ * `POST /schedules/:id/trigger` call, never pruned anything: measured live,
+ * five scheduled runs against a real database left five rows in `zv_backups`
+ * and five files on disk, with nothing capping either. The very feature this
+ * file exists to make real — a schedule that actually fires unattended — is
+ * the path that most needs a bound on what it leaves behind, since nobody is
+ * there afterwards to notice or delete an old dump by hand.
+ *
+ * This is a global cap, not the per-schedule `retention_count` a schedule
+ * stores: `zv_backups` carries no `schedule_id` to group by, so honouring a
+ * schedule's own count needs a schema change wider than this file — logged
+ * rather than built here.
+ */
+export async function cleanupOldBackups(db: Database): Promise<void> {
+  try {
+    const oldBackups = await sql<{ id: string; filename: string }>`
+      SELECT id::text, filename FROM zv_backups
+      WHERE status = 'completed'
+      ORDER BY created_at DESC
+      OFFSET 20
+    `.execute(db);
+
+    for (const backup of oldBackups.rows) {
+      if (!backup.filename.includes('..') && !backup.filename.includes('/')) {
+        const filepath = `${BACKUP_DIR}/${backup.filename}`;
+        if (await Bun.file(filepath).exists()) {
+          const rmProc = Bun.spawn(['rm', '-f', filepath]);
+          await rmProc.exited;
+        }
+      }
+      await sql`DELETE FROM zv_backups WHERE id = ${backup.id}`.execute(db);
+    }
+  } catch (err) {
+    console.error('Failed to cleanup old backups:', err);
+  }
+}
+
+/**
  * Take a dump for one schedule and record the outcome in both places.
  *
  * `actorId` is the user for a manual trigger and null when the scheduler runs
@@ -158,6 +199,11 @@ export async function runScheduledBackup(
         console.error(`[backup] ${filename} was written locally but not uploaded: ${up.error}`);
       }
     }
+
+    // Same prune the one-off "back up now" button already runs after a
+    // success — without it a firing schedule has no cap on what it leaves
+    // behind, on disk or in `zv_backups`. See `cleanupOldBackups` for why.
+    await cleanupOldBackups(db);
 
     return { backupId, filename, status: 'completed' };
   } catch (err) {
