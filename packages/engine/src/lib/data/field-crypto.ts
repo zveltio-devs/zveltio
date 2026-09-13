@@ -20,6 +20,7 @@ function keyHex(): string {
 }
 
 let _key: CryptoKey | null = null;
+let _keyHexAtImport: string | null = null;
 
 let _missingKeyWarned = false;
 function warnMissingKeyOnce(): void {
@@ -82,8 +83,14 @@ export async function checkFieldEncryptionAtBoot(
 }
 
 async function getKey(): Promise<CryptoKey> {
-  if (_key) return _key;
   const hex = keyHex();
+  // Re-import whenever the env var no longer matches what produced the cached
+  // key. Caching by VALUE rather than by "have we ever imported one" is what
+  // actually delivers the rotate-without-restart property the module header
+  // claims — caching unconditionally on `_key` truthiness left every write
+  // sealed under the process's first key forever, silently, because the same
+  // stale key also decrypted anything it had just encrypted.
+  if (_key && _keyHexAtImport === hex) return _key;
   if (!hex || hex.length !== 64) {
     throw new Error(
       'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
@@ -95,6 +102,7 @@ async function getKey(): Promise<CryptoKey> {
     'encrypt',
     'decrypt',
   ]);
+  _keyHexAtImport = hex;
   return _key;
 }
 
@@ -178,4 +186,5 @@ export async function maybeDecrypt(value: unknown, isEncrypted: boolean): Promis
 /** Test-only hook to reset the cached CryptoKey between cases. */
 export function resetFieldCryptoKeyCacheForTests(): void {
   _key = null;
+  _keyHexAtImport = null;
 }
