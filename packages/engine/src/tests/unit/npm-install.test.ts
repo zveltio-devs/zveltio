@@ -54,9 +54,9 @@ describe('installExtensionNpmDependencies', () => {
     // "already installed", `toInstall` stayed empty, and the function returned
     // before the SAFE_PACKAGE_NAME / allow-list checks ever ran.
     mkdirSync(join(extBase, 'node_modules'), { recursive: true });
-    await expect(
-      installExtensionNpmDependencies('evil', { '../pwn': '*' }),
-    ).rejects.toThrow(/unsafe peerDependency/i);
+    await expect(installExtensionNpmDependencies('evil', { '../pwn': '*' })).rejects.toThrow(
+      /unsafe peerDependency/i,
+    );
   });
 
   it('installs missing allow-listed peers via bun add', async () => {
