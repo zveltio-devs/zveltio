@@ -341,6 +341,23 @@ no lifecycle scripts by default (no `trustedDependencies` is declared).
 `release-gate` is wired so that `publish-release` needs it. The sibling clone
 resolves a paired branch of the same name before falling back to master.
 
+**E08 closed 2026-09-12 — last file, `private-docs.yml`, verified clean.** The
+gate it runs, `scripts/check-private-docs-untracked.ts`, was measured against
+both failure modes it names in its own comment, not just read: force-adding a
+file under `docs/private/` (`git add -f`) made the gate fail with the correct
+file list, and removing the `docs/private/` line from `.gitignore` made it
+fail with the correct "not ignored" message. Both reverted after. The
+"`CI checks each repository in its own job`" claim in the script's docstring
+is real — `zveltio-extensions` carries its own `.github/workflows/private-docs.yml`
+running the same script against itself, not a second invocation from here.
+`git ls-files`'s exit code is not checked (only its stdout), so a root that
+does not exist reports a misleading "not ignored" message instead of "root
+missing" — but the only roots this workflow ever passes are `.` in each
+repository, which always exist, so this is not reachable from CI input; not
+logged as a gap. The `import { $ } from 'bun'` in the script is unused (it
+explains in a comment why it switched to `Bun.spawnSync` and never removed
+the import) — a lint nit, too trivial to log.
+
 ### A04 — tenancy core (2026-09-04, partial)
 
 Four of five files read; `tenant-manager.ts` is only partly read and the section
