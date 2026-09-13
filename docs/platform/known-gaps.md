@@ -57,10 +57,13 @@ without breaking `CREATE EXTENSION` is the open part.
 Every other key under `/files/*` requires a valid signature.
 
 **By design — worker isolation is a guard-rail, not a sandbox.** It is a
-separate process with a restricted SQL allowlist, a reserved connection with a
-statement timeout, and a database role with no grants on the Better-Auth tables.
-It has not been adversarially tested. Treat untrusted community extensions
-accordingly. WASM isolation exists as an option and is
+separate thread (`Bun.Worker`, not a subprocess — OS memory is shared with the
+engine, only the V8 heap is isolated) with a restricted SQL allowlist, a
+reserved connection with a statement timeout, and a database role with no
+grants on the Better-Auth tables. Now adversarially tested — see
+[B03](#b03--worker-and-wasm-isolation-2026-09-13-closed-66) — and one real gap
+found and fixed there. Treat untrusted community extensions accordingly. WASM
+isolation exists as an option and is
 [deliberately deferred](#4-deliberate-deferrals) as the default.
 
 ---
@@ -1433,6 +1436,86 @@ stages to account for.
 
 **Remaining class-(2) entries in `ACCEPTED`:** `zv_import_logs`,
 `zv_quality_issues`, `zv_quality_scans` — each its own iteration.
+
+### B03 — worker and WASM isolation (2026-09-13, closed 6/6)
+
+**What was measured** (live PostgreSQL 18, `zveltio_worker` role created by
+migration 001's embedded `043_worker_sql_role.sql` block, `SET LOCAL ROLE
+zveltio_worker` from a second `psql` session against a scratch database):
+
+- **Gap, found and fixed — `LOCK` was not in `worker-sql-policy.ts`'s refused
+  forms.** `LOCK TABLE zvd_x IN ACCESS EXCLUSIVE MODE` names no table in a
+  `FROM`/`JOIN`/`INTO`/`UPDATE` position, so the allowlist scan never saw it,
+  and Postgres grants a table lock — any mode — to a role holding only the
+  `SELECT`/`INSERT`/`UPDATE`/`DELETE` the worker role already has on `zvd_*`.
+  Measured live: `zveltio_worker` acquired an `ACCESS EXCLUSIVE` lock on
+  `zvd_collections` with only its ordinary DML grant, and a concurrent
+  `SELECT` from a second connection blocked for the lock's full duration.
+  Since `zvd_*` tables are one physical table shared by every tenant (RLS
+  filters rows, it does not split storage), a single untrusted worker-isolated
+  extension could freeze every tenant's access to a collection for the length
+  of the bridge's statement timeout (10s), repeatably. Fixed by adding `LOCK`
+  to the refused-forms list in `worker-sql-policy.ts`, with a regression test
+  that fails before the fix and passes after (revert verified: the named case
+  flips from fail to pass, no other test moves).
+- **Checked and NOT a gap — `COPY`, `TRUNCATE`, `ALTER`, `GRANT`.** None of
+  these is recognised by the JS parser either (same blind spot as `LOCK`:
+  the table name isn't in a position the scanner reads), but all four are
+  refused by Postgres itself: `zveltio_worker` holds no `TRUNCATE` grant, no
+  ownership (`ALTER`, `GRANT`), and `session`/`user`/`account`/`verification`/
+  `twoFactor` are explicitly `REVOKE ALL`'d from it, so `COPY "session" TO
+  STDOUT` and `TRUNCATE zv_api_keys` both fail with `permission denied` —
+  verified live, not assumed from reading. This is the documented design (the
+  parser advises, the database enforces); `LOCK` was the one case where the
+  worker's own legitimate DML grant was already sufficient, so the database
+  backstop didn't apply.
+- **`hasCapability`/`policyFor` (`extension-sandbox.ts`) — live, not dead
+  code**, unlike the pre-`capabilities.ts` policy the class-15 entry above
+  describes. Its only caller is `wasm-extension-host.ts`, which is wired into
+  `extension-loader.ts` behind `manifest.runtime === 'wasm'` — checked by
+  reference, not assumed.
+- **`wasm-extension-host.ts`'s `db_query`/`db_execute`/`fetch_*`/`env_read`/
+  `fs_*` imports are stubs that return 0**, documented as such in the file's
+  own header. Not a "reported success that did not happen": nothing claims
+  these work, and no manifest can select `runtime: wasm` and reach a real
+  extension today (memory: WASM adoption is v2.0-and-later, [deliberately
+  deferred](#4-deliberate-deferrals)).
+- **`worker-extension-fetch-guard.test.ts` is exemplary for class 15**: it
+  spawns the actual generated worker bundle (`gen-worker-source.ts`'s output)
+  in a real `Bun.Worker` rather than importing the guard function directly —
+  the failure mode this campaign has seen elsewhere (a correct guard that
+  never makes it into the shipped bundle) is structurally excluded here.
+
+**Not fixed, logged for the section that owns the file** — `lib/flows/
+flow-executor.ts` (**B07**, unreviewed at time of writing) has the same twin:
+its `query_db` step blocks writes with `SET TRANSACTION READ ONLY` plus a
+`DANGEROUS_PATTERNS` denylist that does not mention `LOCK` either. Measured
+live: `LOCK TABLE … IN ACCESS EXCLUSIVE MODE` succeeds inside a `READ ONLY`
+transaction under `zveltio_flow_reader`-equivalent privileges — Postgres does
+not treat locking as a write for this purpose. Same DoS shape, different
+bridge; out of this section's files, left for B07's session to fix or accept.
+
+**Test-honesty note, not a production defect.** `extension-sandbox.test.ts`'s
+"applies EXTENSION_POLICIES_JSON overrides on top of defaults" test is
+`expect(true).toBe(true)` — the module reads the env var once at import time
+(`const _overrides = loadOverrides()`), so no in-process test can exercise the
+override path without a fresh module instance, and the test says so in its
+own comment rather than pretending otherwise. The override-merge behavior of
+`policyFor()` itself is therefore unverified by the suite; `parsePolicyOverrides`
+(the parsing half) is separately and genuinely tested in
+`extension-sandbox-policies-json.test.ts`. Left as a T01 leftover rather than
+fixed — would need a subprocess or dynamic-import-based harness, which is a
+bigger change than this session's repair budget.
+
+**Files:** `extension-sandbox.ts`, `worker-sql-policy.ts`, `wasm-extension-
+host.ts`, `worker-extension-host.ts`, `worker-extension-protocol.ts`,
+`worker-extension-runtime.ts`. **Tests opened:** all 20 files under
+`packages/engine/src/tests/unit/{extension-sandbox,wasm-extension-host,worker-
+extension-host,worker-extension-fetch-guard,worker-sql-policy}*.test.ts` (134
+tests) plus `extension-sandbox-policies-json.test.ts`, all judged against "would
+this fail if the behaviour broke" — one placeholder found (above), the rest
+exercise real behavior (including two that spawn a real `Bun.Worker` running
+the shipped generated bundle rather than stubbing it).
 
 ## 4. Deliberate deferrals
 
