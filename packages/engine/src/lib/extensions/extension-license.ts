@@ -19,7 +19,11 @@ export async function getLicenseKey(db: any, extensionName: string): Promise<str
       .where('key', '=', `ext_license:${extensionName}`)
       .executeTakeFirst();
     return row?.value ?? undefined;
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[license] failed to read license key for "${extensionName}":`,
+      (err as Error).message,
+    );
     return undefined;
   }
 }
