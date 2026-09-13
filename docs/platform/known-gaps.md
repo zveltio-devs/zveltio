@@ -695,6 +695,90 @@ is the same disagreement between what the host routed and what the consumer sees
   `denial.ts` — recorded here because it is a disclosure decision, not an
   accident.
 
+### A03 — error surface, health, API description (2026-09-13, closed 9/9)
+
+**Fixed — `GET /api/health/:subsystem` gave any authenticated member the
+reconnaissance `/api/health/deep` is gated to keep from them.** `/deep`
+requires `requireInstanceAdmin` and its own comment says why: it "enumerates
+every subsystem an operator runs — database, cache, object storage, message
+bus, each extension's own probe — with its failure text," which is
+reconnaissance an ordinary member has no use for. `/:subsystem`, ten lines
+below, checked only `requireAuth` — any session at all — and answers the
+identical per-subsystem data one name at a time (`database`, `storage`,
+`extensions`, any `ext:<name>:<check>`), including extension failure text.
+Measured live: a freshly signed-up, non-admin member got `403` from `/deep`
+and `200` from `/database`, `/storage` and `/extensions` individually. Fixed
+by adding the same `requireAdmin` gate to `/:subsystem` in
+`routes/health.ts`; the existing harness suite only ever drove this route
+with a god session, so it could not have caught the gap (class 13 shape —
+the test exercised the path near the guard, not the guard). Added
+`GET /api/health/deep → 403 for an authenticated non-admin member` and the
+`/:subsystem` equivalent to `health-routes.test.ts`, both against a real
+`createMemberSession`; reverting the fix makes the new `/:subsystem` case
+fail (`403` expected, `200` received) while the pre-existing cases stay
+green. `routes/openapi.ts`'s spec for this path corrected to say "instance
+admin required" and gained a `403` response entry, matching what `/deep`'s
+entry already said.
+
+**Verified clean — `mapPgError`'s class-16 shape does not repeat here.**
+`problem.ts:162-163` checks both `err.code` and `String(err.errno)` for
+`22P02` (Bun.SQL puts the SQLSTATE in `errno`, not `code`), and
+`problem-invalid-parameter.test.ts` pins both the Bun.SQL and node-pg shapes
+plus a control case that an unrelated error stays a 500. This is the file
+the campaign document names as already knowing the trap.
+
+**Verified clean — no leaked internals in the unified error envelope.**
+`problemOnError`'s catch-all never surfaces a thrown error's own message
+(`problem-envelope.test.ts` pins that a thrown `Error('internal secret
+detail...')` never reaches the response body); `HTTPException` messages are
+surfaced deliberately because they are developer-set at the throw site, not
+driver/DB text. `GET /api/health` (public) carries no engine/schema/runtime
+detail — pinned by the integration suite.
+
+**Verified clean — BYOD introspection's platform-table denylist-that-isn't.**
+`isPlatformTable` enumerates Better-Auth's unprefixed tables (`user`,
+`session`, `account`, `verification`, `twoFactor`, `passkey`) in addition to
+the four prefixes, case-insensitively.
+`introspection-covers-engine-tables.test.ts` reads every `CREATE TABLE` out
+of the actual migrations and fails if any of them is not refused — an
+enumeration that rots is caught by CI, not by the next audit.
+
+**Not done — the OpenAPI spec's own production admin-gate
+(`isTenantAdmin`, prod-only) has no test at any effort level.** The harness
+always runs `NODE_ENV=test`, so `openapi.test.ts` never exercises the
+`inProd` branch. Standing up the branch live requires a production-config
+boot (Valkey, etc. — `assertProductionConfig` in `startup-guards.ts`, a
+different section's file), which this session did not do. The code mirrors
+`health.ts`'s already-measured pattern (`getSession` → role check → 401/403)
+closely enough to be plausible, but "reads correct" is exactly the standard
+this campaign rejects — flagging rather than closing it.
+
+**Verified clean, with the measurement — `getNextDocumentNumber`'s counter
+increment is a single atomic `UPDATE ... RETURNING`,** not a read-then-write;
+`doc-generator.test.ts` pins both the found-row and no-row-returned paths.
+`renderTemplate` HTML-escapes every substituted value before it reaches
+generated HTML/PDF; pinned against a `<script>` payload.
+
+**Logged, not fixed — `lib/utils.ts:generateId` has a modulo bias.**
+`randomValues[i] % chars.length` over a 256-value byte and a 62-character
+alphabet is not uniform (characters 0-39 are ~1/256 more likely than 40-61).
+Not a defect against this function's actual use (IDs, not secrets — no test
+claims uniformity), so left as-is rather than swapped for rejection sampling
+inside this section; noted in case a caller ever treats this as
+security-relevant randomness.
+
+**T01 note — `routes/gone.ts` has no dedicated test file.** Read in full: a
+23-line `app.all('*')` that always throws a `problem('gone', 410, ...)`. No
+defect found; small enough that a missing test is a coverage gap, not a risk,
+so left for the T01 pass rather than added here.
+
+files read in full: `packages/engine/src/lib/doc-generator.ts`,
+`packages/engine/src/lib/health-registry.ts`,
+`packages/engine/src/lib/introspection.ts`, `packages/engine/src/lib/problem.ts`,
+`packages/engine/src/lib/utils.ts`, `packages/engine/src/lib/version-checker.ts`,
+`packages/engine/src/routes/gone.ts`, `packages/engine/src/routes/health.ts`,
+`packages/engine/src/routes/openapi.ts`.
+
 ### A06 — permissions, roles, column access (2026-09-05, closed 5/5)
 
 Five defects, all repaired with a test that discriminates. Three of them are the
