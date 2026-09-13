@@ -232,41 +232,70 @@ describe('loadDynamic', () => {
 
 describe('reloadExtensionFromDisk', () => {
   it('returns an error when the extension is not loaded', async () => {
-    const r = await reloadExtensionFromDisk(fakeLoader(), 'missing', async () => {});
+    const r = await reloadExtensionFromDisk(fakeLoader(), 'missing', noApp, async () => {});
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/not currently loaded/i);
   });
 
-  it('clears module state, unregisters services, and invokes triggerReload', async () => {
+  // Regression: reloadExtensionFromDisk used to clear `loaded`/`modules` and
+  // then rely on `triggerReload`'s rebuild to re-import the module — but the
+  // rebuild (buildHonoApp) only RE-REGISTERS extensions already in `loaded`
+  // via the cached module, it never imports from disk. That made every
+  // dev-reload drop the extension instead of reloading it. The fix calls
+  // `loadDynamic` (real disk import + register onto the live `app`) before
+  // `triggerReload`, so this loader's `loadExtension` stub must actually be
+  // invoked for the reload to succeed.
+  it('re-imports via loadExtension, clears module state, and invokes triggerReload', async () => {
     serviceRegistry.registerAs('e-reload', 'reloadSvc', { x: 1 });
-    const loader = fakeLoader({ isActive: () => true });
+    let loadedName = '';
+    let loadedApp: unknown;
+    const loader = fakeLoader({
+      isActive: () => true,
+      loadExtension: async (name: string, app: unknown) => {
+        loadedName = name;
+        loadedApp = app;
+      },
+    });
     loader.modules.set('e-reload', {});
     loader.loaded.set('e-reload', {});
     let reason = '';
-    const r = await reloadExtensionFromDisk(loader, 'e-reload', async (why) => {
+    const r = await reloadExtensionFromDisk(loader, 'e-reload', noApp, async (why) => {
       reason = why;
     });
+    expect(loadedName).toBe('e-reload');
+    expect(loadedApp).toBe(noApp);
     expect(reason).toBe('dev-reload:e-reload');
-    expect(loader.modules.has('e-reload')).toBe(false);
-    expect(loader.loaded.has('e-reload')).toBe(false);
     expect(serviceRegistry.has('reloadSvc')).toBe(false);
     expect(r.ok).toBe(true);
   });
 
-  it('surfaces lastLoadError from the reload attempt', async () => {
-    const loader = fakeLoader({ isActive: () => false });
-    loader.loaded.set('e-bad', {});
-    const r = await reloadExtensionFromDisk(loader, 'e-bad', async () => {
-      loader.lastLoadError.set('e-bad', 'syntax error in engine/index.ts');
+  it('surfaces the load error when loadExtension fails to re-import', async () => {
+    const loader = fakeLoader({
+      isActive: () => false,
+      loadExtension: async (name: string) => {
+        loader.lastLoadError.set(name, 'syntax error in engine/index.ts');
+      },
     });
+    loader.loaded.set('e-bad', {});
+    const r = await reloadExtensionFromDisk(loader, 'e-bad', noApp, async () => {});
     expect(r.ok).toBe(false);
     expect(r.error).toBe('syntax error in engine/index.ts');
   });
 
-  it('reports a generic failure when reload leaves the extension inactive', async () => {
-    const loader = fakeLoader({ isActive: () => false });
+  it('reports a generic failure when the extension is inactive again by the time the rebuild finishes', async () => {
+    // loadDynamic's own isActive check passes right after the (stubbed) load,
+    // so reloadExtensionFromDisk proceeds to triggerReload — simulating
+    // something (e.g. a racing disable) dropping it again before the final check.
+    let calls = 0;
+    const loader = fakeLoader({
+      loadExtension: async () => {},
+      isActive: () => {
+        calls += 1;
+        return calls === 1;
+      },
+    });
     loader.modules.set('e-inert', {});
-    const r = await reloadExtensionFromDisk(loader, 'e-inert', async () => {});
+    const r = await reloadExtensionFromDisk(loader, 'e-inert', noApp, async () => {});
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/failed to load/i);
   });

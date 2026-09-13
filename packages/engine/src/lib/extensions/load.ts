@@ -17,8 +17,8 @@
  * method — zero behaviour change.
  */
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'path';
+import { existsSync, readdirSync, copyFileSync, unlinkSync } from 'node:fs';
+import { join, dirname, basename, extname } from 'path';
 import { pathToFileURL } from 'node:url';
 import type { Hono } from 'hono';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
@@ -324,11 +324,56 @@ export async function loadExtensionFromDir(
       const resolvedPath = entryPhase.value;
 
       const useCacheBuster = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
-      const importHref = useCacheBuster
-        ? `${pathToFileURL(resolvedPath).href}?v=${Date.now()}`
-        : pathToFileURL(resolvedPath).href;
-      const module = await import(importHref);
-      extension = module.default;
+      // A `?v=<timestamp>` query (the pre-2026-09-13 approach, comment above)
+      // does not actually bust anything: Bun's dynamic import() caches by
+      // resolved pathname and ignores query/hash on that path, verified live
+      // on Bun 1.3.14 — a second import() of the same file with a different
+      // `?v=` still returned the FIRST call's module, silently. That made
+      // every dev-reload re-register the extension's OLD code: the reload
+      // machinery (lifecycle.ts) reported success, but nothing an author
+      // edited ever took effect without a full process restart — the one
+      // thing ZVELTIO_EXTENSION_DEV_RELOAD exists to avoid.
+      //
+      // A distinct resolved PATH does bust the cache (also verified live).
+      // Copy the entry file to a dot-prefixed sibling in the SAME directory
+      // — not a temp dir — so relative imports inside the extension and the
+      // node_modules walk-up (see the history note above) still resolve from
+      // the same location. Deleted right after import(); a leftover from an
+      // interrupted previous reload is swept first so copies don't
+      // accumulate.
+      let importPath = resolvedPath;
+      let devReloadCopy: string | null = null;
+      if (useCacheBuster) {
+        const dir = dirname(resolvedPath);
+        const ext = extname(resolvedPath);
+        const stem = basename(resolvedPath, ext);
+        const marker = `.${stem}.zveltio-dev-reload.`;
+        for (const f of readdirSync(dir)) {
+          if (f.startsWith(marker)) {
+            try {
+              unlinkSync(join(dir, f));
+            } catch {
+              /* best-effort sweep — the import below still gets a fresh name */
+            }
+          }
+        }
+        devReloadCopy = join(dir, `${marker}${Date.now()}${ext}`);
+        copyFileSync(resolvedPath, devReloadCopy);
+        importPath = devReloadCopy;
+      }
+      const importHref = pathToFileURL(importPath).href;
+      try {
+        const module = await import(importHref);
+        extension = module.default;
+      } finally {
+        if (devReloadCopy) {
+          try {
+            unlinkSync(devReloadCopy);
+          } catch {
+            /* best-effort — next reload's sweep also cleans it */
+          }
+        }
+      }
     }
 
     if (!extension || typeof extension.register !== 'function') {
