@@ -1624,6 +1624,63 @@ still leave the other; and `getRuleGroups`'s `to_regclass` probe (not a
 missing `zvd_validation_rule_groups` table never aborts the caller's
 transaction, verified against a live database.
 
+### A01 — boot, app assembly, middleware order (2026-09-12, closed 9/9)
+
+Nine files: `api-types.ts`, `index.ts`, `lib/service-registry.ts`,
+`lib/startup-guards.ts`, `routes/index.ts`, three `.d.ts` fixtures, and
+`version.ts`. One defect repaired.
+
+**Repaired (medium) — most real traffic was invisible to the request-count
+and Prometheus metrics.** `buildHonoApp()`'s counting `app.use('*', ...)`
+middleware sat directly above the `/metrics` route, registered AFTER
+`registerCoreRoutes()` had already mounted the entire `/api/*` + `/ext/*`
+surface and after the plain `/health` route. Hono composes matched handlers
+in registration order: a route that returns without calling `next()` never
+reaches a `next()`-based middleware registered later for the same path.
+Measured live (own scratch engine, own database): hitting `/api/health`,
+`/api/settings` and `/api/extensions` left `zveltio_requests_total` and
+`http_requests_total` completely unchanged, while a request that fell
+through to the `/api/*` 404 guard (registered after the old middleware
+position) was counted every time. In effect, almost the entire product's
+real traffic was blind to the counters the ops dashboards read — only 404s,
+the SPA fallback, and self-scrapes of `/metrics` were ever counted. The
+middleware's own skip-list (`/metrics`, `/health`, `/api/health/ready`) reads
+as though the author believed every other path reached this code, including
+`/api/extensions`, named in the very same comment as traffic that should
+count; it never did, for a reason unrelated to that list. Fixed by moving the
+middleware to before `registerCoreRoutes()` so it wraps every route; verified
+live before/after and with a new discriminating harness test
+(`request-metrics-coverage.test.ts` — fails without the fix, passes with it).
+
+**Checked and found sound, so the next reader can tell "safe" from "not
+looked at":** the documented middleware order (trailing-slash redirect →
+logger → problem envelope → body limits → CORS → session prefetch → tenant
+middleware → tenant membership → extension auth gate → extension rate limit
+→ routes) matches what actually executes, and `registerCoreRoutes()`'s own
+internal ordering (tracing, demo-mode, auth-specific rate limits, tenant
+quota, god-audit, request-log, preview-env, all before any `app.route()`
+call in that function) does not repeat the class this section's one defect
+belongs to. `_createAppForTests()` deliberately runs a reduced boot sequence
+(documented in its own header) and does not populate `_tenantScopedTables`
+or run the extension/grant-reconciliation steps `bootstrap()` runs after the
+parallel block — that only disarms an opt-in diagnostic counter
+(`ZVELTIO_STRICT_TENANT_SCOPE=1`), not RLS enforcement itself, and no test in
+the tree currently exercises that counter either way. Graceful shutdown
+(`cronRunner.stop()`, awaited `realtimeBus().stop()`, `_server?.stop()`) —
+flagged incomplete by the earlier AUDIT.md pass — is present and correct in
+the current tree; that TODO is stale. `productionGuardViolations` and its
+tests were read and cross-checked against every guard it names — all four
+(`ZVELTIO_EXT_AUTH_GATE`, `VALKEY_URL`, `CORS_ORIGINS`, `BETTER_AUTH_URL`)
+fire on the case they document and none on the cases they explicitly accept.
+
+**Not chased — cosmetic doc drift, not behaviour.** `routes/index.ts`'s
+header comment still lists `/api/ai/*` as a core route; AI moved to the `ai`
+extension. Left alone as a one-line documentation fix outside repair scope.
+
+**T01 leftovers.** No dedicated test exercises `injectCspNonce`, the
+static-file directory-traversal guard in `serveStaticFile`, or
+`trailingSlashRedirect`; all three were read line-by-line without finding a
+defect, but nothing in the suite would catch a regression in them.
 ### A15 — collection, relation and revision routes (2026-09-12, closed 5/5)
 
 Five files, 2,184 lines: `routes/collections.ts`, `routes/erd-layout.ts`,
@@ -1793,6 +1850,85 @@ extension stopped declaring and grandfathers only a `null` (never-recorded)
 grant, not an explicit empty one; `BUILTIN_KEYS`' hex pubkey round-trips to 32
 bytes and matches what `signature-required-default.test.ts` pins as always
 present.
+### B01 — extension loading and lifecycle (2026-09-13, closed 7/7)
+
+Seven files, 2,129 lines: `extension-loader.ts`, `load.ts`, `load-phases.ts`,
+`activation.ts`, `lifecycle.ts`, `discovery.ts`, `extension-paths.ts`. Two
+defects repaired, both on the same feature; the rest checked and found sound.
+
+**Repaired (high) — dev-reload dropped the extension instead of reloading
+it.** `POST /__zveltio_dev_reload` → `reloadExtensionFromDisk` cleared
+`loader.loaded`/`loader.modules` for the named extension and then called
+`triggerReload`, on the assumption that the resulting rebuild would re-import
+it. It does not: `buildHonoApp` (`index.ts`) only *re-registers* extensions
+still present in `loader.loaded`, via the cached module — it never calls
+`loadExtension` for anything missing. Deleting the entry first therefore
+guaranteed the rebuild would skip it. Measured live (scratch engine, :3200,
+`ZVELTIO_EXTENSION_DEV_RELOAD=1`): loaded a fixture extension, hit
+`/__zveltio_dev_reload`, and its route went from 200 to 404 with the endpoint
+itself reporting `{"ok":false,"error":"extension failed to load — check
+engine logs"}` — with no load ever attempted, so there was nothing in the
+logs to check. `dev-reload.test.ts`'s "clears module state ... triggers
+reload" test passed throughout by hand-simulating the rebuild re-adding the
+extension to `loaded` (`onReload: async () => { deps.loaded.add('forms') }`)
+— exactly what the real callback does not do; class 13, a test that passes
+for the wrong reason. Fixed by having `reloadExtensionFromDisk` call
+`loadDynamic` (the same helper the enable-extension route already uses) to
+actually re-import onto the live `app` before triggering the rebuild;
+`registerDevEndpoints`/`reloadExtensionFromDisk`'s signatures now take `app`
+to make that possible. Regression test added (edits the fixture between two
+loads and asserts the second sees the edit), reverted (fails at the named
+assertion, "Expected: 2, Received: 1" — not a syntax break), reapplied.
+
+**Repaired (high) — the dev-reload cache-buster does not bust anything.**
+Fixing the above surfaced a second, independent defect in the same feature.
+`load.ts`'s unbundled-import branch appends `?v=<timestamp>` to the import
+URL "to force a fresh read of edited source" (comment, pre-existing). It
+doesn't: Bun's dynamic `import()` caches by resolved pathname and ignores
+query strings and fragments — verified directly (`bun 1.3.14`, outside this
+codebase): two `import()` calls against the same file with different `?v=`
+or `#` suffixes both returned the *first* call's module, even after the file
+was rewritten in between. So even with the first fix applied, live
+measurement showed the reload endpoint answering `{"ok":true}` while the
+route kept serving the pre-edit response (`v:1` after editing to `v:2`) —
+reported success that did not happen, worse than the original failure
+because it now looks like it worked. A distinct resolved *path* does bust
+the cache (also verified live). Fixed by copying the entry file to a
+dot-prefixed sibling in the same directory (same folder, so relative imports
+and the `node_modules` walk-up the neighbouring comment already documents
+still resolve identically) with a unique per-load suffix, importing that,
+and deleting it immediately after — with a sweep for a leftover copy from an
+interrupted previous reload before adding a new one. Re-verified live after
+the fix: edit → reload (`{"ok":true}`) → route serves the new code, twice in
+a row, no leftover files. Regression test added (asserts a second
+`loadExtensionFromDir` call picks up an edited entry file and leaves no
+`zveltio-dev-reload` artefact behind), reverted (fails at the named
+assertion), reapplied. No twin found — grepped the engine tree for the same
+`?v=` / cache-busted-import-URL shape; this was the only site.
+
+**Checked and found sound.** `activation.ts`'s per-tenant/per-firm gate
+(`extensionActivationGate`, `activationMiddlewareFor`, `guardHandler`,
+`guardEventHandler`, `guardScheduleHandler`) fails OPEN on a database error
+(deliberate — activation is a preference, not an authorization decision, and
+every downstream authz check still runs) and fails CLOSED (404, same as an
+uninstalled extension) when the DB answers `is_enabled = false`; the
+in-flight map correctly collapses a concurrent-cold-cache burst into one
+query per tenant per extension, so it does not reproduce the
+`DB_POOL_MAX`/second-connection shape from the transaction-boundary
+incident. `unloadExtension` (`lifecycle.ts`) does stop a worker-isolated
+extension's `Bun.Worker` and does drop its `/ext/*` public-route exemptions
+before returning — both are past fixes (per their own comments) that this
+session re-confirmed are still wired, not regressions to re-report.
+`topoSortExtensions` (`discovery.ts`) continues loading a dependent whose
+declared dependency is outside the planned set (logs a warning, does not
+skip it) — the function's own top-of-file JSDoc says "the dependent
+extension is skipped", which is stale relative to the code and the warning
+text it emits; noted here as a doc-only mismatch, not a behaviour defect.
+`enforcePublisherTier` (`load-phases.ts`) is hoisted above the WASM/worker
+runtime branch (2026-09 fix, per its own comment) so a community-tier
+manifest cannot dodge the worker-isolation requirement by declaring
+`runtime: "wasm"`; confirmed the gate still runs for that branch by reading
+the call order, not just the comment.
 
 ## 4. Deliberate deferrals
 
