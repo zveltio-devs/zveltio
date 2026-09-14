@@ -107,11 +107,22 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // reshapes an engine table it does not otherwise own.
   ai: ['zv_flows'],
   'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
-  // `zv_document_templates` is engine-declared and also redeclared by
-  // `content/document-templates`; this extension reads the templates it
-  // generates documents from. Two of its seven GET routes answered 500 without
-  // this, `/templates` among them.
+  // `zv_document_templates` is created by `content/document-templates`, NOT by
+  // the engine — measured against `engineOwnedTables()`, which reads the
+  // engine's own migration files; the note that used to say "engine-declared"
+  // here was stale. This extension reads the templates it generates documents
+  // from. Two of its seven GET routes answered 500 without this, `/templates`
+  // among them.
   'content/documents': ['zv_document_templates'],
+  // The extension that CREATES that table, now that this map is read in both
+  // directions: a table named here is off-limits to every extension not named
+  // on it, so the creator has to appear or it loses its own schema. Measured
+  // before adding: 18 ALTER statements in its migrations target it, all of
+  // which the ownership check refused until this line existed.
+  //
+  // It needed no entry while the check only protected ENGINE tables, because
+  // this one is not one. That is exactly the gap ownership closes.
+  'content/document-templates': ['zv_document_templates'],
   'content/media': [
     // Engine-owned, sole creator since the duplicate-creators repair removed
     // the redeclaring CREATEs from both media extensions (2026-09-10). This
