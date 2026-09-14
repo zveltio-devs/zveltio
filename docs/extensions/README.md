@@ -94,8 +94,8 @@ move.
 `/ext/<name>/*` unless the manifest lists that sub-path in `publicRoutes`. An
 extension author who forgets an inline check gets **401, not exposure**.
 
-This inverts the historical design, and older comments in the tree still
-describe the fail-open version. Check the opt-out list, not the comments.
+The opt-out list in the manifest is the authoritative statement of what is
+public — not inline comments, some of which still describe an older design.
 
 Beyond authentication, an extension authorises with `permissionGate(ctx, '<resource>')`
 and the Casbin role mapping. See
@@ -131,13 +131,10 @@ with an `aes256gcm-ai:` envelope.
 
 ## 7. Tenant isolation inside an extension
 
-Extension tables are tenant-scoped by the **host**, not by the extension.
-Extensions install their own isolation from a copied `002_tenant_rls.sql`, and
-every one of those copies was fail-open — no tenant context meant *every*
-tenant's rows, where the engine's own tables meant none. A boot reconciler now
-rewrites every extension-owned tenant table onto the host predicate, so tenant
-isolation is something the host guarantees rather than something 56 authors each
-get right.
+Extension tables are tenant-scoped by the **host**, not by the extension. A boot
+reconciler rewrites every extension-owned tenant table onto the host predicate,
+so tenant isolation is something the host guarantees rather than something 56
+extension authors each have to get right.
 
 Never reach the database outside the request-scoped handle. Read
 [../platform/multi-tenancy.md](../platform/multi-tenancy.md) §7 before writing

@@ -111,9 +111,9 @@ Running the embedded build instead (`/admin` on the engine's own port) is
 same-origin and needs no CORS at all — it is the simpler loop when you are not
 editing Studio code.
 
-**Studio build scripts must be release-safe.** This has caused three separate
-incidents: a `bun run build` in the Studio directory has regressed core pages by
-picking up a stale sibling build. Build from the repository root.
+**Studio build scripts must be release-safe.** A `bun run build` inside the
+Studio directory can pick up a stale sibling build and regress core pages.
+Build from the repository root.
 
 ---
 

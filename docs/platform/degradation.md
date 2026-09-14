@@ -8,9 +8,9 @@ failure. It pairs with the deep-health endpoints (`/api/health/deep`,
 that means*.
 
 > Scope note: full graceful-degradation (in-memory cache fallback with re-sync,
-> local write-queue for object storage) is TECHNICAL-GAPS §1.5 and a larger,
-> subsystem-by-subsystem effort. This document is the **matrix + verification of
-> the fallbacks that already exist today**; the "planned" rows are tracked there.
+> local write-queue for object storage) is a larger, subsystem-by-subsystem
+> effort. This document is the **matrix + verification of the fallbacks that
+> exist today**; the "planned" rows below are not yet built.
 
 > **Configured vs reachable.** This matrix is about a dependency being
 > UNREACHABLE at runtime. It is not a statement that the dependency is optional
@@ -55,7 +55,7 @@ routing). 🟢 optional = failing **degrades** a feature but the engine stays re
   Postgres-drop-mid-write rolls back fully, and registry-down-mid-install /
   S3-down-mid-upload leave no orphan rows.
 
-## Planned (TECHNICAL-GAPS §1.5)
+## Planned — not yet built
 
 - Cache: an **in-memory LRU fallback** that re-syncs on Valkey reconnect (today it
   simply bypasses the cache — correct but colder).

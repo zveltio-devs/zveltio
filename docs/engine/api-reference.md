@@ -299,7 +299,7 @@ Delete multiple records by ID.
 
 ## RPC — Database Functions
 
-Call a whitelisted PostgreSQL function directly from the API. Equivalent to `supabase.rpc('function', { args })`.
+Call a whitelisted PostgreSQL function directly from the API.
 
 Functions must be registered in Studio → RPC Functions (or via `/api/rpc/` admin endpoints) before they can be called.
 

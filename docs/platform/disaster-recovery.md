@@ -25,7 +25,7 @@ not a backup**. Run the quarterly drill (§ 6).
   "≤ 30 min" is from "PBS restore initiated" to "/api/health returns 200".
 
 The defaults (`zveltio-get` install + nightly `pg_dump`) are **T1**. T2 and T3
-are documented below; T4 is out of scope for v1 — track in `TECHNICAL-GAPS.md`.
+are documented below; T4 is out of scope for v1.
 
 ---
 
@@ -360,13 +360,3 @@ and refuses to run if `$ZVELTIO_ENV != "drill"` to prevent operator error.
 
 Output is a markdown report at `docs/dr-drills/drill-<timestamp>.md` with
 pass/fail per scenario and measured wall-clock times.
-
----
-
-## 8. Failure modes seen in the wild
-
-This section will grow as we run drills and real incidents. Each entry:
-what failed, root cause, fix, prevention.
-
-(Empty until first incident or drill — write entries here, not as scattered
-post-mortems.)

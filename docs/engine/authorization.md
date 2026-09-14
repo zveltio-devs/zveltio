@@ -78,7 +78,7 @@ Request → Session Verification → Emergency Admin Check → Casbin Policy Che
 
 ### What is Emergency Admin Mode?
 
-The **Emergency Admin Access** is a special authorization mechanism that ensures platform administrators can never be locked out of their own system. Similar to Supabase's `service_role` key or Directus's admin token, a user with `role='god'` bypasses all Casbin permission checks.
+The **Emergency Admin Access** is a special authorization mechanism that ensures platform administrators can never be locked out of their own system. A user with `role='god'` bypasses all Casbin permission checks.
 
 This is a disaster recovery feature — if someone accidentally deletes all Casbin policies, the Emergency Admin can still access the system and restore the correct permissions.
 

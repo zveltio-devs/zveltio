@@ -36,8 +36,8 @@ silent, because the operator cannot defend against what the system does not
 tell them.
 
 **There is no public data API.** Everything under `/api/*` requires a session.
-Reviewers who assume a Firebase-shaped product audit for the wrong threats; this
-has happened in every external round to date.
+Anonymous requests reach nothing, so a threat model that assumes an
+internet-facing unauthenticated data surface is modelling the wrong system.
 
 ### Where security decisions actually live
 
@@ -54,76 +54,34 @@ has happened in every external round to date.
 
 ---
 
-## 2. Patterns that look like findings and are not
+## 2. Deliberate design decisions
 
-Documented to save review time, **not to put them off limits**. If you can
-*break* one, that is a real and valuable finding. What is asked is that you
-check the mechanism before reporting the pattern.
+These read as findings and are not. Each is a decision with a mechanism behind
+it; the mechanism is named so it can be checked.
 
 **2.1 — Postgres RLS policies exist but the engine's own role bypasses them.**
 Intentional in that shape. Enforcement lives in `withTenantIsolation`:
 `SET LOCAL ROLE zveltio_rls` plus a `set_config` GUC read by
-`zveltio_tenant_scope_ok`. A query path that reaches the database *without*
-going through that is exactly the kind of finding wanted.
+`zveltio_tenant_scope_ok`.
 
 **2.2 — `/ext/*` is fail-closed at the engine, not per-extension.**
 `middleware/extension-auth-gate.ts` requires a valid session for anything under
 `/ext/<name>/*` unless the manifest declares that sub-path in `publicRoutes`. An
-extension author who forgets an inline check gets 401, not exposure. Check the
-opt-out list rather than assuming the historical fail-open design that older
-comments describe.
+extension author who forgets an inline check gets 401, not exposure.
 
 **2.3 — Localhost calls in the AI and storage extensions are by design.**
-Ollama and SeaweedFS are meant to be reached on loopback. Do report an
-operator-controlled URL reaching loopback anywhere it was *not* intended.
+Ollama and SeaweedFS are meant to be reached on loopback.
 
 **2.4 — Extension bundles, not sources, are what runs.**
 The runtime loads `engine/index.js`, a built bundle — not `engine/routes.ts`.
-Reading only the TypeScript source can describe code that never executes. If a
-finding depends on source you read, confirm it is present in the bundle.
 
 **2.5 — `media/` and `public/` storage keys are served unsigned deliberately.**
 Everything else under `/files/*` requires a valid signature. The two public
 namespaces are the exception, not an oversight (`routes/files.ts`).
 
-### A correction worth carrying forward
-
-An earlier version of this list claimed that an extension's `ctx.db` was always
-a tenant-scoped proxy, and used that to dismiss nine findings. The proxy was
-real; the transaction it resolved was not. `runWithTenantTrx` restored the
-previous transaction in a **synchronous `finally` around an async callback** —
-so the transaction was present synchronously and `undefined` after one `await`.
-For three days every extension read and wrote on the global pool, and 302
-`tenant_isolation` policies across 350 tables were inert on the request path.
-Tests stayed green because they exercised the background-job branch, which took
-the other path.
-
-The lesson is general: **a "not a finding" list is a place to look first, not a
-place to skip**, and an integration test that calls a helper directly is not
-testing the path the middleware takes.
-
 ---
 
-## 3. Verification traps
-
-Green signals that have lied, all observed during real audit rounds:
-
-- **`bun run typecheck` may be a turbo cache replay** (110 ms, `FULL TURBO`) and
-  verify nothing. Use `turbo run typecheck --force`.
-- **`RETURNING *` echoes the row the statement just wrote**, so an assertion on
-  the API response passes even when a column was silently dropped. Assert by
-  reading the row back in a separate query. This is exactly how an authorship
-  bug survived a round.
-- **A passing unit test may exercise a module production never imports.** Check
-  that the module has a non-test importer.
-- **A test that passes because the code path is dead is not a fix.** Confirm the
-  control positively works, not just that the failure stopped.
-- **Fixing the defect named is not the same as fixing the file.** When one write
-  path in a handler is repaired, probe every other write path in that file.
-
----
-
-## 4. Operator hardening guide
+## 3. Operator hardening guide
 
 ### Security Overview
 
@@ -234,7 +192,7 @@ const isGod = result.rows[0]?.role === 'god';
 if (isGod) return true; // Emergency Admin bypass — all permission checks skipped!
 ```
 
-> **Note:** This mechanism is equivalent to Supabase's `service_role` key and Directus's admin token. It provides a fail-safe guarantee that administrators cannot be permanently locked out through misconfiguration.
+> **Note:** This mechanism provides a fail-safe guarantee that administrators cannot be permanently locked out through misconfiguration.
 
 **⚠️ Security Warning:**
 
