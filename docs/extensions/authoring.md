@@ -400,9 +400,24 @@ If you have an extension authored against an earlier API:
 
 ## How the engine resolves extensions at runtime
 
-Extensions are downloaded as ZIPs from `registry.zveltio.com` and extracted to `<EXTENSIONS_DIR>/<name>/`. On first start the engine runs `ensureExtensionCoreDeps()` which provisions `<EXTENSIONS_DIR>/node_modules/` with `hono`, `zod`, `kysely`, `@hono/zod-validator`. With these on disk, Bun's filesystem resolution finds them when extensions are dynamically imported.
+Extensions are downloaded as ZIPs from `registry.zveltio.com` and extracted to `<EXTENSIONS_DIR>/<name>/`.
 
-For per-extension peer dependencies declared in `manifest.peerDependencies`, the engine runs `bun add` in `<EXTENSIONS_DIR>/` at activation time.
+**A v2 extension needs nothing on disk beside it.** `extension pack` bundles
+`hono`, `zod`, `kysely` and `@hono/zod-validator` into `engine/index.js`, and the
+loader imports that artifact directly — `engine.bundlePeers: true` is the only
+valid configuration today, and `node_modules` is excluded from the published
+archive. That is why a dependency which reads its own files at runtime cannot
+work in an extension; see the developer guide, §5.
+
+The rest of this section is the **legacy path**, still live for unbundled
+extensions and still run at every startup:
+
+- `ensureExtensionCoreDeps()` provisions `<EXTENSIONS_DIR>/node_modules/` with
+  the four core packages on first start, so Bun's filesystem resolution finds
+  them for a dynamically imported `.ts` extension. It returns immediately when
+  `hono` is already there, and its failure is non-fatal.
+- For per-extension peer dependencies declared in `manifest.peerDependencies`,
+  the engine runs `bun add` in `<EXTENSIONS_DIR>/` at activation time.
 
 Both paths require Bun to be on `PATH` for the user running the engine. The official installer handles this — see `install/install.sh`.
 
