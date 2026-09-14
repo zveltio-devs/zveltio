@@ -11,7 +11,7 @@ every extension follows — read it before building one.
 - `engine/index.ts` exports a default `ZveltioExtension` with a `register(app, ctx)` function. This is where the truth lives.
 - **Your admin page is a JSON schema** — `studio/schemas/<name>.json`, named by `manifest.studio.pages[].schema`. The host renders it; nothing builds.
 - The engine injects a `ctx` object — extensions never `import` engine internals directly.
-- Real npm packages (`hono`, `zod`, `kysely`, etc.) are auto-installed into `<EXTENSIONS_DIR>/node_modules/` by the engine on first start.
+- Real npm packages (`hono`, `zod`, `kysely`, `@hono/zod-validator`) are **bundled into your artifact** by `extension pack`. Nothing is installed for you on the target, and `node_modules` does not ship — so a dependency that reads its own files at runtime cannot work.
 
 ### Where UI goes
 
@@ -152,7 +152,7 @@ unknown types.
 
 - **`name`** must equal the path slug exactly (e.g. `finance/accounting`). Mismatches fail registry sync.
 - **`zveltioMinVersion`** uses naive semver (`major.minor.patch`); pre-release suffixes like `-alpha.X` are tolerated.
-- **`peerDependencies`** are auto-installed via `bun add` when the extension is enabled. Use this for anything beyond `hono`/`zod`/`kysely`/`@hono/zod-validator` (which are global).
+- **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target. Declare anything beyond the four core packages here — and expect the platform allow-list to be enforced: a package it does not carry fails validation with `PEERDEP_NOT_ALLOWED`. (The `bun add`-at-activation path still exists for unbundled extensions; see "How the engine resolves extensions at runtime".)
 - **`contributes.engine: false`** marks UI-only extensions — `register()` may be a no-op.
 
 ## `engine/index.ts` — the entry point
