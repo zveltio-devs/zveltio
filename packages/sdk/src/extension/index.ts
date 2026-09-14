@@ -494,22 +494,6 @@ export interface ExtensionInternals<DB = unknown> {
   /** Schedule async indexing for a newly uploaded file. */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
-  /** GraphQL DataLoader registry — N+1 query batching. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  DataLoaderRegistry: any;
-  /** Validate GraphQL query depth. Returns an error message if too deep, null otherwise. */
-  checkQueryDepth: (query: string, maxDepth?: number) => string | null;
-  /**
-   * Validate GraphQL query width — the sibling guard to `checkQueryDepth`, for
-   * queries that are shallow but enormously wide. Returns an error message if
-   * too wide, null otherwise.
-   *
-   * The engine has handed this to extensions since the width guard was added
-   * (`lib/extensions/internals.ts`); only this declaration was missing, so
-   * `developer/graphql` — the one extension that uses it — has failed typecheck
-   * on master while working perfectly at runtime.
-   */
-  checkQueryWidth: (query: string, maxFields?: number) => string | null;
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
