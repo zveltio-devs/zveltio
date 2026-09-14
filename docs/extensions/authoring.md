@@ -229,7 +229,7 @@ app.get('/contacts', async (c) => {
 ```
 
 Reserve `ctx.db` for setup/migrations (no request context). See
-`docs/private/MULTI-TENANT-ENABLEMENT.md` §5.
+the platform's multi-tenancy guide.
 
 ### Inter-extension services — `ctx.services.*`
 
