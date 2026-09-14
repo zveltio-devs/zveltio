@@ -210,7 +210,7 @@ export async function applyExpand(
     const targetDef = (await DDLManager.getCollection(db, exp.targetCollection)) as CollectionDef;
     // Column permissions of the RELATED collection apply to expanded rows too —
     // otherwise `?expand=` leaks columns the role can't read on the target.
-    const colAccess = await getColumnAccess(db, exp.targetCollection, role);
+    const colAccess = await getColumnAccess(db, exp.targetCollection, role, user?.id);
     const byId = new Map<string, DynamicRow>();
     for (const r of rows.rows) {
       const visible = applyColumnAccess(await serializeRecord(r, targetDef), colAccess);

@@ -454,12 +454,11 @@ export class ExtensionLoader {
   }
 
   /**
-   * Dev-only: drop the cached module + scoped state for `name`, then trigger
-   * a full app rebuild. The rebuild's `loadExtension` re-imports with the
-   * cache-buster query string, picking up edits on disk. Returns the load
-   * status so the `zveltio extension dev` watcher can surface failures back
-   * to the developer's terminal instead of leaving the engine running on
-   * stale code.
+   * Dev-only: drop the cached module + scoped state for `name`, re-import it
+   * onto `app` (the live, currently-served instance), then trigger a full
+   * rebuild so the fresh module is folded into the next one too. See
+   * lib/extensions/lifecycle.ts for why the re-import has to happen here
+   * rather than being left to the rebuild.
    *
    * Scope-cleanup matches what `disable` does:
    *   - module cache, loaded map, lastLoadError
@@ -467,13 +466,13 @@ export class ExtensionLoader {
    *   - cronRunner schedules
    *
    * NOT cleaned (intentionally): migrations already applied. SQL changes
-   * still require an explicit migration file — this method only re-imports
-   * `engine/index.ts`.
+   * still require an explicit migration file — `runExtensionMigrations`
+   * skips anything already recorded in `zv_migrations`.
    */
-  async reloadExtensionFromDisk(name: string): Promise<{ ok: boolean; error?: string }> {
+  async reloadExtensionFromDisk(name: string, app: Hono): Promise<{ ok: boolean; error?: string }> {
     // Body extracted to lib/extensions/lifecycle.ts (H-04 split); triggerReload
     // (module-private here) is passed in. Thin delegator — callers unchanged.
-    return reloadExtensionFromDisk(this, name, triggerReload);
+    return reloadExtensionFromDisk(this, name, app, triggerReload);
   }
 
   /**
@@ -493,7 +492,7 @@ export class ExtensionLoader {
       }
       const name = typeof body?.name === 'string' ? body.name.trim() : '';
       if (!name) return c.json({ error: 'name is required' }, 400);
-      const result = await this.reloadExtensionFromDisk(name);
+      const result = await this.reloadExtensionFromDisk(name, app);
       return c.json(result, result.ok ? 200 : 500);
     });
     console.log(

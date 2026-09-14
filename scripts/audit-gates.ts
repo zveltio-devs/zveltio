@@ -341,6 +341,24 @@ const CASES: Case[] = [
     body: '0.0.0-planted\n',
   },
   {
+    // `docs/private/` was tracked in this PUBLIC repository for seven weeks.
+    // Getting it out cost a force-push that rewrote 2600 commits and remapped
+    // 905 tags, and unpublished nothing — 671 unique clients had already cloned
+    // it. The `.gitignore` rule is the fix; the gate is what notices when the
+    // rule stops working.
+    //
+    // Planted on `.gitignore` rather than by staging a file, because the gate's
+    // first check reads the git INDEX and a plant that only writes to disk would
+    // never reach it. This exercises the second check, which exists precisely
+    // because the first one alone would pass a repository whose rule someone had
+    // deleted — right up until the next `git add`.
+    gate: 'check-private-docs-untracked',
+    cmd: 'bun run scripts/check-private-docs-untracked.ts',
+    file: '.gitignore',
+    mode: 'replace',
+    body: 'node_modules\n',
+  },
+  {
     // A security rule is implemented ONCE. Every hand-written dispatch over a
     // filter operator so far has covered the comparisons and silently dropped
     // `in`/`not_in` — which means a row policy written with `in` stopped

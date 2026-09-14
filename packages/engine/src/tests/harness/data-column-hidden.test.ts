@@ -1,7 +1,16 @@
 /**
  * Phase C — hidden columns stripped on GET list + single (handlers/list.ts + single.ts).
  *
- * Session role is often unset (→ public); use role '*' mask with can_read: false.
+ * Driven by a real `member`, not by the god session that sets the data up.
+ *
+ * It used to be driven entirely by god, and passed — because `getColumnAccess`
+ * exempted the role NAME `admin` and let `god` fall through to being masked.
+ * The suite was green on the strength of that inversion. Now that the exemption
+ * is the `data:view_all_columns` permission, which god holds, a god session
+ * sees every column and this suite could no longer observe masking at all.
+ *
+ * The rule is still written for role '*', because what is under test is the
+ * masking, not role matching — `column-permissions-role.test.ts` covers that.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,7 +19,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hhid_${Date.now()}`;
@@ -19,6 +33,7 @@ d('data column hidden on read (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
+  let memberCookie = '';
   let recordId = '';
   let colPermId = '';
   let tableName = '';
@@ -26,6 +41,11 @@ d('data column hidden on read (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    // Deny-by-default: without an explicit grant this user is refused 403,
+    // which is not the masking this suite is about and reads like a pass.
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read'] }],
+    }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
       fields: [
@@ -79,7 +99,9 @@ d('data column hidden on read (in-process)', () => {
   });
 
   it('omits hidden columns from list GET', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}`, { headers: { cookie } });
+    const res = await app.request(`/api/data/${COLLECTION}`, {
+      headers: { cookie: memberCookie },
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { records: Array<Record<string, unknown>> };
     expect(body.records.length).toBeGreaterThan(0);
@@ -89,7 +111,9 @@ d('data column hidden on read (in-process)', () => {
   });
 
   it('omits hidden columns from single GET', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, { headers: { cookie } });
+    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
+      headers: { cookie: memberCookie },
+    });
     expect(res.status).toBe(200);
     const row = (await res.json()) as Record<string, unknown>;
     expect(row.title).toBe('visible');

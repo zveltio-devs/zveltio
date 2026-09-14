@@ -68,6 +68,20 @@ const CODE_BEARING_FORMS: { re: RegExp; what: string }[] = [
     re: /^\s*(BEGIN|COMMIT|ROLLBACK|END|SAVEPOINT|START\s+TRANSACTION|SET\s+(LOCAL\s+)?(ROLE|SESSION\s+AUTHORIZATION)|RESET\s+ROLE|DISCARD)\b/i,
     what: 'transaction or session control',
   },
+  // `LOCK` names no table in a FROM/JOIN/INTO/UPDATE position, so the
+  // allowlist below never sees it — and Postgres only requires the SELECT the
+  // worker already holds on `zvd_*` to take an ACCESS EXCLUSIVE lock on one,
+  // including inside a read-only transaction. `zvd_*` tables are shared across
+  // every tenant (RLS is a row filter, not a separate physical table), so one
+  // untrusted extension can freeze every tenant's access to a collection for
+  // the length of the worker query timeout, repeatably. Measured live: a
+  // concurrent `SELECT` on the same table blocked for the lock's duration.
+  // Extensions have no legitimate reason to take an explicit table lock —
+  // ordinary DML already gets the row locks it needs.
+  {
+    re: /^\s*LOCK\b/i,
+    what: 'LOCK (explicit table lock)',
+  },
 ];
 
 export class WorkerSqlPolicyError extends Error {
