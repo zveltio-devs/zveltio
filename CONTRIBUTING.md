@@ -12,10 +12,10 @@ context up front saves a lot of round-trips.
    is a bug, post in [Discussions](https://github.com/zveltio-devs/zveltio/discussions)
    first. We close vague "doesn't work" issues without a repro.
 3. **Read the architecture docs**:
-   - [`docs/private/REFACTORING-V1-PLAN.md`](docs/private/REFACTORING-V1-PLAN.md) — what we
-     are *intentionally* leaving for v1.
-   - [`docs/private/TECHNICAL-GAPS.md`](docs/private/TECHNICAL-GAPS.md) — known gaps,
-     P0–P3 priorities. Pick from here if you want maximum impact.
+   - [`docs/platform/architecture.md`](docs/platform/architecture.md) — the
+     system shape: processes, data flow, request lifecycle.
+   - [`docs/platform/development.md`](docs/platform/development.md) — workflow,
+     tests, quality gates, conventions.
    - [`docs/extensions/developer-guide.md`](docs/extensions/developer-guide.md)
      — start here if you're building an extension instead of patching core.
 

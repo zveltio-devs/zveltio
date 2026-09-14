@@ -43,11 +43,9 @@ Other top-level directories:
 - `bench/` — reproducible performance suite (see `bench/README.md`).
 - `docs/` — the unified documentation, in five chapters: `platform/`,
   `engine/`, `studio/`, `ui/`, `extensions/`. Start at `docs/README.md`.
-  `docs/adr/` holds architecture decision records; `docs/private/` holds
-  internal engineering plans that are cited from source code and must keep
-  stable paths. A file-by-file review campaign is running over the whole tree —
-  if you are here to review code rather than change it, start at
-  `docs/private/CODE-REVIEW-CAMPAIGN.md`.
+  This directory is the product specification. Internal engineering material —
+  plans, decision records, defect backlogs and review state — is kept outside
+  this repository.
 - `quality-gates/` — JSON baselines for ratchet-style checks (lint warnings,
   `any` counts, coverage, ambient authority, etc.). Do not edit these by hand
   to make a failing gate pass.
@@ -245,9 +243,9 @@ generated).
   per-transaction GUC; tenant-scoped transactions switch to a plain
   `zveltio_rls` role. The engine's own DB role must not be `SUPERUSER` or
   `BYPASSRLS` in multi-tenant deployments — read
-  `docs/private/MULTI-TENANT-ENABLEMENT.md` before touching tenancy. Do not
-  "fix" it with blanket `ALTER ROLE … NOSUPERUSER` (breaks `CREATE EXTENSION`);
-  the doc explains the right shape.
+  `docs/platform/multi-tenancy.md` before touching tenancy. Do not "fix" it with
+  a blanket `ALTER ROLE … NOSUPERUSER` (breaks `CREATE EXTENSION`); §0.1 there
+  explains the right shape.
 - CI sets `DB_POOL_MAX=10` at workflow level because CI boots many engines
   against one Postgres. Left unset, the engine does NOT use a fixed default: it
   reads the server's `max_connections` and sizes the pool from it, falling back
@@ -365,8 +363,9 @@ Also:
 - `README.md` — positioning and feature overview (canonical; mirror edits in the
   website frontpage, per its header comment).
 - `CONTRIBUTING.md` — dev setup, code rules, PR conventions.
-- `docs/private/` — internal plans. `HARDENING-9-PLAN.md` is cited by ~1100
-  `biome-ignore` comments and must not move. `TECHNICAL-GAPS.md` is the roadmap.
+- `docs/` — the product specification. Internal plans live outside this
+  repository; note that `HARDENING-9-PLAN.md` is still cited by ~1100
+  `biome-ignore` comments, so that path string must not be rewritten in code.
 - `bench/README.md` — benchmark methodology.
 - `CHANGELOG.md` — release history (large; grep it, don't read it whole).
 
