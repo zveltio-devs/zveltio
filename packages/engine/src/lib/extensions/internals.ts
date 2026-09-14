@@ -44,7 +44,6 @@ import { checkAccess } from '../data/index.js';
 import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
-import { generatePDF, renderTemplate } from '../doc-generator.js';
 import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { enqueueDDLJob } from '../data/index.js';
@@ -297,8 +296,6 @@ export interface ExtensionInternals {
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  renderTemplate: (template: string, variables: Record<string, unknown>) => string;
-  generatePDF: typeof generatePDF;
   moveToTrash: typeof moveToTrash;
   scheduleFileIndexing: typeof scheduleFileIndexing;
   enqueueDDLJob: typeof enqueueDDLJob;
@@ -396,8 +393,6 @@ export function buildExtensionInternals(): ExtensionInternals {
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
-    renderTemplate,
-    generatePDF,
     moveToTrash,
     scheduleFileIndexing,
     maybeEncrypt,

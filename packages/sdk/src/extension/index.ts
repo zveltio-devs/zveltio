@@ -483,11 +483,6 @@ export interface ExtensionInternals<DB = unknown> {
   extensionRegistry: any;
   /** Queue an HTML→PDF render via the worker pool. */
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  /** Synchronous template render with `{{var}}` interpolation. */
-  renderTemplate: (template: string, variables: Record<string, unknown>) => string;
-  /** Inline HTML→PDF render (blocking). */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  generatePDF: (...args: any[]) => Promise<unknown>;
   /** Move a file to the trash bucket (soft delete with TTL). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   moveToTrash: (...args: any[]) => Promise<unknown>;
