@@ -204,6 +204,18 @@ jobs:
         # tag. A gate is cheaper than remembering to.
         run: bun run scripts/check-embedded-migrations-fresh.ts
 
+      - name: Every REQUIRED variable is produced by an install
+        # `.env.example` is what an operator copies and what the release
+        # publishes, but the installer writes its own `.env` from a heredoc —
+        # it must, because it mints secrets. So a variable the example calls
+        # mandatory can be produced by nothing at all, and the operator meets
+        # that as a failed boot for a value they were told would be set.
+        #
+        # Deliberately narrow: the two install paths differ on purpose (Docker
+        # writes VALKEY_PASSWORD and compose derives VALKEY_URL; native writes
+        # VALKEY_URL), so this checks only the REQUIRED marking a human made.
+        run: bun run scripts/check-required-env-installable.ts
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

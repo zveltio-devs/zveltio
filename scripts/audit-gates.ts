@@ -814,6 +814,21 @@ const CASES: Case[] = [
     mode: 'append',
   },
   {
+    // `.env.example` is the reference an operator copies, and a published
+    // release asset. The installer writes its own `.env` from a heredoc —
+    // it has to, because it mints secrets — so a variable the example calls
+    // mandatory can quietly be produced by nothing at all, and the operator
+    // meets that as a failed boot.
+    //
+    // The violation is exactly that: a line marked REQUIRED that no install
+    // path writes. Appended, so the file is restored byte for byte.
+    gate: 'check-required-env-installable',
+    cmd: 'bun run scripts/check-required-env-installable.ts',
+    file: '.env.example',
+    body: '\nPLANTED_REQUIRED_KEY=        # REQUIRED — planted by audit-gates\n',
+    mode: 'append',
+  },
+  {
     // The gate that keeps the others honest, kept honest itself.
     //
     // The violation is a NEW gate joining CI without either a planted case or a
