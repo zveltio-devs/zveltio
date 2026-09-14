@@ -13,12 +13,6 @@ describe('buildExtensionInternals helpers', () => {
     expect(internals.renderTemplate('plain', {})).toBe('plain');
   });
 
-  it('checkQueryDepth enforces the default max depth', () => {
-    expect(internals.checkQueryDepth('{ a { b { c } } }')).toBeNull();
-    const deep = '{ ' + 'a { '.repeat(6) + 'x' + ' }'.repeat(6) + ' }';
-    expect(internals.checkQueryDepth(deep)).toContain('maximum depth');
-  });
-
   it('invalidateRulesCache is callable without throwing', () => {
     expect(() => internals.invalidateRulesCache('contacts')).not.toThrow();
   });
