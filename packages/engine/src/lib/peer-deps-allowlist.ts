@@ -33,6 +33,8 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   // Prefer pdf-lib in new extensions: pdfkit reads its font metrics from
   // __dirname at runtime, which a packed bundle cannot satisfy.
   'pdf-lib', // operations/traceability — PDF generation; also used by the engine PDF worker
+  '@pdf-lib/fontkit', // required by pdf-lib to embed a font: the built-in ones are
+  // WinAnsi and cannot encode Romanian diacritics
   'pdfkit', // no first-party user left; kept for third-party extensions
 
   // Query language
