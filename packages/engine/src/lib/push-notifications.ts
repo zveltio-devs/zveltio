@@ -22,9 +22,28 @@ export interface PushPayload {
 
 // ── FCM (Firebase Cloud Messaging legacy HTTP) ────────────────────────────────
 
-async function sendFcm(token: string, payload: PushPayload): Promise<boolean> {
+/**
+ * What the provider said, not merely whether it worked.
+ *
+ * `sendPushToUser` deletes the device's `zvd_push_tokens` row when a send
+ * fails. A boolean cannot say WHY it failed, so every reason collapsed into
+ * "delete the token": an FCM 5xx, an expired `FCM_SERVER_KEY`, a network blip
+ * — each one permanently unsubscribed every device it touched. An outage that
+ * heals on its own left the tokens gone.
+ *
+ * Only the provider saying the TOKEN is dead may remove it.
+ */
+type PushVerdict = 'sent' | 'invalid-token' | 'failed';
+
+/** FCM error codes that mean the registration itself is gone. */
+const FCM_DEAD_TOKEN = new Set(['NotRegistered', 'InvalidRegistration']);
+
+/** APNS `reason` values that mean the device token itself is unusable. */
+const APNS_DEAD_TOKEN = new Set(['Unregistered', 'BadDeviceToken', 'DeviceTokenNotForTopic']);
+
+async function sendFcm(token: string, payload: PushPayload): Promise<PushVerdict> {
   const key = process.env.FCM_SERVER_KEY;
-  if (!key) return false;
+  if (!key) return 'failed';
 
   try {
     const res = await fetch('https://fcm.googleapis.com/fcm/send', {
@@ -45,19 +64,21 @@ async function sendFcm(token: string, payload: PushPayload): Promise<boolean> {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
+      // Transport- or auth-level: says nothing about this token.
       console.warn(`[push:fcm] HTTP ${res.status}: ${await res.text()}`);
-      return false;
+      return 'failed';
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
     const json = (await res.json()) as any;
     if (json.failure > 0) {
+      const reason = json.results?.[0]?.error;
       console.warn('[push:fcm] delivery failure:', json.results?.[0]);
-      return false;
+      return FCM_DEAD_TOKEN.has(reason) ? 'invalid-token' : 'failed';
     }
-    return true;
+    return 'sent';
   } catch (err) {
     console.warn('[push:fcm] request failed:', err);
-    return false;
+    return 'failed';
   }
 }
 
@@ -115,14 +136,15 @@ async function getApnsJwt(): Promise<string | null> {
   }
 }
 
-async function sendApns(token: string, payload: PushPayload): Promise<boolean> {
+async function sendApns(token: string, payload: PushPayload): Promise<PushVerdict> {
   const jwt = await getApnsJwt();
-  if (!jwt) return false;
+  // Our configuration, not the device's token: never a reason to unsubscribe it.
+  if (!jwt) return 'failed';
 
   const bundleId = process.env.APNS_BUNDLE_ID;
   if (!bundleId) {
     console.warn('[push:apns] APNS_BUNDLE_ID not set');
-    return false;
+    return 'failed';
   }
 
   const host =
@@ -150,13 +172,18 @@ async function sendApns(token: string, payload: PushPayload): Promise<boolean> {
     if (res.status !== 200) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
       const err = (await res.json().catch(() => ({}))) as any;
-      console.warn(`[push:apns] HTTP ${res.status}: ${err.reason ?? 'unknown'}`);
-      return false;
+      const reason = err.reason as string | undefined;
+      console.warn(`[push:apns] HTTP ${res.status}: ${reason ?? 'unknown'}`);
+      // 410 is Apple's "this token is gone"; the 4xx reasons say the same in
+      // words. Everything else — 5xx, throttling, a bad JWT — is about us.
+      return res.status === 410 || (reason !== undefined && APNS_DEAD_TOKEN.has(reason))
+        ? 'invalid-token'
+        : 'failed';
     }
-    return true;
+    return 'sent';
   } catch (err) {
     console.warn('[push:apns] request failed:', err);
-    return false;
+    return 'failed';
   }
 }
 
@@ -181,18 +208,21 @@ export async function sendPushToUser(
 
   await Promise.allSettled(
     tokens.map(async ({ id, token, platform }) => {
-      let ok = false;
+      let verdict: PushVerdict = 'failed';
       if (platform === 'fcm' || platform === 'web') {
-        ok = await sendFcm(token, payload);
+        verdict = await sendFcm(token, payload);
       } else if (platform === 'apns') {
-        ok = await sendApns(token, payload);
+        verdict = await sendApns(token, payload);
       }
-      if (ok) {
+      if (verdict === 'sent') {
         sent++;
       } else {
         failed++;
-        // Mark for cleanup if FCM reports invalid token
-        staleTokens.push(id);
+        // Only when the provider says the TOKEN is dead. The comment here used
+        // to claim this, while the code deleted on every failure — so an FCM
+        // 5xx, an expired server key or a network blip unsubscribed every
+        // device it touched, permanently.
+        if (verdict === 'invalid-token') staleTokens.push(id);
       }
     }),
   );

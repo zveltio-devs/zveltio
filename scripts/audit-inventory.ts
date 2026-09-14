@@ -19,11 +19,20 @@
  * Run via: `bun run scripts/audit-inventory.ts`
  */
 
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const ROUTES_DIR = 'packages/engine/src/routes';
-const OUTPUT_MD = 'docs/platform/audit-coverage.md';
+// The human-readable matrix names every privileged route that has NO audit
+// entry, with file and line. That is a map of which operations leave no trace,
+// which is a working note rather than product documentation — so it goes to the
+// private repository, a sibling of this one.
+//
+// The JSON below stays here and stays gitignored: `audit-regression-check.ts`
+// reads it, and CI has no clone of the private repository, so the markdown is
+// simply skipped there.
+const PRIVATE_MD = '../zveltio-private/engine/audit-coverage.md';
 const OUTPUT_JSON = 'audit-inventory.json';
 
 interface RouteHandler {
@@ -177,8 +186,12 @@ async function main() {
     }
   }
 
-  await mkdir('docs', { recursive: true });
-  await writeFile(OUTPUT_MD, md.join('\n') + '\n');
+  const privateDir = PRIVATE_MD.slice(0, PRIVATE_MD.lastIndexOf('/'));
+  if (existsSync(privateDir)) {
+    await writeFile(PRIVATE_MD, md.join('\n') + '\n');
+  } else {
+    console.log(`  → skipped ${PRIVATE_MD} (no private repository beside this one)`);
+  }
   await writeFile(
     OUTPUT_JSON,
     JSON.stringify(
@@ -196,7 +209,7 @@ async function main() {
   console.log(
     `✓ ${all.length} mutating handlers — ${covered.length} audited (${totalPct}%), ${gaps.length} gaps`,
   );
-  console.log(`  → ${OUTPUT_MD}`);
+  if (existsSync(PRIVATE_MD)) console.log(`  → ${PRIVATE_MD}`);
   console.log(`  → ${OUTPUT_JSON}`);
 }
 

@@ -108,12 +108,22 @@ describe('filterWritableFields (write mask)', () => {
 });
 
 describe('getColumnAccess', () => {
-  it('short-circuits full access for admin roles', async () => {
+  it('does NOT short-circuit for a role name, admin included', async () => {
+    // This asserted the opposite until 2026-09-10, and the assertion was the
+    // defect written down: `role === 'admin' || role === 'superadmin'` returned
+    // full access before reading any rule. Measured against every value the
+    // CHECK constraint on `"user".role` permits, that exempted a role which is
+    // not the most privileged one and masked `god`, which is — while
+    // `superadmin` was not assignable at all.
+    //
+    // The exemption is now the `data:view_all_columns` permission, resolved for
+    // an identity. With no identity there is nothing to resolve, so the lookup
+    // runs — which is what `db.log.length` records.
     const db = new CannedDb();
     const access = await getColumnAccess(db.kysely as unknown as Database, 'contacts', 'admin');
     expect(access.hidden.size).toBe(0);
     expect(access.readOnly.size).toBe(0);
-    expect(db.log.length).toBe(0);
+    expect(db.log.length).toBe(1);
   });
 
   it('loads masks from zvd_column_permissions and caches them in Valkey', async () => {

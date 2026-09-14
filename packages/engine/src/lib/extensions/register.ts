@@ -113,6 +113,10 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // this, `/templates` among them.
   'content/documents': ['zv_document_templates'],
   'content/media': [
+    // Engine-owned, sole creator since the duplicate-creators repair removed
+    // the redeclaring CREATEs from both media extensions (2026-09-10). This
+    // grant is now the only thing standing between the extension and a
+    // refusal on its own quota table.
     'zv_storage_quotas',
     // The media library's own tables. The engine declares them too because the
     // feature started there; the extension is what maintains them now, which
@@ -144,6 +148,8 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // Measured cost of the omission: four of `storage/cloud`'s thirteen GET
   // routes answered 500, including `/files`, which is the extension's main
   // purpose. Shipped, and broken on every install since.
+  // `zv_storage_quotas`: engine-owned, sole creator — see the `content/media`
+  // entry above. Same story, same repair, same load-bearing grant.
   'storage/cloud': ['zv_storage_quotas', 'zv_media_files', 'zv_media_folders', 'zv_media_shares'],
 };
 
