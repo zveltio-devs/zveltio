@@ -110,4 +110,44 @@ describe('extension migration table guard', () => {
     const f = migrationFile('ALTER TABLE IF EXISTS ONLY public.zv_tenants ADD COLUMN x text;');
     await expect(runExtensionMigrations(ext('probe', [f]), db())).rejects.toThrow(/zv_tenants/);
   });
+
+  // ── Tables owned by ANOTHER extension ───────────────────────────
+  //
+  // The engine-table check is derived from the engine's own migration files, so
+  // a table protects itself only while the engine still declares it. That makes
+  // the protection disappear at exactly the wrong moment: moving a feature out
+  // of the engine is what this codebase is doing, and the move itself is what
+  // would unlock the table for everybody else.
+  //
+  // `zv_document_templates` is the case that already exists rather than a
+  // hypothetical: `content/document-templates` creates it, the engine does not,
+  // and `EXTENSION_TABLE_GRANTS` names `content/documents` as an owner.
+
+  it('refuses an ALTER on a table another extension owns', async () => {
+    const f = migrationFile('ALTER TABLE zv_document_templates ADD COLUMN sneaky text;');
+    await expect(runExtensionMigrations(ext('ai', [f]), db())).rejects.toThrow(
+      /zv_document_templates \(owned by content\/document-templates, content\/documents\)/,
+    );
+  });
+
+  it('refuses a DROP of another extension’s table', async () => {
+    const f = migrationFile('DROP TABLE IF EXISTS zv_document_templates;');
+    await expect(runExtensionMigrations(ext('ai', [f]), db())).rejects.toThrow(
+      /one extension must not reshape another's schema/,
+    );
+  });
+
+  it('allows an owner named in the grants to alter it', async () => {
+    const f = migrationFile('ALTER TABLE zv_document_templates ADD COLUMN body text;');
+    await expect(
+      runExtensionMigrations(ext('content/documents', [f]), db()),
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows a co-owner, because a table may have more than one', async () => {
+    // `content/media` and `storage/cloud` share the media library, and both are
+    // named on those tables. Being one of several owners is what grants access.
+    const f = migrationFile('ALTER TABLE zv_media_files ADD COLUMN checksum text;');
+    await expect(runExtensionMigrations(ext('storage/cloud', [f]), db())).resolves.toBeUndefined();
+  });
 });
