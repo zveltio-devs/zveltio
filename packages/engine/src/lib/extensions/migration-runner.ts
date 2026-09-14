@@ -59,11 +59,33 @@ async function assertMigrationTablesAllowed(extName: string, sqlText: string): P
   // (never true) instead of the real target and let the statement through.
   const re = /\b(ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   const offenders = new Set<string>();
+  /** Tables another extension is named the owner of: table -> those extensions. */
+  const takenBy = new Map<string, string[]>();
   for (const m of sqlText.matchAll(re)) {
     const table = m[2].toLowerCase();
     if (table.startsWith('zvd_') || table.startsWith(owned)) continue;
     if (granted.has(table)) continue;
-    if (engineTables.has(table)) offenders.add(table);
+    if (engineTables.has(table)) {
+      offenders.add(table);
+      continue;
+    }
+    // Granted to somebody, just not to this extension.
+    //
+    // Without this branch, a table stops being protected the moment it stops
+    // being the engine's. That is not hypothetical: moving a feature out of the
+    // engine is exactly what this codebase is doing, and the check above reads
+    // `engineOwnedTables()`, which is derived from the engine's own migration
+    // files. So the same change that makes `zv_quality_scans` belong to
+    // `analytics/quality` would also make it something ANY extension could
+    // ALTER or DROP in its migrations, silently, on the way past.
+    //
+    // `EXTENSION_TABLE_GRANTS` already names the owner. Reading it in both
+    // directions turns it from a permission into ownership, so a table can
+    // leave the engine without leaving the fence. A table may legitimately have
+    // several owners — `content/media` and `storage/cloud` share the media
+    // library — and being one of them is what grants access.
+    const owners = ownersOf(EXTENSION_TABLE_GRANTS, table);
+    if (owners.length > 0) takenBy.set(table, owners);
   }
 
   if (offenders.size > 0) {
@@ -75,6 +97,29 @@ async function assertMigrationTablesAllowed(extName: string, sqlText: string): P
         `extension genuinely owns it.`,
     );
   }
+
+  if (takenBy.size > 0) {
+    const detail = [...takenBy.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([table, owners]) => `${table} (owned by ${owners.sort().join(', ')})`)
+      .join(', ');
+    throw new Error(
+      `Extension "${extName}" has a migration that alters or drops ${detail}. ` +
+        `These are not the engine's tables, so the engine-table check above does not ` +
+        `cover them — EXTENSION_TABLE_GRANTS names another extension as the owner, and ` +
+        `one extension must not reshape another's schema. If both genuinely own it, add ` +
+        `"${extName}" to that table's grant; the media library is shared this way.`,
+    );
+  }
+}
+
+/** Every extension `EXTENSION_TABLE_GRANTS` names as an owner of `table`. */
+function ownersOf(grants: Record<string, readonly string[]>, table: string): string[] {
+  const out: string[] = [];
+  for (const [ext, tables] of Object.entries(grants)) {
+    if (tables.some((t) => t.toLowerCase() === table)) out.push(ext);
+  }
+  return out;
 }
 
 export async function runExtensionMigrations(
