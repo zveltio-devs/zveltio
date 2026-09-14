@@ -45,7 +45,7 @@ Supporting material:
 **Taking over the project.**
 [Overview](platform/overview.md) → [History](platform/history.md) — why it is
 shaped this way → [Architecture](platform/architecture.md) →
-[Development](platform/development.md) → [Known gaps](platform/known-gaps.md)
+[Development](platform/development.md)
 
 **Backend contributor — I am changing the engine.**
 [`AGENTS.md`](../AGENTS.md) → [Engine](engine/README.md) →
@@ -62,7 +62,7 @@ shaped this way → [Architecture](platform/architecture.md) →
 **Auditor / reviewer — I am assessing this system.**
 [Security](platform/security.md) (threat model and prior-round corrections) →
 [Multi-tenancy](platform/multi-tenancy.md) →
-[Audit coverage](platform/audit-coverage.md) → [Known gaps](platform/known-gaps.md)
+[Security model](platform/security-model.md)
 
 ---
 
@@ -91,8 +91,6 @@ style issue. Two things in this tree are enforced mechanically:
 - `platform/configuration.md` — the `DB_POOL_MAX` row is parsed by
   `packages/engine/src/tests/unit/pool-max-single-source.test.ts`. The
   documented default must equal `DEFAULT_DB_POOL_MAX` in code or the test fails.
-- `platform/audit-coverage.md` — read by `scripts/audit-gates.ts` and
-  `scripts/audit-inventory.ts`.
 
 Several documents are also cited from source comments and runtime error
 messages. Before moving or renaming any file here, run:

@@ -359,7 +359,6 @@ Read before you touch the thing they describe:
   and before assuming what a reviewer will assume.
 - `docs/platform/security.md` — the threat model, and the list of patterns that
   look like findings and are not.
-- `docs/platform/known-gaps.md` — what is knowingly unfinished.
 
 Also:
 

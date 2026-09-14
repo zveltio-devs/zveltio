@@ -213,8 +213,7 @@ edge functions → `developer/edge-functions`, briefing → `crm`.
 
 ## Known gaps in this catalog
 
-Verified 2026-09-02 — see [../platform/known-gaps.md](../platform/known-gaps.md)
-for the full list:
+Verified 2026-09-02:
 
 - `crm` ships five pipeline tables with no routes.
 - `forms` advertises a `file` field type it cannot accept.

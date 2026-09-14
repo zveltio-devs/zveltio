@@ -360,7 +360,7 @@ Honest about where we are: **3.0.0-beta.60** as of the latest release — `packa
 
 **Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 3.0.0-beta.60`. Full policy: [docs/private/ALPHA-TRACK-EOL.md](docs/private/ALPHA-TRACK-EOL.md).
 
-**Migration from alpha**: see [docs/platform/migration-alpha-to-beta.md](docs/platform/migration-alpha-to-beta.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
+**Migration from alpha**: the `1.0.0-alpha.*` track is closed. If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
 
 **v1.0 target**: tracked in [docs/private/REFACTORING-V1-PLAN.md](docs/private/REFACTORING-V1-PLAN.md) (extension platform: ✅ done at beta.1; remaining v1.0 work is product/GTM — benchmarks, demo.zveltio.com, case studies).
 

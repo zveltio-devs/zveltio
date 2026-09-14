@@ -107,7 +107,7 @@ the marketplace flow, the worker isolation contract) must not be broken. Engine
 internals and Studio layout may still move.
 
 The `1.0.0-alpha.*` track is closed (last release `alpha.129`); new installations
-use beta. See [migration-alpha-to-beta.md](migration-alpha-to-beta.md).
+use beta.
 
 Versioning policy is in [versioning.md](versioning.md). Cutting a release is a
 manual, owner-only decision — never an autonomous bump or tag.
