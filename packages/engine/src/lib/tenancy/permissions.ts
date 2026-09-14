@@ -1080,3 +1080,39 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
     /* ws module unavailable in some unit-test graphs */
   }
 }
+
+/**
+ * Display names for a set of user ids.
+ *
+ * Exists because extensions need to render "who asked for this" and had no
+ * legitimate way to get it. `workflow/approvals` joined the Better-Auth `user`
+ * table directly — `leftJoin('user as u', 'u.id', 'r.requested_by')` at three
+ * sites — which worked only because `createRestrictedDb` checked the FROM
+ * table and never the JOIN. #499 closed that hole (the same gap handed
+ * `session.token` to a zero-capability extension), and the join started
+ * answering 500.
+ *
+ * A grant on `user` was the cheap answer and the wrong one: it would hand the
+ * extension `email`, `role` and everything else the table grows, to render a
+ * name. This returns ids mapped to names and nothing else, so the extension
+ * gets exactly what it renders.
+ *
+ * Unknown ids are simply absent from the result — callers fall back to the id.
+ * Reads the POOL handle for the same reason `resolveUserRole` does: this is
+ * instance-level identity, not tenant rows, and `SAVEPOINT` against the pool
+ * answers 25P01 (see the note there).
+ */
+export async function getUserNames(userIds: string[]): Promise<Record<string, string>> {
+  const ids = [...new Set(userIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return {};
+
+  const result = await sql<{ id: string; name: string | null }>`
+    SELECT id, name FROM "user" WHERE id = ANY(${ids})
+  `.execute(_db);
+
+  const out: Record<string, string> = {};
+  for (const row of result.rows) {
+    if (row.name) out[row.id] = row.name;
+  }
+  return out;
+}
