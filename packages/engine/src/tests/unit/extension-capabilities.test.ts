@@ -25,7 +25,7 @@ function fakeInternals() {
     decryptSecret: () => 'plaintext',
     createBetterAuthSession: () => 'session',
     enqueueDDLJob: () => 'job',
-    generatePDF: () => 'pdf',
+    generatePDFAsync: () => 'pdf',
     // Ungated helper — no ambient authority.
     validatePublicUrl: () => undefined,
   };
@@ -153,7 +153,7 @@ describe('INTERNALS_CAPABILITY coverage', () => {
       'runEdgeFunction',
       'sendNotification',
       'moveToTrash',
-      'generatePDF',
+      'generatePDFAsync',
       'introspectSchema',
     ]) {
       expect(INTERNALS_CAPABILITY[member]).toBeTruthy();
