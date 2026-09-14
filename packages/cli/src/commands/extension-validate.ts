@@ -44,6 +44,7 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   '@aws-sdk/s3-request-presigner',
   'nanoid',
   'qrcode',
+  'pdf-lib',
   'pdfkit',
   'graphql',
 ]);

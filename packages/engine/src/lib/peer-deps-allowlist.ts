@@ -30,7 +30,10 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
 
   // PDF / document generation
   'qrcode', // operations/traceability — QR codes on dispatches
-  'pdfkit', // operations/traceability — PDF generation
+  // Prefer pdf-lib in new extensions: pdfkit reads its font metrics from
+  // __dirname at runtime, which a packed bundle cannot satisfy.
+  'pdf-lib', // operations/traceability — PDF generation; also used by the engine PDF worker
+  'pdfkit', // no first-party user left; kept for third-party extensions
 
   // Query language
   'graphql', // developer/graphql — GraphQL schema + execution
