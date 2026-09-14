@@ -409,7 +409,23 @@ if (_cmd === 'migrate') {
     process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
   }
   const { initDatabase: _initDb } = await import('./db/index.js');
-  await _initDb();
+  const _db = await _initDb();
+  // `initDatabase` creates the tracking table and NOTHING else — deliberately,
+  // since 93b96c14 moved the runner off the connect path so `MIGRATIONS_AUTO`
+  // could actually opt out and the advisory lock could protect the pass that
+  // does the work. This command was left calling only `initDatabase`, so from
+  // that commit until this one `zveltio migrate` applied nothing and printed
+  // `✅ Migrations complete` anyway. Measured on a virgin database: 1 table
+  // (`zv_migrations`) where a migrated one has 73. The installers run this
+  // command (install.sh, update.sh), and CHANGELOG records the SAME defect
+  // once before — a silent no-op here is a regression, not a novelty.
+  //
+  // `runMigrations`, not `autoMigrate`: the latter returns early on
+  // `MIGRATIONS_AUTO=false`, which is the right answer for a boot that should
+  // not migrate itself and the wrong one for an operator who typed `migrate`.
+  // The lock and the chain check still apply — they live in the runner.
+  const { runMigrations: _runMigrations } = await import('./db/migrations/index.js');
+  await _runMigrations(_db);
   console.log('✅ Migrations complete');
   process.exit(0);
 }
