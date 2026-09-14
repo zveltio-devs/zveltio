@@ -26,6 +26,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   getSingleTenantId,
+  getUserNames,
   isTenantAdmin,
   requireInstanceAdmin,
   resolveUserRole,
@@ -271,6 +272,17 @@ export interface ExtensionInternals {
    * which column of an arbitrary query carries the tenant.
    */
   getSingleTenantId: typeof getSingleTenantId;
+  /**
+   * Display names for a set of user ids, as `{ [id]: name }`. Ids with no row,
+   * or with a null name, are absent — render the id instead.
+   *
+   * Extensions cannot read the Better-Auth `user` table (see
+   * `createRestrictedDb`), and rendering "who asked for this" is a real need:
+   * `workflow/approvals` had been joining that table directly through a gap in
+   * the guard. This hands over names and nothing else, so no extension needs a
+   * grant on a table holding emails and roles in order to print a name.
+   */
+  getUserNames: typeof getUserNames;
   isTenantAdmin: typeof isTenantAdmin;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
@@ -421,6 +433,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     getColumnAccess: (collection: string, role: string, userId?: string) =>
       getColumnAccess(getDb(), collection, role, userId),
     resolveUserRole,
+    getUserNames,
     getSingleTenantId,
     isTenantAdmin,
     requireInstanceAdmin,

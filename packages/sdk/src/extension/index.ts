@@ -455,6 +455,17 @@ export interface ExtensionInternals<DB = unknown> {
    *     if (t) q = q.where('tenant_id', '=', t);
    */
   getSingleTenantId: () => string | null;
+  /**
+   * Display names for a set of user ids, as `{ [id]: name }`. Ids with no row,
+   * or with a null name, are absent — render the id instead.
+   *
+   * Extensions cannot read the Better-Auth `user` table, and rendering "who
+   * asked for this" is a real need: `workflow/approvals` had been joining that
+   * table directly through a gap in the table guard. This hands over names and
+   * nothing else, so printing a name never requires a grant on a table that
+   * also holds emails and roles.
+   */
+  getUserNames: (userIds: string[]) => Promise<Record<string, string>>;
   isTenantAdmin: (userId: string) => Promise<boolean>;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.

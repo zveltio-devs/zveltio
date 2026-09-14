@@ -701,5 +701,5 @@ After completing Sessions 1-10, a second pass focused on the known functional bl
 
 ## Cross-Session TODOs
 
-- [ ] Revisit known gaps in `docs/platform/known-gaps.md` and verify each against source.
+- [ ] Revisit known gaps in `zveltio-private/engine/known-gaps.md` and verify each against source.
 - [ ] Verify boundary audit findings in `docs/private/ZVELTIO-VS-SUPABASE-AND-BOUNDARY-AUDIT.md`.

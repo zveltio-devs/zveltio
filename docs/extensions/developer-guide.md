@@ -9,7 +9,7 @@
 >   reference behind it.
 > - [`authoring.md`](authoring.md) — contract reference (the
 >   *what*).
-> - [`REFACTORING-V1-PLAN.md`](../private/REFACTORING-V1-PLAN.md) — platform roadmap (some
+> - the platform roadmap (some
 >   features described here land in v1.0).
 >
 > Sections marked **(v1.0)** describe APIs landing in the v1.0 sprint. Sections
