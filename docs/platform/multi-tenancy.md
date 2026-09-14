@@ -393,12 +393,9 @@ Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
 not declared by the worker. Contaminated connections are closed rather than
 returned to the pool.
 
-Extensions install their own isolation from a copied `002_tenant_rls.sql`, and
-all of those copies were fail-open — no tenant context meant every tenant's rows,
-where the engine's own tables meant none. A boot reconciler rewrites every
-extension-owned tenant table onto the host predicate, which makes tenant
-isolation something the host guarantees rather than something every extension
-author has to get right.
+A boot reconciler rewrites every extension-owned tenant table onto the host
+predicate, which makes tenant isolation something the host guarantees rather
+than something every extension author has to get right.
 
 ---
 

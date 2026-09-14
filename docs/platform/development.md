@@ -82,8 +82,7 @@ Mutation testing (security-focused): `cd packages/engine && bun run test:mutatio
 Benchmarks: [`../../bench/README.md`](../../bench/README.md).
 
 > The rules in this section are not style preferences — each one exists because
-> a specific measurement lied. The incidents are in
-> [history.md](history.md#6-the-lesson-that-produced-the-working-method).
+> a specific measurement lied.
 
 ### Two traps that produce false results
 
