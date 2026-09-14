@@ -63,8 +63,7 @@ if (required.length === 0) {
 }
 
 /** Written into the .env the installer generates. */
-const writtenByInstaller = (key: string): boolean =>
-  new RegExp(`^${key}=`, 'm').test(installer);
+const writtenByInstaller = (key: string): boolean => new RegExp(`^${key}=`, 'm').test(installer);
 
 /** Supplied or derived by compose — `KEY: '…'` in a service environment block. */
 const suppliedByCompose = (key: string): boolean =>
