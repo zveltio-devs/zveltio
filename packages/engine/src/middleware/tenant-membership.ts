@@ -5,7 +5,7 @@
 // any logged-in user could pivot to another tenant by sending its slug and —
 // since the tenant GUC would then be set to that tenant — read its data.
 //
-// Design (see docs/private/MULTI-TENANT-ENABLEMENT.md §3):
+// Design (see docs/platform/multi-tenancy.md):
 //   - No-op when NO tenant is resolved (single-tenant / public traffic) — the
 //     check costs nothing and changes nothing for the default self-hosted model.
 //   - Only enforces for AUTHENTICATED users. Unauthenticated requests fall
