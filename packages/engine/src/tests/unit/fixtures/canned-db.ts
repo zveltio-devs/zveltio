@@ -10,10 +10,10 @@
  *
  * Usage:
  *   const db = new CannedDb();
- *   db.when(/insert into "zv_quality_scans"/, [{ id: 'scan-1' }]);
+ *   db.when(/insert into "zv_flow_runs"/, [{ id: 'run-1' }]);
  *   db.fail(/set_config/, new Error('boom'));
- *   await runQualityScan(db.kysely as unknown as Database, ...);
- *   const inserts = db.executed(/insert into "zv_quality_issues"/);
+ *   await someUnitUnderTest(db.kysely as unknown as Database, ...);
+ *   const inserts = db.executed(/insert into "zv_flow_steps"/);
  *
  * Handlers are matched against the compiled SQL, LAST registered wins (so a
  * test can override a fixture default). Unmatched queries return zero rows.
