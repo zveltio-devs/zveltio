@@ -50,7 +50,7 @@ describe('ExtensionLoader class delegators', () => {
     loader.loadExtension = async () => {};
     loader.isActive = () => true;
 
-    const result = await loader.reloadExtensionFromDisk('cls-reload');
+    const result = await loader.reloadExtensionFromDisk('cls-reload', new Hono());
     expect(result.ok).toBe(true);
     expect(loader.modules.has('cls-reload')).toBe(false);
     expect(serviceRegistry.has('reloadMarker')).toBe(false);

@@ -112,9 +112,9 @@ function buildSpec() {
       '/health/{subsystem}': {
         get: {
           tags: ['Health'],
-          summary: 'Probe a single subsystem (auth required)',
+          summary: 'Probe a single subsystem (instance admin required)',
           description:
-            'One of: database, migrations, cache, queue, realtime, storage, extensions, or any extension check (`ext:<name>:<check>`). 200 if healthy, 503 if not, 404 if unknown.',
+            'One of: database, migrations, cache, queue, realtime, storage, extensions, or any extension check (`ext:<name>:<check>`). 200 if healthy, 503 if not, 404 if unknown. Same gate as `/health/deep` — this is its per-subsystem breakdown.',
           parameters: [
             { name: 'subsystem', in: 'path', required: true, schema: { type: 'string' } },
           ],
@@ -127,6 +127,10 @@ function buildSpec() {
             },
             '401': {
               description: 'Unauthorized',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '403': {
+              description: 'Forbidden — instance admin required',
               content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
             },
           },

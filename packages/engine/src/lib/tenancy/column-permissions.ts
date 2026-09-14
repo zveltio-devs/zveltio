@@ -1,5 +1,6 @@
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
+import { checkPermission } from './permissions.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 
 export interface ColumnAccess {
@@ -15,14 +16,64 @@ function cacheKey(collection: string, role: string) {
   return `colperms:${collection}:${role}`;
 }
 
+/**
+ * The permission that exempts an identity from column-level restrictions.
+ *
+ * Free-form, like every other action reaching `checkPermission` — actions are
+ * not enumerated anywhere; a policy row grants one. `data:view_all` is the
+ * row-level equivalent used by `getRlsFilters`, and this is deliberately NOT
+ * that one: seeing every row and seeing every column are different powers, and
+ * an operator who grants one should not silently grant the other.
+ */
+const VIEW_ALL_COLUMNS = 'view_all_columns';
+
 export async function getColumnAccess(
   db: Database,
   collection: string,
   role: string,
+  /**
+   * Who is asking. Required for the exemption — without it there is none, which
+   * is the refusing direction. Optional in the signature because
+   * `lib/extensions/internals.ts` exposes this to extensions and an older
+   * caller must not silently gain an exemption it never asked for.
+   */
+  userId?: string,
 ): Promise<ColumnAccess> {
-  // Admins have full access
-  if (role === 'admin' || role === 'superadmin') {
-    return { hidden: new Set(), readOnly: new Set() };
+  // The exemption is a PERMISSION, resolved for an identity — not a role name.
+  //
+  // This used to read `role === 'admin' || role === 'superadmin'`, and both
+  // halves were wrong. `resolveUserRole` returns `SELECT role FROM "user"`, so
+  // the value was the INSTANCE role, whose CHECK constraint
+  // (001_initial.sql:1160) permits exactly `god | admin | manager | member`.
+  // Measured against all four:
+  //
+  //   member  masked      manager  masked
+  //   admin   NOT masked  god      MASKED
+  //
+  // The exemption went to a role that is not the most privileged one; the one
+  // role the instance does treat as privileged was the one being restricted;
+  // and `superadmin` is not assignable at all, so half the condition could
+  // never fire. A column rule configured against an instance admin was
+  // accepted, stored, and silently never applied.
+  //
+  // Restoring the intent as `role === 'god'` would have repeated the mistake in
+  // a tidier spelling. `lib/tenancy/rls.ts` met the same shape and says why a
+  // name is the wrong mechanism: "a string comparison against a role name is
+  // invisible, unauditable and impossible to revoke."
+  //
+  // So god passes THROUGH the permission system rather than around it —
+  // `checkPermission` returns true for a god user before consulting any policy,
+  // which is where "god can do anything" is expressed once for the whole
+  // engine. Everything else is deny-by-default, so today god is the only
+  // identity exempt, and an operator can grant `data:view_all_columns` to a
+  // named role deliberately, or revoke it, and see it in the policy table.
+  //
+  // Checked before the cache on purpose: the cache is keyed by collection and
+  // role, and an exemption is a property of the identity.
+  if (userId) {
+    if (await checkPermission(userId, 'data', VIEW_ALL_COLUMNS).catch(() => false)) {
+      return { hidden: new Set(), readOnly: new Set() };
+    }
   }
 
   const cache = getCache();

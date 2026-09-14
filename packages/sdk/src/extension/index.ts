@@ -422,6 +422,18 @@ export interface ExtensionInternals<DB = unknown> {
   getColumnAccess: (
     collection: string,
     role: string,
+    /**
+     * The acting user's id. Optional, and additive — omitting it means no
+     * exemption, which is the refusing direction, so an extension written
+     * against the two-argument form keeps working and keeps masking.
+     *
+     * Pass it to have the host resolve `data:view_all_columns` for that
+     * identity. That permission is how "god sees everything" is expressed for
+     * columns: `checkPermission` returns true for a god user before consulting
+     * any policy, and everything else is deny-by-default. Without the id there
+     * is no identity to resolve it for, so even a god is masked.
+     */
+    userId?: string,
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   /** The Casbin role behind a user — what `getColumnAccess` keys on. */
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
@@ -443,6 +455,17 @@ export interface ExtensionInternals<DB = unknown> {
    *     if (t) q = q.where('tenant_id', '=', t);
    */
   getSingleTenantId: () => string | null;
+  /**
+   * Display names for a set of user ids, as `{ [id]: name }`. Ids with no row,
+   * or with a null name, are absent — render the id instead.
+   *
+   * Extensions cannot read the Better-Auth `user` table, and rendering "who
+   * asked for this" is a real need: `workflow/approvals` had been joining that
+   * table directly through a gap in the table guard. This hands over names and
+   * nothing else, so printing a name never requires a grant on a table that
+   * also holds emails and roles.
+   */
+  getUserNames: (userIds: string[]) => Promise<Record<string, string>>;
   isTenantAdmin: (userId: string) => Promise<boolean>;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.

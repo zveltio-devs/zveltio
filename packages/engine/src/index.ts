@@ -409,7 +409,23 @@ if (_cmd === 'migrate') {
     process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
   }
   const { initDatabase: _initDb } = await import('./db/index.js');
-  await _initDb();
+  const _db = await _initDb();
+  // `initDatabase` creates the tracking table and NOTHING else — deliberately,
+  // since 93b96c14 moved the runner off the connect path so `MIGRATIONS_AUTO`
+  // could actually opt out and the advisory lock could protect the pass that
+  // does the work. This command was left calling only `initDatabase`, so from
+  // that commit until this one `zveltio migrate` applied nothing and printed
+  // `✅ Migrations complete` anyway. Measured on a virgin database: 1 table
+  // (`zv_migrations`) where a migrated one has 73. The installers run this
+  // command (install.sh, update.sh), and CHANGELOG records the SAME defect
+  // once before — a silent no-op here is a regression, not a novelty.
+  //
+  // `runMigrations`, not `autoMigrate`: the latter returns early on
+  // `MIGRATIONS_AUTO=false`, which is the right answer for a boot that should
+  // not migrate itself and the wrong one for an operator who typed `migrate`.
+  // The lock and the chain check still apply — they live in the runner.
+  const { runMigrations: _runMigrations } = await import('./db/migrations/index.js');
+  await _runMigrations(_db);
   console.log('✅ Migrations complete');
   process.exit(0);
 }
@@ -723,6 +739,38 @@ async function buildHonoApp(): Promise<Hono> {
   // client can't hammer extension routes. Generous cap — SDUI bursts are fine.
   app.use('/ext/*', extRateLimit);
 
+  // Request-count + Prometheus metrics — registered BEFORE any route so it
+  // wraps every one of them (core, marketplace, extension, `/health`,
+  // `/metrics` itself, the 404 guards, the SPA catch-all). It used to sit
+  // right above `/metrics`, AFTER `registerCoreRoutes()` had already mounted
+  // the entire `/api/*` and `/ext/*` surface and after the `/health` route —
+  // Hono composes matched handlers in registration order, so a route that
+  // returns without calling `next()` never reaches a `next()`-based
+  // middleware registered later for the same path. Measured live: hitting
+  // `/api/health`, `/api/settings` and `/api/extensions` left
+  // `zveltio_requests_total` and `http_requests_total` completely unchanged,
+  // while a path that falls through to the `/api/*` 404 guard (registered
+  // after the old position) was counted every time.
+  app.use('*', async (c, next) => {
+    _totalRequestCount++;
+    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
+    // app-traffic metrics the overview dashboard shows.
+    const p = c.req.path;
+    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
+      await next();
+      return;
+    }
+    const start = performance.now();
+    const method = c.req.method;
+    try {
+      await next();
+    } finally {
+      const seconds = (performance.now() - start) / 1000;
+      httpRequests.inc({ method, status: String(c.res.status) });
+      httpRequestDuration.observe({ method }, seconds);
+    }
+  });
+
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth });
 
@@ -905,25 +953,6 @@ rm studio.tar.gz</pre>
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
-  app.use('*', async (c, next) => {
-    _totalRequestCount++;
-    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
-    // app-traffic metrics the overview dashboard shows.
-    const p = c.req.path;
-    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
-      await next();
-      return;
-    }
-    const start = performance.now();
-    const method = c.req.method;
-    try {
-      await next();
-    } finally {
-      const seconds = (performance.now() - start) / 1000;
-      httpRequests.inc({ method, status: String(c.res.status) });
-      httpRequestDuration.observe({ method }, seconds);
-    }
-  });
   app.get('/metrics', async (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {

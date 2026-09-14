@@ -19,6 +19,8 @@
  * Run: `bun run review:inventory`
  */
 
+import { existsSync } from 'node:fs';
+
 type Section = {
   id: string;
   track: string;
@@ -57,9 +59,29 @@ type SessionEntry = {
 
 type Ledger = { updated: string; sessions: SessionEntry[] };
 
-const STATUS_JSON = 'docs/private/code-review-status.json';
-const OUTPUT_MD = 'docs/private/CODE-REVIEW-STATE.md';
-const SESSIONS_DIR = 'docs/private/review-sessions';
+// The campaign ledger lives in the PRIVATE repository, a sibling of this one.
+//
+// It used to live at `docs/private/` here, ignored but present, and the two
+// copies drifted: on 2026-09-13 three session records existed only inside an
+// abandoned worktree, and this script reported 30% where the measured figure
+// was 34%. There is one copy now, and it is versioned where it belongs.
+//
+// Absent sibling is fatal rather than empty: "could not look" must not read as
+// "nothing to report", which is exactly how the drift went unnoticed.
+const PRIVATE_ROOT = '../zveltio-private/engine';
+
+if (!existsSync(PRIVATE_ROOT)) {
+  console.error(
+    `\n❌ review-inventory: no private repository at ${PRIVATE_ROOT}.\n\n` +
+      `   The campaign ledger is not in this repository. Clone the sibling:\n\n` +
+      `     git clone git@github.com:zveltio-devs/zveltio-private.git ../zveltio-private\n`,
+  );
+  process.exit(1);
+}
+
+const STATUS_JSON = `${PRIVATE_ROOT}/code-review-status.json`;
+const OUTPUT_MD = `${PRIVATE_ROOT}/CODE-REVIEW-STATE.md`;
+const SESSIONS_DIR = `${PRIVATE_ROOT}/review-sessions`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section map. Ordered: first match wins, so narrow entries precede prefixes.
@@ -796,6 +818,10 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
+      // Added 2026-09-10, with the history rewrite that removed `docs/private/`
+      // from this public repository. Reads the sibling when asked, which is
+      // this section's focus, and its CI job is in E08.
+      'scripts/check-private-docs-untracked.ts',
     ],
   },
   {
