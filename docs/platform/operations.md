@@ -39,7 +39,7 @@ these:
   multi-tenant deployment. Do not "fix" this with a blanket
   `ALTER ROLE … NOSUPERUSER` — that breaks `CREATE EXTENSION`. The correct shape
   is in [multi-tenancy.md](multi-tenancy.md) and
-  `../private/MULTI-TENANT-ENABLEMENT.md`; `scripts/bootstrap-db-role.sh`
+  `scripts/bootstrap-db-role.sh`
   provisions it.
 
 Work through the checklist in [security.md](security.md#security-checklist).
@@ -107,9 +107,8 @@ current release. That gate matters: a migration squash once left `zveltio migrat
 reporting success while applying nothing, and the gate was correctly red for
 four nights before anyone believed it.
 
-Coming from the closed alpha track:
-[migration-alpha-to-beta.md](migration-alpha-to-beta.md). Version policy:
-[versioning.md](versioning.md).
+The `1.0.0-alpha.*` track is closed; new installations use beta. Version
+policy: [versioning.md](versioning.md).
 
 ---
 
