@@ -818,6 +818,11 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
+      // The other direction of the same question: check-env-documented asks
+      // whether a variable the ENGINE reads is documented; this one asks
+      // whether a variable .env.example calls REQUIRED is produced by an
+      // install. Same section because they fail for the same class of reason.
+      'scripts/check-required-env-installable.ts',
       // Added 2026-09-10, when the internal documents moved out of this public
       // repository. Reads the sibling when asked, which is this section's
       // focus, and its CI job is in E08.
