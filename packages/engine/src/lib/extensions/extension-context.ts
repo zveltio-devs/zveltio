@@ -126,6 +126,58 @@ const JOIN_METHODS = [
  * `.select()`, etc. each return a NEW builder, and only re-wrapping that
  * result keeps a join placed after one of them covered too.
  */
+/**
+ * The expression builder handed to a derived-table callback, with the table
+ * check applied to its own entry points.
+ *
+ * Without this, a join to a subquery is either refused outright (a false
+ * refusal for `forms`, which selects from a table it owns) or waved through
+ * with the inner query never inspected — and the inner query is exactly where
+ * `selectFrom('session')` would go.
+ */
+function guardDerivedBuilder<T>(
+  builder: T,
+  extName: string,
+  ownedPrefix: string,
+  allowedTables?: Set<string>,
+): T {
+  if (builder === null || typeof builder !== 'object') return builder;
+  return new Proxy(builder as object, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof prop !== 'string' || typeof value !== 'function') return value;
+
+      const checks =
+        (QUERY_METHODS as readonly string[]).includes(prop) ||
+        (JOIN_METHODS as readonly string[]).includes(prop);
+
+      if (checks) {
+        return (tableArg: unknown, ...rest: unknown[]) => {
+          const baseTable = typeof tableArg === 'string' ? tableArg.split(/\s+/)[0].trim() : '';
+          if (!isPermittedTable(baseTable, ownedPrefix, allowedTables)) {
+            throw new ExtensionSecurityError(
+              `Extension "${extName}" attempted to ${prop}("${baseTable || String(tableArg)}") ` +
+                `inside a derived table. A subquery is restricted exactly like the outer ` +
+                `query: user data (zvd_*), the extension's own namespace (${ownedPrefix}*), ` +
+                `and tables their migrations create or a grant names.`,
+            );
+          }
+          return guardDerivedBuilder(
+            (value as (...a: unknown[]) => unknown).apply(target, [tableArg, ...rest]),
+            extName,
+            ownedPrefix,
+            allowedTables,
+          );
+        };
+      }
+
+      const bound = value.bind(target);
+      return (...args: unknown[]) =>
+        guardDerivedBuilder(bound(...args), extName, ownedPrefix, allowedTables);
+    },
+  }) as T;
+}
+
 function guardJoins<T>(
   builder: T,
   extName: string,
@@ -140,6 +192,35 @@ function guardJoins<T>(
 
       if ((JOIN_METHODS as readonly string[]).includes(prop)) {
         return (tableArg: unknown, ...rest: unknown[]) => {
+          // A derived table — `.leftJoin((eb) => eb.selectFrom('t')..., a, b)` —
+          // names no table in the argument, so the string check below reads `''`
+          // and refuses. Refusing is wrong here and was a REGRESSION: the
+          // subquery is ordinary SQL and `forms` has shipped one over its own
+          // `zv_form_submissions` since before the guard existed. Measured on
+          // 2026-09-14 against engine master: `forms` and every extension doing
+          // this answered 500 on its main GET route.
+          //
+          // The property the guard must keep is that the INNER query cannot
+          // reach a table the extension may not read. Inspect it instead of
+          // refusing it: hand the callback an expression builder whose own
+          // `selectFrom`/join methods carry the same check, so
+          // `(eb) => eb.selectFrom('session')` still throws — from inside — and
+          // `(eb) => eb.selectFrom('zv_form_submissions')` is allowed.
+          //
+          // `selectFrom((eb) => ...)` at the FROM position stays refused: there
+          // the callback replaces the base table entirely, and a bypass there is
+          // the hole this whole guard was written to close.
+          if (typeof tableArg === 'function') {
+            const authored = tableArg as (eb: unknown) => unknown;
+            const guarded = (eb: unknown) =>
+              authored(guardDerivedBuilder(eb, extName, ownedPrefix, allowedTables));
+            return guardJoins(
+              (value as (...a: unknown[]) => unknown).apply(target, [guarded, ...rest]),
+              extName,
+              ownedPrefix,
+              allowedTables,
+            );
+          }
           const baseTable = typeof tableArg === 'string' ? tableArg.split(/\s+/)[0].trim() : '';
           if (!isPermittedTable(baseTable, ownedPrefix, allowedTables)) {
             throw new ExtensionSecurityError(
