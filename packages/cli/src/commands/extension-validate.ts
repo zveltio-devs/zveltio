@@ -45,6 +45,7 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   'nanoid',
   'qrcode',
   'pdf-lib',
+  '@pdf-lib/fontkit',
   'pdfkit',
   'graphql',
 ]);
