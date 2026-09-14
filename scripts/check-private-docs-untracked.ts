@@ -25,6 +25,9 @@
  * Usage: bun scripts/check-private-docs-untracked.ts [repoRoot ...]
  */
 
+import { lstatSync, readlinkSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { $ } from 'bun';
 
 const PROTECTED = 'docs/private/';
@@ -60,6 +63,56 @@ for (const root of roots) {
         `   weakening this gate — the directory is the signal.\n`,
     );
     failed = true;
+    continue;
+  }
+
+  // `docs/private` may be a SYMLINK to the private repository rather than a
+  // directory of its own. That is the stronger arrangement — the documents are
+  // not in this tree at all, so there is one copy and it is versioned where it
+  // belongs — and it is the one this repository now uses.
+  //
+  // `check-ignore` cannot probe through it: `git check-ignore
+  // docs/private/<file>` answers `fatal: pathspec ... is beyond a symbolic
+  // link` and exits 128, which the probe below reads as "not ignored". The gate
+  // would then refuse the very layout it should prefer.
+  //
+  // So check the link itself. `ls-files` above has already established that
+  // nothing under the path is tracked; an ignored symlink means the next
+  // `git add` cannot re-add it either, which is the whole question.
+  //
+  // Note the `.gitignore` rule has to be `docs/private`, not `docs/private/`:
+  // the trailing-slash form matches directories only, and a symlink is a file.
+  const protectedPath = join(root, PROTECTED.replace(/\/$/, ''));
+  let linkTarget: string | null = null;
+  try {
+    if (lstatSync(protectedPath).isSymbolicLink()) linkTarget = readlinkSync(protectedPath);
+  } catch {
+    // Absent entirely — nothing tracked, nothing to protect. The probe below
+    // still checks that the rule exists for when it comes back.
+  }
+
+  if (linkTarget !== null) {
+    const linkIgnored =
+      Bun.spawnSync(['git', '-C', root, 'check-ignore', '-q', PROTECTED.replace(/\/$/, '')], {
+        stdout: 'ignore',
+        stderr: 'ignore',
+      }).exitCode === 0;
+
+    if (!linkIgnored) {
+      console.error(
+        `\n❌ ${label}: ${PROTECTED} is a symlink to ${linkTarget}, and the path is not ignored.\n\n` +
+          `   The next \`git add\` commits the link itself. Restore the rule — without a\n` +
+          `   trailing slash, which matches directories only:\n\n` +
+          `     echo '${PROTECTED.replace(/\/$/, '')}' >> ${root}/.gitignore\n`,
+      );
+      failed = true;
+      continue;
+    }
+
+    console.log(
+      `✅ ${label}: ${PROTECTED} is a symlink to ${linkTarget} — untracked, ignored, ` +
+        `and its contents are not in this repository at all.`,
+    );
     continue;
   }
 
