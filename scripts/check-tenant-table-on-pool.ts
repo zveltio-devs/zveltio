@@ -22,8 +22,7 @@
  * `repairUnsignedWebhooksAtBoot` reads every tenant's webhooks; `flow-executor`
  * looks up a flow's tenant in order to learn which one to run as; the boot
  * reconciles walk every tenant's tables. All of them need to see across tenants by
- * design, which is why the engine's own role is not restricted — see the note in
- * `docs/private/CASBIN-SCALING-STATE.md`.
+ * design, which is why the engine's own role is not restricted.
  *
  * `poolDb` exists for good reasons — the four routers in `TXN_SKIP_PREFIXES`
  * would otherwise pin one connection and reach for a second, which deadlocks at

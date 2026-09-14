@@ -1,12 +1,10 @@
 name: Private Docs
 
-# `docs/private/` must not be tracked in a public repository.
-#
-# It was, from 2026-07-20 until the history rewrite of 2026-09-09. Getting it
-# back out cost a force-push across 905 tags and every open PR, and did not
-# unpublish anything — GitHub traffic for the fortnight before showed 6,683
-# clones from 671 unique clients. The `.gitignore` rule is the fix; this job is
-# what notices when the rule stops working.
+# `docs/private/` must not be tracked in a public repository. Committing it once
+# is not reversible by deleting it afterwards: the content is published the
+# moment it is pushed, and rewriting history does not unpublish what was already
+# cloned. The `.gitignore` rule is the fix; this job is what notices when the
+# rule stops working.
 #
 # Runs on every pull request rather than on a path filter: the failure modes are
 # `git add -f`, a branch that predates the rule, a merge that resurrects the

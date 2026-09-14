@@ -341,11 +341,10 @@ const CASES: Case[] = [
     body: '0.0.0-planted\n',
   },
   {
-    // `docs/private/` was tracked in this PUBLIC repository for seven weeks.
-    // Getting it out cost a force-push that rewrote 2600 commits and remapped
-    // 905 tags, and unpublished nothing — 671 unique clients had already cloned
-    // it. The `.gitignore` rule is the fix; the gate is what notices when the
-    // rule stops working.
+    // Internal documents must not be tracked in a public repository, and a
+    // commit that publishes them is not undone by deleting them afterwards.
+    // The `.gitignore` rule is the fix; the gate is what notices when the rule
+    // stops working.
     //
     // Planted on `.gitignore` rather than by staging a file, because the gate's
     // first check reads the git INDEX and a plant that only writes to disk would

@@ -725,7 +725,7 @@ async function buildHonoApp(): Promise<Hono> {
   // they belong to (zv_tenant_users). Runs after tenantMiddleware so the tenant
   // is resolved. No-op for the default tenant (single-tenant space) + public
   // requests + god/super-admin; only blocks a logged-in non-member from pivoting
-  // to another tenant via X-Tenant-Slug. See docs/private/MULTI-TENANT-ENABLEMENT.md §3.
+  // to another tenant via X-Tenant-Slug. See docs/platform/multi-tenancy.md.
   app.use('/api/*', tenantMembershipMiddleware(auth, scopedDb));
   app.use('/ext/*', tenantMembershipMiddleware(auth, scopedDb));
 

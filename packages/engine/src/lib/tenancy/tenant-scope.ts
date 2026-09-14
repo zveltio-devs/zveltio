@@ -1,7 +1,7 @@
 /**
  * Resolving an assignment into the two sets a request reads with.
  *
- * The model (docs/private/TENANCY-HIERARCHY-DESIGN.md §3): units form a tree,
+ * The model (docs/platform/multi-tenancy.md §5): units form a tree,
  * and what is configured is not the tree but the REACH of each assignment —
  * `self`, `subtree`, `list` or `org`. Writing has no reach at all; that half
  * lives in `zveltio_tenant_write_ok` and needs nothing from this file.
