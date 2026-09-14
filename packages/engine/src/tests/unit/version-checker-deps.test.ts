@@ -28,10 +28,12 @@ describe('checkExtensionDependencies', () => {
   });
 
   it('flags an installed version below the required minVersion', async () => {
+    // Only `version`/`is_enabled` are ever selected from this table (see the
+    // real query in checkExtensionDependencies) — a canned row with an
+    // `installed_version` field the code never reads would let a wrong field
+    // name pass silently. Match the real projection.
     const db = new CannedDb();
-    db.when(/from "zv_extension_registry"/i, [
-      { version: '1.2.0', installed_version: '1.2.0', is_enabled: true },
-    ]);
+    db.when(/from "zv_extension_registry"/i, [{ version: '1.2.0', is_enabled: true }]);
     const result = await checkExtensionDependencies(asDb(db), [
       { name: 'forms', minVersion: '2.0.0' },
     ]);
