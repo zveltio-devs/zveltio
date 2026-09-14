@@ -21,7 +21,7 @@ import { isGodUser } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { problem } from '../lib/problem.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function tenantMembershipMiddleware(auth: any, db: Database) {
   return createMiddleware(async (c, next) => {
     const tenant = c.get('tenant') as { id: string } | null;
@@ -43,7 +43,7 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
     // Cross-tenant operators (god / super-admin) are exempt.
     if (await isGodUser(userId)) return next();
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const member = await (db as any)
       .selectFrom('zv_tenant_users')
       .select('user_id')

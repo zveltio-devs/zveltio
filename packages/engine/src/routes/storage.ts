@@ -179,7 +179,7 @@ function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
   return MIME_BY_EXT[ext] ?? null;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -188,7 +188,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // error as a 500. Checked per-handler — a `/:id` middleware would also
   // swallow the real /folders and /upload routes.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
 
   // Auth middleware
@@ -229,7 +229,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // F1 FIX: Rate-limit uploads to 60/min per user (same as writeRateLimit) to prevent
   // disk/storage quota exhaustion from rapid automated uploads.
   app.post('/upload', writeRateLimit, async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const storage = getStorage();
 
@@ -412,7 +412,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // POST /folders — Create folder (must be before GET /:id to prevent route conflict)
   app.post('/folders', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const foldersWriteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const { name, parent_id } = await c.req.json();
@@ -480,7 +480,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // Time-limited URL: S3 → aws4fetch presigned GET; local → HMAC-signed
     // /files URL. Both honour the 1h expiry.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const signedUrl = await storage.signedUrl((file as any).storage_path, 3600);
 
     return c.json({ url: signedUrl, expires_in: 3600 });
@@ -506,7 +506,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'File not found' }, 404);
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const mime: string = (file as any).mimetype || '';
     if (!mime.startsWith('image/')) return c.json({ error: 'Not an image' }, 400);
 
@@ -523,9 +523,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Fetch source bytes
     let sourceBytes: Uint8Array;
     const storage = getStorage();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     if (storage.isConfigured() && (file as any).storage_path) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const obj = await storage.get((file as any).storage_path).catch(() => null);
       if (!obj) return c.json({ error: 'Failed to fetch source file' }, 502);
       sourceBytes = obj.bytes;
@@ -557,7 +557,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     let outMime: string;
     if (targetFmt === 'jpeg' || targetFmt === 'jpg') {
       // imagescript JPEGQuality is 1-100 integer cast
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       outBytes = await img.encodeJPEG(targetQuality as any);
       outMime = 'image/jpeg';
     } else {
@@ -578,7 +578,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const storage = getStorage();
@@ -593,13 +593,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
     const isAdmin = await isTenantAdmin(user.id);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     if ((file as any).created_by !== user.id && !isAdmin) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     if (storage.isConfigured()) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await storage.delete((file as any).storage_path).catch(() => {
         /* non-fatal if file missing from storage */
       });
@@ -607,7 +607,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     await deleteDb
       .deleteFrom('zv_media_files')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('id', '=', (file as any).id)
       .where('tenant_id', '=', tenantId(c))
       .execute();

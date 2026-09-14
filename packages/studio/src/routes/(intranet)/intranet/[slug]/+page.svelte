@@ -7,7 +7,7 @@ import BlockRenderer from '$lib/ext/content/pages/client/BlockRenderer.svelte';
 
 const ZONE_SLUG = 'intranet';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let pageData = $state<{ page: any; site: any; blocks: any[]; record: any } | null>(null);
 let loading = $state(true);
 let error = $state<{ status: number; message: string } | null>(null);

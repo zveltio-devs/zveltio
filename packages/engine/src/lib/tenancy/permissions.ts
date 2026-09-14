@@ -320,7 +320,7 @@ let _db: Database;
 let _enforcer: Enforcer | null = null;
 
 class KyselyCasbinAdapter {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async loadPolicy(model: any): Promise<void> {
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
@@ -350,7 +350,7 @@ class KyselyCasbinAdapter {
     }
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async savePolicy(model: any): Promise<boolean> {
     // Wrap TRUNCATE + INSERT in a single transaction so there's never a
     // window where zvd_permissions is empty. A crash in the middle would
@@ -370,7 +370,7 @@ class KyselyCasbinAdapter {
         }
       }
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (_db as any).transaction().execute(async (trx: Database) => {
       await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
       for (const [ptype, ...values] of lines) {
@@ -458,7 +458,7 @@ class KyselyCasbinAdapter {
     //
     // An empty string is casbin's "any value in this column", so it is skipped
     // exactly like an absent one.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const conditions: any[] = [sql`ptype = ${ptype}`];
     fieldValues.forEach((value, offset) => {
       const column = fieldIndex + offset;
