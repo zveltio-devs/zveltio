@@ -146,4 +146,71 @@ describe('loadExtensionFromDir — dev reload import path', () => {
     );
     expect(leftovers).toEqual([]);
   });
+
+  /**
+   * The same claim as the test above, made deterministic.
+   *
+   * The copy's name was `.<stem>.zveltio-dev-reload.<Date.now()>.js`, so two
+   * loads inside ONE millisecond produced the same path and the second
+   * `import()` was served from Bun's module cache — the old code, silently,
+   * which is precisely what the copy exists to prevent.
+   *
+   * That is timing-dependent, so the test above only caught it on a machine
+   * fast enough to do both loads within a millisecond: it failed on CI and
+   * never locally. Freezing the clock removes the race from the test and
+   * turns "sometimes red" into "red until fixed".
+   */
+  it('busts the cache even when both loads fall in the same millisecond', async () => {
+    const extBase = mkdtempSync(join(tmpdir(), 'zv-extbase-reload3-'));
+    seedCoreDeps(extBase);
+    process.env.EXTENSIONS_DIR = extBase;
+    process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    process.env.NODE_ENV = 'development';
+
+    const extDir = join(extBase, 'dev-reload-3');
+    mkdirSync(join(extDir, 'engine'), { recursive: true });
+    writeFileSync(
+      join(extDir, 'manifest.json'),
+      JSON.stringify({ name: 'dev-reload-3', version: '1.0.0' }),
+    );
+    const entryPath = join(extDir, 'engine/index.js');
+    writeFileSync(
+      entryPath,
+      `export default { name: 'dev-reload-3', version: 1, async register() {} };`,
+    );
+
+    const db = new CannedDb();
+    const loader = {
+      loaded: new Map(),
+      manifestMeta: new Map(),
+      modules: new Map(),
+      lastLoadError: new Map(),
+      extDirs: new Map(),
+      forgetExtensionMessages: () => {},
+      ctx: {
+        db: db.kysely,
+        fieldTypeRegistry: { register: () => {} },
+      } as unknown as ExtensionContext,
+    };
+
+    const realNow = Date.now;
+    Date.now = () => 1_700_000_000_000; // every load reports the same instant
+    try {
+      await loadExtensionFromDir(loader as never, 'dev-reload-3', new Hono(), loader.ctx, extBase);
+      expect((loader.modules.get('dev-reload-3') as { version: number }).version).toBe(1);
+
+      writeFileSync(
+        entryPath,
+        `export default { name: 'dev-reload-3', version: 2, async register() {} };`,
+      );
+      loader.loaded.delete('dev-reload-3');
+      loader.modules.delete('dev-reload-3');
+
+      await loadExtensionFromDir(loader as never, 'dev-reload-3', new Hono(), loader.ctx, extBase);
+      expect((loader.modules.get('dev-reload-3') as { version: number }).version).toBe(2);
+    } finally {
+      Date.now = realNow;
+    }
+  });
 });
