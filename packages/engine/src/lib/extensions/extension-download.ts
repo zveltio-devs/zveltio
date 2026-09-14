@@ -54,9 +54,9 @@ export async function fetchRegistryCatalog(
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`Registry returned ${res.status}`);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const data = (await res.json()) as { extensions: any[] };
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     remoteEntries = (data.extensions ?? []).map((e: any) => ({
       name: e.name,
       displayName: e.display_name ?? e.displayName ?? e.name,
@@ -125,6 +125,20 @@ export async function fetchRegistryCatalog(
 // ── Extension package download ────────────────────────────────────────────────
 
 /**
+ * Whether a missing signature blocks install. Exported so the default can be
+ * pinned directly by a test, rather than a test reimplementing this
+ * expression — a reimplementation checks its own copy, not this one, and
+ * would stay green if this line regressed.
+ *
+ * default (unset or anything but "false") → required.
+ * `REQUIRE_EXTENSION_SIGNATURES=false`    → not required (escape hatch for a
+ * private mirror that does not sign yet).
+ */
+export function signaturesRequired(): boolean {
+  return process.env.REQUIRE_EXTENSION_SIGNATURES !== 'false';
+}
+
+/**
  * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature.
  *
  * Behaviour controlled by env:
@@ -149,7 +163,7 @@ async function verifyArchiveSignature(
   // as of 2026-07-30 it does: all 57 official extensions serve a .sig at the URL
   // the engine fetches, and those signatures verify against the BUILTIN_KEYS
   // entry for registry-prod-2026 using this file's own verifySignature.
-  const required = process.env.REQUIRE_EXTENSION_SIGNATURES !== 'false';
+  const required = signaturesRequired();
   const sigUrl = `${downloadUrl}.sig`;
 
   let sigBody: unknown = null;

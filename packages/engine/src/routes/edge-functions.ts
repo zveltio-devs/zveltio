@@ -28,7 +28,7 @@ const publicEdgeInvokeRateLimit = rateLimit({
 
 // Public invocation endpoint — mounted at /api/fn
 // Supports session auth OR X-API-Key header
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -102,7 +102,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       });
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .selectAll()
@@ -164,7 +164,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const envVars = typeof fn.env_vars === 'string' ? JSON.parse(fn.env_vars) : (fn.env_vars ?? {});
     const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     void (reqDb(c, db) as any)
       .insertInto('zv_edge_function_logs')
       .values({
@@ -184,7 +184,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     if (!runResult.ok) return c.json({ error: runResult.error, logs: runResult.logs }, 500);
 
     const resp = runResult.response!;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const honoRes = c.json(resp.body, resp.status as any);
     for (const [k, v] of Object.entries(resp.headers ?? {})) {
       honoRes.headers.set(k, v);

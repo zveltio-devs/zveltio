@@ -5,7 +5,7 @@ import { join } from 'path';
 export async function extensionCommand(
   action: 'create' | 'build',
   name: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   opts: Record<string, any>,
 ) {
   switch (action) {
@@ -380,7 +380,7 @@ settings, delete studio/pages/ and add \`schema\` back to manifest.studio.pages[
  * still typing `build` gets a loadable artifact, and point them at pack.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function buildExtension(opts: Record<string, any>) {
   console.warn(
     '\x1b[33m`zveltio extension build` is deprecated — use `zveltio extension pack`.\x1b[0m',

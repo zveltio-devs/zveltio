@@ -26,6 +26,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   getSingleTenantId,
+  getUserNames,
   isTenantAdmin,
   requireInstanceAdmin,
   resolveUserRole,
@@ -271,6 +272,17 @@ export interface ExtensionInternals {
    * which column of an arbitrary query carries the tenant.
    */
   getSingleTenantId: typeof getSingleTenantId;
+  /**
+   * Display names for a set of user ids, as `{ [id]: name }`. Ids with no row,
+   * or with a null name, are absent — render the id instead.
+   *
+   * Extensions cannot read the Better-Auth `user` table (see
+   * `createRestrictedDb`), and rendering "who asked for this" is a real need:
+   * `workflow/approvals` had been joining that table directly through a gap in
+   * the guard. This hands over names and nothing else, so no extension needs a
+   * grant on a table holding emails and roles in order to print a name.
+   */
+  getUserNames: typeof getUserNames;
   isTenantAdmin: typeof isTenantAdmin;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
@@ -413,9 +425,15 @@ export function buildExtensionInternals(): ExtensionInternals {
       applyRlsFilters(query, filters as Parameters<typeof applyRlsFilters>[1]),
     // The handle is the host's to choose: column permissions are instance
     // configuration, not tenant rows.
-    getColumnAccess: (collection: string, role: string) =>
-      getColumnAccess(getDb(), collection, role),
+    // `userId` is additive and optional: an extension built against the older
+    // three-argument signature keeps working, and gets no exemption, which is
+    // the refusing direction. Pass the acting user's id to have the host
+    // resolve `data:view_all_columns` for them — that is how a god sees every
+    // column through an extension, the same way it does through the data API.
+    getColumnAccess: (collection: string, role: string, userId?: string) =>
+      getColumnAccess(getDb(), collection, role, userId),
     resolveUserRole,
+    getUserNames,
     getSingleTenantId,
     isTenantAdmin,
     requireInstanceAdmin,

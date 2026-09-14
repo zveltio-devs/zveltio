@@ -8,7 +8,7 @@ import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenanc
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { getStorage } from '../lib/storage/index.js';
-import { runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { cleanupOldBackups, runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
 import { verifyArchive } from '../lib/backup/verify-archive.js';
 import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
@@ -129,7 +129,7 @@ export function resolveDumpTarget(): {
   };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function backupRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -185,7 +185,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // POST /api/backup — create backup (async background)
   router.post('/', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const notes = body.notes || null;
@@ -394,7 +394,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // DELETE /api/backup/:id
   router.delete('/:id', async (c) => {
     const id = c.req.param('id');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
 
     const backup = await sql<{ filename: string }>`
@@ -461,7 +461,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   });
 
   router.patch('/pitr/config', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const parsed = PitrConfigSchema.safeParse(body);
@@ -510,7 +510,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   });
 
   router.post('/pitr/restore-points', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const parsed = CreateRestorePointSchema.safeParse(body);
@@ -536,7 +536,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   router.delete('/pitr/restore-points/:id', async (c) => {
     const id = c.req.param('id');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const existing = await sql<{ id: string }>`
       SELECT id::text FROM zv_pitr_restore_points WHERE id = ${id}`.execute(db);
@@ -562,7 +562,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     });
 
   router.post('/pitr/restore', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const parsed = PitrRestoreSchema.safeParse(body);
@@ -668,7 +668,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // GET /schedules — list backup schedules
   router.get('/schedules', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const schedules = await sql<any>`
       SELECT id::text, name, cron_expression, retention_count,
              storage_destination, s3_bucket, s3_prefix,
@@ -684,7 +684,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // POST /schedules — create schedule
   router.post('/schedules', zValidator('json', ScheduleSchema), async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const data = c.req.valid('json');
 
@@ -753,7 +753,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   router.patch('/schedules/:id', zValidator('json', ScheduleSchema.partial()), async (c) => {
     const id = c.req.param('id');
     const data = c.req.valid('json');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
 
     const existing = await sql<{ id: string }>`
@@ -766,7 +766,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     if (refusal) return c.json({ error: refusal }, 400);
 
     const setClauses: string[] = ['updated_at = NOW()'];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const values: any[] = [];
 
     if (data.name !== undefined) {
@@ -798,7 +798,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     }
 
     // Use Kysely updateTable for safety
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const updateData: Record<string, any> = { updated_at: new Date() };
     if (data.name !== undefined) updateData.name = data.name;
     if (data.cron_expression !== undefined) updateData.cron_expression = data.cron_expression;
@@ -833,7 +833,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // DELETE /schedules/:id — delete schedule
   router.delete('/schedules/:id', async (c) => {
     const id = c.req.param('id');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await sql`DELETE FROM zv_backup_schedules WHERE id = ${id}`.execute(db);
     await auditLog(db, {
@@ -848,7 +848,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // POST /schedules/:id/trigger — manually trigger a scheduled backup now
   router.post('/schedules/:id/trigger', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     const scheduleId = c.req.param('id');
 
@@ -902,7 +902,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   router.get('/integrity/:id', async (c) => {
     const backupId = c.req.param('id');
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const checks = await sql<any>`
       SELECT id::text, backup_id, filename, size_bytes, checksum_md5, is_valid, error, checked_at
       FROM zv_backup_integrity_checks
@@ -1008,7 +1008,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
       isValid = problems.length === 0;
       if (!isValid) errorMsg = problems.join('; ');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
       errorMsg = err.message;
       isValid = false;
@@ -1103,28 +1103,4 @@ function formatBytes(bytes: unknown): string {
   // and concatenate the word "undefined" into the answer.
   const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((n / k ** i).toFixed(2))} ${sizes[i]}`;
-}
-
-async function cleanupOldBackups(db: Database): Promise<void> {
-  try {
-    const oldBackups = await sql<{ id: string; filename: string }>`
-      SELECT id::text, filename FROM zv_backups
-      WHERE status = 'completed'
-      ORDER BY created_at DESC
-      OFFSET 20
-    `.execute(db);
-
-    for (const backup of oldBackups.rows) {
-      if (!backup.filename.includes('..') && !backup.filename.includes('/')) {
-        const filepath = `${BACKUP_DIR}/${backup.filename}`;
-        if (await Bun.file(filepath).exists()) {
-          const rmProc = Bun.spawn(['rm', '-f', filepath]);
-          await rmProc.exited;
-        }
-      }
-      await sql`DELETE FROM zv_backups WHERE id = ${backup.id}`.execute(db);
-    }
-  } catch (err) {
-    console.error('Failed to cleanup old backups:', err);
-  }
 }

@@ -18,10 +18,10 @@ Drupal is modular, installed by an operator rather than forked by a developer.
 
 ---
 
-## It is not a Firebase
+## The shape of the product
 
-This matters more than it sounds, because every previous external reviewer got
-it wrong and audited the wrong threats.
+This matters more than it sounds, because it determines which threats are worth
+modelling and which are not.
 
 - **There is no public data API.** Everything under `/api/*` requires a session.
   Anonymous requests reach nothing.
@@ -43,7 +43,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 
 ---
 
-## What it ships that the alternatives do not
+## What it ships
 
 | Capability | What it means |
 |---|---|
@@ -55,10 +55,6 @@ See [multi-tenancy.md](multi-tenancy.md).
 | **Immutable audit trail** | Every write logged with user, IP, and before/after values. GDPR export and erasure built in. |
 | **Server-driven UI** | Extension admin pages ship as JSON schemas rendered by trusted host components — no per-extension build, no third-party JavaScript in the admin. See [SDUI](../ui/sdui.md). |
 | **56 official extensions** | Including Romanian compliance (e-Factura, e-Transport, SAF-T, D300). See the [catalog](../extensions/catalog.md). |
-
-Comparison with the usual alternatives — Supabase, Appwrite, Directus — is
-maintained on the public website rather than here, because it is marketing copy
-that needs to stay current with *their* releases, not ours.
 
 ---
 
@@ -107,7 +103,7 @@ the marketplace flow, the worker isolation contract) must not be broken. Engine
 internals and Studio layout may still move.
 
 The `1.0.0-alpha.*` track is closed (last release `alpha.129`); new installations
-use beta. See [migration-alpha-to-beta.md](migration-alpha-to-beta.md).
+use beta.
 
 Versioning policy is in [versioning.md](versioning.md). Cutting a release is a
 manual, owner-only decision — never an autonomous bump or tag.

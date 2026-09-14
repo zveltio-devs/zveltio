@@ -98,7 +98,7 @@ const trailingSlashRedirect: MiddlewareHandler = async (c, next) => {
 // new requests to the updated handler while in-flight requests drain normally.
 let _currentApp = new Hono();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let _bootstrapCtx: { db: any; auth: any } | null = null;
 let _server: ReturnType<typeof Bun.serve> | null = null;
 // Metrics counters persist across hot-reloads (module-level, not app-level)
@@ -386,7 +386,7 @@ if (_cmd === 'status') {
   const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/health`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const body: any = await res.json().catch(() => ({}));
     if (res.ok) {
       console.log(`✅ zveltio is running on ${url}`);
@@ -409,7 +409,23 @@ if (_cmd === 'migrate') {
     process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
   }
   const { initDatabase: _initDb } = await import('./db/index.js');
-  await _initDb();
+  const _db = await _initDb();
+  // `initDatabase` creates the tracking table and NOTHING else — deliberately,
+  // since 93b96c14 moved the runner off the connect path so `MIGRATIONS_AUTO`
+  // could actually opt out and the advisory lock could protect the pass that
+  // does the work. This command was left calling only `initDatabase`, so from
+  // that commit until this one `zveltio migrate` applied nothing and printed
+  // `✅ Migrations complete` anyway. Measured on a virgin database: 1 table
+  // (`zv_migrations`) where a migrated one has 73. The installers run this
+  // command (install.sh, update.sh), and CHANGELOG records the SAME defect
+  // once before — a silent no-op here is a regression, not a novelty.
+  //
+  // `runMigrations`, not `autoMigrate`: the latter returns early on
+  // `MIGRATIONS_AUTO=false`, which is the right answer for a boot that should
+  // not migrate itself and the wrong one for an operator who typed `migrate`.
+  // The lock and the chain check still apply — they live in the runner.
+  const { runMigrations: _runMigrations } = await import('./db/migrations/index.js');
+  await _runMigrations(_db);
   console.log('✅ Migrations complete');
   process.exit(0);
 }
@@ -448,7 +464,7 @@ if (_cmd === 'create-god') {
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .insertInto('user' as any)
     .values({
       id: _id,
@@ -461,7 +477,7 @@ if (_cmd === 'create-god') {
     })
     .execute();
   await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .insertInto('account' as any)
     .values({
       id: crypto.randomUUID(),
@@ -498,7 +514,7 @@ if (_cmd === 'create-god') {
 // If the files are missing and the registry is unreachable we skip silently —
 // the server starts normally and the user can activate from marketplace later.
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function ensureDefaultExtensions(db: any): Promise<void> {
   const defaults = [
     {
@@ -709,7 +725,7 @@ async function buildHonoApp(): Promise<Hono> {
   // they belong to (zv_tenant_users). Runs after tenantMiddleware so the tenant
   // is resolved. No-op for the default tenant (single-tenant space) + public
   // requests + god/super-admin; only blocks a logged-in non-member from pivoting
-  // to another tenant via X-Tenant-Slug. See docs/private/MULTI-TENANT-ENABLEMENT.md §3.
+  // to another tenant via X-Tenant-Slug. See docs/platform/multi-tenancy.md.
   app.use('/api/*', tenantMembershipMiddleware(auth, scopedDb));
   app.use('/ext/*', tenantMembershipMiddleware(auth, scopedDb));
 
@@ -722,6 +738,38 @@ async function buildHonoApp(): Promise<Hono> {
   // Throttle extension traffic (per user / per IP) so a compromised or abusive
   // client can't hammer extension routes. Generous cap — SDUI bursts are fine.
   app.use('/ext/*', extRateLimit);
+
+  // Request-count + Prometheus metrics — registered BEFORE any route so it
+  // wraps every one of them (core, marketplace, extension, `/health`,
+  // `/metrics` itself, the 404 guards, the SPA catch-all). It used to sit
+  // right above `/metrics`, AFTER `registerCoreRoutes()` had already mounted
+  // the entire `/api/*` and `/ext/*` surface and after the `/health` route —
+  // Hono composes matched handlers in registration order, so a route that
+  // returns without calling `next()` never reaches a `next()`-based
+  // middleware registered later for the same path. Measured live: hitting
+  // `/api/health`, `/api/settings` and `/api/extensions` left
+  // `zveltio_requests_total` and `http_requests_total` completely unchanged,
+  // while a path that falls through to the `/api/*` 404 guard (registered
+  // after the old position) was counted every time.
+  app.use('*', async (c, next) => {
+    _totalRequestCount++;
+    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
+    // app-traffic metrics the overview dashboard shows.
+    const p = c.req.path;
+    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
+      await next();
+      return;
+    }
+    const start = performance.now();
+    const method = c.req.method;
+    try {
+      await next();
+    } finally {
+      const seconds = (performance.now() - start) / 1000;
+      httpRequests.inc({ method, status: String(c.res.status) });
+      httpRequestDuration.observe({ method }, seconds);
+    }
+  });
 
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db: scopedDb, poolDb: db, auth });
@@ -851,15 +899,15 @@ rm studio.tar.gz</pre>
     // failed read silently narrows the answer to what the in-process loader happens
     // to hold — so an extension enabled in the database but not yet loaded simply
     // vanishes from the list an operator uses to check that it is on.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
       .select('name')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('is_enabled' as any, '=', true)
       .execute();
     const allActive = [
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),
     ];
     const meta = extensionLoader.getExtensionMeta();
@@ -905,25 +953,6 @@ rm studio.tar.gz</pre>
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
-  app.use('*', async (c, next) => {
-    _totalRequestCount++;
-    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
-    // app-traffic metrics the overview dashboard shows.
-    const p = c.req.path;
-    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
-      await next();
-      return;
-    }
-    const start = performance.now();
-    const method = c.req.method;
-    try {
-      await next();
-    } finally {
-      const seconds = (performance.now() - start) / 1000;
-      httpRequests.inc({ method, status: String(c.res.status) });
-      httpRequestDuration.observe({ method }, seconds);
-    }
-  });
   app.get('/metrics', async (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {

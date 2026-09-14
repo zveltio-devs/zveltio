@@ -1,6 +1,10 @@
 # Zveltio Extension Developer Guide
 
-> **Audience**: developers building extensions for the Zveltio Business OS.
+> **Audience**: anyone building an extension for the Zveltio Business OS — the
+> Zveltio team and third-party developers alike. There is no second, internal
+> guide: the official extensions in `zveltio-extensions` are held to exactly the
+> rules written here, and the gates in §13.6 judge every extension the same way,
+> whoever wrote it.
 >
 > **Companion documents**:
 > - [`cookbook.md`](cookbook.md) — **task-oriented recipes**
@@ -9,7 +13,7 @@
 >   reference behind it.
 > - [`authoring.md`](authoring.md) — contract reference (the
 >   *what*).
-> - [`REFACTORING-V1-PLAN.md`](../private/REFACTORING-V1-PLAN.md) — platform roadmap (some
+> - the platform roadmap (some
 >   features described here land in v1.0).
 >
 > Sections marked **(v1.0)** describe APIs landing in the v1.0 sprint. Sections
@@ -503,6 +507,46 @@ availability valve — leave it on).
 every declared `publicRoutes` entry is actually reachable anonymously and that a
 non-declared path is `401`. A forgotten declaration or a regressed gate fails the
 `runtime-probe` job.
+
+### Reading files at runtime
+
+Your extension is delivered as **one bundled JavaScript file** plus the files
+your own repository ships beside it. `node_modules` does not travel with it. Two
+consequences, and the difference between them has already cost a shipped
+feature:
+
+**`import.meta.dir` is fine for your own files.** It stays dynamic through
+bundling and resolves, on the installation, to the directory your extension was
+extracted into. This is how every extension points at its migrations:
+
+```ts
+migrations: () => [join(import.meta.dir, 'migrations/001_init.sql')],
+```
+
+**A dependency that reads its own files at runtime will not work.** The bundler
+replaces `__dirname` inside a CommonJS dependency with the absolute path it
+resolved *on the machine that packed the extension*, and that dependency's data
+files are not in the bundle and not in the archive. The result runs correctly
+for the author and fails for every installation — the worst shape of defect,
+because local testing confirms it.
+
+This is not hypothetical. `operations/traceability` generated its PDF labels
+with `pdfkit`, which loads font metrics with
+`readFileSync(__dirname + "/data/Helvetica.afm")`. The shipped bundle contained:
+
+```js
+var __dirname = "/home/<the packer>/zveltio-extensions/node_modules/pdfkit/js";
+```
+
+Labels printed on exactly one machine in the world. It was repaired by moving to
+`pdf-lib`, which carries its font metrics inside the library.
+
+**The rule:** choose dependencies that work from memory. Before adopting one,
+grep it for `__dirname`, `__filename` and `readFileSync` — if it loads data from
+its own package directory, it cannot be bundled into an extension. `scripts/
+check-bundle-build-paths.ts` fails the build if a packed bundle carries a path
+like the one above, but it can only tell you afterwards; the library choice is
+where this is decided.
 
 ---
 
@@ -1977,6 +2021,64 @@ credential separation, not OS sandboxing.
 
 ---
 
+## 13.6. What actually ships, and the gates that check it
+
+Read this once before your first publish. Most of the expensive mistakes in this
+codebase came from a wrong mental model of what the installation receives.
+
+### What the installation receives
+
+| Ships | Does not ship |
+|---|---|
+| `engine/index.js` — one bundled file, with every dependency inlined | `node_modules`, in any form |
+| `migrations/*.sql` | your `engine/*.ts` sources |
+| `manifest.json`, `studio/` schemas | anything a dependency expects to find beside itself |
+
+`scripts/sync-to-registry.mjs` builds the archive and excludes `node_modules`
+explicitly. There is no install step on the target that fetches your
+dependencies — the bundle is the delivery.
+
+### Version bumps are not optional
+
+The registry **refuses the same version with different bytes**. Any repack — a
+one-character source change, a dependency bump, a rebuild on a different Bun
+version — needs the manifest version raised in the same change. `extension pack`
+updates `integrity.engineSha256` but deliberately does **not** touch the
+version: that is your decision to make, not a side effect of building.
+
+### The gates your extension will meet
+
+These run on every pull request. They exist because each of them was written
+after something shipped broken, so the message usually tells you what happened
+the first time.
+
+| Gate | Refuses |
+|---|---|
+| `check-bundle-sources` | a committed bundle that does not match the source beside it — someone edited the source and did not repack |
+| `check-bundle-build-paths` | a bundle carrying the packing machine's filesystem layout (see §5, *Reading files at runtime*) |
+| `check-embedded-deps-fresh` | a bundle whose inlined `hono`/`zod`/`kysely`/`@hono/zod-validator` is not the engine's locked version |
+| `check-dep-lockstep` | a pin in `package.json` that does not match the engine's lockfile exactly |
+| `extension validate` | a `peerDependency` that is not on the platform allow-list |
+| `check-extension-authorization` | a route with no authorization decision |
+| `check-harness-stubs` | a guard whose test exercises a stub instead of the guard |
+
+**The allow-list is a real gate, not a formality.** A dependency the platform has
+not accepted fails with `PEERDEP_NOT_ALLOWED`. Adding one is a pull request
+against `packages/engine/src/lib/peer-deps-allowlist.ts` — and against the CLI's
+inline copy, which a drift test keeps in step with it.
+
+### Choosing a dependency
+
+Ask, in this order:
+
+1. **Does the engine already ship it?** `pdf-lib`, `zod`, `kysely` and `hono`
+   are already in the product. Using what the host uses costs nothing.
+2. **Does it work from memory?** See §5 — anything that reads its own package
+   directory at runtime cannot be bundled.
+3. **Is it on the allow-list?** If not, expect to justify it.
+
+---
+
 ## 14. Best practices & anti-patterns
 
 ### Do
@@ -1990,7 +2092,12 @@ credential separation, not OS sandboxing.
 - **Generate types** with `zveltio extension types` after every migration.
 - **Use `ctx.services.get()` defensively** — providers may be disabled.
 - **Write integration tests** for every route. Unit tests for hooks.
-- **Bump version** before publishing.
+- **Bump the manifest version on every repack**, not only on a feature change.
+  The registry refuses the same version with different bytes, so a rebuilt
+  bundle without a bump is rejected at sync — see §13.6.
+- **Prove a test catches the defect.** Break the code it guards, confirm *that*
+  test fails and the others do not, then restore. A test written after a fix
+  and never seen red has not been shown to test anything.
 
 ### Don't
 
@@ -2007,11 +2114,23 @@ credential separation, not OS sandboxing.
   background task.
 - **Don't `setInterval`.** Use `schedules()` instead — observable, cancellable,
   singleton-safe.
-- **Don't bundle Hono/Zod/Kysely.** They are shimmed by the engine — bundling
-  them duplicates code and breaks identity checks. List them as
-  `peerDependencies`.
-- **Don't depend on `EXTENSIONS_DIR` paths.** Use `import.meta.dir` for files
-  inside your extension.
+- **Don't pin Hono/Zod/Kysely to a version of your own.** They *are* bundled
+  into your artifact — that is the delivery model, and `bundlePeers: true` is
+  the only valid configuration — but their types cross the boundary into the
+  engine, so the version must match its lockfile **exactly**.
+  `check-dep-lockstep` enforces it. A skew does not fail cleanly: TypeScript
+  stops deduplicating the two copies and floods unrelated extensions with
+  `TS2345`.
+- **Don't depend on `EXTENSIONS_DIR` paths**, and don't expect a dependency to
+  find its own data files at runtime. `import.meta.dir` is correct for files
+  your extension ships (migrations); a bundled dependency's `__dirname` is
+  frozen to the packing machine. See §5, *Reading files at runtime* — this shape
+  of defect passes every local test.
+- **Don't return something that only looks like the thing you promised.** A
+  batch label endpoint returned `Buffer.concat` over separate PDFs with a
+  comment saying a real merge was still to be done: right content type,
+  plausible size, opens — and shows only the first page. If you cannot do the
+  work, fail; a plausible artifact is worse than an error.
 - **Don't write Studio code that touches `window.__zveltio` directly.** Use
   `@zveltio/sdk/studio` imports (v1.0).
 

@@ -10,6 +10,31 @@ import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
 import { DDLManager } from '../lib/data/index.js';
 import { GhostDDL } from '../lib/data/index.js';
+import { toJsonb } from '../lib/jsonb.js';
+
+/**
+ * `changes` is a jsonb ARRAY column. Writing it with a bare `JSON.stringify(...)`
+ * parameter (rather than `toJsonb`, see lib/jsonb.ts) double-encodes it: the
+ * column ends up holding a jsonb STRING whose text happens to be the array's
+ * JSON, not the array itself. Measured: after such a write, `changes` comes
+ * back from the driver as a JS string, and `for (const change of changes)`
+ * silently iterates its individual characters instead of its entries — merge
+ * "succeeds" having applied nothing and recorded no error. Parsing
+ * defensively here also recovers any branch already written that way before
+ * this fix, with no migration needed.
+ */
+function parseChanges(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 /** Rows in `tableName`, or `Infinity` when the count cannot be taken.
  *
@@ -39,9 +64,9 @@ async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<n
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function schemaBranchesRoutes(db: Database, auth: any): Hono {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const router: any = new Hono<{ Variables: { user: User } }>()
 
     // Admin-only middleware
@@ -64,7 +89,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           base_schema: string;
           branch_schema: string;
           status: string;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           changes: any[];
           created_by: string | null;
           merged_by: string | null;
@@ -95,7 +120,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           base_schema: string;
           branch_schema: string;
           status: string;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           changes: any[];
           created_by: string | null;
           merged_by: string | null;
@@ -161,7 +186,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           }
 
           const collections = await DDLManager.getCollections(db);
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           for (const col of collections as any[]) {
             const tableName = `zvd_${col.name}`;
             try {
@@ -208,7 +233,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           name: string;
           base_schema: string;
           branch_schema: string;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           changes: any[];
         }>`
           SELECT id, name, base_schema, branch_schema, changes
@@ -236,8 +261,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         const branchNames = new Set(branchCols.map((r) => r.name));
         const added = [...branchNames].filter((n) => !baseNames.has(n));
         const removed = [...baseNames].filter((n) => !branchNames.has(n));
-        const modified = (branch.changes || [])
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        const modified = parseChanges(branch.changes)
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .map((ch: any) => ch.payload?.collection)
           .filter(Boolean);
 
@@ -305,7 +330,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
     // GET /api/schema/branches/:id/reviews — list reviews for a branch
     .get('/branches/:id/reviews', async (c) => {
       const id = c.req.param('id');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const reviews = await sql<any>`
         SELECT * FROM zvd_branch_review_requests
         WHERE branch_id = ${id}
@@ -324,7 +349,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           name: string;
           branch_schema: string;
           status: string;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           changes: any[];
           requires_approval: boolean;
           review_status: string | null;
@@ -349,7 +374,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           );
         }
 
-        const changes = branch.changes || [];
+        const changes = parseChanges(branch.changes);
         const applied: string[] = [];
         const errors: string[] = [];
 
@@ -448,19 +473,19 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         const id = c.req.param('id');
         const { type, payload } = c.req.valid('json');
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           const branchResult = await sql<{ changes: any[] }>`
             SELECT changes FROM zv_schema_branches WHERE id = ${id} AND status = 'open'
           `.execute(db);
           if (branchResult.rows.length === 0)
             return c.json({ error: 'Branch not found or not open' }, 404);
 
-          const currentChanges = branchResult.rows[0].changes || [];
+          const currentChanges = parseChanges(branchResult.rows[0].changes);
           const newChange = { type, payload, timestamp: new Date().toISOString() };
 
           await sql`
             UPDATE zv_schema_branches
-            SET changes = ${JSON.stringify([...currentChanges, newChange])}
+            SET changes = ${toJsonb([...currentChanges, newChange])}
             WHERE id = ${id}
           `.execute(db);
 

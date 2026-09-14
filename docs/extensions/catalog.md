@@ -208,16 +208,3 @@ edge functions → `developer/edge-functions`, briefing → `crm`.
 
 `developer/views` and `content/page-builder` were **merged into
 `content/pages`** and no longer exist.
-
----
-
-## Known gaps in this catalog
-
-Verified 2026-09-02 — see [../platform/known-gaps.md](../platform/known-gaps.md)
-for the full list:
-
-- `crm` ships five pipeline tables with no routes.
-- `forms` advertises a `file` field type it cannot accept.
-- `hr/time-tracking` numbers invoices with `COUNT(*) + 1`.
-- `auth/scim` answers `/Groups` with an empty list rather than 501.
-- `projects/helpdesk` Studio and API disagree on field names.

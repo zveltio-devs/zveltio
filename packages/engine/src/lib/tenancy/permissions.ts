@@ -320,7 +320,7 @@ let _db: Database;
 let _enforcer: Enforcer | null = null;
 
 class KyselyCasbinAdapter {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async loadPolicy(model: any): Promise<void> {
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
@@ -350,7 +350,7 @@ class KyselyCasbinAdapter {
     }
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async savePolicy(model: any): Promise<boolean> {
     // Wrap TRUNCATE + INSERT in a single transaction so there's never a
     // window where zvd_permissions is empty. A crash in the middle would
@@ -370,7 +370,7 @@ class KyselyCasbinAdapter {
         }
       }
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (_db as any).transaction().execute(async (trx: Database) => {
       await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
       for (const [ptype, ...values] of lines) {
@@ -458,7 +458,7 @@ class KyselyCasbinAdapter {
     //
     // An empty string is casbin's "any value in this column", so it is skipped
     // exactly like an absent one.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const conditions: any[] = [sql`ptype = ${ptype}`];
     fieldValues.forEach((value, offset) => {
       const column = fieldIndex + offset;
@@ -1079,4 +1079,40 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   } catch {
     /* ws module unavailable in some unit-test graphs */
   }
+}
+
+/**
+ * Display names for a set of user ids.
+ *
+ * Exists because extensions need to render "who asked for this" and had no
+ * legitimate way to get it. `workflow/approvals` joined the Better-Auth `user`
+ * table directly — `leftJoin('user as u', 'u.id', 'r.requested_by')` at three
+ * sites — which worked only because `createRestrictedDb` checked the FROM
+ * table and never the JOIN. #499 closed that hole (the same gap handed
+ * `session.token` to a zero-capability extension), and the join started
+ * answering 500.
+ *
+ * A grant on `user` was the cheap answer and the wrong one: it would hand the
+ * extension `email`, `role` and everything else the table grows, to render a
+ * name. This returns ids mapped to names and nothing else, so the extension
+ * gets exactly what it renders.
+ *
+ * Unknown ids are simply absent from the result — callers fall back to the id.
+ * Reads the POOL handle for the same reason `resolveUserRole` does: this is
+ * instance-level identity, not tenant rows, and `SAVEPOINT` against the pool
+ * answers 25P01 (see the note there).
+ */
+export async function getUserNames(userIds: string[]): Promise<Record<string, string>> {
+  const ids = [...new Set(userIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return {};
+
+  const result = await sql<{ id: string; name: string | null }>`
+    SELECT id, name FROM "user" WHERE id = ANY(${ids})
+  `.execute(_db);
+
+  const out: Record<string, string> = {};
+  for (const row of result.rows) {
+    if (row.name) out[row.id] = row.name;
+  }
+  return out;
 }

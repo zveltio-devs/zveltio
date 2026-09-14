@@ -186,3 +186,14 @@ docs/dr-drills/*.md
 # scripts/generate-studio-embed.ts, never authored.
 packages/engine/studio-dist/
 test-results/
+
+# Archon working directory: run layers and workflows are operator-local —
+# absolute paths, a local postgres login, one machine's layout.
+.archon/
+
+# Private working documents. This repository is public; these are not.
+# They carry the maturity backlog and, in the review campaign's state file,
+# prose descriptions of defects that are known and deliberately still open.
+# Without a trailing slash on purpose: in this checkout the path is a SYMLINK
+# to the private repository, and the slash form matches directories only.
+docs/private

@@ -393,12 +393,9 @@ Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
 not declared by the worker. Contaminated connections are closed rather than
 returned to the pool.
 
-Extensions install their own isolation from a copied `002_tenant_rls.sql`, and
-all of those copies were fail-open — no tenant context meant every tenant's rows,
-where the engine's own tables meant none. A boot reconciler rewrites every
-extension-owned tenant table onto the host predicate, which makes tenant
-isolation something the host guarantees rather than something every extension
-author has to get right.
+A boot reconciler rewrites every extension-owned tenant table onto the host
+predicate, which makes tenant isolation something the host guarantees rather
+than something every extension author has to get right.
 
 ---
 
@@ -431,29 +428,7 @@ author has to get right.
 
 ---
 
-## 9. Leads already measured as false — do not report them as discoveries
-
-Each has already cost someone time.
-
-- **"RLS policies cannot use the index"** — FALSE. This was got wrong twice, in
-  opposite directions. The predicate's shape decides: `= ANY(array)` does not
-  drive an ordered scan, explicit equality does. **415 → 204 → 129 ms**, measured.
-- **`broadcastSSE` is dead code** — it is not. **"mail iframe XSS"** — false.
-- **`session.user.role` is empty** — true, it is not declared in Better-Auth.
-  Code relying on it is dead, not dangerous. **But** see §6: a rule on
-  `user_role` falls into that case, which was a real defect.
-- **Twilio, PostGIS authz** — fixed. **Sessions on user deletion, Valkey,
-  webhook DLQ** — closed.
-- **"The engine MUST be a superuser"** — FALSE, and it is the mistake the first
-  version of this document made. See §0.1: the role descent works through
-  membership, and the documented production installation runs as a plain role.
-  What is true is that the stock Postgres image connects as a superuser, so an
-  unconfigured installation really is in that state — and the engine refuses to
-  boot that way in production.
-
----
-
-## 10. Where the invariants live — as tests, not as documentation
+## 9. Where the invariants live — as tests, not as documentation
 
 ```
 tests/harness/row-rules-four-interpreters.test.ts   one rule, four renderings, the whole matrix
@@ -480,7 +455,7 @@ The claims worth trying to break:
 
 ---
 
-## 11. How to verify what this document says
+## 10. How to verify what this document says
 
 ```bash
 DB=zv_$(date +%H%M)
@@ -510,18 +485,3 @@ times slower.
 And **before any long run**: `pgrep -af "bun test packages"`. A run left over
 from an earlier session holds the database and corrupts everything measured after
 it, without saying anything.
-
-### What is wanted back from an audit
-
-For each finding, mark explicitly:
-
-- **EXECUTED** — I ran this and saw the result; or
-- **READ** — I am inferring from code, I did not run it.
-
-Both are useful. Confused with each other, they are not. And **say what you
-checked and found sound**, especially from the list in §10 — an audit that
-reports only problems does not say how much of the surface was touched.
-
-If something looks wrong but tests cover it, **read the test** before reporting:
-the test may be the wrong one, and that is a better finding. It happened twice on
-31 August.

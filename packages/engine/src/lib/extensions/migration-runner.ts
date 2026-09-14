@@ -53,7 +53,11 @@ async function assertMigrationTablesAllowed(extName: string, sqlText: string): P
   const granted = new Set((EXTENSION_TABLE_GRANTS[extName] ?? []).map((t) => t.toLowerCase()));
   const owned = ownedPrefixFor(extName).toLowerCase();
 
-  const re = /\b(ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
+  // `ALTER TABLE [IF EXISTS] [ONLY] name` is valid Postgres — without the
+  // `ONLY` allowance, `(\w+)` matched "ONLY" itself for `ALTER TABLE ONLY
+  // <table> ...`, so the guard checked whether "only" was a protected table
+  // (never true) instead of the real target and let the statement through.
+  const re = /\b(ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi;
   const offenders = new Set<string>();
   for (const m of sqlText.matchAll(re)) {
     const table = m[2].toLowerCase();

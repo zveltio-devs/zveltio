@@ -296,10 +296,8 @@ backfill BEFORE the table is considered multi-tenant-safe.
 ### Per-extension tenant isolation status
 
 Tenant isolation rollout is **complete** across the extension catalog
-as of zveltio-extensions commit `14b0dd0` — the historical backlog
-in the May 2026 audit round (report retired; see [known-gaps.md](known-gaps.md))
-is closed. An extension is "tenant-safe" when ALL of the following
-are true:
+as of zveltio-extensions commit `14b0dd0`. An extension is "tenant-safe"
+when ALL of the following are true:
 
   1. Every table has a `tenant_id UUID` column with
      `DEFAULT NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid`.

@@ -45,14 +45,14 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function healthRoutes(db: Database, auth?: any): Hono {
   const app = new Hono();
 
   // Auth guard for detail endpoints — `/` stays public (minimal response).
   // If `auth` wasn't passed (tests, some older call-sites), fall through so
   // behaviour matches the previous shape instead of 401-ing every request.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async function requireAuth(c: any): Promise<boolean> {
     if (!auth) return true;
     try {
@@ -312,7 +312,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
       if (!res.ok) throw new Error('GitHub API unavailable');
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const releases = (await res.json()) as any[];
       const release = releases[0];
       const latestVersion = release?.tag_name?.replace('v', '') ?? ENGINE_VERSION;
@@ -339,8 +339,16 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   // GET /api/health/:subsystem — probe one subsystem (db, migrations, cache,
   // queue, realtime, storage, extensions, or any extension check). Registered
   // LAST so the static health routes above win over this param route.
+  //
+  // Instance admin, same as /deep: this is /deep's per-subsystem breakdown, and
+  // an ordinary member requesting subsystems one at a time got the identical
+  // reconnaissance /deep is gated to keep from them — storage backend/endpoint,
+  // extension failure text, queue/cache backend names. Measured live: a freshly
+  // signed-up non-admin member got 403 from /deep but 200 from /database,
+  // /storage and /extensions individually before this gate was added.
   app.get('/:subsystem', async (c) => {
     if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
     const name = c.req.param('subsystem');
     const check = allChecks().find((ch) => ch.name === name) ?? getHealthCheck(name);
     if (!check) return c.json({ error: `Unknown subsystem '${name}'` }, 404);

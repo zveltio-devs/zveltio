@@ -3,9 +3,9 @@
  * review-inventory.ts — the file-by-file code review campaign ledger.
  *
  * Reads:
- *   docs/private/code-review-status.json   (append-only session log, edited by agents)
+ *   ../zveltio-private/engine/code-review-status.json  (append-only session log)
  * Writes:
- *   docs/private/CODE-REVIEW-STATE.md      (the checklist, generated)
+ *   ../zveltio-private/engine/CODE-REVIEW-STATE.md     (the checklist, generated)
  *
  * Why a generator and not a hand-kept table: the sibling repository's
  * REVIEW-STATUS.md says of itself "generated automatically is an intention, not
@@ -18,6 +18,8 @@
  *
  * Run: `bun run review:inventory`
  */
+
+import { existsSync } from 'node:fs';
 
 type Section = {
   id: string;
@@ -57,9 +59,29 @@ type SessionEntry = {
 
 type Ledger = { updated: string; sessions: SessionEntry[] };
 
-const STATUS_JSON = 'docs/private/code-review-status.json';
-const OUTPUT_MD = 'docs/private/CODE-REVIEW-STATE.md';
-const SESSIONS_DIR = 'docs/private/review-sessions';
+// The campaign ledger lives in the PRIVATE repository, a sibling of this one.
+//
+// It used to be kept here as well, ignored but present, and the two copies
+// drifted: session records ended up existing only inside an abandoned worktree,
+// and this script reported four points below the measured figure. There is one
+// copy now, and it is versioned where it belongs.
+//
+// Absent sibling is fatal rather than empty: "could not look" must not read as
+// "nothing to report", which is exactly how the drift went unnoticed.
+const PRIVATE_ROOT = '../zveltio-private/engine';
+
+if (!existsSync(PRIVATE_ROOT)) {
+  console.error(
+    `\n❌ review-inventory: no private repository at ${PRIVATE_ROOT}.\n\n` +
+      `   The campaign ledger is not in this repository. Clone the sibling:\n\n` +
+      `     git clone git@github.com:zveltio-devs/zveltio-private.git ../zveltio-private\n`,
+  );
+  process.exit(1);
+}
+
+const STATUS_JSON = `${PRIVATE_ROOT}/code-review-status.json`;
+const OUTPUT_MD = `${PRIVATE_ROOT}/CODE-REVIEW-STATE.md`;
+const SESSIONS_DIR = `${PRIVATE_ROOT}/review-sessions`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section map. Ordered: first match wins, so narrow entries precede prefixes.
@@ -796,6 +818,10 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
+      // Added 2026-09-10, when the internal documents moved out of this public
+      // repository. Reads the sibling when asked, which is this section's
+      // focus, and its CI job is in E08.
+      'scripts/check-private-docs-untracked.ts',
     ],
   },
   {

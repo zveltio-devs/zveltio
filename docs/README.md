@@ -17,7 +17,7 @@ change; each chapter opens with its own index.
 
 | # | Chapter | What it covers | Start here |
 |---|---------|----------------|-----------|
-| 1 | [**Platform**](platform/) | What Zveltio is, why it is shaped this way, architecture, install, configuration, multi-tenancy, security, operations, development workflow, known gaps | [platform/README.md](platform/README.md) |
+| 1 | [**Platform**](platform/) | What Zveltio is, architecture, install, configuration, multi-tenancy, security, operations, development workflow | [platform/README.md](platform/README.md) |
 | 2 | [**Engine**](engine/) | The Bun/Hono server: routes, data layer, auth, subsystems, SDK and CLI | [engine/README.md](engine/README.md) |
 | 3 | [**Studio**](studio/) | The SvelteKit 5 admin application served at `/admin` | [studio/README.md](studio/README.md) |
 | 4 | [**UI**](ui/) | Design system, component library, interaction patterns, SDUI renderer | [ui/README.md](ui/README.md) |
@@ -25,13 +25,14 @@ change; each chapter opens with its own index.
 
 Supporting material:
 
-- [`adr/`](adr/) — architecture decision records.
 - [`legal/`](legal/) — terms of service and privacy policy (published to the website).
-- [`private/`](private/) — internal engineering plans that are referenced from
-  source code and must keep stable paths. Not user documentation. See
-  [private/README.md](private/README.md).
 - [`manifest-v2.schema.json`](manifest-v2.schema.json) — JSON Schema for the
   extension manifest.
+
+This directory is the product specification. Internal engineering material —
+plans, decision records, defect backlogs, review state, and the project's own
+development history — is kept outside this repository and is deliberately not
+published here.
 
 ---
 
@@ -43,9 +44,8 @@ Supporting material:
 [Security](platform/security.md) → [Disaster recovery](platform/disaster-recovery.md)
 
 **Taking over the project.**
-[Overview](platform/overview.md) → [History](platform/history.md) — why it is
-shaped this way → [Architecture](platform/architecture.md) →
-[Development](platform/development.md) → [Known gaps](platform/known-gaps.md)
+[Overview](platform/overview.md) → [Architecture](platform/architecture.md) →
+[Development](platform/development.md)
 
 **Backend contributor — I am changing the engine.**
 [`AGENTS.md`](../AGENTS.md) → [Engine](engine/README.md) →
@@ -62,7 +62,7 @@ shaped this way → [Architecture](platform/architecture.md) →
 **Auditor / reviewer — I am assessing this system.**
 [Security](platform/security.md) (threat model and prior-round corrections) →
 [Multi-tenancy](platform/multi-tenancy.md) →
-[Audit coverage](platform/audit-coverage.md) → [Known gaps](platform/known-gaps.md)
+[Security model](platform/security-model.md)
 
 ---
 
@@ -91,8 +91,6 @@ style issue. Two things in this tree are enforced mechanically:
 - `platform/configuration.md` — the `DB_POOL_MAX` row is parsed by
   `packages/engine/src/tests/unit/pool-max-single-source.test.ts`. The
   documented default must equal `DEFAULT_DB_POOL_MAX` in code or the test fails.
-- `platform/audit-coverage.md` — read by `scripts/audit-gates.ts` and
-  `scripts/audit-inventory.ts`.
 
 Several documents are also cited from source comments and runtime error
 messages. Before moving or renaming any file here, run:

@@ -159,6 +159,53 @@ d('schema branches routes (in-process)', () => {
     expect(res.status).toBe(404);
   });
 
+  // `changes` is a jsonb ARRAY column. A prior write used a bare
+  // `JSON.stringify(...)` parameter instead of the repo's `toJsonb()` helper,
+  // which double-encodes it: the column holds a jsonb STRING whose text is
+  // the array's JSON, not the array itself. `for (const change of changes)`
+  // then silently iterates individual characters, applying nothing and
+  // recording no error — merge reports "0 changes, 0 errors" as if there had
+  // been nothing to do.
+  it('POST /:id/changes stores changes as a real jsonb array, not a double-encoded string', async () => {
+    const create = await app.request('/api/schema/branches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ name: `${BRANCH}-changes` }),
+    });
+    const created = (await create.json()) as { branch: { id: string }; schema: string };
+    const id = created.branch.id;
+
+    await app.request(`/api/schema/branches/${id}/changes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        type: 'remove_field',
+        payload: { collection: 'does_not_exist', field: 'ghost' },
+      }),
+    });
+
+    const raw = await sql<{ changes: unknown }>`
+      SELECT changes FROM zv_schema_branches WHERE id = ${id}
+    `.execute(db);
+    expect(Array.isArray(raw.rows[0]?.changes)).toBe(true);
+
+    const merge = await app.request(`/api/schema/branches/${id}/merge`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    const mergeBody = (await merge.json()) as { errors: string[] };
+    // The queued change targets a collection that doesn't exist, so it must
+    // surface as a real error — not silently vanish as "0 changes, 0 errors".
+    expect(mergeBody.errors.length).toBe(1);
+
+    await db
+      .deleteFrom('zv_schema_branches')
+      .where('id', '=', id)
+      .execute()
+      .catch(() => {});
+    await sql`DROP SCHEMA IF EXISTS ${sql.id(created.schema)} CASCADE`.execute(db).catch(() => {});
+  });
+
   it('DELETE /:id closes the branch and drops its schema (runs last)', async () => {
     const res = await app.request(`/api/schema/branches/${branchId}`, {
       method: 'DELETE',

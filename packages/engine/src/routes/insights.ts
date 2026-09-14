@@ -144,7 +144,7 @@ function rejectIfDangerous(query: string): string | null {
  * is read), so typing it here removes the per-handler `c.get('user')` casts. */
 type InsightsEnv = { Variables: { user: { id: string } } };
 
-// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/private/HARDENING-9-PLAN.md H-05
+// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in hardening plan item H-05
 export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   const app = new Hono<InsightsEnv>();
 

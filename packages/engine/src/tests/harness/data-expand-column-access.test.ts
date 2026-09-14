@@ -11,7 +11,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = `hexpcol_p_${Date.now()}`;
@@ -21,6 +26,7 @@ d('expand column access (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
+  let memberCookie = '';
   let parentId = '';
   let childId = '';
   let colPermId = '';
@@ -28,6 +34,16 @@ d('expand column access (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    // Deny-by-default: without an explicit grant this user is refused 403,
+    // which is not the restriction under test and reads like a pass.
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      // Both collections: `?expand=` reads the child through the parent, and a
+      // grant on the parent alone would refuse before any masking happened.
+      grants: [
+        { collection: PARENT, actions: ['read', 'create', 'update', 'delete'] },
+        { collection: CHILD, actions: ['read', 'create', 'update', 'delete'] },
+      ],
+    }));
     const textField = (name: string) =>
       ({ name, type: 'text', required: false, unique: false, indexed: false }) as never;
 
@@ -112,7 +128,7 @@ d('expand column access (in-process)', () => {
 
   it('single expand hides an unreadable column on the related collection', async () => {
     const res = await app.request(`/api/data/${CHILD}/${childId}?expand=parent`, {
-      headers: { cookie },
+      headers: { cookie: memberCookie },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -123,7 +139,9 @@ d('expand column access (in-process)', () => {
   });
 
   it('list expand hides an unreadable column on the related collection', async () => {
-    const res = await app.request(`/api/data/${CHILD}?expand=parent`, { headers: { cookie } });
+    const res = await app.request(`/api/data/${CHILD}?expand=parent`, {
+      headers: { cookie: memberCookie },
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { records: Record<string, unknown>[] };
     const row = body.records.find((r) => r.id === childId);

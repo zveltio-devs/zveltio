@@ -341,6 +341,23 @@ const CASES: Case[] = [
     body: '0.0.0-planted\n',
   },
   {
+    // Internal documents must not be tracked in a public repository, and a
+    // commit that publishes them is not undone by deleting them afterwards.
+    // The `.gitignore` rule is the fix; the gate is what notices when the rule
+    // stops working.
+    //
+    // Planted on `.gitignore` rather than by staging a file, because the gate's
+    // first check reads the git INDEX and a plant that only writes to disk would
+    // never reach it. This exercises the second check, which exists precisely
+    // because the first one alone would pass a repository whose rule someone had
+    // deleted — right up until the next `git add`.
+    gate: 'check-private-docs-untracked',
+    cmd: 'bun run scripts/check-private-docs-untracked.ts',
+    file: '.gitignore',
+    mode: 'replace',
+    body: 'node_modules\n',
+  },
+  {
     // A security rule is implemented ONCE. Every hand-written dispatch over a
     // filter operator so far has covered the comparisons and silently dropped
     // `in`/`not_in` — which means a row policy written with `in` stopped
@@ -794,6 +811,21 @@ const CASES: Case[] = [
     body:
       '\nexport const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
       "  checkPermission(uid, 'admin', '*');\n",
+    mode: 'append',
+  },
+  {
+    // `.env.example` is the reference an operator copies, and a published
+    // release asset. The installer writes its own `.env` from a heredoc —
+    // it has to, because it mints secrets — so a variable the example calls
+    // mandatory can quietly be produced by nothing at all, and the operator
+    // meets that as a failed boot.
+    //
+    // The violation is exactly that: a line marked REQUIRED that no install
+    // path writes. Appended, so the file is restored byte for byte.
+    gate: 'check-required-env-installable',
+    cmd: 'bun run scripts/check-required-env-installable.ts',
+    file: '.env.example',
+    body: '\nPLANTED_REQUIRED_KEY=        # REQUIRED — planted by audit-gates\n',
     mode: 'append',
   },
   {

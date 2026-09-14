@@ -59,7 +59,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const effectiveDb = getDb(c, db);
   // Column-level write permission — mirror single createRecord. Without it the
   // bulk endpoint was an escalation hole around read-only columns.
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const created: DynamicRecord[] = [];
   const errors: Array<{ index: number; errors: string[] }> = [];
 
@@ -189,7 +189,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   // not the row.
   const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
   // Column-level write permission — mirror single patchRecord.
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
   const updated: DynamicRecord[] = [];
   const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 

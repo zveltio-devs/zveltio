@@ -204,6 +204,18 @@ jobs:
         # tag. A gate is cheaper than remembering to.
         run: bun run scripts/check-embedded-migrations-fresh.ts
 
+      - name: Every REQUIRED variable is produced by an install
+        # `.env.example` is what an operator copies and what the release
+        # publishes, but the installer writes its own `.env` from a heredoc —
+        # it must, because it mints secrets. So a variable the example calls
+        # mandatory can be produced by nothing at all, and the operator meets
+        # that as a failed boot for a value they were told would be set.
+        #
+        # Deliberately narrow: the two install paths differ on purpose (Docker
+        # writes VALKEY_PASSWORD and compose derives VALKEY_URL; native writes
+        # VALKEY_URL), so this checks only the REQUIRED marking a human made.
+        run: bun run scripts/check-required-env-installable.ts
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -259,7 +271,7 @@ jobs:
         run: bun run lint
       - name: noExplicitAny ratchet
         # Fails if any package introduced a NEW `any` suppression above its
-        # baseline (docs/private/HARDENING-9-PLAN.md H-01). Type the value instead.
+        # baseline (hardening plan item H-01). Type the value instead.
         run: bun run any:ratchet
       - name: Lint warning ratchet
         # `bun run lint` exits 0 with warnings, so the count drifts upward one
@@ -279,7 +291,7 @@ jobs:
       - name: Import boundaries
         # Fails if code outside a lib/ subsystem deep-imports one of its
         # internal files instead of going through the barrel index
-        # (docs/private/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
+        # (hardening plan item H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
       - name: Pool-backed routers stay outside the request transaction
         # The failure this prevents is a total standstill, invisible until

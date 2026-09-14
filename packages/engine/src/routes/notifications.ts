@@ -8,7 +8,7 @@ import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
 import { sendPushToUsers } from '../lib/push-notifications.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function requireAuth(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user ?? null;
@@ -24,7 +24,7 @@ export async function sendNotification(
     type?: 'info' | 'success' | 'warning' | 'error';
     action_url?: string;
     source?: string;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     metadata?: Record<string, any>;
   },
 ): Promise<void> {
@@ -67,7 +67,7 @@ export async function sendNotification(
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function notificationsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -82,7 +82,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // GET / — List notifications for current user
   app.get('/', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const { unread_only, limit = '50', page = '1' } = c.req.query();
     const lim = Math.min(parseInt(limit), 200);
@@ -102,7 +102,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       query.execute(),
       tdb
         .selectFrom('zv_notifications')
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         .select((eb: any) => [
           eb.fn.count('id').as('total'),
           sql`SUM(CASE WHEN is_read = false THEN 1 ELSE 0 END)::int`.as('unread'),
@@ -124,7 +124,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // route captures "push-tokens" as :id and the UUID cast 500s.
   app.get('/push-tokens', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const tokens = await tdb
       .selectFrom('zvd_push_tokens')
@@ -137,7 +137,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // GET /:id — Get single notification
   app.get('/:id', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const notification = await tdb
       .selectFrom('zv_notifications')
@@ -153,7 +153,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // PATCH /:id/read — Mark as read
   app.patch('/:id/read', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .updateTable('zv_notifications')
@@ -167,7 +167,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // PATCH /:id/unread — Mark as unread
   app.patch('/:id/unread', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .updateTable('zv_notifications')
@@ -181,7 +181,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // POST /mark-all-read — Mark all as read for user
   app.post('/mark-all-read', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .updateTable('zv_notifications')
@@ -195,7 +195,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // DELETE /clear-all — Clear all read notifications (must be before DELETE /:id to prevent route conflict)
   app.delete('/clear-all', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .deleteFrom('zv_notifications')
@@ -208,7 +208,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete notification
   app.delete('/:id', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .deleteFrom('zv_notifications')
@@ -233,7 +233,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const { endpoint, p256dh, auth: authKey, user_agent } = c.req.valid('json');
 
@@ -254,7 +254,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // DELETE /push/subscribe — Unsubscribe
   app.delete('/push/subscribe', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const { endpoint } = await c.req.json();
     await tdb
@@ -295,7 +295,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const tdb = reqDb(c, db);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const isAdmin = await isTenantAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
@@ -339,7 +339,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       } else {
         // Broadcast to all active users
         const users = await tdb.selectFrom('user').select('id').execute();
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         targetIds = users.map((u: any) => u.id);
       }
 
@@ -371,14 +371,14 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const tdb = reqDb(c, db);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const { token, platform, device_name } = c.req.valid('json');
 
       await tdb
         .insertInto('zvd_push_tokens')
         .values({ user_id: user.id, token, platform, device_name: device_name ?? null })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         .onConflict((oc: any) =>
           oc
             .columns(['user_id', 'token'])
@@ -393,7 +393,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // DELETE /push-tokens/:id — unregister a token
   app.delete('/push-tokens/:id', async (c) => {
     const tdb = reqDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await tdb
       .deleteFrom('zvd_push_tokens')

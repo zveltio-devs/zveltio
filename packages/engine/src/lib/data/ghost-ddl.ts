@@ -266,7 +266,7 @@ export class GhostDDL {
       id: string;
       operation: string;
       row_id: string;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       row_data: any;
     }>`
       SELECT id, operation, row_id, row_data
@@ -286,7 +286,7 @@ export class GhostDDL {
       } else {
         // INSERT or UPDATE — upsert in ghost
         // row_data is the complete row snapshot (to_jsonb(NEW))
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const data = change.row_data as Record<string, any>;
         if (!data) continue;
 
@@ -347,7 +347,7 @@ export class GhostDDL {
 
       // Apply any writes that arrived in changelog in the window between
       // the last applyChangelog above and the LOCK moment
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await GhostDDL.applyChangelog(trx as any, migration);
 
       // Swap atomic: original → old, ghost → original
@@ -427,10 +427,19 @@ export class GhostDDL {
       return;
     }
 
-    onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
-    const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
-
+    // `createGhost` used to run before this try block, so a failure inside it
+    // (changelog table or trigger creation failing after the ghost table was
+    // already created, or a leftover `_zv_ghost_<table>` from a prior crashed
+    // run making the CREATE TABLE itself fail) reached the caller with no
+    // cleanup at all — not even the cleanup below, which only ever ran for
+    // failures in the steps AFTER createGhost. `migration` is therefore only
+    // assigned on success; the catch rebuilds the same names createGhost
+    // derives internally so cleanup still has something to act on.
+    let migration: GhostMigration | undefined;
     try {
+      onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
+      migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
+
       onProgress?.('copying', 'Batch copying data from original to ghost table');
       const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {
         onProgress?.('copying', `Copied ${done}/${total} rows`);
@@ -448,21 +457,27 @@ export class GhostDDL {
       );
     } catch (err) {
       // Cleanup ghost tables on failure to prevent accumulation
+      const ghostTable = migration?.ghostTable ?? `_zv_ghost_${tableName}`;
+      const changelogTable = migration?.changelogTable ?? `_zv_changelog_${tableName}`;
+      const triggerName = migration?.triggerName ?? `_zv_trg_ghost_${tableName}`;
+      const originalTable = migration?.originalTable ?? tableName;
       try {
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(db);
-        const triggerFn = `${migration.triggerName}_fn`;
-        await sql
-          .raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`)
+        await sql`DROP TABLE IF EXISTS ${sql.id(ghostTable)} CASCADE`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(changelogTable)} CASCADE`.execute(db);
+        const triggerFn = `${triggerName}_fn`;
+        // sql.id(), not raw string interpolation: when createGhost threw before
+        // returning (e.g. its own name-validation check), `originalTable` falls
+        // back to the caller-supplied `tableName`, which has not been validated
+        // at this point.
+        await sql`DROP TRIGGER IF EXISTS ${sql.id(triggerName)} ON ${sql.id(originalTable)}`
           .execute(db)
           .catch((cleanupErr: Error) => {
             console.warn(
-              `[ghost-ddl] DROP TRIGGER cleanup failed for ${migration.triggerName}:`,
+              `[ghost-ddl] DROP TRIGGER cleanup failed for ${triggerName}:`,
               cleanupErr.message,
             );
           });
-        await sql
-          .raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`)
+        await sql`DROP FUNCTION IF EXISTS ${sql.id(triggerFn)}()`
           .execute(db)
           .catch((cleanupErr: Error) => {
             console.warn(

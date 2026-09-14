@@ -17,7 +17,7 @@
  * Why: Bun compiled-binary dynamic import cannot resolve bare
  * specifiers like `kysely` from on-disk node_modules. Bundling those
  * deps into the extension is the only path that works at runtime in
- * the binary install — see docs/private/EXTENSIONS-V2-PHASE1.md §2.
+ * the binary install.
  *
  * Usage:
  *   $ zveltio extension pack            # current dir
@@ -31,6 +31,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
@@ -42,6 +43,60 @@ import { resolvePublisherTier } from '../lib/publisher-tier.js';
 // so it was retired in alpha.113. Kept as a const-empty marker; the
 // only valid configuration today is `engine.bundlePeers: true`.
 const PEER_DEP_ALLOWLIST = new Set<string>();
+
+/**
+ * Remove the packing machine's filesystem layout from the bundle.
+ *
+ * Bun replaces `__dirname` in a CommonJS dependency with the absolute path it
+ * resolved at build time, and leaves resolved paths in its module comments. A
+ * packed extension therefore shipped lines like
+ *
+ *     var __dirname = "/home/someone/zveltio-extensions/node_modules/pdfkit/js";
+ *
+ * which published the packer's home directory to every installation, and — for
+ * any dependency that actually reads from `__dirname` — pointed at a directory
+ * the installation does not have. An extension ships as one bundled file, so
+ * nothing under `node_modules` travels with it and no such path can ever
+ * resolve on the target.
+ *
+ * Rewriting it does not change behaviour: a lookup that was going to fail still
+ * fails, and now fails the same way everywhere instead of succeeding only on the
+ * machine that packed it. What it removes is the leak, and the false green that
+ * comes with a path which happens to exist locally.
+ *
+ * The tail is kept (`node_modules/pdfkit/js`) so a stack trace still names the
+ * package it came from.
+ *
+ * Returns the number of rewrites, so `pack` can report it rather than do this
+ * silently.
+ */
+function scrubBuildPaths(outfile: string): number {
+  const original = readFileSync(outfile, 'utf8');
+  let count = 0;
+
+  // `__dirname` / `__filename` assignments Bun writes for CJS interop.
+  let text = original.replace(
+    /(__dirname|__filename)\s*=\s*"(\/[^"]*)"/g,
+    (_match, name: string, abs: string) => {
+      count += 1;
+      const at = abs.lastIndexOf('node_modules/');
+      const tail = at === -1 ? abs.slice(abs.lastIndexOf('/') + 1) : abs.slice(at);
+      return `${name} = "/zveltio-extension/${tail}"`;
+    },
+  );
+
+  // Backstop for anything else carrying the home directory — Bun's resolved
+  // path comments, for one. Only runs when the home directory is a real
+  // absolute path, so it cannot match everything.
+  const home = homedir();
+  if (home && home.startsWith('/') && home.length > 1 && text.includes(home)) {
+    count += text.split(home).length - 1;
+    text = text.split(home).join('/zveltio-extension');
+  }
+
+  if (count > 0) writeFileSync(outfile, text, 'utf8');
+  return count;
+}
 
 // Re-export for bare-import sanity check after bundle.
 const CORE_DEPS = [...EXTENSION_BUNDLE_CORE_DEPS];
@@ -230,6 +285,11 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     });
   } catch (err) {
     throw new Error(`Bun bundle failed: ${(err as Error).message}`);
+  }
+
+  const scrubbed = scrubBuildPaths(outfile);
+  if (scrubbed > 0) {
+    console.log(`  ${c.green('✓')} ${c.dim(`${scrubbed} build path(s) neutralised`)}`);
   }
 
   const bundleBytes = readFileSync(outfile);
