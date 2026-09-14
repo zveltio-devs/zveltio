@@ -223,7 +223,7 @@ export const ManifestSchema = z
      * v2 engine block. When present with `bundled: true`, the loader
      * imports `engine.entry` (a pre-built `.js` artifact) directly
      * without checking for the CORE_NPM_PACKAGES on disk — the bundle
-     * has them inlined. See docs/private/EXTENSIONS-V2-PHASE1.md.
+     * has them inlined.
      */
     engine: z
       .object({
@@ -240,7 +240,7 @@ export const ManifestSchema = z
          * registry write access, and all SQL is proxied through the
          * host. Use for third-party / untrusted extensions where
          * security trumps the +0.5-2ms IPC overhead per route hit.
-         * See docs/private/EXTENSIONS-V2-PHASE1.md §10 for the threat model.
+         * The threat model is in docs/extensions/overview.md.
          */
         isolation: z.enum(['inline', 'worker']).default('inline'),
       })

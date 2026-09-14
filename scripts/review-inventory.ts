@@ -61,10 +61,10 @@ type Ledger = { updated: string; sessions: SessionEntry[] };
 
 // The campaign ledger lives in the PRIVATE repository, a sibling of this one.
 //
-// It used to live at `docs/private/` here, ignored but present, and the two
-// copies drifted: on 2026-09-13 three session records existed only inside an
-// abandoned worktree, and this script reported 30% where the measured figure
-// was 34%. There is one copy now, and it is versioned where it belongs.
+// It used to be kept here as well, ignored but present, and the two copies
+// drifted: session records ended up existing only inside an abandoned worktree,
+// and this script reported four points below the measured figure. There is one
+// copy now, and it is versioned where it belongs.
 //
 // Absent sibling is fatal rather than empty: "could not look" must not read as
 // "nothing to report", which is exactly how the drift went unnoticed.
@@ -818,9 +818,9 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
-      // Added 2026-09-10, with the history rewrite that removed `docs/private/`
-      // from this public repository. Reads the sibling when asked, which is
-      // this section's focus, and its CI job is in E08.
+      // Added 2026-09-10, when the internal documents moved out of this public
+      // repository. Reads the sibling when asked, which is this section's
+      // focus, and its CI job is in E08.
       'scripts/check-private-docs-untracked.ts',
     ],
   },
