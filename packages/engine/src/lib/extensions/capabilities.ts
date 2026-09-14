@@ -153,7 +153,7 @@ export class CapabilityDeniedError extends Error {
  * Which capability each guarded `ctx.internals` member requires.
  *
  * Members absent from this map are ungated — they are helpers with no ambient
- * authority (`validatePublicUrl`, `checkQueryDepth`, …). Gating those would add
+ * authority (`validatePublicUrl`, `renderTemplate`, …). Gating those would add
  * friction without removing power.
  */
 export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
