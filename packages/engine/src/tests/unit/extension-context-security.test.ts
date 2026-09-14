@@ -313,12 +313,17 @@ describe('createRestrictedDb — derived-table JOIN', () => {
 
   it('allows a derived table over a table the extension owns', () => {
     const { db, calls } = makeDerivedStubDb();
-    const rdb = createRestrictedDb(db as never, 'forms', new Set(['zv_forms', 'zv_form_submissions']));
+    const rdb = createRestrictedDb(
+      db as never,
+      'forms',
+      new Set(['zv_forms', 'zv_form_submissions']),
+    );
     const joinable = rdb.selectFrom('zv_forms' as never) as never as {
       leftJoin: (t: unknown, ...rest: unknown[]) => unknown;
     };
     joinable.leftJoin(
-      (eb: never) => (eb as { selectFrom: (t: string) => unknown }).selectFrom('zv_form_submissions'),
+      (eb: never) =>
+        (eb as { selectFrom: (t: string) => unknown }).selectFrom('zv_form_submissions'),
       'sc.form_id',
       'f.id',
     );
@@ -327,7 +332,11 @@ describe('createRestrictedDb — derived-table JOIN', () => {
 
   it('still refuses a table the extension may not read, from INSIDE the derived table', () => {
     const { db } = makeDerivedStubDb();
-    const rdb = createRestrictedDb(db as never, 'forms', new Set(['zv_forms', 'zv_form_submissions']));
+    const rdb = createRestrictedDb(
+      db as never,
+      'forms',
+      new Set(['zv_forms', 'zv_form_submissions']),
+    );
     const joinable = rdb.selectFrom('zv_forms' as never) as never as {
       leftJoin: (t: unknown, ...rest: unknown[]) => unknown;
     };
