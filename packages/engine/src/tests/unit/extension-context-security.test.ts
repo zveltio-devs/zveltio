@@ -264,3 +264,79 @@ describe('createRestrictedDb — JOIN guard', () => {
     expect(calls).toContain('innerJoin:zvd_orders');
   });
 });
+
+/**
+ * A JOIN to a DERIVED table — `.leftJoin((eb) => eb.selectFrom('t')…, a, b)` —
+ * names no table in the argument. The first JOIN guard read that as `''` and
+ * refused, which is wrong: the subquery is ordinary SQL and `forms` has shipped
+ * one over its own `zv_form_submissions` for months. Measured on 2026-09-14
+ * against engine master: `forms` and `workflow/approvals` both answered 500 on
+ * their main GET route, and the extensions repository's contract suite went red
+ * on master with no extension change.
+ *
+ * The property to keep is that the INNER query cannot reach a table the
+ * extension may not read — so the callback gets a guarded expression builder
+ * rather than a refusal.
+ */
+describe('createRestrictedDb — derived-table JOIN', () => {
+  function makeDerivedStubDb() {
+    const calls: string[] = [];
+    function eb(): { selectFrom: (t: string) => unknown } {
+      return {
+        selectFrom: (t: string) => {
+          calls.push(`inner:${t}`);
+          return eb();
+        },
+      };
+    }
+    function builder(): {
+      leftJoin: (t: unknown, ...rest: unknown[]) => unknown;
+      execute: () => Promise<unknown[]>;
+    } {
+      return {
+        leftJoin: (t: unknown, ...rest: unknown[]) => {
+          if (typeof t === 'function') (t as (b: unknown) => unknown)(eb());
+          else calls.push(`leftJoin:${String(t)}`);
+          return builder();
+        },
+        execute: async () => [],
+      };
+    }
+    const db = {
+      selectFrom(table: string) {
+        calls.push(`selectFrom:${table}`);
+        return builder();
+      },
+    };
+    return { db, calls };
+  }
+
+  it('allows a derived table over a table the extension owns', () => {
+    const { db, calls } = makeDerivedStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms', new Set(['zv_forms', 'zv_form_submissions']));
+    const joinable = rdb.selectFrom('zv_forms' as never) as never as {
+      leftJoin: (t: unknown, ...rest: unknown[]) => unknown;
+    };
+    joinable.leftJoin(
+      (eb: never) => (eb as { selectFrom: (t: string) => unknown }).selectFrom('zv_form_submissions'),
+      'sc.form_id',
+      'f.id',
+    );
+    expect(calls).toContain('inner:zv_form_submissions');
+  });
+
+  it('still refuses a table the extension may not read, from INSIDE the derived table', () => {
+    const { db } = makeDerivedStubDb();
+    const rdb = createRestrictedDb(db as never, 'forms', new Set(['zv_forms', 'zv_form_submissions']));
+    const joinable = rdb.selectFrom('zv_forms' as never) as never as {
+      leftJoin: (t: unknown, ...rest: unknown[]) => unknown;
+    };
+    expect(() =>
+      joinable.leftJoin(
+        (eb: never) => (eb as { selectFrom: (t: string) => unknown }).selectFrom('session'),
+        'x',
+        'y',
+      ),
+    ).toThrow(/inside a derived table/);
+  });
+});
