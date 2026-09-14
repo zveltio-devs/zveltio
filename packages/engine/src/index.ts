@@ -98,7 +98,7 @@ const trailingSlashRedirect: MiddlewareHandler = async (c, next) => {
 // new requests to the updated handler while in-flight requests drain normally.
 let _currentApp = new Hono();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let _bootstrapCtx: { db: any; auth: any } | null = null;
 let _server: ReturnType<typeof Bun.serve> | null = null;
 // Metrics counters persist across hot-reloads (module-level, not app-level)
@@ -386,7 +386,7 @@ if (_cmd === 'status') {
   const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/health`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const body: any = await res.json().catch(() => ({}));
     if (res.ok) {
       console.log(`✅ zveltio is running on ${url}`);
@@ -464,7 +464,7 @@ if (_cmd === 'create-god') {
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .insertInto('user' as any)
     .values({
       id: _id,
@@ -477,7 +477,7 @@ if (_cmd === 'create-god') {
     })
     .execute();
   await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .insertInto('account' as any)
     .values({
       id: crypto.randomUUID(),
@@ -514,7 +514,7 @@ if (_cmd === 'create-god') {
 // If the files are missing and the registry is unreachable we skip silently —
 // the server starts normally and the user can activate from marketplace later.
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function ensureDefaultExtensions(db: any): Promise<void> {
   const defaults = [
     {
@@ -899,15 +899,15 @@ rm studio.tar.gz</pre>
     // failed read silently narrows the answer to what the in-process loader happens
     // to hold — so an extension enabled in the database but not yet loaded simply
     // vanishes from the list an operator uses to check that it is on.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
       .select('name')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('is_enabled' as any, '=', true)
       .execute();
     const allActive = [
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),
     ];
     const meta = extensionLoader.getExtensionMeta();

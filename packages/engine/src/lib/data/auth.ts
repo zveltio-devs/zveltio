@@ -20,7 +20,7 @@ import type { RequestUser } from './types.js';
 /** Authenticate request — session or API key. */
 export async function authenticate(
   c: Context,
-  // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/private/HARDENING-9-PLAN.md H-05
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in hardening plan item H-05
   auth: any,
   db: Database,
 ): Promise<{ user: RequestUser; authType: string } | null> {
