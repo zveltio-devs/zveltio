@@ -297,7 +297,7 @@ backfill BEFORE the table is considered multi-tenant-safe.
 
 Tenant isolation rollout is **complete** across the extension catalog
 as of zveltio-extensions commit `14b0dd0` — the historical backlog
-in the May 2026 audit round (report retired; see [known-gaps.md](known-gaps.md))
+in the May 2026 audit round (report retired)
 is closed. An extension is "tenant-safe" when ALL of the following
 are true:
 

@@ -469,4 +469,3 @@ If you suspect a security incident:
 - [multi-tenancy.md](multi-tenancy.md) — how tenant isolation is enforced
 - [../engine/authorization.md](../engine/authorization.md) — RBAC and row rules
 - [operations.md](operations.md) — deployment hardening
-- [audit-coverage.md](audit-coverage.md) — what the automated gates cover
