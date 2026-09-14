@@ -205,7 +205,8 @@ bun run prepush
 # = check:schema + check:table-owners + check:schema-snapshot
 #   + check:atomic-writes + check:pooldb-txn + check:tenant-on-pool
 #   + check:shared-keys + scripts/import-boundaries.ts + check:raw-sql
-#   + sql:backticks + any:ratchet + lint:ratchet + format:check + typecheck
+#   + sql:backticks + check:no-nul + any:ratchet + lint:ratchet
+#   + format:check + typecheck
 ```
 
 Notable custom gates (all in `scripts/`, all run via `bun run <name>` from
@@ -223,6 +224,10 @@ root):
 - `catch:fabricated`, `ext:ambient`, `ext:seam` — extension-sandbox and
   error-handling honesty checks.
 - `release:gate:dry` — dry-run of the full release gate.
+- `audit:gates` — the meta-gate, and the one to know about: it plants a
+  violation into each gate and fails if the gate stays green. `check-gate-
+  coverage` then refuses a gate that CI runs without such a proof, so a new
+  gate needs a case in `scripts/audit-gates.ts`, not just a CI step.
 
 Many generated files exist (embedded migrations, worker runtime source, Studio
 dist). Regenerate them with the corresponding `gen:`/`check:` scripts; never
@@ -344,7 +349,7 @@ role.
 
 | Chapter | Read it when |
 |---|---|
-| `docs/platform/` | Product overview, architecture, install, configuration, multi-tenancy, security, operations, development workflow, known gaps |
+| `docs/platform/` | Product overview, architecture, install, configuration, multi-tenancy, security, operations, development workflow |
 | `docs/engine/` | The server: API reference, collections, ghost DDL, auth, webhooks, SDK, CLI |
 | `docs/studio/` | The admin SPA: routing, data access, extension pages, i18n |
 | `docs/ui/` | Design system, component library, interaction patterns, SDUI |
@@ -352,11 +357,11 @@ role.
 
 Read before you touch the thing they describe:
 
-- `docs/platform/multi-tenancy.md` — how tenant isolation actually works,
-  written for auditors. Read it before answering any question about tenancy,
-  and before assuming what a reviewer will assume.
-- `docs/platform/security.md` — the threat model, and the list of patterns that
-  look like findings and are not.
+- `docs/platform/multi-tenancy.md` — how tenant isolation actually works, down
+  to the policies as they are in the database. Read it before answering any
+  question about tenancy, and before assuming what a reviewer will assume.
+- `docs/platform/security.md` — the threat model, and the deliberate design
+  decisions that read like findings and are not.
 
 Also:
 
