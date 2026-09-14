@@ -148,17 +148,15 @@ Timeline:
 
 ---
 
-## Comparison with Directus / Payload
+## Lock behaviour
 
-| Feature | Zveltio (Ghost DDL) | Directus | Payload CMS |
-|---|---|---|---|
-| Method | Ghost table + atomic swap | Direct ALTER TABLE | Direct ALTER TABLE |
-| Lock type during migration | SHARE ROW EXCLUSIVE (~ms) | AccessExclusiveLock (full duration) | AccessExclusiveLock (full duration) |
-| Reads during migration | ✅ Unblocked | ❌ Blocked | ❌ Blocked |
-| Writes during migration | ✅ Captured in changelog | ❌ Blocked | ❌ Blocked |
-| Safe for 1M+ rows | ✅ Yes | ❌ Risk of outage | ❌ Risk of outage |
-| External tooling | None (native PostgreSQL) | None | None |
-| Activation threshold | > 100k rows | N/A | N/A |
+A direct `ALTER TABLE` takes an `AccessExclusiveLock` for the full duration of
+the rewrite, which blocks both reads and writes on the table until it finishes.
+Ghost DDL exists to avoid that: reads are never blocked, writes are captured in
+the changelog and replayed, and the only exclusive lock is the `SHARE ROW
+EXCLUSIVE` held for the ~3 ms atomic swap. It engages above 100k rows; below
+that threshold a direct `ALTER TABLE` is faster and is used instead. No external
+tooling is involved — the mechanism is native PostgreSQL throughout.
 
 ---
 
