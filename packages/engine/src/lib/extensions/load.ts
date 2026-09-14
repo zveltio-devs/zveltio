@@ -33,6 +33,19 @@ import type { ExtensionContext } from './internals.js';
 import { buildAllowedTables, EXTENSION_TABLE_GRANTS, finalizeExtensionLoad } from './register.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
+/**
+ * Makes each dev-reload copy a distinct path even when two loads land in the
+ * same millisecond.
+ *
+ * `Date.now()` alone was not enough: two reloads inside one millisecond built
+ * the SAME filename, so the second `import()` hit Bun's module cache and
+ * returned the first load's module — silently re-registering the old code,
+ * which is the exact failure the copy exists to prevent. It reproduced as a
+ * flaky unit test on CI machines fast enough to do both loads in under a
+ * millisecond, and never locally.
+ */
+let devReloadSeq = 0;
+
 export async function loadExtensionFromDir(
   loader: ExtensionLoader,
   extName: string,
@@ -357,7 +370,8 @@ export async function loadExtensionFromDir(
             }
           }
         }
-        devReloadCopy = join(dir, `${marker}${Date.now()}${ext}`);
+        devReloadSeq += 1;
+        devReloadCopy = join(dir, `${marker}${Date.now()}-${process.pid}-${devReloadSeq}${ext}`);
         copyFileSync(resolvedPath, devReloadCopy);
         importPath = devReloadCopy;
       }
