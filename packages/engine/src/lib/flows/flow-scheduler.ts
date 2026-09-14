@@ -276,9 +276,10 @@ export const flowScheduler = {
  * meant expired files were deleted for one tenant and left in object storage
  * forever for the rest: no error, no log, a job reporting success.
  *
- * The same lesson is already written twenty lines into `data-quality.ts`: "it
- * must run inside a tenant transaction (the GUC), or it sees zero rows." That
- * one was learned by watching a scan return nothing. This one was silent
+ * The same lesson is written into the quality scanner, which now ships with
+ * the `analytics/quality` extension: "it must run inside a tenant transaction
+ * (the GUC), or it sees zero rows." That one was learned by watching a scan
+ * return nothing. This one was silent
  * because deleting nothing looks exactly like having nothing to delete.
  *
  * Sequential on purpose: `withTenantIsolation` holds a connection for the

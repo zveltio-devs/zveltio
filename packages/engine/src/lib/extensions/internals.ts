@@ -32,7 +32,6 @@ import {
   resolveUserRole,
 } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
-import { runQualityScan } from '../data-quality.js';
 import {
   checkValidationExpression,
   evaluateExpressionRule,
@@ -160,7 +159,6 @@ export interface ExtensionInternals {
   applyColumnAccess: typeof applyColumnAccess;
   buildCondition: typeof buildCondition;
   introspectSchema: typeof introspectSchema;
-  runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
   /**
    * Evaluate and vet user-authored validation expressions.
@@ -396,7 +394,6 @@ export function buildExtensionInternals(): ExtensionInternals {
     buildCondition,
     dynamicInsert,
     introspectSchema,
-    runQualityScan,
     invalidateRulesCache,
     evaluateExpressionRule,
     checkValidationExpression,
