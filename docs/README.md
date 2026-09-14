@@ -25,14 +25,14 @@ change; each chapter opens with its own index.
 
 Supporting material:
 
-- [`adr/`](adr/) — architecture decision records.
 - [`legal/`](legal/) — terms of service and privacy policy (published to the website).
 - [`manifest-v2.schema.json`](manifest-v2.schema.json) — JSON Schema for the
   extension manifest.
 
 This directory is the product specification. Internal engineering material —
-plans, defect backlogs, review state, and the project's own development history
-— is kept outside this repository and is deliberately not published here.
+plans, decision records, defect backlogs, review state, and the project's own
+development history — is kept outside this repository and is deliberately not
+published here.
 
 ---
 
