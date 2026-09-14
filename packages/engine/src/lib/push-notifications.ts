@@ -68,7 +68,7 @@ async function sendFcm(token: string, payload: PushPayload): Promise<PushVerdict
       console.warn(`[push:fcm] HTTP ${res.status}: ${await res.text()}`);
       return 'failed';
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const json = (await res.json()) as any;
     if (json.failure > 0) {
       const reason = json.results?.[0]?.error;
@@ -170,7 +170,7 @@ async function sendApns(token: string, payload: PushPayload): Promise<PushVerdic
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status !== 200) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const err = (await res.json().catch(() => ({}))) as any;
       const reason = err.reason as string | undefined;
       console.warn(`[push:apns] HTTP ${res.status}: ${reason ?? 'unknown'}`);

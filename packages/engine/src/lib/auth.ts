@@ -289,13 +289,13 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
   try {
     const rows = await db
       .selectFrom('account')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .select((eb: any) => eb.fn.count('id').as('count'))
       .where('password', 'is not', null)
       // SQL pattern: anything that DOES NOT start with `$`.
       .where('password', 'not like', '$%')
       .executeTakeFirst();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     return Number((rows as any)?.count ?? 0);
   } catch {
     return 0; // table missing on fresh installs, etc.
@@ -466,7 +466,7 @@ export async function initAuth(db: Database) {
   const database = { db: authDb, type: 'postgres' as const };
 
   // Optional cache secondary storage for sessions
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let secondaryStorage: any;
   if (process.env.VALKEY_URL) {
     const { createCacheSecondaryStorage } = await import('./runtime/index.js');
@@ -631,7 +631,7 @@ export async function initAuth(db: Database) {
               clientSecret: process.env.APPLE_CLIENT_SECRET || '',
               teamId: process.env.APPLE_TEAM_ID || '',
               keyId: process.env.APPLE_KEY_ID || '',
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
             } as any,
           }
         : {}),
@@ -736,7 +736,7 @@ export async function initAuth(db: Database) {
   // See `runWithoutTenantTrx` for the measurements, and for why granting the role
   // SELECT on `session` is not the fix even though it also makes them stop.
   const wrappedGetSession = wrapGetSession(origGetSession);
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   (authInstance.api as any).getSession = (...args: Parameters<typeof wrappedGetSession>) =>
     runWithoutTenantTrx(() => wrappedGetSession(...args));
 

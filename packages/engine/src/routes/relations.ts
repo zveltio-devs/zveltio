@@ -10,7 +10,7 @@ import { DDLManager } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 import { toJsonb } from '../lib/jsonb.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -44,12 +44,12 @@ const RelationSchema = z.object({
 async function addFieldToCollection(
   db: Database,
   collectionName: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   field: { name: string; type: string; options?: Record<string, any> },
 ): Promise<void> {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await db.transaction().execute(async (trx: any) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const locked = await (trx as any)
       .selectFrom('zvd_collections')
       .select(['fields'])
@@ -58,7 +58,7 @@ async function addFieldToCollection(
       .executeTakeFirst();
     if (!locked) throw new Error(`Collection '${collectionName}' not found`);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let current: any[];
     try {
       current =
@@ -67,10 +67,10 @@ async function addFieldToCollection(
       current = [];
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     if (current.some((f: any) => f.name === field.name)) return; // already present
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (trx as any)
       .updateTable('zvd_collections')
       .set({ fields: toJsonb([...current, field]), updated_at: new Date() })
@@ -86,9 +86,9 @@ async function removeFieldFromCollection(
   collectionName: string,
   fieldName: string,
 ): Promise<void> {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await db.transaction().execute(async (trx: any) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const locked = await (trx as any)
       .selectFrom('zvd_collections')
       .select(['fields'])
@@ -97,7 +97,7 @@ async function removeFieldFromCollection(
       .executeTakeFirst();
     if (!locked) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let current: any[];
     try {
       current =
@@ -106,11 +106,11 @@ async function removeFieldFromCollection(
       current = [];
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const updated = current.filter((f: any) => f.name !== fieldName);
     if (updated.length === current.length) return; // nothing to remove
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (trx as any)
       .updateTable('zvd_collections')
       .set({ fields: toJsonb(updated), updated_at: new Date() })
@@ -120,7 +120,7 @@ async function removeFieldFromCollection(
   DDLManager.invalidateCache(collectionName);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function relationsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -135,7 +135,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
    *  have been stored as a JSON-encoded string by older code paths, but the
    *  API contract is "metadata is always an object". */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   function normalize(rel: any): any {
     if (!rel) return rel;
     if (typeof rel.metadata === 'string') {
@@ -157,7 +157,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
     let query = db.selectFrom('zvd_relations').selectAll().orderBy('created_at', 'desc');
 
     if (collection) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       query = query.where((eb: any) =>
         eb.or([eb('source_collection', '=', collection), eb('target_collection', '=', collection)]),
       );
@@ -302,7 +302,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
 
       return c.json({ relation: normalize(relRow) }, 201);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (error: any) {
       return c.json(
         { error: error instanceof Error ? error.message : 'Failed to create relation' },
@@ -335,7 +335,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
 
       if (!existing) return c.json({ error: 'Relation not found' }, 404);
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const toUpdate: Record<string, any> = { updated_at: new Date() };
       if (updates.name !== undefined) toUpdate.name = updates.name;
       if (updates.on_delete !== undefined) toUpdate.on_delete = updates.on_delete;
@@ -384,7 +384,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       await db.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
 
       return c.json({ success: true });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (error: any) {
       return c.json(
         { error: error instanceof Error ? error.message : 'Failed to delete relation' },

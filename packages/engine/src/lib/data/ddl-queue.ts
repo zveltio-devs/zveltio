@@ -217,7 +217,7 @@ export async function getDDLJob(
   return null;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
   const stateMap: Record<string, PublicJobShape['status']> = {
     created: 'pending',
@@ -263,14 +263,14 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   // CREATE COLLECTION runs OUTSIDE a transaction (CREATE INDEX
   // CONCURRENTLY is not allowed inside a tx block). DDLManager.createCollection
   // owns its own DDL sequencing.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await DDLManager.createCollection(db, job.data as any);
     // Apply tenant RLS to the new collection table immediately so it's isolated
     // without waiting for the next boot reconcile. Best-effort, non-fatal.
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const name = (job.data as any)?.name;
       if (name) {
         const { applyTenantRLS } = await import('../tenancy/index.js');
@@ -285,9 +285,9 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.drop_collection, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'drop_collection')) return;
       const payload = job.data as { name: string; force?: boolean };
@@ -295,20 +295,20 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     });
   });
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.add_field, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'add_field')) return;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const payload = job.data as { collection: string; field: any };
       await DDLManager.addField(trx, payload.collection, payload.field);
     });
   });
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'remove_field')) return;
       const payload = job.data as { collection: string; fieldName: string };
@@ -316,17 +316,17 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     });
   });
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.create_relation, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await db.transaction().execute(async (trx: any) => {
       await runCreateRelation(trx, job.data);
     });
   });
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.drop_relation, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await db.transaction().execute(async (trx: any) => {
       await runDropRelation(trx, job.data);
     });
@@ -336,7 +336,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 /** BYOD guard: extension-managed (is_managed=false) collections opt out of
  *  destructive DDL. Returns true if the job should be silently skipped. */
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function skipForByod(trx: any, payload: any, _kind: string): Promise<boolean> {
   const collectionName: string | undefined = payload.collection ?? payload.name;
   if (!collectionName) return false;
@@ -376,7 +376,7 @@ async function skipForByod(trx: any, payload: any, _kind: string): Promise<boole
 const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
 const SAFE_ACTION = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function runCreateRelation(trx: any, payload: any): Promise<void> {
   const relType: string = payload.type ?? 'm2o';
   const srcCol: string = payload.source_collection ?? '';
@@ -442,7 +442,7 @@ async function runCreateRelation(trx: any, payload: any): Promise<void> {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function runDropRelation(trx: any, payload: any): Promise<void> {
   const relType: string = payload.type ?? 'm2o';
   const srcCol: string = payload.source_collection ?? '';

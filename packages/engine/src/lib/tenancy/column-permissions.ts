@@ -155,13 +155,13 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
 }
 
 export function applyColumnAccess(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   record: Record<string, any>,
   access: ColumnAccess,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): Record<string, any> {
   if (access.hidden.size === 0) return record;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const result: Record<string, any> = {};
   for (const [k, v] of Object.entries(record)) {
     if (!access.hidden.has(k) && !access.hidden.has('*')) {
@@ -172,10 +172,10 @@ export function applyColumnAccess(
 }
 
 export function filterWritableFields(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: Record<string, any>,
   access: ColumnAccess,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): { data: Record<string, any>; blocked: string[] } {
   // A column the user cannot see must not be writable either — writing it
   // blind lets a role set values it can never read back, which defeats the
@@ -188,7 +188,7 @@ export function filterWritableFields(
   if (!hasMask) {
     return { data, blocked: [] };
   }
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const result: Record<string, any> = {};
   const blocked: string[] = [];
   for (const [k, v] of Object.entries(data)) {

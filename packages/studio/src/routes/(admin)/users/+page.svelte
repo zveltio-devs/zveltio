@@ -47,7 +47,7 @@ const inviteSchema: FormSchema = {
 };
 let inviteFormRef: { validateAll: () => boolean } | null = $state(null);
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let users = $state<any[]>([]);
 let loading = $state(true);
 let currentPage = $state(1);
@@ -126,9 +126,9 @@ async function loadUsers() {
   loading = true;
   try {
     const res = await usersApi.list({ limit: LIMIT, offset: (currentPage - 1) * LIMIT });
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     users = Array.isArray(res) ? res : ((res as any).users ?? res);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     total = (res as any).total ?? users.length;
   } finally {
     loading = false;
@@ -229,7 +229,7 @@ function roleColor(role: string) {
   return ROLE_BADGES[role] ?? 'badge-ghost';
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function confirmDelete(user: any) {
   deleteUser(user.id, user.email);
 }

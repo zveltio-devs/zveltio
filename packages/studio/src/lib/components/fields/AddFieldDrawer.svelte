@@ -34,20 +34,20 @@ import {
 
 let {
   open = $bindable(false),
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   fieldTypes = [] as any[],
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   allCollections = [] as any[],
   collectionName = '',
   onsave,
 }: {
   open: boolean;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   fieldTypes: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   allCollections: any[];
   collectionName: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   onsave: (field: any) => Promise<void>;
 } = $props();
 
@@ -64,7 +64,7 @@ const categories = [
 ];
 
 // Per-type icons for the grid cards
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 const TYPE_ICONS: Record<string, any> = {
   text: Type,
   longtext: Pilcrow,
@@ -194,7 +194,7 @@ async function submit() {
 
   saving = true;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const body: Record<string, any> = {
       name: form.name,
       type: form.type,
@@ -204,7 +204,7 @@ async function submit() {
       unique: form.unique,
       indexed: form.indexed,
     };
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const options: Record<string, any> = {};
     if (form.related_collection) options.related_collection = form.related_collection;
     if (enumValues.length > 0) options.values = enumValues;
@@ -212,7 +212,7 @@ async function submit() {
 
     await onsave(body);
     close();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
     error = e.message || 'Failed to add field';
   } finally {

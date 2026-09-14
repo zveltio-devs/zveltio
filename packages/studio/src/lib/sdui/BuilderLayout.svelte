@@ -42,7 +42,7 @@ function t(s?: string): string {
   return typeof fn === 'function' ? fn() : s;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function getPath(obj: any, path?: string): any {
   if (!path) return obj;
   return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);

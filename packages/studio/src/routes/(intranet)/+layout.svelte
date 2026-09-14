@@ -67,7 +67,7 @@ onMount(async () => {
   }
 
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const res = await api.get<{ site: any; nav: NavPage[] }>(
       `/ext/content/pages/sites/${ZONE_SLUG}/render`,
     );

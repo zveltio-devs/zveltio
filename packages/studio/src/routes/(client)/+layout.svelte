@@ -41,13 +41,13 @@ onMount(async () => {
   }
 
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const res = await api.get<{ site: any; nav: any[] }>(
       `/ext/content/pages/sites/${ZONE_SLUG}/render`,
     );
     // The render endpoint answers `site` since zones became sites.
     zone = res.site;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     navPages = (res.nav ?? []).filter((p: any) => p.is_active !== false);
   } catch {
     // Zone not configured yet — show empty nav

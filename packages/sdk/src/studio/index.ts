@@ -164,7 +164,7 @@ interface StudioGlobal {
 
 function getStudioGlobal(): StudioGlobal | null {
   if (typeof window === 'undefined') return null;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const g = (window as any).__zveltio as StudioGlobal | undefined;
   if (!g) {
     console.warn(
@@ -236,7 +236,7 @@ export function registerAssetPreview(handler: AssetPreviewHandler): void {
 /** Engine base URL — pre-installed by Studio for cross-origin fetches. */
 export function getEngineUrl(): string {
   if (typeof window === 'undefined') return '';
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   return ((window as any).__ZVELTIO_ENGINE_URL__ as string) || getStudioGlobal()?.engineUrl || '';
 }
 

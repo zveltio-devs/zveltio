@@ -20,7 +20,7 @@ import {
 import { DDLManager, afterWrite, processInput, serializeRecord } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function syncRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
   const auth = getAuth();
@@ -57,9 +57,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    */
   async function sanitizeSyncPayload(
     collectionName: string,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     raw: Record<string, any>,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
     const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
     if (!collectionDef) {
@@ -69,10 +69,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       };
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const allowedFields = new Set((collectionDef.fields as any[]).map((f: any) => f.name));
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const payload: Record<string, any> = {};
     for (const [key, value] of Object.entries(raw || {})) {
       if (PROTECTED_FIELDS.has(key)) continue; // silently strip system fields
@@ -127,7 +127,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       recordId: string;
       status: 'ok' | 'conflict' | 'error';
       serverVersion?: number;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       serverData?: any;
       error?: string;
     }> = [];
@@ -138,7 +138,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
 
     // Group creates by collection for batch insert
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const createsByCollection = new Map<string, Array<{ recordId: string; payload: any }>>();
     const nonCreateOps: typeof operations = [];
 
@@ -184,7 +184,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // flows. checkPermission handles god bypass + Casbin in the right
       // order regardless of how the user signed in.
       const collectionShortName = op.collection.replace(/^zvd_/, '');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const canWrite = await checkPermission(
         user.id,
@@ -232,16 +232,16 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       try {
         const records = creates.map(({ recordId, payload }) => ({
           id: recordId,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           created_by: (c.get('user') as any).id,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           updated_by: (c.get('user') as any).id,
           ...payload,
         }));
         await effectiveDb
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .insertInto(collection as any)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .values(records as any)
           .onConflict((oc) => oc.column('id').doNothing())
           .execute();
@@ -280,7 +280,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             tenantId: syncTid,
           });
         }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (err: any) {
         // The same explanation `/api/data` gives. Sync used to hand back the raw
         // Postgres string, so a row refused by a row rule read as an internal
@@ -323,11 +323,11 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             // the policies the /api/data handlers enforce.
             await applyRlsFilters(
               effectiveDb
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 .updateTable(collection as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 .set({ ...payload, updated_by: syncUser().id } as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 .where('id' as any, '=', recordId),
               await syncRlsFilters(collection),
             ).execute();
@@ -338,9 +338,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           case 'delete': {
             await applyRlsFilters(
               effectiveDb
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 .deleteFrom(collection as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 .where('id' as any, '=', recordId),
               await syncRlsFilters(collection),
             ).execute();
@@ -355,7 +355,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               error: `Unknown operation: ${operation}`,
             });
         }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (err: any) {
         const explained = isRlsRefusal(err) ? describeWriteRefusal(String(err.message)) : null;
         results.push({
@@ -402,7 +402,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     const changes: Array<{
       collection: string;
       id: string;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       data: any;
       operation: 'upsert';
       timestamp: number;
@@ -420,7 +420,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
       // SECURITY: verify that the user has read permission on this collection
       const collectionShortName = collection.replace(/^zvd_/, '');
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const canRead = await checkPermission(user.id, `data:${collectionShortName}`, 'read');
       if (!canRead) continue; // silently skip collections the user has no access to
@@ -441,12 +441,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         // Column permissions likewise: `selectAll()` shipped forbidden columns.
         const pullColAccess = await getColumnAccess(db, collectionShortName, user.role, user.id);
         const pullQuery = pullDb
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .selectFrom(collection as any)
           .selectAll()
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .where('updated_at' as any, '>', sinceDate)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
           .limit(PULL_LIMIT_PER_COLLECTION);
         const updated = await applyRlsFilters(pullQuery, pullRls).execute();

@@ -21,7 +21,7 @@ const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const tenantOf = (c: Context): string =>
   (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -96,7 +96,7 @@ async function replaceSteps(db: Database, flowId: string, steps: StepInput[]): P
           flow_id: flowId,
           step_order: i,
           name: s.name ?? s.type,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           type: s.type as any, // CHECK constraint validates at the DB layer
           config: toJsonb(s.config),
           on_error: s.on_error,
@@ -150,7 +150,7 @@ async function assertStepTypesAllowed(
   );
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function flowsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -347,7 +347,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         await replaceSteps(db, flowId, body.steps);
       }
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       await auditLog(db, {
         type: 'settings.changed',
@@ -369,7 +369,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — delete a flow. Steps + runs cascade via FK.
   app.delete('/:id', async (c) => {
     const flowId = c.req.param('id');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const deleted = await db
       .deleteFrom('zv_flows')
@@ -402,7 +402,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const body = await c.req.json().catch(() => ({}));
     executeFlow(db, flow.id, { trigger: 'manual', ...body }).catch(console.error);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     await auditLog(db, {
       type: 'settings.changed',
@@ -449,7 +449,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let payload: any;
     try {
       payload =
@@ -505,7 +505,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         flow_id: flowId,
         step_order: nextOrder as number,
         name: body.name ?? body.type,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         type: body.type as any,
         config: toJsonb(validation.config ?? body.config),
         on_error: body.on_error,
@@ -557,7 +557,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     }
 
     const updates: Record<string, unknown> = {};
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     if (body.type !== undefined) updates.type = body.type as any;
     if (body.name !== undefined) updates.name = body.name;
     if (body.on_error !== undefined) updates.on_error = body.on_error;
@@ -654,7 +654,7 @@ export async function triggerDataFlows(
   db: Database,
   collection: string,
   event: 'insert' | 'update' | 'delete',
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   record: any,
   tenantId?: string | null,
 ): Promise<void> {

@@ -92,7 +92,7 @@ export async function checkExtensionDependencies(
     }
 
     if (dep.minVersion) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const current = parseSemver((installed as any).version || '0.0.0');
       const required = parseSemver(dep.minVersion);
       if (compareSemver(current, required) < 0) {
@@ -101,7 +101,7 @@ export async function checkExtensionDependencies(
           // `['version', 'is_enabled']` and nothing else, so the other name read
           // `undefined` on every call and the operator was told
           // "installed: undefined" for every unsatisfied dependency.
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           `${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).version})`,
         );
       }

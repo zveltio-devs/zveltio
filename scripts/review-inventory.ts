@@ -3,9 +3,9 @@
  * review-inventory.ts — the file-by-file code review campaign ledger.
  *
  * Reads:
- *   docs/private/code-review-status.json   (append-only session log, edited by agents)
+ *   ../zveltio-private/engine/code-review-status.json  (append-only session log)
  * Writes:
- *   docs/private/CODE-REVIEW-STATE.md      (the checklist, generated)
+ *   ../zveltio-private/engine/CODE-REVIEW-STATE.md     (the checklist, generated)
  *
  * Why a generator and not a hand-kept table: the sibling repository's
  * REVIEW-STATUS.md says of itself "generated automatically is an intention, not

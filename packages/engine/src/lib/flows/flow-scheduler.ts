@@ -97,16 +97,16 @@ export const flowScheduler = {
       const now = new Date();
       // Use a transaction with FOR UPDATE SKIP LOCKED to prevent multiple scheduler
       // instances from executing the same flow simultaneously.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await (_db as any).transaction().execute(async (trx: any) => {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const flows: any[] = await trx
           .selectFrom('zv_flows')
           .selectAll()
           .where('is_active', '=', true)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .where((eb: any) => eb.or([eb('next_run_at', 'is', null), eb('next_run_at', '<=', now)]))
           .forUpdate()
           .skipLocked()
@@ -131,14 +131,14 @@ export const flowScheduler = {
     }
   },
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async _executeScheduledFlow(flow: any): Promise<void> {
     if (!_db) return;
 
     // ── AI Task trigger ───────────────────────────────────────────
     if (flow.trigger_type === 'ai_task') {
       const runTask =
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         serviceRegistry.get<(userId: string, instruction: string, opts: any) => Promise<void>>(
           'ai.runBackgroundTask',
         );
@@ -161,7 +161,7 @@ export const flowScheduler = {
             },
           );
           console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         } catch (err: any) {
           console.error(`[FlowScheduler] ai_task failed`, {
             flow: flow.id,
@@ -177,7 +177,7 @@ export const flowScheduler = {
       const intervalMs =
         ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
         DEFAULT_AI_INTERVAL_MS;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await (_db as any)
         .updateTable('zv_flows')
         .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
@@ -247,7 +247,7 @@ export const flowScheduler = {
     const intervalMs =
       ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
       DEFAULT_CRON_INTERVAL_MS;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (_db as any)
       .updateTable('zv_flows')
       .set({

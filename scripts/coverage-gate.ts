@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Coverage ratchet — docs/private/HARDENING-9-PLAN.md item H-02.
+ * Coverage ratchet — hardening plan item H-02.
  *
  * Parses an lcov report, computes line coverage per engine source subtree, and
  * fails if a GATED subtree drops more than `maxDropPct` below the committed
@@ -238,7 +238,7 @@ if (update) {
   const prev = prevBaseline;
   const baseline: CoverageBaseline = {
     generated: new Date().toISOString().slice(0, 10),
-    note: 'Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. See docs/private/HARDENING-9-PLAN.md H-02.',
+    note: 'Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. See hardening plan item H-02.',
     // Preserve any human-authored target rationale across automated rewrites.
     ...(prev.targetNote ? { targetNote: prev.targetNote } : {}),
     // The report this number actually came from, not a fixed sentence about the

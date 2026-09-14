@@ -50,7 +50,7 @@ async function withLockTimeout(
     return;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);
@@ -145,7 +145,7 @@ export type FilterOp =
 
 export interface FilterCondition {
   op: FilterOp;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   value?: any;
 }
 
@@ -209,7 +209,7 @@ export interface QueryOptions {
    * query and the count query so totals stay consistent with results.
    */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   applyAlters?: (qb: any) => any;
 }
 
@@ -307,9 +307,9 @@ export async function dynamicSelect(
   // uniformly. Raw SQL is used only for the parts Kysely can't express
   // typesafely against a runtime-resolved table: filters (via sql template)
   // and FTS expressions.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let qb: any = (db as any).selectFrom(tableNameSanitized).selectAll();
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let countQb: any = (db as any)
     .selectFrom(tableNameSanitized)
     .select(sql<number>`count(*)::int`.as('total'));
@@ -432,11 +432,11 @@ export type SystemColumns = Record<string, unknown>;
 export async function dynamicInsert(
   db: Database,
   tableName: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: Record<string, any>,
   /** Engine-supplied columns — see `SystemColumns`. Applied after the filter. */
   system: SystemColumns = {},
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): Promise<Record<string, any>> {
   const table = sql.id(sanitizeIdentifier(tableName));
   const clean = {
@@ -454,7 +454,7 @@ export async function dynamicInsert(
     RETURNING *
   `.execute(db);
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   return result.rows[0] as Record<string, any>;
 }
 
@@ -464,7 +464,7 @@ export async function dynamicUpdate(
   db: Database,
   tableName: string,
   id: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: Record<string, any>,
   /**
    * Engine-supplied columns — see `SystemColumns`. Applied after the filter.
@@ -477,7 +477,7 @@ export async function dynamicUpdate(
    * value that looks right is harder to notice than a missing one.
    */
   system: SystemColumns = {},
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
   const fromCaller = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
@@ -502,7 +502,7 @@ export async function dynamicUpdate(
     RETURNING *
   `.execute(db);
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   return (result.rows[0] as Record<string, any>) ?? null;
 }
 

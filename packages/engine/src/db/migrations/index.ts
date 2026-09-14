@@ -477,7 +477,7 @@ async function applyMigration(
   // applied", which is true. Every other error means the answer is unknown.
   let existing: { version: number; checksum: string; filename: string } | undefined;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     existing = await (db as any)
       .selectFrom('zv_schema_versions')
       .select(['version', 'checksum', 'filename'])
@@ -523,7 +523,7 @@ async function applyMigration(
     const stmt = statements[si];
     try {
       await exec.executeQuery({ sql: stmt, parameters: [] });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
       throw Object.assign(
         new Error(
@@ -549,7 +549,7 @@ async function applyMigration(
       await runStatements(db as unknown as StatementExecutor, si);
     }
   } else {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (db as any).transaction().execute(async (trx: any) => {
       // Bound the wait for a lock, in the one place that covers every
       // migration instead of a preamble each author has to remember.
@@ -584,7 +584,7 @@ async function applyMigration(
   const name = filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
 
   // Record in zv_schema_versions
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await (db as any)
     .insertInto('zv_schema_versions')
     .values({
@@ -604,7 +604,7 @@ async function applyMigration(
     });
 
   // Also record in legacy zv_migrations table for backward compat
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await (db as any)
     .insertInto('zv_migrations')
     .values({ name: filename.replace('.sql', '') })
@@ -651,7 +651,7 @@ export async function runMigrations(db: Database): Promise<void> {
 
 export async function getLastAppliedMigration(db: Database): Promise<number> {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const result = await (db as any)
       .selectFrom('zv_schema_versions')
       .select('version')
@@ -675,7 +675,7 @@ export async function getAppliedMigrations(db: Database): Promise<
   }>
 > {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     return await (db as any)
       .selectFrom('zv_schema_versions')
       .selectAll()
@@ -738,7 +738,7 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await (db as any).transaction().execute(async (trx: any) => {
         for (const stmt of splitSqlStatements(down)) {
           await trx.executeQuery({ sql: stmt, parameters: [] });
@@ -746,7 +746,7 @@ export async function rollbackMigration(
       });
 
       // Mark as rolled back
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await (db as any)
         .updateTable('zv_schema_versions')
         .set({ rolled_back_at: new Date() })
@@ -757,7 +757,7 @@ export async function rollbackMigration(
     }
 
     return { success: true };
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
     return { success: false, error: err.message };
   }

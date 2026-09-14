@@ -364,8 +364,9 @@ Also:
   website frontpage, per its header comment).
 - `CONTRIBUTING.md` — dev setup, code rules, PR conventions.
 - `docs/` — the product specification. Internal plans live outside this
-  repository; note that `HARDENING-9-PLAN.md` is still cited by ~1100
-  `biome-ignore` comments, so that path string must not be rewritten in code.
+  repository, and code no longer cites them by path: the ~1100 `biome-ignore`
+  suppressions say "tracked as hardening plan item H-01" instead, which stays
+  true wherever the plan lives.
 - `bench/README.md` — benchmark methodology.
 - `CHANGELOG.md` — release history (large; grep it, don't read it whole).
 

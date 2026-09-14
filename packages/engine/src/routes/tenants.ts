@@ -60,7 +60,7 @@ const CreateEnvironmentSchema = z.object({
 /** Thrown inside the create transaction so the tenant insert rolls back. */
 class MissingTenantAdminError extends Error {}
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function tenantsRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -68,14 +68,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     c.set('user' as any, session.user);
     await next();
   });
 
   // GET /api/tenants — list all tenants (super-admin only)
   router.get('/', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -103,7 +103,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   // than being enrolled in it. Answering from assignments alone returned an
   // empty list to exactly the caller this endpoint exists for.
   router.get('/me', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (await requireInstanceAdmin(user.id)) {
       const all = await sql<{
@@ -121,7 +121,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // POST /api/tenants — create new tenant
   router.post('/', zValidator('json', CreateTenantSchema), async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -240,7 +240,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // PATCH /api/tenants/:id — update tenant
   router.patch('/:id', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
     if (!(await requireInstanceAdmin(user.id))) {
@@ -259,7 +259,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       'billing_email',
       'settings',
     ];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const updateData: Record<string, any> = { updated_at: new Date() };
     for (const key of allowed) {
       if (body[key] !== undefined) updateData[key] = body[key];
@@ -295,7 +295,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // GET /api/tenants/:id/usage — usage stats (last 30 days)
   router.get('/:id/usage', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
     if (!(await requireInstanceAdmin(user.id))) {
@@ -315,7 +315,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // GET /api/tenants/:id/environments — list environments
   router.get('/:id/environments', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
     const isSuperAdmin = await requireInstanceAdmin(user.id);
@@ -336,7 +336,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // POST /api/tenants/:id/enable-rls/:collection
   router.post('/:id/enable-rls/:collection', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -355,7 +355,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
         metadata: { tenant_id: c.req.param('id'), collection },
       });
       return c.json({ success: true, table: tableName, rls: 'enabled' });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
@@ -363,7 +363,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // POST /api/tenants/:id/environments — create new environment
   router.post('/:id/environments', zValidator('json', CreateEnvironmentSchema), async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
     if (!(await requireInstanceAdmin(user.id))) {
@@ -402,7 +402,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // GET /api/tenants/:id/members — list members (user + per-tenant role)
   router.get('/:id/members', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -419,7 +419,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // POST /api/tenants/:id/members — add a user to a tenant with a role
   router.post('/:id/members', zValidator('json', MemberSchema), async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -468,7 +468,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /api/tenants/:id/members/:userId — remove a member + their per-tenant roles
   router.delete('/:id/members/:userId', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/private/HARDENING-9-PLAN.md H-01
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = (c as any).get('user');
     if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
