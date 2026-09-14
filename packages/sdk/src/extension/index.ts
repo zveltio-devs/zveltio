@@ -314,9 +314,6 @@ export interface ExtensionInternals<DB = unknown> {
     dryRun?: boolean,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   ) => Promise<any[]>;
-  /** Run a data-quality scan over a collection. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  runQualityScan: (...args: any[]) => Promise<unknown>;
   /** Invalidate the cached validation rules for a collection. */
   invalidateRulesCache: (collection: string) => void;
   /**

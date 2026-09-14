@@ -161,7 +161,6 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   enqueueDDLJob: 'ddl',
   introspectSchema: 'introspection',
   extensionRegistry: 'introspection',
-  runQualityScan: 'introspection',
   // Secrets — 26 call sites across the catalogue, previously ungated
   encryptSecret: 'secrets',
   decryptSecret: 'secrets',
