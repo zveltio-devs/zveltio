@@ -124,4 +124,66 @@ d('notifications API (in-process)', () => {
     });
     expect(del.status).toBe(200);
   });
+
+  it('does not let a caller take over another user’s web push subscription', async () => {
+    // `endpoint` is unique table-wide and the upsert used to reassign `user_id`,
+    // so posting an endpoint that belongs to somebody else moved their
+    // subscription to the caller: the victim stops receiving their own web push
+    // and the caller's notifications are delivered to the victim's browser.
+    const endpoint = `https://push.example.com/ep-${Date.now()}`;
+    const victim = `victim-${Date.now()}`;
+    await sql`
+      INSERT INTO "user" (id, name, email) VALUES (${victim}, 'Victim', ${`${victim}@example.com`})
+    `.execute(db);
+    await sql`
+      INSERT INTO zv_push_subscriptions (user_id, endpoint, p256dh, auth)
+      VALUES (${victim}, ${endpoint}, 'victim-p256dh', 'victim-auth')
+    `.execute(db);
+
+    try {
+      const res = await app.request(
+        '/api/notifications/push/subscribe',
+        json('POST', { endpoint, p256dh: 'attacker-p256dh', auth: 'attacker-auth' }),
+      );
+      expect(res.status).toBe(409);
+
+      const after = await sql<{ user_id: string; p256dh: string }>`
+        SELECT user_id, p256dh FROM zv_push_subscriptions WHERE endpoint = ${endpoint}
+      `.execute(db);
+      expect(after.rows[0]?.user_id).toBe(victim);
+      expect(after.rows[0]?.p256dh).toBe('victim-p256dh');
+    } finally {
+      await sql`DELETE FROM zv_push_subscriptions WHERE endpoint = ${endpoint}`
+        .execute(db)
+        .catch(() => {});
+      await sql`DELETE FROM "user" WHERE id = ${victim}`.execute(db).catch(() => {});
+    }
+  });
+
+  it('still refreshes the caller’s own web push subscription', async () => {
+    const endpoint = `https://push.example.com/own-${Date.now()}`;
+    try {
+      const first = await app.request(
+        '/api/notifications/push/subscribe',
+        json('POST', { endpoint, p256dh: 'k1', auth: 'a1' }),
+      );
+      expect(first.status).toBe(201);
+
+      const second = await app.request(
+        '/api/notifications/push/subscribe',
+        json('POST', { endpoint, p256dh: 'k2', auth: 'a2' }),
+      );
+      expect(second.status).toBe(201);
+
+      const after = await sql<{ user_id: string; p256dh: string }>`
+        SELECT user_id, p256dh FROM zv_push_subscriptions WHERE endpoint = ${endpoint}
+      `.execute(db);
+      expect(after.rows[0]?.user_id).toBe(userId);
+      expect(after.rows[0]?.p256dh).toBe('k2');
+    } finally {
+      await sql`DELETE FROM zv_push_subscriptions WHERE endpoint = ${endpoint}`
+        .execute(db)
+        .catch(() => {});
+    }
+  });
 });

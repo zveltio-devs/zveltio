@@ -24,16 +24,23 @@ const DLQ_MAX = parseInt(process.env.WEBHOOK_DLQ_MAX ?? '') || 1000;
 
 async function pushToDeadLetter(
   cache: Redis,
-  payload: { url?: string; event?: string; attempt: number },
+  payload: { url?: string; event?: string; attempt: number; secret?: string | null },
 ): Promise<void> {
   console.error(
     `[WebhookWorker] giving up on ${payload.event ?? 'event'} → ${payload.url ?? 'unknown url'} ` +
       `after ${payload.attempt + 1} attempt(s); moved to the dead-letter queue`,
   );
   try {
+    // The queue payload carries the DECRYPTED signing secret — `trigger`
+    // decrypts it so the worker can sign without touching the database. On the
+    // queue that plaintext lives for as long as a delivery takes; in the DLQ it
+    // would live for as long as the entry does, which is until 1000 newer
+    // failures push it out, and `GET /dlq` hands entries to an admin verbatim.
+    // Dropped here: `POST /dlq/replay` re-reads the secret from the webhook row.
+    const { secret: _secret, ...keep } = payload;
     await cache.lpush(
       WEBHOOK_DLQ_KEY,
-      JSON.stringify({ ...payload, failedAt: new Date().toISOString() }),
+      JSON.stringify({ ...keep, failedAt: new Date().toISOString() }),
     );
     await cache.ltrim(WEBHOOK_DLQ_KEY, 0, DLQ_MAX - 1);
   } catch (err) {

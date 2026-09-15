@@ -159,6 +159,25 @@ describe('webhookWorker._process', () => {
     expect(typeof dead.failedAt).toBe('string');
   });
 
+  it('does not keep the plaintext signing secret in the dead-letter queue', async () => {
+    // `trigger` decrypts the secret onto the queue payload so the worker can
+    // sign without a database round-trip. On the queue that plaintext lives for
+    // one delivery; in the DLQ it would live until 1000 newer failures push the
+    // entry out, and `GET /api/webhooks/dlq` returns entries to an admin.
+    // `POST /dlq/replay` re-reads the secret from the webhook row instead.
+    stubFetch(500);
+    const cache = new FakeRedis({
+      lmpop: [payload({ attempt: 3, retryAttempts: 3, secret: 'plaintext-signing-secret' })],
+    });
+    _setCacheForTests(cache as unknown as Redis);
+    await webhookWorker._process();
+
+    const dead = JSON.parse(cache.lpushCalls[0][1] as string);
+    expect(dead.secret).toBeUndefined();
+    expect(cache.lpushCalls[0][1]).not.toContain('plaintext-signing-secret');
+    expect(dead.url).toBe('https://hooks.example.com/x'); // the rest still recorded
+  });
+
   it('caps the dead-letter queue', async () => {
     // The failure this exists for — an endpoint down for a week — is the one
     // that produces the most entries, so it must not be able to fill the cache.

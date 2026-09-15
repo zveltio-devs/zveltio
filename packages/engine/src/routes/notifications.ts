@@ -238,14 +238,27 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       const { endpoint, p256dh, auth: authKey, user_agent } = c.req.valid('json');
 
       const tdb = reqDb(c, db);
-      await sql`
+      // `endpoint` is unique across the table, and the conflict branch used to
+      // set `user_id = EXCLUDED.user_id` — so posting someone else's endpoint
+      // reassigned their subscription to the caller. The victim stops receiving
+      // their own web push and the caller's notifications are delivered to the
+      // victim's browser. An endpoint is a capability URL, not a claim of
+      // ownership, so the update applies only to the row the caller already owns.
+      const upserted = await sql<{ user_id: string }>`
         INSERT INTO zv_push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
         VALUES (${user.id}, ${endpoint}, ${p256dh}, ${authKey}, ${user_agent ?? null})
         ON CONFLICT (endpoint) DO UPDATE SET
-          user_id = EXCLUDED.user_id,
           p256dh = EXCLUDED.p256dh,
-          auth = EXCLUDED.auth
+          auth = EXCLUDED.auth,
+          user_agent = EXCLUDED.user_agent
+        WHERE zv_push_subscriptions.user_id = ${user.id}
+        RETURNING user_id
       `.execute(tdb);
+
+      // No row: the endpoint exists and belongs to somebody else.
+      if (upserted.rows.length === 0) {
+        return c.json({ error: 'Endpoint already registered' }, 409);
+      }
 
       return c.json({ success: true }, 201);
     },
