@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 388
+# tables: 389
 
 table account
   col accessToken                    text
@@ -5972,7 +5972,17 @@ table zvd_push_tokens
   col user_id                        text NOT NULL
   pk  zvd_push_tokens_pkey PRIMARY KEY (id)
   ck  zvd_push_tokens_platform_check CHECK ((platform = ANY (ARRAY['fcm'::text, 'apns'::text, 'web'::text])))
-  uq  zvd_push_tokens_user_id_token_key UNIQUE (user_id, token)
+  uq  zvd_push_tokens_token_key UNIQUE (token)
+
+table zvd_push_tokens_superseded_013
+  col created_at                     timestamp with time zone NOT NULL
+  col device_name                    text
+  col id                             uuid NOT NULL
+  col platform                       text NOT NULL
+  col token                          text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL
+  col user_id                        text NOT NULL
+  pk  zvd_push_tokens_superseded_013_pkey PRIMARY KEY (id)
 
 table zvd_quality_remediations
   col action_type                    text NOT NULL

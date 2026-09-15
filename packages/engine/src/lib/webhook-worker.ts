@@ -143,10 +143,18 @@ export const webhookWorker = {
       }),
     );
 
-    // Re-enqueue retries that are now due
+    // Re-enqueue retries that are now due.
+    //
+    // `zrem` is the claim, and its return value is the whole point: every
+    // replica polling this second reads the same due set, and ZREM is atomic,
+    // so exactly one of them is told it removed the member. The others get 0
+    // and must not queue it. Ignoring that answer — which is what this loop
+    // used to do — delivered every due retry once more per extra replica, and
+    // a webhook receiver has no idempotency key to deduplicate on.
     const due = await cache.zrangebyscore('webhook:retry', '-inf', Date.now(), 'LIMIT', 0, 10);
     for (const item of due) {
-      await cache.zrem('webhook:retry', item);
+      const claimed = await cache.zrem('webhook:retry', item);
+      if (claimed !== 1) continue; // another replica owns this one
       await cache.rpush('webhook:queue', item);
     }
   },

@@ -828,6 +828,48 @@ DELETE /api/notifications/push-tokens/:id
 
 Push notifications are sent automatically alongside in-app notifications whenever `sendNotification()` is called internally (flows, admin broadcast, etc.), provided at least one token is registered for the target user.
 
+A device token identifies a device, so it has one owner: registering a token that another account holds moves it to the caller rather than creating a second row.
+
+---
+
+## Web Push (browser notifications)
+
+Notifications in the browser — including with the tab closed — over the W3C Push API. Unlike FCM/APNS this needs **no third-party account**: the keys are generated on your own install and registered nowhere, so it works on an intranet with no route to Google. Supported by Firefox, Chrome, Edge, Safari, and iOS 16.4+ for an installed PWA.
+
+Payloads are encrypted end-to-end (RFC 8291, `aes128gcm`) with keys the browser's push service never has, and each request is signed with your VAPID key (RFC 8292). The push service forwards bytes it cannot read.
+
+Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` to switch it on — see [configuration](../platform/configuration.md). Mint a pair with `bun run scripts/generate-vapid-keys.ts`.
+
+```bash
+# Is it enabled, and what key should the browser subscribe with?
+GET /api/notifications/push/vapid-public-key
+# Response: { "enabled": true, "publicKey": "B..." }
+# When no keys are configured: { "enabled": false, "publicKey": null }
+
+# Register a browser subscription (from pushManager.subscribe())
+POST /api/notifications/push/subscribe
+{
+  "endpoint": "https://push.example.org/...",
+  "p256dh": "B...",          # 65 bytes, base64url
+  "auth": "...",             # 16 bytes, base64url
+  "user_agent": "Mozilla/5.0 ..."
+}
+# 201 on success; 409 if that endpoint already belongs to another account;
+# 400 if the endpoint is not a public URL or the keys are the wrong size.
+
+# Unsubscribe this browser
+DELETE /api/notifications/push/subscribe
+{ "endpoint": "https://push.example.org/..." }
+```
+
+Web Push is delivered alongside in-app notifications by the same `sendNotification()` call as FCM/APNS, and is gated on its own keys alone — you can run it without any mobile push configuration, or both together. The notification's `action_url` travels as `data.url`, which is where a click takes the user.
+
+A subscription is removed automatically only when the push service reports it gone (`404`/`410`). Transient failures never unsubscribe a browser.
+
+The Studio ships the service worker (`/push-sw.js`) and a toggle on the notifications page, so an end user turns this on for themselves and nothing else has to be built.
+
+Rotating `VAPID_PRIVATE_KEY` invalidates every existing subscription — browsers have to subscribe again.
+
 ---
 
 ## Admin

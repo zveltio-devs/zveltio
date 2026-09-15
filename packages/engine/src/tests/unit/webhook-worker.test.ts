@@ -45,9 +45,11 @@ class FakeRedis {
   async zrangebyscore(): Promise<string[]> {
     return this.due;
   }
+  /** What ZREM answers: 1 for the replica that removed it, 0 for the losers. */
+  zremResult = 1;
   async zrem(...a: Args): Promise<number> {
     this.zremCalls.push(a);
-    return 1;
+    return this.zremResult;
   }
   async rpush(...a: Args): Promise<number> {
     this.rpushCalls.push(a);
@@ -215,6 +217,20 @@ describe('webhookWorker._process', () => {
     await webhookWorker._process();
     expect(cache.zremCalls[0]).toEqual(['webhook:retry', dueItem]);
     expect(cache.rpushCalls[0]).toEqual(['webhook:queue', dueItem]);
+  });
+
+  it('does not re-enqueue a retry another replica already claimed', async () => {
+    // Every replica polling this second reads the same due set. ZREM is atomic,
+    // so exactly one is told it removed the member; the rest get 0 and must
+    // drop it. Ignoring that answer delivered every due retry once more per
+    // extra replica, and the receiver has no idempotency key to deduplicate on.
+    const dueItem = payload({ attempt: 1 });
+    const cache = new FakeRedis({ lmpop: null, due: [dueItem] });
+    cache.zremResult = 0; // another replica won the claim
+    _setCacheForTests(cache as unknown as Redis);
+    await webhookWorker._process();
+    expect(cache.zremCalls[0]).toEqual(['webhook:retry', dueItem]); // still tried
+    expect(cache.rpushCalls).toEqual([]); // but did not queue it
   });
 });
 

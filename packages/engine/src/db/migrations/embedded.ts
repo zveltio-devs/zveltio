@@ -25,6 +25,8 @@ import m008 from './sql/009_revisions_unwrap_double_encoded.sql' with { type: 't
 import m009 from './sql/010_unwrap_double_encoded_jsonb.sql' with { type: 'text' };
 import m010 from './sql/011_unwrap_collections_fields_jsonb.sql' with { type: 'text' };
 import m011 from './sql/012_prune_resurrected_role_grants.sql' with { type: 'text' };
+import m012 from './sql/013_push_token_single_owner.sql' with { type: 'text' };
+import m013 from './sql/014_push_token_unique_index.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -40,4 +42,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '010_unwrap_double_encoded_jsonb.sql': m009,
   '011_unwrap_collections_fields_jsonb.sql': m010,
   '012_prune_resurrected_role_grants.sql': m011,
+  '013_push_token_single_owner.sql': m012,
+  '014_push_token_unique_index.sql': m013,
 };

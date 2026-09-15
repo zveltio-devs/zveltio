@@ -4677,6 +4677,16 @@ export interface ZvdPushTokensTable {
   updated_at: Generated<Date>;
 }
 
+export interface ZvdPushTokensSuperseded013Table {
+  id: Generated<string>;
+  user_id: string;
+  token: string;
+  platform: string;
+  device_name: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface ZvdQualityRemediationsTable {
   id: Generated<string>;
   issue_id: string;
@@ -5815,6 +5825,7 @@ export interface DbSchema {
   zvd_purchase_order_lines: ZvdPurchaseOrderLinesTable;
   zvd_purchase_orders: ZvdPurchaseOrdersTable;
   zvd_push_tokens: ZvdPushTokensTable;
+  zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
   zvd_quality_remediations: ZvdQualityRemediationsTable;
   zvd_quality_rules: ZvdQualityRulesTable;
   zvd_quality_scores: ZvdQualityScoresTable;

@@ -107,6 +107,24 @@ export async function _settleWebhookDeliveries(): Promise<void> {
   }
 }
 
+/** One delivery, as it travels through the queue and into `deliver`. */
+export interface DeliveryPayload {
+  webhookId?: string;
+  deliveryId?: string | null;
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  secret?: string | null;
+  timeout?: number;
+  retryAttempts?: number;
+  attempt?: number;
+  event: string;
+  collection: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  data: any;
+  timestamp: string;
+}
+
 export const WebhookManager = {
   init(db: Database): void {
     _db = db;
@@ -214,10 +232,10 @@ export const WebhookManager = {
         if (cache) {
           await cache.rpush('webhook:queue', JSON.stringify(payload));
         } else {
-          // No cache — fire-and-forget directly. Tracked so a test can await
-          // the delivery instead of racing a wall clock; see
+          // No cache — deliver in-process. Tracked so a test can await the
+          // delivery instead of racing a wall clock; see
           // `_settleWebhookDeliveries`.
-          const p = WebhookManager.deliver(payload).catch(() => {});
+          const p = WebhookManager._deliverWithRetries(payload).catch(() => {});
           _inFlight.add(p);
           void p.finally(() => _inFlight.delete(p));
         }
@@ -227,22 +245,52 @@ export const WebhookManager = {
     }
   },
 
-  async deliver(payload: {
-    webhookId?: string;
-    deliveryId?: string | null;
-    url: string;
-    method?: string;
-    headers?: Record<string, string>;
-    secret?: string | null;
-    timeout?: number;
-    retryAttempts?: number;
-    attempt?: number;
-    event: string;
-    collection: string;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    data: any;
-    timestamp: string;
-  }): Promise<boolean> {
+  /**
+   * Deliver, retry, and write down the abandonment — the no-cache path's
+   * equivalent of the worker plus its dead-letter queue.
+   *
+   * Without a cache this used to be one `deliver(payload).catch(() => {})`.
+   * `retryAttempts` rides on the payload and is read only by the worker, so a
+   * failed delivery was attempted once and discarded with no record anywhere:
+   * the DLQ exists only on the cache path, and a cache is not a documented
+   * requirement for webhooks. A webhook is how the outside world learns
+   * something happened here, so a silent drop is a business event that quietly
+   * did not occur.
+   *
+   * There is no queue to abandon the payload into, but there is already a row:
+   * `zvd_webhook_deliveries` carries `attempt` and `error`, so the delivery log
+   * the admin UI already reads becomes the record. The backoff matches the
+   * worker's — 1s, 2s, 4s — and `sleep` is injected so a test does not wait it out.
+   */
+  async _deliverWithRetries(
+    payload: DeliveryPayload,
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ): Promise<boolean> {
+    const maxAttempts = payload.retryAttempts ?? 3;
+    for (let attempt = 0; ; attempt++) {
+      const ok = await WebhookManager.deliver({ ...payload, attempt });
+      if (ok) return true;
+      if (attempt >= maxAttempts) {
+        console.error(
+          `[webhooks] giving up on ${payload.event} → ${payload.url} after ` +
+            `${attempt + 1} attempt(s); no cache is configured, so there is no dead-letter ` +
+            'queue to replay it from — the delivery row carries the final error',
+        );
+        if (_db && payload.deliveryId) {
+          await (_db as Database)
+            .updateTable('zvd_webhook_deliveries')
+            .set({ attempt: attempt + 1 })
+            .where('id', '=', payload.deliveryId)
+            .execute()
+            .catch(() => {});
+        }
+        return false;
+      }
+      await sleep(2 ** attempt * 1000);
+    }
+  },
+
+  async deliver(payload: DeliveryPayload): Promise<boolean> {
     let httpStatus: number | null = null;
     let responseBody: string | null = null;
     let errorMessage: string | null = null;
