@@ -3,10 +3,10 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { toJsonb } from '../lib/jsonb.js';
 import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
-import { sendPushToUsers } from '../lib/push-notifications.js';
+import { getVapidConfig, isValidAuthSecret, isValidP256dh } from '../lib/web-push.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function requireAuth(c: any, auth: any): Promise<any | null> {
@@ -14,58 +14,17 @@ async function requireAuth(c: any, auth: any): Promise<any | null> {
   return session?.user ?? null;
 }
 
-// Helper to send a notification to one or more users
-export async function sendNotification(
-  db: Database,
-  opts: {
-    user_id: string | string[];
-    title: string;
-    message: string;
-    type?: 'info' | 'success' | 'warning' | 'error';
-    action_url?: string;
-    source?: string;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    metadata?: Record<string, any>;
-  },
-): Promise<void> {
-  const userIds = Array.isArray(opts.user_id) ? opts.user_id : [opts.user_id];
-  const values = userIds.map((uid) => ({
-    user_id: uid,
-    title: opts.title,
-    message: opts.message,
-    type: opts.type ?? 'info',
-    action_url: opts.action_url ?? null,
-    source: opts.source ?? null,
-    // See lib/jsonb.ts. Measured on a live database before this: 12 of 12
-    // rows held a jsonb string, so `metadata ? 'key'` was false and
-    // `metadata->>'key'` NULL for every notification ever written.
-    metadata: toJsonb(opts.metadata ?? {}),
-  }));
-
-  // Insert each notification individually so a single invalid user_id (FK miss,
-  // deleted account) does not cause the entire batch to fail silently.
-  // Promise.allSettled ensures all valid entries are delivered even if some fail.
-  const results = await Promise.allSettled(
-    values.map((v) => db.insertInto('zv_notifications').values(v).execute()),
-  );
-  const failed = results.filter((r) => r.status === 'rejected');
-  if (failed.length > 0) {
-    console.error(
-      `[sendNotification] ${failed.length}/${values.length} notifications failed:`,
-      (failed[0] as PromiseRejectedResult).reason,
-    );
-  }
-
-  // Fire-and-forget mobile push — only if FCM or APNS are configured.
-  // Push failures are common (stale tokens, FCM/APNS outages) so log at
-  // warn level — escalation happens only when it's the same userId
-  // failing repeatedly.
-  if (process.env.FCM_SERVER_KEY || process.env.APNS_KEY) {
-    sendPushToUsers(db, userIds, { title: opts.title, body: opts.message }).catch((err: Error) => {
-      console.warn(`[notifications] push to ${userIds.length} user(s) failed:`, err.message);
-    });
-  }
-}
+// `sendNotification` and `_settleNotificationPushes` live in lib/notifications.ts
+// and are re-exported here.
+//
+// There were two of them for a long time: this one, which wrote a batch and
+// sent push, and lib/notifications.ts, which wrote a single row and sent none.
+// Extensions are handed the lib one through `ctx.internals`, so every
+// notification an extension raised was silently excluded from mobile and
+// browser push — the twin problem this campaign keeps finding, with the two
+// copies in different directories and only one of them growing features.
+import { _settleNotificationPushes, sendNotification } from '../lib/notifications.js';
+export { _settleNotificationPushes, sendNotification };
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function notificationsRoutes(db: Database, auth: any): Hono {
@@ -220,6 +179,18 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // ── Web Push Subscriptions ────────────────────────────────────
 
+  // GET /push/vapid-public-key — what the browser needs to subscribe.
+  //
+  // `applicationServerKey` in `pushManager.subscribe()`. Public by definition —
+  // it is handed to every push service on every send — but the route stays
+  // behind the session guard like the rest of this router, since only a
+  // signed-in user has anything to subscribe for.
+  app.get('/push/vapid-public-key', async (c) => {
+    const config = getVapidConfig();
+    if (!config) return c.json({ enabled: false, publicKey: null });
+    return c.json({ enabled: true, publicKey: config.publicKey });
+  });
+
   // POST /push/subscribe — Subscribe to web push
   app.post(
     '/push/subscribe',
@@ -236,6 +207,24 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const { endpoint, p256dh, auth: authKey, user_agent } = c.req.valid('json');
+
+      // The endpoint is a URL the CLIENT chose and the server will later POST
+      // to, so it is an SSRF sink — the same one webhooks have. `z.string().url()`
+      // accepts `http://169.254.169.254/…` and `file:` alike. Refused at the
+      // door as well as at send time: a stored endpoint is a sink that fires
+      // later, on a schedule nobody is watching.
+      try {
+        validatePublicUrl(endpoint);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Invalid push endpoint' }, 400);
+      }
+
+      // The keys are fixed-size values from the Push API, not free text: 65
+      // bytes for the P-256 point, 16 for the auth secret. Checked here so a
+      // malformed subscription fails at subscribe time rather than silently
+      // never receiving anything.
+      if (!isValidP256dh(p256dh)) return c.json({ error: 'Invalid p256dh key' }, 400);
+      if (!isValidAuthSecret(authKey)) return c.json({ error: 'Invalid auth secret' }, 400);
 
       const tdb = reqDb(c, db);
       // `endpoint` is unique across the table, and the conflict branch used to
@@ -388,14 +377,31 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as any;
       const { token, platform, device_name } = c.req.valid('json');
 
+      // Conflict on `token` alone (migration 013). A device token identifies a
+      // DEVICE, so at most one account may hold it: the pair constraint this
+      // replaces left the token itself free, and the token arrives in the
+      // request body, so one account could register a token belonging to
+      // another and have its own notifications delivered to a device it does
+      // not own.
+      //
+      // The newest registration wins, `user_id` included — an OS reissues a
+      // token to whoever last signed in on that device, so the previous owner
+      // is a session that has been replaced. That is also the residual risk: a
+      // caller who KNOWS a token can take the device over, and the server
+      // cannot tell them from the device itself. What it can do is make that a
+      // takeover rather than a silent second owner — one the loser can see,
+      // because the device leaves their `GET /push-tokens` list.
       await tdb
         .insertInto('zvd_push_tokens')
         .values({ user_id: user.id, token, platform, device_name: device_name ?? null })
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         .onConflict((oc: any) =>
-          oc
-            .columns(['user_id', 'token'])
-            .doUpdateSet({ platform, device_name: device_name ?? null, updated_at: new Date() }),
+          oc.columns(['token']).doUpdateSet({
+            user_id: user.id,
+            platform,
+            device_name: device_name ?? null,
+            updated_at: new Date(),
+          }),
         )
         .execute();
 

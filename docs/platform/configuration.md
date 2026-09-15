@@ -461,6 +461,22 @@ When either `FCM_SERVER_KEY` or `APNS_KEY` is configured, in-app notifications (
 
 ---
 
+## Web Push (browser notifications)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VAPID_PUBLIC_KEY` | — | base64url, 65 bytes. Also served to the browser by `GET /api/notifications/push/vapid-public-key`. |
+| `VAPID_PRIVATE_KEY` | — | base64url, 32 bytes. The signing half — treat it as a secret. |
+| `VAPID_SUBJECT` | — | `mailto:` or `https:` URL identifying the operator to the push service. |
+
+Mint a pair with `bun run scripts/generate-vapid-keys.ts`. All three must be set; with any of them missing the sender stays off and `GET /api/notifications/push/vapid-public-key` answers `{ "enabled": false }`, which is the browser's signal not to offer the subscribe prompt.
+
+This is a separate path from FCM/APNS above and is gated on its own keys alone. It needs no third-party account — the keys are generated on this install and registered nowhere — so it is the browser-notification path available to an instance with no route to Google. It does not replace FCM/APNS for native mobile apps.
+
+Rotating `VAPID_PRIVATE_KEY` invalidates every existing subscription: the push service checks the JWT against the key the browser subscribed with. Subscribers have to subscribe again, so rotate only when the key is believed compromised.
+
+---
+
 ## Caching
 
 | Variable | Default | Description |
