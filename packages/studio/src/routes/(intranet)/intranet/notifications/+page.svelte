@@ -31,9 +31,8 @@ async function togglePush() {
     if (pushState === 'denied') {
       toast.error('Your browser is blocking notifications for this site');
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  } catch (e: any) {
-    toast.error(e.message ?? 'Could not change notification settings');
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Could not change notification settings');
   } finally {
     pushBusy = false;
   }

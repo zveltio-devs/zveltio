@@ -24,6 +24,14 @@
 --
 -- Deleted rows are kept, so the DOWN below is a real reversal rather than a
 -- constraint swap that silently discards the evidence.
+--
+-- The constraint swap itself is migration 014, and it is separate on purpose.
+-- Adding a UNIQUE constraint builds its index under ACCESS EXCLUSIVE, which
+-- blocks reads and writes for as long as the build takes — fine on CI's empty
+-- table, not fine on a customer's. 014 opts out of the runner's transaction so
+-- it can build the index CONCURRENTLY, and this file keeps the transaction,
+-- because a dedupe that is interrupted between the bookkeeping INSERT and the
+-- DELETE must not leave rows deleted with no record of them.
 
 CREATE TABLE IF NOT EXISTS zvd_push_tokens_superseded_013 (
   id          uuid PRIMARY KEY,
@@ -53,17 +61,10 @@ ON CONFLICT (id) DO NOTHING;
 DELETE FROM zvd_push_tokens
  WHERE id IN (SELECT id FROM zvd_push_tokens_superseded_013);
 
--- The pair constraint is now implied by the token one; keeping both would cost
--- a second index that can never refuse anything the first accepts.
-ALTER TABLE zvd_push_tokens DROP CONSTRAINT IF EXISTS zvd_push_tokens_user_id_token_key;
-ALTER TABLE zvd_push_tokens ADD CONSTRAINT zvd_push_tokens_token_key UNIQUE (token);
-
 -- DOWN
--- Put the pair constraint back first: the superseded rows cannot be restored
--- while a unique token is enforced.
-ALTER TABLE zvd_push_tokens DROP CONSTRAINT IF EXISTS zvd_push_tokens_token_key;
-ALTER TABLE zvd_push_tokens ADD CONSTRAINT zvd_push_tokens_user_id_token_key UNIQUE (user_id, token);
-
+-- Restore what was superseded, then drop the record of it. Migrations roll back
+-- in reverse order, so 014 has already dropped the unique-token constraint by
+-- the time this runs and the duplicates can exist again.
 INSERT INTO zvd_push_tokens (id, user_id, token, platform, device_name, created_at, updated_at)
 SELECT id, user_id, token, platform, device_name, created_at, updated_at
   FROM zvd_push_tokens_superseded_013
