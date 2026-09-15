@@ -829,6 +829,21 @@ const CASES: Case[] = [
     mode: 'append',
   },
   {
+    // The second shape, and the one the gate's own header describes: the
+    // installer MINTS a secret into a shell variable and never copies it into
+    // the `.env` heredoc. `ZVELTIO_PORT` is assigned at the top of install.sh
+    // and appears in no `.env` it writes (the heredoc writes `PORT=`), so
+    // marking it REQUIRED is a variable no install produces — while a scan of
+    // the whole installer for `^KEY=` answers "produced". Measured green before
+    // the matcher was narrowed to the heredoc bodies.
+    gate: 'check-required-env-installable',
+    expect: 'ZVELTIO_PORT',
+    cmd: 'bun run scripts/check-required-env-installable.ts',
+    file: '.env.example',
+    body: '\nZVELTIO_PORT=        # REQUIRED — planted by audit-gates (minted, never written)\n',
+    mode: 'append',
+  },
+  {
     // The gate that keeps the others honest, kept honest itself.
     //
     // The violation is a NEW gate joining CI without either a planted case or a
