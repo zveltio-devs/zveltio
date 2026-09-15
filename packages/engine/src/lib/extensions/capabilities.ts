@@ -172,9 +172,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // Messaging
   sendNotification: 'notifications',
   // Files
-  extractTextFromFile: 'files',
   moveToTrash: 'files',
-  scheduleFileIndexing: 'files',
   // Rendering
   generatePDFAsync: 'documents',
   // Compute

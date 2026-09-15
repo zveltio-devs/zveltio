@@ -486,9 +486,6 @@ export interface ExtensionInternals<DB = unknown> {
   /** Move a file to the trash bucket (soft delete with TTL). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   moveToTrash: (...args: any[]) => Promise<unknown>;
-  /** Schedule async indexing for a newly uploaded file. */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
@@ -525,11 +522,6 @@ export interface ExtensionInternals<DB = unknown> {
    * the URL is blocked.
    */
   assertNonMetadataUrl: (url: string, label?: string) => void;
-  /** Extract plain text from an uploaded file (PDF/DOCX/etc.) for AI indexing. */
-  extractTextFromFile: (
-    buffer: ArrayBuffer | Buffer | Uint8Array,
-    mimeType: string,
-  ) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
   sendNotification: (
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
