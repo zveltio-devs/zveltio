@@ -594,20 +594,6 @@ export interface ZvErdLayoutsTable {
   updated_at: Generated<Date>;
 }
 
-export interface ZvAiProvidersTable {
-  id: Generated<string>;
-  name: string;
-  label: string;
-  api_key: string | null;
-  base_url: string | null;
-  default_model: string | null;
-  is_active: boolean;
-  is_default: boolean;
-  metadata: unknown; // JSONB
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvPromptTemplatesTable {
   id: Generated<string>;
   name: string;
@@ -935,27 +921,6 @@ export interface ZvdWebhookDeliveriesTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdAiEmbeddingsTable {
-  id: Generated<string>;
-  collection: string;
-  record_id: string;
-  field: string;
-  text_content: string;
-  embedding: unknown; // pgvector
-  model: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdAiSearchConfigTable {
-  id: Generated<string>;
-  collection: string;
-  fields: unknown; // JSONB
-  namespace: string | null;
-  is_enabled: boolean;
-  created_at: Generated<Date>;
-}
-
 // Extension-owned tables are NOT declared here.
 //
 // i18n (`i18n/translations`) and CRM (`crm`) used to ship types in this file
@@ -964,6 +929,25 @@ export interface ZvdAiSearchConfigTable {
 // own tables through `ctx.db`. `schema.generated.ts` may still list them when
 // codegen sees extension migrations — that is fine and separate from this
 // hand-written core schema.
+//
+// Three of the `ai` extension's tables sat below this comment while it said
+// they could not: `zv_ai_providers`, `zvd_ai_embeddings` and
+// `zvd_ai_search_config`. No engine migration creates any of them —
+// `ai/engine/migrations/001_initial.sql` does — and no engine file referenced
+// their types. They were a declaration of something the engine neither owns nor
+// touches, and they had already gone stale: the drift report named `tenant_id`
+// missing from all three, a column the extension's own later migration added
+// and this copy never followed. A copy that nothing reads cannot be noticed
+// when it goes wrong.
+//
+// `zv_quality_scans` and `zv_doc_templates` stay, and the difference is worth
+// stating: the ENGINE's `001_initial.sql` still creates both. While that is
+// true they are the engine's by creation, whatever else also creates them
+// (`analytics/quality` re-creates `zv_quality_scans`, an accepted duplicate),
+// and removing their types would be drift, not tidying. They leave here when
+// the engine's baseline stops declaring them — the same rule the
+// `EXTENSION_TABLE_GRANTS` map in `lib/extensions/register.ts` records for
+// going inert.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Portal tables — OLD (kept for backward compat, renamed in migration 061)
@@ -1462,7 +1446,6 @@ export interface DbSchema {
   zv_backups: ZvBackupsTable;
   zv_backup_schedules: ZvBackupSchedulesTable;
   zv_erd_layouts: ZvErdLayoutsTable;
-  zv_ai_providers: ZvAiProvidersTable;
   zv_prompt_templates: ZvPromptTemplatesTable;
   zv_ai_chats: ZvAiChatsTable;
   zv_rag_documents: ZvRagDocumentsTable;
@@ -1508,8 +1491,6 @@ export interface DbSchema {
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
   zvd_webhooks: ZvdWebhooksTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
-  zvd_ai_embeddings: ZvdAiEmbeddingsTable;
-  zvd_ai_search_config: ZvdAiSearchConfigTable;
   // Portal old (renamed in 001_initial.sql, section `from 061_push_tokens.sql`;
   // kept for transition)
   zvd_portal_theme: ZvdPortalThemeTable;
