@@ -62,12 +62,85 @@ if (required.length === 0) {
   process.exit(1);
 }
 
+/**
+ * The bodies of the heredocs that WRITE the `.env`, and nothing else.
+ *
+ * `^KEY=` against the whole installer was the first spelling, and it answered
+ * for the wrong half of the file. The installer mints each secret into a shell
+ * variable first — `POSTGRES_PASSWORD=$(gen_secret)` at line 125 — and only then
+ * copies it into the heredoc. Measured: append `PLANT_REQUIRED_VAR=$(openssl
+ * rand -hex 8)` anywhere in the script, mark it REQUIRED in the example, and the
+ * gate reports "produced by an install path" for a variable no `.env` ever
+ * receives. That minted-but-never-written shape is precisely the operator-facing
+ * bug this gate exists to catch, so the evidence has to be the heredoc.
+ */
+const envHeredocs = (() => {
+  const bodies: string[] = [];
+  const lines = installer.split('\n');
+  let open = false;
+  let terminator = '';
+  for (const line of lines) {
+    if (!open) {
+      // `cat > "${ZVELTIO_DIR}/.env" << EOF` — quoted or not, terminator named.
+      const m = line.match(/cat\s*>\s*\S*\.env"?\s*<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?/);
+      if (m) {
+        open = true;
+        terminator = m[1]!;
+      }
+      continue;
+    }
+    if (line.trim() === terminator) {
+      open = false;
+      continue;
+    }
+    bodies.push(line);
+  }
+  return bodies.join('\n');
+})();
+
+if (envHeredocs === '') {
+  console.error(
+    `✗ ${INSTALLER} contains no \`cat > …/.env << EOF\` block.\n` +
+      `  This gate reads those heredocs to decide what an install produces. With none\n` +
+      `  found the scan is broken, not the installer clean — it will not pass silently.`,
+  );
+  process.exit(1);
+}
+
 /** Written into the .env the installer generates. */
-const writtenByInstaller = (key: string): boolean => new RegExp(`^${key}=`, 'm').test(installer);
+const writtenByInstaller = (key: string): boolean => new RegExp(`^${key}=`, 'm').test(envHeredocs);
+
+/**
+ * The `environment:` blocks of compose services, and nothing else.
+ *
+ * `^\s+KEY:\s` matched any mapping key at any indent in the file. Measured: a
+ * line `  PLANT_REQUIRED_VAR: {}` under the top-level `volumes:` satisfied it,
+ * and the gate reported the variable supplied by compose. A named volume is not
+ * a value an engine ever reads.
+ */
+const composeEnvBlocks = (() => {
+  const bodies: string[] = [];
+  const lines = compose.split('\n');
+  let indent = -1;
+  for (const line of lines) {
+    if (indent >= 0) {
+      const here = line.search(/\S/);
+      if (line.trim() === '') continue;
+      if (here > indent) {
+        bodies.push(line);
+        continue;
+      }
+      indent = -1;
+    }
+    const m = line.match(/^(\s+)environment:\s*$/);
+    if (m) indent = m[1]!.length;
+  }
+  return bodies.join('\n');
+})();
 
 /** Supplied or derived by compose — `KEY: '…'` in a service environment block. */
 const suppliedByCompose = (key: string): boolean =>
-  new RegExp(`^\\s+${key}:\\s`, 'm').test(compose);
+  new RegExp(`^\\s+${key}:\\s`, 'm').test(composeEnvBlocks);
 
 const missing = required.filter((k) => !writtenByInstaller(k) && !suppliedByCompose(k));
 
