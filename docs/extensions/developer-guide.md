@@ -289,7 +289,7 @@ your `ctx`, not inside your own code.
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — mint a session for any user. |
 | `notifications` | `sendNotification`. |
-| `files` | `extractTextFromFile`, `moveToTrash`, `scheduleFileIndexing`. |
+| `files` | `moveToTrash`. |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
 | `edge-functions` | `runEdgeFunction`. |
 | `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |

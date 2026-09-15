@@ -45,7 +45,6 @@ import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { moveToTrash } from '../cloud/trash.js';
-import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
@@ -297,7 +296,6 @@ export interface ExtensionInternals {
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
   moveToTrash: typeof moveToTrash;
-  scheduleFileIndexing: typeof scheduleFileIndexing;
   enqueueDDLJob: typeof enqueueDDLJob;
   /**
    * Synchronous literal-host SSRF check. Throws on a blocked URL, returns
@@ -338,10 +336,6 @@ export interface ExtensionInternals {
    * you will break every localhost deployment. Synchronous; throws when blocked.
    */
   assertNonMetadataUrl: (url: string, label?: string) => void;
-  extractTextFromFile: (
-    buffer: ArrayBuffer | Buffer | Uint8Array,
-    mimeType: string,
-  ) => Promise<string>;
   // NOT `typeof sendNotification`: the SDK's public ExtensionContext declares a
   // looser `input` (message optional) than the engine helper (message required),
   // so this slot must stay at least as loose as the SDK's. `unknown` params keep
@@ -394,7 +388,6 @@ export function buildExtensionInternals(): ExtensionInternals {
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
     moveToTrash,
-    scheduleFileIndexing,
     maybeEncrypt,
     maybeDecrypt,
     // Adapted rather than passed straight through, so the bag matches the SDK
@@ -427,7 +420,6 @@ export function buildExtensionInternals(): ExtensionInternals {
     assertPublicUrl,
     safeFetch,
     assertNonMetadataUrl,
-    extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
     createBetterAuthSession,
     encryptSecret: async (plaintext: string, opts?: { keyring?: Keyring }) => {
