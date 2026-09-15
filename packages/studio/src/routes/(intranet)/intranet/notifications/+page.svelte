@@ -1,14 +1,42 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
-import { Bell, Check, Clock, Trash2 } from '@lucide/svelte';
+import { Bell, BellOff, BellRing, Check, Clock, Trash2 } from '@lucide/svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  subscribeToWebPush,
+  unsubscribeFromWebPush,
+  webPushStatus,
+  type WebPushState,
+} from '$lib/web-push.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let notifications = $state<any[]>([]);
 let loading = $state(true);
 let filter = $state<'all' | 'unread'>('unread');
 let busy = $state<string | null>(null);
+
+// Browser push. Four of the five states are "off" for different reasons, and
+// only one of them is something the person looking at this page can change —
+// so the button says which.
+let pushState = $state<WebPushState | 'loading'>('loading');
+let pushBusy = $state(false);
+
+async function togglePush() {
+  pushBusy = true;
+  try {
+    pushState =
+      pushState === 'subscribed' ? await unsubscribeFromWebPush() : await subscribeToWebPush();
+    if (pushState === 'subscribed') toast.success('Browser notifications are on');
+    if (pushState === 'denied') {
+      toast.error('Your browser is blocking notifications for this site');
+    }
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Could not change notification settings');
+  } finally {
+    pushBusy = false;
+  }
+}
 
 async function load() {
   loading = true;
@@ -28,7 +56,7 @@ async function load() {
 async function markRead(id: string) {
   busy = id;
   try {
-    await api.patch(`/api/notifications/${id}`, { read: true });
+    await api.patch(`/api/notifications/${id}/read`, {});
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
@@ -71,7 +99,12 @@ $effect(() => {
   load();
 });
 
-onMount(load);
+onMount(async () => {
+  await load();
+  // Never throws at the page: a browser without the Push API, or an engine
+  // without VAPID keys, is a button that explains itself, not an error toast.
+  pushState = await webPushStatus().catch(() => 'unsupported' as const);
+});
 </script>
 
 <div class="space-y-5 max-w-3xl">
@@ -83,11 +116,35 @@ onMount(load);
       </h1>
       <p class="text-sm text-base-content/65 mt-0.5">Alerts, mentions and system updates.</p>
     </div>
-    <button class="btn btn-ghost btn-sm gap-1.5"
-      onclick={markAllRead}
-      disabled={busy === 'all' || notifications.every(n => n.read)}>
-      <Check size={14} /> Mark all as read
-    </button>
+    <div class="flex items-center gap-1.5">
+      {#if pushState !== 'loading' && pushState !== 'unsupported'}
+        <button class="btn btn-ghost btn-sm gap-1.5"
+          onclick={togglePush}
+          disabled={pushBusy || pushState === 'disabled-on-server' || pushState === 'denied'}
+          title={pushState === 'disabled-on-server'
+            ? 'The server has no Web Push keys configured'
+            : pushState === 'denied'
+              ? 'Blocked in your browser settings for this site'
+              : pushState === 'subscribed'
+                ? 'Stop receiving notifications in this browser'
+                : 'Also receive these in this browser, even when the tab is closed'}>
+          {#if pushState === 'subscribed'}
+            <BellRing size={14} class="text-primary" /> Browser push on
+          {:else if pushState === 'denied'}
+            <BellOff size={14} /> Blocked by browser
+          {:else if pushState === 'disabled-on-server'}
+            <BellOff size={14} /> Push not configured
+          {:else}
+            <Bell size={14} /> Enable browser push
+          {/if}
+        </button>
+      {/if}
+      <button class="btn btn-ghost btn-sm gap-1.5"
+        onclick={markAllRead}
+        disabled={busy === 'all' || notifications.every(n => n.is_read)}>
+        <Check size={14} /> Mark all as read
+      </button>
+    </div>
   </div>
 
   <!-- Filter tabs -->
@@ -114,10 +171,10 @@ onMount(load);
     <div class="space-y-2">
       {#each notifications as n (n.id)}
         <div class="card bg-base-200 border border-base-300
-          {n.read ? 'opacity-75' : 'border-primary/20'}">
+          {n.is_read ? 'opacity-75' : 'border-primary/20'}">
           <div class="card-body p-4 gap-2">
             <div class="flex items-start gap-3">
-              {#if !n.read}
+              {#if !n.is_read}
                 <div class="w-2 h-2 rounded-full bg-primary mt-2 shrink-0"></div>
               {:else}
                 <div class="w-2 h-2 mt-2 shrink-0"></div>
@@ -135,7 +192,7 @@ onMount(load);
                 </p>
               </div>
               <div class="flex gap-1 shrink-0">
-                {#if !n.read}
+                {#if !n.is_read}
                   <button class="btn btn-ghost btn-xs btn-square"
                     onclick={() => markRead(n.id)}
                     disabled={busy === n.id}

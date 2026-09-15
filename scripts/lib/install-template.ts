@@ -13,6 +13,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SQL } from 'bun';
+import {
+  isNonTransactional,
+  splitSqlStatements,
+} from '../../packages/engine/src/db/migrations/index.js';
 import { SQL as Sql } from 'bun';
 
 export const ROOT = join(import.meta.dir, '..', '..');
@@ -82,6 +86,29 @@ export function engineMigrationFiles(): string[] {
  * writes `zvd_products`, which `operations/inventory` owns, and a store-only
  * database made that check skip rather than fail.
  */
+/**
+ * Apply one migration's UP half the way the RUNNER would.
+ *
+ * `db.unsafe(wholeFile)` sends every statement as one batch, which Postgres
+ * executes in an implicit transaction — so a file marked `-- NO TRANSACTION`
+ * failed here with "CREATE INDEX CONCURRENTLY cannot run inside a transaction
+ * block" while running perfectly through the engine. Every schema this file
+ * builds is a claim about what a customer's database looks like, and it was a
+ * claim the runner did not agree with.
+ *
+ * Both the marker check and the splitter are the engine's own, so the tooling
+ * and the runner cannot drift into disagreeing about what a file is.
+ */
+async function applyUp(db: Sql, up: string): Promise<void> {
+  if (!isNonTransactional(up)) {
+    await db.unsafe(up);
+    return;
+  }
+  for (const stmt of splitSqlStatements(up)) {
+    await db.unsafe(stmt);
+  }
+}
+
 export async function buildInstallTemplate(admin: SQL, dbName: string): Promise<string[]> {
   const problems: string[] = [];
   await admin.unsafe(`DROP DATABASE IF EXISTS ${dbName}`);
@@ -93,7 +120,7 @@ export async function buildInstallTemplate(admin: SQL, dbName: string): Promise<
     );
     for (const f of engineMigrationFiles()) {
       try {
-        await db.unsafe(upHalf(readFileSync(join(ENGINE_MIGRATIONS, f), 'utf8')));
+        await applyUp(db, upHalf(readFileSync(join(ENGINE_MIGRATIONS, f), 'utf8')));
       } catch (err) {
         problems.push(`engine/${f}: ${(err as Error).message.split('\n')[0]}`);
       }
@@ -111,7 +138,7 @@ export async function buildInstallTemplate(admin: SQL, dbName: string): Promise<
         .filter((x) => x.endsWith('.sql'))
         .sort()) {
         try {
-          await db.unsafe(upHalf(readFileSync(join(migDir, f), 'utf8')));
+          await applyUp(db, upHalf(readFileSync(join(migDir, f), 'utf8')));
         } catch (err) {
           problems.push(
             `${dir.slice(EXT_ROOT.length + 1)}/${f}: ${(err as Error).message.split('\n')[0]}`,
