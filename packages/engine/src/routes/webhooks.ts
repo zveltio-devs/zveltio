@@ -96,17 +96,36 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // half — see what was abandoned, and send it again once the endpoint is
   // back.
   //
-  // Filtered to this tenant's own webhook URLs so one tenant's admin cannot
-  // read another's payloads out of a cache key they happen to share.
+  // Filtered to this tenant's own webhooks so one tenant's admin cannot read
+  // another's payloads out of a cache key they happen to share.
+  //
+  // Filtered by `webhookId`, not by URL. A URL is not an ownership claim: it is
+  // a value any tenant can type into its own webhook, so registering a webhook
+  // at the URL another tenant already uses used to hand over that tenant's
+  // abandoned payloads — which carry the record data of the write that fired
+  // them — and let `replay` remove them from the DLQ and re-send them.
+  // The id comes from `zvd_webhooks` on both sides and cannot be claimed.
 
-  /** The URLs this tenant owns — the DLQ is a flat Redis list, not a table. */
-  async function ownUrls(c: Context): Promise<Set<string>> {
+  /** This tenant's webhooks by id — the DLQ is a flat Redis list, not a table. */
+  async function ownWebhooks(c: Context): Promise<Map<string, { secret: string | null }>> {
     const rows = await reqDb(c, db)
       .selectFrom('zvd_webhooks')
-      .select('url')
+      .select(['id', 'secret'])
       .where('tenant_id', '=', tenantId(c))
       .execute();
-    return new Set(rows.map((r) => r.url));
+    return new Map(rows.map((r) => [r.id as string, { secret: (r.secret as string) ?? null }]));
+  }
+
+  /** An entry as it sits in the DLQ. `secret` is never one of its fields. */
+  type DlqEntry = { webhookId?: string } & Record<string, unknown>;
+
+  function parseEntry(raw: string): DlqEntry | null {
+    try {
+      const parsed = JSON.parse(raw) as DlqEntry;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   // GET /dlq — abandoned deliveries, newest first. Declared before `/:id` so
@@ -116,16 +135,14 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (!cache) return c.json({ entries: [], available: false });
     const limit = Math.min(parseInt(c.req.query('limit') ?? '50') || 50, 500);
     const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, limit - 1).catch(() => []);
-    const mine = await ownUrls(c);
+    const mine = await ownWebhooks(c);
     const entries = raw
-      .map((r) => {
-        try {
-          return JSON.parse(r) as { url?: string };
-        } catch {
-          return null;
-        }
-      })
-      .filter((e): e is { url?: string } => e !== null && !!e.url && mine.has(e.url));
+      .map(parseEntry)
+      .filter((e): e is DlqEntry => e !== null && !!e.webhookId && mine.has(e.webhookId))
+      // `secret` is stripped before an entry reaches the DLQ, but an entry
+      // abandoned by an older worker still carries it and every other handler
+      // here masks the signing secret. Dropped on the way out too.
+      .map(({ secret: _secret, ...rest }) => rest);
     return c.json({ entries, available: true });
   });
 
@@ -134,20 +151,33 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     const cache = getCache();
     if (!cache) return c.json({ error: 'Cache unavailable' }, 503);
     const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, -1).catch(() => []);
-    const mine = await ownUrls(c);
+    const mine = await ownWebhooks(c);
     let replayed = 0;
     for (const item of raw) {
-      let parsed: { url?: string } | null = null;
-      try {
-        parsed = JSON.parse(item) as { url?: string };
-      } catch {
-        continue;
+      const parsed = parseEntry(item);
+      if (!parsed?.webhookId) continue;
+      const owner = mine.get(parsed.webhookId);
+      if (!owner) continue;
+      // The DLQ does not store the signing secret, so a replay that just
+      // re-queued the entry would deliver UNSIGNED — the receiver's verification
+      // would fail, or worse, it accepts unsigned and nothing reports it.
+      // Re-read and decrypt it from the webhook row instead.
+      let secret: string | null = null;
+      if (owner.secret) {
+        try {
+          const plain = await maybeDecrypt(owner.secret, true);
+          secret = typeof plain === 'string' ? plain : null;
+        } catch (err) {
+          console.warn(
+            `[webhooks] replay: could not decrypt the secret for ${parsed.webhookId}:`,
+            (err as Error).message,
+          );
+        }
       }
-      if (!parsed.url || !mine.has(parsed.url)) continue;
       // `attempt: 0` so the replay gets the full retry budget again rather
       // than one last try — the endpoint being back is a new situation.
-      const { failedAt: _failedAt, ...payload } = parsed as Record<string, unknown>;
-      await cache.rpush('webhook:queue', JSON.stringify({ ...payload, attempt: 0 }));
+      const { failedAt: _failedAt, secret: _stale, ...payload } = parsed as Record<string, unknown>;
+      await cache.rpush('webhook:queue', JSON.stringify({ ...payload, secret, attempt: 0 }));
       await cache.lrem(WEBHOOK_DLQ_KEY, 1, item);
       replayed++;
     }
