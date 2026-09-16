@@ -1045,17 +1045,17 @@ jobs:
           # dependency rather than swapping it for another one.
           echo 's3.bucket.create -name zveltio' | /tmp/weed shell -master=127.0.0.1:9333 \
             || { echo '::warning::bucket create failed — S3 tests will skip'; exit 0; }
-          {
-            echo 'S3_ENDPOINT=http://127.0.0.1:8333'
-            echo 'S3_ACCESS_KEY=zveltiotest'
-            echo 'S3_SECRET_KEY=zveltiotestsecret'
-            echo 'S3_REGION=us-east-1'
-            echo 'S3_BUCKET=zveltio'
-            echo 'S3_PUBLIC_URL=http://127.0.0.1:8333/zveltio'
-          } >> "$GITHUB_ENV"
+          # A FLAG, not the credentials. `S3_ENDPOINT` in the environment makes
+          # the storage driver default to `s3` for the whole process, so putting
+          # it in $GITHUB_ENV made the LOCAL-driver harness tests upload to
+          # SeaweedFS — eight of them failed the first time this step worked.
+          # The credentials go to the one step that wants them, below.
+          echo 'S3_READY=1' >> "$GITHUB_ENV"
           echo 'SeaweedFS ready — S3 round-trip tests will run'
       - name: Run in-process harness tests (with coverage)
-        # S3_* come from $GITHUB_ENV above, and only when SeaweedFS is up.
+        # Deliberately WITHOUT S3_*: the storage driver reads S3_ENDPOINT, so the
+        # local-driver tests in this run must not see one. The S3 round-trip has
+        # its own step below.
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
@@ -1064,6 +1064,25 @@ jobs:
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:harness:coverage
+      - name: S3 round-trip (only when SeaweedFS came up)
+        # Its own step, with the credentials scoped to it. Skipped — not failed —
+        # when the best-effort SeaweedFS step did not finish, which is the
+        # property that step was written for.
+        if: env.S3_READY == '1'
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+          NODE_ENV: test
+          ZVELTIO_REGISTRATION_ENABLED: '1'
+          S3_ENDPOINT: http://127.0.0.1:8333
+          S3_ACCESS_KEY: zveltiotest
+          S3_SECRET_KEY: zveltiotestsecret
+          S3_REGION: us-east-1
+          S3_BUCKET: zveltio
+          S3_PUBLIC_URL: http://127.0.0.1:8333/zveltio
+        run: cd packages/engine && bun test src/tests/harness/storage-s3.test.ts
+
       - name: The suite left nothing behind
         # Not tidiness. Every run left five collections in the database it ran
         # against, each invisible on its own. Thirty runs during one audit left
