@@ -1037,12 +1037,13 @@ jobs:
             sleep 1
           done
           if [ -z "$up" ]; then echo '::warning::SeaweedFS did not start — S3 tests will skip'; sed -n '1,40p' /tmp/seaweed.log; exit 0; fi
-          curl -fsSL -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc \
-            || { echo '::warning::mc download failed — S3 tests will skip'; exit 0; }
-          chmod +x /tmp/mc
-          /tmp/mc alias set sw http://127.0.0.1:8333 zveltiotest zveltiotestsecret \
-            || { echo '::warning::mc alias failed — S3 tests will skip'; exit 0; }
-          /tmp/mc mb --ignore-existing sw/zveltio \
+          # The bucket, without MinIO's client. `https://dl.min.io/client/mc/...`
+          # now answers 410 Gone, so the download failed and the step exited
+          # before exporting S3_* — which is the SECOND reason these tests were
+          # skipping, uncovered once the first was fixed. `weed shell` ships in
+          # the tarball already downloaded above, so this drops a network
+          # dependency rather than swapping it for another one.
+          echo 's3.bucket.create -name zveltio' | /tmp/weed shell -master=127.0.0.1:9333 \
             || { echo '::warning::bucket create failed — S3 tests will skip'; exit 0; }
           {
             echo 'S3_ENDPOINT=http://127.0.0.1:8333'
