@@ -10,10 +10,11 @@
  *     reindex, exposed via `_internalForTests`, driven over CannedDb.
  */
 
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
   _internalForTests,
+  _setBossForTests,
   enqueueDDLJob,
   getDDLJob,
   isDDLQueueStarted,
@@ -110,6 +111,19 @@ describe('mapJobToPublic', () => {
 });
 
 describe('guards when the queue is not running', () => {
+  // "Not running" has to be true of THIS process, and in a full `bun test` run
+  // it is not: a harness file boots the app, which starts the queue for every
+  // file after it. These three then measured a running queue — the enqueue case
+  // really enqueued and sat until its 30s deadline. Pin the state, restore it
+  // after, so the guards are exercised whatever else ran first.
+  let previousBoss: unknown;
+  beforeAll(() => {
+    previousBoss = _setBossForTests(null);
+  });
+  afterAll(() => {
+    _setBossForTests(previousBoss);
+  });
+
   it('isDDLQueueStarted is false and getDDLJob returns null', async () => {
     const db = new CannedDb();
     expect(isDDLQueueStarted()).toBe(false);

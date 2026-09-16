@@ -485,6 +485,26 @@ export async function stopDDLQueue(): Promise<void> {
   }
 }
 
+/**
+ * Swap the module's pg-boss handle and return what was there. Test-only.
+ *
+ * The guards below (`isDDLQueueStarted`, `enqueueDDLJob`, `getDDLJob`) answer
+ * from module state, and `bun test` runs every file in ONE process — so a
+ * harness file that boots the app starts the queue for everybody, and the tests
+ * that pin "what happens when the queue is not running" then measure a running
+ * queue instead. They did: `enqueueDDLJob` really enqueued and the case sat
+ * there until its 30s deadline.
+ *
+ * Stopping the queue would fix those three by breaking whatever file boots next,
+ * so this hands a test the handle instead: set null, assert, put the old one
+ * back.
+ */
+export function _setBossForTests(boss: unknown): unknown {
+  const previous = _boss;
+  _boss = boss as PgBossInst | null;
+  return previous;
+}
+
 // Internal helpers exposed for tests only.
 export const _internalForTests = {
   mapJobToPublic,
