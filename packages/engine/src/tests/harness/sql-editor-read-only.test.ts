@@ -20,6 +20,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _settleAuditWrites } from '../../lib/audit.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TABLE = `zz_sqled_${Date.now()}`;
@@ -92,6 +93,12 @@ d('sql editor read-only default (in-process)', () => {
   });
 
   it('records a write as its own audit event', async () => {
+    // The route does not await its own audit write — an audit failure must not
+    // break the request it records — so the row lands after the response the
+    // previous case already received. Await the write rather than the clock:
+    // this read passed on an idle runner and failed on a busy one.
+    await _settleAuditWrites();
+
     const rows = await db
       .selectFrom('zv_audit_log')
       .select(['event_type'])
