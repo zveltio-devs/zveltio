@@ -23,6 +23,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,7 +53,20 @@ async function runGate(
   return { code: await proc.exited, out: stdout + stderr };
 }
 
-describe('check-numeric-string-arithmetic fails closed', () => {
+const d = harnessAvailable() ? describe : describe.skip;
+
+d('check-numeric-string-arithmetic fails closed', () => {
+  // Three cases below hand the gate a DATABASE_URL and assert on what it says
+  // about the schema behind it, so the schema has to BE there. It used to be
+  // whatever an earlier file in the same run had migrated: on a database built
+  // from zero this file went first and the gate answered "the schema has no
+  // bigint/numeric columns", which is a fourth branch none of these cases is
+  // pinning. Booting the harness migrates it, and costs nothing when another
+  // file already did.
+  beforeAll(async () => {
+    await getTestApp();
+  });
+
   it('without DATABASE_URL it fails instead of passing', async () => {
     const { code, out } = await runGate(GATE, { DATABASE_URL: undefined });
     expect(code).toBe(1);
@@ -70,11 +84,21 @@ describe('check-numeric-string-arithmetic fails closed', () => {
 
   describe('when the corpus it was calibrated against is absent', () => {
     let root: string;
+    let parent: string;
 
     beforeAll(() => {
       // A root holding the script and its baseline, but no extensions sibling —
       // exactly the shape of the CI job that runs this gate.
-      root = mkdtempSync(join(tmpdir(), 'numeric-gate-'));
+      // The gate resolves its extensions corpus as `<root>/../zveltio-extensions`.
+      // With `root` directly in /tmp that sibling is whatever /tmp happens to
+      // hold — and on a developer machine it is frequently a symlink to the
+      // real checkout, which makes the baselined `ext:` files exist and sends
+      // the gate down a different branch than this case is pinning. Giving the
+      // root its own temporary PARENT makes the sibling a directory this test
+      // controls: absent unless it puts something there.
+      parent = mkdtempSync(join(tmpdir(), 'numeric-gate-'));
+      root = join(parent, 'repo');
+      mkdirSync(root, { recursive: true });
       mkdirSync(join(root, 'scripts'), { recursive: true });
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
@@ -93,7 +117,7 @@ describe('check-numeric-string-arithmetic fails closed', () => {
     });
 
     afterAll(() => {
-      if (root) rmSync(root, { recursive: true, force: true });
+      if (parent) rmSync(parent, { recursive: true, force: true });
     });
 
     it('fails, naming the files it could not have scanned', async () => {
@@ -117,7 +141,9 @@ describe('check-numeric-string-arithmetic fails closed', () => {
   it('fails when the live schema lacks a column the baseline keys on', async () => {
     // The core-only case: migrations ran, extensions never did, so none of the
     // finance columns exist and every baselined site is invisible.
-    const root = mkdtempSync(join(tmpdir(), 'numeric-gate-cols-'));
+    const parent = mkdtempSync(join(tmpdir(), 'numeric-gate-cols-'));
+    const root = join(parent, 'repo');
+    mkdirSync(root, { recursive: true });
     try {
       mkdirSync(join(root, 'scripts'), { recursive: true });
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
@@ -136,15 +162,19 @@ describe('check-numeric-string-arithmetic fails closed', () => {
       expect(out).toContain('missing columns this gate keys on');
       expect(out).toContain('zz_column_that_cannot_exist');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 
   it('an empty baseline plus an empty scan still cannot report sites it never saw', async () => {
     // No baseline entries means no corpus to miss — the gate should run, find
     // nothing, and say so honestly rather than exiting on the blindness check.
-    const root = mkdtempSync(join(tmpdir(), 'numeric-gate-empty-'));
+    // Own parent, for the reason spelled out above: `<root>/../zveltio-extensions`
+    // must be a sibling this test controls, not whatever /tmp happens to hold.
+    const parent = mkdtempSync(join(tmpdir(), 'numeric-gate-empty-'));
+    const root = join(parent, 'repo');
     try {
+      mkdirSync(root, { recursive: true });
       mkdirSync(join(root, 'scripts'), { recursive: true });
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
@@ -158,7 +188,7 @@ describe('check-numeric-string-arithmetic fails closed', () => {
       expect(code).toBe(0);
       expect(out).toContain('baseline allows 0');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });
