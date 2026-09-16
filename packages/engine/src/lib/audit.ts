@@ -75,7 +75,42 @@ export interface AuditEvent {
   ip?: string;
 }
 
+/**
+ * Audit writes still running.
+ *
+ * Most callers do not await `auditLog` — the route answers the request and lets
+ * the row land behind it, which is right: an audit failure must not break the
+ * flow it is recording. It leaves a test with nothing to await, and
+ * `sql-editor-read-only.test.ts` had the consequence: one case performs a write
+ * over HTTP and the NEXT case reads `zv_audit_log` for the event it produced.
+ * That passed on an idle runner and failed on a busy one, which is the worst
+ * kind of red — it looks like the feature broke.
+ *
+ * Same answer as `_settleWebhookDeliveries` in `lib/webhooks.ts`: let a test
+ * await the work instead of guessing how long it takes.
+ */
+const _inFlight = new Set<Promise<unknown>>();
+
+/** Resolve once every audit write started so far has finished. Test-only. */
+export async function _settleAuditWrites(): Promise<void> {
+  // A loop rather than one `Promise.all`: a write can start another, and
+  // awaiting the first snapshot would return with the second still running.
+  while (_inFlight.size > 0) {
+    await Promise.all([..._inFlight]);
+  }
+}
+
 export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
+  const write = writeAuditRow(db, event);
+  _inFlight.add(write);
+  try {
+    await write;
+  } finally {
+    _inFlight.delete(write);
+  }
+}
+
+async function writeAuditRow(db: Database, event: AuditEvent): Promise<void> {
   try {
     // `::text::jsonb` on the metadata, not `::jsonb`. The driver already sends
     // that parameter as jsonb, so a bare `::jsonb` is a no-op and Postgres
