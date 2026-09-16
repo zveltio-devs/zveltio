@@ -1045,6 +1045,31 @@ jobs:
           # dependency rather than swapping it for another one.
           echo 's3.bucket.create -name zveltio' | /tmp/weed shell -master=127.0.0.1:9333 \
             || { echo '::warning::bucket create failed — S3 tests will skip'; exit 0; }
+          # A bucket is not readiness. `weed server` answers on :8333 and creates
+          # the bucket entry long before the volume server has registered a
+          # volume to write INTO, and an S3 PUT in that window does not fail —
+          # it waits. The first run that got this far timed out at 5000ms with
+          # the request still open, which reads like a broken upload path and is
+          # not one.
+          #
+          # So: prove a write completes, through the filer's unsigned upload API,
+          # before telling the tests to go. Same best-effort contract — if it
+          # never completes, the step exits 0 and the round-trip does not run.
+          echo probe > /tmp/s3-probe.txt
+          wrote=""
+          for i in $(seq 1 60); do
+            if curl -fsS -F file=@/tmp/s3-probe.txt http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1; then
+              wrote=1; break
+            fi
+            sleep 1
+          done
+          if [ -z "$wrote" ]; then
+            echo '::warning::SeaweedFS never accepted a write — S3 tests will skip'
+            sed -n '1,40p' /tmp/seaweed.log
+            exit 0
+          fi
+          curl -fsS -X DELETE http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1 || true
+
           # A FLAG, not the credentials. `S3_ENDPOINT` in the environment makes
           # the storage driver default to `s3` for the whole process, so putting
           # it in $GITHUB_ENV made the LOCAL-driver harness tests upload to
