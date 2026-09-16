@@ -1017,6 +1017,15 @@ jobs:
           curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz \
             || { echo '::warning::weed download failed — S3 tests will skip'; exit 0; }
           tar xzf /tmp/weed.tar.gz -C /tmp && chmod +x /tmp/weed
+          # `weed server -dir` must EXIST: the server checks the meta folder is
+          # writable and dies if it is not there. Without this line every run
+          # since this step was written logged
+          #   Check Meta Folder (-mdir="/tmp/seaweed-data") Writable: no such file or directory
+          # then "SeaweedFS did not start — S3 tests will skip", and the six S3
+          # round-trip tests skipped in CI as reliably as they do on a laptop
+          # with no object store. Best-effort was doing its job; there was just
+          # nothing for it to be best-effort ABOUT.
+          mkdir -p /tmp/seaweed-data
           printf '%s' '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"zveltiotest","secretKey":"zveltiotestsecret"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}' > /tmp/s3-config.json
           /tmp/weed server -s3 -s3.config=/tmp/s3-config.json -ip=127.0.0.1 \
             -dir=/tmp/seaweed-data -volume.max=5 -master.volumeSizeLimitMB=64 >/tmp/seaweed.log 2>&1 &
