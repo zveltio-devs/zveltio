@@ -1545,6 +1545,16 @@ async function shutdown() {
   } catch (err: unknown) {
     console.warn('[shutdown] realtimeBus.stop() failed:', (err as Error).message);
   }
+  // Kill the pre-spawned edge-function runners. They exit on their own when
+  // this process dies — their stdin reaches EOF — but "on their own, eventually"
+  // is not what a shutdown path should rely on, and an explicit kill is what
+  // makes the pool auditable.
+  try {
+    const { drainRunnerPool } = await import('./lib/edge-functions/subprocess-runner.js');
+    await drainRunnerPool();
+  } catch (err: unknown) {
+    console.warn('[shutdown] draining the runner pool failed:', (err as Error).message);
+  }
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/data/index.js');

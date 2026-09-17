@@ -479,6 +479,97 @@ function cpuSecondsOf(proc: { resourceUsage?: () => unknown }): number | null {
   }
 }
 
+/**
+ * Pre-spawned runners.
+ *
+ * A process per invocation is what makes the ceilings enforceable — the kernel
+ * bounds processes, not threads — and its price is startup. Measured with this
+ * bootstrap, median of 12: spawned on demand 41.6 ms, already waiting 13.4 ms.
+ * The interpreter boots, evaluates this module (the DNS import, the generated
+ * SSRF guard) and blocks reading stdin; when a request arrives it pays only the
+ * envelope.
+ *
+ * What the pool does NOT change is the isolation: a runner serves exactly one
+ * invocation and exits. Reuse would hand the next caller the previous one's
+ * globals, which is the property this runner exists for.
+ *
+ * `EDGE_RUNNER_POOL` is how many to keep waiting. 0 restores spawn-on-demand
+ * exactly. Each waiting runner costs about 45 MB resident, so the default is
+ * deliberately small: two covers an ordinary arrival pattern, and a burst that
+ * empties the pool falls back to spawning, which is the behaviour without a
+ * pool rather than a failure.
+ */
+const POOL_SIZE = (() => {
+  const raw = process.env.EDGE_RUNNER_POOL;
+  if (raw === undefined) return 2;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 2;
+  // A pool this large is a configuration mistake, not an intention: 16 waiting
+  // runners is ~720 MB held to save 28 ms.
+  return Math.min(parsed, 16);
+})();
+
+type Runner = ReturnType<typeof spawn>;
+
+const idleRunners: Runner[] = [];
+const servedPids: number[] = [];
+let poolDraining = false;
+
+function spawnRunner(memoryLimitMb: number): Runner {
+  return spawn({
+    // BUN_BIN is the absolute path to the parent's own interpreter
+    // (process.execPath) — never `'bun'`, which would resolve via the
+    // child's PATH and could be hijacked by a same-host attacker.
+    cmd: limitedCmd(memoryLimitMb),
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: spawnEnv(),
+  });
+}
+
+/**
+ * Take a waiting runner, or spawn one; then top the pool back up without
+ * awaiting it, so the replacement boots while this request is being served.
+ *
+ * A runner is only pooled for the DEFAULT budget. A caller asking for a tighter
+ * ceiling gets a fresh process with that ceiling — handing it a pre-spawned one
+ * would silently run it under the instance default, which is the kind of
+ * mismatch nobody notices until it matters.
+ */
+function takeRunner(memoryLimitMb: number, pooled: boolean): Runner {
+  const runner = pooled ? idleRunners.shift() : undefined;
+  if (pooled && !poolDraining) {
+    while (idleRunners.length < POOL_SIZE) idleRunners.push(spawnRunner(memoryLimitMb));
+  }
+  const taken = runner ?? spawnRunner(memoryLimitMb);
+  if (taken.pid) servedPids.push(taken.pid);
+  return taken;
+}
+
+/**
+ * Kill every waiting runner. Called on shutdown; a test that spawns runners
+ * must call it too, or they outlive the process that made them.
+ */
+export async function drainRunnerPool(): Promise<void> {
+  poolDraining = true;
+  const waiting = idleRunners.splice(0, idleRunners.length);
+  for (const runner of waiting) {
+    try {
+      runner.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+  await Promise.all(waiting.map((r) => r.exited.catch(() => undefined)));
+  poolDraining = false;
+}
+
+/** Pool state, for tests that assert replacement and single use. */
+export function __poolStatsForTests(): { idle: number; servedPids: number[] } {
+  return { idle: idleRunners.length, servedPids: [...servedPids] };
+}
+
 export async function runEdgeFunctionInSubprocess(
   code: string,
   request: EdgeRequest,
@@ -524,16 +615,8 @@ export async function runEdgeFunctionInSubprocess(
     };
   }
 
-  const proc = spawn({
-    // BUN_BIN is the absolute path to the parent's own interpreter
-    // (process.execPath) — never `'bun'`, which would resolve via the
-    // child's PATH and could be hijacked by a same-host attacker.
-    cmd: limitedCmd(opts.memoryLimitMb ?? MEMORY_LIMIT_MB),
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: spawnEnv(),
-  });
+  const budgetMb = opts.memoryLimitMb ?? MEMORY_LIMIT_MB;
+  const proc = takeRunner(budgetMb, POOL_SIZE > 0 && opts.memoryLimitMb === undefined);
 
   // Write the envelope to stdin, then close.
   const envelope = JSON.stringify({ code: jsCode, request, env: envVars, timeoutMs }) + '\n';
