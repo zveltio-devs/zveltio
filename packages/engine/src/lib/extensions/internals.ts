@@ -37,7 +37,20 @@ import {
   evaluateExpressionRule,
   invalidateRulesCache,
 } from '../validation-engine.js';
-import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
+// The engine's own edge-function entry point — the same one `/api/fn/:name`
+// calls, so an extension that runs a function gets the runner the product
+// documents: a subprocess, with a memory ceiling, a minimal environment, and
+// the SSRF guard.
+//
+// This used to be `runFunction` from `edge-functions/sandbox.js`, exported
+// under this name. Two different functions called runEdgeFunction, with
+// incompatible signatures: one takes an `EdgeRequest` and answers
+// `{ ok, response }`, the other takes a `Request` and answers
+// `{ status, body }`. The one consumer was repaired against the wrong one, and
+// the probe and the test that checked the repair both reached for the wrong one
+// as well — so the extension shipped throwing `request.headers.forEach is not a
+// function` on every invocation. A shared name is not a contract.
+import { runEdgeFunction } from '../edge-function-runner.js';
 import { withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess } from '../data/index.js';

@@ -46,6 +46,27 @@ describe('runEdgeFunctionInSubprocess — memory ceiling', () => {
     expect(res.error).not.toMatch(/timed out/i);
   }, 30_000);
 
+  it('refuses the OTHER shape of runaway too, and names how it died', async () => {
+    // Two shapes, two failure paths. An external allocation (Uint8Array, Buffer)
+    // fails inside the allocator and surfaces as a catchable "Out of memory";
+    // a heap-shaped one takes JSC down with it and surfaces as a signal. The
+    // first version of this file asserted only the first shape, which is half a
+    // control: what a flow script does when it decodes an export is the second.
+    const code = `async function handler() {
+      const held = [];
+      for (let i = 0; i < 5000000; i++) held.push({ x: 'y'.repeat(200) });
+      return { status: 200, body: held.length };
+    }`;
+
+    const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 25_000);
+
+    expect(res.ok).toBe(false);
+    // Whatever the mechanism, the message must say the process was killed
+    // rather than print an exit code of `null` and leave the reader guessing.
+    expect(res.error).toMatch(/killed|out of memory/i);
+    expect(res.error).not.toMatch(/code null/i);
+  }, 40_000);
+
   it('leaves an ordinary function alone', async () => {
     const code = `async function handler(request, env) {
       const rows = Array.from({ length: 10000 }, (_, i) => ({ i, who: env.WHO }));

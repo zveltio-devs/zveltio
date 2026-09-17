@@ -588,3 +588,17 @@ ZVELTIO_EXTENSIONS=ai,workflow/approvals,workflow/checklists
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 OTEL_SERVICE_NAME=zveltio-production
 ```
+
+## Variables the engine READS but you do not set
+
+Two of these exist already in any systemd user session, and the engine only
+passes them through:
+
+| Variable | Why the engine reads it |
+| --- | --- |
+| `XDG_RUNTIME_DIR` | `systemd-run` needs the session bus to create the per-invocation cgroup scope that bounds an edge function's memory. Handed to `systemd-run` and unset before the sandboxed interpreter starts, so it never reaches user code. |
+| `DBUS_SESSION_BUS_ADDRESS` | Same, and the same handling. |
+
+Absent — a container without systemd, a non-Linux host — the engine falls back
+to `RLIMIT_AS`, which cannot express a budget under about 1 GiB and says so in
+the log once. Nothing else changes.
