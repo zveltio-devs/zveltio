@@ -598,6 +598,7 @@ passes them through:
 | --- | --- |
 | `XDG_RUNTIME_DIR` | `systemd-run` needs the session bus to create the per-invocation cgroup scope that bounds an edge function's memory. Handed to `systemd-run` and unset before the sandboxed interpreter starts, so it never reaches user code. |
 | `DBUS_SESSION_BUS_ADDRESS` | Same, and the same handling. |
+| `HTTPS_PROXY` / `HTTP_PROXY` (and the lowercase spellings) | Bun's `fetch` honours them, so the engine checks whether an egress proxy is configured. When one is, outbound requests are left addressed to the hostname instead of being pinned to the address the SSRF guard validated — the proxy is what opens the connection, and rewriting the URL underneath it is an interaction the engine does not claim to have tested. **Consequence: with a proxy configured, the DNS rebinding race stays open**, exactly as it was before pinning existed. If your proxy does not itself restrict internal targets, that is where to close it. |
 
 Absent — a container without systemd, a non-Linux host — the engine falls back
 to `RLIMIT_AS`, which cannot express a budget under about 1 GiB and says so in
