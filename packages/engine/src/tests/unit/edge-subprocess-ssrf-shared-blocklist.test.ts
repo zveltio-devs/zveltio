@@ -33,7 +33,6 @@ import {
   buildSandboxSafeFetchSource,
   buildSandboxSsrfGuardSource,
 } from '../../lib/security/url-validator.js';
-import { __workerBootstrapForTests } from '../../lib/edge-function-runner.js';
 
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 
@@ -117,9 +116,12 @@ describe('the generated SSRF guard checks what a hostname resolves to', () => {
     await assertUrl('https://nothing.invalid/');
   });
 
-  it('gives the worker bootstrap the resolver variant, not the literal-only one', () => {
-    expect(__workerBootstrapForTests).toContain("from 'node:dns/promises'");
-    expect(__workerBootstrapForTests).toContain('resolves to ');
+  it('gives the subprocess bootstrap the resolver variant, not a literal-only one', () => {
+    // The literal-only variant of the generator is gone; this pins that the one
+    // bootstrap that exists carries a resolver and reports what a name resolved
+    // to, which is the half a blocklist cannot see.
+    expect(__subprocessBootstrapForTests).toContain("from 'node:dns/promises'");
+    expect(__subprocessBootstrapForTests).toContain('resolves to ');
   });
 });
 

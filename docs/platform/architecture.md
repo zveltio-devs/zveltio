@@ -175,7 +175,8 @@ Ordered from most to least trusted:
    the `zveltio_worker` database role which holds no grants on Better-Auth
    tables. Worker isolation is a guard-rail, not an adversarially-tested sandbox.
 5. **Edge functions** — a separate process per invocation with a minimal
-   environment. `EDGE_SANDBOX_MODE=worker` is faster and weaker.
+   environment and a kernel memory ceiling. One runner: the in-process Worker
+   mode was removed because a thread cannot be given that ceiling.
 6. **Authenticated users** — separated from each other by RBAC, row rules and
    column permissions; separated across tenants by Postgres RLS.
 7. **Anonymous requests** — reach nothing under `/api/*`. There is no public

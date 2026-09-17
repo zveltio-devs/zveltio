@@ -119,37 +119,32 @@ With tenant middleware on:
 - Net cost on `GET /api/data/zvd_contacts?limit=20`: p50 +0.6 ms,
   p95 +1.4 ms.
 
-### Edge functions: worker vs subprocess
+### Edge functions: one runner, and what it costs
 
-- `EDGE_SANDBOX_MODE=subprocess` (**default**): OS-process isolation, a
-  kernel memory ceiling, and a minimal environment. This is what runs
-  unless you opt out, because edge functions execute arbitrary
-  TypeScript and a Worker shares the engine's memory space.
-- `EDGE_SANDBOX_MODE=worker`: in-process Worker thread. Opt-in, for
-  admin-authored functions where latency matters more than isolation.
-  It cannot be given a memory ceiling — Bun ignores `resourceLimits` on
-  a Worker (measured: one capped at 64 MB allocated 4 GB and reported
-  success), so only the subprocess can be bounded.
+Edge functions run in a fresh Bun process per invocation: OS-process
+isolation, a kernel memory ceiling, a minimal environment.
 
 **Measured per INVOCATION, warmed, median of 15 on one machine:**
 
 | runner | median | p90 |
 | --- | --- | --- |
-| worker | 31.8 ms | 37.1 ms |
-| subprocess | 42.6 ms | 44.6 ms |
+| subprocess, spawned on demand | 42.6 ms | 44.6 ms |
+| subprocess, pre-spawned | 13.4 ms | — |
+| in-process Worker (removed) | 31.8 ms | 37.1 ms |
 
-So the real difference is ~11 ms per call, not the order of magnitude
-the numbers below used to imply.
+The Worker mode was removed rather than tuned. It could not be given a
+memory ceiling — Bun ignores a Worker's `resourceLimits`, measured: one
+capped at 64 MB allocated 4 GB and reported success — and it was not
+the fast option either, once a pre-spawned process was measured against
+it.
 
-This section previously said "~30 ms startup" against "~1 ms startup",
+This section previously said "~30 ms startup" against "~1 ms startup"
 and called the subprocess "roughly 40× slower in throughput". Those
-figures describe RUNNER STARTUP in isolation and were never a call: an
-invocation pays transpilation, compilation, the globals lockdown and a
-round trip on either runner, and the worker is created fresh every time.
-Quoting a startup cost as if it were request latency made the safe
-default look forty times more expensive than it is — which is the kind
-of number that gets a boundary switched off. Flow `run_script` was moved
-onto the subprocess runner on the strength of the measured 11 ms.
+figures describe RUNNER STARTUP in isolation, not a call: an invocation
+pays transpilation, compilation, the globals lockdown and a round trip
+on either runner. Quoting a startup cost as if it were request latency
+made the safe default look forty times more expensive than it is —
+which is the kind of number that gets a boundary switched off.
 
 This page said the opposite until 2026-09-03 — it named `worker` as the
 default, contradicting the code (`lib/edge-function-runner.ts`), the
