@@ -229,7 +229,18 @@ engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
   is best-effort; SIGKILL is enforced by the kernel);
 - the same `lockdownGlobals()` JS-level lockdown inside the child, so
   even a successful escape from the sandbox only escapes into a
-  separate process address space.
+  separate process address space;
+- a refusal of `import()`, checked on the transpiled source. The lockdown
+  shadows names, and the module loader is syntax rather than a name — an
+  audit rode that straight through to `node:fs`, and `bun:sqlite` was still
+  reachable after that was thought closed;
+- an address-space ceiling (`EDGE_MEMORY_LIMIT_MB`, default 1024 MiB) applied
+  by the kernel. This is the one control the worker mode cannot have: Bun
+  ignores `resourceLimits` on a Worker, so only a process can be capped;
+- an SSRF guard generated from `security/url-validator.ts` rather than copied
+  beside it, which connects to the address it validated (`Host` +
+  `tls.serverName`) so a name cannot resolve twice and answer differently the
+  second time.
 
 Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
 default) for admin-authored edge functions, subprocess for marketplace

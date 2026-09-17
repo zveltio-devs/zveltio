@@ -21,14 +21,19 @@
  * What still escapes (acceptable cost for in-process isolation):
  *   - CPU exhaustion via tight loops — caller mitigates with worker.terminate()
  *     on timeout.
- *   - Memory exhaustion — caller mitigates with the memCheck heap watchdog.
+ *   - Memory exhaustion — bounded only by the timeout and by the worker dying
+ *     of its own OOM. There is deliberately no heap watchdog; the one that used
+ *     to sit in sandbox.ts measured the host thread's heap and so killed
+ *     invocations that had allocated nothing.
  *   - Reflection on caller's stashed references inside `safeFetch` etc. — we
  *     only ship plain primitives plus the closure-captured allowlist, so the
  *     user can't pull a private reference out unless we hand it to them.
  *
  * For tenants that need real isolation (untrusted code, multi-tenant SaaS
  * with arbitrary writers), a subprocess-per-invocation sandbox is the next
- * step — see runFunctionInSubprocess in this directory.
+ * step — see runEdgeFunctionInSubprocess in subprocess-runner.ts, which is the
+ * DEFAULT for the edge-function route; this worker path is what flow
+ * `run_script` and `ctx.internals.runScript` use.
  */
 
 const BLOCKED_GLOBALS = [

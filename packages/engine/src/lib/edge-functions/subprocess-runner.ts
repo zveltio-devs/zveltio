@@ -36,6 +36,7 @@
 
 import { spawn } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
+import { buildSandboxSsrfGuardSource } from '../security/index.js';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -53,7 +54,7 @@ const SUBPROCESS_BOOTSTRAP = String.raw`
 // Static ESM import — evaluated at module load, BEFORE lockdownGlobals() runs
 // and before any user code exists, so the sandbox's own DNS check keeps working
 // even though 'require'/'process' are blocked for the untrusted body below.
-import { lookup as _dnsLookup } from 'node:dns/promises';
+import { lookup as _dnsLookupImpl } from 'node:dns/promises';
 
 const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function'];
 
@@ -93,86 +94,18 @@ function lockdownGlobals(stashed) {
   try { Object.freeze(Function.prototype); } catch (_) {}
 }
 
-// ── SSRF guard (inlined; a subprocess .mjs cannot import url-validator.ts) ──
-// Mirrors packages/engine/src/lib/security/url-validator.ts — keep in sync.
-// Untrusted edge code must not reach loopback/link-local/RFC1918/metadata or
-// non-http(s) schemes, incl. IPv6 (bracket-stripped) + IPv4-mapped/alt encodings.
-function _intToIPv4(n) {
-  return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
-}
-function _normalizeHost(host) {
-  const h = String(host).toLowerCase();
-  let m = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (m) return m[1];
-  m = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (m) {
-    const hi = parseInt(m[1], 16), lo = parseInt(m[2], 16);
-    return ((hi >> 8) & 0xff) + '.' + (hi & 0xff) + '.' + ((lo >> 8) & 0xff) + '.' + (lo & 0xff);
-  }
-  if (/^0x[0-9a-f]+$/.test(h)) return _intToIPv4(parseInt(h, 16));
-  if (/^\d+$/.test(h)) { const n = parseInt(h, 10); if (n > 0xffff && n <= 0xffffffff) return _intToIPv4(n); }
-  if (/^[\da-fx.]+$/.test(h) && h.indexOf('.') !== -1) {
-    const octets = h.split('.');
-    if (octets.length === 4) {
-      const nums = octets.map(function (o) {
-        if (o.indexOf('0x') === 0) return parseInt(o, 16);
-        if (o.charAt(0) === '0' && o.length > 1) return parseInt(o, 8);
-        return parseInt(o, 10);
-      });
-      if (nums.every(function (n) { return !Number.isNaN(n) && n >= 0 && n <= 255; })) return nums.join('.');
-    }
-  }
-  return h;
-}
-const _BLOCKED = [
-  /^localhost$/, /^127\.\d+\.\d+\.\d+$/, /^10\.\d+\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, /^192\.168\.\d+\.\d+$/, /^169\.254\.\d+\.\d+$/,
-  /^::1$/, /^::$/, /^fe[89ab][0-9a-f]:/, /^f[cd][0-9a-f]{2}:/, /^0\.0\.0\.0$/,
-  /host\.docker\.internal$/, /kubernetes\.default$/,
-];
-function _isBlockedHost(host) {
-  const bare = String(host).replace(/^\[|\]$/g, '');
-  const normalized = _normalizeHost(bare);
-  return _BLOCKED.some(function (re) { return re.test(bare) || re.test(normalized); });
-}
-function _validateUrl(rawUrl) {
-  let parsed;
-  try { parsed = new URL(rawUrl); } catch (_) { throw new Error('[sandbox] Invalid URL: ' + rawUrl); }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('[sandbox] Only http/https URLs are allowed (got "' + parsed.protocol + '")');
-  }
-  if (_isBlockedHost(parsed.hostname.toLowerCase())) {
-    throw new Error('[sandbox] Network access to internal/private address blocked: ' + rawUrl);
-  }
-  return parsed;
-}
-function _isIpLiteral(host) {
-  if (host.indexOf(':') !== -1) return true;
-  return /^\d+\.\d+\.\d+\.\d+$/.test(_normalizeHost(host));
-}
-// DNS-aware guard — mirrors assertPublicUrl in url-validator.ts. The literal
-// blocklist alone never inspected what a HOSTNAME resolves to, so untrusted
-// edge code could reach cloud metadata through an attacker-owned name.
-// Unresolvable hosts are allowed through: fetch cannot reach them either.
-async function _assertUrl(rawUrl) {
-  const parsed = _validateUrl(rawUrl);
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (_isIpLiteral(host)) return;
-  let addrs;
-  try {
-    addrs = await _dnsLookup(host, { all: true });
-  } catch (_) {
-    return;
-  }
-  for (const a of addrs) {
-    if (_isBlockedHost(a.address)) {
-      throw new Error(
-        '[sandbox] Network access to internal/private address blocked: ' +
-          rawUrl + ' resolves to ' + a.address,
-      );
-    }
-  }
-}
+// ── SSRF guard ──────────────────────────────────────────────────────────────
+// Generated from security/url-validator.ts rather than copied. A subprocess
+// .mjs cannot import that module, so the guard has to exist inside this string
+// — and when it was a hand-written copy under a "keep in sync" comment, it did
+// not stay in sync: 192.0.0.192 (Oracle Cloud metadata) and 100.64.0.0/10 were
+// added to the real blocklist and never reached the copy. Measured, not read:
+// the subprocess fetched both while assertPublicUrl refused them.
+//
+// _dnsLookupImpl is the static import at the top of this bootstrap, evaluated
+// before lockdownGlobals() runs, so the DNS-aware half keeps working for code
+// that is no longer allowed to reach 'require' or 'process'.
+${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
 
 (async () => {
   // Read a single line of JSON from stdin (the parent sends one envelope)
@@ -272,6 +205,13 @@ async function _assertUrl(rawUrl) {
 })();
 `;
 
+/**
+ * The generated bootstrap source, exposed so a test can assert that every
+ * pattern in the validator's blocklist is present in it. Nothing outside tests
+ * should read this.
+ */
+export const __subprocessBootstrapForTests = SUBPROCESS_BOOTSTRAP;
+
 // Stash the bootstrap in a fresh PRIVATE temp dir created with
 // `mkdtemp` (mode 0700, name suffixed with a random component the
 // caller can't predict). Writing the bootstrap to a guessable
@@ -299,6 +239,59 @@ const bootstrapPath = (() => {
 // any earlier PATH entry could otherwise replace `bun` and run code
 // inside the engine's user context every time an edge function fires.
 const BUN_BIN = process.execPath;
+
+/**
+ * The address-space cap for one invocation, in MiB. `0` disables it.
+ *
+ * A per-invocation memory limit was listed as impossible here, on the grounds
+ * that Bun exposes no per-worker heap cap. That is true of a Worker — Bun
+ * ignores `node:worker_threads` `resourceLimits`, measured: a worker given
+ * `maxOldGenerationSizeMb: 64` allocated 4 GB and reported success. It is NOT
+ * true of a subprocess, which is the runner this module is and the default the
+ * route uses. The kernel caps a process whatever the runtime thinks.
+ *
+ * Measured on this machine: under `ulimit -v`, a child that allocates without
+ * bound gets a catchable "Out of memory" and the process survives to report it,
+ * which is the failure we want. Below about 1 GiB of address space Bun does not
+ * start at all — it exits silently before running a line — so 1024 is the floor
+ * and the default, not a tuned number. RLIMIT_AS bounds virtual address space,
+ * not live heap, so this is a ceiling against a runaway, not a quota.
+ */
+const MEMORY_LIMIT_MB = (() => {
+  const raw = process.env.EDGE_MEMORY_LIMIT_MB;
+  if (raw === undefined) return 1024;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 1024;
+  // Anything under the floor would mean every invocation dies before it runs,
+  // which reads exactly like a broken sandbox. Refuse to configure that.
+  if (parsed > 0 && parsed < 1024) return 1024;
+  return parsed;
+})();
+
+/**
+ * The command to spawn, with the memory cap applied where the platform has one.
+ *
+ * `Bun.spawn` cannot call `setrlimit`, so the limit is set by the one process
+ * that can: a shell, which applies it to itself and then `exec`s the
+ * interpreter, so no extra process survives. `ulimit` failing is not fatal —
+ * macOS does not enforce RLIMIT_AS, and a container may already be capped
+ * lower — so the shell keeps going and the invocation runs uncapped rather than
+ * not at all.
+ *
+ * Both paths are engine-generated (`process.execPath`, a `mkdtemp` directory),
+ * never caller input. They are single-quoted anyway, and a path containing a
+ * single quote skips the shell entirely rather than being escaped cleverly.
+ */
+function memoryLimitedCmd(): string[] {
+  const direct = [BUN_BIN, 'run', bootstrapPath];
+  if (MEMORY_LIMIT_MB === 0) return direct;
+  if (BUN_BIN.includes("'") || bootstrapPath.includes("'")) return direct;
+  return [
+    '/bin/sh',
+    '-c',
+    `ulimit -v ${MEMORY_LIMIT_MB * 1024} 2>/dev/null; exec '${BUN_BIN}' run '${bootstrapPath}'`,
+  ];
+}
 
 export async function runEdgeFunctionInSubprocess(
   code: string,
@@ -343,7 +336,7 @@ export async function runEdgeFunctionInSubprocess(
     // BUN_BIN is the absolute path to the parent's own interpreter
     // (process.execPath) — never `'bun'`, which would resolve via the
     // child's PATH and could be hijacked by a same-host attacker.
-    cmd: [BUN_BIN, 'run', bootstrapPath],
+    cmd: memoryLimitedCmd(),
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',

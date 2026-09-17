@@ -1,5 +1,9 @@
 import { sandboxWorkerEnv } from './edge-functions/sandbox-env.js';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { findDynamicImport } from './edge-functions/no-dynamic-import.js';
+import { buildSandboxSafeFetchSource, buildSandboxSsrfGuardSource } from './security/index.js';
 
 export interface EdgeRequest {
   method: string;
@@ -35,13 +39,27 @@ export interface RunResult {
 //      with dangerous globals also shadowed as parameters (belt-and-braces
 //      against typos that would otherwise just look like undefined values).
 //
-// SSRF: `fetch` passed to the user is the parent's network primitive — we
-// don't have safeFetch reachable from inside a data:-URL Worker, so this
-// runner is appropriate only for ADMIN-authored edge functions. Anything
-// untrusted should use the file-based sandbox in edge-functions/sandbox.ts
-// which mounts safeFetch by import.
+// SSRF: the user's `fetch` used to be the parent's raw network primitive here,
+// on the reasoning that safeFetch is not reachable from inside a data:-URL
+// Worker. The module is not reachable; its SOURCE is — the same generator the
+// subprocess bootstrap uses emits the blocklist straight from
+// security/url-validator.ts, so this runner no longer hands out an unguarded
+// fetch just because it cannot import one.
+//
+// The DNS-aware half works here too, and the reason it did not is worth keeping:
+// a `data:` URL Worker has no module of its own, so there was nowhere to put a
+// static import and nothing to resolve names with after lockdown. Moving the
+// bootstrap to a real `.mjs` file — forced by the specifier-length limit — gave
+// it one. So the import below is evaluated at module load, BEFORE lockdown and
+// before any user code exists, exactly as in the subprocess bootstrap, and both
+// runners now check what a hostname RESOLVES to rather than only how it is
+// spelled.
 const WORKER_BOOTSTRAP = `
 'use strict';
+import { lookup as _dnsLookupImpl } from 'node:dns/promises';
+${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
+let _fetch;
+${buildSandboxSafeFetchSource()}
 const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function'];
 function buildThrower(name) {
   return () => { throw new Error('[sandbox] access to "' + name + '" is blocked'); };
@@ -90,7 +108,8 @@ self.onmessage = async (e) => {
   try {
     // Stash constructor + fetch BEFORE lockdown — lockdown disables both.
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
-    const _fetch = fetch;
+    // Captured for the generated safeFetch above, which closes over it.
+    _fetch = fetch;
     lockdownGlobals();
 
     // NB: 'eval' and 'arguments' are illegal as strict-mode parameter names —
@@ -109,7 +128,7 @@ self.onmessage = async (e) => {
       setTimeout(() => rej(new Error('Execution timed out after ' + timeoutMs + 'ms')), timeoutMs)
     );
     const raw = await Promise.race([
-      userFn(request, env, _console, _fetch,
+      userFn(request, env, _console, safeFetch,
         undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);
@@ -126,6 +145,39 @@ self.onmessage = async (e) => {
 };
 `;
 
+/**
+ * The generated Worker bootstrap source, for a test that asserts which SSRF
+ * guard variant it received. Nothing outside tests should read this.
+ */
+export const __workerBootstrapForTests = WORKER_BOOTSTRAP;
+
+/**
+ * The Worker bootstrap, on disk.
+ *
+ * It used to be inlined as a `data:` URL. That stopped being possible once the
+ * bootstrap carried the generated SSRF guard: Bun refuses a module specifier
+ * that long with `NameTooLong`, and the failure arrives as a worker error on
+ * EVERY invocation rather than as anything that names the cause.
+ *
+ * Written once, lazily, into a private `mkdtemp` directory for the same reason
+ * the subprocess runner does it: a predictable path under /tmp is a symlink
+ * target an attacker can pre-place, and this file is executed by the engine.
+ */
+let bootstrapPath: string | null = null;
+function workerBootstrapPath(): string {
+  if (bootstrapPath) return bootstrapPath;
+  const dir = mkdtempSync(join(tmpdir(), 'zveltio-edge-worker-'));
+  const file = join(dir, 'bootstrap.mjs');
+  writeFileSync(file, WORKER_BOOTSTRAP, { encoding: 'utf-8' });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    // Windows lacks POSIX mode; the mkdtemp directory governs access there.
+  }
+  bootstrapPath = file;
+  return file;
+}
+
 export async function runEdgeFunction(
   code: string,
   request: EdgeRequest,
@@ -135,11 +187,12 @@ export async function runEdgeFunction(
   const start = Date.now();
 
   // Sandbox mode:
-  //   - 'subprocess' (default): new Bun process per invocation, ~30ms startup,
-  //     minimal environment (PATH + TMPDIR only) so engine credentials are not
-  //     visible to the child.
-  //   - 'worker': in-process Bun Worker, ~1ms startup. Faster, but only a
-  //     boundary against mistakes — see the note on the module loader below.
+  //   - 'subprocess' (default): new Bun process per invocation, a minimal
+  //     environment (PATH + TMPDIR only) so engine credentials are not visible
+  //     to the child, and a kernel memory ceiling.
+  //   - 'worker': in-process Bun Worker. Faster, but only a boundary against
+  //     mistakes — see the note on the module loader below — and it cannot be
+  //     given a memory ceiling, because Bun ignores a Worker's resourceLimits.
   //
   // Subprocess is the DEFAULT. The worker mode's lockdown shadows dangerous
   // globals, which cannot stop `await import('node:fs')` — the module loader is
@@ -148,11 +201,14 @@ export async function runEdgeFunction(
   // shadowing `process` as a parameter still leaves `import('node:process')`
   // returning the real module and the real environment.
   //
-  // A separate process is a boundary the JS lockdown can never be. It costs
-  // ~30ms of startup per invocation instead of ~1ms; that is the right trade for
-  // code that executes arbitrary TypeScript. `EDGE_SANDBOX_MODE=worker` opts back
-  // into the in-process runner where latency matters more than isolation and the
-  // author is trusted.
+  // A separate process is a boundary the JS lockdown can never be, and the price
+  // is smaller than this comment used to claim. Measured per invocation, warmed,
+  // median of 15: worker 31.8 ms, subprocess 42.6 ms — about 11 ms, not the
+  // "~1ms vs ~30ms" written here before, which compared runner STARTUP and not a
+  // call. Both runners pay transpilation, compilation, lockdown and a round trip
+  // every time, and the worker is built fresh on each invocation.
+  // `EDGE_SANDBOX_MODE=worker` opts back into the in-process runner where that
+  // 11 ms matters more than isolation and the author is trusted.
   const mode = process.env.EDGE_SANDBOX_MODE === 'worker' ? 'worker' : 'subprocess';
   if (mode === 'subprocess') {
     const { runEdgeFunctionInSubprocess } = await import('./edge-functions/subprocess-runner.js');
@@ -181,13 +237,16 @@ export async function runEdgeFunction(
 
   return new Promise((resolve) => {
     const id = crypto.randomUUID();
-    const dataUrl = `data:application/javascript;base64,${btoa(unescape(encodeURIComponent(WORKER_BOOTSTRAP)))}`;
     // Minimal environment, for the same reason the extension worker has one: a
     // Worker inherits the parent's env, and the sandbox's `process` stub lives
     // on globalThis where `await import('node:process')` simply walks around it.
     // Without this, DATABASE_URL, BETTER_AUTH_SECRET and FIELD_ENCRYPTION_KEY
     // were one import away from arbitrary edge-function code.
-    const worker = new Worker(dataUrl, {
+    const worker = new Worker(workerBootstrapPath(), {
+      // `type: 'module'` is what makes the static `node:dns/promises` import at
+      // the top of the bootstrap legal; without it the file is a classic script
+      // and the import is a syntax error on every invocation.
+      type: 'module',
       env: sandboxWorkerEnv(),
     } as WorkerOptions);
 
