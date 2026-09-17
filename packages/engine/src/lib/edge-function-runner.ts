@@ -6,7 +6,7 @@ import { findDynamicImport } from './edge-functions/no-dynamic-import.js';
 import {
   buildSandboxSafeFetchSource,
   buildSandboxSsrfGuardSource,
-} from './security/url-validator.js';
+} from './security/index.js';
 
 export interface EdgeRequest {
   method: string;

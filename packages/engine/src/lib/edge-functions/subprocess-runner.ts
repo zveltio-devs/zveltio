@@ -36,7 +36,7 @@
 
 import { spawn } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
-import { buildSandboxSsrfGuardSource } from '../security/url-validator.js';
+import { buildSandboxSsrfGuardSource } from '../security/index.js';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
