@@ -11,6 +11,7 @@
  */
 
 import { assertPublicUrl } from '../security/index.js';
+import { findDynamicImport } from './no-dynamic-import.js';
 
 interface WorkerPayload {
   code: string;
@@ -122,6 +123,33 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
     // makes `Bun` throw, so any later access from this file would crash too.
     const transpiler = new Bun.Transpiler({ loader: 'ts' });
     const js = transpiler.transformSync(code);
+
+    // The module loader is the one door the lockdown below cannot shut: it is
+    // syntax, not a binding, so there is no global to redefine and no parameter
+    // to shadow. The other two runners refuse it; this one did not, and it is
+    // the runner behind flow `run_script` and `ctx.internals.runScript`.
+    //
+    // Measured on this runner before the check was added: `import('node:fs')`
+    // happened to fail (the frozen prototypes break that module's own load),
+    // which is why nothing had noticed — but `import('bun:sqlite')` loaded, and
+    // `new Database('/tmp/x', { create: true })` wrote a file onto the host
+    // while `db.loadExtension(...)` reached dlopen. Arbitrary write plus native
+    // code, from a script whose author only ever had permission to write a flow.
+    //
+    // Runs on transpiled output, like the other two, so a comment or a string
+    // that merely mentions the word does not cause a refusal.
+    const moduleEscape = findDynamicImport(js);
+    if (moduleEscape) {
+      self.postMessage({
+        success: false,
+        error: moduleEscape,
+        logs,
+        duration_ms: Date.now() - start,
+        status: 500,
+        body: '',
+      });
+      return;
+    }
     // Stash the real Function constructor so we can still build the
     // user handler closure ourselves below; lockdown disables ALL future
     // access via the prototype chain.

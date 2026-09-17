@@ -107,14 +107,29 @@ describe('runFunction (file-based sandbox)', () => {
     });
   });
 
-  it('blocks require(), dynamic import(), and new Function() escapes', async () => {
-    // require is undefined at the call site; import()/Function are neutralised by
-    // the shadow params + lockdownGlobals(). Each attempt must fail closed.
-    for (const attempt of [
-      `require('os').hostname()`,
-      `(await import('fs')).readFileSync`,
-      `new Function('return 1')()`,
-    ]) {
+  it('refuses code that reaches the module loader, before it runs', async () => {
+    // This case used to sit in the loop below and pass, which is how the hole
+    // stayed open for as long as it did: `(await import('fs'))` threw inside the
+    // sandbox — not because the loader was closed, but because the frozen
+    // prototypes break that one module's own initialisation. The handler's
+    // `catch` turned that into 'BLOCKED' and the suite read it as proof.
+    // `import('bun:sqlite')` loaded fine and wrote a file onto the host.
+    //
+    // The refusal is a compile-time one now, so it shows up as an error rather
+    // than as whatever the imported module happened to do on its own.
+    const code = `async function handler() {
+      try { const r = (await import('bun:sqlite')); return new Response('ESCAPED:' + String(r)); }
+      catch (e) { return new Response('BLOCKED'); }
+    }`;
+    const res = await runFunction(code, req(), {}, 5000);
+    expect(res.status).toBe(500);
+    expect(res.error).toContain('cannot import modules');
+  });
+
+  it('blocks require() and new Function() escapes', async () => {
+    // require is undefined at the call site; Function is neutralised by the
+    // shadow params + lockdownGlobals(). Each attempt must fail closed.
+    for (const attempt of [`require('os').hostname()`, `new Function('return 1')()`]) {
       const code = `async function handler() {
         try { const r = ${attempt}; return new Response('ESCAPED:' + String(r)); }
         catch (e) { return new Response('BLOCKED'); }

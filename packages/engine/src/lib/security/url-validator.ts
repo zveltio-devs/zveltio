@@ -16,7 +16,13 @@
 
 import { lookup } from 'node:dns/promises';
 
-function intToIPv4(n: number): string {
+/**
+ * Exported so the edge-function subprocess bootstrap — which runs as a
+ * standalone `.mjs` and cannot import this module — can inline this function's
+ * own source instead of keeping a hand-written copy of it. See
+ * `edge-functions/subprocess-runner.ts`.
+ */
+export function intToIPv4(n: number): string {
   return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
 }
 
@@ -76,7 +82,7 @@ export function normalizeHost(host: string): string {
   return h;
 }
 
-const BLOCKED_PATTERNS: RegExp[] = [
+export const BLOCKED_PATTERNS: RegExp[] = [
   /^localhost$/,
   /^127\.\d+\.\d+\.\d+$/, // 127.0.0.0/8
   /^10\.\d+\.\d+\.\d+$/, // 10.0.0.0/8
@@ -192,6 +198,144 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
       );
     }
   }
+}
+
+/**
+ * The blocklist, as JavaScript source, for a sandbox that cannot import it.
+ *
+ * Both edge-function sandboxes run user code somewhere this module is
+ * unreachable — a standalone `.mjs` for the subprocess, a `data:` URL Worker
+ * for the in-process runner — so each needs the guard to exist inside its own
+ * bootstrap string. Each used to carry a hand-written copy (and the Worker one
+ * carried nothing at all, handing user code the parent's raw `fetch`). A copy
+ * drifted: `192.0.0.192` and `100.64.0.0/10` were added here and never reached
+ * it, and the subprocess fetched both.
+ *
+ * So the bootstraps interpolate this instead. It emits `_isBlockedHost`,
+ * `_validateUrl` and — when the host can resolve names — `_assertUrl`, built
+ * from the very functions above via `Function.prototype.toString`, so a pattern
+ * added to {@link BLOCKED_PATTERNS} is in every sandbox from the same commit.
+ *
+ * `dnsLookupExpr` is JS source for a `lookup(host, {all:true})`-shaped function,
+ * and it is REQUIRED: a guard that only inspects how a host is SPELLED is the
+ * hole this whole module exists to close, so there is deliberately no variant
+ * that omits it. Both bootstraps get one from a static import evaluated before
+ * lockdown, while `require` and `process` are still reachable.
+ */
+export function buildSandboxSsrfGuardSource(dnsLookupExpr: string): string {
+  const shared = `
+const _BLOCKED = [${BLOCKED_PATTERNS.map((re) => re.toString()).join(', ')}];
+const _intToIPv4 = ${intToIPv4.toString()};
+const _normalizeHost = ${normalizeHost.toString().replace(/\bintToIPv4\(/g, '_intToIPv4(')};
+const _isBlockedHost = ${isBlockedHost
+    .toString()
+    .replace(/\bnormalizeHost\(/g, '_normalizeHost(')
+    .replace(/\bBLOCKED_PATTERNS\b/g, '_BLOCKED')};
+function _validateUrl(rawUrl) {
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch (_) { throw new Error('[sandbox] Invalid URL: ' + rawUrl); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('[sandbox] Only http/https URLs are allowed (got "' + parsed.protocol + '")');
+  }
+  if (_isBlockedHost(parsed.hostname.toLowerCase())) {
+    throw new Error('[sandbox] Network access to internal/private address blocked: ' + rawUrl);
+  }
+  return parsed;
+}
+function _isIpLiteral(host) {
+  if (host.indexOf(':') !== -1) return true;
+  return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(_normalizeHost(host));
+}
+`;
+
+  return `${shared}
+const _dnsLookup = ${dnsLookupExpr};
+// DNS-aware guard — the literal blocklist never inspects what a HOSTNAME
+// resolves to, so untrusted code could otherwise reach cloud metadata through
+// an attacker-owned name. An unresolvable host is allowed through: fetch cannot
+// reach it either.
+//
+// Returns the address the caller should CONNECT to, or null when there is
+// nothing to pin (an IP literal, or a name that would not resolve). See
+// _pinnedFetch for why that matters.
+async function _assertUrl(rawUrl) {
+  const parsed = _validateUrl(rawUrl);
+  const host = parsed.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
+  if (_isIpLiteral(host)) return null;
+  let addrs;
+  try { addrs = await _dnsLookup(host, { all: true }); } catch (_) { return null; }
+  for (const a of addrs) {
+    if (_isBlockedHost(a.address)) {
+      throw new Error(
+        '[sandbox] Network access to internal/private address blocked: ' +
+          rawUrl + ' resolves to ' + a.address,
+      );
+    }
+  }
+  return addrs.length ? addrs[0].address : null;
+}
+`;
+}
+
+/**
+ * A `safeFetch` for a sandbox bootstrap, in JavaScript source. Depends on
+ * `_assertUrl` from {@link buildSandboxSsrfGuardSource} and on a captured
+ * `_fetch`. Validates the target and re-validates every redirect hop, because a
+ * public host that 302s to 169.254.169.254 is the same attack with one more
+ * step in it.
+ */
+export function buildSandboxSafeFetchSource(): string {
+  return `
+// Connect to the address that was VALIDATED, not to whatever the name resolves
+// to on the second lookup.
+//
+// Checking a name and then handing the NAME to fetch leaves a rebinding race:
+// the guard resolves to a public address, fetch resolves again a moment later,
+// and the attacker's zone has by then started answering 169.254.169.254. The
+// check is real and the connection still lands inside. That was written down
+// here as unclosable — "fetch offers no way to pin the connection" — and it is
+// untrue of this runtime: requesting the IP with an explicit Host header and a
+// TLS serverName connects where we decided and still presents and verifies the
+// right certificate. Measured against a real host before it was written.
+//
+// Where there is nothing to pin (an IP literal, or a name that did not resolve)
+// the URL is passed through unchanged.
+async function _pinnedFetch(url, init, address) {
+  if (!address) return _fetch(url, init);
+  const parsed = new URL(url);
+  const pinned = new URL(url);
+  pinned.hostname = address.indexOf(':') !== -1 ? '[' + address + ']' : address;
+  const headers = new Headers((init && init.headers) || undefined);
+  // 'host' carries the port when there is one: a vhost is chosen by authority,
+  // not by hostname alone.
+  headers.set('host', parsed.host);
+  const opts = Object.assign({}, init || {}, { headers: headers });
+  if (parsed.protocol === 'https:') {
+    // Without serverName the certificate is checked against the IP and every
+    // request fails; with it this is an ordinary verified TLS connection, to a
+    // host we chose rather than one the resolver chose twice.
+    opts.tls = Object.assign({}, opts.tls || {}, { serverName: parsed.hostname });
+  }
+  return _fetch(pinned.toString(), opts);
+}
+
+async function safeFetch(input, init, _hops) {
+  _hops = _hops || 0;
+  let _url;
+  if (typeof input === 'string') _url = input;
+  else if (input && typeof input === 'object' && input.url) _url = input.url;
+  else _url = String(input);
+  const _pin = await _assertUrl(_url);
+  if (_hops > 5) throw new Error('[sandbox] Too many redirects.');
+  const _res = await _pinnedFetch(_url, Object.assign({}, init || {}, { redirect: 'manual' }), _pin);
+  if (_res.status >= 300 && _res.status < 400) {
+    const _loc = _res.headers.get('location');
+    if (!_loc) throw new Error('[sandbox] Redirect with no Location header blocked.');
+    return safeFetch(new URL(_loc, _url).toString(), init, _hops + 1);
+  }
+  return _res;
+}
+`;
 }
 
 // Cloud instance-metadata + link-local endpoints. These are NEVER a legitimate

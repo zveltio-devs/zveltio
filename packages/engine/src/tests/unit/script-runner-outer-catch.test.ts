@@ -1,14 +1,16 @@
 /**
- * script-runner.ts — outer catch when runFunction throws unexpectedly.
+ * script-runner.ts — outer catch when the runner throws unexpectedly.
  */
 
 import { describe, expect, it, spyOn } from 'bun:test';
-import * as sandbox from '../../lib/edge-functions/sandbox.js';
+import * as subprocessRunner from '../../lib/edge-functions/subprocess-runner.js';
 import { runScript } from '../../lib/script-runner.js';
 
 describe('runScript — outer catch', () => {
-  it('returns the thrown error when runFunction rejects', async () => {
-    const spy = spyOn(sandbox, 'runFunction').mockRejectedValue(new Error('sandbox blew up'));
+  it('returns the thrown error when the runner rejects', async () => {
+    const spy = spyOn(subprocessRunner, 'runEdgeFunctionInSubprocess').mockRejectedValue(
+      new Error('sandbox blew up'),
+    );
     try {
       const res = await runScript('return 1;');
       expect(res.output).toBeNull();
