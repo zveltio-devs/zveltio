@@ -326,7 +326,13 @@ export interface ExtensionInternals {
    * site can await; it is the only variant that stops an attacker-controlled
    * name pointing at cloud metadata. MUST be awaited.
    */
-  assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * Resolves to the address the caller should connect to, or null when there is
+   * nothing to pin (an IP literal, or a name that did not resolve). An
+   * extension that ignores the value gets exactly the old behaviour; one that
+   * uses it closes the rebinding race, as `safeFetch` does.
+   */
+  assertPublicUrl: (url: string) => Promise<string | null>;
   /**
    * `fetch`, with the SSRF guard applied where it actually has to be.
    *

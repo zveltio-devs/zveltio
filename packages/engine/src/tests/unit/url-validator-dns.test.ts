@@ -89,8 +89,11 @@ describe('assertPublicUrl — resolved-address blocking', () => {
     );
   });
 
-  it('allows a hostname that resolves to a public address', async () => {
-    await expect(assertPublicUrl('https://example.com/')).resolves.toBeUndefined();
+  it('allows a hostname that resolves to a public address, and returns that address', async () => {
+    // The address is the point, not a detail: the caller connects to it instead
+    // of handing the NAME back to fetch, which would resolve a second time and
+    // could get a different answer. See safe-fetch.ts.
+    await expect(assertPublicUrl('https://example.com/')).resolves.toBe('93.184.216.34');
     expect(lookupCalls).toBe(1);
   });
 
@@ -101,15 +104,17 @@ describe('assertPublicUrl — resolved-address blocking', () => {
     expect(lookupCalls).toBe(0);
   });
 
-  it('skips the DNS round-trip for public IP literals', async () => {
-    await expect(assertPublicUrl('https://93.184.216.34/')).resolves.toBeUndefined();
+  it('skips the DNS round-trip for public IP literals, and has nothing to pin', async () => {
+    // An IP literal was never a name, so there is no second resolution to close.
+    await expect(assertPublicUrl('https://93.184.216.34/')).resolves.toBeNull();
     expect(lookupCalls).toBe(0);
   });
 
   it('allows an unresolvable host — fetch cannot reach it either', async () => {
     shouldThrow = true;
 
-    await expect(assertPublicUrl('https://does-not-exist.example/')).resolves.toBeUndefined();
+    // Nothing to pin either: a host that does not resolve cannot be reached.
+    await expect(assertPublicUrl('https://does-not-exist.example/')).resolves.toBeNull();
   });
 
   it('rejects non-http(s) schemes before any resolution happens', async () => {

@@ -58,12 +58,15 @@ describe('sendWebPush', () => {
     stubFetch(201);
     expect(await sendWebPush(SUB, MSG, {}, VAPID)).toBe('sent');
 
-    const headers = seen?.init?.headers as Record<string, string>;
-    expect(headers['Content-Encoding']).toBe('aes128gcm');
-    expect(headers['Content-Type']).toBe('application/octet-stream');
-    expect(headers.TTL).toBe('86400');
-    expect(headers.Authorization).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=/);
-    expect(headers.Authorization).toContain(`k=${VAPID.publicKey}`);
+    // Through `new Headers(...)` rather than by indexing: safeFetch normalises
+    // headers into a Headers instance when it pins the connection, and a test
+    // that only understands a plain object measures the absence of pinning.
+    const headers = new Headers(seen?.init?.headers as HeadersInit);
+    expect(headers.get('Content-Encoding')).toBe('aes128gcm');
+    expect(headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(headers.get('TTL')).toBe('86400');
+    expect(headers.get('Authorization')).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=/);
+    expect(headers.get('Authorization')).toContain(`k=${VAPID.publicKey}`);
     // The body is the encrypted record, not the plaintext.
     const body = seen?.init?.body as Uint8Array;
     expect(body.byteLength).toBeGreaterThan(86); // header (86) + ciphertext + tag
@@ -73,8 +76,8 @@ describe('sendWebPush', () => {
   it('scopes the JWT audience to the endpoint ORIGIN', async () => {
     stubFetch(201);
     await sendWebPush(SUB, MSG, {}, VAPID);
-    const headers = seen?.init?.headers as Record<string, string> | undefined;
-    const auth = headers?.Authorization ?? '';
+    const headers = new Headers(seen?.init?.headers as HeadersInit);
+    const auth = headers.get('Authorization') ?? '';
     const claims = JSON.parse(
       atob(auth.split('t=')[1].split('.')[1].replace(/-/g, '+').replace(/_/g, '/')),
     ) as { aud: string; sub: string; exp: number };

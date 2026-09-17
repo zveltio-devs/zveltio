@@ -252,9 +252,13 @@ describe('executeStep — CannedDb branches', () => {
 
   it('webhook forwards allowed custom headers and blocks sensitive ones', async () => {
     const originalFetch = globalThis.fetch;
-    let seenHeaders: Record<string, string> | undefined;
+    // Read through `new Headers(...)`: safeFetch normalises headers into a
+    // Headers instance when it pins the connection to the validated address, so
+    // a test that only understands a plain object would be measuring whether
+    // pinning happened rather than which headers were forwarded.
+    let seenHeaders: Headers | undefined;
     globalThis.fetch = (async (_url, init) => {
-      seenHeaders = init?.headers as Record<string, string>;
+      seenHeaders = new Headers(init?.headers as HeadersInit);
       return { ok: true, status: 200 } as Response;
     }) as typeof fetch;
 
@@ -277,9 +281,9 @@ describe('executeStep — CannedDb branches', () => {
         {},
         {},
       );
-      expect(seenHeaders?.['X-Custom']).toBe('allowed');
-      expect(seenHeaders?.Authorization).toBeUndefined();
-      expect(seenHeaders?.['x-api-key']).toBeUndefined();
+      expect(seenHeaders?.get('X-Custom')).toBe('allowed');
+      expect(seenHeaders?.get('Authorization')).toBeNull();
+      expect(seenHeaders?.get('x-api-key')).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
     }

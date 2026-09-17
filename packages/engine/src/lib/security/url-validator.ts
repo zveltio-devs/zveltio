@@ -173,22 +173,24 @@ function isIpLiteral(host: string): boolean {
  * protect against, and failing closed would break offline/CI runs and hosts
  * behind a transient resolver blip.
  *
- * Residual risk: a DNS rebinding race (resolve → public, connect → private) is
- * not closed here, because fetch() offers no way to pin the connection to the
- * address we validated. Closing it needs a custom dispatcher/agent — tracked as
- * defence-in-depth, not a bypass of this check.
+ * Returns the address to connect to, so a caller can close the DNS rebinding
+ * race (resolve → public, connect → private) rather than reasoning about it.
+ * This was once recorded here as unclosable — "fetch offers no way to pin the
+ * connection" — which is untrue of this runtime: requesting the IP with an
+ * explicit Host header and a TLS serverName connects where we decided and still
+ * verifies the certificate for the name. `safeFetch` does exactly that.
  */
-export async function assertPublicUrl(rawUrl: string): Promise<void> {
+export async function assertPublicUrl(rawUrl: string): Promise<string | null> {
   validatePublicUrl(rawUrl);
 
   const host = new URL(rawUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (isIpLiteral(host)) return;
+  if (isIpLiteral(host)) return null;
 
   let addresses: { address: string }[];
   try {
     addresses = await lookup(host, { all: true });
   } catch {
-    return;
+    return null;
   }
 
   for (const { address } of addresses) {
@@ -198,6 +200,13 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
       );
     }
   }
+
+  // The address the caller should CONNECT to. Returning it is what lets a
+  // caller close the rebinding race: checking a NAME and then handing the name
+  // to fetch resolves it a second time, and only the first was inspected. Null
+  // means there is nothing to pin — an IP literal, or a name that did not
+  // resolve and so cannot be reached either.
+  return addresses.length ? addresses[0].address : null;
 }
 
 /**

@@ -501,7 +501,13 @@ export interface ExtensionInternals<DB = unknown> {
    * hostnames that RESOLVE into private space (an attacker-owned name with an A
    * record pointing at cloud metadata). MUST be awaited.
    */
-  assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * Resolves to the address to connect to, or null when there is nothing to pin
+   * (an IP literal, or a name that did not resolve). Ignoring the value keeps
+   * the previous behaviour; using it closes the DNS rebinding race, which is
+   * what the host's own `safeFetch` does.
+   */
+  assertPublicUrl: (url: string) => Promise<string | null>;
   /**
    * `fetch` with the SSRF guard applied where it has to be.
    *
