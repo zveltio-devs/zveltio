@@ -209,6 +209,32 @@ bun run prepush
 #   + format:check + typecheck
 ```
 
+**`bun run check` is not the CI `Lint` job, and `prepush` is not either.**
+`check` is biome alone — it runs no gate at all. `prepush` runs fifteen of them
+and still leaves nine that CI's `Lint` job runs:
+
+```sh
+bun run lint          catch:fabricated      sql:jsonb
+bun run ext:ambient   check:env-documented  ext:i18n-ownership
+bun run check:ext-i18n-ns ../zveltio-extensions
+DATABASE_URL=… TEST_DATABASE_URL=… bun run audit:gates
+```
+
+`audit:gates` is the one that costs a CI round to learn, because three of its
+cases plant a violation only a database can see. Without `DATABASE_URL` those
+cases report `FAILED FOR THE WRONG REASON` and the run is not evidence — build a
+scratch database, migrate it, and expect **47/47**. A local 45/47 means you did
+not give it a database, not that two gates are broken.
+
+**A branch that REMOVES an `any` suppression must lower the baseline in the same
+branch.** `any:ratchet` passes on a decrease and prints "debt decreased … run
+`--update`", so it is easy to skip — but `audit:gates` plants exactly one marker,
+and against a stale baseline that lands ON the old number instead of above it.
+The gate then cannot fail, and CI reports `any-ratchet STAYED GREEN on a planted
+violation`. Removing an `any` is an improvement that turns a live gate into
+decoration until the baseline follows it. This is the one direction in which
+editing a `quality-gates/*.json` baseline is correct: down, never up.
+
 Notable custom gates (all in `scripts/`, all run via `bun run <name>` from
 root):
 
