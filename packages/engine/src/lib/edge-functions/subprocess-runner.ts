@@ -269,28 +269,102 @@ const MEMORY_LIMIT_MB = (() => {
 })();
 
 /**
- * The command to spawn, with the memory cap applied where the platform has one.
+ * Processor seconds for one invocation. `0` disables it.
  *
- * `Bun.spawn` cannot call `setrlimit`, so the limit is set by the one process
- * that can: a shell, which applies it to itself and then `exec`s the
+ * The wall clock cannot do this job on its own. It counts time spent waiting on
+ * a slow HTTP call exactly like time spent spinning, so it has to be generous
+ * enough for the first — which leaves the second free to burn a core for the
+ * whole budget and be recorded as a normal slow run. RLIMIT_CPU counts
+ * processor time only, so the two limits can each be set for what they are for.
+ *
+ * Ten seconds is generous for glue code and still an order of magnitude below a
+ * default 30s wall clock. Supabase uses two.
+ */
+const CPU_LIMIT_S = (() => {
+  const raw = process.env.EDGE_CPU_LIMIT_S;
+  if (raw === undefined) return 10;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 10;
+  return parsed;
+})();
+
+/**
+ * The command to spawn, with the ceilings the platform can enforce.
+ *
+ * `Bun.spawn` cannot call `setrlimit`, so the limits are set by the one process
+ * that can: a shell, which applies them to itself and then `exec`s the
  * interpreter, so no extra process survives. `ulimit` failing is not fatal —
  * macOS does not enforce RLIMIT_AS, and a container may already be capped
- * lower — so the shell keeps going and the invocation runs uncapped rather than
- * not at all.
+ * lower — so the shell keeps going and the invocation runs with whatever
+ * ceilings the platform gave it rather than not at all.
  *
  * Both paths are engine-generated (`process.execPath`, a `mkdtemp` directory),
  * never caller input. They are single-quoted anyway, and a path containing a
  * single quote skips the shell entirely rather than being escaped cleverly.
  */
-function memoryLimitedCmd(): string[] {
+function limitedCmd(): string[] {
   const direct = [BUN_BIN, 'run', bootstrapPath];
-  if (MEMORY_LIMIT_MB === 0) return direct;
+  if (MEMORY_LIMIT_MB === 0 && CPU_LIMIT_S === 0) return direct;
   if (BUN_BIN.includes("'") || bootstrapPath.includes("'")) return direct;
-  return [
-    '/bin/sh',
-    '-c',
-    `ulimit -v ${MEMORY_LIMIT_MB * 1024} 2>/dev/null; exec '${BUN_BIN}' run '${bootstrapPath}'`,
-  ];
+  const ulimits: string[] = [];
+  if (MEMORY_LIMIT_MB > 0) ulimits.push(`ulimit -v ${MEMORY_LIMIT_MB * 1024} 2>/dev/null`);
+  if (CPU_LIMIT_S > 0) ulimits.push(`ulimit -t ${CPU_LIMIT_S} 2>/dev/null`);
+  return ['/bin/sh', '-c', `${ulimits.join('; ')}; exec '${BUN_BIN}' run '${bootstrapPath}'`];
+}
+
+/**
+ * Why the child died, when it died without answering.
+ *
+ * `Subprocess exited with code null` was the whole message, and `null` is what
+ * an exit code is when a process was killed by a signal rather than exiting —
+ * so the one case that most needs naming was the one that named nothing.
+ *
+ * The signal alone does not say which ceiling was hit. RLIMIT_CPU raises
+ * SIGXCPU at the soft limit, but Bun does not die of it, so the kernel's
+ * SIGKILL at the hard limit is what we observe — the same signal an OOM kill
+ * sends. What separates them is the CPU the child actually consumed, which
+ * `resourceUsage()` reports after exit. Measured: a CPU-exhausted child comes
+ * back with cpu=1.00s against a 1s limit; a memory-exhausted one with cpu=0.20s
+ * and a clean exit code 1.
+ */
+function deathCause(
+  signal: string | null,
+  exitCode: number | null,
+  timedOut: boolean,
+  cpuSeconds: number | null,
+): string {
+  if (
+    CPU_LIMIT_S > 0 &&
+    cpuSeconds !== null &&
+    // Within a tick of the ceiling: the kernel stops the process AT its budget,
+    // so anything that close spent its whole allowance computing.
+    cpuSeconds >= CPU_LIMIT_S - 0.1
+  ) {
+    return `Exceeded the CPU limit of ${CPU_LIMIT_S}s (EDGE_CPU_LIMIT_S) — used ${cpuSeconds.toFixed(2)}s`;
+  }
+  if (timedOut) return 'Killed after the wall-clock timeout';
+  if (signal === 'SIGKILL') {
+    // Our timer and the CPU ceiling are both ruled out above, so this is the
+    // kernel for another reason: an OOM kill, or a ceiling outside the engine
+    // such as a container's.
+    return 'Killed by SIGKILL — out of memory, or a ceiling outside the engine';
+  }
+  if (signal) return `Killed by signal ${signal}`;
+  return `Subprocess exited with code ${exitCode}`;
+}
+
+/** Processor seconds the child consumed, or null when the runtime withholds it. */
+function cpuSecondsOf(proc: { resourceUsage?: () => unknown }): number | null {
+  try {
+    const usage = proc.resourceUsage?.() as
+      | { cpuTime?: { user?: bigint | number; system?: bigint | number } }
+      | undefined;
+    if (!usage?.cpuTime) return null;
+    const micros = Number(usage.cpuTime.user ?? 0) + Number(usage.cpuTime.system ?? 0);
+    return Number.isFinite(micros) ? micros / 1_000_000 : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function runEdgeFunctionInSubprocess(
@@ -336,7 +410,7 @@ export async function runEdgeFunctionInSubprocess(
     // BUN_BIN is the absolute path to the parent's own interpreter
     // (process.execPath) — never `'bun'`, which would resolve via the
     // child's PATH and could be hijacked by a same-host attacker.
-    cmd: memoryLimitedCmd(),
+    cmd: limitedCmd(),
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -355,7 +429,9 @@ export async function runEdgeFunctionInSubprocess(
   proc.stdin.end();
 
   // Hard wall-clock kill: timeoutMs + 3s leeway for IPC/JSON encoding.
+  let timedOut = false;
   const killTimer = setTimeout(() => {
+    timedOut = true;
     try {
       proc.kill('SIGKILL');
     } catch {
@@ -417,7 +493,7 @@ export async function runEdgeFunctionInSubprocess(
       error:
         proc.exitCode === 0
           ? 'Subprocess returned no envelope'
-          : `Subprocess exited with code ${proc.exitCode}`,
+          : deathCause(proc.signalCode ?? null, proc.exitCode, timedOut, cpuSecondsOf(proc)),
       logs: extraLogs,
       duration_ms,
     };
