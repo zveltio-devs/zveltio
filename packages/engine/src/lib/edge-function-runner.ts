@@ -3,10 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findDynamicImport } from './edge-functions/no-dynamic-import.js';
-import {
-  buildSandboxSafeFetchSource,
-  buildSandboxSsrfGuardSource,
-} from './security/index.js';
+import { buildSandboxSafeFetchSource, buildSandboxSsrfGuardSource } from './security/index.js';
 
 export interface EdgeRequest {
   method: string;
