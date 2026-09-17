@@ -235,9 +235,15 @@ The engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
   shadows names, and the module loader is syntax rather than a name — an
   audit rode that straight through to `node:fs`, and `bun:sqlite` was still
   reachable after that was thought closed;
-- an address-space ceiling (`EDGE_MEMORY_LIMIT_MB`, default 1024 MiB) applied
-  by the kernel. This is the one control the worker mode cannot have: Bun
-  ignores `resourceLimits` on a Worker, so only a process can be capped;
+- a memory ceiling applied by the kernel (`EDGE_MEMORY_LIMIT_MB`, default
+  1024 MiB): a cgroup v2 scope where one can be created, which bounds RESIDENT
+  memory so a 128 MB budget is real, and RLIMIT_AS otherwise, which bounds
+  address space and cannot go below ~1 GiB. Only a process can be capped at all
+  — Bun ignores `resourceLimits` on a Worker, which is why the Worker runner
+  was removed;
+- a processor-time ceiling (`EDGE_CPU_LIMIT_S`, default 10s) separate from the
+  wall clock, so a function that waits on a slow call is not treated like one
+  that spins;
 - an SSRF guard generated from `security/url-validator.ts` rather than copied
   beside it, which connects to the address it validated (`Host` +
   `tls.serverName`) so a name cannot resolve twice and answer differently the

@@ -257,6 +257,8 @@ const BUN_BIN = process.execPath;
  * and the default, not a tuned number. RLIMIT_AS bounds virtual address space,
  * not live heap, so this is a ceiling against a runaway, not a quota.
  */
+const RLIMIT_AS_FLOOR_MB = 1024;
+
 const MEMORY_LIMIT_MB = (() => {
   const raw = process.env.EDGE_MEMORY_LIMIT_MB;
   if (raw === undefined) return 1024;
@@ -264,7 +266,9 @@ const MEMORY_LIMIT_MB = (() => {
   if (!Number.isFinite(parsed) || parsed < 0) return 1024;
   // Anything under the floor would mean every invocation dies before it runs,
   // which reads exactly like a broken sandbox. Refuse to configure that.
-  if (parsed > 0 && parsed < 1024) return 1024;
+  if (parsed > 0 && parsed < RLIMIT_AS_FLOOR_MB && !cgroupLimitAvailable()) {
+    return RLIMIT_AS_FLOOR_MB;
+  }
   return parsed;
 })();
 
@@ -289,6 +293,44 @@ const CPU_LIMIT_S = (() => {
 })();
 
 /**
+ * Whether this host can put one invocation in its own cgroup.
+ *
+ * `RLIMIT_AS` bounds address space, not resident memory, and JSC reserves far
+ * more of the first than it uses — so the smallest workable `ulimit -v` is about
+ * 1 GiB, and below it Bun core-dumps before running a line. That is not a budget
+ * anybody would choose for a flow script; it is the smallest number the
+ * mechanism can express.
+ *
+ * cgroup v2 bounds resident memory, so 128 MB means 128 MB, and only the
+ * invocation's own scope is killed. Probed once by DOING it rather than by
+ * inferring it from files: a host can have cgroup2 mounted and still refuse a
+ * transient scope (no systemd, no delegation, a container that owns its own
+ * cgroup). The probe costs one `/bin/true` at first use and is remembered.
+ */
+let cgroupProbe: boolean | null = null;
+export function cgroupLimitAvailable(): boolean {
+  if (cgroupProbe !== null) return cgroupProbe;
+  cgroupProbe = (() => {
+    if (process.platform !== 'linux') return false;
+    if (!Bun.which('systemd-run')) return false;
+    try {
+      const probe = Bun.spawnSync({
+        cmd: ['systemd-run', '--user', '--scope', '-q', '-p', 'MemoryMax=64M', '/bin/true'],
+        stdout: 'ignore',
+        stderr: 'ignore',
+      });
+      return probe.exitCode === 0;
+    } catch {
+      return false;
+    }
+  })();
+  return cgroupProbe;
+}
+
+/** Warn once rather than per invocation when a budget cannot be honoured. */
+let flooredWarningShown = false;
+
+/**
  * The command to spawn, with the ceilings the platform can enforce.
  *
  * `Bun.spawn` cannot call `setrlimit`, so the limits are set by the one process
@@ -302,14 +344,84 @@ const CPU_LIMIT_S = (() => {
  * never caller input. They are single-quoted anyway, and a path containing a
  * single quote skips the shell entirely rather than being escaped cleverly.
  */
-function limitedCmd(): string[] {
+/** The spawn command, for tests that assert its shape. */
+export function __limitedCmdForTests(memoryLimitMb: number): string[] {
+  return limitedCmd(memoryLimitMb);
+}
+
+function limitedCmd(memoryLimitMb: number): string[] {
   const direct = [BUN_BIN, 'run', bootstrapPath];
-  if (MEMORY_LIMIT_MB === 0 && CPU_LIMIT_S === 0) return direct;
+  if (memoryLimitMb === 0 && CPU_LIMIT_S === 0) return direct;
   if (BUN_BIN.includes("'") || bootstrapPath.includes("'")) return direct;
+
+  // CPU stays on RLIMIT_CPU even under a cgroup: the cgroup CPU controls
+  // throttle rather than stop, which is not what a runaway needs.
   const ulimits: string[] = [];
-  if (MEMORY_LIMIT_MB > 0) ulimits.push(`ulimit -v ${MEMORY_LIMIT_MB * 1024} 2>/dev/null`);
   if (CPU_LIMIT_S > 0) ulimits.push(`ulimit -t ${CPU_LIMIT_S} 2>/dev/null`);
-  return ['/bin/sh', '-c', `${ulimits.join('; ')}; exec '${BUN_BIN}' run '${bootstrapPath}'`];
+
+  const useCgroup = memoryLimitMb > 0 && cgroupLimitAvailable();
+  if (memoryLimitMb > 0 && !useCgroup) {
+    const floored = Math.max(memoryLimitMb, RLIMIT_AS_FLOOR_MB);
+    ulimits.push(`ulimit -v ${floored * 1024} 2>/dev/null`);
+    if (floored !== memoryLimitMb && !flooredWarningShown) {
+      flooredWarningShown = true;
+      console.warn(
+        `[edge-functions] memory budget ${memoryLimitMb} MB raised to ${floored} MB: ` +
+          'no cgroup scope on this host, and RLIMIT_AS cannot express less — Bun does ' +
+          'not start in under ~1 GiB of address space.',
+      );
+    }
+  }
+
+  // `systemd-run` needs the session bus to create a scope, and it hands its own
+  // environment to what it runs — so the two variables that let it work would
+  // land in the sandbox. The inner shell drops them before `exec`, which keeps
+  // the child's environment exactly as minimal as it is without a cgroup.
+  const prelude = useCgroup ? 'unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR; ' : '';
+  const inner = `${prelude}${ulimits.join('; ')}${ulimits.length ? '; ' : ''}exec '${BUN_BIN}' run '${bootstrapPath}'`;
+  if (!useCgroup) return ['/bin/sh', '-c', inner];
+
+  // MemorySwapMax=0 matters: without it the budget is memory PLUS swap, and a
+  // runaway only gets slower instead of stopping.
+  return [
+    'systemd-run',
+    '--user',
+    '--scope',
+    '-q',
+    '-p',
+    `MemoryMax=${memoryLimitMb}M`,
+    '-p',
+    'MemorySwapMax=0',
+    '/bin/sh',
+    '-c',
+    inner,
+  ];
+}
+
+/**
+ * The environment the spawned command starts with.
+ *
+ * MINIMAL by construction: inheriting the parent's would put DATABASE_URL,
+ * BETTER_AUTH_SECRET and FIELD_ENCRYPTION_KEY inside untrusted code, so this is
+ * an explicit allowlist.
+ *
+ * When a cgroup scope is being created, `systemd-run` itself needs the session
+ * bus, so those two variables are added HERE and removed by the inner shell
+ * before the interpreter is exec'd. The sandbox sees the same minimal
+ * environment either way; only systemd-run sees more.
+ */
+function spawnEnv(): Record<string, string> {
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+    TMPDIR: process.env.TMPDIR ?? '/tmp',
+  };
+  if (cgroupLimitAvailable()) {
+    if (process.env.XDG_RUNTIME_DIR) env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
+    if (process.env.DBUS_SESSION_BUS_ADDRESS) {
+      env.DBUS_SESSION_BUS_ADDRESS = process.env.DBUS_SESSION_BUS_ADDRESS;
+    }
+  }
+  return env;
 }
 
 /**
@@ -372,6 +484,12 @@ export async function runEdgeFunctionInSubprocess(
   request: EdgeRequest,
   envVars: Record<string, string>,
   timeoutMs: number,
+  /**
+   * Per-invocation overrides. `memoryLimitMb` asks for a tighter budget than the
+   * instance default — honoured exactly where a cgroup scope exists, raised to
+   * the RLIMIT_AS floor with one warning where it does not.
+   */
+  opts: { memoryLimitMb?: number } = {},
 ): Promise<RunResult> {
   const start = Date.now();
 
@@ -410,17 +528,11 @@ export async function runEdgeFunctionInSubprocess(
     // BUN_BIN is the absolute path to the parent's own interpreter
     // (process.execPath) — never `'bun'`, which would resolve via the
     // child's PATH and could be hijacked by a same-host attacker.
-    cmd: limitedCmd(),
+    cmd: limitedCmd(opts.memoryLimitMb ?? MEMORY_LIMIT_MB),
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
-    env: {
-      // Hand the child a MINIMAL env. Inheriting the parent's env would
-      // leak DATABASE_URL, BETTER_AUTH_SECRET, FIELD_ENCRYPTION_KEY, …
-      // into the untrusted process — explicit allowlist instead.
-      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      TMPDIR: process.env.TMPDIR ?? '/tmp',
-    },
+    env: spawnEnv(),
   });
 
   // Write the envelope to stdin, then close.
