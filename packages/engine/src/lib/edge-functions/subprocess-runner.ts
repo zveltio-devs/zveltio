@@ -34,7 +34,7 @@
  * stdout/stderr is captured as log lines.
  */
 
-import { spawn } from 'bun';
+import { spawn, type Subprocess } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
 import { buildSandboxSsrfGuardSource } from '../security/index.js';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
@@ -509,7 +509,12 @@ const POOL_SIZE = (() => {
   return Math.min(parsed, 16);
 })();
 
-type Runner = ReturnType<typeof spawn>;
+/**
+ * The stdio shape is part of the type, not a detail: `ReturnType<typeof spawn>`
+ * widens stdin/stdout to `number | FileSink | ReadableStream`, and the pool then
+ * hands back something the caller cannot write an envelope to.
+ */
+type Runner = Subprocess<'pipe', 'pipe', 'pipe'>;
 
 const idleRunners: Runner[] = [];
 const servedPids: number[] = [];
