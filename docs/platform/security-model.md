@@ -217,9 +217,10 @@ What it costs, and what it still does not give:
 - The SQL bridge runs on the engine pool rather than inside the caller's tenant
   transaction, so it is not RLS-scoped. The table policy above is what limits it.
 
-The subprocess-per-invocation runner is the **default** for edge functions
-(`EDGE_SANDBOX_MODE=worker` opts back into the faster in-process one). The
-engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
+The subprocess-per-invocation runner is the **only** runner for edge functions.
+The in-process Worker mode was removed: a thread cannot be given a memory
+ceiling on this runtime, and it was measured slower than a pre-spawned process.
+The engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
 
 - a minimal env (only `PATH` + `TMPDIR` — no `DATABASE_URL`,
   `BETTER_AUTH_SECRET`, or `FIELD_ENCRYPTION_KEY` leaks into the child);

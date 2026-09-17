@@ -49,7 +49,7 @@ The engine ships with everything every business application needs. Activate plug
 | **File storage** | Local filesystem by default, zero dependencies. Any S3-compatible backend optional (AWS, MinIO, R2, or the bundled SeaweedFS). |
 | **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
-| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. `EDGE_SANDBOX_MODE=worker` opts into the faster in-process runner: it carries the same SSRF guard and the same refusal of `import()`, but it is a thread in the engine process, so a memory ceiling cannot be applied to it and a runtime escape lands in the engine rather than in a child. |
+| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. There is no in-process mode: the Worker runner was removed once measurement showed it could not be given a memory ceiling and was slower than a pre-spawned process. |
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |

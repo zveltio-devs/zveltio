@@ -309,9 +309,9 @@ generated).
 - Extension installs verify Ed25519 signatures by default
   (`REQUIRE_EXTENSION_SIGNATURES=false` only for unsigned private mirrors;
   extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`).
-- Edge functions run in a separate process per invocation with a minimal env
-  by default; `EDGE_SANDBOX_MODE=worker` is the faster but weaker in-process
-  mode.
+- Edge functions run in a separate process per invocation with a minimal env,
+  a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
+  is no in-process mode; `EDGE_SANDBOX_MODE` is ignored.
 - Worker isolation is a guard-rail, not an adversarially-tested sandbox —
   treat untrusted community extensions accordingly.
 - Outbound webhooks are HMAC-signed. Audit log covers every write; GDPR
