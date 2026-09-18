@@ -4,6 +4,84 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.65] - 2026-09-18
+
+**Edge functions did not work in the compiled binary, which is what the image
+ships.** A compiled Bun binary is its own interpreter: `process.execPath` is the
+engine, not `bun`, so the runner's `<execPath> run <bootstrap.mjs>` re-executed
+the ENGINE with two arguments and the bootstrap never ran. Measured in a real
+binary: every invocation came back `Killed by SIGKILL`. The binary answers a
+sentinel argument now and imports the same generated bootstrap, so there is one
+implementation with two ways of reaching it. A gate compiles the real entry point
+and invokes a function through it, because nothing else could see this —
+typecheck cannot (the code is correct), `bun test` cannot (it is not a binary),
+and the release smoke test boots the binary without ever calling a function.
+
+### The in-process Worker sandbox is gone
+
+`EDGE_SANDBOX_MODE=worker` ran edge functions on a thread inside the engine. Every
+property that justified it failed measurement:
+
+    latency    worker 31.8 ms vs subprocess 42.6 ms per invocation
+               — and a pre-spawned subprocess answers in 13.4 ms
+    memory     no ceiling can be applied to a thread: Bun ignores a Worker's
+               resourceLimits (one capped at 64 MB allocated 4 GB and reported
+               success); `smol` and BUN_JSC_forceRAMSize are GC settings
+    isolation  a runtime escape lands in the engine's address space
+    support    Bun's own docs call the Worker API "still experimental
+               (particularly for terminating workers)"
+
+An operator who set the variable got an uncapped runner while believing they had
+chosen a faster one — and `.env.example` set it for them. The variable is now read
+nowhere. **Breaking:** deployments that set `worker` move to the subprocess runner.
+
+### Ceilings the kernel enforces, and a name for what stopped a run
+
+`EDGE_MEMORY_LIMIT_MB` bounds memory per invocation — a cgroup v2 scope where one
+can be created, which bounds RESIDENT memory so 128 MB is a real budget, and
+RLIMIT_AS otherwise, which bounds address space and cannot express less than about
+1 GiB. `EDGE_CPU_LIMIT_S` bounds processor seconds, separate from the wall clock,
+which counts waiting on a slow call the same as spinning.
+
+A run stopped by a ceiling says which one, with the seconds it used. That needed a
+measurement rather than a signal: RLIMIT_CPU raises SIGXCPU, Bun does not die of
+it, so what arrives is the kernel's SIGKILL — the same signal an OOM kill sends.
+`resourceUsage()` separates them. This retires `Subprocess exited with code null`,
+which was the whole message for a killed process.
+
+### Startup moved off the request path
+
+`EDGE_RUNNER_POOL` (default 2) keeps runners pre-spawned and waiting: 14.3 ms per
+invocation against 65.4 ms without. A runner still serves exactly one invocation
+and exits — reuse would hand the next caller the previous one's globals.
+
+### Outbound requests connect to the address the guard validated
+
+`assertPublicUrl` resolved a hostname and checked every address, and then the NAME
+was handed to `fetch`, which resolved it again — two resolutions, one inspected.
+Webhook targets, flow HTTP nodes, virtual collection sources and Web Push now
+connect to the validated IP with a `Host` header and a TLS `serverName`. With an
+egress proxy configured nothing is rewritten, and `configuration.md` states the
+consequence rather than leaving it implicit.
+
+### Fixed
+
+- `ctx.internals.runEdgeFunction` was a different function from the one its name
+  names — the in-process Worker runner, with an incompatible signature. Every
+  extension was handed it. It is the engine's own entry point now.
+- The subprocess SSRF blocklist had drifted from the validator it mirrors:
+  `192.0.0.192` (Oracle Cloud metadata, globally routable) and `100.64.0.0/10`
+  (RFC 6598) were missing. Both bootstraps generate the guard from the validator's
+  own source now.
+- `worker-runner.ts` never refused `import()`, so flow `run_script` could reach
+  the module loader: `import('bun:sqlite')` wrote files onto the host and reached
+  `dlopen`. Flow scripts run in the subprocess runner now, where a script that
+  allocates without bound is refused instead of killing the engine with SIGKILL.
+- `developer/edge-functions` called the runner with shapes it does not take, so
+  every invocation through the extension ran against an empty request object and
+  no invocation was ever logged.
+
+
 ## [3.0.0-beta.64] - 2026-08-29
 
 **Presence leaked between tenants on any instance without Valkey.** The Valkey
