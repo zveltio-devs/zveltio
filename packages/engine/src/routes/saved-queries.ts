@@ -16,18 +16,58 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
+import {
+  applyColumnAccess,
+  checkPermission,
+  getColumnAccess,
+  isTenantAdmin,
+  resolveUserRole,
+} from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
+
+/**
+ * The operators the query builder understands — one list, because there are two
+ * appliers and they disagreed about anything not on it.
+ *
+ * `applyFilter` (AND, ungrouped) fell through to `return query`, dropping the
+ * filter and WIDENING the result set. `buildFilterCondition` (OR, and every
+ * group) fell through to `eb(field, '=', value)`, applying an equality nobody
+ * asked for. So one saved query answered two different questions depending on
+ * its filter_mode, and a typo'd operator was reported as a successful query over
+ * the wrong rows rather than as a mistake. Rejected at the boundary now, and
+ * both appliers throw if one reaches them anyway.
+ */
+const FILTER_OPERATORS = [
+  'equals',
+  'not_equals',
+  'contains',
+  'not_contains',
+  'starts_with',
+  'ends_with',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'between',
+  'is_empty',
+  'is_null',
+  'is_not_empty',
+  'is_not_null',
+  'is_true',
+  'is_false',
+  'in',
+  'not_in',
+] as const;
 
 const QueryConfigSchema = z.object({
   filters: z
     .array(
       z.object({
         field: z.string(),
-        operator: z.string(),
+        operator: z.enum(FILTER_OPERATORS),
         value: z.any().optional(),
         group: z.string().optional(),
       }),
@@ -137,7 +177,7 @@ function applyFilter(query: any, filter: { field: string; operator: string; valu
     case 'not_in':
       return Array.isArray(value) ? query.where(field, 'not in', value) : query;
     default:
-      return query;
+      throw new Error(`Unsupported filter operator: "${operator}"`);
   }
 }
 
@@ -194,7 +234,7 @@ function buildFilterCondition(
     case 'not_in':
       return Array.isArray(value) ? eb(field, 'not in', value) : eb(field, '=', field);
     default:
-      return eb(field, '=', value);
+      throw new Error(`Unsupported filter operator: "${operator}"`);
   }
 }
 
@@ -250,7 +290,7 @@ async function executeQueryConfig(
   db: Database,
   collection: string,
   config: QueryConfig,
-  userId: string,
+  user: { id: string; role?: string },
 ): Promise<{
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   records: any[];
@@ -268,19 +308,83 @@ async function executeQueryConfig(
   // dead code, and any authenticated user could POST a query config naming any
   // collection with an arbitrary `columns` list and read every row of it —
   // bypassing Casbin entirely.
-  if (!(await checkPermission(userId, collection, 'read'))) {
+  if (!(await checkPermission(user.id, collection, 'read'))) {
     throw new Error('Forbidden');
   }
+
+  // Column permissions, the same way every other read path applies them.
+  //
+  // This was the ONLY read path over a collection table that did not. `/api/data`
+  // list, single and bulk, `/api/sync` pull, the realtime fan-out and the
+  // relation expander all call getColumnAccess; the query builder went straight
+  // to the table. Measured against a `member` with can_read=false on one column:
+  // GET /api/data omitted it and POST /api/saved-queries/execute returned its
+  // value. Resolved BEFORE the SELECT so a hidden column is never read, rather
+  // than read and then stripped.
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
 
   const offset = (config.page - 1) * config.limit;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let baseQuery: any = (db as any).selectFrom(tableName);
 
+  // An ALLOWLIST of the collection's own columns, not a denylist of bad ones.
+  //
+  // `selectAll()` here returns the whole physical row, and the row carries more
+  // than the collection's fields: `search_vector` and `search_text` are
+  // operational columns that `lib/data/shape.ts` strips from every `/api/data`
+  // response — and `search_text` is a CONCATENATION of the record's text
+  // fields, so it reproduced the value of a column the caller was forbidden to
+  // read. Measured: with `can_read = false` on `salary`, this route answered
+  // `"search_text":"a SECRET-1"` while GET /api/data on the same row answered
+  // `"title":"a"` and nothing else. Hiding `salary` and then publishing a copy
+  // of it is not hiding it.
+  //
+  // So the set of columns this route will touch is derived from the collection
+  // definition plus the standard metadata, and anything else — internal,
+  // undeclared, or newly added by a future migration — is outside it by default.
+  const collectionDef = await DDLManager.getCollection(db, collection);
+  const declared: string[] = Array.isArray(collectionDef?.fields)
+    ? collectionDef.fields
+        .map((f: { name?: string }) => f?.name)
+        .filter((n: unknown): n is string => typeof n === 'string')
+    : [];
+  const METADATA_COLUMNS = [
+    'id',
+    'created_at',
+    'updated_at',
+    'status',
+    'created_by',
+    'updated_by',
+    'tenant_id',
+  ];
+  const hiddenAll = colAccess.hidden.has('*');
+  const allowed = new Set(
+    [...METADATA_COLUMNS, ...declared].filter((n) => !hiddenAll && !colAccess.hidden.has(n)),
+  );
+  // A collection with no field metadata (legacy rows) would otherwise allow
+  // nothing at all, which turns a leak into an outage. Fall back to the
+  // metadata columns, which are the same on every collection.
+  const visible = (name: string) => allowed.has(name);
+
   if (config.columns?.length > 0) {
-    const selectFields = config.columns.includes('id') ? config.columns : ['id', ...config.columns];
+    const asked = config.columns.filter(visible);
+    const selectFields = asked.includes('id') ? asked : ['id', ...asked];
     baseQuery = baseQuery.select(selectFields);
   } else {
-    baseQuery = baseQuery.selectAll();
+    // Never `selectAll()`: name the allowed columns, so a column added to the
+    // table later is outside the result until somebody decides it belongs.
+    baseQuery = baseQuery.select([...allowed]);
+  }
+
+  // A filter or a sort on a hidden column reads it just as surely as selecting
+  // it: `WHERE salary > 100000` with a row count is the value, one bisection at
+  // a time, and ORDER BY leaks the ordering. Refuse rather than silently drop —
+  // dropping a filter widens the result set, which is the wrong direction.
+  for (const f of config.filters ?? []) {
+    if (!visible(f.field)) throw new Error(`Forbidden column: "${f.field}"`);
+  }
+  for (const sort of config.sorts ?? []) {
+    if (!visible(sort.field)) throw new Error(`Forbidden column: "${sort.field}"`);
   }
 
   if (config.filters?.length > 0) {
@@ -331,7 +435,10 @@ async function executeQueryConfig(
     baseQuery = baseQuery.orderBy('created_at', 'desc');
   }
 
-  const records = await baseQuery.limit(config.limit).offset(offset).execute();
+  const rawRecords = await baseQuery.limit(config.limit).offset(offset).execute();
+  // Belt and braces: the select above already names only allowed columns, and
+  // this strips anything hidden that reaches here by another route.
+  const records = rawRecords.map((r: Record<string, unknown>) => applyColumnAccess(r, colAccess));
   return {
     records,
     pagination: {
@@ -341,6 +448,26 @@ async function executeQueryConfig(
       totalPages: Math.ceil(total / config.limit),
     },
   };
+}
+
+/**
+ * The status an executeQueryConfig failure deserves.
+ *
+ * It signals refusals by throwing, and both call sites answered 500 — so a
+ * Casbin denial and a hidden column read as server faults, which is the one
+ * status that tells a caller to retry.
+ */
+function statusFor(err: unknown): 400 | 403 | 404 | 500 {
+  const m = err instanceof Error ? err.message : '';
+  if (m === 'Forbidden' || m.startsWith('Forbidden column:')) return 403;
+  if (m.startsWith('Unsupported filter operator:') || m.startsWith('Invalid field name:'))
+    return 400;
+  if (m === 'Collection not found') return 404;
+  return 500;
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : 'Failed to execute query';
 }
 
 // ── Route factory ─────────────────────────────────────────────────────────────
@@ -369,13 +496,11 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         const exists = await DDLManager.tableExists(tdb, data.collection);
         if (!exists) return c.json({ error: 'Collection not found' }, 404);
 
-        const tableName = DDLManager.getTableName(data.collection);
-        const isSystem = tableName.startsWith('zv_') && !tableName.startsWith('zvd_');
-        if (isSystem) {
-          const hasAdmin = await isTenantAdmin(user.id);
-          if (!hasAdmin)
-            return c.json({ error: 'Query Builder only works on user-defined collections' }, 403);
-        }
+        // The "system table" branch that used to sit here was unreachable:
+        // getTableName always returns `zvd_<name>`, and 'zvd_…' does not
+        // startWith('zv_') — the third character is 'd', not '_'. It was removed
+        // rather than repaired, because the real check is the Casbin one inside
+        // executeQueryConfig, which this branch had been standing in for.
 
         const config: QueryConfig = {
           filters: data.config.filters,
@@ -387,14 +512,11 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
           page: data.config.page,
         };
 
-        const result = await executeQueryConfig(tdb, data.collection, config, user.id);
+        const result = await executeQueryConfig(tdb, data.collection, config, user);
         const apiUrl = generateApiUrl(data.collection, config);
         return c.json({ collection: data.collection, api_url: apiUrl, ...result });
       } catch (err) {
-        return c.json(
-          { error: err instanceof Error ? err.message : 'Failed to execute query' },
-          500,
-        );
+        return c.json({ error: message(err) }, statusFor(err));
       }
     },
   );
@@ -441,6 +563,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
       return c.json({ id: result.rows[0].id, success: true }, 201);
     } catch (err) {
+      // Named: these five handlers swallowed the error and answered a generic
+      // 500, so a broken statement left nothing anywhere to say which one it was.
+      console.error(`[saved-queries] save failed:`, err instanceof Error ? err.message : err);
       return c.json({ error: 'Failed to save query' }, 500);
     }
   });
@@ -484,6 +609,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       const queries = rows.map((q: any) => ({ ...q, is_owner: ownedIds.has(q.id) }));
       return c.json({ queries });
     } catch (err) {
+      // Named: these five handlers swallowed the error and answered a generic
+      // 500, so a broken statement left nothing anywhere to say which one it was.
+      console.error(`[saved-queries] list failed:`, err instanceof Error ? err.message : err);
       return c.json({ error: 'Failed to fetch saved queries' }, 500);
     }
   });
@@ -505,6 +633,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       const q = result.rows[0];
       return c.json({ ...q, is_owner: q.created_by === user.id });
     } catch (err) {
+      // Named: these five handlers swallowed the error and answered a generic
+      // 500, so a broken statement left nothing anywhere to say which one it was.
+      console.error(`[saved-queries] get failed:`, err instanceof Error ? err.message : err);
       return c.json({ error: 'Failed to fetch saved query' }, 500);
     }
   });
@@ -546,6 +677,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         .execute();
       return c.json({ success: true });
     } catch (err) {
+      // Named: these five handlers swallowed the error and answered a generic
+      // 500, so a broken statement left nothing anywhere to say which one it was.
+      console.error(`[saved-queries] update failed:`, err instanceof Error ? err.message : err);
       return c.json({ error: 'Failed to update saved query' }, 500);
     }
   });
@@ -572,6 +706,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       );
       return c.json({ success: true });
     } catch (err) {
+      // Named: these five handlers swallowed the error and answered a generic
+      // 500, so a broken statement left nothing anywhere to say which one it was.
+      console.error(`[saved-queries] delete failed:`, err instanceof Error ? err.message : err);
       return c.json({ error: 'Failed to delete saved query' }, 500);
     }
   });
@@ -592,17 +729,31 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
       const saved = result.rows[0];
 
-      const override = (await c.req.json().catch(() => ({}))) as { page?: number; limit?: number };
+      // The override is request input and was trusted: this route has no
+      // zValidator, so `{"limit": 5000000}` ran an uncapped query (measured: 200
+      // OK), `{"page": -5}` reached Postgres as `OFFSET must not be negative`
+      // and `{"limit": "abc"}` as `invalid input syntax for type bigint` — both
+      // 500s. Every other entry point puts these through QueryConfigSchema, so
+      // use the same bounds here.
+      const OverrideSchema = z.object({
+        page: z.number().int().min(1).optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      });
+      const parsed = OverrideSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) {
+        return c.json({ error: 'Invalid page or limit', issues: parsed.error.issues }, 400);
+      }
+      const override = parsed.data;
       const config: QueryConfig = {
         ...saved.config,
-        page: override.page || saved.config.page || 1,
-        limit: override.limit || saved.config.limit || 50,
+        page: override.page ?? saved.config.page ?? 1,
+        limit: override.limit ?? saved.config.limit ?? 50,
       };
 
-      const queryResult = await executeQueryConfig(reqDb(c, db), saved.collection, config, user.id);
+      const queryResult = await executeQueryConfig(reqDb(c, db), saved.collection, config, user);
       return c.json({ collection: saved.collection, ...queryResult });
     } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : 'Failed to run query' }, 500);
+      return c.json({ error: message(err) }, statusFor(err));
     }
   });
 
