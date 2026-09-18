@@ -68,7 +68,10 @@ async function main(): Promise<void> {
 
   const args = [
     'build',
-    join(engineRoot, 'src/index.ts'),
+    // `binary-entry.ts`, not `index.ts`: the compiled binary must be able to be
+    // an edge-function runner as well as an engine, and the dispatch has to
+    // happen before the app's imports run. See the note in that file.
+    join(engineRoot, 'src/binary-entry.ts'),
     '--compile',
     `--outfile=${outFile}`,
     `--target=${target}`,

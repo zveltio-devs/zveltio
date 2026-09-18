@@ -37,6 +37,7 @@
 import { spawn, type Subprocess } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
 import { buildSandboxSsrfGuardSource } from '../security/index.js';
+import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -234,11 +235,30 @@ const bootstrapPath = (() => {
   return file;
 })();
 
-// Absolute path to THIS Bun binary. Avoids spawning whatever `bun`
+// Absolute path to THIS interpreter. Avoids spawning whatever `bun`
 // the child's $PATH resolves to — an attacker with write access to
 // any earlier PATH entry could otherwise replace `bun` and run code
 // inside the engine's user context every time an edge function fires.
 const BUN_BIN = process.execPath;
+
+/**
+ * How to ask this interpreter to run the bootstrap.
+ *
+ * Running from source, `process.execPath` is `bun` and `bun run <file>` is the
+ * answer. In a COMPILED BINARY it is the engine itself, so `run <file>` re-runs
+ * the engine with two arguments and the bootstrap never executes. Measured in a
+ * real binary before this existed: every invocation came back
+ * `Killed by SIGKILL`, and since the in-process Worker mode was removed there
+ * was nothing left to fall back to — edge functions did not work in any
+ * container deployment, because the image ships the binary.
+ *
+ * The binary answers its own sentinel (see `binary-entry.ts`) and imports the
+ * very same generated bootstrap from disk, so there is one implementation with
+ * two ways of reaching it rather than two implementations.
+ */
+function interpreterArgs(): string[] {
+  return runnerInterpreterArgs(runningAsCompiledBinary());
+}
 
 /**
  * The address-space cap for one invocation, in MiB. `0` disables it.
@@ -350,7 +370,7 @@ export function __limitedCmdForTests(memoryLimitMb: number): string[] {
 }
 
 function limitedCmd(memoryLimitMb: number): string[] {
-  const direct = [BUN_BIN, 'run', bootstrapPath];
+  const direct = [BUN_BIN, ...interpreterArgs(), bootstrapPath];
   if (memoryLimitMb === 0 && CPU_LIMIT_S === 0) return direct;
   if (BUN_BIN.includes("'") || bootstrapPath.includes("'")) return direct;
 
@@ -378,7 +398,7 @@ function limitedCmd(memoryLimitMb: number): string[] {
   // land in the sandbox. The inner shell drops them before `exec`, which keeps
   // the child's environment exactly as minimal as it is without a cgroup.
   const prelude = useCgroup ? 'unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR; ' : '';
-  const inner = `${prelude}${ulimits.join('; ')}${ulimits.length ? '; ' : ''}exec '${BUN_BIN}' run '${bootstrapPath}'`;
+  const inner = `${prelude}${ulimits.join('; ')}${ulimits.length ? '; ' : ''}exec '${BUN_BIN}' ${interpreterArgs().join(' ')} '${bootstrapPath}'`;
   if (!useCgroup) return ['/bin/sh', '-c', inner];
 
   // MemorySwapMax=0 matters: without it the budget is memory PLUS swap, and a
@@ -521,7 +541,7 @@ const servedPids: number[] = [];
 let poolDraining = false;
 
 function spawnRunner(memoryLimitMb: number): Runner {
-  return spawn({
+  const runner = spawn({
     // BUN_BIN is the absolute path to the parent's own interpreter
     // (process.execPath) — never `'bun'`, which would resolve via the
     // child's PATH and could be hijacked by a same-host attacker.
@@ -531,6 +551,13 @@ function spawnRunner(memoryLimitMb: number): Runner {
     stderr: 'pipe',
     env: spawnEnv(),
   });
+  // A runner that is only WAITING must not keep the process alive. Without
+  // this, a process whose work is done hangs until something drains the pool —
+  // measured on a compiled binary that had answered every request correctly and
+  // then never exited. The engine's shutdown drains explicitly; this is for
+  // everything that simply finishes.
+  runner.unref();
+  return runner;
 }
 
 /**
@@ -548,6 +575,8 @@ function takeRunner(memoryLimitMb: number, pooled: boolean): Runner {
     while (idleRunners.length < POOL_SIZE) idleRunners.push(spawnRunner(memoryLimitMb));
   }
   const taken = runner ?? spawnRunner(memoryLimitMb);
+  // Serving one, though, is work in flight: hold the loop open until it answers.
+  taken.ref();
   if (taken.pid) servedPids.push(taken.pid);
   return taken;
 }

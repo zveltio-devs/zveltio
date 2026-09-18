@@ -53,11 +53,11 @@ COPY packages/engine ./
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       bun scripts/gen-embedded-migrations.ts && \
       bun scripts/gen-worker-source.ts && \
-      bun build src/index.ts --compile --outfile /zveltio --target bun-linux-arm64; \
+      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-arm64; \
     else \
       bun scripts/gen-embedded-migrations.ts && \
       bun scripts/gen-worker-source.ts && \
-      bun build src/index.ts --compile --outfile /zveltio --target bun-linux-x64; \
+      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-x64; \
     fi
 
 # ── Stage 3: Production image ─────────────────────────────────
