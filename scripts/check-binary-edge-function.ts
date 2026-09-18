@@ -18,8 +18,20 @@
  * in-process Worker mode was deleted there was no second runner left to mask it,
  * so this had become "edge functions do not work in any container".
  *
- * So the gate compiles the real entry point and asks it for the one thing only a
- * binary can answer. ~5 seconds, which is the price of knowing.
+ * So the gate does two things. It compiles a probe that reaches the runner the
+ * way the entry point does and asks it for the one thing only a binary can
+ * answer — that proves the MECHANISM. Then it checks that every place which
+ * actually compiles a binary names `binary-entry.ts` — that proves the
+ * mechanism is REACHED.
+ *
+ * The second half exists because the first passed while `release.yml` still
+ * built from `index.ts`: the probe is hand-written, so it answers the sentinel
+ * no matter what the release does. Measured on that binary — `zveltio:
+ * unknown command "__edge-runner"` — i.e. every edge function in every
+ * published binary failed, including v3.0.0-beta.65. A gate that builds its own
+ * subject can only ever prove the subject it built.
+ *
+ * ~5 seconds, which is the price of knowing.
  */
 
 import { spawn } from 'bun';
@@ -38,8 +50,45 @@ function fail(message: string, detail?: string): never {
   process.exit(1);
 }
 
-// A probe that exercises the runner through the SAME entry point the release
-// builds — so an entry point that forgets to answer the sentinel fails here.
+// ── Half one: every build site compiles `binary-entry.ts` ──────────────────
+//
+// A build site that names `index.ts` produces a binary which answers
+// `unknown command "__edge-runner"`, and the probe below cannot see it.
+const BUILD_SITES = [
+  'Dockerfile',
+  '.github/workflows/release.yml',
+  'packages/engine/scripts/build-binary.ts',
+  'packages/cli/src/commands/deploy.ts',
+];
+const ROOT = join(import.meta.dir, '..');
+//
+// Checked on the `bun build` invocation, not on the file's text: the first
+// version of this looked for the string `binary-entry.ts` anywhere in the
+// file, and the comment explaining the rule satisfied it — the defect was put
+// back and the gate stayed green.
+const BUILDS_AN_INDEX = /bun build\s+\S*index\.ts/;
+for (const site of BUILD_SITES) {
+  const text = await Bun.file(join(ROOT, site)).text();
+  const badBuild = BUILDS_AN_INDEX.exec(text);
+  if (badBuild) {
+    fail(
+      `${site} compiles a binary from an index.ts: \`${badBuild[0]}\``,
+      'A binary built from index.ts cannot be an edge-function runner: it\n' +
+        'answers `unknown command "__edge-runner"` and every edge function fails.',
+    );
+  }
+  if (!text.includes('binary-entry.ts')) {
+    fail(
+      `${site} compiles a binary but never names binary-entry.ts`,
+      'A binary built from index.ts cannot be an edge-function runner: it\n' +
+        'answers `unknown command "__edge-runner"` and every edge function fails.',
+    );
+  }
+}
+
+// ── Half two: the mechanism itself, inside a real compiled binary ──────────
+// A probe that reaches the runner the way the entry point does — so a runner
+// that stops answering the sentinel fails here.
 const probe = join(work, 'probe.ts');
 writeFileSync(
   probe,

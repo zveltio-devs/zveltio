@@ -415,8 +415,14 @@ jobs:
         # binary always carries the latest worker code.
         run: cd packages/engine && bun scripts/gen-worker-source.ts
       - name: Build binary
+        # `binary-entry.ts`, not `index.ts`: a compiled binary is its own
+        # interpreter, so the edge-function runner spawns it with a sentinel
+        # argument instead of `bun run <bootstrap>`. Built from `index.ts` the
+        # binary answers `unknown command "__edge-runner"` and every edge
+        # function in every released binary fails. Dockerfile and
+        # scripts/build-binary.ts were moved; this job was missed.
         run: |
-          bun build packages/engine/src/index.ts \
+          bun build packages/engine/src/binary-entry.ts \
             --compile \
             --outfile ${{ matrix.binary }} \
             --target ${{ matrix.target }}

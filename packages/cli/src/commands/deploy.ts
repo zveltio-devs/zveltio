@@ -185,11 +185,19 @@ function findDockerfile(cwd: string): string | null {
 }
 
 async function generateDockerfile(cwd: string, projectName: string): Promise<void> {
-  // Detect engine entry point
-  let entryPoint = 'packages/engine/src/index.ts';
-  if (!existsSync(join(cwd, entryPoint))) {
-    entryPoint = existsSync(join(cwd, 'src/index.ts')) ? 'src/index.ts' : 'index.ts';
-  }
+  // Detect engine entry point.
+  //
+  // `binary-entry.ts` first: a compiled binary is its own interpreter, so the
+  // edge-function runner spawns it with a sentinel argument rather than
+  // `bun run <bootstrap>`. Compiled from `index.ts` the binary answers
+  // `unknown command "__edge-runner"` and every edge function fails.
+  const candidates = [
+    'packages/engine/src/binary-entry.ts',
+    'packages/engine/src/index.ts',
+    'src/binary-entry.ts',
+    'src/index.ts',
+  ];
+  const entryPoint = candidates.find((f) => existsSync(join(cwd, f))) ?? 'index.ts';
 
   await Bun.write(
     join(cwd, 'Dockerfile'),
