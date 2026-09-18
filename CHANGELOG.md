@@ -4,6 +4,38 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.66] - 2026-09-18
+
+**beta.65 shipped edge functions that did not work, and an image that did not
+start.** The fix it announced was real, and neither artifact carried it: there
+are two build entry points, and the release built one of them while the image
+built the other.
+
+- **The published binary assets could not run edge functions.** `release.yml`
+  compiled them from `packages/engine/src/index.ts`, while `Dockerfile` and
+  `scripts/build-binary.ts` had moved to `src/binary-entry.ts`. A compiled
+  binary is its own interpreter, so the runner spawns it as
+  `<execPath> __edge-runner <bootstrap.mjs>`; built from `index.ts` it answered
+  `zveltio: unknown command "__edge-runner"` and every invocation failed.
+  `zveltio deploy` generated a Dockerfile with the same mistake, so every
+  user-generated image had the same dead runner.
+- **The Docker image could not start at all.** `binary-entry.ts` reached
+  `index.ts` through a DYNAMIC import, which put its own graph ahead of
+  `reflect-metadata`; tsyringe then initialised its decorators without the
+  polyfill and the binary answered EVERY command with
+  `tsyringe requires a reflect polyfill`.
+
+Nothing saw either one. The gate that exists for exactly this compiled a
+hand-written probe, so it answered the sentinel whatever the release did and had
+no app to boot; the release smoke test booted the binary the release built,
+which was not the binary the image ships. The gate now checks all three things
+separately: that every build site names `binary-entry.ts`, that the REAL entry
+point compiles and can be both an engine and a runner, and that a function
+actually runs through the mechanism.
+
+Running from source was never affected.
+
+
 ## [3.0.0-beta.65] - 2026-09-18
 
 **Edge functions did not work in the compiled binary, which is what the image
