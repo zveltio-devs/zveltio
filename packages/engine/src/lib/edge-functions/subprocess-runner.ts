@@ -38,7 +38,7 @@ import { spawn, type Subprocess } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
 import { buildSandboxSsrfGuardSource } from '../security/index.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
-import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { EdgeRequest, EdgeResponse, RunResult } from '../edge-function-runner.js';
@@ -237,7 +237,44 @@ export const __subprocessBootstrapForTests = SUBPROCESS_BOOTSTRAP;
 // write to e.g. ~root/.ssh/authorized_keys. `mkdtemp` returns a path
 // that didn't exist a moment ago and is owned by the engine user, so
 // the symlink window is closed before we write into it.
+/**
+ * Remove the bootstrap directories that earlier runs left behind.
+ *
+ * `mkdtemp` is deliberate — a predictable path under /tmp is a symlink target an
+ * attacker can pre-place, and this file is executed by the engine — but it makes
+ * a NEW directory on every process start, and nothing removed the old ones.
+ * Measured on a development machine: 1413 directories, 14 MB, the oldest from
+ * the day the subprocess runner landed. On a server that is one per restart,
+ * per CLI invocation, per test run — and on many hosts /tmp is RAM.
+ *
+ * Swept rather than reused, so the symlink window stays closed. Only our own
+ * directories, and only ones untouched for a day, so a second engine on the same
+ * host keeps the one it is running from.
+ */
+function sweepStaleBootstrapDirs(): void {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  let entries: string[];
+  try {
+    entries = readdirSync(tmpdir());
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (!name.startsWith('zveltio-edge-')) continue;
+    const path = join(tmpdir(), name);
+    try {
+      const info = statSync(path);
+      if (!info.isDirectory() || info.uid !== process.getuid?.()) continue;
+      if (info.mtimeMs > cutoff) continue;
+      rmSync(path, { recursive: true, force: true });
+    } catch {
+      // Someone else's, already gone, or in use. Leaving it is the safe answer.
+    }
+  }
+}
+
 const bootstrapPath = (() => {
+  sweepStaleBootstrapDirs();
   const dir = mkdtempSync(join(tmpdir(), 'zveltio-edge-'));
   const file = join(dir, 'runner.mjs');
   writeFileSync(file, SUBPROCESS_BOOTSTRAP, { encoding: 'utf-8' });
@@ -247,6 +284,15 @@ const bootstrapPath = (() => {
     // Windows lacks POSIX mode; ACL is governed by the parent dir
     // which mkdtemp already created with restrictive permissions.
   }
+  // And take ours with us. `exit` only fires on an orderly shutdown — a SIGKILL
+  // leaves the directory behind, which is what the sweep above is for.
+  process.on('exit', () => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* going away anyway */
+    }
+  });
   return file;
 })();
 
@@ -618,6 +664,9 @@ export async function drainRunnerPool(): Promise<void> {
 export function __poolStatsForTests(): { idle: number; servedPids: number[] } {
   return { idle: idleRunners.length, servedPids: [...servedPids] };
 }
+
+/** Where this process wrote its bootstrap, for the temp-directory tests. */
+export const __bootstrapPathForTests = bootstrapPath;
 
 export async function runEdgeFunctionInSubprocess(
   code: string,
