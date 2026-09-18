@@ -483,6 +483,17 @@ jobs:
           docker exec ${{ job.services.postgres.id }} bash -c \
             "apt-get update -qq && apt-get install -y -qq postgresql-18-postgis-3 postgresql-18-postgis-3-scripts"
 
+      - name: An edge function runs inside the compiled binary
+        # The binary is what ships (Dockerfile ENTRYPOINT), and it is its own
+        # interpreter: `process.execPath` is the engine, not `bun`. The runner
+        # spawned `<execPath> run <bootstrap.mjs>`, which re-executed the ENGINE
+        # with two arguments, so edge functions did not work in ANY container
+        # deployment. Nothing else could see it — typecheck cannot (the code is
+        # correct) and `bun test` cannot (it is not a binary) — and once the
+        # in-process Worker mode was removed there was no second runner masking
+        # it. Compiles the real entry point and invokes a function through it.
+        run: bun run check:binary-edge-function
+
       - name: Do the gates above actually catch anything?
         # Every step before this one is a gate that runs in CI. That much is
         # verifiable by reading this file. What reading cannot tell you is

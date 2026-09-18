@@ -702,6 +702,28 @@ const CASES: Case[] = [
     mode: 'append',
   },
   {
+    // The runner asks a COMPILED BINARY for its sentinel rather than `run`,
+    // because a binary is its own interpreter: `run <file>` re-executes the
+    // engine with two arguments and the bootstrap never runs. Planting the
+    // `run` answer for both cases is the defect that shipped — edge functions
+    // did not work in any container deployment, and no other gate could see it
+    // (typecheck cannot: the code is correct; `bun test` cannot: it is not a
+    // binary).
+    gate: 'check-binary-edge-function',
+    cmd: 'bun run scripts/check-binary-edge-function.ts',
+    file: 'packages/engine/src/lib/edge-functions/runner-sentinel.ts',
+    mode: 'replace',
+    body: `export const EDGE_RUNNER_SENTINEL = '__edge-runner';
+export function runningAsCompiledBinary(): boolean {
+  const main = typeof Bun !== 'undefined' ? (Bun.main ?? '') : '';
+  return main.startsWith('/$bunfs/') || (process.argv[1] ?? '').startsWith('/$bunfs/');
+}
+export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
+  return ['run'];
+}
+`,
+  },
+  {
     // One more `noExplicitAny` suppression than the baseline records. The
     // ratchet counts markers, so the probe has to carry a real one.
     // `append` on a TRACKED file — the third gate in this file that enumerates
