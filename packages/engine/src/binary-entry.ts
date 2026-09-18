@@ -36,5 +36,19 @@ if (process.argv[2] === EDGE_RUNNER_SENTINEL) {
   // `bun run` — one implementation, two ways of reaching it.
   await import(bootstrap);
 } else {
+  // `reflect-metadata` before the app, and as its own statement: `index.ts`
+  // imports it first for exactly this reason, but reaching `index.ts` through a
+  // DYNAMIC import puts this file's own graph ahead of it in the bundle's load
+  // order, and tsyringe — pulled in transitively by @better-auth/passkey —
+  // initialises decorators at module load. Measured in a compiled binary built
+  // from this file before the import existed:
+  //
+  //   $ ./zveltio help
+  //   error: tsyringe requires a reflect polyfill. Please add
+  //          'import "reflect-metadata"' to the top of your entry point.
+  //
+  // i.e. the binary could not run ANY command. It is imported here rather than
+  // at the top of the file so the runner branch above does not pay for it.
+  await import('reflect-metadata');
   await import('./index.js');
 }
