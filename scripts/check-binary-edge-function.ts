@@ -24,20 +24,29 @@
  * actually compiles a binary names `binary-entry.ts` — that proves the
  * mechanism is REACHED.
  *
- * The second half exists because the first passed while `release.yml` still
- * built from `index.ts`: the probe is hand-written, so it answers the sentinel
- * no matter what the release does. Measured on that binary — `zveltio:
- * unknown command "__edge-runner"` — i.e. every edge function in every
- * published binary failed, including v3.0.0-beta.65. A gate that builds its own
- * subject can only ever prove the subject it built.
+ * The other two halves exist because a gate that builds its own subject can
+ * only ever prove the subject it built, and both mistakes it could not see have
+ * now shipped:
  *
- * ~5 seconds, which is the price of knowing.
+ *   - `release.yml` built from `index.ts`, so every published binary asset
+ *     answered `zveltio: unknown command "__edge-runner"` and failed every
+ *     invocation. The hand-written probe answers the sentinel regardless.
+ *   - `binary-entry.ts` reached `index.ts` through a DYNAMIC import, which put
+ *     its own graph ahead of `reflect-metadata`; the compiled binary then
+ *     answered EVERY command with `tsyringe requires a reflect polyfill`. The
+ *     Docker image of v3.0.0-beta.65 could not start at all.
+ *
+ * So: check the build sites, compile the real entry point and ask it to be both
+ * of the things it has to be, and only then run the mechanism through a probe.
+ *
+ * ~15 seconds, which is the price of knowing.
  */
 
 import { spawn } from 'bun';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { EDGE_RUNNER_SENTINEL } from '../packages/engine/src/lib/edge-functions/runner-sentinel.js';
 
 const ENGINE = join(import.meta.dir, '..', 'packages', 'engine');
 const work = mkdtempSync(join(tmpdir(), 'zveltio-binary-gate-'));
@@ -86,7 +95,66 @@ for (const site of BUILD_SITES) {
   }
 }
 
-// ── Half two: the mechanism itself, inside a real compiled binary ──────────
+// ── Half two: the REAL entry point compiles and can still be an engine ─────
+//
+// The probe below is hand-written, so it cannot see a mistake in
+// `binary-entry.ts` itself. One shipped: reaching `index.ts` through a DYNAMIC
+// import put this file's graph ahead of it, `reflect-metadata` no longer loaded
+// first, and the binary answered every command with `tsyringe requires a
+// reflect polyfill`. The Docker image of v3.0.0-beta.65 could not start.
+//
+// So compile the actual entry point and ask it for both of its jobs: be an
+// engine (`help` exits 0) and be a runner (the sentinel imports a module).
+const realBinary = join(work, 'zveltio-entry');
+const entryBuild = spawn({
+  cmd: [
+    'bun',
+    'build',
+    join(ENGINE, 'src/binary-entry.ts'),
+    '--compile',
+    `--outfile=${realBinary}`,
+  ],
+  stdout: 'pipe',
+  stderr: 'pipe',
+  cwd: ENGINE,
+});
+const entryBuildErr = await new Response(entryBuild.stderr).text();
+await entryBuild.exited;
+if (entryBuild.exitCode !== 0) fail('binary-entry.ts did not compile', entryBuildErr);
+
+const help = spawn({ cmd: [realBinary, 'help'], stdout: 'pipe', stderr: 'pipe' });
+const [helpOut, helpErr] = await Promise.all([
+  new Response(help.stdout).text(),
+  new Response(help.stderr).text(),
+]);
+await help.exited;
+if (help.exitCode !== 0) {
+  fail(
+    `the compiled entry point cannot run a command (exit ${help.exitCode})`,
+    `${helpOut}\n${helpErr}`,
+  );
+}
+
+const bootstrapProbe = join(work, 'bootstrap-probe.mjs');
+writeFileSync(bootstrapProbe, "console.log('BOOTSTRAP-RAN');\n");
+const sentinel = spawn({
+  cmd: [realBinary, EDGE_RUNNER_SENTINEL, bootstrapProbe],
+  stdout: 'pipe',
+  stderr: 'pipe',
+});
+const [sentinelOut, sentinelErr] = await Promise.all([
+  new Response(sentinel.stdout).text(),
+  new Response(sentinel.stderr).text(),
+]);
+await sentinel.exited;
+if (!sentinelOut.includes('BOOTSTRAP-RAN')) {
+  fail(
+    'the compiled entry point did not run the bootstrap it was handed',
+    `${sentinelOut}\n${sentinelErr}`,
+  );
+}
+
+// ── Half three: the mechanism itself, inside a real compiled binary ─────────
 // A probe that reaches the runner the way the entry point does — so a runner
 // that stops answering the sentinel fails here.
 const probe = join(work, 'probe.ts');
