@@ -122,10 +122,20 @@ async function runReadOnlySql(
     // Omitted deliberately for the instance-admin ad-hoc endpoint, which exists
     // to query across tenants and is gated on requireInstanceAdmin.
     if (tenantId) {
-      await sql
-        .raw('SET LOCAL ROLE zveltio_rls')
-        .execute(trx)
-        .catch(() => undefined);
+      // NOT swallowed. A `.catch(() => undefined)` used to sit here, and it could
+      // not do what it looked like it did: in Postgres a failed statement aborts
+      // the whole transaction, so if `SET LOCAL ROLE` fails the next statement
+      // answers `current transaction is aborted` and the caller is handed 25P02
+      // instead of the cause. Measured with a missing role:
+      //
+      //   SET LOCAL ROLE role_that_does_not_exist_xyz;
+      //   ERROR:  role "role_that_does_not_exist_xyz" does not exist
+      //   ERROR:  current transaction is aborted, commands ignored until end ...
+      //
+      // Letting it throw is also the only safe direction: this statement is what
+      // makes RLS apply at all (the engine otherwise connects as a superuser), so
+      // a silent failure here would be a tenant-scoped query that is not scoped.
+      await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
       await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
     }
     const result = await sql.raw<Record<string, unknown>>(query).execute(trx);
@@ -195,7 +205,17 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   app.get('/dashboards', async (c) => {
     const user = c.get('user');
 
-    // Show public dashboards + own dashboards + dashboards shared with the user
+    // Public + own + shared with me — by user AND by role.
+    //
+    // The role half was missing, and `canReadDashboard` has it: a dashboard
+    // shared with a role the caller holds answered 200 on
+    // GET /dashboards/:id and did not appear in this list at all, so it was
+    // readable and unreachable. Measured with a real role assignment
+    // (`addRoleForUser(uid, 'analyst', '*')`, which is what POST
+    // /api/users/:id/roles does): direct GET 200, list size 0.
+    //
+    // Same roles source as canReadDashboard, so the two cannot drift again.
+    const roles = await getUserRoles(user.id).catch(() => [] as string[]);
     const result = await sql<Record<string, unknown>>`
       SELECT DISTINCT d.*, COUNT(p.id) AS panel_count
       FROM zv_dashboards d
@@ -206,6 +226,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
           d.is_public = true
           OR d.created_by = ${user.id}
           OR s.shared_with_user_id = ${user.id}
+          OR (s.shared_with_role IS NOT NULL AND s.shared_with_role = ANY(${roles}))
         )
       GROUP BY d.id
       ORDER BY d.updated_at DESC
@@ -834,6 +855,19 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (existing.created_by !== user.id) {
         const isAdmin = await requireInstanceAdmin(user.id);
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      // Changing the SQL needs the same right as writing it in the first place.
+      //
+      // POST requires instance admin precisely so a low-privileged user cannot
+      // park a `SELECT * FROM account`. Ownership alone reached this far, and
+      // ownership survives a demotion: an admin creates a saved query, is
+      // demoted to member, and can still rewrite the statement that
+      // POST /saved-queries/:id/execute then runs — against any table in the
+      // tenant, which is more than their collection permissions allow. The other
+      // fields are metadata and stay with the owner.
+      if (body.query !== undefined && !(await requireInstanceAdmin(user.id))) {
+        return c.json({ error: 'Admin required to change the query text' }, 403);
       }
 
       const updates: Record<string, unknown> = { updated_at: new Date() };
