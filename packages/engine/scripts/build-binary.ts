@@ -6,7 +6,7 @@
  *   1. gen-embedded-migrations.ts
  *   2. gen-worker-source.ts  (Bun --compile does not bundle workers)
  *   3. generate-studio-embed.ts  (optional — when src/studio-dist/ exists)
- *   4. bun build src/index.ts --compile
+ *   4. bun build src/binary-entry.ts --compile
  *
  * Usage (from repo root):
  *   bun run studio:build && bun run studio:embed   # optional Studio UI
