@@ -520,6 +520,9 @@ const SECTIONS: Section[] = [
     match: [
       `${E}lib/edge-functions/`,
       `${E}lib/edge-function-runner.ts`,
+      // The compiled binary's entry point: it exists to answer the edge-runner
+      // sentinel, so it is read with the runner rather than with the boot code.
+      `${E}binary-entry.ts`,
       `${E}routes/edge-functions.ts`,
       `${E}lib/script-runner.ts`,
       `${E}lib/security/url-validator.ts`,
@@ -854,6 +857,7 @@ const SECTIONS: Section[] = [
       'scripts/schema-drift-check.ts',
       'scripts/schema-snapshot.ts',
       'scripts/check-extension-i18n-namespaces.ts', // on master, not on every branch
+      'scripts/check-binary-edge-function.ts',
     ],
   },
   {
