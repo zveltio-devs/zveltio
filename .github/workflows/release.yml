@@ -149,6 +149,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # The engine refuses to boot in production without a cache, and has since
+      # 2026-09-05. This job had no Valkey, so it had been failing on every
+      # release since — except that no release was cut between the guard landing
+      # and beta.65, so the first run that could notice was the one that did.
+      # A smoke test of the shipped binary should boot it the way the shipped
+      # install paths do: docker-compose depends on Valkey being healthy and both
+      # installers build it, so the answer is a cache, not ZVELTIO_ALLOW_NO_CACHE.
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -173,6 +188,7 @@ jobs:
       - name: Boot binary + smoke marketplace enable
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_smoke
+          VALKEY_URL: redis://localhost:6379
           BETTER_AUTH_SECRET: smoke-secret-32-chars-long-zzzzzz
           BETTER_AUTH_URL: http://localhost:3000
           ENCRYPTION_KEY: smoke-encryption-key-32-bytes-aaaaaaaaaaaaaaaa
