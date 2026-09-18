@@ -108,6 +108,28 @@ function lockdownGlobals(stashed) {
 // that is no longer allowed to reach 'require' or 'process'.
 ${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
 
+// Initialise stdout NOW, at module load, while this runner is idle and nobody is
+// waiting for it.
+//
+// process.stdout is lazy in Bun, and touching it the first time costs about
+// 9 ms. Doing that after the envelope arrived put those 9 ms inside the request:
+// measured per warm invocation, of ~14 ms total, the breakdown was
+//
+//   parent write -> child reads envelope    1.0 ms
+//   child: first touch of process.stdout    9.1 ms
+//   lockdownGlobals()                       0.5 ms
+//   compile + run the handler               0.9 ms
+//   child writes -> parent has the answer   3.0 ms
+//
+// so two thirds of a warm invocation was a lazy stream waking up. Paying it at
+// module load costs a pre-spawned runner nothing — it is idle — and takes an
+// invocation from 13.9 ms to 4.7 ms.
+//
+// Captured here for the second reason too: lockdownGlobals() makes process
+// throw, and both the success and failure arms still need a way to answer.
+const _procWrite = process.stdout.write.bind(process.stdout);
+const _procExit = process.exit.bind(process);
+
 (async () => {
   // Read a single line of JSON from stdin (the parent sends one envelope)
   const reader = Bun.stdin.stream().getReader();
@@ -137,13 +159,6 @@ ${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
     warn:  (...a) => logs.push('[warn] '  + a.map(String).join(' ')),
     info:  (...a) => logs.push('[info] '  + a.map(String).join(' ')),
   };
-
-  // Stash the result-channel BEFORE the try/lockdown — lockdownGlobals() (run
-  // inside the try) makes process throw, but BOTH the success and catch arms
-  // still need process.stdout/exit to send the response envelope to the parent.
-  // Declared out here so the catch block can see them (const is block-scoped).
-  const _procWrite = process.stdout.write.bind(process.stdout);
-  const _procExit = process.exit.bind(process);
 
   try {
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
