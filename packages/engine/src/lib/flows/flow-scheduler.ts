@@ -2,6 +2,8 @@
  * Flow Scheduler — polls for cron-triggered flows that are due and executes them.
  *
  * Uses a simple 60-second interval and compares `next_run_at` against NOW().
+ * Rows are claimed with FOR UPDATE SKIP LOCKED and executed INSIDE that
+ * transaction, so a second replica polling the same second skips them.
  * After each execution, `next_run_at` is advanced by trigger_config.interval_seconds
  * (defaults to 60 s). Step execution is delegated to flow-executor.ts so that
  * manual triggers (flows.ts POST /:id/run) and cron triggers share identical behaviour.
@@ -112,17 +114,31 @@ export const flowScheduler = {
           .skipLocked()
           .execute();
 
-        for (const flow of flows) {
-          this._executeScheduledFlow(flow).catch((err) => {
-            // Individual flow failures shouldn't poison the tick — surface
-            // them so they show up in operator logs and metrics.
-            console.error('[FlowScheduler] _executeScheduledFlow failed', {
-              flow: flow?.id,
-              name: flow?.name,
-              error: (err as Error)?.message,
-            });
-          });
-        }
+        // AWAITED, inside the transaction that holds the locks. Dispatching
+        // without awaiting returned from the callback immediately, so the
+        // transaction committed and dropped every FOR UPDATE lock before the
+        // first step of the first flow ran — the fencing above was severed and
+        // two replicas ran the same flow. Measured against Postgres: two
+        // concurrent ticks, one due flow, two executions.
+        //
+        // The cost of holding the lock is one pooled connection for as long as
+        // the tick's flows take. That is the price of the guarantee: a later
+        // tick finds the rows locked and skips them, which is what SKIP LOCKED
+        // is for. Still concurrent between flows — one slow flow does not delay
+        // its siblings.
+        await Promise.all(
+          flows.map((flow) =>
+            this._executeScheduledFlow(flow, trx).catch((err) => {
+              // Individual flow failures shouldn't poison the tick — surface
+              // them so they show up in operator logs and metrics.
+              console.error('[FlowScheduler] _executeScheduledFlow failed', {
+                flow: flow?.id,
+                name: flow?.name,
+                error: (err as Error)?.message,
+              });
+            }),
+          ),
+        );
       });
     } catch (err) {
       // Tick-level error — e.g. transaction failed because the pool is
@@ -131,9 +147,18 @@ export const flowScheduler = {
     }
   },
 
+  /**
+   * `writer` is the transaction that holds this row's FOR UPDATE lock. Every
+   * write to `zv_flows` below MUST go through it: issued on a second pooled
+   * connection they wait for a lock their own caller holds, and the tick hangs
+   * until the statement timeout. Measured — the first version of this repair
+   * deadlocked exactly there. Reads and the step execution stay on `_db`; a
+   * plain SELECT does not queue behind FOR UPDATE.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  async _executeScheduledFlow(flow: any): Promise<void> {
+  async _executeScheduledFlow(flow: any, writer?: any): Promise<void> {
     if (!_db) return;
+    const rows = writer ?? _db;
 
     // ── AI Task trigger ───────────────────────────────────────────
     if (flow.trigger_type === 'ai_task') {
@@ -177,8 +202,7 @@ export const flowScheduler = {
       const intervalMs =
         ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
         DEFAULT_AI_INTERVAL_MS;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await (_db as any)
+      await rows
         .updateTable('zv_flows')
         .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
         .where('id', '=', flow.id)
@@ -235,8 +259,8 @@ export const flowScheduler = {
           `[FlowScheduler] flow "${flow.name}" (${flow.id}) has an unusable cron ` +
             `expression "${cronExpr}" — deactivating instead of guessing a schedule.`,
         );
-        await _db
-          ?.updateTable('zv_flows')
+        await rows
+          .updateTable('zv_flows')
           .set({ is_active: false, last_run_at: new Date() })
           .where('id', '=', flow.id)
           .execute()
@@ -247,8 +271,7 @@ export const flowScheduler = {
     const intervalMs =
       ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
       DEFAULT_CRON_INTERVAL_MS;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await (_db as any)
+    await rows
       .updateTable('zv_flows')
       .set({
         last_run_at: new Date(),
@@ -316,6 +339,25 @@ async function runPerTenant(
 }
 
 /**
+ * Runs the registered trash-purge handler once per active tenant.
+ *
+ * It used to be `await handler(db)` — the raw engine handle, no GUC — which is
+ * the exact call `runPerTenant` was written to replace. `runPerTenant` was then
+ * never called from anywhere: declared, documented with this defect, and dead.
+ * The handler (`storage/cloud`) deletes from `zv_media_files` with no tenant
+ * predicate of its own, relying on RLS, so with no GUC it saw the DEFAULT
+ * tenant and quietly purged nothing for every other company on the instance.
+ *
+ * Deleting nothing looks exactly like having nothing to delete, which is why a
+ * job reporting success could be wrong for years.
+ */
+async function runTrashPurge(db: Database): Promise<void> {
+  const handler = extensionRegistry.getTrashPurgeHandler();
+  if (!handler) return;
+  await runPerTenant(db, 'Trash', (tenantDb) => handler(tenantDb));
+}
+
+/**
  * Schedules the cloud trash purge to run daily at 03:30.
  * The actual purge is performed by whichever extension registers a handler
  * via extensionRegistry.registerTrashPurgeHandler().
@@ -333,13 +375,10 @@ function scheduleTrashPurge(db: Database): () => void {
 
     _timeout = setTimeout(async () => {
       if (_stopped) return;
-      const handler = extensionRegistry.getTrashPurgeHandler();
-      if (handler) {
-        try {
-          await handler(db);
-        } catch (err) {
-          console.error('[Trash] Error during trash purge:', err);
-        }
+      try {
+        await runTrashPurge(db);
+      } catch (err) {
+        console.error('[Trash] Error during trash purge:', err);
       }
       scheduleNext();
     }, next.getTime() - now.getTime());
@@ -360,6 +399,7 @@ function scheduleTrashPurge(db: Database): () => void {
 /** Test seam — never import outside src/tests/. */
 export const _internalForTests = {
   scheduleTrashPurge,
+  runTrashPurge,
   setExecuteFlowForTests(fn: typeof executeFlow | null): void {
     _executeFlowOverride = fn;
   },

@@ -205,17 +205,29 @@ describe('scheduleTrashPurge (_internalForTests)', () => {
     extensionRegistry.registerTrashPurgeHandler(async () => {});
   });
 
-  it('runs the registered trash purge handler at 03:30', async () => {
-    let purged = false;
-    extensionRegistry.registerTrashPurgeHandler(async () => {
-      purged = true;
-    });
+  // What this can prove is that 03:30 fires the purge. It cannot prove the purge
+  // is per-tenant: the purge now goes through `withTenantIsolation`, which uses
+  // the tenancy module's own handle rather than the one passed in, so a CannedDb
+  // never reaches the handler. The per-tenant contract is asserted against a real
+  // database in tests/harness/trash-purge-per-tenant.test.ts.
+  //
+  // The previous version of this test asserted the handler was called with the
+  // raw engine handle — which WAS the defect: no tenant GUC, so the handler saw
+  // only the default tenant and purged nothing for anybody else.
+  it('fires the trash purge at 03:30', async () => {
+    extensionRegistry.registerTrashPurgeHandler(async () => {});
     const canned = new CannedDb();
+    canned.when(/from "zv_tenants"|FROM zv_tenants/i, []);
     jest.setSystemTime(new Date('2026-06-17T03:29:00'));
     const stop = _internalForTests.scheduleTrashPurge(canned.kysely as unknown as Database);
     jest.advanceTimersByTime(61_000);
-    await Promise.resolve();
-    expect(purged).toBe(true);
+    // Real timers from here: the purge's first query resolves through the
+    // driver's own promises, and `waitFor` polls, so it cannot make progress
+    // while the clock is frozen.
+    jest.useRealTimers();
+    // The tenant enumeration is the first thing the purge does, so its presence
+    // in the log is the timer having fired.
+    await canned.waitFor(/zv_tenants/i);
     stop();
   });
 });

@@ -59,6 +59,8 @@ export const stepSchemas = {
   /** Execute a JavaScript/TypeScript script in a sandboxed edge function */
   run_script: z.object({
     script: z.string().min(1, 'Script is required'),
+    /** Handed to the script as its input; the previous step's output when absent. */
+    input: z.unknown().optional(),
     timeout_ms: z.number().int().min(100).max(30_000).default(5_000),
   }),
 
@@ -67,6 +69,8 @@ export const stepSchemas = {
     to: z.union([z.string().email(), z.string().startsWith('{{')]),
     subject: z.string().min(1, 'Subject is required'),
     body: z.string().min(1, 'Email body is required'),
+    /** HTML alternative; the executor falls back to `body` when absent. */
+    body_html: z.string().optional(),
     from: z.string().optional(),
     cc: z.string().optional(),
     bcc: z.string().optional(),
@@ -77,6 +81,9 @@ export const stepSchemas = {
     url: z.union([z.string().url(), z.string().startsWith('{{')]),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
     headers: z.record(z.string(), z.string()).default({}),
+    /** Request body for the verbs that carry one; the previous step's output when absent. */
+    body: z.unknown().optional(),
+    /** Unused by the executor, which reads `body`. Kept so stored steps still validate. */
     body_template: z.string().optional(),
     timeout_ms: z.number().int().min(100).max(30_000).default(10_000),
   }),
@@ -118,6 +125,9 @@ export const stepSchemas = {
     model: z.string().optional(),
     options: z.array(z.string()).min(2, 'At least 2 decision options required'),
     context_keys: z.array(z.string()).default([]),
+    /** Decision returned when the AI is unavailable or answers off-list. */
+    fallback: z.string().optional(),
+    temperature: z.number().min(0).max(2).optional(),
     timeout_ms: z.number().int().min(1_000).max(60_000).default(15_000),
   }),
 

@@ -15,6 +15,7 @@
  */
 
 import { sql } from 'kysely';
+import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
@@ -69,6 +70,15 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 
 /** Warn once per process, not once per flow run. */
 let _warnedNoFlowRole = false;
+
+/**
+ * The role `query_db` drops to. A constant rather than a literal so that a test
+ * can point it at a role that does not exist: the engine connects as a superuser,
+ * so absence is the ONLY way `SET LOCAL ROLE` fails here, and the cluster role is
+ * shared with every other database on the machine — dropping it to prove a
+ * fallback is not an option.
+ */
+let _flowReaderRole = 'zveltio_flow_reader';
 
 /**
  * The step types this executor actually implements.
@@ -188,9 +198,20 @@ async function executeStep(
         // role absent (see migration 024). Falling back to the authorship gate
         // is the honest degradation — refusing to run every report because a
         // hardening layer is unavailable would get the whole step disabled.
+        //
+        // The SAVEPOINT is what makes the fallback a fallback. A failed
+        // `SET LOCAL ROLE` aborts the transaction in Postgres, so catching the
+        // JS error changed nothing: the next two statements came back with
+        // `25P02 current transaction is aborted`, and EVERY query_db step failed
+        // on an install without the role — the opposite of degrading. Measured
+        // in psql: SET TRANSACTION READ ONLY, a SET LOCAL ROLE to an absent
+        // role, then two statements, both refused.
+        await sql.raw('SAVEPOINT zveltio_flow_role').execute(trx);
         try {
-          await sql.raw('SET LOCAL ROLE zveltio_flow_reader').execute(trx);
+          await sql`SET LOCAL ROLE ${sql.id(_flowReaderRole)}`.execute(trx);
+          await sql.raw('RELEASE SAVEPOINT zveltio_flow_role').execute(trx);
         } catch {
+          await sql.raw('ROLLBACK TO SAVEPOINT zveltio_flow_role').execute(trx);
           if (!_warnedNoFlowRole) {
             _warnedNoFlowRole = true;
             console.warn(
@@ -520,7 +541,7 @@ export async function executeFlow(
   try {
     const runRow = await sql<{ id: string }>`
       INSERT INTO zv_flow_runs (flow_id, status, trigger_data)
-      VALUES (${flowId}, 'running', ${JSON.stringify(triggerData)}::jsonb)
+      VALUES (${flowId}, 'running', ${toJsonb(triggerData)})
       RETURNING id::text
     `.execute(db);
     runId = runRow.rows[0]?.id;
@@ -611,7 +632,7 @@ export async function executeFlow(
     await sql`
       UPDATE zv_flow_runs
       SET status = 'success',
-          output = ${JSON.stringify(finalOutput)}::jsonb,
+          output = ${toJsonb(finalOutput)},
           finished_at = NOW()
       WHERE id = ${runId}
     `
@@ -643,4 +664,14 @@ export async function executeFlow(
 }
 
 /** Test-only export — never import outside src/tests/. */
-export const _internalForTests = { executeStep };
+export const _internalForTests = {
+  executeStep,
+  /** Returns a restorer. See `_flowReaderRole`. */
+  setFlowReaderRoleForTests(name: string): () => void {
+    const previous = _flowReaderRole;
+    _flowReaderRole = name;
+    return () => {
+      _flowReaderRole = previous;
+    };
+  },
+};
