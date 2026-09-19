@@ -50,5 +50,8 @@ if (process.argv[2] === EDGE_RUNNER_SENTINEL) {
   // i.e. the binary could not run ANY command. It is imported here rather than
   // at the top of the file so the runner branch above does not pay for it.
   await import('reflect-metadata');
-  await import('./index.js');
+  const engine = await import('./index.js');
+  // `index.ts` boots itself only when it is the entry module, which it is not
+  // here — call the CLI/boot dispatcher explicitly.
+  engine.runCliOrBoot();
 }
