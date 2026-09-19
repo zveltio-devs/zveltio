@@ -1142,6 +1142,23 @@ async function main() {
       console.error('Every session entry must list the files it read, even if empty.');
       process.exit(1);
     }
+    // Findings are written by hand too, and a finding written as a plain string
+    // instead of the object below rendered as "**undefined** undefined —
+    // undefined" in the checklist: four defects of B06 and twelve of B11 were
+    // recorded and then displayed as nothing at all. Silent `undefined` in a
+    // generated document is worse than a crash, because the document still
+    // looks complete.
+    for (const finding of one.findings ?? []) {
+      const missing = ['severity', 'where', 'what', 'status'].filter(
+        (k) => typeof (finding as Record<string, unknown>)?.[k] !== 'string',
+      );
+      if (missing.length > 0) {
+        console.error(`[review-inventory] ${SESSIONS_DIR}/${f} has a malformed finding.`);
+        console.error(`Missing or non-string: ${missing.join(', ')}.`);
+        console.error('A finding is { severity, where, what, status, ref? }, not a string.');
+        process.exit(1);
+      }
+    }
     sessions.push(one as SessionEntry);
   }
   const ledger: Ledger = { updated, sessions };
