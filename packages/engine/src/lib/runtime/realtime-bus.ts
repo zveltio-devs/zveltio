@@ -31,6 +31,7 @@
  */
 
 import Redis from 'ioredis';
+import { broadcastDataEvent } from '../../routes/realtime.js';
 import { broadcastEvent } from '../../routes/ws.js';
 
 const CHANNEL_NAME = 'zveltio:realtime';
@@ -124,12 +125,27 @@ const EVENT_MAP: Record<string, 'insert' | 'update' | 'delete'> = {
   'record.deleted': 'delete',
 };
 
+/**
+ * Hand an inbound bus message to the local subscribers — BOTH doors.
+ *
+ * It used to call `broadcastEvent` alone, which is the WebSocket fan-out. The
+ * SSE stream keeps its own Valkey subscription to `zveltio:data:<collection>`,
+ * but nothing in the engine publishes to those channels, so on a deployment
+ * with two replicas an SSE client saw only the writes made by the replica it
+ * happened to be connected to. Measured with a stream open: a `record.created`
+ * arriving from another replica delivered nothing at all.
+ *
+ * `broadcastDataEvent` applies the subscriber's row policies and column
+ * permissions, so a cross-instance event is filtered exactly like a local one.
+ */
 function dispatchToWs(msg: RealtimeBusMessage): void {
   if (msg.originId === ORIGIN_ID) return; // own echo
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
-  broadcastEvent(msg.collection, wsEvent, msg.data ?? { id: msg.record_id }, msg.tenantId ?? null);
+  const data = msg.data ?? { id: msg.record_id };
+  broadcastEvent(msg.collection, wsEvent, data, msg.tenantId ?? null);
+  broadcastDataEvent(msg.collection, wsEvent, data, msg.tenantId ?? null);
 }
 
 function attachIoredisErrorHandler(client: Redis, label: string): void {

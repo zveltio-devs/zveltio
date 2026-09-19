@@ -162,6 +162,17 @@ function presenceMetaKey(tenantId: string | null, channel: string, userId: strin
  * already take the cache as their first argument, so no mock is needed to
  * observe what they write.
  */
+/**
+ * Test seam for the SSE subscriber registry.
+ *
+ * The harness drives the app through `app.request`, whose response body does
+ * not surface writes made after the first flush — measured: a stream was open,
+ * `broadcastDataEvent` ran against it, and the body read back held only the
+ * `connected` frame. So a test that asserts on the HTTP body cannot tell
+ * delivery from silence. Reaching the subscription itself can.
+ */
+export const _sseConnectionsForTests = () => connections;
+
 export const _presenceInternals = {
   join: (...args: Parameters<typeof presenceJoin>) => presenceJoin(...args),
   leave: (...args: Parameters<typeof presenceLeave>) => presenceLeave(...args),

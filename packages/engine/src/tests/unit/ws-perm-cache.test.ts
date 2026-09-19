@@ -16,6 +16,8 @@ describe('invalidateWsUserPermCache', () => {
       ws,
       subscriptions: new Set(),
       connectedAt: Date.now(),
+      authType: 'session' as const,
+      access: new Map(),
     });
     const map = new Map<string, { allowed: boolean; checkedAt: number }>();
     map.set('contacts', { allowed: true, checkedAt: Date.now() });
@@ -40,6 +42,8 @@ describe('invalidateWsUserPermCache', () => {
       ws: wsA,
       subscriptions: new Set(),
       connectedAt: Date.now(),
+      authType: 'session' as const,
+      access: new Map(),
     });
     connections.set('b', {
       userId: 'user-b',
@@ -47,6 +51,8 @@ describe('invalidateWsUserPermCache', () => {
       ws: wsB,
       subscriptions: new Set(),
       connectedAt: Date.now(),
+      authType: 'session' as const,
+      access: new Map(),
     });
     const mapB = new Map([['orders', { allowed: true, checkedAt: Date.now() }]]);
     wsPermCache.set(wsA, new Map([['contacts', { allowed: true, checkedAt: Date.now() }]]));
