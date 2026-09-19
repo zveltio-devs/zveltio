@@ -4,6 +4,30 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.67] - 2026-09-19
+
+**beta.66 published nothing: the binary it built started nothing.** The release
+smoke test failed with `Engine did not become ready in 60s`, so no artifact was
+ever uploaded.
+
+- **The compiled binary printed nothing, bound no port and exited 0.**
+  `index.ts` boots the engine under `if (import.meta.main)`. Since beta.66 the
+  binaries are compiled from `binary-entry.ts`, so that guard is false in
+  `index.ts` even though it IS the program. `zveltio help` still worked — the
+  command blocks near the top of `index.ts` run at import time — which is why
+  the failure read like a CI problem rather than a broken binary. `index.ts`
+  now exports `runCliOrBoot()`, and the entry point calls it.
+- **The query builder read collection tables without column permissions.**
+  Insights, saved queries and the SQL editor could select columns the caller's
+  column permissions hide, and a dashboard share was validated against
+  `listAllRoles()` but matched against `getUserRoles()`.
+
+The gate that compiles the real entry point asked it for `help` and for the
+edge-runner sentinel, both of which passed throughout. It now also runs the
+binary with no database and requires a loud failure — and does so in an isolated
+directory, because run from the repository root it picked up the repo's own
+`.env` and booted a real engine, proving nothing.
+
 ## [3.0.0-beta.66] - 2026-09-18
 
 **beta.65 shipped edge functions that did not work, and an image that did not
