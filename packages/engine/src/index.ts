@@ -1630,20 +1630,26 @@ process.on('uncaughtException', (err: Error & { code?: string }) => {
 // An argument that reached here is either `start` or unrecognized. An unknown
 // command must NOT silently boot the engine — that binds the port and confuses
 // operators (e.g. `zveltio update` used to fall through to start → EADDRINUSE).
-// Only `start` (or no command at all) proceeds to bootstrap. Guarded on
-// import.meta.main so tests that `import` this module are unaffected.
-if (import.meta.main && _cmd && _cmd !== 'start') {
-  console.error(`zveltio: unknown command "${_cmd}". Run "zveltio help" for usage.`);
-  process.exit(2);
-}
-
-// Only auto-boot when run as the entrypoint (`bun src/index.ts`, the compiled
-// binary). Guarding on import.meta.main lets tests `import` this module — for
-// the in-process app-harness (_createAppForTests) — WITHOUT starting a real
-// server, database, cron, and Bun.serve on a port.
-if (import.meta.main) {
+// Only `start` (or no command at all) proceeds to bootstrap.
+//
+// Exported rather than run at import time because the compiled binary's entry
+// point is `binary-entry.ts`: `import.meta.main` is FALSE here even though this
+// IS the program, so the released binary started nothing and exited 0.
+export function runCliOrBoot(): void {
+  if (_cmd && _cmd !== 'start') {
+    console.error(`zveltio: unknown command "${_cmd}". Run "zveltio help" for usage.`);
+    process.exit(2);
+  }
   bootstrap().catch((err) => {
     console.error('❌ Bootstrap failed:', err);
     process.exit(1);
   });
+}
+
+// Only auto-boot when run as the entrypoint (`bun src/index.ts`). Guarding on
+// import.meta.main lets tests `import` this module — for the in-process
+// app-harness (_createAppForTests) — WITHOUT starting a real server, database,
+// cron, and Bun.serve on a port.
+if (import.meta.main) {
+  runCliOrBoot();
 }

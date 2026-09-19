@@ -154,6 +154,49 @@ if (!sentinelOut.includes('BOOTSTRAP-RAN')) {
   );
 }
 
+// ── Its third job: BE the engine. `index.ts` boots itself under
+// `import.meta.main`, which is false when the entry point is `binary-entry.ts`
+// — so v3.0.0-beta.66's binary printed nothing, served nothing and exited 0,
+// and the release smoke job timed out waiting for /api/health/ready. Booting
+// needs a database, so assert the opposite: with no DATABASE_URL the binary
+// must FAIL loudly. A silent exit 0 is the defect.
+// Delete the key rather than setting it to `undefined`: an env object that
+// stringifies its values would hand the child the string "undefined", which is
+// a perfectly good DATABASE_URL as far as the check below is concerned.
+// `cwd: work` matters as much as the env: Bun auto-loads `.env` from the
+// working directory, and the repository has one — run from the repo root this
+// probe booted a real engine and proved nothing. Deleting the key rather than
+// setting it to `undefined` matters too: an env object that stringifies its
+// values would hand the child the string "undefined", a perfectly good
+// DATABASE_URL as far as the check below is concerned.
+const bootEnv = { ...process.env, NODE_ENV: 'development' };
+for (const key of Object.keys(bootEnv)) {
+  if (key === 'DATABASE_URL' || key.startsWith('PG')) delete bootEnv[key];
+}
+const boot = spawn({
+  cmd: [realBinary],
+  stdout: 'pipe',
+  stderr: 'pipe',
+  env: bootEnv,
+  cwd: work,
+});
+const bootKiller = setTimeout(() => boot.kill('SIGKILL'), 60_000);
+const [bootOut, bootErr] = await Promise.all([
+  new Response(boot.stdout).text(),
+  new Response(boot.stderr).text(),
+]);
+await boot.exited;
+clearTimeout(bootKiller);
+// Assert the failure MESSAGE, not just a non-zero exit: a binary that boots
+// anyway (a stray .env, a PG* fallback) would serve forever, be SIGKILLed by
+// the timeout below, and exit non-zero — green on a gate that proved nothing.
+if (boot.exitCode === 0 || !bootErr.includes('DATABASE_URL environment variable is required')) {
+  fail(
+    'the compiled entry point did not boot the engine',
+    `${bootOut}\n${bootErr}\n\nWith no DATABASE_URL, bootstrap must fail. Exit 0 means it never ran:\n\`index.ts\` only boots when it is the entry module. \`binary-entry.ts\` has to\ncall its exported \`runCliOrBoot()\`.`,
+  );
+}
+
 // ── Half three: the mechanism itself, inside a real compiled binary ─────────
 // A probe that reaches the runner the way the entry point does — so a runner
 // that stops answering the sentinel fails here.
