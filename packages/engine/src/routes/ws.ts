@@ -2,12 +2,31 @@ import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
+  applyColumnAccess,
   checkPermission,
   DEFAULT_TENANT_ID,
+  getColumnAccess,
+  getRlsFilters,
   isTenantAdmin,
+  matchesRlsFilters,
+  resolveUserRole,
   runWithDomain,
 } from '../lib/tenancy/index.js';
+import type { ColumnAccess } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
+
+/** What `getRlsFilters` returns — no exported alias for it. */
+type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
+
+/**
+ * The database handle `wsRoutes` was given.
+ *
+ * Module-level because Bun's websocket handlers are a module export, not a
+ * closure over the route factory — and resolving column permissions needs a
+ * database. Set once at route construction; `null` until then, which only
+ * happens before any socket can exist.
+ */
+let wsDb: Database | null = null;
 
 // Per-connection permission cache (lives only for the WS session duration).
 // Maps collectionName → { allowed, checkedAt } — re-checked after TTL.
@@ -27,6 +46,30 @@ interface WSConnection {
   ws: any;
   subscriptions: Set<string>; // collection names or "collection:event" channels
   connectedAt: number;
+  /**
+   * How the socket authenticated, for `getRlsFilters`. Captured at upgrade
+   * because the request context is gone by the time an event is delivered.
+   */
+  authType: 'session' | 'api_key';
+  /**
+   * Row and column authorisation per collection, resolved when the socket
+   * subscribes to it.
+   *
+   * `checkPermission(user, collection, 'read')` was the only layer this path
+   * applied, while the REST list path and the SSE stream beside it apply three:
+   * the permission, the row policies in `zv_rls_policies`, and column
+   * permissions. Measured: a member with `can_read = false` on a column read
+   * `"salary":"SECRET-WS"` out of the WebSocket fan-out for a record whose
+   * `GET /api/data` response had the column redacted. Same write, same user,
+   * two doors, two answers.
+   *
+   * Resolved at subscribe time rather than per event, exactly as
+   * `routes/realtime.ts` does it: the delivery loop is synchronous and runs per
+   * subscriber per write, so it cannot go to the database. The cost is the same
+   * one SSE carries — a policy change reaches an open socket when the client
+   * resubscribes or reconnects.
+   */
+  access: Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
 }
 
 // Connection registry: connectionId -> WSConnection
@@ -61,6 +104,7 @@ let wsCounter = 0;
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function wsRoutes(_db: Database, _auth: any): Hono {
+  wsDb = _db;
   const app = new Hono();
 
   // GET /api/ws — Authenticate then hand off to Bun WebSocket upgrade.
@@ -90,8 +134,9 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // each other's events.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
+    const authType = (c.get('authType') as 'session' | 'api_key' | undefined) ?? 'session';
     const upgraded = server.upgrade(c.req.raw, {
-      data: { id, userId: session.user.id, tenantId },
+      data: { id, userId: session.user.id, tenantId, authType },
     });
 
     if (!upgraded) return c.text('WebSocket upgrade failed', 426);
@@ -160,6 +205,29 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
   ).catch(() => false);
 }
 
+/**
+ * Resolve — once per socket per collection — the row policies and column
+ * permissions the fan-out must apply, with the same helpers the SSE stream and
+ * the REST list path use.
+ */
+async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<void> {
+  if (conn.access.has(collection)) return;
+  const user = {
+    id: conn.userId,
+    role: await resolveUserRole({ id: conn.userId }).catch(() => 'user'),
+  };
+  conn.access.set(collection, {
+    rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+      getRlsFilters(collection, user, conn.authType),
+    ).catch(() => []),
+    columns: wsDb
+      ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+          getColumnAccess(wsDb as Database, collection, user.role, user.id),
+        ).catch(() => null)
+      : null,
+  });
+}
+
 async function socketMayReadCached(
   ws: object,
   conn: WSConnection,
@@ -171,10 +239,14 @@ async function socketMayReadCached(
 
   const hit = permCache.get(collectionName);
   const now = Date.now();
-  if (hit && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) return hit.allowed;
+  if (hit && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) {
+    if (hit.allowed) await resolveSocketAccess(conn, collectionName);
+    return hit.allowed;
+  }
 
   const allowed = await socketMayRead(conn, collectionName);
   permCache.set(collectionName, { allowed, checkedAt: now });
+  if (allowed) await resolveSocketAccess(conn, collectionName);
   return allowed;
 }
 
@@ -194,9 +266,12 @@ export function invalidateWsUserPermCache(userId: string): void {
   }
 }
 
-/** Test-only: seed / inspect the in-process WS perm cache. */
+/** Test-only: seed / inspect the in-process WS registries. */
 export function _wsPermCacheForTests() {
-  return { wsPermCache, connections, WS_PERM_CACHE_TTL_MS };
+  // `indexSubscription` is part of the seam because a connection that is in
+  // `connections` but not in `subscriptionIndex` receives nothing — a probe
+  // that forgot it would pass while the fan-out leaked.
+  return { wsPermCache, connections, WS_PERM_CACHE_TTL_MS, indexSubscription };
 }
 
 export const websocketHandler = {
@@ -230,7 +305,7 @@ export const websocketHandler = {
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   open(ws: any) {
-    const { id, userId, tenantId } = ws.data ?? {};
+    const { id, userId, tenantId, authType } = ws.data ?? {};
     if (!id || !userId) {
       // Should never happen — the /api/ws route enforces auth before upgrade.
       ws.close(4001, 'Unauthorized');
@@ -243,6 +318,8 @@ export const websocketHandler = {
       ws,
       subscriptions: new Set(), // no default subscriptions — clients must explicitly subscribe
       connectedAt: Date.now(),
+      authType: authType === 'api_key' ? 'api_key' : 'session',
+      access: new Map(),
     });
     wsPermCache.set(ws, new Map());
 
@@ -416,8 +493,26 @@ export function broadcastEvent(
       // single-tenant connections aren't fed multi-tenant traffic and
       // vice-versa.
       if ((conn.tenantId ?? null) !== (tenantId ?? null)) continue;
+
+      // The subscriber's own row policies and column permissions, applied by
+      // the same helpers the REST and SSE paths use. Without them this door
+      // delivered rows the API would have filtered and columns it would have
+      // stripped.
+      const access = conn.access.get(collection);
+      if (access && access.rls.length > 0 && !matchesRlsFilters(data, access.rls)) continue;
+      const visible = access?.columns ? applyColumnAccess(data, access.columns) : data;
+      const body =
+        visible === data
+          ? payload
+          : JSON.stringify({
+              type: 'event',
+              collection,
+              event,
+              data: visible,
+              timestamp: Date.now(),
+            });
       try {
-        conn.ws.send(payload);
+        conn.ws.send(body);
       } catch {
         // Connection dead — close/error will fire eventually and call
         // cleanupSocket. Until then, the next broadcast won't loop
