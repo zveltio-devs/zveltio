@@ -645,10 +645,15 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     if (storage.isConfigured()) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await storage.delete((file as any).storage_path).catch(() => {
-        /* non-fatal if file missing from storage */
-      });
+      try {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        await storage.delete((file as any).storage_path);
+      } catch (err) {
+        // Keep the row: it is the only record that would let anyone find the
+        // orphaned bytes, which the signed URL from upload still serves.
+        console.error('storage: delete failed', c.req.param('id'), err);
+        return c.json({ error: 'Failed to delete file from storage' }, 500);
+      }
     }
 
     await deleteDb

@@ -39,7 +39,7 @@ export interface StorageDriver {
   /** Read the whole object, or null if it does not exist. */
   get(key: string): Promise<StorageObject | null>;
 
-  /** Best-effort delete; never throws when the object is already gone. */
+  /** Delete the object. A missing object is a no-op; any other failure throws. */
   delete(key: string): Promise<void>;
 
   /**
