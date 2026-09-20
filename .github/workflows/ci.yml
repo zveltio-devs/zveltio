@@ -868,9 +868,13 @@ jobs:
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
+          # `--max-time` on every probe: without it a socket that connects and
+          # then goes quiet blocks the iteration, so "60 tries, one second
+          # apart" is 60 seconds only when the server is polite. Same shape as
+          # the SeaweedFS hang this commit is about.
           echo "Waiting for engine on port 3099..."
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3099/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 http://localhost:3099/api/health > /dev/null 2>&1; then
               echo "Engine ready after ${i}s"
               exit 0
             fi
@@ -1017,6 +1021,14 @@ jobs:
           name: unit-lcov
           path: packages/engine/coverage
       - name: Start SeaweedFS (best-effort S3 endpoint — the object store production runs)
+        # Nothing below may wait forever. Every network call carries its own
+        # bound so the `||` guards can fire and the step still exits 0; this is
+        # the backstop for whatever is not a network call. Measured 2026-09-19:
+        # `weed shell` hung, the job was cancelled at 20m15s, every harness test
+        # was reported `skipped`, and the coverage job came back RED without
+        # having measured anything — the exact hostage situation the comment
+        # below says cannot happen.
+        timeout-minutes: 8
         # Standalone `weed` binary, pinned to the docker-compose image tag
         # (chrislusf/seaweedfs:3.68). BEST-EFFORT by design: the S3 round-trip
         # harness tests exercise storage/media upload when this is reachable, but
@@ -1025,7 +1037,7 @@ jobs:
         # flaky external infra. The ratchet floor is the S3-free number.
         run: |
           set +e
-          curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz \
+          curl -fsSL --max-time 180 -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz \
             || { echo '::warning::weed download failed — S3 tests will skip'; exit 0; }
           tar xzf /tmp/weed.tar.gz -C /tmp && chmod +x /tmp/weed
           # `weed server -dir` must EXIST: the server checks the meta folder is
@@ -1042,7 +1054,7 @@ jobs:
             -dir=/tmp/seaweed-data -volume.max=5 -master.volumeSizeLimitMB=64 >/tmp/seaweed.log 2>&1 &
           up=""
           for i in $(seq 1 60); do
-            case "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ 2>/dev/null)" in
+            case "$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ 2>/dev/null)" in
               200|403) up=1; break;;
             esac
             sleep 1
@@ -1054,8 +1066,13 @@ jobs:
           # skipping, uncovered once the first was fixed. `weed shell` ships in
           # the tarball already downloaded above, so this drops a network
           # dependency rather than swapping it for another one.
-          echo 's3.bucket.create -name zveltio' | /tmp/weed shell -master=127.0.0.1:9333 \
-            || { echo '::warning::bucket create failed — S3 tests will skip'; exit 0; }
+          # THIS is what hung. `weed shell` reads its command from stdin and
+          # waits on the master with no deadline of its own, so a master that
+          # answers on :8333 but is not serving :9333 yet leaves it blocked
+          # forever — and a best-effort step that blocks is not best-effort, it
+          # is a job timeout wearing a warning's clothes.
+          echo 's3.bucket.create -name zveltio' | timeout 60 /tmp/weed shell -master=127.0.0.1:9333 \
+            || { echo '::warning::bucket create failed or timed out — S3 tests will skip'; exit 0; }
           # A bucket is not readiness. `weed server` answers on :8333 and creates
           # the bucket entry long before the volume server has registered a
           # volume to write INTO, and an S3 PUT in that window does not fail —
@@ -1069,7 +1086,7 @@ jobs:
           echo probe > /tmp/s3-probe.txt
           wrote=""
           for i in $(seq 1 60); do
-            if curl -fsS -F file=@/tmp/s3-probe.txt http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1; then
+            if curl -fsS --max-time 10 -F file=@/tmp/s3-probe.txt http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1; then
               wrote=1; break
             fi
             sleep 1
@@ -1079,7 +1096,7 @@ jobs:
             sed -n '1,40p' /tmp/seaweed.log
             exit 0
           fi
-          curl -fsS -X DELETE http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1 || true
+          curl -fsS --max-time 10 -X DELETE http://127.0.0.1:8888/buckets/zveltio/probe.txt >/dev/null 2>&1 || true
 
           # A FLAG, not the credentials. `S3_ENDPOINT` in the environment makes
           # the storage driver default to `s3` for the whole process, so putting
@@ -1201,7 +1218,7 @@ jobs:
         run: |
           bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
           for i in $(seq 1 60); do
-            curl -sf http://localhost:3000/api/health > /dev/null && break
+            curl -sf --max-time 5 http://localhost:3000/api/health > /dev/null && break
             sleep 1
           done
           echo "--- engine log so far ---"
