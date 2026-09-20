@@ -99,7 +99,35 @@ function extractImageDimensions(
  * to contain the literal word "script") are not destructive — the worst
  * case is a stripped attribute, not a corrupted file.
  */
-function sanitizeSvgString(svg: string): string {
+/**
+ * Schemes an SVG link may carry. Anything else — including anything this
+ * function cannot confidently read — becomes `#`.
+ */
+function isSafeSvgUrl(raw: string): boolean {
+  // Decode what a browser decodes before it resolves the scheme: HTML entities
+  // (numeric and the few named ones that matter) and control characters, which
+  // are ignored inside a scheme.
+  const decoded = raw
+    .replace(/&#x([0-9a-f]+);?/gi, (_m, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);?/g, (_m, dec: string) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&colon;/gi, ':')
+    .replace(/&NewLine;/gi, '\n')
+    .replace(/&Tab;/gi, '\t')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point
+    .replace(/[\u0000-\u0020\u00a0\ufeff]/g, '')
+    .toLowerCase();
+  if (decoded === '') return true;
+  // Relative, fragment and root-relative references carry no scheme at all.
+  if (/^[#/.?]/.test(decoded)) return true;
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(decoded);
+  if (!scheme) return true; // a bare path such as `logo.png`
+  return scheme[1] === 'http' || scheme[1] === 'https' || scheme[1] === 'mailto';
+}
+
+/** Exported for the regression suite — the sweep is the whole defence for SVG. */
+export function sanitizeSvgString(svg: string): string {
   let s = svg;
   // Strip <script>...</script>
   s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
@@ -109,9 +137,27 @@ function sanitizeSvgString(svg: string): string {
   s = s.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject>/gi, '');
   // Strip all on* event handler attributes (onload, onclick, …)
   s = s.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, '');
-  // Strip javascript: / data: / vbscript: URIs in href / xlink:href
-  s = s.replace(/(href|xlink:href)\s*=\s*"\s*(?:javascript|data|vbscript):[^"]*"/gi, '$1="#"');
-  s = s.replace(/(href|xlink:href)\s*=\s*'\s*(?:javascript|data|vbscript):[^']*'/gi, "$1='#'");
+  // Every href is checked against an ALLOWLIST of schemes rather than a list of
+  // bad ones. The denylist here matched the literal strings `javascript:`,
+  // `data:` and `vbscript:`, and an SVG carrying
+  // `xlink:href="java&#10;script:alert(1)"` went through untouched — the browser
+  // decodes the entity, the regex does not. Measured, with the three payloads
+  // below surviving byte for byte. A denylist over an open namespace is the
+  // shape this codebase has been bitten by repeatedly; this is the same fix.
+  s = s.replace(
+    /(\bhref|\bxlink:href)\s*=\s*("|')([^"']*)\2/gi,
+    (whole, attr: string, quote: string, value: string) =>
+      isSafeSvgUrl(value) ? whole : `${attr}=${quote}#${quote}`,
+  );
+  // SMIL can set an attribute the sanitiser just cleaned: `<set
+  // attributeName="xlink:href" to="javascript:…">` and the `<animate>` form of
+  // it both re-point a link at script AFTER load, so neither is reachable by
+  // looking at href attributes. Only the animations that target a URL attribute
+  // are removed; an ordinary animated SVG keeps working.
+  s = s.replace(
+    /<(set|animate|animateTransform|animateMotion)\b[^>]*\battributeName\s*=\s*("|')\s*(?:xlink:)?href\s*\2[^>]*>(?:[\s\S]*?<\/\1\s*>)?/gi,
+    '',
+  );
   // Strip <use href="data:..."> — Chrome and Firefox both allow script:
   // execution through external SVG references.
   s = s.replace(

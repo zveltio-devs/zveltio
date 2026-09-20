@@ -52,11 +52,17 @@ async function generatePDF(html: string, options: Record<string, any>): Promise<
         `\n__H${level}__${content.replace(/<[^>]+>/g, '')}__END__\n`,
     )
     .replace(/<[^>]+>/g, '')
+    // These four decoded the entities an HTML template carries. They had been
+    // flattened to `.replace(/&/g, '&')` — pattern and replacement identical,
+    // four no-ops in a row — so `Smith &amp; Co` printed as `Smith &amp; Co` in
+    // the PDF. `&amp;` goes LAST: decoding it first would turn `&amp;lt;` into a
+    // `<`, which is the classic double-decode.
     .replace(/&nbsp;/g, ' ')
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -71,7 +77,8 @@ async function generatePDF(html: string, options: Record<string, any>): Promise<
   const pageSizeMap: Record<string, [number, number]> = {
     A4: [595.28, 841.89],
     A3: [841.89, 1190.55],
-    A5: [595.28, 841.89],
+    // A5 carried A4's dimensions, so asking for A5 printed A4.
+    A5: [419.53, 595.28],
     Letter: [612, 792],
     Legal: [612, 1008],
   };
