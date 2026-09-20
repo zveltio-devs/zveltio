@@ -220,6 +220,7 @@
   "collections.systemField": "Pole systemowe — dodane automatycznie, usuń je",
   "collections.targetCollection": "Kolekcja docelowa… *",
   "collections.viewDiagram": "Pokaż schemat jako diagram",
+  "common.accessRestricted": "Dostęp ograniczony",
   "common.actions": "Akcje",
   "common.add": "Dodaj",
   "common.added": "Dodano",

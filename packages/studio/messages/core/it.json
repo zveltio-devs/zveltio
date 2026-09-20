@@ -220,6 +220,7 @@
   "collections.systemField": "Campo di sistema — aggiunto automaticamente, rimuovilo",
   "collections.targetCollection": "Raccolta di destinazione… *",
   "collections.viewDiagram": "Vedi lo schema come diagramma",
+  "common.accessRestricted": "Accesso limitato",
   "common.actions": "Azioni",
   "common.add": "Aggiungi",
   "common.added": "Aggiunto",

@@ -219,12 +219,8 @@ async function signOut() {
       {nav}
       {extNavGroups}
       collapsed={chrome.collapsed}
-      dark={chrome.dark}
-      density={chrome.density}
       user={auth.user}
       onToggleCollapse={() => (chrome.collapsed = !chrome.collapsed)}
-      onToggleDark={() => (chrome.dark = !chrome.dark)}
-      onToggleDensity={() => (chrome.density = chrome.density === 'compact' ? 'comfortable' : 'compact')}
       onSignOut={signOut}
     />
 
