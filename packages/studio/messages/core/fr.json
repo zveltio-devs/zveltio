@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Supprimer l'index de recherche pour « {collection} » ?",
   "ext.confirmDelete": "Supprimer cet élément ? Cette action est irréversible.",
   "ext.copied": "Copié dans le presse-papiers.",
+  "ext.copyFailed": "Échec de la copie dans le presse-papiers.",
   "ext.created": "Créé avec succès",
   "ext.deleted": "Supprimé",
   "ext.errorPrefix": "Échec : ",

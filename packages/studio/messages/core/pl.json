@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Usunąć indeks wyszukiwania dla „{collection}”?",
   "ext.confirmDelete": "Usunąć ten element? Tej operacji nie można cofnąć.",
   "ext.copied": "Skopiowano do schowka.",
+  "ext.copyFailed": "Nie udało się skopiować do schowka.",
   "ext.created": "Utworzono pomyślnie",
   "ext.deleted": "Usunięto",
   "ext.errorPrefix": "Błąd: ",
