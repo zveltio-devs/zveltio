@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "¿Eliminar el índice de búsqueda de «{collection}»?",
   "ext.confirmDelete": "¿Eliminar este elemento? Esta acción no se puede deshacer.",
   "ext.copied": "Copiado al portapapeles.",
+  "ext.copyFailed": "No se pudo copiar al portapapeles.",
   "ext.created": "Creado correctamente",
   "ext.deleted": "Eliminado",
   "ext.errorPrefix": "Error: ",
