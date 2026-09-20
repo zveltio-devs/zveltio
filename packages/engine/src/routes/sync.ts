@@ -284,8 +284,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
               .values(records as any)
               .onConflict((oc) => oc.column('id').doNothing())
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-              .returning('id' as any)
+              .returning('id')
               .execute(),
           (err) => {
             throw err;
@@ -396,8 +395,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
                     .where('id' as any, '=', recordId),
                   updateFilters,
                 )
-                  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                  .returning('id' as any)
+                  .returning('id')
                   .execute(),
               (err) => {
                 throw err;
@@ -425,8 +423,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
                     .where('id' as any, '=', recordId),
                   deleteFilters,
                 )
-                  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                  .returning('id' as any)
+                  .returning('id')
                   .execute(),
               (err) => {
                 throw err;

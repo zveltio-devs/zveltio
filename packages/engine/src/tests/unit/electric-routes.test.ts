@@ -47,7 +47,7 @@ function makeApp(user: { id: string } | null, tenant?: { id: string }) {
   const app = new Hono();
   if (tenant) {
     app.use('*', async (c, next) => {
-      c.set('tenant', tenant);
+      c.set('tenant', tenant as never);
       await next();
     });
   }
