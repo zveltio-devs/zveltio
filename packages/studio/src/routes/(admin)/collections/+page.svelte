@@ -348,6 +348,7 @@ function clearTemplate() {
   title={m['nav.collections']()}
   subtitle={m['collections.subtitle']()}
   count={collections.length}
+  visibleCount={filtered.length}
   {loading}
   search={search}
   onSearchChange={(v) => (search = v)}

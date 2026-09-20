@@ -44,6 +44,7 @@
 <script lang="ts">
 import type { FormSchema, FormField } from '@zveltio/sdk/extension';
 import { studioApi } from '$lib/extension-api.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
 
 interface Props {
   /** Stable form id; form-alter hooks match against this. */
@@ -76,7 +77,26 @@ const visible = $derived(altered.fields.filter((f: FormField) => !f.hidden));
 /** Per-field error messages computed from registered validators. */
 let errors = $state<Record<string, string | null>>({});
 
+/**
+ * `required` is enforced here and not only by the browser.
+ *
+ * The markup sets the native `required` attribute, which does nothing outside a
+ * <form> — and the component's own usage example renders it standalone. So a
+ * host that calls `validateAll()` and trusts its answer, which is exactly what
+ * `validateAll()` is for, was told an empty required field had passed. The
+ * asterisk was drawn and nothing behind it was checked.
+ */
+function isBlank(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
 function runValidators(field: FormField, value: unknown): string | null {
+  if (field.required && field.type !== 'checkbox' && isBlank(value)) {
+    return m['common.required']();
+  }
   for (const v of field.validators ?? []) {
     const err = v(value);
     if (err !== null) return err;
