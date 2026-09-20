@@ -1,8 +1,22 @@
-import { api } from './api.js';
+import { api, clearApiCache } from './api.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let currentUser = $state<any>(null);
 let loading = $state(true);
+
+/**
+ * Every assignment of the signed-in user goes through here, so that the one
+ * rule — a new identity gets none of the previous one's cached responses —
+ * lives in a single place. Sign-in, sign-out, passkey verification and a
+ * session that simply expired all end up at `auth.init()` or below; writing
+ * `currentUser` directly in any of them is how one of those paths loses it.
+ */
+function setUser(next: unknown): void {
+  const prevId = (currentUser as { id?: string } | null)?.id ?? null;
+  const nextId = (next as { id?: string } | null)?.id ?? null;
+  if (prevId !== nextId) clearApiCache();
+  currentUser = next;
+}
 
 export const auth = {
   get user() {
@@ -20,12 +34,12 @@ export const auth = {
       const res = await api.fetch(`/api/me`);
       if (res.ok) {
         const data = await res.json();
-        currentUser = data.user;
+        setUser(data.user);
       } else {
-        currentUser = null;
+        setUser(null);
       }
     } catch {
-      currentUser = null;
+      setUser(null);
     } finally {
       loading = false;
     }
@@ -44,7 +58,7 @@ export const auth = {
     }
 
     const data = await res.json();
-    currentUser = data.user;
+    setUser(data.user);
     return data;
   },
 
@@ -52,6 +66,6 @@ export const auth = {
     await api.fetch(`/api/auth/sign-out`, {
       method: 'POST',
     });
-    currentUser = null;
+    setUser(null);
   },
 };
