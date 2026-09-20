@@ -101,8 +101,12 @@ export class LocalDriver implements StorageDriver {
 
   async delete(key: string): Promise<void> {
     const full = safeLocalPath(key);
-    await rm(full, { force: true }).catch(() => {});
-    await rm(`${full}.meta`, { force: true }).catch(() => {});
+    // `force: true` already makes a missing object a no-op, so a rejection here
+    // is a REAL failure (EACCES, EPERM, EROFS). Swallowing it made the route
+    // answer `{"success":true}` and drop the row while the bytes stayed on disk,
+    // still reachable through the signed URL issued at upload.
+    await rm(full, { force: true });
+    await rm(`${full}.meta`, { force: true });
   }
 
   publicUrl(key: string): string {

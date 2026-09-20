@@ -58,11 +58,10 @@ export class S3Driver implements StorageDriver {
   }
 
   async delete(key: string): Promise<void> {
-    await this.client()
-      .fetch(this.url(key), { method: 'DELETE' })
-      .catch(() => {
-        /* non-fatal if already gone */
-      });
+    const res = await this.client().fetch(this.url(key), { method: 'DELETE' });
+    // 404/204 both mean "the object is gone"; anything else is a real failure
+    // and must not be reported to the caller as a successful delete.
+    if (!res.ok && res.status !== 404) throw new Error(`S3 DELETE failed: ${res.status}`);
   }
 
   publicUrl(key: string): string {
