@@ -15,7 +15,7 @@
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
-import { auth } from '$lib/auth.svelte.js';
+import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { startRegistration } from '@simplewebauthn/browser';
 
@@ -37,9 +37,7 @@ onMount(load);
 async function load(): Promise<void> {
   loading = true;
   try {
-    const res = await fetch('/api/auth/passkey/list-user-passkeys', {
-      credentials: 'include',
-    });
+    const res = await api.fetch('/api/auth/passkey/list-user-passkeys');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = (await res.json()) as { passkeys?: Passkey[] };
     passkeys = body.passkeys ?? [];
@@ -65,9 +63,8 @@ async function registerNew(): Promise<void> {
   registering = true;
   try {
     // 1. Ask the server for a challenge.
-    const optsRes = await fetch('/api/auth/passkey/generate-register-options', {
+    const optsRes = await api.fetch('/api/auth/passkey/generate-register-options', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: label.trim() || 'Unnamed passkey' }),
     });
@@ -78,9 +75,8 @@ async function registerNew(): Promise<void> {
     const attestation = await startRegistration({ optionsJSON: options });
 
     // 3. Send the attestation back for verification + storage.
-    const verifyRes = await fetch('/api/auth/passkey/verify-registration', {
+    const verifyRes = await api.fetch('/api/auth/passkey/verify-registration', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         response: attestation,
@@ -115,9 +111,8 @@ async function deleteOne(id: string): Promise<void> {
   if (!confirm('Delete this passkey? You will not be able to sign in with it anymore.')) return;
   deletingId = id;
   try {
-    const res = await fetch('/api/auth/passkey/delete-passkey', {
+    const res = await api.fetch('/api/auth/passkey/delete-passkey', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     });
@@ -189,7 +184,7 @@ function formatDate(iso: string): string {
 
     {#if !browserSupportsPasskey()}
       <div class="alert alert-warning mt-4 text-sm">
-        <span>{m['passkeys.unsupportedLong']()}</span>
+        <span>{m['passkeys.unsupported']()}</span>
       </div>
     {/if}
 

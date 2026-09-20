@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Search, X } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
 interface Props {
   value: string;
   placeholder?: string;
@@ -14,7 +15,12 @@ let { value, placeholder = 'Search...', onchange }: Props = $props();
          oninput={(e) => onchange((e.target as HTMLInputElement).value)}
          class="grow" />
   {#if value}
-    <button onclick={() => onchange('')} class="text-base-content/55 hover:text-base-content">
+    <button
+      type="button"
+      onclick={() => onchange('')}
+      aria-label={m['common.clear']()}
+      class="text-base-content/55 hover:text-base-content"
+    >
       <X size={12} />
     </button>
   {/if}

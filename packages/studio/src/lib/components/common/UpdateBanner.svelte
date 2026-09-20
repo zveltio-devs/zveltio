@@ -66,8 +66,10 @@ onMount(async () => {
       <code class="bg-base-200 px-1 rounded text-xs">zveltio update</code>
     </div>
     <button
+      type="button"
       class="btn btn-ghost btn-xs"
       onclick={() => (dismissed = true)}
+      aria-label={m['common.dismiss']()}
     >
       <X size={14} />
     </button>
