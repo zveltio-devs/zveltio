@@ -145,11 +145,29 @@ export async function reload() {
 //
 // Only `collectionName` should re-trigger a reload here. Paging, sorting and
 // searching call `reloadData` directly from their handlers.
+// The view describes the collection it was typed for. This component is not
+// remounted when the route parameter changes — the sidebar swaps the name under
+// it — so a sort on `title` follows the user into a collection that has no
+// `title` column, and page 4 of the last collection greets them as "No records
+// yet". The first run is the one that must NOT reset: it carries the view that
+// `readViewFromUrl()` just restored from the link the user opened.
+let loadedFor: string | null = null;
+
 $effect(() => {
   const name = collectionName;
   if (!name) return;
   loading = true;
-  untrack(() => reloadData()).finally(() => {
+  untrack(() => {
+    if (loadedFor !== null && loadedFor !== name) {
+      searchText = '';
+      sortField = '';
+      sortDir = 'desc';
+      pagination = { ...pagination, page: 1 };
+      selectedIds = new Set();
+    }
+    loadedFor = name;
+    return reloadData();
+  }).finally(() => {
     loading = false;
   });
 });
@@ -308,7 +326,7 @@ let confirmState = $state<{
   <span class="text-xs text-base-content/65 whitespace-nowrap">
     {#if !loading}
       {m['data.totalCount']({ count: pagination.total ?? 0 })}
-      {#if selectedIds.size > 0}· <span class="text-primary font-medium">{selectedIds.size} selected</span>{/if}
+      {#if selectedIds.size > 0}· <span class="text-primary font-medium">{selectedIds.size} {m['common.selected']()}</span>{/if}
     {/if}
   </span>
   {#if selectedIds.size > 0}
@@ -501,7 +519,7 @@ let confirmState = $state<{
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />
