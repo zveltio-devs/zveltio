@@ -1071,7 +1071,7 @@ jobs:
           # answers on :8333 but is not serving :9333 yet leaves it blocked
           # forever — and a best-effort step that blocks is not best-effort, it
           # is a job timeout wearing a warning's clothes.
-          echo 's3.bucket.create -name zveltio' | timeout 60 /tmp/weed shell -master=127.0.0.1:9333 \
+          echo 's3.bucket.create -name zveltio' | timeout 60 /tmp/weed shell -master=127.0.0.1:9999 \
             || { echo '::warning::bucket create failed or timed out — S3 tests will skip'; exit 0; }
           # A bucket is not readiness. `weed server` answers on :8333 and creates
           # the bucket entry long before the volume server has registered a
