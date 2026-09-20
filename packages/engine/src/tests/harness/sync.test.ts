@@ -163,6 +163,65 @@ d('sync routes (in-process)', () => {
     expect(revs[0]!.action).toBe('create');
   });
 
+  it('a create whose id already exists is a conflict, not an ok', async () => {
+    // `onConflict(...).doNothing()` skips the row. Every create was still
+    // reported `ok`, so the client marked its offline write as synced and threw
+    // its copy away while the server row kept the OLD values — and `afterWrite`
+    // wrote a revision for a write that never happened.
+    const recordId = crypto.randomUUID();
+    const push = (title: string) =>
+      app.request(
+        '/api/sync/push',
+        json('/api/sync/push', {
+          operations: [
+            { collection: COLLECTION, recordId, operation: 'create', payload: { title } },
+          ],
+        }),
+      );
+
+    const first = (await (await push('first')).json()) as { results: { status: string }[] };
+    expect(first.results[0]?.status).toBe('ok');
+
+    const second = (await (await push('SECOND')).json()) as { results: { status: string }[] };
+    expect(second.results[0]?.status).toBe('conflict');
+
+    const rows = await sql<{ title: string }>`
+      SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
+    `.execute(db);
+    expect(rows.rows[0]?.title).toBe('first');
+
+    // And no revision for the write that did not happen.
+    await new Promise((r) => setTimeout(r, 250));
+    const revs = await db
+      .selectFrom('zv_revisions')
+      .select('action')
+      .where('record_id', '=', recordId)
+      .execute();
+    expect(revs.length).toBe(1);
+  });
+
+  it('an update or delete that matches no row is a conflict, not an ok', async () => {
+    // The RLS conditions live in the WHERE, so a row the caller may not touch
+    // does not match and the statement affects nothing. Reporting `ok` told the
+    // client its offline edit had landed on a row it is not allowed to write.
+    const ghost = crypto.randomUUID();
+    const send = (operation: string) =>
+      app.request(
+        '/api/sync/push',
+        json('/api/sync/push', {
+          operations: [
+            { collection: COLLECTION, recordId: ghost, operation, payload: { title: 'x' } },
+          ],
+        }),
+      );
+
+    const upd = (await (await send('update')).json()) as { results: { status: string }[] };
+    expect(upd.results[0]?.status).toBe('conflict');
+
+    const del = (await (await send('delete')).json()) as { results: { status: string }[] };
+    expect(del.results[0]?.status).toBe('conflict');
+  });
+
   it('pull decrypts an encrypted field instead of shipping ciphertext', async () => {
     // The offline client has no key. Pull applied row policies and deleted
     // hidden columns and stopped there, so a field marked `encrypted: true`
