@@ -105,10 +105,16 @@ function onKeydown(e: KeyboardEvent) {
   const last = items[items.length - 1]!;
   const active = document.activeElement as HTMLElement | null;
 
-  if (e.shiftKey && (active === first || !box?.contains(active))) {
+  // Focus can sit outside the box without the user having tabbed there: a click
+  // on the backdrop of a non-dismissible dialog, a programmatic focus from the
+  // page behind, the browser restoring focus after an alert. Only the backward
+  // branch handled that, so Tab forward from outside walked into the page the
+  // dialog is covering — the exact escape the trap exists to prevent.
+  const outside = !box?.contains(active);
+  if (e.shiftKey && (active === first || outside)) {
     e.preventDefault();
     last.focus();
-  } else if (!e.shiftKey && active === last) {
+  } else if (!e.shiftKey && (active === last || outside)) {
     e.preventDefault();
     first.focus();
   }

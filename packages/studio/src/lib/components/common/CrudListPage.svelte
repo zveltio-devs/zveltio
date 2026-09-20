@@ -53,6 +53,18 @@ interface Props {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   actionIcon?: Component<any>;
   empty?: EmptyConfig;
+  /**
+   * Rows the `list` snippet actually renders — i.e. the count AFTER the
+   * caller's own filtering. Defaults to `count`.
+   *
+   * Without it this component cannot tell "the search matched nothing" from
+   * "the search matched everything": `count` is the unfiltered total, which is
+   * what the header badge and the search threshold want, and it does not move
+   * when the user types. The `noSearchMatch` message was therefore shown
+   * whenever a search was active AND the collection was non-empty — on top of
+   * the matching rows — and never shown in the one case it exists for.
+   */
+  visibleCount?: number;
   /** Custom slot to override the "no match" message when search is active. */
   noSearchMatch?: Snippet<[string]>;
   /** Render after the header but before the search bar. */
@@ -72,6 +84,7 @@ let {
   onSearchChange,
   searchPlaceholder,
   searchThreshold = 4,
+  visibleCount,
   actionLabel,
   actionHref,
   onAction,
@@ -85,7 +98,10 @@ let {
 
 const showSearch = $derived(onSearchChange !== undefined && (count ?? 0) > searchThreshold);
 const isEmpty = $derived(!loading && (count ?? 0) === 0);
-const hasSearchNoMatch = $derived(!loading && (count ?? 0) > 0 && (search ?? '').length > 0);
+const shown = $derived(visibleCount ?? count ?? 0);
+const hasSearchNoMatch = $derived(
+  !loading && (count ?? 0) > 0 && shown === 0 && (search ?? '').length > 0,
+);
 </script>
 
 <!--
