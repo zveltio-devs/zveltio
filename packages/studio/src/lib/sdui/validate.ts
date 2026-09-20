@@ -39,7 +39,19 @@ export function normalizeSduiVersion(input: Record<string, unknown>): number {
     input.sduiSchema = input.sduiSchemaVersion;
     return input.sduiSchemaVersion;
   }
+  // A present-but-not-a-number version (`"2"`) is not v1: treating it as v1
+  // renders a future page with this host's renderer, which is the silent
+  // mis-render this module exists to prevent. NaN fails the `>` guard below.
+  if (input.sduiSchema != null || input.sduiSchemaVersion != null) return Number.NaN;
   return 1;
+}
+
+function validatePagination(resourceId: string, pagination: unknown): string | null {
+  if (pagination == null) return null;
+  if (!isObj(pagination) || typeof pagination.limit !== 'number' || pagination.limit < 1) {
+    return `resources ("${resourceId}") "pagination" needs a positive numeric "limit".`;
+  }
+  return null;
 }
 
 function validateColumns(resourceId: string, columns: unknown): string | null {
@@ -82,6 +94,9 @@ export function validateSchema(input: unknown): Validated {
   if (!isObj(input)) return { ok: false, error: 'Schema is not an object.' };
 
   const version = normalizeSduiVersion(input);
+  if (Number.isNaN(version)) {
+    return { ok: false, error: 'Schema version ("sduiSchema") must be a number.' };
+  }
   if (version > SDUI_SCHEMA_VERSION) {
     return {
       ok: false,
@@ -163,6 +178,19 @@ export function validateSchema(input: unknown): Validated {
     if (typeof r.dataSource !== 'string') {
       return { ok: false, error: `resources[${i}] ("${rid}") is missing "dataSource".` };
     }
+    if (r.layout === 'cards') {
+      const card = r.card;
+      if (!isObj(card) || typeof card.title !== 'string') {
+        return { ok: false, error: `resources[${i}] ("${rid}") cards layout needs "card.title".` };
+      }
+    }
+    if (r.form != null) {
+      if (!isObj(r.form) || typeof r.form.endpoint !== 'string') {
+        return { ok: false, error: `resources[${i}] ("${rid}") "form" needs an "endpoint".` };
+      }
+    }
+    const pageErr = validatePagination(rid, r.pagination);
+    if (pageErr) return { ok: false, error: pageErr };
     const colErr = validateColumns(rid, r.columns);
     if (colErr) return { ok: false, error: colErr };
   }

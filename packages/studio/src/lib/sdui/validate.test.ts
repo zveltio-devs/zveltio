@@ -167,6 +167,51 @@ describe('validateSchema — refuses, with something an operator can act on', ()
   });
 });
 
+describe('validateSchema — shapes the renderer cannot draw', () => {
+  it('refuses a cards layout with no card.title, which would print the whole row', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [{ id: 'a', dataSource: '/ext/x/a', layout: 'cards', columns: [] }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('card.title');
+  });
+
+  it('accepts a cards layout that has one', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [
+        { id: 'a', dataSource: '/ext/x/a', layout: 'cards', card: { title: 'name' }, columns: [] },
+      ],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('refuses a form with no endpoint, which reaches the mutation guard as undefined', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [{ id: 'a', dataSource: '/ext/x/a', columns: [], form: { fields: [] } }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('endpoint');
+  });
+
+  it('refuses pagination without a positive limit, which sends limit=undefined', () => {
+    const r = validateSchema({
+      title: 'x',
+      resources: [{ id: 'a', dataSource: '/ext/x/a', columns: [], pagination: {} }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('limit');
+  });
+
+  it('refuses a version that is not a number instead of treating it as v1', () => {
+    const r = validateSchema({ sduiSchema: '2', title: 'x', resources: [] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('must be a number');
+  });
+});
+
 describe('validateSchema — version alias', () => {
   it('accepts deprecated sduiSchemaVersion alias', () => {
     const r = validateSchema({ ...listSchema(), sduiSchemaVersion: SDUI_SCHEMA_VERSION });
