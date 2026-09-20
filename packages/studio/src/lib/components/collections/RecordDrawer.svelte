@@ -81,6 +81,12 @@ let drawerRecordId = $state<string | null>(null);
 let insertForm = $state<Record<string, any>>({});
 let inserting = $state(false);
 let relOptions = $state<Record<string, { id: string; label: string }[]>>({});
+// Why a second map rather than an empty list: "the related collection has no
+// records" and "we could not read the related collection" are different
+// sentences, and the empty list says the first while the second is true. The
+// history loader three functions up already learned this; the dropdown had
+// kept the `catch { return [] }` that produces the lie.
+let relErrors = $state<Record<string, string>>({});
 let loadingRelOpts = $state(false);
 let formErrors = $state<Record<string, string>>({});
 
@@ -97,6 +103,7 @@ function selectChoices(field: CollectionField): any[] {
 
 async function loadRelOptions() {
   loadingRelOpts = true;
+  const errors: Record<string, string> = {};
   const relFields = insertableFields.filter(
     (f) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
   );
@@ -111,20 +118,34 @@ async function loadRelOptions() {
             label: labelFromRecord(r),
           })),
         ] as const;
-      } catch {
+      } catch (e) {
+        errors[f.name] = (e as Error).message || m['common.failed']();
         return [f.name, [] as { id: string; label: string }[]] as const;
       }
     }),
   );
   relOptions = Object.fromEntries(entries);
+  relErrors = errors;
   loadingRelOpts = false;
+}
+
+/** Everything cached for the record that was on screen before. One instance of
+ *  this drawer serves every row of the table, so a history list or a relation
+ *  error left behind is attributed to whichever record is opened next. */
+function resetPerRecordState() {
+  insertForm = {};
+  formErrors = {};
+  relErrors = {};
+  history = [];
+  historyOpen = false;
+  historyError = null;
+  historyLoading = false;
 }
 
 export function openCreate() {
   drawerMode = 'create';
   drawerRecordId = null;
-  insertForm = {};
-  formErrors = {};
+  resetPerRecordState();
   drawerOpen = true;
   loadRelOptions();
 }
@@ -132,8 +153,7 @@ export function openCreate() {
 export function openEdit(record: CollectionRecord) {
   drawerMode = 'edit';
   drawerRecordId = record.id;
-  insertForm = {};
-  formErrors = {};
+  resetPerRecordState();
   // Seed the form with current values for editable fields only
   for (const f of insertableFields) {
     const v = record[f.name];
@@ -152,7 +172,7 @@ function validateForm(): boolean {
     const v = insertForm[f.name];
     const present = v !== undefined && v !== null && v !== '';
     if (f.required && !present) {
-      formErrors[f.name] = 'Required';
+      formErrors[f.name] = m['common.required']();
       ok = false;
       continue;
     }
@@ -185,10 +205,17 @@ async function saveRecord() {
   if (!validateForm()) return;
   inserting = true;
   try {
-    // Strip empty strings so server uses defaults / NULL where applicable
+    // On create, an empty input means "say nothing" so the column default
+    // applies. On update it means "clear this" — dropping the key leaves the
+    // old value in place while the toast says the record was updated, which is
+    // a save reporting a change it did not make.
     const payload: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(insertForm)) {
-      if (v === '' || v === undefined) continue;
+      if (v === undefined) continue;
+      if (v === '') {
+        if (drawerMode === 'edit') payload[k] = null;
+        continue;
+      }
       payload[k] = v;
     }
     if (drawerMode === 'create') {
@@ -273,7 +300,7 @@ async function saveRecord() {
                   {field.type}
                 </span>
                 {#if field.required}
-                  <span class="text-error text-xs font-bold ml-auto">required</span>
+                  <span class="text-error text-xs font-bold ml-auto">{m['common.required']()}</span>
                 {/if}
               </div>
 
@@ -355,7 +382,7 @@ async function saveRecord() {
                   bind:value={insertForm[field.name]}
                 >
                   <option value="">
-                    {loadingRelOpts ? 'Loading…' : `— select from ${field.options.related_collection} —`}
+                    {loadingRelOpts ? m['common.loading']() : `— select from ${field.options.related_collection} —`}
                   </option>
                   {#if !loadingRelOpts}
                     {#each (relOptions[field.name] ?? []) as opt}
@@ -363,7 +390,9 @@ async function saveRecord() {
                     {/each}
                   {/if}
                 </select>
-                {#if !loadingRelOpts && !(relOptions[field.name]?.length)}
+                {#if !loadingRelOpts && relErrors[field.name]}
+                  <p class="text-error text-xs mt-0.5">{relErrors[field.name]}</p>
+                {:else if !loadingRelOpts && !(relOptions[field.name]?.length)}
                   <p class="text-xs text-base-content/65 mt-0.5">
                     {m['relations.noRecordsIn']({ name: field.options.related_collection })}
                   </p>
