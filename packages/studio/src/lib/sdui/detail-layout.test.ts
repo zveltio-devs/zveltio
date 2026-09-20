@@ -54,7 +54,6 @@ function resource(panels: unknown[]) {
 }
 
 const props = (panels: unknown[]) => ({
-  // biome-ignore lint/suspicious/noExplicitAny: the renderer takes the schema shape
   resource: resource(panels) as any,
   routeParams: { id: 'run-1' },
   extName: 'ops',
@@ -205,7 +204,6 @@ describe('DetailLayout header actions', () => {
     vi.stubGlobal('open', open);
     const { default: DetailLayout } = await import('./DetailLayout.svelte');
     const p = props([{ id: 'info', label: 'info', kind: 'fields', fields: [] }]);
-    // biome-ignore lint/suspicious/noExplicitAny: the renderer takes the schema shape
     (p.resource as any).detail.actions = [
       {
         id: 'label',
@@ -279,7 +277,6 @@ describe('DetailLayout hidden panel', () => {
         columns: [{ key: 'qty', label: 'qty' }],
       },
     ]);
-    // biome-ignore lint/suspicious/noExplicitAny: the renderer takes the schema shape
     (p.resource as any).detail.actions = [
       {
         id: 'finish',

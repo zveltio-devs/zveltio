@@ -58,7 +58,6 @@ describe('BuilderLayout secondary panel', () => {
   it('walks dotted timestamp and data keys', async () => {
     const { default: BuilderLayout } = await import('./BuilderLayout.svelte');
     const { container, getByText } = render(BuilderLayout, {
-      // biome-ignore lint/suspicious/noExplicitAny: the renderer takes the schema shape
       props: { resource: resource as any, routeParams: { id: 'f-1' }, extName: 'forms' },
     });
 

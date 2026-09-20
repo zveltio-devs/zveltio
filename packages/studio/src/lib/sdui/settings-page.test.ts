@@ -43,7 +43,6 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-// biome-ignore lint/suspicious/noExplicitAny: the renderer takes the schema shape
 const props = { schema: schema as any, extName: 'ldap' };
 
 describe('SettingsPage action toast', () => {
