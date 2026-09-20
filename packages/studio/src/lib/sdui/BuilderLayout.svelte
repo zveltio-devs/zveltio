@@ -22,6 +22,7 @@ import {
   ChevronDown,
   GripVertical,
 } from '@lucide/svelte';
+import { isOwnNamespace } from './guard.js';
 import type { FieldDef, ResourceView } from './types.js';
 
 let {
@@ -53,7 +54,7 @@ function fill(tmpl: string): string {
 }
 
 function guardMutation(url: string): boolean {
-  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  if (!extName || isOwnNamespace(extName, url)) return true;
   toast.error(t('ext.saveFailed'));
   return false;
 }
@@ -257,8 +258,9 @@ function labelFor(key: string): string {
 }
 
 function answers(row: Record<string, unknown>): Record<string, unknown> {
+  // `dataKey` is typed `Dotted`: `row["payload.answers"]` is always undefined.
   const key = b.secondary?.dataKey ?? 'data';
-  const d = row[key] as unknown;
+  const d = getPath(row, key) as unknown;
   if (typeof d === 'string') {
     try {
       return JSON.parse(d);
@@ -355,7 +357,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
             {#each secondaryRows as r (r.id)}
               <tr class="hover align-top">
                 <td class="text-xs whitespace-nowrap">
-                  {new Date(String(r[b.secondary.timestampKey ?? 'created_at'] ?? '')).toLocaleString()}
+                  {new Date(String(getPath(r, b.secondary.timestampKey ?? 'created_at') ?? '')).toLocaleString()}
                 </td>
                 <td>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">

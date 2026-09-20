@@ -12,13 +12,14 @@ import { m } from '$lib/i18n.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
 import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
+import { isOwnNamespace } from './guard.js';
 import type { SettingsSchema, FieldDef } from './types.js';
 
 let { schema, extName = '' }: { schema: SettingsSchema; extName?: string } = $props();
 
 // See SchemaPage: a settings page may only write its own /ext/<name>/ routes.
 function guardMutation(url: string): boolean {
-  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  if (!extName || isOwnNamespace(extName, url)) return true;
   toast.error(t('ext.saveFailed'));
   console.warn(`[sdui] blocked mutation to "${url}" — outside extension "/ext/${extName}/"`);
   return false;
@@ -29,9 +30,15 @@ const ICONS: Record<string, any> = { Play, Save };
 function infoValue(v: string): string {
   return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
 }
-function copy(v: string) {
-  navigator.clipboard?.writeText(v);
-  toast.success(t('ext.copied'));
+async function copy(v: string) {
+  try {
+    await navigator.clipboard.writeText(v);
+    toast.success(t('ext.copied'));
+  } catch {
+    // Rejects without a secure context or the permission; it used to be an
+    // unhandled rejection with "copied" shown anyway.
+    toast.error(t('ext.copyFailed'));
+  }
 }
 function t(s?: string): string {
   if (!s) return '';
@@ -92,7 +99,7 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
   busyAction = a.id;
   try {
     await api.post(a.endpoint, config);
-    toast.success(t(`${a.label} ✓`));
+    toast.success(`${t(a.label)} ✓`);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : `${t(a.label)} failed`);

@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Remove search index for \"{collection}\"?",
   "ext.confirmDelete": "Delete this item? This cannot be undone.",
   "ext.copied": "Copied to clipboard.",
+  "ext.copyFailed": "Could not copy to clipboard.",
   "ext.created": "Created successfully",
   "ext.deleted": "Deleted",
   "ext.errorPrefix": "Failed: ",

@@ -14,6 +14,7 @@ import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.sve
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
 import { ArrowLeft, LoaderCircle, Download, CheckCircle, Play } from '@lucide/svelte';
+import { isOwnNamespace } from './guard.js';
 import type { ActionDef, DetailPanel, FieldDef, ResourceView } from './types.js';
 
 let {
@@ -46,7 +47,7 @@ function fill(tmpl: string, row: Record<string, unknown> = routeParams): string 
 }
 
 function guardMutation(url: string): boolean {
-  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  if (!extName || isOwnNamespace(extName, url)) return true;
   toast.error(t('ext.saveFailed'));
   return false;
 }
@@ -65,8 +66,10 @@ let formSaving = $state<Record<string, boolean>>({});
 let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
 
 onMount(() => {
-  panelId = d.panels[0]?.id ?? '';
-  void load();
+  // Through `selectPanel`, not by assigning `panelId`: that is where a form
+  // panel's draft is created and where a tree/table/image panel is fetched.
+  // Assigning the id left panel 0 with neither.
+  void load().then(() => selectPanel(d.panels[0]?.id ?? ''));
 });
 
 async function load() {
@@ -76,8 +79,12 @@ async function load() {
     const res = await api.get(fill(d.loadEndpoint));
     record = getPath(res, d.loadPath) ?? res;
     panelData = {};
-  } catch {
+  } catch (e: unknown) {
     notFound = true;
+    // A 500 or a dropped connection used to be shown as "not found".
+    if ((e as { status?: number })?.status !== 404) {
+      toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+    }
   } finally {
     loading = false;
   }
@@ -130,15 +137,25 @@ async function selectPanel(id: string) {
   }
 }
 
+/**
+ * Cache key for a relation's options. The bare field name is not enough: two
+ * form panels can each declare `lot_id` against a different `dataSource`, and
+ * one cache slot then serves both — the second picker lists the first one's
+ * rows and the user submits a plausible id from the wrong table.
+ */
+function relKey(f: FieldDef): string {
+  return `${f.relation?.dataSource ?? ''}|${f.name}`;
+}
+
 async function loadRelations(fields: FieldDef[]) {
   for (const f of fields) {
-    if (f.type !== 'relation' || !f.relation || relationOpts[f.name]) continue;
+    if (f.type !== 'relation' || !f.relation || relationOpts[relKey(f)]) continue;
     try {
       const res = await api.get(f.relation.dataSource);
       const list = getPath(res, f.relation.dataPath) ?? [];
       const vk = f.relation.valueKey ?? 'id';
       const lk = f.relation.labelKey;
-      relationOpts[f.name] = (Array.isArray(list) ? list : []).map(
+      relationOpts[relKey(f)] = (Array.isArray(list) ? list : []).map(
         (it: Record<string, unknown>) => ({
           value: String(getPath(it, vk)),
           label: Array.isArray(lk)
@@ -150,24 +167,26 @@ async function loadRelations(fields: FieldDef[]) {
         }),
       );
     } catch {
-      relationOpts[f.name] = [];
+      relationOpts[relKey(f)] = [];
     }
   }
 }
 
 function runHeaderAction(a: ActionDef) {
   if (!record) return;
+  // Guard first: a download is a GET, but it is still a schema-supplied URL
+  // opened with the admin's cookie, and it was the one URL here no guard saw.
+  const actionUrl = fill(a.endpoint ?? '', record);
+  if (!guardMutation(actionUrl)) return;
   if (a.kind === 'download') {
-    window.open(`${ENGINE_URL}${fill(a.endpoint ?? '', record)}`, '_blank');
+    window.open(`${ENGINE_URL}${actionUrl}`, '_blank');
     return;
   }
   const go = async () => {
-    const url = fill(a.endpoint ?? '', record!);
-    if (!guardMutation(url)) return;
     try {
-      if (a.method === 'DELETE') await api.delete(url);
-      else if (a.method === 'PATCH') await api.patch(url, {});
-      else await api.post(url, {});
+      if (a.method === 'DELETE') await api.delete(actionUrl);
+      else if (a.method === 'PATCH') await api.patch(actionUrl, {});
+      else await api.post(actionUrl, {});
       toast.success(t('ext.saved'));
       await load();
     } catch (e: unknown) {
@@ -207,12 +226,12 @@ async function submitPanelForm(p: DetailPanel) {
     else await api.post(url, payload);
     toast.success(t('ext.saved'));
     await load();
-    // refresh sibling tables
-    for (const sib of d.panels) {
-      if (sib.kind === 'table' && sib.dataSource) {
-        delete panelData[sib.id];
-      }
-    }
+    // No sibling invalidation here: `load()` above resets `panelData` wholesale,
+    // which is why the old `kind === 'table'` loop never did anything.
+    // Drop the submitted draft, then let `selectPanel` rebuild an empty one.
+    // It used to keep every value, so Save stayed enabled and re-posted it.
+    delete formDrafts[id];
+    await selectPanel(id);
   } catch (e: unknown) {
     toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
   } finally {
@@ -249,6 +268,16 @@ const badgeClass = $derived(
   badgeVal && d.badge?.colors?.[badgeVal] ? d.badge.colors[badgeVal] : 'badge-ghost',
 );
 const activePanel = $derived(d.panels.find((p) => p.id === panelId));
+
+// A form panel's tab disappears when its `visibleWhen` stops matching (the
+// record's status changed under it). `panelId` kept pointing at the hidden
+// panel, and every branch of the body then fell through: no tab, no content.
+$effect(() => {
+  const p = activePanel;
+  if (!p || p.kind !== 'form' || visiblePanelForm(p)) return;
+  const next = d.panels.find((x) => x.kind !== 'form' || visiblePanelForm(x));
+  if (next) void selectPanel(next.id);
+});
 </script>
 
 <ExtensionPageShell {title} {subtitle}>
@@ -376,7 +405,7 @@ const activePanel = $derived(d.panels.find((p) => p.id === panelId));
                   <span class="label-text text-xs">{t(f.label)}</span>
                   <select class="select select-sm select-bordered" bind:value={formDrafts[activePanel.id][f.name]}>
                     <option value="">—</option>
-                    {#each (f.type === 'relation' ? (relationOpts[f.name] ?? []) : (f.options ?? [])) as o}
+                    {#each (f.type === 'relation' ? (relationOpts[relKey(f)] ?? []) : (f.options ?? [])) as o}
                       <option value={o.value}>{t(o.label) || o.value}</option>
                     {/each}
                   </select>

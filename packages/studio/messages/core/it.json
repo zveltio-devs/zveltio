@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Rimuovere l'indice di ricerca per \"{collection}\"?",
   "ext.confirmDelete": "Eliminare questo elemento? L'operazione non può essere annullata.",
   "ext.copied": "Copiato negli appunti.",
+  "ext.copyFailed": "Copia negli appunti non riuscita.",
   "ext.created": "Creato con successo",
   "ext.deleted": "Eliminato",
   "ext.errorPrefix": "Errore: ",

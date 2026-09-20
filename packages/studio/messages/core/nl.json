@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Zoekindex voor \"{collection}\" verwijderen?",
   "ext.confirmDelete": "Dit item verwijderen? Dit kan niet ongedaan worden gemaakt.",
   "ext.copied": "Gekopieerd naar klembord.",
+  "ext.copyFailed": "Kopiëren naar klembord mislukt.",
   "ext.created": "Succesvol aangemaakt",
   "ext.deleted": "Verwijderd",
   "ext.errorPrefix": "Mislukt: ",

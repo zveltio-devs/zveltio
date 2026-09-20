@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Eliminați indexul de căutare pentru „{collection}”?",
   "ext.confirmDelete": "Ștergeți acest element? Această acțiune nu poate fi anulată.",
   "ext.copied": "Copiat în clipboard.",
+  "ext.copyFailed": "Copierea în clipboard a eșuat.",
   "ext.created": "Creat cu succes",
   "ext.deleted": "Șters",
   "ext.errorPrefix": "Eșec: ",

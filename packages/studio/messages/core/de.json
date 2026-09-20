@@ -572,6 +572,7 @@
   "ext.confirm.removeSearchIndex": "Suchindex für „{collection}“ entfernen?",
   "ext.confirmDelete": "Dieses Element löschen? Dies kann nicht rückgängig gemacht werden.",
   "ext.copied": "In die Zwischenablage kopiert.",
+  "ext.copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen.",
   "ext.created": "Erfolgreich erstellt",
   "ext.deleted": "Gelöscht",
   "ext.errorPrefix": "Fehlgeschlagen: ",
