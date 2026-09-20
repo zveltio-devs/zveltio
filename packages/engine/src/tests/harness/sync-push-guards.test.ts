@@ -123,7 +123,11 @@ d('sync push guards (in-process)', () => {
         .raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`)
         .execute(db)
         .catch(() => {});
-      await db.deleteFrom('zvd_collections').where('name', '=', name).execute().catch(() => {});
+      await db
+        .deleteFrom('zvd_collections')
+        .where('name', '=', name)
+        .execute()
+        .catch(() => {});
     }
   });
 
@@ -151,7 +155,12 @@ d('sync push guards (in-process)', () => {
   it('a failing operation does not take the rest of the push with it', async () => {
     const goodId = crypto.randomUUID();
     const res = await push(godCookie, [
-      { collection: A, recordId: crypto.randomUUID(), operation: 'create', payload: { code: 'TAKEN' } },
+      {
+        collection: A,
+        recordId: crypto.randomUUID(),
+        operation: 'create',
+        payload: { code: 'TAKEN' },
+      },
       { collection: B, recordId: goodId, operation: 'create', payload: { code: 'FRESH' } },
     ]);
     const body = (await res.json()) as { results: { status: string; error?: string }[] };
