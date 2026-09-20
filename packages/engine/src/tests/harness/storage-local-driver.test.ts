@@ -8,9 +8,9 @@
  * driver reads it lazily per call, so the shared harness app picks it up.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
@@ -124,12 +124,40 @@ d('storage local-driver round-trip (in-process)', () => {
     expect(bad.status).toBe(403);
   });
 
+  it('DELETE /:id reports 500 and KEEPS the row when the bytes cannot be removed', async () => {
+    // A read-only parent directory makes unlink fail with EACCES. `force: true`
+    // only ignores ENOENT, so this is a real failure — and the route used to
+    // swallow it, answer 200 and drop the row while the bytes stayed on disk,
+    // still served by the signed URL issued at upload.
+    const onDisk = join(TMP, storagePath);
+    chmodSync(dirname(onDisk), 0o555);
+    try {
+      const res = await app.request(`/api/storage/${fileId}`, {
+        method: 'DELETE',
+        headers: { cookie },
+      });
+      expect(res.status).toBe(500);
+      expect(existsSync(onDisk)).toBe(true);
+      const row = await db
+        .selectFrom('zv_media_files')
+        .select('id')
+        .where('id', '=', fileId)
+        .executeTakeFirst();
+      expect(row).toBeTruthy();
+    } finally {
+      chmodSync(dirname(onDisk), 0o755);
+    }
+  });
+
   it('DELETE /:id removes the record and the on-disk object', async () => {
+    const onDisk = join(TMP, storagePath);
+    expect(existsSync(onDisk)).toBe(true);
     const res = await app.request(`/api/storage/${fileId}`, {
       method: 'DELETE',
       headers: { cookie },
     });
     expect(res.status).toBe(200);
+    expect(existsSync(onDisk)).toBe(false);
     const gone = await app.request(`/files/${storagePath}`);
     expect(gone.status).toBe(404);
   });
