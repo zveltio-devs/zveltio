@@ -33,6 +33,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
+import { tenantId } from '../lib/route-db.js';
 
 const TOKEN_TTL_SECONDS = 60;
 
@@ -125,7 +126,7 @@ export function electricRoutes(_db: Database, auth: any): Hono {
       );
     }
 
-    const user = c.get('user') as { id: string; tenantId?: string };
+    const user = c.get('user') as { id: string };
     const body = (await c.req.json().catch(() => null)) as { tables?: unknown } | null;
     const tables = Array.isArray(body?.tables)
       ? (body!.tables as unknown[]).filter((t): t is string => typeof t === 'string')
@@ -140,7 +141,11 @@ export function electricRoutes(_db: Database, auth: any): Hono {
       iss: 'zveltio-engine',
       aud: 'electric-sql',
     };
-    if (user.tenantId) claims.tenant_id = user.tenantId;
+    // The request's tenant, not `user.tenantId` — better-auth declares no
+    // additional fields, so that property was always undefined and the claim
+    // was never emitted. Measured: a minted token carried sub/iat/exp/iss/aud
+    // and nothing else, on an engine where the caller had a tenant.
+    claims.tenant_id = tenantId(c);
     if (tables && tables.length > 0) claims.tables = tables;
 
     const token = await signHs256(claims, cfg.authToken);
