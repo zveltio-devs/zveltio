@@ -30,7 +30,6 @@ import {
   UserPlus,
   Bot,
   Workflow,
-  LayoutGrid,
   ArrowRight,
   Shield,
   Sparkles,
@@ -637,7 +636,6 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           <a href="{base}/users" class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> {m['dashboard.inviteUser']()}</a>
           <a href="{base}/api-keys" class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> {m['nav.apiKeys']()}</a>
           <a href="{base}/flows" class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> {m['dashboard.newFlow']()}</a>
-          <a href="{base}/zones" class="btn btn-outline btn-sm justify-start gap-2"><LayoutGrid size={13} /> {m['nav.zones']()}</a>
           {#if extensions.isActive('ai')}
             <a href="{base}/ai" class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> {m['common.aiStudio']()}</a>
           {/if}

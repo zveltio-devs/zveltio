@@ -152,6 +152,19 @@ export function invalidateCollectionsCache() {
   _cache.delete('collections:field-types');
 }
 
+/**
+ * Drop every memoised response.
+ *
+ * The Studio is a single-page app: signing out and back in never reloads the
+ * page, so this Map outlives the session that filled it. What it holds is
+ * tenant-scoped — the collection list is the schema of one unit — so a hit
+ * served to the next account is a disclosure, not a stale screen. Called from
+ * `auth` whenever the signed-in identity changes.
+ */
+export function clearApiCache() {
+  _cache.clear();
+}
+
 // Typed helpers
 export const collectionsApi = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

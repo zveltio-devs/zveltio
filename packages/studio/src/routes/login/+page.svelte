@@ -111,7 +111,11 @@ async function signInWithPasskey() {
       throw new Error(body?.message ?? `Sign-in failed: HTTP ${verifyRes.status}`);
     }
     await auth.init();
-    goto(`${base}/`);
+    // The same deep link the password path honours. These two sign-in paths sat
+    // fifty lines apart and only one of them read `?redirect=`, so a person
+    // bounced off `/admin/users` and returning with a passkey landed on the
+    // dashboard instead.
+    goto(redirectTo);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // User cancellation isn't an error worth showing.

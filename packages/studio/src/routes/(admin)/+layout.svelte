@@ -24,6 +24,7 @@ import { base } from '$app/paths';
 import { page } from '$app/state';
 import { auth } from '$lib/auth.svelte.js';
 import { realtime } from '$lib/stores/realtime.svelte.js';
+import { chrome, DENSITY_KEY, SIDEBAR_KEY, THEME_KEY } from '$lib/stores/chrome.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { initExtensions, extensions } from '$lib/extensions.svelte.js';
 import { initFormat } from '$lib/stores/format.svelte.js';
@@ -42,7 +43,6 @@ import {
 } from '$lib/nav-model.js';
 import { navLabel } from '$lib/nav-i18n.js';
 import { m, i18n } from '$lib/i18n.svelte.js';
-import { studioApi } from '$lib/extension-api.svelte.js';
 import Sidebar from '$lib/components/layout/Sidebar.svelte';
 import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
 import DemoBanner from '$lib/components/common/DemoBanner.svelte';
@@ -56,29 +56,26 @@ import PreferencesMenu from '$lib/components/layout/PreferencesMenu.svelte';
 import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
 let { children } = $props();
-let collapsed = $state(false);
 let mobileOpen = $state(false);
-let dark = $state(false);
 let cmdOpen = $state(false);
 let keysOpen = $state(false);
-let density = $state<'comfortable' | 'compact'>('comfortable');
 /** Set after `installExtensionApi` — contributions must not run before the global exists. */
 let contributionApiReady = $state(false);
 
 $effect(() => {
   if (typeof localStorage !== 'undefined')
-    localStorage.setItem('zveltio-sidebar', String(collapsed));
+    localStorage.setItem(SIDEBAR_KEY, String(chrome.collapsed));
 });
 
 $effect(() => {
-  const theme = dark ? 'dark' : 'light';
+  const theme = chrome.dark ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', theme);
-  if (typeof localStorage !== 'undefined') localStorage.setItem('zveltio-theme', theme);
+  if (typeof localStorage !== 'undefined') localStorage.setItem(THEME_KEY, theme);
 });
 
 $effect(() => {
-  document.documentElement.setAttribute('data-density', density);
-  if (typeof localStorage !== 'undefined') localStorage.setItem('zveltio-density', density);
+  document.documentElement.setAttribute('data-density', chrome.density);
+  if (typeof localStorage !== 'undefined') localStorage.setItem(DENSITY_KEY, chrome.density);
 });
 
 $effect(() => {
@@ -90,13 +87,6 @@ $effect(() => {
 });
 
 onMount(async () => {
-  const sc = localStorage.getItem('zveltio-sidebar');
-  if (sc !== null) collapsed = sc === 'true';
-  const t = localStorage.getItem('zveltio-theme');
-  if (t) dark = t === 'dark';
-  const d = localStorage.getItem('zveltio-density');
-  if (d === 'compact' || d === 'comfortable') density = d;
-
   // The session check moved to `+layout.ts`, which runs BEFORE this component
   // renders — `onMount` fires after, so an unauthenticated visitor saw the
   // whole admin chrome and was then redirected. Deliberately not repeated
@@ -198,14 +188,6 @@ const paletteNavItems = $derived.by(() => {
   );
 });
 
-// Conditional desktop top-bar — only renders if an extension contributed
-// to topbar.center or topbar.right (e.g. AI extension's global prompt
-// bar). Keeps chrome minimal when nothing wants the space.
-const hasTopbarContent = $derived(
-  studioApi.getSlotContributions('topbar.center').length > 0 ||
-    studioApi.getSlotContributions('topbar.right').length > 0,
-);
-
 async function signOut() {
   // Close the realtime WS first so the next signed-in user gets a
   // fresh session instead of inheriting subscriptions from the
@@ -236,13 +218,13 @@ async function signOut() {
     <Sidebar
       {nav}
       {extNavGroups}
-      {collapsed}
-      {dark}
-      {density}
+      collapsed={chrome.collapsed}
+      dark={chrome.dark}
+      density={chrome.density}
       user={auth.user}
-      onToggleCollapse={() => (collapsed = !collapsed)}
-      onToggleDark={() => (dark = !dark)}
-      onToggleDensity={() => (density = density === 'compact' ? 'comfortable' : 'compact')}
+      onToggleCollapse={() => (chrome.collapsed = !chrome.collapsed)}
+      onToggleDark={() => (chrome.dark = !chrome.dark)}
+      onToggleDensity={() => (chrome.density = chrome.density === 'compact' ? 'comfortable' : 'compact')}
       onSignOut={signOut}
     />
 
@@ -274,8 +256,8 @@ async function signOut() {
           <button onclick={() => (cmdOpen = true)} aria-label={m['shell.search']()} class="btn btn-ghost btn-sm" title={m['shell.search']()}>
             <Search size={16} />
           </button>
-          <button onclick={() => (dark = !dark)} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} class="btn btn-ghost btn-sm">
-            {#if dark}<Sun size={16} />{:else}<Moon size={16} />{/if}
+          <button onclick={() => (chrome.dark = !chrome.dark)} aria-label={chrome.dark ? 'Switch to light mode' : 'Switch to dark mode'} class="btn btn-ghost btn-sm">
+            {#if chrome.dark}<Sun size={16} />{:else}<Moon size={16} />{/if}
           </button>
         </div>
       </header>
@@ -305,10 +287,10 @@ async function signOut() {
         <div class="ml-auto flex items-center gap-1">
           <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'desktop' }} />
           <PreferencesMenu
-            {dark}
-            {density}
-            onToggleDark={() => (dark = !dark)}
-            onToggleDensity={() => (density = density === 'compact' ? 'comfortable' : 'compact')}
+            dark={chrome.dark}
+            density={chrome.density}
+            onToggleDark={() => (chrome.dark = !chrome.dark)}
+            onToggleDensity={() => (chrome.density = chrome.density === 'compact' ? 'comfortable' : 'compact')}
           />
         </div>
       </header>

@@ -7,11 +7,21 @@
  * reports which one is missing so the UI can say so rather than showing a
  * toggle that does nothing.
  *
- * The service worker is `/push-sw.js` — a browser delivers a push only to a
- * worker, so the registration is not optional.
+ * The service worker is `<base>/push-sw.js` — a browser delivers a push only
+ * to a worker, so the registration is not optional.
+ *
+ * The path carries `base`. `static/push-sw.js` is built into the Studio's
+ * `dist`, and the engine serves that tree under `/admin/*` only; the site root
+ * is the public web host, whose static directory has no such file. Registering
+ * `/push-sw.js` therefore 404s on every embedded install — which is the default
+ * one — and `subscribeToWebPush()` rejects before it ever reaches the engine.
  */
 
+import { base } from '$app/paths';
 import { api } from './api.js';
+
+/** Where the push worker is actually served from. */
+const PUSH_SW = `${base}/push-sw.js`;
 
 export type WebPushState =
   | 'unsupported' // no Push API in this browser
@@ -59,7 +69,7 @@ export async function webPushStatus(): Promise<WebPushState> {
   if ((await serverPublicKey()) === null) return 'disabled-on-server';
   if (Notification.permission === 'denied') return 'denied';
 
-  const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
+  const reg = await navigator.serviceWorker.getRegistration(PUSH_SW);
   const existing = await reg?.pushManager.getSubscription();
   return existing ? 'subscribed' : 'unsubscribed';
 }
@@ -80,7 +90,7 @@ export async function subscribeToWebPush(): Promise<WebPushState> {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return permission === 'denied' ? 'denied' : 'unsubscribed';
 
-  const reg = await navigator.serviceWorker.register('/push-sw.js');
+  const reg = await navigator.serviceWorker.register(PUSH_SW);
   await navigator.serviceWorker.ready;
 
   const sub =
@@ -112,7 +122,7 @@ export async function subscribeToWebPush(): Promise<WebPushState> {
 export async function unsubscribeFromWebPush(): Promise<WebPushState> {
   if (!isSupported()) return 'unsupported';
 
-  const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
+  const reg = await navigator.serviceWorker.getRegistration(PUSH_SW);
   const sub = await reg?.pushManager.getSubscription();
   if (!sub) return 'unsubscribed';
 
