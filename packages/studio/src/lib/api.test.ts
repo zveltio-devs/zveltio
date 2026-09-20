@@ -174,3 +174,31 @@ describe('api — the error envelope', () => {
     expect(err.message).toContain('traceability');
   });
 });
+
+describe('api — the 30s response cache and who it belongs to', () => {
+  it('does not serve one account its predecessor cached collections', async () => {
+    // `collectionsApi.list()` is memoised for 30 seconds in a module-level Map.
+    // The Studio is a single-page app: signing out and signing back in never
+    // reloads the page, so that Map outlives the session that filled it. The
+    // collection list is tenant-scoped, which makes a stale hit a disclosure of
+    // another unit's schema, not merely a stale screen.
+    const { auth } = await import('./auth.svelte.js');
+    const { collectionsApi } = await import('./api.js');
+
+    respond(200, { user: { id: 'user-a' } });
+    await auth.signIn('a@example.test', 'pw');
+
+    respond(200, { collections: [{ name: 'county_payroll' }] });
+    const first = await collectionsApi.list();
+    expect(first.collections[0]!.name).toBe('county_payroll');
+
+    respond(200, {});
+    await auth.signOut();
+    respond(200, { user: { id: 'user-b' } });
+    await auth.signIn('b@example.test', 'pw');
+
+    respond(200, { collections: [{ name: 'district_invoices' }] });
+    const second = await collectionsApi.list();
+    expect(second.collections[0]!.name).toBe('district_invoices');
+  });
+});

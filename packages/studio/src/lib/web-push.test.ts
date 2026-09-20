@@ -16,6 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isSupported, subscribeToWebPush, unsubscribeFromWebPush, webPushStatus } from './web-push';
 import { api } from './api';
 
+// The real deployment mounts the Studio at /admin. The `$app/paths` stub under
+// `tests/stubs` answers `base = ''`, and that is exactly why no test could see
+// that the push worker was being registered at the site root — where the engine
+// does not serve it.
+vi.mock('$app/paths', () => ({ base: '/admin', assets: '' }));
+
 const PUBLIC_KEY =
   'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8';
 
@@ -172,5 +178,38 @@ describe('unsubscribeFromWebPush', () => {
     const del = vi.spyOn(api, 'delete');
     expect(await unsubscribeFromWebPush()).toBe('unsubscribed');
     expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('web push — where the service worker is', () => {
+  it('registers the worker under the Studio base path, not at the site root', async () => {
+    // `static/push-sw.js` is built into the Studio's dist, and the engine serves
+    // that tree under `/admin/*` only — the site root is the public web host,
+    // whose static directory has no such file. Registering `/push-sw.js` 404s on
+    // every embedded install, which is the default one, so subscribing failed
+    // before it ever reached the engine.
+    installBrowser({ permission: 'granted', existing: null });
+    vi.spyOn(api, 'get').mockResolvedValue({ enabled: true, publicKey: PUBLIC_KEY });
+    vi.spyOn(api, 'post').mockResolvedValue({ success: true });
+
+    expect(await subscribeToWebPush()).toBe('subscribed');
+
+    const sw = (g.navigator as { serviceWorker: { register: ReturnType<typeof vi.fn> } })
+      .serviceWorker;
+    expect(sw.register).toHaveBeenCalledWith('/admin/push-sw.js');
+  });
+
+  it('looks for the existing registration at the same path', async () => {
+    // Two call sites read it and one call site writes it. A path fixed in the
+    // writer and left in a reader reports `unsubscribed` for a browser that is
+    // in fact subscribed.
+    installBrowser({ permission: 'granted', existing: fakeSubscription() });
+    vi.spyOn(api, 'get').mockResolvedValue({ enabled: true, publicKey: PUBLIC_KEY });
+
+    expect(await webPushStatus()).toBe('subscribed');
+
+    const sw = (g.navigator as { serviceWorker: { getRegistration: ReturnType<typeof vi.fn> } })
+      .serviceWorker;
+    expect(sw.getRegistration).toHaveBeenCalledWith('/admin/push-sw.js');
   });
 });
