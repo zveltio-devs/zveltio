@@ -227,6 +227,7 @@ async function submit() {
   aria-modal="true"
   role="dialog"
   aria-hidden={!open}
+  {...{ inert: !open || undefined }}
 >
   <!-- Backdrop -->
   <div

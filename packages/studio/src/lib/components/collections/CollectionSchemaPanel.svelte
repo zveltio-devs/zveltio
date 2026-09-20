@@ -1,6 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
-import { Plus, Trash2, X, ArrowRight, GitFork, Columns, GripVertical } from '@lucide/svelte';
+import { Plus, Trash2, X, ArrowRight, GitFork, Columns } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -451,7 +451,6 @@ let confirmState = $state<{
           {#each customFields as field (field.name)}
             <div class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-base-100
                         border border-base-200 hover:border-base-300 group transition-colors">
-              <GripVertical size={14} class="text-base-content/55 cursor-grab shrink-0" />
               <code class="font-mono text-sm font-semibold min-w-0 truncate flex-1">
                 {field.name}
               </code>
@@ -468,14 +467,14 @@ let confirmState = $state<{
                     {m2oTargetMap[field.name]}
                   </span>
                 {/if}
-                {#if field.required}<span class="badge badge-xs badge-warning">required</span>{/if}
+                {#if field.required}<span class="badge badge-xs badge-warning">{m['common.required']()}</span>{/if}
                 {#if field.unique}<span class="badge badge-xs badge-info">unique</span>{/if}
                 {#if field.indexed}<span class="badge badge-xs badge-ghost">indexed</span>{/if}
               </div>
               <button
                 onclick={() => deleteField(field.name)}
                 class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
-                title={m['data.deleteRecord']()}
+                title={m['fields.deleteField']()}
               >
                 <Trash2 size={13} />
               </button>
@@ -545,12 +544,12 @@ let confirmState = $state<{
       </h2>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
         {#each [
-          { name: 'id',         type: 'uuid',      note: 'Primary key'         },
-          { name: 'created_at', type: 'timestamp', note: 'Auto-set on insert'  },
-          { name: 'updated_at', type: 'timestamp', note: 'Auto-updated'        },
-          { name: 'status',     type: 'text',      note: 'active/draft/archived'},
-          { name: 'created_by', type: 'uuid',      note: 'User who created'    },
-          { name: 'updated_by', type: 'uuid',      note: 'User who last updated'},
+          { name: 'id',         type: 'uuid'      },
+          { name: 'created_at', type: 'timestamp' },
+          { name: 'updated_at', type: 'timestamp' },
+          { name: 'status',     type: 'text'      },
+          { name: 'created_by', type: 'uuid'      },
+          { name: 'updated_by', type: 'uuid'      },
         ] as sf}
           <div class="flex items-center gap-2 px-3 py-2 rounded-lg opacity-35 bg-base-200">
             <code class="font-mono text-xs flex-1">{sf.name}</code>
@@ -577,7 +576,7 @@ let confirmState = $state<{
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />
