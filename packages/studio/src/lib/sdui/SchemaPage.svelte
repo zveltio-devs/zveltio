@@ -8,6 +8,8 @@ import Modal from '$lib/components/common/Modal.svelte';
  */
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import { isOwnNamespace } from './guard.js';
+import { hasNextPage, showPager } from './paging.js';
 import { ENGINE_URL } from '$lib/config.js';
 import { m } from '$lib/i18n.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -64,7 +66,7 @@ let {
 // admin's cookie. Reads (GET) are not gated here (lower risk + the validator
 // already covers them).
 function guardMutation(url: string): boolean {
-  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  if (!extName || isOwnNamespace(extName, url)) return true;
   toast.error(t('ext.saveFailed'));
   console.warn(
     `[sdui] blocked mutation to "${url}" — outside extension namespace "/ext/${extName}/"`,
@@ -143,7 +145,7 @@ $effect(() => {
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let rows = $state<any[]>([]);
-let total = $state(0);
+let total = $state<number | undefined>(0);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let statData = $state<Record<string, any> | null>(null);
 let loading = $state(false);
@@ -271,6 +273,7 @@ async function runLookup(f: FieldDef, data: Record<string, any>) {
       body[f.name] = String(data[f.name] ?? '');
     }
     const method = f.lookup.method ?? 'POST';
+    if (method !== 'GET' && !guardMutation(f.lookup.endpoint)) return;
     const res =
       method === 'GET' ? await api.get(f.lookup.endpoint) : await api.post(f.lookup.endpoint, body);
     for (const [target, path] of Object.entries(f.lookup.map)) {
@@ -505,7 +508,7 @@ async function load() {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const res = await api.get<any>(url);
     rows = getPath(res, r.dataPath) ?? [];
-    total = r.totalPath ? (getPath(res, r.totalPath) ?? 0) : rows.length;
+    total = r.totalPath ? (getPath(res, r.totalPath) ?? 0) : undefined;
     loadRelationColumns(r);
     if (r.stats) {
       try {
@@ -532,6 +535,9 @@ $effect(() => {
   activeId;
   pageNum;
   JSON.stringify(filterValues);
+  // The ids were picked from rows that are about to be replaced; keeping them
+  // would send the previous tab's/page's ids to this resource's bulk endpoint.
+  selectedIds = new Set();
   load();
 });
 
@@ -921,7 +927,9 @@ let formPreview = $state<{
 async function submitForm() {
   const F = active.form!;
   const sub = F.submit?.kind;
-  if (!guardMutation(F.endpoint)) return;
+  // Guard the SUBSTITUTED url: `{token}` values come from the form, so guarding
+  // the template alone lets a typed value walk out of the namespace.
+  if (!guardMutation(fillEndpoint(F.endpoint, formData))) return;
 
   // download: open the GET endpoint (path tokens filled, rest → querystring) in a new tab.
   if (sub === 'download') {
@@ -945,6 +953,7 @@ async function submitForm() {
     saving = true;
     try {
       const ep = fillEndpoint(F.preview.endpoint, formData);
+      if (!guardMutation(ep)) return;
       // biome-ignore lint/suspicious/noExplicitAny: preview API
       const res = (await api.post(ep, {})) as any;
       const root = F.preview.statsPath ? getPath(res, F.preview.statsPath) : (res?.data ?? res);
@@ -1429,7 +1438,7 @@ const shellTabs = $derived(
                       </select>
                     {:else}
                       <input class="input input-xs w-full" value={getPath(row, col.key) ?? ''}
-                        onblur={(e) => inlineEdit(row, col, (e.currentTarget as HTMLInputElement).value)} />
+                        onchange={(e) => inlineEdit(row, col, (e.currentTarget as HTMLInputElement).value)} />
                     {/if}
                   {:else if col.type === 'badge'}
                     <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
@@ -1484,11 +1493,11 @@ const shellTabs = $derived(
   </ExtensionDataPanel>
   {/if}
 
-  {#if active.pagination && total > active.pagination.limit}
+  {#if active.pagination && showPager({ limit: active.pagination.limit, pageNum, rowCount: rows.length, total })}
     <div class="flex justify-center gap-2 mt-4">
       <button type="button" class="btn btn-sm" disabled={pageNum === 1} onclick={() => pageNum--}>{t('common.prev')}</button>
-      <span class="btn btn-sm btn-disabled">{pageNum} / {Math.ceil(total / active.pagination.limit) || 1}</span>
-      <button class="btn btn-sm" disabled={pageNum * active.pagination.limit >= total} onclick={() => pageNum++}>{t('common.next')}</button>
+      <span class="btn btn-sm btn-disabled">{total === undefined ? pageNum : `${pageNum} / ${Math.ceil(total / active.pagination.limit) || 1}`}</span>
+      <button class="btn btn-sm" disabled={!hasNextPage({ limit: active.pagination.limit, pageNum, rowCount: rows.length, total })} onclick={() => pageNum++}>{t('common.next')}</button>
     </div>
   {/if}
 
