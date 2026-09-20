@@ -651,8 +651,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       } catch (err) {
         // Keep the row: it is the only record that would let anyone find the
         // orphaned bytes, which the signed URL from upload still serves.
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        console.error('storage: delete failed', (file as any).id, err);
+        console.error('storage: delete failed', c.req.param('id'), err);
         return c.json({ error: 'Failed to delete file from storage' }, 500);
       }
     }
