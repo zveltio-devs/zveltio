@@ -13,12 +13,14 @@ import {
   applyColumnAccess,
   applyRlsFilters,
   checkPermission,
+  filterWritableFields,
   getColumnAccess,
   getRlsFilters,
   resolveUserRole,
 } from '../lib/tenancy/index.js';
 import { DDLManager, afterWrite, processInput, serializeRecord } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
+import { withSavepoint } from '../lib/savepoint.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function syncRoutes(db: Database, _auth: any): Hono {
@@ -59,6 +61,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     collectionName: string,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     raw: Record<string, any>,
+    actor: { id: string; role: string },
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
     const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
@@ -101,7 +104,25 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       return { safe: false, reason: errors.join('; ') };
     }
 
-    return { safe: true, payload: processed };
+    // Column-level WRITE permissions, the same check `/api/data` makes.
+    //
+    // Sanitizing covered the column allowlist and the field pipeline and
+    // stopped there. Measured: a member for whom `salary` is `can_write: false`
+    // got 403 from `PATCH /api/data/<coll>/<id>` and wrote the same column
+    // through `POST /api/sync/push`. Pull already applies `getColumnAccess`
+    // (see below) — only the write half was missing.
+    const writeAccess = await getColumnAccess(
+      db,
+      collectionName.replace(/^zvd_/, ''),
+      actor.role,
+      actor.id,
+    );
+    const { data: writable, blocked } = filterWritableFields(processed, writeAccess);
+    if (blocked.length > 0) {
+      return { safe: false, reason: `Fields are read-only for your role: ${blocked.join(', ')}` };
+    }
+
+    return { safe: true, payload: writable };
   }
 
   /**
@@ -202,7 +223,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
       // Sanitize payload — strip system fields, validate known columns
       if (op.operation !== 'delete') {
-        const sanitized = await sanitizeSyncPayload(op.collection, op.payload);
+        const sanitized = await sanitizeSyncPayload(op.collection, op.payload, {
+          id: user.id,
+          role: user.role,
+        });
         if (!sanitized.safe) {
           results.push({
             recordId: op.recordId,
@@ -238,13 +262,36 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           updated_by: (c.get('user') as any).id,
           ...payload,
         }));
-        await effectiveDb
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .insertInto(collection as any)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .values(records as any)
-          .onConflict((oc) => oc.column('id').doNothing())
-          .execute();
+        // RETURNING, because `onConflict(...).doNothing()` silently skips a row
+        // whose id already exists. Without it every create was reported `ok`:
+        // the client marked its offline write as synced and dropped it, the row
+        // on the server still held the OLD values, and `afterWrite` below wrote
+        // a revision for a write that never happened — so `?as_of=` showed a
+        // version the table never had.
+        // A SAVEPOINT per collection. Postgres aborts the WHOLE transaction on
+        // any failed statement, and `effectiveDb` is the request's tenant
+        // transaction — measured: a unique-violation on the first operation
+        // made every later operation in the same push answer `25P02 current
+        // transaction is aborted`, so one bad row lost the other 499 and blamed
+        // them for it.
+        const inserted = await withSavepoint(
+          effectiveDb,
+          'sync_push_create',
+          () =>
+            effectiveDb
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+              .insertInto(collection as any)
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+              .values(records as any)
+              .onConflict((oc) => oc.column('id').doNothing())
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+              .returning('id' as any)
+              .execute(),
+          (err) => {
+            throw err;
+          },
+        );
+        const insertedIds = new Set(inserted.map((r) => (r as { id: string }).id));
         // Post-write side effects, per row, exactly as the bulk handler does
         // for `POST /:collection/bulk` — revision history, realtime, webhooks,
         // engine events. A sync push had none of them, so a record created
@@ -270,6 +317,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         // revision, webhook and realtime nudge that should follow them.
         const syncTid = tenantId(c);
         for (const { recordId, payload } of creates) {
+          if (!insertedIds.has(recordId)) {
+            // The id is already taken. `conflict` is the status the client needs
+            // to re-pull and reconcile; `ok` told it to throw its copy away.
+            results.push({ recordId, status: 'conflict' });
+            continue;
+          }
           results.push({ recordId, status: 'ok', serverVersion: now });
           await afterWrite(effectiveDb, {
             collection,
@@ -321,30 +374,69 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             // is not matched and the update is a no-op. The sync push path wrote
             // by id with no row-level check at all, which made it a way around
             // the policies the /api/data handlers enforce.
-            await applyRlsFilters(
-              effectiveDb
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                .updateTable(collection as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                .set({ ...payload, updated_by: syncUser().id } as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                .where('id' as any, '=', recordId),
-              await syncRlsFilters(collection),
-            ).execute();
-            results.push({ recordId, status: 'ok', serverVersion: Date.now() });
+            // RETURNING again: the RLS conditions are in the WHERE, so a row the
+            // caller may not touch simply does not match and the statement
+            // affects nothing. Reporting `ok` for that told the client its
+            // offline edit had landed on a row it is not allowed to write.
+            // Same SAVEPOINT reason as the create branch above: one failed
+            // statement would otherwise abort the request's transaction and
+            // every later operation in the push with it.
+            const updateFilters = await syncRlsFilters(collection);
+            const touched = await withSavepoint(
+              effectiveDb,
+              'sync_push_update',
+              () =>
+                applyRlsFilters(
+                  effectiveDb
+                    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                    .updateTable(collection as any)
+                    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                    .set({ ...payload, updated_by: syncUser().id } as any)
+                    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                    .where('id' as any, '=', recordId),
+                  updateFilters,
+                )
+                  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                  .returning('id' as any)
+                  .execute(),
+              (err) => {
+                throw err;
+              },
+            );
+            results.push(
+              touched.length > 0
+                ? { recordId, status: 'ok', serverVersion: Date.now() }
+                : { recordId, status: 'conflict' },
+            );
             break;
           }
 
           case 'delete': {
-            await applyRlsFilters(
-              effectiveDb
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                .deleteFrom(collection as any)
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                .where('id' as any, '=', recordId),
-              await syncRlsFilters(collection),
-            ).execute();
-            results.push({ recordId, status: 'ok', serverVersion: Date.now() });
+            const deleteFilters = await syncRlsFilters(collection);
+            const removed = await withSavepoint(
+              effectiveDb,
+              'sync_push_delete',
+              () =>
+                applyRlsFilters(
+                  effectiveDb
+                    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                    .deleteFrom(collection as any)
+                    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                    .where('id' as any, '=', recordId),
+                  deleteFilters,
+                )
+                  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+                  .returning('id' as any)
+                  .execute(),
+              (err) => {
+                throw err;
+              },
+            );
+            results.push(
+              removed.length > 0
+                ? { recordId, status: 'ok', serverVersion: Date.now() }
+                : { recordId, status: 'conflict' },
+            );
             break;
           }
 

@@ -117,6 +117,13 @@ export function getMemoryReport(): {
     heapEfficiency: string;
   };
 } {
+  // Sample on read. `startMemorySampling` has no caller outside the tests, so
+  // `memoryStats` was never written and /metrics published
+  // `zveltio_memory_peak_heap_used_bytes 0` next to a live heap of 31 MB —
+  // measured on the harness app. An alert on peak heap could never fire.
+  // ponytail: peak is now the peak ACROSS SCRAPES, not a 60 s sample; call
+  // startMemorySampling() at boot if a spike between scrapes has to be caught.
+  updatePeakStats();
   const current = getMemoryUsage();
   const peak = getPeakStats();
   const heapUsagePercent = Math.round((current.heapUsed / current.heapTotal) * 100);

@@ -77,6 +77,20 @@ describe('peak stats', () => {
   });
 });
 
+describe('getMemoryReport peak', () => {
+  it('records a peak without anyone starting the sampler', () => {
+    // `startMemorySampling` has no caller outside these tests, so `memoryStats`
+    // was never written and /metrics published
+    // `zveltio_memory_peak_heap_used_bytes 0` beside a live heap of 31 MB.
+    resetMemoryStats();
+    expect(getPeakStats().peakHeapUsed).toBe(0);
+    stubUsage(64, 128);
+    const report = getMemoryReport();
+    expect(report.peak.peakHeapUsed).toBe(64 * MB);
+    expect(report.peak.samples).toBeGreaterThan(0);
+  });
+});
+
 describe('getMemoryReport efficiency thresholds', () => {
   it('reports Good below 80% heap usage', () => {
     stubUsage(50, 100);

@@ -13,7 +13,7 @@ import { electricRoutes, _internalForTests } from '../../routes/electric.js';
  *   - The shared secret never appears in any response body.
  */
 
-const fakeAuth = (user: { id: string; tenantId?: string } | null) => ({
+const fakeAuth = (user: { id: string } | null) => ({
   api: {
     async getSession() {
       return user ? { user } : null;
@@ -36,8 +36,21 @@ afterEach(() => {
   else process.env.ELECTRIC_AUTH_TOKEN = prevToken;
 });
 
-function makeApp(user: { id: string; tenantId?: string } | null) {
+/**
+ * `tenant` is what the engine's tenant middleware puts on the context; the mint
+ * reads it through `tenantId(c)`. It used to read `user.tenantId` instead — a
+ * property better-auth never sets, so the claim was never emitted — and this
+ * test stayed green only because `fakeAuth` hand-built a user shape the real
+ * session does not have. Set the tenant where the real request carries it.
+ */
+function makeApp(user: { id: string } | null, tenant?: { id: string }) {
   const app = new Hono();
+  if (tenant) {
+    app.use('*', async (c, next) => {
+      c.set('tenant', tenant);
+      await next();
+    });
+  }
   app.route('/api/electric', electricRoutes({} as never, fakeAuth(user)));
   return app;
 }
@@ -75,7 +88,7 @@ describe('S5-07 electric route — token mint', () => {
   it('mints a HS256 JWT with sub + exp + aud claims', async () => {
     process.env.ELECTRIC_URL = 'wss://electric.test';
     process.env.ELECTRIC_AUTH_TOKEN = 'shared-secret';
-    const app = makeApp({ id: 'user-42', tenantId: 'tenant-7' });
+    const app = makeApp({ id: 'user-42' }, { id: 'tenant-7' });
 
     const res = await app.request('/api/electric/auth', {
       method: 'POST',
