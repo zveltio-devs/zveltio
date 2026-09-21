@@ -148,7 +148,6 @@ let cat = $state('all');
  */
 const CATEGORIES = $derived([...new Set(extensions.map((e) => e.category))].sort());
 
-
 const filtered = $derived(
   extensions.filter((e) => {
     const q = searchQuery.toLowerCase();
