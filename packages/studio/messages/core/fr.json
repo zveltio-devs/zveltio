@@ -220,6 +220,7 @@
   "collections.systemField": "Champ système — ajouté automatiquement, à retirer",
   "collections.targetCollection": "Collection cible… *",
   "collections.viewDiagram": "Voir le schéma en diagramme",
+  "common.accessRestricted": "Accès restreint",
   "common.actions": "Actions",
   "common.add": "Ajouter",
   "common.added": "Ajouté",

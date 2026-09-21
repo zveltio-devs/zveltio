@@ -47,7 +47,10 @@ const coreItemLabel = (key: string) => {
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
   if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
-  return cur.startsWith(href);
+  // Boundary-aware: a bare `startsWith` marks `/admin/users` active on
+  // `/admin/users-audit`. Extension page paths come from manifests, so the
+  // collision is one sibling repository away, not a hypothetical.
+  return cur === href || cur.startsWith(`${href}/`);
 }
 </script>
 
@@ -55,7 +58,7 @@ function isActive(href: string): boolean {
   <button
     type="button"
     class="fixed inset-0 z-40 bg-black/50 lg:hidden cursor-default"
-    aria-label={m['shell.openMenu']()}
+    aria-label={m['common.close']()}
     onclick={onClose}
   ></button>
 
@@ -66,7 +69,7 @@ function isActive(href: string): boolean {
         <span class="text-primary-content font-bold text-sm">Z</span>
       </div>
       <span class="font-semibold text-sm tracking-tight text-base-content">Zveltio</span>
-      <button type="button" onclick={onClose} aria-label={m['shell.openMenu']()} class="btn btn-ghost btn-xs ml-auto">
+      <button type="button" onclick={onClose} aria-label={m['common.close']()} class="btn btn-ghost btn-xs ml-auto">
         <X size={16} />
       </button>
     </div>

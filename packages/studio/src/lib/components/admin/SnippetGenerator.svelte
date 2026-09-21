@@ -1,6 +1,7 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
 import { Code, Copy, Check } from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
 interface Props {
   collectionName: string;
@@ -90,7 +91,15 @@ curl -X PATCH http://localhost:3000/api/data/${collectionName}/RECORD_ID \\
 });
 
 async function copyToClipboard(text: string) {
-  await navigator.clipboard.writeText(text);
+  // `writeText` rejects without a secure context or the clipboard permission.
+  // Unhandled, it left the tick showing as if the snippet had been copied —
+  // the same defect repaired in `SettingsPage.copy` (C03).
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    toast.error(m['ext.copyFailed']());
+    return;
+  }
   copied = true;
   setTimeout(() => {
     copied = false;

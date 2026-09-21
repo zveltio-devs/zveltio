@@ -250,6 +250,11 @@ function checkKeyReferences(): string[] {
   };
 
   walk(join(STUDIO, 'src', 'routes'));
+  // `src/lib` too: the shared components crash the same way, and the scan used
+  // to stop at `routes`. `PasskeysSection` shipped `m['passkeys.unsupportedLong']`
+  // — a key in no catalogue, on the branch every browser without WebAuthn takes
+  // — under a gate that reported "every message key resolves".
+  walk(join(STUDIO, 'src', 'lib'));
   return broken;
 }
 
