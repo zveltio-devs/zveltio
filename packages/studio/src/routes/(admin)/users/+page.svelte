@@ -27,20 +27,25 @@ const inviteSchema: FormSchema = {
     {
       name: 'email',
       type: 'email',
-      label: 'Email',
+      label: m['common.col.email'](),
       required: true,
-      placeholder: 'user@example.com',
+      placeholder: m['users.phEmail'](),
     },
-    { name: 'name', type: 'text', label: 'Name (optional)', placeholder: 'John Doe' },
+    {
+      name: 'name',
+      type: 'text',
+      label: m['users.nameOptional'](),
+      placeholder: m['users.phName'](),
+    },
     {
       name: 'role',
       type: 'select',
-      label: 'Role',
+      label: m['common.col.role'](),
       required: true,
       options: [
-        { value: 'member', label: 'Member' },
-        { value: 'manager', label: 'Manager' },
-        { value: 'admin', label: 'Admin' },
+        { value: 'member', label: m['roles.member']() },
+        { value: 'manager', label: m['roles.manager']() },
+        { value: 'admin', label: m['roles.admin']() },
       ],
     },
   ],
@@ -171,7 +176,7 @@ async function deleteUser(id: string, email: string) {
   confirmState = {
     open: true,
     title: m['confirm.deleteUser.title'](),
-    message: `Delete user ${email}?`,
+    message: m['users.deleteMsg']({ email }),
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
@@ -190,9 +195,9 @@ async function deleteSelected() {
   if (ids.length === 0) return;
   confirmState = {
     open: true,
-    title: `Delete ${ids.length} user${ids.length === 1 ? '' : 's'}`,
-    message: `Permanently remove ${ids.length} selected user${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
-    confirmLabel: `Delete ${ids.length}`,
+    title: m['users.bulkDeleteTitle']({ count: ids.length }),
+    message: m['users.bulkDeleteMsg']({ count: ids.length }),
+    confirmLabel: m['common.deleteCount']({ count: ids.length }),
     onconfirm: async () => {
       confirmState.open = false;
       const results = await Promise.allSettled(ids.map((id) => usersApi.delete(id)));
@@ -256,17 +261,17 @@ function confirmDelete(user: any) {
   {loading}
   search={search}
   onSearchChange={(v) => (search = v)}
-  searchPlaceholder="Search users..."
+  searchPlaceholder={m['users.searchPlaceholder']()}
   searchThreshold={0}
-  actionLabel="Invite User"
+  actionLabel={m['users.inviteUser']()}
   actionIcon={UserPlus}
   onAction={() => (showInviteModal = true)}
   empty={{
     illustration: 'list',
     illustrationColor: 'text-primary',
-    title: 'Bring your team in',
-    description: 'Invite teammates with the right role and they\'ll get an email to set up their account.',
-    actionLabel: 'Invite user',
+    title: m['users.emptyTitle'](),
+    description: m['users.emptyDesc'](),
+    actionLabel: m['users.inviteUser'](),
     onAction: () => (showInviteModal = true),
   }}
 >
@@ -327,7 +332,7 @@ function confirmDelete(user: any) {
                      <div class="text-sm font-medium">
                        <InlineEdit
                          value={user.name ?? ''}
-                         label="Edit user name"
+                         label={m['users.editName']()}
                          placeholder="—"
                          onsave={(next) => renameUser(user.id, next)}
                        />
@@ -403,7 +408,7 @@ function confirmDelete(user: any) {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />

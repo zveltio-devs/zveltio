@@ -10,7 +10,7 @@
  * host whose core catalogue happens to know about it, which is not a property
  * an installable extension should depend on.
  *
- * Source: packages/studio/messages/core/en.json (206 keys)
+ * Source: packages/studio/messages/core/en.json (210 keys)
  */
 export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.accessRestricted',
@@ -123,6 +123,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.copyShort',
   'common.create',
   'common.delete',
+  'common.deleteCount',
   'common.deleteFailed',
   'common.discard',
   'common.dismiss',
@@ -148,6 +149,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.nameRequired',
   'common.new',
   'common.next',
+  'common.no',
   'common.noResults',
   'common.notFound',
   'common.op.delete',
@@ -179,6 +181,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.selectPlaceholder',
   'common.selected',
   'common.send',
+  'common.somethingWrong',
   'common.status.approved',
   'common.status.cancelled',
   'common.status.draft',
@@ -199,6 +202,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.verifyingPermissions',
   'common.view',
   'common.viewAll',
+  'common.yes',
   'ext.approved',
   'ext.confirm.deleteForm',
   'ext.confirm.deleteNamed',

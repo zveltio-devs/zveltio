@@ -260,10 +260,10 @@ const m2oTargetMap = $derived.by(() => {
   <div class="border-b border-base-200 mb-6">
     <div class="flex gap-0">
       {#each [
-        { id: 'data' as Tab,     label: 'Data',     Icon: Database  },
-        { id: 'schema' as Tab,   label: 'Schema',   Icon: Layers    },
-        { id: 'api' as Tab,      label: 'API',      Icon: Code      },
-        { id: 'settings' as Tab, label: 'Settings', Icon: Settings  },
+        { id: 'data' as Tab,     label: m['collections.tab.data'](),     Icon: Database  },
+        { id: 'schema' as Tab,   label: m['collections.tab.schema'](),   Icon: Layers    },
+        { id: 'api' as Tab,      label: 'API',                           Icon: Code      },
+        { id: 'settings' as Tab, label: m['collections.tab.settings'](), Icon: Settings  },
       ] as tab}
         <button
           onclick={() => setTab(tab.id)}

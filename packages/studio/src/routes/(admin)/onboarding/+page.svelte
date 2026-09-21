@@ -132,7 +132,7 @@ async function createApiKey() {
   loading = true;
   try {
     const res = await api.post<{ key: string }>('/api/admin/api-keys', {
-      name: keyName || 'My App',
+      name: keyName || m['onboarding.defaultAppName'](),
       scopes: firstKeyScopes(),
     });
     apiKey = res.key ?? '';

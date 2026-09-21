@@ -53,14 +53,24 @@ let {
 
 // Category definitions with icons and colors
 const categories = [
-  { id: 'text', label: 'Text', Icon: Type, color: 'text-blue-500' },
-  { id: 'number', label: 'Number', Icon: Hash, color: 'text-green-500' },
-  { id: 'date', label: 'Date & Time', Icon: Calendar, color: 'text-orange-500' },
-  { id: 'media', label: 'Media', Icon: Image, color: 'text-purple-500' },
-  { id: 'relation', label: 'Relations', Icon: GitBranch, color: 'text-pink-500' },
-  { id: 'location', label: 'Location', Icon: MapPin, color: 'text-teal-500' },
-  { id: 'special', label: 'Special', Icon: Layers, color: 'text-yellow-500' },
-  { id: 'advanced', label: 'Advanced', Icon: Database, color: 'text-gray-500' },
+  { id: 'text', label: () => m['fields.cat.text'](), Icon: Type, color: 'text-blue-500' },
+  { id: 'number', label: () => m['fields.cat.number'](), Icon: Hash, color: 'text-green-500' },
+  { id: 'date', label: () => m['fields.cat.date'](), Icon: Calendar, color: 'text-orange-500' },
+  { id: 'media', label: () => m['fields.cat.media'](), Icon: Image, color: 'text-purple-500' },
+  {
+    id: 'relation',
+    label: () => m['fields.cat.relation'](),
+    Icon: GitBranch,
+    color: 'text-pink-500',
+  },
+  { id: 'location', label: () => m['fields.cat.location'](), Icon: MapPin, color: 'text-teal-500' },
+  { id: 'special', label: () => m['fields.cat.special'](), Icon: Layers, color: 'text-yellow-500' },
+  {
+    id: 'advanced',
+    label: () => m['fields.cat.advanced'](),
+    Icon: Database,
+    color: 'text-gray-500',
+  },
 ];
 
 // Per-type icons for the grid cards
@@ -171,23 +181,22 @@ function parseEnumValues(raw: string): string[] {
 async function submit() {
   error = '';
   if (!form.name.trim()) {
-    error = 'Field name is required';
+    error = m['fields.err.nameRequired']();
     return;
   }
   if (!/^[a-z][a-z0-9_]*$/.test(form.name)) {
-    error =
-      'Field name must start with a lowercase letter and contain only lowercase letters, digits, underscores';
+    error = m['fields.err.nameFormat']();
     return;
   }
   if (RELATION_NEEDS_TARGET.has(form.type) && !form.related_collection) {
-    error = 'Please select a target collection for this relation field';
+    error = m['fields.err.selectTarget']();
     return;
   }
   let enumValues: string[] = [];
   if (form.type === 'enum') {
     enumValues = parseEnumValues(form.enum_values_raw);
     if (enumValues.length === 0) {
-      error = 'Enum fields need at least one value';
+      error = m['fields.err.enumNeedsValue']();
       return;
     }
   }
@@ -214,7 +223,7 @@ async function submit() {
     close();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    error = e.message || 'Failed to add field';
+    error = e.message || m['fields.err.addFailed']();
   } finally {
     saving = false;
   }
@@ -280,7 +289,7 @@ async function submit() {
                 size={18}
                 class={(selectedCategory === cat.id ? 'text-primary-content' : cat.color) + ' shrink-0'}
               />
-              <span class="flex-1 truncate">{cat.label}</span>
+              <span class="flex-1 truncate">{cat.label()}</span>
               <span class="badge badge-xs shrink-0
                 {selectedCategory === cat.id
                   ? 'bg-primary-content/20 text-primary-content border-0'
@@ -302,7 +311,7 @@ async function submit() {
               <cat.Icon size={16} class={cat.color} />
             {/if}{/each}
             <h3 class="text-sm font-semibold text-base-content/70">
-              {m['fields.categoryFields']({ category: categories.find((c) => c.id === selectedCategory)?.label ?? '' })}
+              {m['fields.categoryFields']({ category: categories.find((c) => c.id === selectedCategory)?.label() ?? '' })}
             </h3>
           </div>
 
@@ -422,10 +431,10 @@ async function submit() {
               <div class="label py-0.5">
                 <span class="label-text-alt text-base-content/65 text-[11px]">
                   {form.type === 'o2m'
-                    ? 'The collection that has many records pointing back here'
+                    ? m['fields.hint.o2mTarget']()
                     : form.type === 'm2m'
-                    ? 'The other side of the junction table'
-                    : 'The collection this field references'}
+                    ? m['fields.hint.m2mTarget']()
+                    : m['fields.hint.m2oTarget']()}
                 </span>
               </div>
             </div>
