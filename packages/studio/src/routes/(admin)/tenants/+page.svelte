@@ -222,8 +222,7 @@ async function addMember(tenantId: string) {
 
 // Removing a member revokes that person's access to the tenant at once; every
 // other destructive action on this screen asks first.
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function confirmRemoveMember(tenantId: string, member: any) {
+function confirmRemoveMember(tenantId: string, member: { user_id: string; email: string }) {
   confirmState = {
     open: true,
     title: m['tenants.removeMember'](),
