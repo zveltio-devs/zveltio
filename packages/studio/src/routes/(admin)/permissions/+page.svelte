@@ -205,8 +205,14 @@ async function addInheritance() {
 }
 
 async function removeInheritance(child: string, parent: string) {
-  await api.delete('/api/admin/roles/hierarchy', { child, parent });
-  await loadHierarchy();
+  try {
+    await api.delete('/api/admin/roles/hierarchy', { child, parent });
+    await loadHierarchy();
+  } catch (e) {
+    // An unhandled rejection left the edge on screen as though it were gone:
+    // the role kept inheriting, and nothing said so.
+    toast.error(e instanceof Error ? e.message : m['permissions.updateFailed']());
+  }
 }
 
 const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));

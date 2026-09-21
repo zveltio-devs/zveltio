@@ -1,5 +1,6 @@
 <script lang="ts">
 import { goto } from '$app/navigation';
+import { copyText } from '$lib/clipboard.js';
 import { base } from '$app/paths';
 import { m } from '$lib/i18n.svelte.js';
 import { api } from '$lib/api.js';
@@ -116,8 +117,8 @@ async function createApiKey() {
   }
 }
 
-function copyKey() {
-  navigator.clipboard.writeText(apiKey).then(() => toast.success(m['common.copied']()));
+async function copyKey() {
+  if (await copyText(apiKey)) toast.success(m['common.copied']());
 }
 
 // ── Step 4: test API call ──────────────────────────────────────

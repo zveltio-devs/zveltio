@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { copyText } from '$lib/clipboard.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
 import { fmtDate } from '$lib/stores/format.svelte.js';
@@ -129,7 +130,7 @@ async function revokeKey(id: string) {
 
 async function copyKey() {
   if (!newlyCreatedKey) return;
-  await navigator.clipboard.writeText(newlyCreatedKey);
+  if (!(await copyText(newlyCreatedKey))) return;
   copied = true;
   setTimeout(() => (copied = false), 2000);
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { copyText } from '$lib/clipboard.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -576,7 +577,7 @@ function fmt(d: string | null) {
       <div class="bg-base-200 rounded p-3 font-mono text-sm break-all select-all mb-2">{previewToken}</div>
       <p class="text-xs opacity-50 mb-4">{m['schemaBranches.headerLabel']()} <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
       <div class="modal-action">
-        <button type="button" class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>{m['common.copyShort']()}</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick={async () => { if (await copyText(previewToken ?? '')) toast.success(m['common.copied']()); }}>{m['common.copyShort']()}</button>
         <button type="button" class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
       </div>
   </Modal>

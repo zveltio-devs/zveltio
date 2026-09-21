@@ -88,7 +88,10 @@ async function loadFields(collectionName: string) {
     );
     collectionFields = { ...collectionFields, [collectionName]: names };
   } catch {
-    collectionFields = { ...collectionFields, [collectionName]: [] };
+    // Do NOT cache the failure: the guard above treats any present entry as
+    // loaded, so an empty array left the column dropdown permanently empty for
+    // that collection — with no way back short of a page reload.
+    toast.error(m['permissions.loadColumnsFailed']());
   }
 }
 
@@ -160,6 +163,8 @@ function confirmDelete(p: ColumnPermission) {
       role: p.role,
     }),
     onconfirm: async () => {
+      // See rls/+page.svelte: ConfirmModal leaves `open` to the caller.
+      confirmState.open = false;
       try {
         await api.delete(`/api/admin/column-permissions/${p.id}`);
         toast.success(m['colPerms.permDeleted']());
