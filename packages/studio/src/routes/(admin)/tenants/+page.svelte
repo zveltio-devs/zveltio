@@ -76,7 +76,7 @@ async function loadTenants() {
     tenants = data.tenants;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Something went wrong');
+    toast.error(e.message ?? m['common.somethingWrong']());
   } finally {
     loading = false;
   }
@@ -107,12 +107,14 @@ async function createTenant() {
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function suspendTenant(tenant: any) {
   const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
-  const action = newStatus === 'suspended' ? 'Suspend' : 'Reactivate';
+  const suspending = newStatus === 'suspended';
   confirmState = {
     open: true,
-    title: `${action} Tenant`,
-    message: `${action} tenant "${tenant.name}"?`,
-    confirmLabel: action,
+    title: suspending ? m['tenants.suspendTitle']() : m['tenants.reactivateTitle'](),
+    message: suspending
+      ? m['tenants.suspendMsg']({ name: tenant.name })
+      : m['tenants.reactivateMsg']({ name: tenant.name }),
+    confirmLabel: suspending ? m['tenants.suspend']() : m['tenants.reactivate'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -214,7 +216,7 @@ async function addMember(tenantId: string) {
     toast.success(m['tenants.memberAdded']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e?.message ?? 'Failed to add member');
+    toast.error(e?.message ?? m['tenants.addMemberFailed']());
   } finally {
     addingMember = null;
   }
@@ -242,7 +244,7 @@ async function removeMember(tenantId: string, userId: string) {
     toast.success(m['tenants.memberRemoved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e?.message ?? 'Failed to remove member');
+    toast.error(e?.message ?? m['tenants.removeMemberFailed']());
   }
 }
 
@@ -286,14 +288,14 @@ const PLAN_BADGES: Record<string, string> = {
   subtitle={m['tenants.subtitle']()}
   count={tenants.length}
   loading={loading && tenants.length === 0}
-  actionLabel="New Tenant"
+  actionLabel={m['tenants.newTenant']()}
   onAction={() => (showCreateModal = true)}
   empty={{
     illustration: 'cloud',
     illustrationColor: 'text-secondary',
-    title: 'Spin up your first tenant',
-    description: 'Tenants isolate environments — perfect for SaaS where customers share the engine but not their data.',
-    actionLabel: 'Create tenant',
+    title: m['tenants.emptyTitle'](),
+    description: m['tenants.emptyDesc'](),
+    actionLabel: m['tenants.createTenant'](),
     onAction: () => (showCreateModal = true),
   }}
 >
@@ -348,7 +350,7 @@ const PLAN_BADGES: Record<string, string> = {
  <!-- Environments toggle -->
  <button
  class="btn btn-ghost btn-xs gap-1 tooltip"
- data-tip="Environments"
+ data-tip={m['tenants.environments']()}
  onclick={() => toggleEnvironments(tenant)}
  >
  <Layers size={14} />
@@ -362,7 +364,7 @@ const PLAN_BADGES: Record<string, string> = {
  <!-- Edit limits -->
  <button
  class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 focus-within:opacity-100 tooltip"
- data-tip="Edit Limits"
+ data-tip={m['tenants.editLimitsShort']()}
  onclick={() => openEditLimits(tenant)}
  >
  <Edit size={14} />
@@ -372,7 +374,7 @@ const PLAN_BADGES: Record<string, string> = {
  {#if tenant.status !== 'deleted'}
  <button
  class="btn btn-ghost btn-xs tooltip"
- data-tip={tenant.status === 'active' ? 'Suspend' : 'Reactivate'}
+ data-tip={tenant.status === 'active' ? m['tenants.suspend']() : m['tenants.reactivate']()}
  onclick={() => suspendTenant(tenant)}
  >
  {#if tenant.status === 'active'}
@@ -545,7 +547,7 @@ const PLAN_BADGES: Record<string, string> = {
  id="tenant-name"
  type="text"
  class="input"
- placeholder="My Company"
+ placeholder={m['tenants.phCompany']()}
  bind:value={createForm.name}
  />
  </div>
@@ -760,7 +762,7 @@ const PLAN_BADGES: Record<string, string> = {
  id="env-name"
  type="text"
  class="input"
- placeholder="Staging"
+ placeholder={m['tenants.phEnv']()}
  bind:value={envForm.name}
  />
  </div>
@@ -797,7 +799,7 @@ const PLAN_BADGES: Record<string, string> = {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />

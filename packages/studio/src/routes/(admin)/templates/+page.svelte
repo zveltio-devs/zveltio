@@ -162,7 +162,10 @@ async function install() {
             pending.delete(jobId);
             installCompletedCount++;
           } else if (job?.status === 'failed') {
-            jobFailure = m['tpl.jobFailed']({ name, error: job.error ?? 'unknown error' });
+            jobFailure = m['tpl.jobFailed']({
+              name,
+              error: job.error ?? m['common.unknownError'](),
+            });
             break;
           }
         } catch {

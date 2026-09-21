@@ -365,6 +365,35 @@ function sharedComponents(): string[] {
   return out;
 }
 
+/** Attributes whose value is never prose — see the prop scan below. */
+const PROP_NOT_PROSE = new Set([
+  'placeholder',
+  'title',
+  'aria-label',
+  'alt', // reported by their own scan
+  'class',
+  'href',
+  'src',
+  'type',
+  'id',
+  'role',
+  'name',
+  'value',
+  'style',
+  'for',
+  'width',
+  'height',
+  'label',
+  'd',
+  'fill',
+  'stroke',
+  'viewBox',
+  'data-tip', // reported by its own scan below? no — kept prose, see next line
+]);
+// `data-tip` IS prose — a DaisyUI tooltip is read by a person. It stays out of
+// the skip list: remove it here and the scan will pick it up.
+PROP_NOT_PROSE.delete('data-tip');
+
 const SCANNED = [...TRANSLATED, ...sharedComponents()];
 
 for (const rel of SCANNED) {
@@ -423,6 +452,23 @@ for (const rel of SCANNED) {
   }
 
   markup.split('\n').forEach((line, i) => {
+    // A literal string handed to a COMPONENT as a prop.
+    //
+    // The sixth blind spot. `<CrudListPage actionLabel="New Tenant" …>` renders
+    // that word on screen exactly as `<button>New Tenant</button>` would, and
+    // the attribute scan below looked only at four HTML attributes, so a whole
+    // section's worth of empty-state titles, descriptions and action labels sat
+    // in English inside files this gate called clean. The skip list is the
+    // attributes that are never prose: `d` is an SVG path, `class` a stylesheet,
+    // `href`/`src` a URL — and `title`/`placeholder`/`aria-label`/`alt` are
+    // handled by the scan that follows, which reports them under their own name.
+    for (const m of line.matchAll(/\s([a-zA-Z][a-zA-Z0-9-]*)="([A-Z][^"]{2,})"/g)) {
+      if (PROP_NOT_PROSE.has(m[1]!)) continue;
+      if (looksTranslatable(m[2]!)) {
+        findings.push({ file: rel, line: i + 1, text: `prop ${m[1]}="${m[2]}"` });
+      }
+    }
+
     for (const m of line.matchAll(/(placeholder|title|aria-label|alt)="([^"]+)"/g)) {
       // An attribute whose value is nothing but expressions and punctuation —
       // `aria-label="{label}: {value}"` — has no words of its own. They live in
@@ -456,6 +502,19 @@ for (const rel of SCANNED) {
         findings.push({ file: rel, line: startLine + i, text: `${m[1]}: '${m[2]}'` });
       }
     }
+    // The English behind a `??` or `||`.
+    //
+    // `toast.error(e.message ?? 'Failed to add inheritance')` is the shape this
+    // codebase reaches for every time it reports a failure, and the toast scan
+    // below could not see it: it required the literal to be the FIRST thing
+    // inside the call. The fallback is the string a person actually reads
+    // whenever the engine sends a body without a message.
+    for (const m of line.matchAll(/(?:\|\||\?\?)\s*'([^']{4,})'/g)) {
+      if (looksTranslatable(m[1]!)) {
+        findings.push({ file: rel, line: startLine + i, text: `fallback: '${m[1]}'` });
+      }
+    }
+
     for (const m of line.matchAll(/toast\.(?:error|success|warning|info)\(\s*'([^']{3,})'/g)) {
       if (looksTranslatable(m[1]!)) {
         findings.push({ file: rel, line: startLine + i, text: `toast('${m[1]}')` });
@@ -470,7 +529,7 @@ for (const rel of SCANNED) {
 const BASELINE_FILE = join(import.meta.dir, '..', 'quality-gates', 'i18n-core-script.json');
 const COMPONENT_BASELINE = join(import.meta.dir, '..', 'quality-gates', 'i18n-components.json');
 const isScript = (t: string) =>
-  /^(title|message|confirmLabel|cancelLabel|heading|description):|^toast\(/.test(t);
+  /^(title|message|confirmLabel|cancelLabel|heading|description):|^toast\(|^fallback:/.test(t);
 const inComponent = (f: Finding) => f.file.startsWith('src/lib/components/');
 
 // Pages keep zero tolerance — they got there and must stay. Components are

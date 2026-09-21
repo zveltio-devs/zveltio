@@ -495,7 +495,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
             illustration="spark"
             illustrationColor="text-info"
             title={m['dashboard.quietMoment']()}
-            description="Audit events appear here as admins make changes — try creating a collection or inviting a user to see this fill up."
+            description={m['dashboard.noAuditDesc']()}
           />
         {:else}
           <div class="overflow-x-auto">
@@ -547,8 +547,8 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
             illustration="table"
             illustrationColor="text-primary"
             title={m['dashboard.noCollections']()}
-            description="Collections are the schema-less tables that hold your data."
-            actionLabel="Create your first collection"
+            description={m['dashboard.noCollectionsDesc']()}
+            actionLabel={m['dashboard.createFirstCollection']()}
             actionHref="{base}/collections"
           />
         {:else}

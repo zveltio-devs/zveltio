@@ -99,7 +99,7 @@ describe('RecordDrawer', () => {
     component.openEdit({ id: 'rec-a', title: 'A' });
     await waitFor(() => getByLabelText('Title'));
     await fireEvent.input(getByLabelText('Title'), { target: { value: '' } });
-    await fireEvent.click(getByText(/Update Record|Save Record/));
+    await fireEvent.click(getByText(/update record|save record/i));
     await waitFor(() => expect(update).toHaveBeenCalled());
     expect(update.mock.calls[0][2]).toHaveProperty('title', null);
   });

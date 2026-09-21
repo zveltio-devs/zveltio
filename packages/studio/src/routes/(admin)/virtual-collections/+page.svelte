@@ -137,7 +137,7 @@ async function create() {
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to create virtual collection');
+    toast.error(e.message ?? m['vc.createFailed']());
   }
 }
 

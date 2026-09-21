@@ -198,7 +198,7 @@ async function addInheritance() {
     await loadHierarchy();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to add inheritance');
+    toast.error(e.message ?? m['perms.addInheritanceFailed']());
   } finally {
     hierSaving = false;
   }

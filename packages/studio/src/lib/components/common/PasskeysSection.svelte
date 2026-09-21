@@ -57,7 +57,7 @@ async function registerNew(): Promise<void> {
     toast.error(m['passkeys.unsupported']());
     return;
   }
-  const label = prompt('Name this passkey (e.g. "MacBook Touch ID", "YubiKey 5")');
+  const label = prompt(m['passkeys.namePrompt']());
   if (label == null) return; // user cancelled
 
   registering = true;
@@ -66,7 +66,7 @@ async function registerNew(): Promise<void> {
     const optsRes = await api.fetch('/api/auth/passkey/generate-register-options', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: label.trim() || 'Unnamed passkey' }),
+      body: JSON.stringify({ name: label.trim() || m['passkeys.unnamed']() }),
     });
     if (!optsRes.ok) throw new Error(`Failed to get registration options: HTTP ${optsRes.status}`);
     const options = await optsRes.json();
@@ -80,7 +80,7 @@ async function registerNew(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         response: attestation,
-        name: label.trim() || 'Unnamed passkey',
+        name: label.trim() || m['passkeys.unnamed'](),
       }),
     });
     if (!verifyRes.ok) {
@@ -108,7 +108,7 @@ async function registerNew(): Promise<void> {
 }
 
 async function deleteOne(id: string): Promise<void> {
-  if (!confirm('Delete this passkey? You will not be able to sign in with it anymore.')) return;
+  if (!confirm(m['passkeys.deleteConfirm']())) return;
   deletingId = id;
   try {
     const res = await api.fetch('/api/auth/passkey/delete-passkey', {
@@ -177,7 +177,7 @@ function formatDate(iso: string): string {
           disabled={registering || !browserSupportsPasskey()}
         >
           <Plus size={14} />
-          {registering ? 'Registering…' : 'Add passkey'}
+          {registering ? m['passkeys.registering']() : m['passkeys.add']()}
         </button>
       </div>
     </div>

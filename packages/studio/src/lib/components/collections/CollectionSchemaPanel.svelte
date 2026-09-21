@@ -95,23 +95,21 @@ const relTypesMeta = [
   {
     value: 'm2o',
     symbol: '∞→1',
-    label: 'Many-to-One',
-    desc: 'Each record points to ONE other record',
-    example: (src: string, tgt: string) => `each ${singular(src)} has ONE ${singular(tgt)}`,
+    label: () => m['relations.m2o.label'](),
+    example: (src: string, tgt: string) =>
+      m['relations.m2o.example']({ src: singular(src), tgt: singular(tgt) }),
   },
   {
     value: 'o2m',
     symbol: '1→∞',
-    label: 'One-to-Many',
-    desc: 'Each record can have MANY related records',
-    example: (src: string, tgt: string) => `each ${singular(src)} has MANY ${tgt}`,
+    label: () => m['relations.o2m.label'](),
+    example: (src: string, tgt: string) => m['relations.o2m.example']({ src: singular(src), tgt }),
   },
   {
     value: 'm2m',
     symbol: '∞↔∞',
-    label: 'Many-to-Many',
-    desc: 'Records can be linked to many on both sides',
-    example: (src: string, tgt: string) => `${src} and ${tgt} share many links`,
+    label: () => m['relations.m2m.label'](),
+    example: (src: string, tgt: string) => m['relations.m2m.example']({ src, tgt }),
   },
 ];
 
@@ -182,22 +180,20 @@ export function openRelForm() {
 async function addRelation() {
   relFormError = '';
   if (!relForm.target_collection) {
-    relFormError = 'Choose a target collection';
+    relFormError = m['relations.err.chooseTarget']();
     return;
   }
   if (!relForm.source_field.trim()) {
     relFormError =
-      relForm.type === 'm2o'
-        ? 'Choose a name for the foreign-key column in this collection'
-        : 'Choose a name for the relation alias';
+      relForm.type === 'm2o' ? m['relations.err.chooseFkName']() : m['relations.err.chooseAlias']();
     return;
   }
   if (relForm.type === 'o2m' && !relForm.target_field.trim()) {
-    relFormError = `Choose the FK column name to add in "${relForm.target_collection}"`;
+    relFormError = m['relations.err.chooseTargetFk']({ name: relForm.target_collection });
     return;
   }
   if (relForm.type === 'o2m' && relForm.source_field.trim() === relForm.target_field.trim()) {
-    relFormError = 'Relation alias and FK column name must be different';
+    relFormError = m['relations.err.aliasFkSame']();
     return;
   }
   if (!relForm.name.trim()) {
@@ -219,7 +215,7 @@ async function addRelation() {
     showRelForm = false;
     toast.success(m['relations.created']());
   } catch (err) {
-    relFormError = (err as Error).message || 'Failed to create relation';
+    relFormError = (err as Error).message || m['relations.err.createFailed']();
   } finally {
     savingRel = false;
   }
@@ -307,7 +303,7 @@ let confirmState = $state<{
                 onclick={() => onRelTypeChange(rt.value)}
               >
                 <div class="font-mono text-xl font-bold text-primary/60 mb-1 leading-none">{rt.symbol}</div>
-                <div class="font-semibold text-xs">{rt.label}</div>
+                <div class="font-semibold text-xs">{rt.label()}</div>
                 <div class="text-[10px] text-base-content/65 mt-0.5 leading-tight">
                   {rt.example(collectionName, relForm.target_collection)}
                 </div>

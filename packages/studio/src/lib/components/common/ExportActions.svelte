@@ -31,7 +31,9 @@ async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
-    alert('Export failed: ' + (e instanceof Error ? e.message : m['common.unknownError']()));
+    alert(
+      m['export.failed']({ error: e instanceof Error ? e.message : m['common.unknownError']() }),
+    );
   } finally {
     exporting = false;
   }
