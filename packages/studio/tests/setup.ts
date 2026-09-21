@@ -9,6 +9,28 @@
 
 import '@testing-library/jest-dom/vitest';
 
+// Polyfill Element.animate — jsdom does not implement the Web Animations API,
+// and Svelte's outro transitions call it while a component unmounts. The
+// rejection surfaces after the test that triggered it has already passed, so it
+// shows up as a file-level error with a misleading "latest test" attached.
+if (!Element.prototype.animate) {
+  Element.prototype.animate = (): Animation => {
+    const anim = {
+      cancel() {},
+      finish() {},
+      onfinish: null as (() => void) | null,
+      currentTime: 0,
+      startTime: 0,
+      playState: 'finished',
+    };
+    // Svelte removes an outroing element from `onfinish`. Without this call the
+    // node lingers for the whole test and a closed dialog still matches
+    // `[role="dialog"]`.
+    queueMicrotask(() => anim.onfinish?.());
+    return anim as unknown as Animation;
+  };
+}
+
 // Polyfill ResizeObserver — Studio sidebar uses it for collapse animation.
 class _ResizeObserver {
   observe() {

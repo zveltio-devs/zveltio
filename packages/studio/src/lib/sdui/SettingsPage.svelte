@@ -6,6 +6,7 @@
  * runs page-level actions like "Test connection".
  */
 import { onMount } from 'svelte';
+import { copyText } from '$lib/clipboard.js';
 import { api } from '$lib/api.js';
 import { ENGINE_URL } from '$lib/config.js';
 import { m } from '$lib/i18n.svelte.js';
@@ -31,14 +32,7 @@ function infoValue(v: string): string {
   return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
 }
 async function copy(v: string) {
-  try {
-    await navigator.clipboard.writeText(v);
-    toast.success(t('ext.copied'));
-  } catch {
-    // Rejects without a secure context or the permission; it used to be an
-    // unhandled rejection with "copied" shown anyway.
-    toast.error(t('ext.copyFailed'));
-  }
+  if (await copyText(v)) toast.success(t('ext.copied'));
 }
 function t(s?: string): string {
   if (!s) return '';

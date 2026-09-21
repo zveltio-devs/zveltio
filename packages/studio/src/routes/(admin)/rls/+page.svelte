@@ -133,6 +133,10 @@ function confirmDelete(p: RlsPolicy) {
     title: m['rls.deleteTitle'](),
     message: m['rls.deleteMsg']({ collection: p.collection, role: p.role }),
     onconfirm: async () => {
+      // `ConfirmModal` does not close itself — the caller owns `open`. Without
+      // this the dialog stayed up after the policy was gone, and a second
+      // Confirm re-sent the DELETE.
+      confirmState.open = false;
       try {
         await api.delete(`/api/admin/rls/${p.id}`);
         toast.success(m['rls.policyDeleted']());

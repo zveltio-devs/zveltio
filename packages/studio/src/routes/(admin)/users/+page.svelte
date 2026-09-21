@@ -130,6 +130,10 @@ async function loadUsers() {
     users = Array.isArray(res) ? res : ((res as any).users ?? res);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     total = (res as any).total ?? users.length;
+  } catch (err) {
+    // A rejection here used to leave an empty table and no explanation — the
+    // same shape as a tenant that genuinely has no users.
+    toast.error(err instanceof Error ? err.message : m['users.loadFailed']());
   } finally {
     loading = false;
   }
@@ -152,7 +156,13 @@ async function inviteUser() {
 }
 
 async function renameUser(id: string, name: string) {
-  await usersApi.update(id, { name });
+  try {
+    await usersApi.update(id, { name });
+  } catch (err) {
+    // The row must not keep the new name when the server refused it.
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+    return;
+  }
   // Optimistic local update — keep the table reactive without a full reload.
   users = users.map((u) => (u.id === id ? { ...u, name } : u));
 }
@@ -165,7 +175,11 @@ async function deleteUser(id: string, email: string) {
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
-      await usersApi.delete(id);
+      try {
+        await usersApi.delete(id);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
+      }
       await loadUsers();
     },
   };

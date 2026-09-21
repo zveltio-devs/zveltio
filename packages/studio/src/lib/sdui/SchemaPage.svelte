@@ -1,5 +1,6 @@
 <script lang="ts">
 import { fmtDate } from '$lib/stores/format.svelte.js';
+import { copyText } from '$lib/clipboard.js';
 import Modal from '$lib/components/common/Modal.svelte';
 /**
  * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
@@ -165,7 +166,7 @@ let revealValue = $state<string | null>(null);
 let revealCopied = $state(false);
 async function copyReveal() {
   if (revealValue) {
-    await navigator.clipboard.writeText(revealValue).catch(() => undefined);
+    if (!(await copyText(revealValue))) return;
     revealCopied = true;
     setTimeout(() => (revealCopied = false), 1500);
   }

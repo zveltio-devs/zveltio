@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { copyText } from '$lib/clipboard.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
@@ -118,7 +119,7 @@ async function bulkDelete() {
 }
 
 async function copyUrl(url: string, id: string) {
-  await navigator.clipboard.writeText(url);
+  if (!(await copyText(url))) return;
   copied = id;
   setTimeout(() => (copied = null), 2000);
 }
