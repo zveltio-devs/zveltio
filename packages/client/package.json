@@ -20,7 +20,7 @@
     "@lucide/svelte": "^0.577.0",
     "@zveltio/sdk": "workspace:*",
     "better-auth": "^1.7.2",
-    "dompurify": "3.4.14",
+    "dompurify": "3.4.15",
     "leaflet": "^1.9.4",
     "qrcode": "^1.5.4"
   },
