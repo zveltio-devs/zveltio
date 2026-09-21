@@ -181,6 +181,8 @@ function parseFields(f: any): FieldDef[] {
   }
 }
 
+let loadError = $state('');
+
 async function load() {
   loading = true;
   try {
@@ -190,6 +192,13 @@ async function load() {
     ]);
     collections = colRes.collections ?? [];
     relations = relRes.relations ?? [];
+    loadError = '';
+  } catch (err) {
+    // Without this the rejection reached nobody: `loading` cleared, the empty
+    // state claimed the instance has no collections, and the rejection escaped
+    // `onMount` before the drag listeners were registered.
+    loadError = (err as Error)?.message ?? m['col.loadFailed']();
+    toast.error(loadError);
   } finally {
     loading = false;
   }
@@ -557,6 +566,10 @@ async function exportPng() {
       downloadBlob(blob, `zveltio-schema-${stamp()}.png`);
       toast.success(m['erd.downloadedPng']());
     }, 'image/png');
+  } catch (err) {
+    // Without this the rejection from img.onerror left the click with no
+    // download and no message.
+    toast.error((err as Error)?.message ?? m['erd.pngFailed']());
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -769,12 +782,11 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
   if (editFieldName !== originalName) body.new_name = editFieldName;
   if (editFieldType !== editOriginalType) body.new_type = editFieldType;
   // Always send required so the engine can apply the toggle if needed
-  // (it short-circuits if the new value matches the current one).
+  // (it short-circuits if the new value matches the current one). That
+  // assignment is unconditional, so the "nothing changed" early return that
+  // used to follow could never be reached — it is gone rather than repaired:
+  // the engine already no-ops an unchanged PATCH.
   body.required = editRequired;
-  if (Object.keys(body).length === 0) {
-    closeFieldEdit();
-    return;
-  }
 
   editSaving = true;
   try {
@@ -812,11 +824,14 @@ onMount(async () => {
   // Layout fetch in parallel with the schema fetch — the user sees
   // collections appear instantly and their stored positions snap in
   // shortly after, instead of blocking the whole paint.
+  //
+  // Registered before the fetch, not after: `load()` used to throw past this
+  // point and leave the canvas with no drag handling at all.
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
   void loadPositions();
   await load();
   requestAnimationFrame(() => fitToView());
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
 });
 onDestroy(() => {
   // Flush any pending position PUT so navigating away doesn't drop the
@@ -972,6 +987,12 @@ function edgeColor(type: string): string {
     {#if loading}
       <div class="absolute inset-0 flex items-center justify-center">
         <LoadingSkeleton />
+      </div>
+    {:else if loadError}
+      <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/65 gap-2">
+        <Database size={48} class="text-error" />
+        <p class="text-sm text-error">{loadError}</p>
+        <button class="btn btn-primary btn-sm mt-2" onclick={load}>{m['erd.reload']()}</button>
       </div>
     {:else if visible.length === 0}
       <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/65 gap-2">

@@ -204,7 +204,7 @@ const m2oTargetMap = $derived.by(() => {
 <div class="space-y-0 pb-16">
 
   <Breadcrumb crumbs={[
-    { label: 'Collections', href: `${base}/collections` },
+    { label: m['nav.collections'](), href: `${base}/collections` },
     { label: collection?.display_name || collectionName },
   ]} />
 
@@ -356,7 +356,11 @@ const m2oTargetMap = $derived.by(() => {
                 <span>{collection.description}</span>
               {/if}
               <span class="text-base-content/65">{m['common.fields']()}</span>
-              <span>{m['col.fieldCounts']({ custom: customFields.length, system: 6 })}</span>
+              <!-- 7, not 6: DDLManager.createTable adds id, created_at, updated_at,
+                   status, created_by, updated_by and tenant_id to every table.
+                   (search_vector / search_text are added on top when the
+                   collection has a text field, and are never user-visible.) -->
+              <span>{m['col.fieldCounts']({ custom: customFields.length, system: 7 })}</span>
               <span class="text-base-content/65">{m['col.relations']()}</span>
               <span>{relations.length}</span>
             </div>
