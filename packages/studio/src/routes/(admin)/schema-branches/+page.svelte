@@ -4,15 +4,12 @@ import { copyText } from '$lib/clipboard.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
-  GitBranch,
   RefreshCw,
   Trash2,
   Eye,
   Merge,
   AlertCircle,
   CircleCheck,
-  Clock,
-  X,
   Globe,
   GlobeLock,
   ShieldCheck,
@@ -73,7 +70,6 @@ let mergeResult = $state<{
 
 let deleteTarget = $state<SchemaBranch | null>(null);
 let previewToken = $state<string | null>(null);
-let previewBranch = $state<SchemaBranch | null>(null);
 let enablingPreview = $state(false);
 
 // Review panel
@@ -188,7 +184,6 @@ async function enablePreview(branch: SchemaBranch) {
       { ttl_hours: 168 },
     );
     previewToken = res.preview_token;
-    previewBranch = branch;
     await loadBranches();
   } catch (e) {
     toast.error(e instanceof Error ? e.message : m['branches.previewEnableFailed']());
@@ -201,7 +196,6 @@ async function disablePreview(branch: SchemaBranch) {
   try {
     await api.delete(`/api/schema/branches/${branch.id}/preview`);
     previewToken = null;
-    previewBranch = null;
     await loadBranches();
   } catch (e) {
     toast.error(e instanceof Error ? e.message : m['branches.previewDisableFailed']());
@@ -355,7 +349,7 @@ function fmt(d: string | null) {
                   {#if branch.status === 'open'}
                     <!-- Preview -->
                     {#if branch.preview_enabled}
-                      <button type="button" class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title={m['schemaBranches.showPreviewToken']()}>
+                      <button type="button" class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; }} title={m['schemaBranches.showPreviewToken']()}>
                         <Globe size={12} />
                       </button>
                       <button type="button" class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title={m['schemaBranches.disablePreview']()}>
@@ -578,7 +572,7 @@ function fmt(d: string | null) {
       <p class="text-xs opacity-50 mb-4">{m['schemaBranches.headerLabel']()} <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
       <div class="modal-action">
         <button type="button" class="btn btn-ghost btn-sm" onclick={async () => { if (await copyText(previewToken ?? '')) toast.success(m['common.copied']()); }}>{m['common.copyShort']()}</button>
-        <button type="button" class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
+        <button type="button" class="btn btn-ghost" onclick={() => { previewToken = null; }}>{m['common.close']()}</button>
       </div>
   </Modal>
 {/if}

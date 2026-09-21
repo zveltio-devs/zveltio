@@ -21,7 +21,6 @@ import {
   Code2,
   Key,
   Circle,
-  Hammer,
   ShieldAlert,
   ShieldCheck,
 } from '@lucide/svelte';
@@ -125,7 +124,6 @@ let error = $state('');
 let processingId = $state<string | null>(null);
 let restartNeeded = $state(false);
 let searchQuery = $state('');
-let selectedCategory = $state('all');
 let configuringExt = $state<Extension | null>(null);
 let confirmState = $state<{
   open: boolean;
@@ -140,49 +138,15 @@ let configError = $state('');
 
 let cat = $state('all');
 
-// ── Rebuild state ──────────────────────────────────────────────────────────
-let rebuildingExt = $state<string | null>(null);
-let rebuildElapsed = $state(0);
-let rebuildTimer = $state<ReturnType<typeof setInterval> | null>(null);
-
-function startRebuildIndicator(extName: string) {
-  if (rebuildTimer) clearInterval(rebuildTimer);
-  rebuildingExt = extName;
-  rebuildElapsed = 0;
-  rebuildTimer = setInterval(() => {
-    rebuildElapsed += 1;
-  }, 1000);
-  // Auto-reload studio after 35s to surface new nav item
-  setTimeout(async () => {
-    clearInterval(rebuildTimer!);
-    rebuildTimer = null;
-    rebuildingExt = null;
-    rebuildElapsed = 0;
-    await loadCatalog();
-    await refreshExtensions();
-  }, 35_000);
-}
-
-const CATEGORIES = [
-  'analytics',
-  'auth',
-  'business',
-  'communications',
-  'compliance',
-  'content',
-  'data',
-  'developer',
-  'ecommerce',
-  'finance',
-  'geospatial',
-  'hr',
-  'i18n',
-  'integrations',
-  'operations',
-  'projects',
-  'storage',
-  'workflow',
-];
+/**
+ * Every category the catalog actually uses.
+ *
+ * This was a hardcoded list, and the extensions drifted past it: `billing`,
+ * `forms`, `intelligence`, `search` and `sms` existed on disk and had no entry
+ * in the sidebar, so those extensions were reachable only by typing into the
+ * search box. Derived, the sidebar cannot fall behind the catalog again.
+ */
+const CATEGORIES = $derived([...new Set(extensions.map((e) => e.category))].sort());
 
 const filtered = $derived(
   extensions.filter((e) => {
@@ -191,7 +155,7 @@ const filtered = $derived(
       !q ||
       e.displayName.toLowerCase().includes(q) ||
       e.description.toLowerCase().includes(q) ||
-      e.tags.some((t) => t.includes(q));
+      e.tags.some((t) => t.toLowerCase().includes(q));
     const matchSideCat = cat === 'all' || e.category === cat;
     return matchSearch && matchSideCat;
   }),
@@ -244,14 +208,6 @@ async function saveLicense() {
   } finally {
     licenseSaving = false;
   }
-}
-
-async function removeLicense(ext: Extension) {
-  await api(`/api/marketplace/license/${encodeURIComponent(ext.name)}`, { method: 'DELETE' }).catch(
-    () => {},
-  );
-  await loadCatalog();
-  toast.success(m['mkt.licenseRemoved']());
 }
 
 // ── Catalog actions ────────────────────────────────────────────────────────
@@ -490,17 +446,6 @@ onMount(loadCatalog);
     </button>
   </PageHeader>
 
-    {#if rebuildingExt}
-      <div class="alert alert-info py-3 mb-4 gap-3">
-        <Hammer size={18} class="shrink-0 animate-bounce" />
-        <div class="flex-1">
-          <p class="font-medium text-sm">{m['mkt.rebuilding']({ name: rebuildingExt })}</p>
-          <p class="text-xs opacity-70">{m['mkt.rebuildTakes']()} {m['mkt.elapsed']({ s: rebuildElapsed })}</p>
-        </div>
-        <span class="loading loading-spinner loading-sm shrink-0"></span>
-      </div>
-    {/if}
-
     {#if restartNeeded}
       <div class="alert alert-warning py-2 mb-4 text-sm">
         <span>{m['mkt.restartNeeded']()}</span>
@@ -559,7 +504,6 @@ onMount(loadCatalog);
               {@const Icon = CATEGORY_ICONS[ext.category] ?? Puzzle}
               {@const iconColor = CATEGORY_COLORS[ext.category] ?? 'text-gray-400'}
               {@const isProcessing = processingId === ext.name}
-              {@const isRebuilding = rebuildingExt === ext.displayName}
               {@const missingDeps = ext.missing_dependencies ?? []}
               {@const depsBlocked = missingDeps.length > 0}
 
@@ -586,11 +530,7 @@ onMount(loadCatalog);
                     </div>
 
                     <!-- Status badge -->
-                    {#if isRebuilding}
-                      <span class="badge badge-info badge-sm shrink-0 gap-1">
-                        <span class="loading loading-spinner loading-xs"></span> {m['mkt.building']()}
-                      </span>
-                    {:else if ext.is_running}
+                    {#if ext.is_running}
                       <span class="badge badge-success badge-sm shrink-0 gap-1">
                         <CheckCircle size={10} /> {m['mkt.running']()}
                       </span>

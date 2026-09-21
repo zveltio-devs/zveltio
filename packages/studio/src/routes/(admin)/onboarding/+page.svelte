@@ -4,6 +4,7 @@ import { copyText } from '$lib/clipboard.js';
 import { base } from '$app/paths';
 import { m } from '$lib/i18n.svelte.js';
 import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import {
   CircleCheck,
@@ -55,8 +56,9 @@ let apiKey = $state('');
 let keyCreated = $state(false);
 
 // Step 4 — test
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-let engineUrl = (typeof window !== 'undefined' ? (window as any).__ZVELTIO_ENGINE_URL__ : '') || '';
+// `window.__ZVELTIO_ENGINE_URL__` is never set by anything, so the sample
+// request rendered as a bare `GET /api/data/…` with no host to copy.
+const engineUrl = ENGINE_URL;
 let testResult = $state('');
 let testLoading = $state(false);
 
@@ -132,11 +134,16 @@ async function runTest() {
         .toLowerCase()
         .replace(/\s+/g, '_')
         .replace(/[^a-z0-9_]/g, '') || 'test';
-    const res = await api.fetch(`/api/data/${colSlug}?limit=1`, {
+    // Deliberately NOT api.fetch: that sends `credentials: 'include'`, so the
+    // admin's own session authenticated this request and the step reported
+    // success for any key at all — including none. The point of the step is to
+    // prove the key works, so the key must be the only credential sent.
+    const res = await fetch(`${ENGINE_URL}/api/data/${colSlug}?limit=1`, {
       headers: { 'X-API-Key': apiKey },
+      credentials: 'omit',
     });
-    const data = await res.json();
-    testResult = JSON.stringify(data, null, 2);
+    const data = await res.json().catch(() => null);
+    testResult = `HTTP ${res.status}\n${data ? JSON.stringify(data, null, 2) : '(no body)'}`;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
     testResult = `Error: ${err.message}`;

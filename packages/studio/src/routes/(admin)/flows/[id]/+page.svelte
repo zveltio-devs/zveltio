@@ -92,6 +92,7 @@ async function saveFlow() {
       description: flow.description,
       steps: flow.steps,
     });
+    toast.success(m['common.saved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
     saveError = e.message;
