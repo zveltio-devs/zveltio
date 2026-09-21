@@ -13,6 +13,7 @@ import {
   EyeOff,
   Gauge,
 } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import Slot from '$lib/components/common/Slot.svelte';
@@ -21,6 +22,8 @@ import { auth } from '$lib/auth.svelte.js';
 let loading = $state(true);
 let saving = $state(false);
 let saved = $state(false);
+let loadError = $state('');
+let rlError = $state('');
 let tab = $state<'general' | 'branding' | 'smtp' | 'security' | 'rate_limiting'>('general');
 let showSmtpPass = $state(false);
 
@@ -65,6 +68,15 @@ onMount(async () => {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       if (k in s) (s as any)[k] = v;
     }
+    loadError = '';
+  } catch (err) {
+    // A failed load used to leave the form holding its DECLARED DEFAULTS —
+    // app_name 'Zveltio', registration off, a 24-hour session, empty locale and
+    // timezone — and nothing said so. The next Save wrote all of that over the
+    // instance's real configuration. So the failure is shown, and Save is held
+    // shut until the settings have actually been read.
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+    toast.error(loadError);
   } finally {
     loading = false;
   }
@@ -76,8 +88,11 @@ async function loadRateLimiting() {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
     if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
-  } catch {
-    // table may not exist yet if migration hasn't run
+  } catch (err) {
+    // A 403 or a 500 read exactly like the pre-migration case — the tier table
+    // came back empty and the tab said "no rate limits configured", which is
+    // also what a working instance with none looks like.
+    rlError = err instanceof Error ? err.message : m['common.loadFailed']();
   }
 }
 
@@ -104,7 +119,7 @@ async function saveTier(tier: (typeof rlTiers)[number]) {
       max_requests: tier.max_requests,
       is_active: tier.is_active,
     });
-    toast.success(`${tier.key_prefix} limits saved`);
+    toast.success(m['settings.tierSaved']({ tier: tier.key_prefix }));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
@@ -112,7 +127,22 @@ async function saveTier(tier: (typeof rlTiers)[number]) {
   }
 }
 
-async function resetDefaults() {
+function resetDefaults() {
+  // Every tier back to its shipped values in one click, with no question asked —
+  // the only unguarded destructive action on this screen.
+  confirmState = {
+    open: true,
+    title: m['settings.resetDefaultsTitle'](),
+    message: m['settings.resetDefaultsMsg'](),
+    confirmLabel: m['settings.resetDefaults'](),
+    onconfirm: () => {
+      confirmState.open = false;
+      doResetDefaults();
+    },
+  };
+}
+
+async function doResetDefaults() {
   rlResetting = true;
   try {
     await api.post('/api/admin/rate-limits/reset', {});
@@ -126,20 +156,28 @@ async function resetDefaults() {
 }
 
 const TABS = [
-  { id: 'general', label: 'General', icon: Globe },
-  { id: 'branding', label: 'Branding', icon: Palette },
-  { id: 'smtp', label: 'SMTP', icon: Mail },
-  { id: 'security', label: 'Security', icon: Shield },
-  { id: 'rate_limiting', label: 'Rate Limiting', icon: Gauge },
+  { id: 'general', label: () => m['settings.tab.general'](), icon: Globe },
+  { id: 'branding', label: () => m['settings.tab.branding'](), icon: Palette },
+  { id: 'smtp', label: () => m['settings.tab.smtp'](), icon: Mail },
+  { id: 'security', label: () => m['settings.tab.security'](), icon: Shield },
+  { id: 'rate_limiting', label: () => m['settings.tab.rateLimiting'](), icon: Gauge },
 ] as const;
+
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 </script>
 
 <div class="space-y-6">
  <PageHeader title={m['nav.settings']()} subtitle={m['settings.subtitle']()}>
   {#if tab !== 'rate_limiting'}
-  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
+  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading || !!loadError}>
   {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
-  {saved ? '✓ Saved' : 'Save Settings'}
+  {saved ? m['settings.savedLabel']() : m['settings.saveSettings']()}
   </button>
   {:else}
   <button class="btn btn-ghost btn-sm" onclick={resetDefaults} disabled={rlResetting}>
@@ -152,7 +190,7 @@ const TABS = [
  <div class="tabs tabs-bordered">
  {#each TABS as t}
  <button class="tab gap-2 {tab === t.id ? 'tab-active' : ''}" onclick={() => (tab = t.id)}>
- <t.icon size={16} />{t.label}
+ <t.icon size={16} />{t.label()}
  </button>
  {/each}
  <!-- Storage config lives on its own route (its own driver/probe state). -->
@@ -164,6 +202,11 @@ const TABS = [
 
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
+ {:else if loadError}
+ <div class="alert alert-error max-w-2xl">
+ <span>{m['settings.loadFailedKeepSafe']({ error: loadError })}</span>
+ <button class="btn btn-sm btn-ghost" onclick={() => location.reload()}>{m['common.retry']()}</button>
+ </div>
  {:else}
  <div class="card bg-base-100 max-w-2xl">
  <div class="card-body space-y-4">
@@ -295,7 +338,9 @@ const TABS = [
  {m['settings.rateLimitIntro']()}
  </p>
 
- {#if rlTiers.length === 0}
+ {#if rlError}
+ <div class="alert alert-error text-sm"><span>{rlError}</span></div>
+ {:else if rlTiers.length === 0}
  <p class="text-sm text-base-content/65 text-center py-8">{m['settings.noRateLimits']()}</p>
  {:else}
  <div class="overflow-x-auto">
@@ -372,3 +417,12 @@ const TABS = [
  </div>
  {/if}
 </div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

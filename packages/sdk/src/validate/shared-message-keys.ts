@@ -10,7 +10,7 @@
  * host whose core catalogue happens to know about it, which is not a property
  * an installable extension should depend on.
  *
- * Source: packages/studio/messages/core/en.json (205 keys)
+ * Source: packages/studio/messages/core/en.json (206 keys)
  */
 export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.accessRestricted',
@@ -169,6 +169,7 @@ export const SHARED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   'common.reorder',
   'common.required',
   'common.resetFailed',
+  'common.retry',
   'common.revoke',
   'common.save',
   'common.saveFailed',
