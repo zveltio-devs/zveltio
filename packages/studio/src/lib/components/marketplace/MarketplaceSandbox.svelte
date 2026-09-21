@@ -61,11 +61,23 @@ function expectedOrigin(bundleSrc: string): string | null {
   }
 }
 
+/**
+ * The iframe carries no `allow-same-origin`, so its document has an OPAQUE
+ * origin and every message it sends arrives as the literal `"null"` — never
+ * the bundle's origin. Comparing against `expectedOrigin` alone therefore
+ * rejected every message the sandbox could ever send, `ready` included.
+ * `event.source` identity is what authenticates an opaque frame.
+ */
+function originAccepted(eventOrigin: string, bundleSrc: string): boolean {
+  if (eventOrigin === 'null') return true;
+  const origin = expectedOrigin(bundleSrc);
+  return origin !== null && eventOrigin === origin;
+}
+
 function onMessage(event: MessageEvent): void {
   if (!src || !enabled) return;
-  const origin = expectedOrigin(src);
-  if (!origin || event.origin !== origin) return;
-  if (frame?.contentWindow && event.source !== frame.contentWindow) return;
+  if (!originAccepted(event.origin, src)) return;
+  if (!frame?.contentWindow || event.source !== frame.contentWindow) return;
 
   const data = event.data;
   if (!data || typeof data !== 'object' || typeof (data as { type?: unknown }).type !== 'string') {
@@ -95,12 +107,10 @@ function onMessage(event: MessageEvent): void {
 
 function postInit(): void {
   if (!frame?.contentWindow || !src) return;
-  const origin = expectedOrigin(src);
-  if (!origin) return;
-  frame.contentWindow.postMessage(
-    { type: 'zveltio:marketplace:init', extensionId, locale },
-    origin,
-  );
+  // An opaque origin matches no targetOrigin but `'*'`, so a concrete origin
+  // here silently dropped the init the frame waits for. The payload is the
+  // extension id and the locale — nothing the frame did not already know.
+  frame.contentWindow.postMessage({ type: 'zveltio:marketplace:init', extensionId, locale }, '*');
 }
 
 onMount(() => {

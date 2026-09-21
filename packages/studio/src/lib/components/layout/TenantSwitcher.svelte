@@ -50,6 +50,7 @@ function isChild(t: Tenant): boolean {
 }
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') open = false; }} />
 {#if loaded && tenants.length > 1}
   <div class="dropdown">
     <button

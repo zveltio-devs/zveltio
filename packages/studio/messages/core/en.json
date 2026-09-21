@@ -220,6 +220,7 @@
   "collections.systemField": "System field — added automatically, remove it",
   "collections.targetCollection": "Target collection… *",
   "collections.viewDiagram": "View schema as diagram",
+  "common.accessRestricted": "Access restricted",
   "common.actions": "Actions",
   "common.add": "Add",
   "common.added": "Added",

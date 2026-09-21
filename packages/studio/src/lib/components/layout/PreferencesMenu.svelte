@@ -27,6 +27,7 @@ let {
 let open = $state(false);
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') open = false; }} />
 <div class="dropdown dropdown-end">
   <button
     type="button"
