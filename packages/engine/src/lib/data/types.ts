@@ -41,6 +41,18 @@ export interface RequestUser {
    * every key that nobody chose. See migration 026.
    */
   rlsBypass?: boolean;
+  /**
+   * API-key auth only: the `user` row that authorship is recorded against.
+   *
+   * `id` is `apikey:<uuid>` for a key, which is deliberate — RLS actors and
+   * scope checks are written in those terms — but `created_by`/`updated_by` on
+   * every collection table is `TEXT REFERENCES "user"(id)`. Writing the
+   * principal id there raised `foreign_key_violation`, so no API key could
+   * create or update a row at all. This is the human who issued the key
+   * (`zv_api_keys.created_by`), or null for a key issued before that column
+   * was populated.
+   */
+  authorUserId?: string | null;
 }
 
 /** One field in a collection definition (a subset of `FieldConfig`). Dynamic
