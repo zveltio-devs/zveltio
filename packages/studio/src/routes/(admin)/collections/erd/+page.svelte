@@ -1,9 +1,7 @@
 <script lang="ts">
 /**
  * Schema visualiser (ERD) — diagram of every collection and its relations.
- * Pan, zoom, drag-to-rearrange. Layouts persist in localStorage so the
- * arrangement survives reload but is intentionally per-browser — different
- * people on the same project can each have their own mental map.
+ * Pan, zoom, drag-to-rearrange.
  *
  * Layout: auto grid (sorted by name) + per-card user overrides. Edges:
  * SVG cubic Beziers from source-right to target-left.
@@ -13,11 +11,19 @@
  * accessibility for free. The cost is two coordinate systems — but
  * a single `transform: scale()` on the wrapping <div> keeps them aligned.
  *
- * Why localStorage and not a server-side `zv_erd_layout` table:
- * server-side would force a migration + per-tenant row + sync conflicts.
- * Layouts are a per-user preference, not a shared schema artefact. If
- * teams want shared layouts later, we promote the storage layer behind
- * the same `userPositions` interface.
+ * Where layouts live: `zv_erd_layouts`, per user, through
+ * GET/PUT/DELETE `/api/erd/layout` — the server is the source of truth, and
+ * localStorage is the offline-first cache in front of it. See the persistence
+ * section further down for the merge rule.
+ *
+ * This paragraph used to argue the opposite — that a server-side
+ * `zv_erd_layout` table would force "a migration + per-tenant row + sync
+ * conflicts", and that layouts were a per-browser preference. The table was
+ * built anyway (migration 001), the route was mounted, and the code a hundred
+ * lines below has been calling it since; only the paragraph stayed behind. It
+ * is rewritten rather than deleted because a reader who trusted it would have
+ * concluded the fetch, the PUT and the `serverSynced` indicator were all dead
+ * code.
  */
 import { m } from '$lib/i18n.svelte.js';
 import { onMount, onDestroy, tick } from 'svelte';
