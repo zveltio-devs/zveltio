@@ -50,34 +50,6 @@ let fieldTypes = $state<any[]>([]);
 let allCollections = $state<any[]>([]);
 let search = $state('');
 
-// Bulk-select state (L29). System collections (zv_*) can't be deleted —
-// they're excluded from bulk selection to keep the action safe.
-let selectedNames = $state<Set<string>>(new SvelteSet());
-const selectableCollections = $derived(collections.filter((c) => !c.is_system));
-const selectedCount = $derived(selectedNames.size);
-const allSelectable = $derived(
-  selectableCollections.length > 0 && selectableCollections.every((c) => selectedNames.has(c.name)),
-);
-const someSelected = $derived(selectedCount > 0 && !allSelectable);
-function toggleSelectCol(name: string) {
-  const next = new SvelteSet(selectedNames);
-  if (next.has(name)) next.delete(name);
-  else next.add(name);
-  selectedNames = next;
-}
-function toggleSelectAll() {
-  const next = new SvelteSet(selectedNames);
-  if (allSelectable) {
-    for (const c of selectableCollections) next.delete(c.name);
-  } else {
-    for (const c of selectableCollections) next.add(c.name);
-  }
-  selectedNames = next;
-}
-function clearColSelection() {
-  selectedNames = new SvelteSet();
-}
-
 const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SYSTEM_FIELDS = new Set([
   'id',
@@ -120,15 +92,49 @@ let confirmState = $state<{
   onconfirm: () => void;
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-const filtered = $derived(
-  search.trim()
-    ? collections.filter(
-        (c) =>
-          c.name.includes(search.toLowerCase()) ||
-          (c.display_name ?? '').toLowerCase().includes(search.toLowerCase()),
-      )
-    : collections,
+// The gate trims and the needle did not, so a trailing space — what a paste or
+// a double-tapped spacebar leaves behind — matched nothing and the page claimed
+// no collection matched.
+const filtered = $derived.by(() => {
+  const q = search.trim().toLowerCase();
+  if (!q) return collections;
+  return collections.filter(
+    (c) => c.name.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q),
+  );
+});
+
+// Bulk-select state (L29). System collections (zv_*) can't be deleted —
+// they're excluded from bulk selection to keep the action safe.
+//
+// Scoped to `filtered`, not to `collections`: the grid renders the filtered
+// list, and select-all over the unfiltered one made a single click select every
+// collection in the instance — the ones the search had hidden included — with
+// an irreversible drop of table and data sitting next to it.
+let selectedNames = $state<Set<string>>(new SvelteSet());
+const selectableCollections = $derived(filtered.filter((c) => !c.is_system));
+const selectedCount = $derived(selectedNames.size);
+const allSelectable = $derived(
+  selectableCollections.length > 0 && selectableCollections.every((c) => selectedNames.has(c.name)),
 );
+const someSelected = $derived(selectedCount > 0 && !allSelectable);
+function toggleSelectCol(name: string) {
+  const next = new SvelteSet(selectedNames);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  selectedNames = next;
+}
+function toggleSelectAll() {
+  const next = new SvelteSet(selectedNames);
+  if (allSelectable) {
+    for (const c of selectableCollections) next.delete(c.name);
+  } else {
+    for (const c of selectableCollections) next.add(c.name);
+  }
+  selectedNames = next;
+}
+function clearColSelection() {
+  selectedNames = new SvelteSet();
+}
 
 onMount(async () => {
   try {
@@ -230,6 +236,11 @@ async function deleteCollection(name: string) {
       confirmState.open = false;
       try {
         await collectionsApi.delete(name);
+        // A deleted collection must not stay in the selection: the bulk bar
+        // would keep counting it and the bulk drop would 404 on it.
+        const next = new SvelteSet(selectedNames);
+        next.delete(name);
+        selectedNames = next;
         await loadCollections();
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (err: any) {
@@ -351,16 +362,15 @@ function clearTemplate() {
   visibleCount={filtered.length}
   {loading}
   search={search}
-  onSearchChange={(v) => (search = v)}
-  searchPlaceholder="Search collections..."
-  actionLabel="New Collection"
+  onSearchChange={(v) => { search = v; clearColSelection(); }}
+  actionLabel={m['dashboard.newCollection']()}
   onAction={() => { showCreateModal = true; nameError = ''; }}
   empty={{
     illustration: 'table',
     illustrationColor: 'text-primary',
     title: 'Build your first collection',
     description: 'Collections are the schema-less tables where Zveltio stores your data. Pick a template below or start blank.',
-    actionLabel: 'Create collection',
+    actionLabel: m['collections.create'](),
     onAction: () => (showCreateModal = true),
   }}
   noSearchMatch={searchNoMatch}
@@ -388,7 +398,7 @@ function clearTemplate() {
             onchange={toggleSelectAll}
             aria-label={m['collections.selectAll']()}
           />
-          Select all
+          {m['data.selectAll']()}
         </label>
         <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label={m['collections.viewDiagram']()}>
           <GitFork size={13} /> {m['erd.title']()}
@@ -444,7 +454,7 @@ function clearTemplate() {
               </div>
             </div>
             <div class="flex gap-1.5 flex-wrap">
-              <span class="badge badge-outline badge-xs">{fieldCount(col)} fields</span>
+              <span class="badge badge-outline badge-xs">{m['schema.fieldsCount']({ count: fieldCount(col) })}</span>
               {#if col.route_group}
                 <span class="badge badge-ghost badge-xs">{col.route_group}</span>
               {/if}

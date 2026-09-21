@@ -128,7 +128,12 @@ const ALLOWED = new Set([
  */
 const ALLOWED_EXACT: RegExp[] = [
   /^(god|admin|member|employee|manager|client|prod)( → (\*|[a-z]+))?$/,
-  /^SELECT /i,
+  // Case-sensitive on purpose. This allowance is for SQL shown as a code
+  // sample, and SQL samples are written in uppercase; with /i it also matched
+  // "Select all", "Select a collection" and every other visible label that
+  // begins with the word — the gate reported the collections page clean with
+  // an English "Select all" checkbox on it.
+  /^SELECT /,
   /^[A-Za-z]+\/[A-Za-z_]+$/, // IANA timezone, e.g. Europe/Bucharest
   // Sample values inside placeholders. `Română` is a locale endonym — a
   // locale's name is written in its own language whatever the UI language is,
