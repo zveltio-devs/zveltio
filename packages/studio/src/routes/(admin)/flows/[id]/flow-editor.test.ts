@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const { navCallback, patch } = vi.hoisted(() => ({
   navCallback: { fn: null as ((nav: { cancel: () => void }) => void) | null },
-  patch: vi.fn(async () => ({})),
+  patch: vi.fn(async (_path: string, _body: { steps: { id: string; order: number }[] }) => ({})),
 }));
 
 vi.mock('$app/navigation', () => ({
@@ -118,7 +118,7 @@ describe('flow editor', () => {
     ) as HTMLButtonElement;
     save.click();
     await waitFor(() => expect(patch).toHaveBeenCalled());
-    const body = patch.mock.calls[0][1] as { steps: { id: string; order: number }[] };
+    const body = patch.mock.calls[0]![1];
     expect(body.steps.map((s) => [s.id, s.order])).toEqual([
       ['s2', 0],
       ['s1', 1],
