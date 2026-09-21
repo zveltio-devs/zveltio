@@ -40,13 +40,20 @@ let colLabel = $state('');
 let colCreated = $state(false);
 let colNameManuallyEdited = $state(false);
 
+/** The collection slug rule, in one place: it was written out three times. */
+const slugify = (v: string) =>
+  v
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+
+/** What step 2 actually created (or is about to), as the engine names it. */
+const colSlug = () => slugify(colName);
+
 $effect(() => {
   if (!colNameManuallyEdited && colLabel) {
-    colName = colLabel
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
+    colName = slugify(colLabel);
   }
 });
 
@@ -83,18 +90,13 @@ async function createCollection() {
   if (!colName.trim()) return;
   loading = true;
   try {
-    const slug = colName
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
     await api.post('/api/collections', {
-      name: slug,
+      name: colSlug(),
       label: colLabel || colName,
       fields: [{ name: 'title', type: 'text', required: true }],
     });
     colCreated = true;
-    toast.success(`Collection "${colLabel || colName}" created!`);
+    toast.success(m['onboarding.colCreatedMsg']({ name: colLabel || colName }));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : m['collections.createFailed']());
   } finally {
@@ -103,12 +105,35 @@ async function createCollection() {
 }
 
 // ── Step 3: create API key ─────────────────────────────────────
+
+/**
+ * What the first key is allowed to do.
+ *
+ * It used to be `[{ collection: '*', actions: ['read','create','update','delete'] }]`
+ * — the key a person pastes into their app in the first five minutes could
+ * delete every collection in the instance, including ones created a year
+ * later. First keys are precisely the ones nobody ever rotates.
+ *
+ * The wizard knows which collection the person just made, two steps back, so
+ * the write grant costs nothing to narrow. The broad `read` entry keeps the
+ * key useful against the rest of the instance: the engine unions the scopes
+ * that match a collection (`lib/data/auth.ts`), so these two compose rather
+ * than conflict. Skipped step 2 leaves read-only — a key that cannot break
+ * anything — and widening one is a screen that already exists, /admin/api-keys.
+ */
+function firstKeyScopes(): { collection: string; actions: string[] }[] {
+  const readAll = { collection: '*', actions: ['read'] };
+  return colCreated && colSlug()
+    ? [{ collection: colSlug(), actions: ['read', 'create', 'update', 'delete'] }, readAll]
+    : [readAll];
+}
+
 async function createApiKey() {
   loading = true;
   try {
     const res = await api.post<{ key: string }>('/api/admin/api-keys', {
       name: keyName || 'My App',
-      scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] }],
+      scopes: firstKeyScopes(),
     });
     apiKey = res.key ?? '';
     keyCreated = true;
@@ -128,17 +153,12 @@ async function runTest() {
   testLoading = true;
   testResult = '';
   try {
-    const colSlug =
-      colName
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, '_')
-        .replace(/[^a-z0-9_]/g, '') || 'test';
+    const target = colSlug() || 'test';
     // Deliberately NOT api.fetch: that sends `credentials: 'include'`, so the
     // admin's own session authenticated this request and the step reported
     // success for any key at all — including none. The point of the step is to
     // prove the key works, so the key must be the only credential sent.
-    const res = await fetch(`${ENGINE_URL}/api/data/${colSlug}?limit=1`, {
+    const res = await fetch(`${ENGINE_URL}/api/data/${target}?limit=1`, {
       headers: { 'X-API-Key': apiKey },
       credentials: 'omit',
     });

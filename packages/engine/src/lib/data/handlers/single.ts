@@ -46,7 +46,7 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
-import { checkAccess } from '../auth.js';
+import { rowAuthorId, checkAccess } from '../auth.js';
 
 export async function getRecord(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -200,6 +200,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
 export async function createRecord(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
   const user = c.get('user');
+  const author = rowAuthorId(user);
 
   if (!(await checkAccess(db, user, collection, 'create'))) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -261,7 +262,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   // `toInsert` also means a `record.beforeInsert` hook cannot rewrite it — the
   // hook already receives `userId` separately if it needs to know.
   const toInsert = { ...allowedData };
-  const systemColumns = { created_by: user.id, updated_by: user.id };
+  const systemColumns = { created_by: author, updated_by: author };
 
   // Pre-insert hooks: extensions can mutate the payload (e.g. geocode an
   // address, attach a computed score) or abort (e.g. quota check).
@@ -302,6 +303,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const collection = c.req.param('collection')!;
   const id = c.req.param('id')!;
   const user = c.get('user');
+  const author = rowAuthorId(user);
 
   if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
 
@@ -351,7 +353,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   }
 
   const effectiveDb = getDb(c, db);
-  const toUpdate = { ...allowedPut, updated_by: user.id };
+  const toUpdate = { ...allowedPut, updated_by: author };
 
   // Pre-update hooks need the current row for the `before` field. Read it
   // once — if the record doesn't exist (or extension query alters hide it)
@@ -393,7 +395,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
-      dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: user.id }),
+      dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author }),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
@@ -414,6 +416,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
   const id = c.req.param('id')!;
   const user = c.get('user');
+  const author = rowAuthorId(user);
 
   if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
 
@@ -467,7 +470,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   }
 
   const effectiveDb = getDb(c, db);
-  const toUpdate = { ...allowedPatch, updated_by: user.id };
+  const toUpdate = { ...allowedPatch, updated_by: author };
 
   // The before-row fetch doubles as the authorisation probe: run the caller's
   // RLS conditions on it, so a row they are not allowed to see is simply not
@@ -505,7 +508,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
 
   const result = await handlePgErrors(c, async () => {
     const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch, {
-      updated_by: user.id,
+      updated_by: author,
     });
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {

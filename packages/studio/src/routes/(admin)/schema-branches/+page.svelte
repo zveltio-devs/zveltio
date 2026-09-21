@@ -227,7 +227,7 @@ async function submitReview() {
       status: reviewStatus,
       note: reviewNote || undefined,
     });
-    toast.success(`Review submitted: ${reviewStatus}`);
+    toast.success(m['branches.reviewSubmitted']({ status: reviewStatus }));
     showReviewModal = false;
     await loadBranches();
   } catch (e) {

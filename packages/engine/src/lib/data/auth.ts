@@ -72,6 +72,9 @@ export async function authenticate(
           // Exempting a key from tenant isolation should require the database to
           // say so, not merely to fail to deny it.
           rlsBypass: bypass,
+          // Authorship goes to the person who issued the key — `user.id` here
+          // is `apikey:<uuid>`, which is not a row in `user`.
+          authorUserId: (apiKey as { created_by?: string | null }).created_by ?? null,
         },
         authType: 'api_key',
       };
@@ -90,6 +93,20 @@ export async function authenticate(
  * one tenant invoked another tenant's functions. A second implementation of an
  * auth check is a second place for one to go missing; there is one here now.
  */
+/**
+ * Who a write is recorded as, which is not always who made it.
+ *
+ * `created_by`/`updated_by` are foreign keys into `user`. A session principal's
+ * id is such a row; an API key's is `apikey:<uuid>` and is not, so every
+ * key-authenticated create and update was refused by the database with
+ * `23503 foreign_key_violation` — the wizard hands out a key to write with and
+ * the key could not write. Authorship for a key falls to the person who issued
+ * it, and to NULL when that is unknown, which the column allows.
+ */
+export function rowAuthorId(user: { id: string; authorUserId?: string | null }): string | null {
+  return user.id.startsWith('apikey:') ? (user.authorUserId ?? null) : user.id;
+}
+
 export async function validateApiKey(
   db: Database,
   rawKey: string,

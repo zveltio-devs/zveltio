@@ -26,7 +26,7 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
-import { checkAccess } from '../auth.js';
+import { rowAuthorId, checkAccess } from '../auth.js';
 import {
   getColumnAccess,
   filterWritableFields,
@@ -39,6 +39,7 @@ import {
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
   const user = c.get('user');
+  const author = rowAuthorId(user);
 
   if (!(await checkAccess(db, user, collection, 'create'))) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -114,8 +115,8 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         }
 
         const record = await dynamicInsert(trx, tableName, finalInsert, {
-          created_by: user.id,
-          updated_by: user.id,
+          created_by: author,
+          updated_by: author,
         });
         created.push(record as DynamicRecord);
       }
@@ -164,6 +165,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
 export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
   const user = c.get('user');
+  const author = rowAuthorId(user);
 
   if (!(await checkAccess(db, user, collection, 'update'))) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -263,7 +265,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
             collection,
             id,
             before: beforeRow,
-            patch: { ...writable, updated_by: user.id },
+            patch: { ...writable, updated_by: author },
             userId: user.id,
           });
           finalPatch = hooked.patch;
@@ -276,7 +278,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         }
 
         const record = await dynamicUpdate(trx, tableName, id, finalPatch, {
-          updated_by: user.id,
+          updated_by: author,
         });
         if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
