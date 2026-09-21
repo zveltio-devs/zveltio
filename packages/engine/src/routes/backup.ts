@@ -380,9 +380,28 @@ export function backupRoutes(db: Database, auth: any): Hono {
     }
 
     const bunFile = Bun.file(filepath);
-    const buffer = await bunFile.arrayBuffer();
 
-    return new Response(buffer, {
+    // Carrying an instance-wide dump out of the building is the single most
+    // consequential thing this router does, and it was the one action it did
+    // not record: `backup.created` and `backup.deleted` were audited, the
+    // export was not. An operator reviewing the trail could see that a dump of
+    // every tenant existed and that it was later removed, but never that a copy
+    // had left.
+    //
+    const user = c.get('user' as never) as { id?: string } | undefined;
+    await auditLog(db, {
+      type: 'backup.downloaded',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'backup',
+      metadata: { filename, size_bytes: bunFile.size },
+    });
+
+    // The body is the file, not a copy of it in memory. `arrayBuffer()` — what
+    // this was — reads the whole dump into the heap before the first byte is
+    // sent, so a 4 GB backup needs 4 GB of RSS to download and the process dies
+    // on the machine it is meant to protect. A `Bun.file` streams.
+    return new Response(bunFile, {
       headers: {
         'Content-Type': 'application/gzip',
         'Content-Disposition': `attachment; filename="${filename}"`,

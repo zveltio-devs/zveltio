@@ -16,6 +16,7 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import Modal from '$lib/components/common/Modal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Panel {
@@ -49,6 +50,7 @@ let panels = $state<Panel[]>([]);
 let panelResults = $state<Record<string, { data: any[]; error?: string; loading?: boolean }>>({});
 
 let loadingDashboards = $state(true);
+let loadError = $state('');
 let loadingPanels = $state(false);
 
 // New dashboard
@@ -94,49 +96,62 @@ const DASH_ICONS = [
 
 onMount(loadDashboards);
 
+// As on saved queries: every request here went out through `api.fetch` and was
+// parsed without looking at the status, so a refusal turned into an empty
+// sidebar that read "no dashboards yet", and a rejected fetch left the spinner
+// running with no `finally` to stop it. The typed helpers throw with the
+// engine's own message.
 async function loadDashboards() {
   loadingDashboards = true;
-  const res = await api
-    .fetch(`/api/insights/dashboards`, { credentials: 'include' })
-    .then((r) => r.json());
-  dashboards = res.dashboards ?? [];
-  if (dashboards.length > 0 && !activeDashboard) {
-    await selectDashboard(dashboards[0]);
+  try {
+    const res = await api.get<{ dashboards: Dashboard[] }>(`/api/insights/dashboards`);
+    dashboards = res.dashboards ?? [];
+    loadError = '';
+    if (dashboards.length > 0 && !activeDashboard) {
+      await selectDashboard(dashboards[0]);
+    }
+  } catch (err) {
+    dashboards = [];
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+    toast.error(loadError);
+  } finally {
+    loadingDashboards = false;
   }
-  loadingDashboards = false;
 }
 
 async function selectDashboard(d: Dashboard) {
   activeDashboard = d;
   loadingPanels = true;
   panelResults = {};
-  const res = await api
-    .fetch(`/api/insights/dashboards/${d.id}`, { credentials: 'include' })
-    .then((r) => r.json());
-  panels = res.panels ?? [];
-  loadingPanels = false;
-  // Auto-run all panels
-  panels.forEach((p) => runPanel(p));
+  try {
+    const res = await api.get<{ panels: Panel[] }>(`/api/insights/dashboards/${d.id}`);
+    panels = res.panels ?? [];
+    // Auto-run all panels
+    panels.forEach((p) => runPanel(p));
+  } catch (err) {
+    panels = [];
+    toast.error(err instanceof Error ? err.message : m['common.loadFailed']());
+  } finally {
+    loadingPanels = false;
+  }
 }
 
 async function createDashboard() {
   if (!newDashName) return;
-  const res = await api
-    .fetch(`/api/insights/dashboards`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        name: newDashName,
-        description: newDashDescription,
-        icon: newDashIcon,
-      }),
-    })
-    .then((r) => r.json());
-  showNewDash = false;
-  newDashName = '';
-  newDashDescription = '';
-  await loadDashboards();
+  try {
+    await api.post(`/api/insights/dashboards`, {
+      name: newDashName,
+      description: newDashDescription,
+      icon: newDashIcon,
+    });
+    // Only clear the form once the dashboard exists.
+    showNewDash = false;
+    newDashName = '';
+    newDashDescription = '';
+    await loadDashboards();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  }
 }
 
 async function deleteDashboard(id: string) {
@@ -147,13 +162,14 @@ async function deleteDashboard(id: string) {
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
-      await api.fetch(`/api/insights/dashboards/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (activeDashboard?.id === id) {
-        activeDashboard = null;
-        panels = [];
+      try {
+        await api.delete(`/api/insights/dashboards/${id}`);
+        if (activeDashboard?.id === id) {
+          activeDashboard = null;
+          panels = [];
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
       }
       await loadDashboards();
     },
@@ -162,65 +178,84 @@ async function deleteDashboard(id: string) {
 
 async function addPanel() {
   if (!activeDashboard || !newPanelName || !newPanelQuery) return;
-  await api.fetch(`/api/insights/dashboards/${activeDashboard.id}/panels`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
+  try {
+    await api.post(`/api/insights/dashboards/${activeDashboard.id}/panels`, {
       name: newPanelName,
       type: newPanelType,
       query: newPanelQuery,
       width: newPanelWidth,
       height: newPanelHeight,
-    }),
-  });
-  showNewPanel = false;
-  newPanelName = '';
-  newPanelQuery = 'SELECT';
-  await selectDashboard(activeDashboard);
+    });
+    // A rejected panel — a forbidden SQL pattern, for one — used to close this
+    // modal and discard the query that had just been written.
+    showNewPanel = false;
+    newPanelName = '';
+    newPanelQuery = 'SELECT';
+    await selectDashboard(activeDashboard);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  }
 }
 
-async function deletePanel(id: string) {
-  await api.fetch(`/api/insights/panels/${id}`, { method: 'DELETE', credentials: 'include' });
-  panels = panels.filter((p) => p.id !== id);
-  const r = { ...panelResults };
-  delete r[id];
-  panelResults = r;
+function deletePanel(id: string, name: string) {
+  // Deleting the dashboard asked first; deleting a panel — the query someone
+  // wrote and placed — did not.
+  confirmState = {
+    open: true,
+    title: m['insights.deletePanelTitle'](),
+    message: m['insights.deletePanelMsg']({ name }),
+    confirmLabel: m['common.delete'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/insights/panels/${id}`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
+        return;
+      }
+      panels = panels.filter((p) => p.id !== id);
+      const r = { ...panelResults };
+      delete r[id];
+      panelResults = r;
+    },
+  };
 }
 
 async function runPanel(p: Panel) {
   panelResults = { ...panelResults, [p.id]: { data: [], loading: true } };
-  const res = await api
-    .fetch(`/api/insights/panels/${p.id}/execute`, {
-      method: 'POST',
-      credentials: 'include',
-    })
-    .then((r) => r.json());
-  panelResults = {
-    ...panelResults,
-    [p.id]: {
-      data: res.data ?? [],
-      error: res.error,
-      loading: false,
-    },
-  };
+  try {
+    const res = await api.post<{ data?: Record<string, unknown>[]; error?: string }>(
+      `/api/insights/panels/${p.id}/execute`,
+    );
+    panelResults = {
+      ...panelResults,
+      [p.id]: { data: res.data ?? [], error: res.error, loading: false },
+    };
+  } catch (err) {
+    // The panel says why it is empty, in the panel. A refused query used to
+    // leave a chart reading "no data", which is a statement about the data.
+    panelResults = {
+      ...panelResults,
+      [p.id]: {
+        data: [],
+        error: err instanceof Error ? err.message : m['common.loadFailed'](),
+        loading: false,
+      },
+    };
+  }
 }
 
 async function runAdHoc() {
   adHocRunning = true;
   adHocError = '';
   adHocResult = null;
-  const res = await api
-    .fetch(`/api/insights/query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ query: adHocQuery }),
-    })
-    .then((r) => r.json());
-  if (res.error) adHocError = res.error;
-  else adHocResult = res;
-  adHocRunning = false;
+  try {
+    adHocResult = await api.post(`/api/insights/query`, { query: adHocQuery });
+  } catch (err) {
+    adHocError = err instanceof Error ? err.message : m['common.loadFailed']();
+  } finally {
+    adHocRunning = false;
+  }
 }
 
 function panelColumns(p: Panel): string[] {
@@ -252,6 +287,8 @@ function statValue(p: Panel): string {
 
     {#if loadingDashboards}
       <div class="flex justify-center p-4"><span class="loading loading-spinner loading-sm"></span></div>
+    {:else if loadError}
+      <div class="p-4 text-center text-xs text-error">{loadError}</div>
     {:else if dashboards.length === 0}
       <div class="p-4 text-center text-xs text-base-content/65">{m['insights.noDashboards']()}</div>
     {:else}
@@ -315,7 +352,11 @@ function statValue(p: Panel): string {
           <div class="grid grid-cols-12 gap-4">
             {#each panels as p}
               {@const res = panelResults[p.id]}
-              <div class="col-span-{Math.min(p.width, 12)} card bg-base-100 border border-base-300 shadow-sm">
+              <!-- Inline, not `col-span-{n}`: Tailwind generates classes it can
+                   see as whole strings in the source, so the interpolated one
+                   this was never existed and every panel drew at the grid's
+                   default width, whatever width it had been given. -->
+              <div class="card bg-base-100 border border-base-300 shadow-sm" style="grid-column: span {Math.min(Math.max(p.width, 1), 12)} / span {Math.min(Math.max(p.width, 1), 12)}">
                 <div class="card-body p-4 space-y-2">
                   <!-- Panel header -->
                   <div class="flex items-center justify-between">
@@ -325,7 +366,7 @@ function statValue(p: Panel): string {
                       <button class="btn btn-xs btn-ghost" onclick={() => runPanel(p)} title={m['common.refresh']()}>
                         {#if res?.loading}<span class="loading loading-spinner loading-xs"></span>{:else}<RefreshCw size={12} />{/if}
                       </button>
-                      <button class="btn btn-xs btn-ghost btn-error" onclick={() => deletePanel(p.id)}>
+                      <button class="btn btn-xs btn-ghost btn-error" onclick={() => deletePanel(p.id, p.name)}>
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -360,7 +401,7 @@ function statValue(p: Panel): string {
                           </tbody>
                         </table>
                       </div>
-                      <p class="text-xs text-base-content/55">{res.data.length} rows</p>
+                      <p class="text-xs text-base-content/55">{m['insights.rowCount']({ count: res.data.length })}</p>
                     {:else}
                       <p class="text-xs text-base-content/65 py-3 text-center">{m['insights.noData']()}</p>
                     {/if}
@@ -368,7 +409,7 @@ function statValue(p: Panel): string {
 
                   <!-- Query (collapsed) -->
                   <details class="text-xs">
-                    <summary class="cursor-pointer text-base-content/55 hover:text-base-content/65">SQL</summary>
+                    <summary class="cursor-pointer text-base-content/55 hover:text-base-content/65">{m['insights.sqlQuery']()}</summary>
                     <pre class="bg-base-200 rounded p-2 mt-1 overflow-x-auto font-mono">{p.query}</pre>
                   </details>
                 </div>
@@ -491,7 +532,7 @@ function statValue(p: Panel): string {
                 {/each}
               </tbody>
             </table>
-            <p class="text-xs text-base-content/65 mt-1">{adHocResult.data.length} rows</p>
+            <p class="text-xs text-base-content/65 mt-1">{m['insights.rowCount']({ count: adHocResult.data.length })}</p>
           {:else}
             <p class="text-xs text-base-content/65">{m['insights.noRows']()}</p>
           {/if}
@@ -505,7 +546,7 @@ function statValue(p: Panel): string {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

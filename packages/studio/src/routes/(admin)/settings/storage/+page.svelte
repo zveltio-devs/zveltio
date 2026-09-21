@@ -2,6 +2,7 @@
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
@@ -22,9 +23,19 @@ let loading = $state(true);
 let saving = $state(false);
 let testing = $state(false);
 let testResult = $state<{ ok: boolean; detail: string } | null>(null);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
 // Form model
 let driver = $state<'local' | 's3'>('local');
+// What the engine last told us the driver is — the baseline `save()` compares
+// against to know whether this save switches drivers.
+let loadedDriver = $state<'local' | 's3'>('local');
 let localDir = $state('');
 let endpoint = $state('');
 let bucket = $state('');
@@ -39,6 +50,7 @@ async function load() {
   try {
     const cfg = await api.get<StorageConfig>('/api/admin/storage/config');
     driver = cfg.driver;
+    loadedDriver = cfg.driver;
     localDir = cfg.localDir;
     endpoint = cfg.s3.endpoint;
     bucket = cfg.s3.bucket;
@@ -53,6 +65,18 @@ async function load() {
     loading = false;
   }
 }
+
+// A probe result belongs to the values it was run against.
+//
+// `testResult` survived every later edit, so a green "connection ok" stayed on
+// screen while the endpoint below it was changed to something that had never
+// been reached — an operator could save a broken configuration with a tick mark
+// next to it. Anything that changes the connection clears the verdict.
+$effect(() => {
+  // Read them so the effect re-runs when any of them changes.
+  void [driver, localDir, endpoint, bucket, region, accessKey, secretKey];
+  testResult = null;
+});
 
 // Only include the secret when the operator typed a new one; otherwise keep the
 // stored value.
@@ -77,7 +101,27 @@ async function testConnection() {
   }
 }
 
-async function save() {
+function save() {
+  // Changing the driver reroutes every future upload. Files already stored under
+  // the old driver keep URLs that point at it, so this is not a setting that can
+  // be flipped back and forth without consequence — it is worth one question.
+  if (driver !== loadedDriver) {
+    confirmState = {
+      open: true,
+      title: m['stor.switchDriverTitle'](),
+      message: m['stor.switchDriverMsg']({ from: loadedDriver, to: driver }),
+      confirmLabel: m['common.save'](),
+      onconfirm: () => {
+        confirmState.open = false;
+        doSave();
+      },
+    };
+    return;
+  }
+  doSave();
+}
+
+async function doSave() {
   saving = true;
   try {
     await api.put('/api/admin/storage/config', payload());
@@ -161,3 +205,12 @@ onMount(load);
     {/if}
   </div>
 {/if}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

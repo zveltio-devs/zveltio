@@ -1,7 +1,12 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
-import { onMount } from 'svelte';
+import { onDestroy, onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
+// The shared formatter, which reads the instance's locale, timezone and
+// date_format settings. The local copy this replaces was hardcoded to 'en-US',
+// so backup timestamps were the one date on the admin that ignored them.
+import { fmtDateTime } from '$lib/stores/format.svelte.js';
 import {
   DatabaseBackup,
   Download,
@@ -45,6 +50,15 @@ let confirmState = $state<{
 
 onMount(loadBackups);
 
+// Every poller, so leaving the page stops them. Without this a backup that is
+// still running leaves a 3-second request to the engine going for as long as
+// the tab lives, on a page the operator navigated away from.
+const timers = new Set<ReturnType<typeof setInterval>>();
+onDestroy(() => {
+  for (const t of timers) clearInterval(t);
+  timers.clear();
+});
+
 async function loadBackups() {
   loading = true;
   try {
@@ -57,7 +71,7 @@ async function loadBackups() {
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to load backups');
+    toast.error(e.message ?? m['bk.loadFailed']());
   } finally {
     loading = false;
   }
@@ -75,7 +89,7 @@ async function createBackup() {
     pollBackup(data.backup_id);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to create backup');
+    toast.error(e.message ?? m['bk.createFailed']());
   } finally {
     creating = false;
   }
@@ -102,13 +116,14 @@ function pollBackup(id: string) {
       pollingIds = new Set([...pollingIds].filter((x) => x !== id));
     }
   }, 3000);
+  timers.add(interval);
 }
 
 async function deleteBackup(id: string, filename: string) {
   confirmState = {
     open: true,
     title: m['confirm.deleteBackup.title'](),
-    message: `Delete backup "${filename}"?`,
+    message: m['bk.deleteMsg']({ filename }),
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
@@ -117,24 +132,19 @@ async function deleteBackup(id: string, filename: string) {
         backups = backups.filter((b) => b.id !== id);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (e: any) {
-        toast.error(e.message ?? 'Failed to delete backup');
+        toast.error(e.message ?? m['bk.deleteFailed']());
       }
     },
   };
 }
 
 function downloadBackup(id: string) {
-  window.open(`/api/backup/${id}/download`, '_blank');
-}
-
-function fmtDate(s: string) {
-  return new Date(s).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // Absolute, against the engine. The relative path this used resolved against
+  // the Studio's own origin, which is only the engine's when the Studio is the
+  // embedded one at <engine>/admin. Built with `VITE_ENGINE_URL`, or running in
+  // the Capacitor shell that points at a self-hosted instance, the browser
+  // asked the Studio's host for `/api/backup/…` and opened a blank tab.
+  window.open(`${ENGINE_URL}/api/backup/${id}/download`, '_blank');
 }
 </script>
 
@@ -179,8 +189,8 @@ function fmtDate(s: string) {
  </div>
  <div class="flex-1 min-w-0">
  <div class="flex items-center gap-2 flex-wrap">
- <span class="font-medium text-sm">{fmtDate(backup.created_at)}</span>
- <span class="badge badge-xs {backup.status === 'completed' ? 'badge-success' : backup.status === 'failed' ? 'badge-error' : 'badge-warning'}">{backup.status}</span>
+ <span class="font-medium text-sm">{fmtDateTime(backup.created_at)}</span>
+ <span class="badge badge-xs {backup.status === 'completed' ? 'badge-success' : backup.status === 'failed' ? 'badge-error' : 'badge-warning'}">{backup.status === 'completed' ? m['bk.status.completed']() : backup.status === 'failed' ? m['bk.status.failed']() : m['bk.status.inProgress']()}</span>
  </div>
  <div class="text-xs text-base-content/65 mt-0.5 font-mono truncate">
  {backup.filename}
@@ -236,7 +246,7 @@ function fmtDate(s: string) {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />

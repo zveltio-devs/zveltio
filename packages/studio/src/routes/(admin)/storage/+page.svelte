@@ -30,6 +30,7 @@ interface MediaFile {
 
 let files = $state<MediaFile[]>([]);
 let loading = $state(true);
+let loadError = $state('');
 let uploading = $state(false);
 let dragging = $state(false);
 let filter = $state<'all' | 'images' | 'documents'>('all');
@@ -42,6 +43,14 @@ let confirmState = $state<{
   confirmLabel?: string;
   onconfirm: () => void;
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+// Clearing the selection when the filter changes: a file hidden by the filter
+// stayed selected and would have been deleted by an operator who could no
+// longer see it.
+function setFilter(next: 'all' | 'images' | 'documents') {
+  filter = next;
+  selectedFiles = new Set();
+}
 
 const filtered = $derived(
   filter === 'all'
@@ -58,8 +67,15 @@ async function loadFiles() {
   try {
     const data = await api.get<{ files: MediaFile[] }>('/api/storage/');
     files = data.files || [];
-  } catch {
+    loadError = '';
+  } catch (err) {
+    // The empty state used to be shown for a failed load as well as for an
+    // empty bucket. "No files yet" over a 403 or a storage driver that is down
+    // reads as "nothing was ever uploaded", which is the one conclusion an
+    // operator must not draw from a screen that lists their files.
     files = [];
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+    toast.error(loadError);
   } finally {
     loading = false;
   }
@@ -77,7 +93,7 @@ async function upload(fileList: FileList | null) {
         credentials: 'include',
         body: fd,
       });
-      if (!res.ok) throw new Error(`Upload failed: ${f.name}`);
+      if (!res.ok) throw new Error(m['storage.uploadFailedNamed']({ name: f.name }));
     }
     await loadFiles();
   } catch (err) {
@@ -91,7 +107,7 @@ async function deleteFile(id: string, name: string) {
   confirmState = {
     open: true,
     title: m['confirm.deleteFile.title'](),
-    message: `Delete "${name}"? This cannot be undone.`,
+    message: m['storage.deleteMsg']({ name }),
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
@@ -105,17 +121,34 @@ async function deleteFile(id: string, name: string) {
   };
 }
 
-async function bulkDelete() {
+// The checkboxes on the cards selected files, highlighted them — and nothing
+// else: `bulkDelete` was never called from anywhere. Selecting thirty files and
+// looking for the button to act on them found no button.
+function bulkDelete() {
   if (selectedFiles.size === 0) return;
-  for (const id of selectedFiles) {
-    try {
-      await api.delete(`/api/storage/${id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
-    }
-  }
-  selectedFiles = new Set();
-  await loadFiles();
+  const ids = [...selectedFiles];
+  confirmState = {
+    open: true,
+    title: m['storage.bulkDeleteTitle'](),
+    message: m['storage.bulkDeleteMsg']({ count: ids.length }),
+    confirmLabel: m['common.delete'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          await api.delete(`/api/storage/${id}`);
+        } catch {
+          failed++;
+        }
+      }
+      // One line for the batch, and it says how many did not go. Toasting per
+      // file buries the count under identical messages.
+      if (failed > 0) toast.error(m['storage.bulkDeleteFailed']({ count: failed }));
+      selectedFiles = new Set();
+      await loadFiles();
+    },
+  };
 }
 
 async function copyUrl(url: string, id: string) {
@@ -170,8 +203,8 @@ function openPreview(file: MediaFile) {
 
  <!-- Filter tabs -->
  <div class="tabs tabs-bordered">
- {#each [['all','All'], ['images','Images'], ['documents','Documents']] as [id, label]}
- <button class="tab {filter === id ? 'tab-active' : ''}" onclick={() => (filter = id as any)}>
+ {#each [['all', m['common.filter.all']()], ['images', m['storage.filterImages']()], ['documents', m['storage.filterDocuments']()]] as [id, label]}
+ <button class="tab {filter === id ? 'tab-active' : ''}" onclick={() => setFilter(id as 'all' | 'images' | 'documents')}>
  {label}
  <span class="ml-1 badge badge-sm badge-ghost">
  {id === 'all' ? files.length :
@@ -182,8 +215,26 @@ function openPreview(file: MediaFile) {
  {/each}
  </div>
 
+ <!-- Selection bar — the action the checkboxes were always missing. -->
+ {#if selectedFiles.size > 0}
+ <div class="flex items-center justify-between rounded-lg border border-base-300 bg-base-200 px-4 py-2">
+ <span class="text-sm">{m['storage.selectedCount']({ count: selectedFiles.size })}</span>
+ <div class="flex gap-2">
+ <button class="btn btn-ghost btn-sm" onclick={() => (selectedFiles = new Set())}>{m['common.cancel']()}</button>
+ <button class="btn btn-error btn-sm gap-1" onclick={bulkDelete}>
+ <Trash2 size={14} /> {m['common.delete']()}
+ </button>
+ </div>
+ </div>
+ {/if}
+
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
+ {:else if loadError}
+ <div class="alert alert-error">
+ <span>{loadError}</span>
+ <button class="btn btn-sm btn-ghost" onclick={loadFiles}>{m['common.retry']()}</button>
+ </div>
  {:else if filtered.length === 0}
  <div class="text-center py-16 text-base-content/65">
  <File size={48} class="mx-auto mb-3" />
@@ -250,7 +301,7 @@ function openPreview(file: MediaFile) {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />
