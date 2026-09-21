@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { DDLManager, CollectionSchema, FieldSchema } from '../lib/data/index.js';
+import { DDLManager, CollectionSchema, FieldSchema, SYSTEM_COLUMNS } from '../lib/data/index.js';
 // requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
@@ -32,18 +32,9 @@ const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 // Reserved system column names — cannot be used as user field names because the
-// physical table already owns them (see DDLManager.createCollection). Declared at
-// module scope so both CREATE-collection and ADD-field paths use the same list.
-const SYSTEM_FIELDS = new Set([
-  'id',
-  'created_at',
-  'updated_at',
-  'status',
-  'created_by',
-  'updated_by',
-  'tenant_id',
-  'search_vector',
-]);
+// physical table already owns them. Imported from DDLManager so the routes and
+// introspection cannot drift apart (they did: `search_text` was missing here).
+const SYSTEM_FIELDS = SYSTEM_COLUMNS;
 
 // Auth helper — checks session from request headers
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -759,6 +750,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
       return c.json({ error: 'Invalid field name' }, 400);
+    }
+
+    if (SYSTEM_FIELDS.has(fieldName)) {
+      return c.json({ error: `"${fieldName}" is a reserved system field name` }, 400);
     }
 
     const collection = await DDLManager.getCollection(db, name);
