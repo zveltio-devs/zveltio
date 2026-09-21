@@ -165,8 +165,11 @@ async function toggleEnvironments(tenant: any) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const data = await api.get<{ environments: any[] }>(`/api/tenants/${tenant.id}/environments`);
       envsByTenant[tenant.id] = data.environments;
-    } catch {
-      envsByTenant[tenant.id] = [];
+    } catch (e) {
+      // Leave the entry absent rather than caching `[]`: the guard above treats
+      // any present entry as loaded, so a failed fetch read as "no environments"
+      // until the page was reloaded.
+      toast.error(e instanceof Error ? e.message : m['common.loadFailed']());
     } finally {
       loadingEnvs = null;
     }
@@ -188,8 +191,10 @@ async function loadMembers(tenantId: string) {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const data = await api.get<{ members: any[] }>(`/api/tenants/${tenantId}/members`);
     membersByTenant[tenantId] = data.members;
-  } catch {
-    membersByTenant[tenantId] = [];
+  } catch (e) {
+    // Same as the environments fetch: a cached `[]` is indistinguishable from a
+    // tenant that genuinely has no members.
+    toast.error(e instanceof Error ? e.message : m['common.loadFailed']());
   } finally {
     loadingMembers = null;
   }
@@ -213,6 +218,22 @@ async function addMember(tenantId: string) {
   } finally {
     addingMember = null;
   }
+}
+
+// Removing a member revokes that person's access to the tenant at once; every
+// other destructive action on this screen asks first.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+function confirmRemoveMember(tenantId: string, member: any) {
+  confirmState = {
+    open: true,
+    title: m['tenants.removeMember'](),
+    message: m['tenants.removeMemberMsg']({ email: member.email }),
+    confirmLabel: m['common.remove'](),
+    onconfirm: () => {
+      confirmState.open = false;
+      void removeMember(tenantId, member.user_id);
+    },
+  };
 }
 
 async function removeMember(tenantId: string, userId: string) {
@@ -416,15 +437,22 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="overflow-x-auto mt-2">
  <table class="table table-xs">
  <tbody>
- {#each membersByTenant[tenant.id] ?? [] as m}
+ <!--
+ Loop variable named `member`, not `m`: `m` is the message catalogue
+ imported at the top of this file, and `{#each … as m}` shadows it for
+ the whole block. `m['tenants.removeMember']()` then read a property off
+ the member object and called `undefined`, so this table threw as soon as
+ a tenant had a single member.
+ -->
+ {#each membersByTenant[tenant.id] ?? [] as member}
  <tr>
- <td class="font-mono">{m.email}</td>
- <td><span class="badge badge-sm badge-outline">{m.role}</span></td>
+ <td class="font-mono">{member.email}</td>
+ <td><span class="badge badge-sm badge-outline">{member.role}</span></td>
  <td class="text-right">
  <button
  class="btn btn-ghost btn-xs text-error"
  title={m['tenants.removeMember']()}
- onclick={() => removeMember(tenant.id, m.user_id)}
+ onclick={() => confirmRemoveMember(tenant.id, member)}
  >{m['common.remove']()}</button>
  </td>
  </tr>
