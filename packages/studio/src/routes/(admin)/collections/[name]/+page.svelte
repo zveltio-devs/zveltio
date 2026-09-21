@@ -106,12 +106,22 @@ const tableColumns = $derived(
 );
 
 // ── Load ──────────────────────────────────────────────────────────────────
+//
+// One page instance serves every collection: the route parameter changes and
+// the component does not remount, so two loads can be in flight at once. There
+// is no cancellation to be had — four requests are already running in parallel
+// — so the newest load wins by sequence number and an older response that
+// arrives after it is discarded. Without this, walking quickly through the
+// collections list could paint one collection's schema under another's name.
+let loadSeq = 0;
+
 $effect(() => {
   const name = collectionName;
   if (name) loadAll(name);
 });
 
 async function loadAll(name: string) {
+  const seq = ++loadSeq;
   loading = true;
   try {
     const [colRes, relsRes, typesRes, colsRes] = await Promise.all([
@@ -120,6 +130,7 @@ async function loadAll(name: string) {
       collectionsApi.fieldTypes(),
       collectionsApi.list(),
     ]);
+    if (seq !== loadSeq) return; // a newer collection is already loading
     collection = colRes.collection as CollectionSummary;
     relations = relsRes.relations ?? [];
     fieldTypes = (typesRes.field_types ?? []) as FieldType[];
@@ -129,9 +140,12 @@ async function loadAll(name: string) {
     aiSearchEnabled = Boolean(collection?.ai_search_enabled);
     aiSearchField = (collection?.ai_search_field as string) ?? '';
   } catch (e) {
+    if (seq !== loadSeq) return;
     toast.error((e as Error).message || m['col.loadFailed']());
   } finally {
-    loading = false;
+    // Only the newest load owns the spinner; a stale one clearing it would
+    // report the page as settled while the current request is still out.
+    if (seq === loadSeq) loading = false;
   }
 }
 
