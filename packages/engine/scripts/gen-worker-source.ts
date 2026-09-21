@@ -23,10 +23,12 @@
  */
 
 import { join, dirname } from 'node:path';
+import { hashWorkerSources, workerSourceSet } from './lib/worker-source-set.js';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..', '..', '..');
 const SRC = join(__dirname, '..', 'src', 'lib', 'worker-extension-runtime.ts');
 const OUT = join(__dirname, '..', 'src', 'lib', 'worker-extension-runtime-source.generated.ts');
 
@@ -54,7 +56,7 @@ if (result.outputs.length === 0) {
 
 const code = await result.outputs[0]!.text();
 
-// Hash of the INPUT, not the output.
+// Hash of the INPUTS, not the output.
 //
 // Bun's bundler writes the entry path into a header comment, and that path is
 // relative to the working directory the build ran from — so the same source
@@ -62,9 +64,12 @@ const code = await result.outputs[0]!.text();
 // gate that diffed the generated file would therefore fail on code nobody
 // touched, which is how a gate gets switched off. `check-bundle-sources.ts` in
 // the extensions repo learned the same thing and hashes its input too.
-const sourceSha256 = new Bun.CryptoHasher('sha256')
-  .update(await Bun.file(SRC).text())
-  .digest('hex');
+//
+// INPUTS, plural: this bundle inlines the entry module and every local module
+// it imports — seventeen files. Hashing the entry alone is what let
+// `url-validator.ts` change in #544 while the embedded runtime kept the old
+// copy, with the freshness gate green over it.
+const sourceSha256 = hashWorkerSources(workerSourceSet(SRC, ROOT), ROOT);
 
 const fileContent = `// AUTO-GENERATED FILE — DO NOT EDIT BY HAND.
 //
@@ -80,10 +85,10 @@ const fileContent = `// AUTO-GENERATED FILE — DO NOT EDIT BY HAND.
 export const WORKER_RUNTIME_SOURCE = ${JSON.stringify(code)};
 
 /**
- * sha256 of \`worker-extension-runtime.ts\` as it was when this file was
- * generated. \`scripts/check-worker-source-fresh.ts\` compares it against the
- * source on disk, so an edit that nobody regenerated fails CI instead of
- * shipping a runtime that was never the one under test.
+ * sha256 over EVERY local source this bundle inlines — the entry module and
+ * each module it imports — as they were when this file was generated.
+ * \`scripts/check-worker-source-fresh.ts\` recomputes it, so an edit anywhere in
+ * that set fails CI instead of shipping a runtime that was never under test.
  */
 export const WORKER_RUNTIME_SOURCE_SHA256 = ${JSON.stringify(sourceSha256)};
 `;

@@ -15,15 +15,26 @@
  * bundles had, where three security fixes were written, reviewed and merged
  * into TypeScript the runtime never loaded.
  *
- * Compares a HASH OF THE SOURCE rather than diffing the generated file: Bun's
+ * Compares a HASH OF THE SOURCES rather than diffing the generated file: Bun's
  * bundler writes the entry path into a header comment, and that path depends on
  * the directory the build ran from, so a byte comparison fails on code nobody
  * touched. Measured before choosing — the naive version did exactly that.
+ *
+ * SOURCES, plural. This hashed the entry module alone, and the bundle inlines
+ * seventeen files. `url-validator.ts` is one of them: #544 gave it the resolved
+ * address that lets a caller close the DNS-rebinding race, nobody regenerated,
+ * and the gate stayed green over a worker runtime still running the version
+ * that returns nothing. The same shape as the extension bundles, where three
+ * security fixes were merged into TypeScript the runtime never loaded.
  *
  * Usage: bun scripts/check-worker-source-fresh.ts
  */
 
 import { join } from 'node:path';
+import {
+  hashWorkerSources,
+  workerSourceSet,
+} from '../packages/engine/scripts/lib/worker-source-set.js';
 
 const ROOT = join(import.meta.dir, '..');
 const SRC = join(ROOT, 'packages/engine/src/lib/worker-extension-runtime.ts');
@@ -41,11 +52,14 @@ if (!WORKER_RUNTIME_SOURCE_SHA256) {
   process.exit(1);
 }
 
-const actual = new Bun.CryptoHasher('sha256').update(await Bun.file(SRC).text()).digest('hex');
+const sources = workerSourceSet(SRC, ROOT);
+const actual = hashWorkerSources(sources, ROOT);
 
 if (actual !== WORKER_RUNTIME_SOURCE_SHA256) {
   console.error(
-    '❌ worker-source-fresh: worker-extension-runtime.ts changed and was not regenerated.\n\n' +
+    '❌ worker-source-fresh: a source the worker runtime inlines changed and\n' +
+      '   was not regenerated.\n\n' +
+      `   sources hashed: ${sources.length} (the entry module and every local import)\n` +
       `   embedded: ${WORKER_RUNTIME_SOURCE_SHA256.slice(0, 16)}…\n` +
       `   on disk:  ${actual.slice(0, 16)}…\n\n` +
       '   The engine spawns workers from the EMBEDDED copy, so the edit does not\n' +
