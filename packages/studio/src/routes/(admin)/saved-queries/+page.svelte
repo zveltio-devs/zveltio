@@ -5,12 +5,14 @@ import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let queries = $state<any[]>([]);
 let collections = $state<string[]>([]);
 let loading = $state(true);
+let loadError = $state('');
 let filterCollection = $state('');
 let filterOwner = $state<'all' | 'mine' | 'shared'>('all');
 
@@ -41,6 +43,7 @@ let activeQuery = $state<any>(null);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let queryResults = $state<any>(null);
 let running = $state(false);
+let saving = $state(false);
 
 // Inline execute (no save)
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -53,21 +56,38 @@ onMount(async () => {
   await Promise.all([loadQueries(), loadCollections()]);
 });
 
+// Every call on this page went out as `api.fetch(...).then(r => r.json())`,
+// which does not look at the status: a 403 parsed into `{ error: … }`, the
+// optional chain turned that into an empty list, and the screen said there were
+// no saved queries. A rejected fetch was worse — no `catch`, no `finally`, so
+// the spinner stayed up forever. The typed helpers already throw on a non-2xx
+// with the engine's message, so the whole page now uses them.
 async function loadQueries() {
   loading = true;
   const params = new URLSearchParams();
   if (filterCollection) params.set('collection', filterCollection);
-  const res = await api
-    .fetch(`/api/saved-queries?${params}`, { credentials: 'include' })
-    .then((r) => r.json());
-  queries = res.queries ?? [];
-  loading = false;
+  try {
+    const res = await api.get<{ queries: Record<string, unknown>[] }>(
+      `/api/saved-queries?${params}`,
+    );
+    queries = res.queries ?? [];
+    loadError = '';
+  } catch (err) {
+    queries = [];
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+    toast.error(loadError);
+  } finally {
+    loading = false;
+  }
 }
 
 async function loadCollections() {
-  const res = await api.fetch(`/api/collections`, { credentials: 'include' }).then((r) => r.json());
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  collections = (res.collections ?? []).map((c: any) => c.name);
+  try {
+    const res = await api.get<{ collections: Array<{ name: string }> }>(`/api/collections`);
+    collections = (res.collections ?? []).map((c) => c.name);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.loadFailed']());
+  }
 }
 
 // ── Computed filter ───────────────────────────────────────────────────────────
@@ -83,15 +103,16 @@ let filtered = $derived(
 // ── API URL preview ───────────────────────────────────────────────────────────
 async function previewUrl() {
   if (!builderCollection) return;
-  const res = await api
-    .fetch(`/api/saved-queries/preview-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ collection: builderCollection, config: buildConfig() }),
-    })
-    .then((r) => r.json());
-  apiUrlPreview = res.api_url ?? '';
+  try {
+    const res = await api.post<{ api_url?: string }>(`/api/saved-queries/preview-url`, {
+      collection: builderCollection,
+      config: buildConfig(),
+    });
+    apiUrlPreview = res.api_url ?? '';
+  } catch {
+    // A preview is a convenience; its failure should not interrupt the builder.
+    apiUrlPreview = '';
+  }
 }
 
 function buildConfig() {
@@ -117,36 +138,41 @@ async function executeNow() {
   executing = true;
   executeError = '';
   executeResult = null;
-  const res = await api
-    .fetch(`/api/saved-queries/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ collection: builderCollection, config: buildConfig() }),
-    })
-    .then((r) => r.json());
-  if (res.error) executeError = res.error;
-  else executeResult = res;
-  executing = false;
+  try {
+    executeResult = await api.post(`/api/saved-queries/execute`, {
+      collection: builderCollection,
+      config: buildConfig(),
+    });
+  } catch (err) {
+    executeError = err instanceof Error ? err.message : m['common.loadFailed']();
+  } finally {
+    executing = false;
+  }
 }
 
 // ── Save query ────────────────────────────────────────────────────────────────
 async function saveQuery() {
   if (!builderCollection || !builderName) return;
-  await api.fetch(`/api/saved-queries`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
+  saving = true;
+  try {
+    await api.post(`/api/saved-queries`, {
       name: builderName,
       description: builderDescription || undefined,
       collection: builderCollection,
       config: buildConfig(),
       is_shared: builderIsShared,
-    }),
-  });
-  resetBuilder();
-  await loadQueries();
+    });
+    // Only on success. The builder used to close and clear itself whether or not
+    // the query was stored, so a refused save looked exactly like a good one —
+    // and the work that had been typed into it was gone.
+    resetBuilder();
+    toast.success(m['savedQueries.saved']());
+    await loadQueries();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  } finally {
+    saving = false;
+  }
 }
 
 function resetBuilder() {
@@ -175,7 +201,12 @@ async function deleteQuery(id: string) {
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
-      await api.fetch(`/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
+      try {
+        await api.delete(`/api/saved-queries/${id}`);
+        if (activeQuery?.id === id) activeQuery = null;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : m['common.deleteFailed']());
+      }
       await loadQueries();
     },
   };
@@ -187,42 +218,33 @@ function selectQuery(q: any) {
   activeQuery = { ...q };
   queryResults = null;
 }
-function newQuery() {
-  activeQuery = { id: null, name: m['savedQueries.untitled'](), sql: '' };
-  queryResults = null;
-}
 
 async function runActiveQuery() {
   if (!activeQuery) return;
   running = true;
   queryResults = null;
   try {
-    if (activeQuery.id) {
-      const res = await api
-        .fetch(`/api/saved-queries/${activeQuery.id}/run`, {
-          method: 'POST',
-          credentials: 'include',
-        })
-        .then((r) => r.json());
-      queryResults = {
-        rows: res.records ?? [],
-        columns: res.records?.length ? Object.keys(res.records[0]) : [],
-      };
-    }
+    const res = await api.post<{ records?: Record<string, unknown>[] }>(
+      `/api/saved-queries/${activeQuery.id}/run`,
+    );
+    queryResults = {
+      rows: res.records ?? [],
+      columns: res.records?.length ? Object.keys(res.records[0]) : [],
+    };
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.loadFailed']());
   } finally {
     running = false;
   }
 }
 
 async function saveActiveQuery() {
-  if (!activeQuery) return;
-  if (activeQuery.id) {
-    await api.fetch(`/api/saved-queries/${activeQuery.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ name: activeQuery.name }),
-    });
+  if (!activeQuery?.id) return;
+  try {
+    await api.put(`/api/saved-queries/${activeQuery.id}`, { name: activeQuery.name });
+    toast.success(m['savedQueries.saved']());
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   }
   await loadQueries();
 }
@@ -387,8 +409,9 @@ function removeSort(i: number) {
             {#if executing}<span class="loading loading-spinner loading-xs"></span>{:else}<Play size={14} />{/if}
             {m['savedQueries.test']()}
           </button>
-          <button class="btn btn-primary btn-sm gap-1" onclick={saveQuery} disabled={!builderCollection || !builderName}>
-            <Bookmark size={14} /> {m['common.save']()}
+          <button class="btn btn-primary btn-sm gap-1" onclick={saveQuery} disabled={!builderCollection || !builderName || saving}>
+            {#if saving}<span class="loading loading-spinner loading-xs"></span>{:else}<Bookmark size={14} />{/if}
+            {m['common.save']()}
           </button>
         </div>
       </div>
@@ -416,13 +439,22 @@ function removeSort(i: number) {
   <!-- Split-view: list left + editor right -->
   {#if loading}
     <div class="flex justify-center py-12"><span class="loading loading-spinner"></span></div>
+  {:else if loadError}
+    <div class="alert alert-error">
+      <span>{loadError}</span>
+      <button class="btn btn-sm btn-ghost" onclick={loadQueries}>{m['common.retry']()}</button>
+    </div>
   {:else}
     <div class="flex gap-0 h-[calc(100vh-160px)] -mx-6 border-t border-base-200">
       <!-- Query list (left panel) -->
       <div class="w-64 shrink-0 flex flex-col border-r border-base-200">
-        <div class="p-3 border-b border-base-200 flex items-center justify-between">
+        <!-- The "+" that stood here opened a blank query in the editor, and Save
+             only ever sent a PUT to an existing id — so it stored nothing, said
+             nothing, and lost whatever had been typed. Creating a query goes
+             through the builder above, which sends the collection the engine
+             requires. -->
+        <div class="p-3 border-b border-base-200">
           <span class="text-sm font-medium">{m['nav.savedQueries']()}</span>
-          <button class="btn btn-ghost btn-xs" onclick={newQuery} aria-label={m['savedQueries.newQuery']()}>+</button>
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each filtered as q}
