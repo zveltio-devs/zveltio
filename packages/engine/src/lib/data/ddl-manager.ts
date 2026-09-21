@@ -93,6 +93,26 @@ async function grantFlowReaderSelect(db: Database, tableName: string): Promise<v
   await sql.raw(`GRANT SELECT ON ${tableName} TO zveltio_flow_reader`).execute(db);
 }
 
+/**
+ * Physical columns every collection table owns (see `createCollection`), so no
+ * user field may claim one. Single source of truth: the collections routes
+ * reject these names on create/add/rename/remove, and `introspectTable` skips
+ * them. `search_text` was missing from the routes' copy of this list, so a user
+ * field with that name was accepted and then silently overwritten by the FTS
+ * trigger on every write.
+ */
+export const SYSTEM_COLUMNS: ReadonlySet<string> = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'status',
+  'created_by',
+  'updated_by',
+  'tenant_id',
+  'search_vector',
+  'search_text',
+]);
+
 export const FieldSchema = z.object({
   name: z
     .string()
@@ -1064,17 +1084,7 @@ export class DDLManager {
    */
   static async introspectTable(db: Database, collectionName: string): Promise<FieldConfig[]> {
     const tableName = this.getTableName(collectionName);
-    const SYSTEM_COLS = new Set([
-      'id',
-      'created_at',
-      'updated_at',
-      'status',
-      'created_by',
-      'updated_by',
-      'tenant_id',
-      'search_vector',
-      'search_text',
-    ]);
+    const SYSTEM_COLS = SYSTEM_COLUMNS;
 
     // Fetch column info
     const cols = await sql<{
