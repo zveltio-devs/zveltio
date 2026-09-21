@@ -65,7 +65,7 @@
         "@types/leaflet": "^1.9.22",
         "@types/node": "^26.5.1",
         "@types/qrcode": "^1.5.6",
-        "daisyui": "^5.7.20",
+        "daisyui": "^5.7.42",
         "jsdom": "^29.1.1",
         "svelte": "^5.57.0",
         "svelte-check": "^4.3.6",
@@ -176,7 +176,7 @@
         "@types/leaflet": "^1.9.22",
         "@zveltio/sdk": "workspace:*",
         "d3-scale": "^4.0.2",
-        "daisyui": "^5.7.20",
+        "daisyui": "^5.7.42",
         "dompurify": "3.4.15",
         "layerchart": "^1.0.13",
         "leaflet": "^1.9.4",
@@ -1054,7 +1054,7 @@
 
     "d3-tricontour": ["d3-tricontour@1.1.0", "", { "dependencies": { "d3-delaunay": "6", "d3-scale": "4" } }, "sha512-G7gHKj89n2owmkGb6WX6ixcnQ0Kf/0wpa9VIh9DGdbHu8wdrlaHU4ir3/bFNERl8N8nn4G7e7qbtBG8N9caihQ=="],
 
-    "daisyui": ["daisyui@5.7.22", "", {}, "sha512-pYii+2NCN0+OIL6Lpuc054LK0QJeNv+GRK9UzN1GRmjdYhYO6WFl0QLoj5oPcitPD7o+okiiI0SKFkn641TxmA=="],
+    "daisyui": ["daisyui@5.7.43", "", {}, "sha512-o80D/SaF70gWppzpfk1X01ApWjVeqEEARbySaC0hWzIQymMqStcp28e+5lTWErHIfOk8RqGkD8ozA4v9tI4MZA=="],
 
     "data-urls": ["data-urls@7.0.0", "", { "dependencies": { "whatwg-mimetype": "^5.0.0", "whatwg-url": "^16.0.0" } }, "sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA=="],
 
