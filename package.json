@@ -80,7 +80,7 @@
     "@testing-library/svelte": "^5.4.2",
     "@types/node": "^26.5.1",
     "browserslist": "^4.28.8",
-    "fast-check": "^4.9.0",
+    "fast-check": "^4.10.1",
     "kysely": "^0.29.5",
     "svelte-check": "^4.7.6",
     "vite": "^8.3.0",
