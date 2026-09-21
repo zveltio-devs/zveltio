@@ -15,6 +15,7 @@ import {
 } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
 interface Flow {
@@ -284,6 +285,7 @@ function formatRelative(dateStr?: string): string {
  </div>
  {/each}
     </div>
+    <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; loadFlows(); }} />
   {/snippet}
 </CrudListPage>
 
