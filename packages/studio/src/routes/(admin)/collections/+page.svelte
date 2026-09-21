@@ -63,14 +63,14 @@ const SYSTEM_FIELDS = new Set([
 ]);
 
 const categories = [
-  { id: 'text', label: 'Text' },
-  { id: 'number', label: 'Number' },
-  { id: 'date', label: 'Date & Time' },
-  { id: 'media', label: 'Media' },
-  { id: 'relation', label: 'Relations' },
-  { id: 'location', label: 'Location' },
-  { id: 'special', label: 'Special' },
-  { id: 'advanced', label: 'Advanced' },
+  { id: 'text', label: () => m['fields.cat.text']() },
+  { id: 'number', label: () => m['fields.cat.number']() },
+  { id: 'date', label: () => m['fields.cat.date']() },
+  { id: 'media', label: () => m['fields.cat.media']() },
+  { id: 'relation', label: () => m['fields.cat.relation']() },
+  { id: 'location', label: () => m['fields.cat.location']() },
+  { id: 'special', label: () => m['fields.cat.special']() },
+  { id: 'advanced', label: () => m['fields.cat.advanced']() },
 ];
 
 function getCategoryTypes(category: string) {
@@ -166,11 +166,9 @@ function removeField(i: number) {
 }
 
 function validateName(name: string): string {
-  if (!name) return 'Name is required';
-  if (!/^[a-z][a-z0-9_]*$/.test(name))
-    return 'Use lowercase letters, digits, and underscores only (must start with a letter)';
-  if (collections.some((c) => c.name === name))
-    return `A collection named "${name}" already exists`;
+  if (!name) return m['collections.err.nameRequired']();
+  if (!/^[a-z][a-z0-9_]*$/.test(name)) return m['collections.err.nameFormat']();
+  if (collections.some((c) => c.name === name)) return m['collections.err.exists']({ name });
   return '';
 }
 
@@ -178,20 +176,20 @@ async function createCollection() {
   nameError = validateName(newCollectionName.trim());
   if (nameError) return;
   if (newFields.some((f) => !f.name.trim())) {
-    nameError = 'All fields must have a name';
+    nameError = m['collections.err.allFieldsNeedName']();
     return;
   }
   for (const f of newFields) {
     if (SYSTEM_FIELDS.has(f.name.trim())) {
-      nameError = `"${f.name}" is a system field (added automatically — remove it from your fields)`;
+      nameError = m['collections.err.systemField']({ name: f.name });
       return;
     }
     if (RELATION_NEEDS_TARGET.has(f.type) && !f.related_collection) {
-      nameError = `Field "${f.name}": select a target collection`;
+      nameError = m['collections.err.fieldNeedsTarget']({ name: f.name });
       return;
     }
     if (f.type === 'enum' && parseEnumValues(f.enum_values_raw).length === 0) {
-      nameError = `Field "${f.name}": add at least one enum value`;
+      nameError = m['collections.err.fieldNeedsEnum']({ name: f.name });
       return;
     }
   }
@@ -220,7 +218,7 @@ async function createCollection() {
     await loadCollections();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
-    nameError = err?.message ?? 'Failed to create collection';
+    nameError = err?.message ?? m['collections.createFailed']();
   } finally {
     creating = false;
   }
@@ -230,7 +228,7 @@ async function deleteCollection(name: string) {
   confirmState = {
     open: true,
     title: m['confirm.deleteCollection.title'](),
-    message: `Delete collection "${name}"? This cannot be undone.`,
+    message: m['collections.deleteMsg']({ name }),
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
@@ -244,7 +242,7 @@ async function deleteCollection(name: string) {
         await loadCollections();
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (err: any) {
-        toast.error(err?.message ?? 'Failed to delete collection');
+        toast.error(err?.message ?? m['collections.deleteFailed']());
       }
     },
   };
@@ -255,17 +253,23 @@ async function deleteSelectedCollections() {
   if (names.length === 0) return;
   confirmState = {
     open: true,
-    title: `Delete ${names.length} collection${names.length === 1 ? '' : 's'}`,
-    message: `Permanently drop ${names.length} collection${names.length === 1 ? '' : 's'} and all their data? This cannot be undone.`,
-    confirmLabel: `Delete ${names.length}`,
+    title: m['collections.bulkDeleteTitle']({ count: names.length }),
+    message: m['collections.bulkDeleteMsg']({ count: names.length }),
+    confirmLabel: m['common.deleteCount']({ count: names.length }),
     onconfirm: async () => {
       confirmState.open = false;
       const results = await Promise.allSettled(names.map((n) => collectionsApi.delete(n)));
       const failures = results.filter((r) => r.status === 'rejected').length;
       if (failures > 0) {
-        toast.error(`Dropped ${names.length - failures}/${names.length} — ${failures} failed.`);
+        toast.error(
+          m['collections.droppedPartial']({
+            ok: names.length - failures,
+            total: names.length,
+            failed: failures,
+          }),
+        );
       } else {
-        toast.success(`Dropped ${names.length} collection${names.length === 1 ? '' : 's'}.`);
+        toast.success(m['collections.dropped']({ count: names.length }));
       }
       clearColSelection();
       await loadCollections();
@@ -555,7 +559,7 @@ function clearTemplate() {
               {#each categories as cat}
                 {@const types = getCategoryTypes(cat.id)}
                 {#if types.length > 0}
-                  <optgroup label={cat.label}>
+                  <optgroup label={cat.label()}>
                     {#each types as t}
                       <option value={t.type}>{t.label}</option>
                     {/each}

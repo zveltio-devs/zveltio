@@ -81,7 +81,7 @@ async function loadKeys() {
     total = res.total ?? apiKeys.length;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Something went wrong');
+    toast.error(e.message ?? m['common.somethingWrong']());
   } finally {
     loading = false;
   }
@@ -103,7 +103,7 @@ async function createKey() {
     await loadKeys();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message || 'Failed to create key');
+    toast.error(e.message || m['apiKeys.createFailed']());
   } finally {
     creating = false;
   }
@@ -122,7 +122,7 @@ async function revokeKey(id: string) {
         await loadKeys();
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (e: any) {
-        toast.error(e.message || 'Failed to revoke key');
+        toast.error(e.message || m['apiKeys.revokeFailed']());
       }
     },
   };
@@ -136,9 +136,9 @@ async function copyKey() {
 }
 
 function formatExpiry(date: string | null): string {
-  if (!date) return 'Never';
+  if (!date) return m['apiKeys.never']();
   const d = new Date(date);
-  return d < new Date() ? `Expired ${fmtDate(d)}` : fmtDate(d);
+  return d < new Date() ? m['apiKeys.expiredOn']({ date: fmtDate(d) }) : fmtDate(d);
 }
 
 function addScope() {
@@ -158,19 +158,19 @@ function toggleAction(scopeIdx: number, action: string) {
 }
 
 function scopesSummary(scopes: Array<{ collection: string; actions: string[] }>): string {
-  if (!scopes || scopes.length === 0) return 'No scopes';
-  if (scopes.length === 1 && scopes[0].collection === '*') return 'All collections';
+  if (!scopes || scopes.length === 0) return m['apiKeys.noScopes']();
+  if (scopes.length === 1 && scopes[0].collection === '*') return m['apiKeys.allCollections']();
   return scopes.map((s) => s.collection || '?').join(', ');
 }
 
 function formatRelative(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return m['apiKeys.justNow']();
+  if (mins < 60) return m['apiKeys.minsAgo']({ count: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return m['apiKeys.hoursAgo']({ count: hours });
+  return m['apiKeys.daysAgo']({ count: Math.floor(hours / 24) });
 }
 </script>
 
@@ -179,14 +179,14 @@ function formatRelative(dateStr: string): string {
   subtitle={m['apiKeys.subtitle']()}
   count={apiKeys.length}
   {loading}
-  actionLabel="Create Key"
+  actionLabel={m['apiKeys.createKey']()}
   onAction={() => (showCreateModal = true)}
   empty={{
     illustration: 'target',
     illustrationColor: 'text-secondary',
-    title: 'Generate your first key',
-    description: 'API keys give SDKs, automations, or external services scoped access to the engine. Each key can have a different permission scope.',
-    actionLabel: 'Create key',
+    title: m['apiKeys.emptyTitle'](),
+    description: m['apiKeys.emptyDesc'](),
+    actionLabel: m['apiKeys.createKey'](),
     onAction: () => (showCreateModal = true),
   }}
 >
@@ -215,11 +215,11 @@ function formatRelative(dateStr: string): string {
                 <td class="text-sm">{key.rate_limit}/hr</td>
                 <td class="text-sm">{formatExpiry(key.expires_at)}</td>
                 <td class="text-sm text-base-content/65">
-                  {key.last_used_at ? formatRelative(key.last_used_at) : 'Never'}
+                  {key.last_used_at ? formatRelative(key.last_used_at) : m['apiKeys.never']()}
                 </td>
                 <td>
                   <span class="badge badge-sm {key.is_active ? 'badge-success' : 'badge-error'}">
-                    {key.is_active ? 'Active' : 'Revoked'}
+                    {key.is_active ? m['common.col.active']() : m['apiKeys.revoked']()}
                   </span>
                 </td>
                 <td>
@@ -339,7 +339,7 @@ function formatRelative(dateStr: string): string {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

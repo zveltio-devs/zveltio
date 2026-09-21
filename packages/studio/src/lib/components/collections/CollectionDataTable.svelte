@@ -118,7 +118,7 @@ async function reloadData(p: { page?: number; limit?: number } = {}) {
     selectedIds.clear();
     selectedIds = new Set(selectedIds);
   } catch (e) {
-    toast.error((e as Error).message || 'Failed to reload');
+    toast.error((e as Error).message || m['data.reloadFailed']());
   }
 }
 
@@ -346,10 +346,10 @@ let confirmState = $state<{
     <Database size={44} strokeWidth={1.2} />
     <div class="text-center">
       <p class="text-base font-semibold text-base-content/65">
-        {searchText ? `No records match "${searchText}"` : 'No records yet'}
+        {searchText ? m['data.noMatch']({ query: searchText }) : m['data.noRecords']()}
       </p>
       <p class="text-sm mt-0.5">
-        {searchText ? 'Try a different query or clear the search.' : 'Create the first record in this collection'}
+        {searchText ? m['data.tryDifferent']() : m['data.createFirst']()}
       </p>
     </div>
     {#if !searchText}
@@ -410,7 +410,7 @@ let confirmState = $state<{
                   <span class="text-base-content/55">—</span>
                 {:else if col.type === 'boolean'}
                   <span class="badge badge-xs {record[col.name] ? 'badge-success' : 'badge-ghost'}">
-                    {record[col.name] ? 'Yes' : 'No'}
+                    {record[col.name] ? m['common.yes']() : m['common.no']()}
                   </span>
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
                   <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary hover:badge-primary gap-1 font-normal">

@@ -178,22 +178,22 @@ function validateForm(): boolean {
     }
     if (!present) continue;
     if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) {
-      formErrors[f.name] = 'Invalid email';
+      formErrors[f.name] = m['val.invalidEmail']();
       ok = false;
     }
     if (f.type === 'url' && !/^https?:\/\//i.test(String(v))) {
-      formErrors[f.name] = 'Must start with http:// or https://';
+      formErrors[f.name] = m['val.mustBeUrl']();
       ok = false;
     }
     if (
       (f.type === 'number' || f.type === 'integer' || f.type === 'decimal') &&
       Number.isNaN(Number(v))
     ) {
-      formErrors[f.name] = 'Must be a number';
+      formErrors[f.name] = m['val.mustBeNumber']();
       ok = false;
     }
     if (f.type === 'integer' && !Number.isInteger(Number(v))) {
-      formErrors[f.name] = 'Must be a whole number';
+      formErrors[f.name] = m['val.mustBeInteger']();
       ok = false;
     }
   }
@@ -230,7 +230,7 @@ async function saveRecord() {
     drawerRecordId = null;
     await onSaved();
   } catch (e) {
-    toast.error((e as Error).message || 'Failed to save record');
+    toast.error((e as Error).message || m['data.saveRecordFailed']());
   } finally {
     inserting = false;
   }
@@ -512,7 +512,7 @@ async function saveRecord() {
           {:else}
             <Plus size={14} />
           {/if}
-          {drawerMode === 'edit' ? 'Update Record' : 'Save Record'}
+          {drawerMode === 'edit' ? m['record.update']() : m['record.save']()}
         </button>
       </div>
 
