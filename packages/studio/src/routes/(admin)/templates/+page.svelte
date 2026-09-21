@@ -103,7 +103,7 @@ async function openPreview(id: string) {
     preview = r.template;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
-    toast.error(err?.message ?? 'Failed to load template');
+    toast.error(err?.message ?? m['common.loadFailed']());
     openId = '';
   } finally {
     previewLoading = false;
@@ -120,9 +120,8 @@ function closePreview() {
 
 function validatePrefix(p: string): string {
   if (!p) return '';
-  if (!/^[a-z][a-z0-9_]*$/.test(p))
-    return 'Lowercase letters, digits, underscore; must start with a letter';
-  if (p.length > 20) return 'Max 20 characters';
+  if (!/^[a-z][a-z0-9_]*$/.test(p)) return m['tpl.prefixInvalid']();
+  if (p.length > 20) return m['tpl.prefixTooLong']();
   return '';
 }
 
@@ -163,7 +162,7 @@ async function install() {
             pending.delete(jobId);
             installCompletedCount++;
           } else if (job?.status === 'failed') {
-            jobFailure = `Install failed on '${name}': ${job.error ?? 'unknown error'}`;
+            jobFailure = m['tpl.jobFailed']({ name, error: job.error ?? 'unknown error' });
             break;
           }
         } catch {
@@ -196,19 +195,21 @@ async function install() {
         /* sample data is optional — keep the success path */
       }
       toast.success(
-        `Installed '${preview.name}' template (${installedCollections.length} collections` +
-          (seeded ? `, ${seeded} sample rows` : '') +
-          `).`,
+        seeded
+          ? m['tpl.installedOkSeeded']({
+              name: preview.name,
+              collections: installedCollections.length,
+              rows: seeded,
+            })
+          : m['tpl.installedOk']({ name: preview.name, collections: installedCollections.length }),
       );
       setTimeout(() => goto(`${base}/collections/erd`), 800);
     } else {
-      toast.error(
-        `Template install timed out — ${pending.size} collections still pending. Check the collections page.`,
-      );
+      toast.error(m['tpl.timedOut']({ count: pending.size }));
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
-    toast.error(err?.message ?? 'Install failed');
+    toast.error(err?.message ?? m['common.unexpectedError']());
   } finally {
     installing = false;
   }

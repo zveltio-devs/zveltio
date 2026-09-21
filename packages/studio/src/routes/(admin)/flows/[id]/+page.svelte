@@ -1,6 +1,7 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
+import { beforeNavigate } from '$app/navigation';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
@@ -61,6 +62,23 @@ let loading = $state(true);
 let saving = $state(false);
 let saveError = $state('');
 
+/**
+ * Everything on this screen is edited in memory and only reaches the engine on
+ * Save: renaming the flow, adding, configuring, reordering or deleting steps.
+ * Leaving without saving threw all of it away without a word — and the Back
+ * button sits in the toolbar, two centimetres from the one that would have
+ * kept it.
+ */
+let dirty = $state(false);
+function touch() {
+  dirty = true;
+}
+
+beforeNavigate((nav) => {
+  if (!dirty) return;
+  if (!confirm(m['flowEdit.unsavedConfirm']())) nav.cancel();
+});
+
 let selectedStep = $state<Step | null>(null);
 let showAddStep = $state(false);
 let dragIdx = $state<number | null>(null);
@@ -92,6 +110,7 @@ async function saveFlow() {
       description: flow.description,
       steps: flow.steps,
     });
+    dirty = false;
     toast.success(m['common.saved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
@@ -112,6 +131,7 @@ function addStep(type: StepType) {
   };
   flow.steps = [...flow.steps, newStep];
   selectedStep = newStep;
+  touch();
   showAddStep = false;
 }
 
@@ -119,6 +139,7 @@ function deleteStep(id: string) {
   if (!flow) return;
   if (selectedStep?.id === id) selectedStep = null;
   flow.steps = flow.steps.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i }));
+  touch();
 }
 
 function selectStep(step: Step) {
@@ -151,6 +172,22 @@ function onDrop() {
   }
   dragIdx = null;
   dragOverIdx = null;
+  touch();
+}
+
+/**
+ * Reordering was drag-and-drop only, which is no order at all for anyone on a
+ * keyboard. Alt+Arrow moves the focused step; the card is already focusable.
+ */
+function moveStep(i: number, delta: number) {
+  if (!flow) return;
+  const to = i + delta;
+  if (to < 0 || to >= flow.steps.length) return;
+  const steps = [...flow.steps];
+  const [moved] = steps.splice(i, 1);
+  steps.splice(to, 0, moved);
+  flow.steps = steps.map((s, idx) => ({ ...s, order: idx }));
+  touch();
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -158,12 +195,14 @@ function updateStepConfig(key: string, value: any) {
   if (!selectedStep || !flow) return;
   selectedStep = { ...selectedStep, config: { ...selectedStep.config, [key]: value } };
   flow.steps = flow.steps.map((s) => (s.id === selectedStep!.id ? selectedStep! : s));
+  touch();
 }
 
 function updateStepName(name: string) {
   if (!selectedStep || !flow) return;
   selectedStep = { ...selectedStep, name };
   flow.steps = flow.steps.map((s) => (s.id === selectedStep!.id ? selectedStep! : s));
+  touch();
 }
 </script>
 
@@ -178,6 +217,7 @@ function updateStepName(name: string) {
       <input
         class="input input-sm font-semibold flex-1 max-w-xs bg-transparent border-transparent hover:border-base-300 focus:border-primary"
         bind:value={flow.name}
+        oninput={touch}
       />
       <span class="badge badge-sm {flow.is_active ? 'badge-success' : 'badge-ghost'}">
         {flow.is_active ? m['common.col.active']() : m['flowEdit.paused']()}
@@ -206,11 +246,11 @@ function updateStepName(name: string) {
           <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide mb-2">{m['flowEdit.flow']()}</p>
           <div class="form-control">
             <label class="label py-0" for="sidebar-flow-name"><span class="label-text text-xs">{m['common.col.name']()}</span></label>
-            <input id="sidebar-flow-name" class="input input-xs" bind:value={flow.name} />
+            <input id="sidebar-flow-name" class="input input-xs" bind:value={flow.name} oninput={touch} />
           </div>
           <div class="form-control mt-2">
             <label class="label py-0" for="sidebar-flow-desc"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
-            <textarea id="sidebar-flow-desc" class="textarea textarea-xs resize-none" rows="2" bind:value={flow.description}></textarea>
+            <textarea id="sidebar-flow-desc" class="textarea textarea-xs resize-none" rows="2" bind:value={flow.description} oninput={touch}></textarea>
           </div>
         </div>
         <div>
@@ -268,7 +308,15 @@ function updateStepName(name: string) {
               ondragover={(e) => { e.preventDefault(); onDragOver(i); }}
               ondrop={onDrop}
               onclick={() => selectStep(step)}
-              onkeydown={(e) => { if (e.key === 'Enter') selectStep(step); }}
+              onkeydown={(e) => {
+                if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                  e.preventDefault();
+                  moveStep(i, e.key === 'ArrowUp' ? -1 : 1);
+                } else if (e.key === 'Enter') {
+                  selectStep(step);
+                }
+              }}
+              aria-label={m['flowEdit.stepAria']({ name: step.name, position: i + 1 })}
             >
               <div class="card-body p-3 flex-row items-center gap-3">
                 <GripVertical size={14} class="text-base-content/55 shrink-0 cursor-grab" />

@@ -69,7 +69,7 @@ async function loadFlows() {
     total = data.total ?? flows.length;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Something went wrong');
+    toast.error(e.message ?? m['common.unexpectedError']());
   } finally {
     loading = false;
   }
@@ -88,7 +88,7 @@ function openModal() {
 
 async function createFlow() {
   if (!name.trim()) {
-    formError = 'Name is required';
+    formError = m['common.nameRequired']();
     return;
   }
   saving = true;
@@ -125,7 +125,7 @@ async function toggleFlow(flow: Flow) {
     flows = flows.map((f) => (f.id === flow.id ? data.flow : f));
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Something went wrong');
+    toast.error(e.message ?? m['common.unexpectedError']());
   }
 }
 
@@ -133,7 +133,7 @@ async function deleteFlow(id: string, flowName: string) {
   confirmState = {
     open: true,
     title: m['confirm.deleteFlow.title'](),
-    message: `Delete flow "${flowName}"?`,
+    message: m['confirm.deleteFlow.message']({ name: flowName }),
     confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
@@ -142,7 +142,7 @@ async function deleteFlow(id: string, flowName: string) {
         flows = flows.filter((f) => f.id !== id);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (e: any) {
-        toast.error(e.message ?? 'Something went wrong');
+        toast.error(e.message ?? m['common.unexpectedError']());
       }
     },
   };
@@ -154,7 +154,7 @@ async function runFlow(id: string) {
     await loadFlows();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Something went wrong');
+    toast.error(e.message ?? m['common.unexpectedError']());
   }
 }
 
@@ -199,14 +199,14 @@ function formatRelative(dateStr?: string): string {
   subtitle={m['flows.subtitle']()}
   count={total || undefined}
   {loading}
-  actionLabel="New Flow"
+  actionLabel={m['flows.create']()}
   onAction={openModal}
   empty={{
     illustration: 'spark',
     illustrationColor: 'text-accent',
-    title: 'Automate your first workflow',
-    description: 'Flows turn triggers (record created, schedule, webhook) into actions (send email, call API, run AI) — without writing code.',
-    actionLabel: 'Create flow',
+    title: m['flows.emptyTitle'](),
+    description: m['flows.emptyDesc'](),
+    actionLabel: m['flows.create'](),
     onAction: openModal,
   }}
 >
@@ -248,7 +248,7 @@ function formatRelative(dateStr?: string): string {
  <Play size={13} />
  </button>
  <span class="badge badge-sm {flow.is_active ? 'badge-success' : 'badge-ghost'}">
- {flow.is_active ? 'Active' : 'Paused'}
+ {flow.is_active ? m['common.col.active']() : m['flowEdit.paused']()}
  </span>
  </div>
  </div>
@@ -269,10 +269,10 @@ function formatRelative(dateStr?: string): string {
  <button
  class="btn btn-ghost btn-xs flex-1"
  onclick={() => toggleFlow(flow)}
- title={flow.is_active ? 'Pause' : 'Resume'}
+ title={flow.is_active ? m['flows.pause']() : m['flows.resume']()}
  >
  {#if flow.is_active}<Pause size={13} />{:else}<Play size={13} />{/if}
- {flow.is_active ? 'Pause' : 'Resume'}
+ {flow.is_active ? m['flows.pause']() : m['flows.resume']()}
  </button>
  <button
  class="btn btn-ghost btn-xs text-error"
