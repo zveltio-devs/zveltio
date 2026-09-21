@@ -83,6 +83,10 @@ async function loadList() {
   try {
     const r = await api.get<{ templates: TemplateSummary[] }>('/api/templates');
     templates = r.templates ?? [];
+  } catch (err) {
+    // Without this the request rejected into nothing and the page rendered as
+    // "no templates" — indistinguishable from an install that has them all.
+    toast.error(err instanceof Error ? err.message : m['common.loadFailed']());
   } finally {
     loading = false;
   }
@@ -143,29 +147,30 @@ async function install() {
     // once the DDL queue processes it.
     const deadline = Date.now() + 60_000;
     const pending = new Map(queuedJobs.map((j) => [j.job_id!, j.name]));
-    while (pending.size > 0 && Date.now() < deadline) {
-      for (const [jobId, _name] of pending) {
+    // A failed job used to throw inside the per-job try, where the catch that
+    // exists to ride out a transient status request swallowed it: the install
+    // then polled a dead job for the full minute and reported a timeout
+    // instead of the reason the DDL refused.
+    let jobFailure: string | null = null;
+    while (pending.size > 0 && !jobFailure && Date.now() < deadline) {
+      for (const [jobId, name] of pending) {
         try {
           const j = await collectionsApi.jobStatus(jobId);
           // Route returns { job: { status, error, ... } } — see
           // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts.
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          const status = (j.job as any)?.status;
-          if (status === 'completed') {
+          const job = j.job as { status?: string; error?: string } | undefined;
+          if (job?.status === 'completed') {
             pending.delete(jobId);
             installCompletedCount++;
-          } else if (status === 'failed') {
-            throw new Error(
-              `Job ${jobId} failed: ${
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-                (j.job as any)?.error ?? 'unknown'
-              }`,
-            );
+          } else if (job?.status === 'failed') {
+            jobFailure = `Install failed on '${name}': ${job.error ?? 'unknown error'}`;
+            break;
           }
         } catch {
-          /* keep polling */
+          /* status request hiccup — keep polling */
         }
       }
+      if (jobFailure) break;
       if (pending.size > 0) await new Promise((r) => setTimeout(r, 500));
     }
 
@@ -174,7 +179,9 @@ async function install() {
 
     invalidateCollectionsCache();
 
-    if (pending.size === 0) {
+    if (jobFailure) {
+      toast.error(jobFailure);
+    } else if (pending.size === 0) {
       // Collections are applied — seed starter rows so the install is an instant
       // working app, not empty tables. Best-effort: the schema install already
       // succeeded, so a seeding hiccup must not surface as a failure.
