@@ -676,6 +676,7 @@ const SECTIONS: Section[] = [
       `${S}lib/stores/`,
       `${S}lib/utils/`,
       `${S}lib/sanitize.ts`,
+      `${S}lib/clipboard.ts`,
       `${S}lib/extension-api.svelte.ts`,
       `${S}lib/extensions.svelte.ts`,
       `${S}lib/load-extension-contributions.ts`,
