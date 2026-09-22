@@ -6,7 +6,7 @@
  * updated, or deleted.
  *
  * Usage (in `zveltio dev --watch`):
- *   import { watchSchema } from '@zveltio/sdk/schema-watcher';
+ *   import { watchSchema } from '@zveltio/sdk';
  *   await watchSchema('http://localhost:3000', './src/zveltio-types.d.ts');
  */
 

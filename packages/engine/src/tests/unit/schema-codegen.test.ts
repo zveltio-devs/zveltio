@@ -156,6 +156,45 @@ describe('parseSchema', () => {
   });
 });
 
+describe('DROP COLUMN and the DOWN section', () => {
+  it('removes a column a later migration dropped', () => {
+    const schema = parseSchema([
+      'CREATE TABLE zv_sla (id uuid PRIMARY KEY, min_score numeric);',
+      'ALTER TABLE zv_sla DROP COLUMN IF EXISTS min_score;',
+    ]);
+    expect(schema.tables[0].columns.map((c) => c.name)).toEqual(['id']);
+  });
+
+  it('does not invent a table from a DROP COLUMN alone', () => {
+    const schema = parseSchema(['ALTER TABLE never_created DROP COLUMN gone;']);
+    expect(schema.tables).toEqual([]);
+  });
+
+  it('ignores everything after the -- DOWN marker', () => {
+    const schema = parseSchema([
+      [
+        'CREATE TABLE zv_keep (id uuid PRIMARY KEY, label text NOT NULL);',
+        '',
+        '-- DOWN',
+        'ALTER TABLE zv_keep DROP COLUMN IF EXISTS label;',
+        'DROP TABLE IF EXISTS zv_keep;',
+        'CREATE TABLE zv_rollback_only (id uuid PRIMARY KEY);',
+      ].join('\n'),
+    ]);
+    expect(schema.tables.map((t) => t.name)).toEqual(['zv_keep']);
+    expect(schema.tables[0].columns.map((c) => c.name)).toEqual(['id', 'label']);
+  });
+
+  it('keeps a loose "-- DOWN: …" comment inside the UP section', () => {
+    const schema = parseSchema([
+      ['-- DOWN: manual rollback required', 'CREATE TABLE zv_late (id uuid PRIMARY KEY);'].join(
+        '\n',
+      ),
+    ]);
+    expect(schema.tables.map((t) => t.name)).toEqual(['zv_late']);
+  });
+});
+
 describe('emitTypeScript', () => {
   it('emits a Kysely-friendly interface', () => {
     const schema = parseSchema([
