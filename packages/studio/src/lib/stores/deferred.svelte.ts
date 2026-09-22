@@ -90,8 +90,3 @@ export function deferWithUndo(run: () => Promise<unknown> | unknown, opts: Defer
   };
   pending.add(entry);
 }
-
-/** How many are still waiting — for tests, and for a navigation guard. */
-export function pendingCount(): number {
-  return pending.size;
-}
