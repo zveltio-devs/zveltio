@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import type { Kysely } from 'kysely';
+import type { Kysely, RawBuilder } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
@@ -37,6 +37,29 @@ export interface RlsFilter {
   readonly field: string;
   readonly condition: { readonly op: string; readonly value?: unknown };
 }
+
+/**
+ * The filter operators the engine's query compiler understands — the vocabulary
+ * `buildCondition` accepts.
+ *
+ * Declared here rather than in the engine because this is the file an extension
+ * author compiles against, and the engine imports it back (as it already does
+ * for `RlsFilter`). One list: a repeated one is how this codebase's dominant
+ * defect shape starts.
+ */
+export type FilterOp =
+  | 'eq'
+  | 'neq'
+  | 'lt'
+  | 'lte'
+  | 'gt'
+  | 'gte'
+  | 'like'
+  | 'ilike'
+  | 'in'
+  | 'not_in'
+  | 'null'
+  | 'not_null';
 
 export interface FieldTypeRegistryAPI {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -305,6 +328,29 @@ export interface ExtensionInternals<DB = unknown> {
   /** Type-safe insert into a dynamic (user-defined) collection table. */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * The three an extension needs to render a collection the way the engine's
+   * own data routes do: the access check, the column mask, and the filter
+   * compiler. `content/pages` renders arbitrary collections for a portal
+   * audience and has to apply exactly the rules `/api/data` applies —
+   * reimplementing them would be a second, quietly diverging copy of the
+   * authorisation path.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  checkAccess: (db: any, user: any, collection: string, action: string) => Promise<boolean>;
+  applyColumnAccess: (
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+    record: Record<string, any>,
+    access: { hidden: Set<string>; readOnly: Set<string> },
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  ) => Record<string, any>;
+  /**
+   * Compile one filter into a SQL condition, over the operators in `FilterOp`.
+   */
+  buildCondition: (
+    key: string,
+    condition: { op: FilterOp; value?: unknown },
+  ) => RawBuilder<boolean>;
   /** Introspect a Postgres schema — returns tables, columns, types, indexes, FKs. */
   introspectSchema: (
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -402,9 +448,16 @@ export interface ExtensionInternals<DB = unknown> {
    * rows written after are encrypted at rest.
    */
   maybeDecrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
+  /**
+   * `role` is optional because the engine does not depend on it: the roles a
+   * policy matches come from `getUserRoles(user.id)`, and Better-Auth does not
+   * populate `role` on a session at all. The engine's own callers cast it in
+   * rather than having one. Demanding it here only made every extension invent
+   * a value the engine ignores.
+   */
   getRlsFilters: (
     collection: string,
-    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
     authType: 'session' | 'api_key',
   ) => Promise<RlsFilter[]>;
   /** Apply what `getRlsFilters` returned to a query builder. */
@@ -566,6 +619,20 @@ export interface ExtensionInternals<DB = unknown> {
    * extensions should refuse the write rather than persist plaintext.
    */
   encryptSecret: (plaintext: string) => Promise<string>;
+  /**
+   * HMAC-SHA256 under the instance auth secret, hex encoded. A compatibility
+   * surface for `auth/scim`'s stored bearer-token hashes — not a general MAC.
+   */
+  deriveTokenHash: (raw: string) => Promise<string>;
+  /**
+   * Quoted, formula-safe CSV cell. Ungated: a pure string function with no
+   * authority. Every extension that exports CSV was writing its own escaping,
+   * and quoting alone does not stop a spreadsheet executing a cell that starts
+   * with `=`.
+   */
+  csvCell: (value: unknown) => string;
+  /** Rows → CSV document, using `csvCell` for every cell. */
+  recordsToCsv: (records: Record<string, unknown>[]) => string;
   /**
    * Reverse of `encryptSecret`. Returns the plaintext if the value has
    * the `enc:v1:` prefix; otherwise returns the value as-is so reads of
