@@ -2,6 +2,20 @@
  * webhook-worker.ts — LMPOP drains multiple queue items in one round-trip.
  */
 
+/**
+ * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
+ * resolve), and that is load-bearing rather than cosmetic.
+ *
+ * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
+ * carries the name in a `Host` header. So the moment the test hostname
+ * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
+ * object instead of the plain record it was handed — and every assertion below
+ * that compares a URL or indexes a header fails. `hooks.example.com` does not
+ * resolve on a developer machine and DOES resolve on the CI runner, so these
+ * tests passed locally and went red in CI on branches that changed nothing
+ * near them. Pinning itself is covered by `pinnedRequestForTests`.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
@@ -67,11 +81,11 @@ afterEach(() => {
 describe('webhookWorker._process — LMPOP batch', () => {
   it('delivers every payload returned by a single LMPOP call', async () => {
     const cache = new FakeRedis([
-      payload('https://one.example/h'),
-      payload('https://two.example/h'),
+      payload('https://one.invalid/h'),
+      payload('https://two.invalid/h'),
     ]);
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls.sort()).toEqual(['https://one.example/h', 'https://two.example/h']);
+    expect(fetchUrls.sort()).toEqual(['https://one.invalid/h', 'https://two.invalid/h']);
   });
 });

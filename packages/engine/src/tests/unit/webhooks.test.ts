@@ -10,6 +10,20 @@
  * network, no Postgres, no Valkey (getCache() returns null in the unit env).
  */
 
+/**
+ * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
+ * resolve), and that is load-bearing rather than cosmetic.
+ *
+ * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
+ * carries the name in a `Host` header. So the moment the test hostname
+ * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
+ * object instead of the plain record it was handed — and every assertion below
+ * that compares a URL or indexes a header fails. `hooks.example.com` does not
+ * resolve on a developer machine and DOES resolve on the CI runner, so these
+ * tests passed locally and went red in CI on branches that changed nothing
+ * near them. Pinning itself is covered by `pinnedRequestForTests`.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
@@ -31,7 +45,7 @@ function headers(): Record<string, string> {
 }
 
 const basePayload = {
-  url: 'https://hooks.example.com/receive',
+  url: 'https://hooks.invalid/receive',
   event: 'record.created',
   collection: 'contacts',
   data: { id: 'r1', name: 'Ada' },
@@ -159,7 +173,7 @@ describe('WebhookManager.trigger', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh1',
-        url: 'https://hooks.example.com/trigger',
+        url: 'https://hooks.invalid/trigger',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -172,6 +186,6 @@ describe('WebhookManager.trigger', () => {
     await WebhookManager.trigger('record.created', 'contacts', { id: 'r1' });
     // No Valkey → deliver() is fire-and-forget; let it flush.
     await new Promise((r) => setTimeout(r, 50));
-    expect(lastReq?.url).toBe('https://hooks.example.com/trigger');
+    expect(lastReq?.url).toBe('https://hooks.invalid/trigger');
   });
 });
