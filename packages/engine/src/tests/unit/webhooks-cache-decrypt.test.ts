@@ -144,8 +144,19 @@ describe('WebhookManager.trigger — cache + secrets', () => {
 
     let hit = false;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: RequestInfo | URL) => {
-      if (String(url) === 'https://hooks.example.com/scoped') hit = true;
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      // `safeFetch` pins a resolved hostname to its ADDRESS and moves the name
+      // into a `Host` header, so the URL that arrives here is `https://<ip>/…`
+      // whenever the name resolves. Comparing the string made this assertion a
+      // property of the resolver: green on a developer machine, red on the CI
+      // runner, whose resolver answers every name with 93.184.216.34. The
+      // authority comes back from the header the pinning wrote.
+      const h = init?.headers;
+      const host =
+        h instanceof Headers ? h.get('host') : (h as Record<string, string> | undefined)?.host;
+      const u = new URL(String(url));
+      if (host) u.host = host;
+      if (u.toString() === 'https://hooks.example.com/scoped') hit = true;
       return { status: 200, ok: true, text: async () => '' } as Response;
     }) as typeof fetch;
 
