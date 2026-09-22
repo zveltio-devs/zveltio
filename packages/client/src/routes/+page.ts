@@ -16,9 +16,14 @@ export const load: PageLoad = async ({ fetch }) => {
   // Optional public homepage (only present if content/pages is installed AND a
   // page is flagged as the homepage on a PUBLIC site). Any failure just means "no public homepage".
   let homepage: {
-    page: unknown;
+    page: {
+      slug?: string;
+      title?: string;
+      meta_title?: string;
+      meta_description?: string;
+    };
     blocks: unknown[];
-    popups: unknown[];
+    popups: { id: string }[];
     record: Record<string, unknown> | null;
     blocksBaseUrl: string;
   } | null = null;

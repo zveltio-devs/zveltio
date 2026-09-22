@@ -1,6 +1,6 @@
 <script lang="ts">
 // Public site chrome: header with the CMS-managed 'main' menu, footer with
-// 'footer'. Menus come from /ext/content/page-builder/cms/nav (see +layout.ts);
+// 'footer'. Menus come from /ext/content/pages/cms/nav (see +layout.ts);
 // theming is a single accent custom property from public settings.
 let { data, children } = $props();
 

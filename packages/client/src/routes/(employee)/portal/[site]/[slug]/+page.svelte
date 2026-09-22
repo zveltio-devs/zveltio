@@ -1,5 +1,6 @@
 <script lang="ts">
 import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
+import { safeCss } from '$lib/sanitize';
 import { m } from '$lib/i18n.svelte.js';
 
 let { data } = $props();
@@ -29,8 +30,15 @@ let { data } = $props();
   </div>
 {:else}
   {#if data.site?.custom_css}
-    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-    {@html `<style>${data.site.custom_css}</style>`}
+    <!--
+      Through `safeCss`, and through a real `<style>` element rather than
+      `{@html}`. The raw version concatenated operator CSS into markup: a
+      `</style>` in the value closed the element and everything after it was
+      parsed as HTML, so whoever could edit a site's theme had script execution
+      on every visitor of that portal. `safeCss` is the same filter the root
+      layout already used for the identical field.
+    -->
+    <style>{safeCss(data.site.custom_css)}</style>
   {/if}
   <BlockRenderer
     blocks={data.blocks}

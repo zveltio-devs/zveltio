@@ -19,6 +19,10 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+      // `sveltekit()` is not in this pipeline, so nothing provides the `$app/*`
+      // modules a route loader imports. Pointed at a stub the tests override
+      // with `vi.mock`, so a loader can be exercised without booting the app.
+      $app: fileURLToPath(new URL('./tests/app-stubs', import.meta.url)),
     },
   },
   test: {

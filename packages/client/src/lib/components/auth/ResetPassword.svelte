@@ -9,11 +9,19 @@ let error = $state<string | null>(null);
 let sent = $state(false);
 let loading = $state(false);
 
-async function handleSubmit() {
+async function handleSubmit(e: Event) {
+  e.preventDefault();
   error = null;
   loading = true;
   try {
-    await auth.resetPassword(email);
+    // better-auth answers a failure in `result.error` rather than throwing, so
+    // the previous `await` + `sent = true` reported "check your email" for a
+    // request the server had refused.
+    const result = await auth.resetPassword(email);
+    if (result?.error) {
+      error = result.error.message || 'Failed to send reset email';
+      return;
+    }
     sent = true;
   } catch (e) {
     error = e instanceof Error ? e.message : 'Failed to send reset email';
@@ -29,7 +37,7 @@ async function handleSubmit() {
     <p>{m['auth.check_email']()}</p>
   </div>
 {:else}
-  <div class="space-y-4">
+  <form onsubmit={handleSubmit} class="space-y-4">
     {#if error}
       <div class="alert alert-error text-sm"><span>{error}</span></div>
     {/if}
@@ -39,9 +47,9 @@ async function handleSubmit() {
       <input type="email" placeholder={m['auth.email']()} bind:value={email} class="grow" required />
     </label>
 
-    <button onclick={handleSubmit} disabled={loading || !email} class="btn btn-primary w-full">
+    <button type="submit" disabled={loading || !email} class="btn btn-primary w-full">
       {#if loading}<LoaderCircle size={18} class="animate-spin" />{/if}
-      Send Reset Link
+      {m['auth.reset_password']()}
     </button>
-  </div>
+  </form>
 {/if}

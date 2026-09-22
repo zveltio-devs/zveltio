@@ -9,7 +9,13 @@ let password = $state('');
 let error = $state<string | null>(null);
 let loading = $state(false);
 
-async function handleSubmit() {
+/**
+ * A `<form>` with a submit handler, not a bare button: the inputs carry
+ * `required`, which the browser only enforces on form submission, and Enter in
+ * a password field did nothing at all here.
+ */
+async function handleSubmit(e: Event) {
+  e.preventDefault();
   error = null;
   loading = true;
   try {
@@ -25,7 +31,7 @@ async function handleSubmit() {
 }
 </script>
 
-<div class="space-y-4">
+<form onsubmit={handleSubmit} class="space-y-4">
   {#if error}
     <div class="alert alert-error text-sm">
       <span>{error}</span>
@@ -42,14 +48,10 @@ async function handleSubmit() {
     <input type="password" placeholder={m['auth.password']()} bind:value={password} class="grow" required />
   </label>
 
-  <button
-    onclick={handleSubmit}
-    disabled={loading || !email || !password}
-    class="btn btn-primary w-full"
-  >
+  <button type="submit" disabled={loading || !email || !password} class="btn btn-primary w-full">
     {#if loading}
       <LoaderCircle size={18} class="animate-spin" />
     {/if}
-    Sign In
+    {m['auth.sign_in']()}
   </button>
-</div>
+</form>

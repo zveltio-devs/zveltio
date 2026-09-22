@@ -14,7 +14,11 @@ type MenuItem = { label: string; slug?: string; url?: string; external?: boolean
 
 export const load: LayoutLoad = async ({ fetch }) => {
   const [menus, settings] = await Promise.all([
-    fetch(`${ENGINE_URL}/ext/content/page-builder/cms/nav`)
+    // `content/pages`, not `content/page-builder`: that extension was merged
+    // away. The sibling loader `(public)/[slug]/+page.ts` was moved at the time
+    // and this one was not, so the public site has had no navigation since —
+    // silently, because every failure here degrades to an empty menu.
+    fetch(`${ENGINE_URL}/ext/content/pages/cms/nav`)
       .then((r) => (r.ok ? r.json() : { menus: { main: [], footer: [] } }))
       .then((d) => d.menus as { main: MenuItem[]; footer: MenuItem[] })
       .catch(() => ({ main: [] as MenuItem[], footer: [] as MenuItem[] })),

@@ -46,5 +46,12 @@ jobs:
         # transforming tests/setup.ts (TSCONFIG_ERROR: Tsconfig not found).
         run: cd packages/client && bunx svelte-kit sync
 
+      # `svelte-check` was never run for this package, in CI or anywhere else.
+      # Seven type errors had accumulated behind that — including `data.user`
+      # reaching two layouts as `{}` — so the errors are fixed and the gate is
+      # here to keep the count at zero.
+      - name: Type check
+        run: cd packages/client && bun run check
+
       - name: Component tests
         run: cd packages/client && bun run test

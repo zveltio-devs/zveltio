@@ -55,9 +55,20 @@ const LABELS: Record<string, string> = {
   trust: 'Data protection',
 };
 
-let dash = $state<Dashboard | null>(data.dashboard);
+/**
+ * Seeded from the loader, then owned locally because `mutate` replaces it with
+ * what the PUT/DELETE answers. Reading `data.dashboard` once at initialisation
+ * captured only its first value — the compiler said so on every build — so a
+ * later navigation back to this route, which reuses the component and hands it
+ * fresh `data`, kept painting the previous load.
+ */
+let dash = $state<Dashboard | null>(null);
+$effect(() => {
+  dash = data.dashboard;
+});
 let editing = $state(false);
 let saving = $state(false);
+let saveError = $state<string | null>(null);
 let draft = $state<Record<string, boolean>>({});
 
 const nf = new Intl.NumberFormat();
@@ -73,7 +84,14 @@ async function mutate(method: 'PUT' | 'DELETE', body?: unknown) {
       headers: body ? { 'content-type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.ok) dash = await res.json();
+    if (!res.ok) {
+      // Leaving the editor open is the whole point: it closed on failure too,
+      // so a rejected layout change looked exactly like a saved one.
+      saveError = `Could not save (HTTP ${res.status})`;
+      return;
+    }
+    dash = await res.json();
+    saveError = null;
     editing = false;
   } finally {
     saving = false;
@@ -146,6 +164,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
             <RotateCcw size={14} /> Reset
           </button>
           <div class="flex gap-2">
+            {#if saveError}<span class="text-error text-sm mr-auto">{saveError}</span>{/if}
             <button class="btn btn-ghost btn-sm" onclick={() => (editing = false)} disabled={saving}>{m['common.cancel']()}</button>
             <button class="btn btn-primary btn-sm" onclick={saveEditing} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </div>
