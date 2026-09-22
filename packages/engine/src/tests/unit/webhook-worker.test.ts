@@ -8,6 +8,20 @@
  * network.
  */
 
+/**
+ * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
+ * resolve), and that is load-bearing rather than cosmetic.
+ *
+ * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
+ * carries the name in a `Host` header. So the moment the test hostname
+ * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
+ * object instead of the plain record it was handed — and every assertion below
+ * that compares a URL or indexes a header fails. `hooks.example.com` does not
+ * resolve on a developer machine and DOES resolve on the CI runner, so these
+ * tests passed locally and went red in CI on branches that changed nothing
+ * near them. Pinning itself is covered by `pinnedRequestForTests`.
+ */
+
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
@@ -78,7 +92,7 @@ function stubFetch(status = 200): void {
 
 function payload(over: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    url: 'https://hooks.example.com/x',
+    url: 'https://hooks.invalid/x',
     event: 'record.created',
     collection: 'c',
     data: { id: '1' },
@@ -110,7 +124,7 @@ describe('webhookWorker._process', () => {
     const cache = new FakeRedis({ lmpop: [payload()] });
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
+    expect(fetchUrls).toEqual(['https://hooks.invalid/x']);
     expect(cache.zaddCalls.length).toBe(0); // 2xx → no retry scheduled
   });
 
@@ -155,7 +169,7 @@ describe('webhookWorker._process', () => {
     expect(cache.lpushCalls.length).toBe(1);
     expect(cache.lpushCalls[0][0]).toBe(WEBHOOK_DLQ_KEY);
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
-    expect(dead.url).toBe('https://hooks.example.com/x');
+    expect(dead.url).toBe('https://hooks.invalid/x');
     expect(dead.event).toBe('record.created');
     expect(dead.data).toEqual({ id: '1' }); // the body, so a replay can resend it
     expect(typeof dead.failedAt).toBe('string');
@@ -177,7 +191,7 @@ describe('webhookWorker._process', () => {
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
     expect(dead.secret).toBeUndefined();
     expect(cache.lpushCalls[0][1]).not.toContain('plaintext-signing-secret');
-    expect(dead.url).toBe('https://hooks.example.com/x'); // the rest still recorded
+    expect(dead.url).toBe('https://hooks.invalid/x'); // the rest still recorded
   });
 
   it('caps the dead-letter queue', async () => {
@@ -207,7 +221,7 @@ describe('webhookWorker._process', () => {
     cache.lpopQueue = [payload()];
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
+    expect(fetchUrls).toEqual(['https://hooks.invalid/x']);
   });
 
   it('re-enqueues retries that are now due', async () => {
