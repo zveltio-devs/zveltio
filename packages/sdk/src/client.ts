@@ -27,11 +27,18 @@ export interface ListResult<T> {
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 class CollectionRef<T extends Record<string, any>> {
+  /** URL-encoded once, here: a record id is caller data (a slug, an email, a
+   * composite key), and an unencoded `/`, `?` or `#` in one silently routes
+   * the request somewhere else. */
+  private readonly path: string;
+
   constructor(
-    private readonly name: string,
+    name: string,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     private readonly client: ZveltioClient<any>,
-  ) {}
+  ) {
+    this.path = `/api/data/${encodeURIComponent(name)}`;
+  }
 
   list(params?: ListParams): Promise<ListResult<T>> {
     const qs = new URLSearchParams();
@@ -43,7 +50,7 @@ class CollectionRef<T extends Record<string, any>> {
     if (params?.filter) qs.set('filter', JSON.stringify(params.filter));
     if (params?.cursor) qs.set('cursor', params.cursor);
     const q = qs.toString();
-    return this.client['request']('GET', `/api/data/${this.name}${q ? `?${q}` : ''}`);
+    return this.client['request']('GET', `${this.path}${q ? `?${q}` : ''}`);
   }
 
   getMany(params?: ListParams): Promise<ListResult<T>> {
@@ -51,7 +58,7 @@ class CollectionRef<T extends Record<string, any>> {
   }
 
   get(id: string): Promise<T> {
-    return this.client['request']('GET', `/api/data/${this.name}/${id}`);
+    return this.client['request']('GET', `${this.path}/${encodeURIComponent(id)}`);
   }
 
   getOne(id: string): Promise<T> {
@@ -59,15 +66,15 @@ class CollectionRef<T extends Record<string, any>> {
   }
 
   create(data: Omit<T, 'id' | 'created_at' | 'updated_at'>): Promise<T> {
-    return this.client['request']('POST', `/api/data/${this.name}`, data);
+    return this.client['request']('POST', this.path, data);
   }
 
   update(id: string, data: Partial<Omit<T, 'id' | 'created_at' | 'updated_at'>>): Promise<T> {
-    return this.client['request']('PATCH', `/api/data/${this.name}/${id}`, data);
+    return this.client['request']('PATCH', `${this.path}/${encodeURIComponent(id)}`, data);
   }
 
   delete(id: string): Promise<{ success: boolean }> {
-    return this.client['request']('DELETE', `/api/data/${this.name}/${id}`);
+    return this.client['request']('DELETE', `${this.path}/${encodeURIComponent(id)}`);
   }
 }
 
@@ -175,7 +182,8 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       if (folder) fd.append('folder', folder);
       return this.upload('/api/storage/upload', fd);
     },
-    list: (folder?: string) => this.get(`/api/storage${folder ? `?folder=${folder}` : ''}`),
+    list: (folder?: string) =>
+      this.get(`/api/storage${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`),
     delete: (key: string) => this.delete(`/api/storage/${encodeURIComponent(key)}`),
   } as const;
 }
