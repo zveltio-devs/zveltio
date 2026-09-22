@@ -32,7 +32,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
@@ -70,7 +70,7 @@ const PEER_DEP_ALLOWLIST = new Set<string>();
  * Returns the number of rewrites, so `pack` can report it rather than do this
  * silently.
  */
-function scrubBuildPaths(outfile: string): number {
+function scrubBuildPaths(outfile: string, dir: string): number {
   const original = readFileSync(outfile, 'utf8');
   let count = 0;
 
@@ -84,6 +84,71 @@ function scrubBuildPaths(outfile: string): number {
       return `${name} = "/zveltio-extension/${tail}"`;
     },
   );
+
+  // Bun's module comments name each input by the path it resolved, RELATIVE to
+  // the package being built — `// ../../zveltio/node_modules/.bun/hono@4.13.8/…`
+  // when the dependency lives in the sibling engine checkout. No home directory
+  // in it, so the absolute rules above and the repo's build-path gate both let
+  // it through, and it still describes the machine: the committed bundles say
+  // `../wt-t4/node_modules/…`, naming a worktree that exists on one laptop.
+  //
+  // It also makes a bundle unreproducible. Two checkouts of the same commit,
+  // differing only in directory name, pack to different bytes — so "the bundle
+  // does not match its source" cannot be told from "someone packed it from a
+  // worktree", and the registry refuses a republish over a difference that is
+  // pure noise.
+  //
+  // Only runs that START with `./` or `../` are rewritten: a bundled package
+  // with the literal string "node_modules/" inside its own code keeps it.
+  //
+  // The cut is at `.bun/` where the store layout has one, NOT at the last
+  // `node_modules/`. `scripts/check-embedded-deps-fresh.ts` reads the version
+  // that actually shipped out of these same comments (`.bun/hono@4.13.8/…`) —
+  // it is the only gate that can see a security fix in a bundled dependency —
+  // and trimming back to `node_modules/hono/dist` would leave it with nothing
+  // to read and no way to say so.
+  text = text.replace(
+    /\.{1,2}\/[^\s"'`]*(?:node_modules|packages)\/[^\s"'`]*/g,
+    (match: string) => {
+      // `packages/` covers the other half: an extension imports the engine and
+      // the SDK from the sibling checkout, so its bundle also carried
+      // `../../zveltio/packages/sdk/src/…` — or `../wt-t4/packages/…`, which is
+      // what the committed bundles say today.
+      const store = match.indexOf('.bun/');
+      const at =
+        store === -1
+          ? Math.min(
+              ...[match.lastIndexOf('node_modules/'), match.indexOf('packages/')].filter(
+                (i) => i >= 0,
+              ),
+            )
+          : store;
+      count += 1;
+      return `/zveltio-extension/${match.slice(at)}`;
+    },
+  );
+
+  // Bun writes a dependency's comment path relative to the CWD too, so the
+  // same dependency appears as `../node_modules/hono/dist/…` when packing from
+  // inside the extension and as `node_modules/hono/dist/…` when packing from
+  // the repo root. The first form is handled above; this is the bare one.
+  // Anchored to the start of a comment line so a library's own string
+  // containing "node_modules/" is left alone.
+  text = text.replace(/(?<=^\/\/\s*)node_modules\//gm, '/zveltio-extension/node_modules/');
+
+  // The extension's OWN sources are named relative to the CWD, not to the
+  // extension: `pack --dir workflow/checklists` from the repo root wrote
+  // `// workflow/checklists/engine/index.ts` where `pack` run inside that
+  // directory wrote `// engine/index.ts`. Same source, different bytes, and
+  // the registry refuses different bytes at the same version — so where the
+  // packer happened to stand decided whether a republish was possible.
+  const prefix = relative(process.cwd(), dir).replace(/\\/g, '/');
+  if (prefix && !prefix.startsWith('..')) {
+    const re = new RegExp(`(?<=^//\\s*)${prefix.replace(/[.*+?^${}()|[\\]]/g, '\\$&')}/`, 'gm');
+    const before = text;
+    text = text.replace(re, '');
+    if (text !== before) count += 1;
+  }
 
   // Backstop for anything else carrying the home directory — Bun's resolved
   // path comments, for one. Only runs when the home directory is a real
@@ -287,7 +352,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     throw new Error(`Bun bundle failed: ${(err as Error).message}`);
   }
 
-  const scrubbed = scrubBuildPaths(outfile);
+  const scrubbed = scrubBuildPaths(outfile, dir);
   if (scrubbed > 0) {
     console.log(`  ${c.green('✓')} ${c.dim(`${scrubbed} build path(s) neutralised`)}`);
   }
