@@ -1,7 +1,10 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
 import LoginForm from '$components/auth/LoginForm.svelte';
-import { page } from '$app/stores';
+// `$app/state`, not the deprecated `$app/stores`: every other route in this
+// repository reads the rune, and the store form is on its way out in
+// SvelteKit 2.
+import { page } from '$app/state';
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">
@@ -9,13 +12,13 @@ import { page } from '$app/stores';
     <div class="card-body">
       <h2 class="card-title text-2xl justify-center mb-2">{m['auth.sign_in']()}</h2>
 
-      {#if $page.url.searchParams.get('registered')}
+      {#if page.url.searchParams.get('registered')}
         <div class="alert alert-success text-sm mb-2">
           Account created! Please sign in.
         </div>
       {/if}
 
-      {#if $page.url.searchParams.get('error') === 'insufficient_role'}
+      {#if page.url.searchParams.get('error') === 'insufficient_role'}
         <div class="alert alert-warning text-sm mb-2">
           You don't have permission to access that page.
         </div>

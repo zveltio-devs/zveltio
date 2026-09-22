@@ -11,25 +11,36 @@ let { children, data } = $props();
 const theme = $derived(data?.theme ?? null);
 const nav = $derived(data?.nav ?? []);
 
-// Build CSS variables from theme (DB columns: color_primary, color_base_100, etc.)
+// CSS variables from the site's branding. The zone table this once read had a
+// full palette (base_100, neutral, accent, radius, font); the site row that
+// replaced it carries two colours, so the rest are the defaults they always
+// fell back to and are written as such rather than read off a column that no
+// longer exists.
+//
+// `safeCss` because these are operator-supplied strings landing in a style
+// attribute: Svelte escapes the attribute for HTML, which does not stop a
+// value from closing its declaration and adding `background:url(https://…)`.
 const themeStyle = $derived(
   theme
-    ? `
+    ? safeCss(`
     --color-primary: ${theme.color_primary ?? '#570df8'};
     --color-secondary: ${theme.color_secondary ?? '#f000b8'};
-    --color-accent: ${theme.color_accent ?? '#37cdbe'};
-    --color-bg: ${theme.color_base_100 ?? '#ffffff'};
-    --color-text: ${theme.color_neutral ?? '#3d4451'};
-    --radius: ${theme.border_radius ?? '0.5rem'};
-    font-family: ${theme.font_family ?? 'system-ui, sans-serif'};
-    font-size: ${theme.font_size_base ?? '16px'};
-    background-color: ${theme.color_base_100 ?? ''};
-    color: ${theme.color_neutral ?? ''};
-  `
+    --color-accent: #37cdbe;
+    --color-bg: #ffffff;
+    --color-text: #3d4451;
+    --radius: 0.5rem;
+    font-family: system-ui, sans-serif;
+    font-size: 16px;
+  `)
     : '',
 );
 
 let mobileMenuOpen = $state(false);
+
+// Same reason as `themeStyle`: the value is operator-supplied and lands inside
+// a style attribute, where escaping stops injection into markup but not into
+// CSS. `safeCss` drops the constructs that reach the network.
+const primary = $derived(safeCss(theme?.color_primary ?? '').trim() || '#570df8');
 
 const showNav = $derived((theme?.nav_position ?? 'top') !== 'none' && nav.length > 0);
 const isSidebar = $derived(theme?.nav_position === 'sidebar');
@@ -40,9 +51,7 @@ function isActive(href: string) {
 </script>
 
 <svelte:head>
-  {#if theme?.meta_title}<title>{theme.meta_title}</title>{/if}
-  {#if theme?.meta_description}<meta name="description" content={theme.meta_description}/>{/if}
-  {#if theme?.favicon_url}<link rel="icon" href={safeImageUrl(theme.favicon_url)}/>{/if}
+  {#if theme?.app_name}<title>{theme.app_name}</title>{/if}
   {#if theme?.custom_css}<style>{safeCss(theme.custom_css)}</style>{/if}
 </svelte:head>
 
@@ -53,7 +62,7 @@ function isActive(href: string) {
   {#if showNav}
     <!-- Sidebar nav -->
     {#if isSidebar}
-      <aside class="w-60 shrink-0 border-r flex flex-col" style="background: {theme?.color_primary ?? '#570df8'}; color: white; border-color: rgba(255,255,255,0.15)">
+      <aside class="w-60 shrink-0 border-r flex flex-col" style="background: {primary}; color: white; border-color: rgba(255,255,255,0.15)">
         <div class="p-4 border-b border-white/10">
           {#if theme?.logo_url}
             <img src={safeImageUrl(theme.logo_url)} alt={theme.app_name ?? ''} class="h-8 w-auto"/>
@@ -79,7 +88,7 @@ function isActive(href: string) {
 
     <!-- Top nav -->
     {:else}
-      <header class="shrink-0 border-b shadow-sm" style="background: {theme?.color_primary ?? '#570df8'}; color: white; border-color: rgba(0,0,0,0.1)">
+      <header class="shrink-0 border-b shadow-sm" style="background: {primary}; color: white; border-color: rgba(0,0,0,0.1)">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 flex items-center h-14 gap-4">
           <!-- Brand -->
           <a href="/" class="flex items-center gap-2 shrink-0">
@@ -114,7 +123,7 @@ function isActive(href: string) {
 
         <!-- Mobile nav -->
         {#if mobileMenuOpen}
-          <nav class="md:hidden border-t border-white/20 px-4 py-2 flex flex-col gap-0.5" style="background: {theme?.color_primary ?? '#570df8'}">
+          <nav class="md:hidden border-t border-white/20 px-4 py-2 flex flex-col gap-0.5" style="background: {primary}">
             {#each nav as item}
               <a
                 href="/{item.slug === '/' ? '' : item.slug}"
@@ -137,10 +146,14 @@ function isActive(href: string) {
     {@render children()}
   </main>
 
-  <!-- Footer -->
-  {#if theme?.footer_text}
+  <!--
+    Footer. `footer_text` was a zone column; the site row that replaced zones
+    has no such field, so the name is the only thing left to show and the
+    footer renders only once there is one.
+  -->
+  {#if theme?.app_name}
     <footer class="shrink-0 border-t py-4 px-6 text-center text-sm opacity-50" style="border-color: var(--color-text, #111827)20">
-      {theme.footer_text}
+      © {new Date().getFullYear()} {theme.app_name}
     </footer>
   {/if}
 </div>

@@ -11,7 +11,8 @@ let confirmPassword = $state('');
 let error = $state<string | null>(null);
 let loading = $state(false);
 
-async function handleSubmit() {
+async function handleSubmit(e: Event) {
+  e.preventDefault();
   error = null;
 
   if (password !== confirmPassword) {
@@ -38,7 +39,7 @@ async function handleSubmit() {
 }
 </script>
 
-<div class="space-y-4">
+<form onsubmit={handleSubmit} class="space-y-4">
   {#if error}
     <div class="alert alert-error text-sm">
       <span>{error}</span>
@@ -65,14 +66,10 @@ async function handleSubmit() {
     <input type="password" placeholder={m['auth.confirm_password']()} bind:value={confirmPassword} class="grow" required />
   </label>
 
-  <button
-    onclick={handleSubmit}
-    disabled={loading || !email || !password || !name}
-    class="btn btn-primary w-full"
-  >
+  <button type="submit" disabled={loading || !email || !password || !name} class="btn btn-primary w-full">
     {#if loading}
       <LoaderCircle size={18} class="animate-spin" />
     {/if}
-    Create Account
+    {m['auth.sign_up']()}
   </button>
-</div>
+</form>
