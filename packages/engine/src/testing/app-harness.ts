@@ -296,6 +296,15 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
   // engine; a test handing this anything else gets an error, not broken SQL.
   const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
   if (!SAFE_NAME.test(bare)) throw new Error(`Invalid test collection name: "${name}"`);
-  await sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`).execute(db);
+  // The ghost artefacts go with it. `atomicSwap` renames the original to
+  // `_zv_old_<table>` and schedules dropping that and `_zv_changelog_<table>`
+  // sixty seconds later, which is long after a test process is gone — so any
+  // suite that ran a Ghost DDL migration leaves two tables behind, and
+  // `check:test-leftovers` fails the whole run on them. Several ghost tests
+  // already hand-roll this list in their own `afterAll`; doing it here is what
+  // makes the next test that forgets to copy it harmless.
+  for (const t of [`_zv_changelog_${table}`, `_zv_old_${table}`, table]) {
+    await sql.raw(`DROP TABLE IF EXISTS "${t}" CASCADE`).execute(db);
+  }
   await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
 }
