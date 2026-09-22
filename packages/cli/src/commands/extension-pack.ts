@@ -85,6 +85,49 @@ function scrubBuildPaths(outfile: string): number {
     },
   );
 
+  // Bun's module comments name each input by the path it resolved, RELATIVE to
+  // the package being built — `// ../../zveltio/node_modules/.bun/hono@4.13.8/…`
+  // when the dependency lives in the sibling engine checkout. No home directory
+  // in it, so the absolute rules above and the repo's build-path gate both let
+  // it through, and it still describes the machine: the committed bundles say
+  // `../wt-t4/node_modules/…`, naming a worktree that exists on one laptop.
+  //
+  // It also makes a bundle unreproducible. Two checkouts of the same commit,
+  // differing only in directory name, pack to different bytes — so "the bundle
+  // does not match its source" cannot be told from "someone packed it from a
+  // worktree", and the registry refuses a republish over a difference that is
+  // pure noise.
+  //
+  // Only runs that START with `./` or `../` are rewritten: a bundled package
+  // with the literal string "node_modules/" inside its own code keeps it.
+  //
+  // The cut is at `.bun/` where the store layout has one, NOT at the last
+  // `node_modules/`. `scripts/check-embedded-deps-fresh.ts` reads the version
+  // that actually shipped out of these same comments (`.bun/hono@4.13.8/…`) —
+  // it is the only gate that can see a security fix in a bundled dependency —
+  // and trimming back to `node_modules/hono/dist` would leave it with nothing
+  // to read and no way to say so.
+  text = text.replace(
+    /\.{1,2}\/[^\s"'`]*(?:node_modules|packages)\/[^\s"'`]*/g,
+    (match: string) => {
+      // `packages/` covers the other half: an extension imports the engine and
+      // the SDK from the sibling checkout, so its bundle also carried
+      // `../../zveltio/packages/sdk/src/…` — or `../wt-t4/packages/…`, which is
+      // what the committed bundles say today.
+      const store = match.indexOf('.bun/');
+      const at =
+        store === -1
+          ? Math.min(
+              ...[match.lastIndexOf('node_modules/'), match.indexOf('packages/')].filter(
+                (i) => i >= 0,
+              ),
+            )
+          : store;
+      count += 1;
+      return `/zveltio-extension/${match.slice(at)}`;
+    },
+  );
+
   // Backstop for anything else carrying the home directory — Bun's resolved
   // path comments, for one. Only runs when the home directory is a real
   // absolute path, so it cannot match everything.
