@@ -32,7 +32,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
@@ -70,7 +70,7 @@ const PEER_DEP_ALLOWLIST = new Set<string>();
  * Returns the number of rewrites, so `pack` can report it rather than do this
  * silently.
  */
-function scrubBuildPaths(outfile: string): number {
+function scrubBuildPaths(outfile: string, dir: string): number {
   const original = readFileSync(outfile, 'utf8');
   let count = 0;
 
@@ -127,6 +127,28 @@ function scrubBuildPaths(outfile: string): number {
       return `/zveltio-extension/${match.slice(at)}`;
     },
   );
+
+  // Bun writes a dependency's comment path relative to the CWD too, so the
+  // same dependency appears as `../node_modules/hono/dist/…` when packing from
+  // inside the extension and as `node_modules/hono/dist/…` when packing from
+  // the repo root. The first form is handled above; this is the bare one.
+  // Anchored to the start of a comment line so a library's own string
+  // containing "node_modules/" is left alone.
+  text = text.replace(/(?<=^\/\/\s*)node_modules\//gm, '/zveltio-extension/node_modules/');
+
+  // The extension's OWN sources are named relative to the CWD, not to the
+  // extension: `pack --dir workflow/checklists` from the repo root wrote
+  // `// workflow/checklists/engine/index.ts` where `pack` run inside that
+  // directory wrote `// engine/index.ts`. Same source, different bytes, and
+  // the registry refuses different bytes at the same version — so where the
+  // packer happened to stand decided whether a republish was possible.
+  const prefix = relative(process.cwd(), dir).replace(/\\/g, '/');
+  if (prefix && !prefix.startsWith('..')) {
+    const re = new RegExp(`(?<=^//\\s*)${prefix.replace(/[.*+?^${}()|[\\]]/g, '\\$&')}/`, 'gm');
+    const before = text;
+    text = text.replace(re, '');
+    if (text !== before) count += 1;
+  }
 
   // Backstop for anything else carrying the home directory — Bun's resolved
   // path comments, for one. Only runs when the home directory is a real
@@ -330,7 +352,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     throw new Error(`Bun bundle failed: ${(err as Error).message}`);
   }
 
-  const scrubbed = scrubBuildPaths(outfile);
+  const scrubbed = scrubBuildPaths(outfile, dir);
   if (scrubbed > 0) {
     console.log(`  ${c.green('✓')} ${c.dim(`${scrubbed} build path(s) neutralised`)}`);
   }
