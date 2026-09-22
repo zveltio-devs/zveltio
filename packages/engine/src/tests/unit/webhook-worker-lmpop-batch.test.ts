@@ -2,20 +2,6 @@
  * webhook-worker.ts — LMPOP drains multiple queue items in one round-trip.
  */
 
-/**
- * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
- * resolve), and that is load-bearing rather than cosmetic.
- *
- * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
- * carries the name in a `Host` header. So the moment the test hostname
- * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
- * object instead of the plain record it was handed — and every assertion below
- * that compares a URL or indexes a header fails. `hooks.example.com` does not
- * resolve on a developer machine and DOES resolve on the CI runner, so these
- * tests passed locally and went red in CI on branches that changed nothing
- * near them. Pinning itself is covered by `pinnedRequestForTests`.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
@@ -63,11 +49,36 @@ function payload(url: string): string {
 let originalFetch: typeof fetch;
 let fetchUrls: string[];
 
+/**
+ * `safeFetch` pins a resolved hostname to its ADDRESS — it calls `fetch` with
+ * `https://<ip>/…` and moves the name into a `Host` header — so recording the
+ * URL verbatim made these assertions depend on the resolver rather than on the
+ * code. They passed on a developer machine, where the test host does not
+ * resolve, and failed on the CI runner, whose resolver answers every name
+ * (`.invalid` included) with 93.184.216.34.
+ *
+ * `unpin` puts the authority back from the `Host` header, which holds under
+ * either resolver.
+ */
+function unpin(input: RequestInfo | URL, init?: RequestInit): string {
+  const raw = String(input);
+  const h = init?.headers;
+  const host =
+    h instanceof Headers
+      ? h.get('host')
+      : ((h as Record<string, string> | undefined)?.host ??
+        (h as Record<string, string> | undefined)?.Host);
+  if (!host) return raw;
+  const u = new URL(raw);
+  u.host = host;
+  return u.toString();
+}
+
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   fetchUrls = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    fetchUrls.push(String(input));
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    fetchUrls.push(unpin(input, init));
     return { status: 200, ok: true, text: async () => '' } as Response;
   }) as unknown as typeof fetch;
 });
@@ -81,11 +92,11 @@ afterEach(() => {
 describe('webhookWorker._process — LMPOP batch', () => {
   it('delivers every payload returned by a single LMPOP call', async () => {
     const cache = new FakeRedis([
-      payload('https://one.invalid/h'),
-      payload('https://two.invalid/h'),
+      payload('https://one.example/h'),
+      payload('https://two.example/h'),
     ]);
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls.sort()).toEqual(['https://one.invalid/h', 'https://two.invalid/h']);
+    expect(fetchUrls.sort()).toEqual(['https://one.example/h', 'https://two.example/h']);
   });
 });
