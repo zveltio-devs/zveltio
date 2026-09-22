@@ -25,6 +25,15 @@ $effect(() => {
     localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
 });
 
+/**
+ * The sign-in page lives inside this group, so it is wrapped by this layout.
+ * The layout renders `children()` only for an authenticated visitor — which
+ * made the one route an anonymous visitor is sent to render nothing at all,
+ * and the redirect below point at that blank page. Public routes of the zone
+ * are rendered bare, without the portal shell.
+ */
+const isPublic = $derived(page.url.pathname.startsWith(`${base}/portal-client/login`));
+
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
   return cur === href || cur.startsWith(href + '/');
@@ -35,6 +44,7 @@ onMount(async () => {
   if (t) dark = t === 'dark';
 
   await auth.init();
+  if (isPublic) return;
   if (!auth.isAuthenticated) {
     goto(`${base}/portal-client/login`);
     return;
@@ -63,7 +73,10 @@ const primaryColor = $derived(zone?.primary_color ?? '#4F46E5');
 const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
 </script>
 
-{#if auth.loading}
+{#if isPublic}
+  {@render children()}
+
+{:else if auth.loading}
   <div class="flex h-screen items-center justify-center bg-base-100">
     <span class="loading loading-spinner loading-lg text-primary"></span>
   </div>

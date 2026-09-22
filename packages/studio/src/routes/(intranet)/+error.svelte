@@ -1,8 +1,12 @@
 <script lang="ts">
 /**
- * Admin-zone error boundary. Renders inside the admin shell so the user
- * stays oriented (sidebar visible, can navigate elsewhere) instead of
- * dropping into the root error page.
+ * Error boundary for the intranet zone. Renders inside the intranet shell so
+ * the visitor stays oriented (navigation visible) instead of dropping into the
+ * root error page.
+ *
+ * This was a verbatim copy of the admin boundary: it told an intranet visitor
+ * that the URL matched no ADMIN page and offered them the admin dashboard,
+ * which most of them cannot open at all.
  *
  * Keeps SvelteKit's default behaviour: 404s and per-route load errors
  * surface here. Unhandled component-render errors bubble up to the
@@ -26,7 +30,7 @@ import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
         </h2>
         <p class="text-sm text-base-content/65 max-w-md">
           {page.status === 404
-            ? 'That URL does not match any admin page.'
+            ? 'That URL does not match any intranet page.'
             : 'This page hit an error while loading. Retry first; if it keeps failing, file a bug with the message below.'}
         </p>
         {#if page.error?.message && page.status !== 404}
@@ -36,8 +40,8 @@ import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
           <button class="btn btn-primary btn-sm gap-2" onclick={() => invalidateAll()}>
             <RotateCcw size={14} /> Retry
           </button>
-          <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(`${base}/`)}>
-            <ArrowLeft size={14} /> Back to dashboard
+          <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(`${base}/intranet`)}>
+            <ArrowLeft size={14} /> Back to intranet
           </button>
         </div>
       </div>

@@ -1,6 +1,5 @@
 <script lang="ts">
 import { page } from '$app/state';
-import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import BlockRenderer from '$lib/ext/content/pages/client/BlockRenderer.svelte';
 
@@ -13,19 +12,36 @@ let error = $state<string | null>(null);
 
 const slug = $derived(page.params.slug);
 
-onMount(async () => {
-  try {
+/**
+ * One instance serves every page of the zone: clicking a second entry in the
+ * sidebar changes the route parameter without remounting. Loading in `onMount`
+ * left the first page painted under the second one's URL forever, so the fetch
+ * is keyed on the slug. `seq` drops a slower earlier response that lands after
+ * a faster later one.
+ */
+let seq = 0;
+$effect(() => {
+  const s = slug;
+  const mine = ++seq;
+  loading = true;
+  error = null;
+  pageData = null;
+
+  api
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ page: any; site: any; blocks: any[]; record: any }>(
-      `/ext/content/pages/sites/${ZONE_SLUG}/render/${slug}`,
-    );
-    pageData = res;
+    .get<{ page: any; site: any; blocks: any[]; record: any }>(
+      `/ext/content/pages/sites/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`,
+    )
+    .then((res) => {
+      if (mine === seq) pageData = res;
+    })
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  } catch (e: any) {
-    error = e?.message ?? 'Failed to load page';
-  } finally {
-    loading = false;
-  }
+    .catch((e: any) => {
+      if (mine === seq) error = e?.message ?? 'Failed to load page';
+    })
+    .finally(() => {
+      if (mine === seq) loading = false;
+    });
 });
 </script>
 

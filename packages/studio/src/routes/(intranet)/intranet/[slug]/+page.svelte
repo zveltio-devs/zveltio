@@ -1,5 +1,6 @@
 <script lang="ts">
 import { page } from '$app/state';
+import { api } from '$lib/api.js';
 import { base } from '$app/paths';
 import { auth } from '$lib/auth.svelte.js';
 import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
@@ -14,34 +15,42 @@ let error = $state<{ status: number; message: string } | null>(null);
 
 const slug = $derived(page.params.slug);
 
-// Re-fetch whenever the slug changes (navigation between zone pages)
+// Re-fetch whenever the slug changes (navigation between zone pages). `seq`
+// drops a slower earlier response that lands after a faster later one, which
+// otherwise paints the previous page under the current page's URL.
+let seq = 0;
 $effect(() => {
   const s = slug;
+  const mine = ++seq;
   loading = true;
   error = null;
   pageData = null;
 
-  // Use a manual fetch so we can read the HTTP status (api wrapper throws on
-  // non-ok and loses the status code). 404 vs 403 vs 500 each get distinct UX.
-  fetch(`/ext/content/pages/sites/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`, {
-    credentials: 'include',
-  })
+  // `api.fetch` rather than the typed helpers: the wrapper throws on non-ok and
+  // loses the status code, and 404 vs 403 vs 500 each get distinct UX below.
+  // Bare `fetch` went to the Studio's own origin and carried no `x-tenant-slug`,
+  // so a remote engine answered nothing and a hierarchical unit answered the
+  // wrong page.
+  api
+    .fetch(`/ext/content/pages/sites/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`)
     .then(async (res) => {
       if (res.ok) {
-        pageData = await res.json();
+        const body = await res.json();
+        if (mine === seq) pageData = body;
         return;
       }
       const body = await res.json().catch(() => ({}));
-      error = {
-        status: res.status,
-        message: body?.error ?? body?.message ?? `HTTP ${res.status}`,
-      };
+      if (mine === seq)
+        error = {
+          status: res.status,
+          message: body?.error ?? body?.message ?? `HTTP ${res.status}`,
+        };
     })
     .catch((e) => {
-      error = { status: 0, message: e?.message ?? 'Network error' };
+      if (mine === seq) error = { status: 0, message: e?.message ?? 'Network error' };
     })
     .finally(() => {
-      loading = false;
+      if (mine === seq) loading = false;
     });
 });
 
