@@ -922,7 +922,16 @@ const SECTIONS: Section[] = [
     focus:
       'What e2e actually exercises, what the harness boots, and whether a benchmark measures ' +
       'the thing it names.',
-    match: ['e2e/', 'bench/', 'playwright.config.ts', `${E}testing/`],
+    match: [
+      'e2e/',
+      'bench/',
+      'playwright.config.ts',
+      // The Studio integration lane boots the same engine `e2e/` does and is a
+      // harness, not a Studio source file — it belongs with what boots, not
+      // with C01's Studio shell.
+      'packages/studio/vitest.integration.config.ts',
+      `${E}testing/`,
+    ],
   },
 
   {

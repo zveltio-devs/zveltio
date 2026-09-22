@@ -6,9 +6,24 @@ import PageHeader from '$lib/components/common/PageHeader.svelte';
 import Pagination from '$lib/components/common/Pagination.svelte';
 import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 import { api } from '$lib/api.js';
+// The shared formatter, which honours the instance's locale, timezone and
+// date_format. `toLocaleString()` used the browser's, so the audit log was the
+// one screen that disagreed with every other timestamp in the Studio.
+import { fmtDateTime } from '$lib/stores/format.svelte.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-let revisions = $state<any[]>([]);
+interface Revision {
+  id: string;
+  collection: string;
+  record_id: string | null;
+  operation: string;
+  user_id: string | null;
+  created_at: string;
+  before_data: unknown;
+  after_data: unknown;
+}
+
+let revisions = $state<Revision[]>([]);
+let loadError = $state('');
 let loading = $state(true);
 let page = $state(1);
 let total = $state(0);
@@ -33,15 +48,29 @@ async function load() {
   if (filterUser) params.set('user', encodeURIComponent(filterUser));
   if (filterFrom) params.set('from', filterFrom);
 
-  const res = await api
-    .fetch(`/api/admin/revisions?${params}`, { credentials: 'include' })
-    .then((r) => r.json());
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
-  total =
-    res.total ??
-    (revisions.length < limit ? (page - 1) * limit + revisions.length : page * limit + 1);
-  loading = false;
+  try {
+    // Typed helper, not `api.fetch(...).then(r => r.json())`: that shape never
+    // looked at the status, so a refusal parsed into an empty list and this
+    // screen — the audit log — reported that nothing had happened. A rejected
+    // fetch was worse: no catch and no finally left the spinner up for good.
+    const res = await api.get<{ revisions: Revision[]; total?: number }>(
+      `/api/admin/revisions?${params}`,
+    );
+    const rows = res.revisions ?? [];
+    // The operation filter runs client-side, over one page. Counting the
+    // filtered rows as the page size then fed a guessed total into the pager,
+    // which put the page count somewhere between wrong and absurd. The total is
+    // the server's, over the unfiltered set, and the filter says what it is.
+    total = res.total ?? (page - 1) * limit + rows.length;
+    revisions = rows.filter((r) => !filterOp || r.operation === filterOp);
+    loadError = '';
+  } catch (err) {
+    revisions = [];
+    total = 0;
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+  } finally {
+    loading = false;
+  }
 }
 
 function applyFilters() {
@@ -58,19 +87,18 @@ function opBadge(op: string): string {
   return map[op] || 'badge-ghost';
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function formatDiff(before: any, after: any): string[] {
-  if (!before && after) return ['Created'];
-  if (before && !after) return ['Deleted'];
+function formatDiff(before: unknown, after: unknown): string[] {
+  if (!before && after) return [m['audit.rowCreated']()];
+  if (before && !after) return [m['audit.rowDeleted']()];
   const changes: string[] = [];
-  const b = typeof before === 'string' ? JSON.parse(before) : before;
-  const a = typeof after === 'string' ? JSON.parse(after) : after;
+  const b = (typeof before === 'string' ? JSON.parse(before) : before) as Record<string, unknown>;
+  const a = (typeof after === 'string' ? JSON.parse(after) : after) as Record<string, unknown>;
   for (const key of Object.keys({ ...b, ...a })) {
     if (JSON.stringify(b?.[key]) !== JSON.stringify(a?.[key])) {
       changes.push(key);
     }
   }
-  return changes.length ? changes : ['No changes detected'];
+  return changes.length ? changes : [m['audit.noChangesDetected']()];
 }
 
 let expandedId = $state<string | null>(null);
@@ -136,6 +164,11 @@ let expandedId = $state<string | null>(null);
 
  {#if loading}
  <PageSpinner />
+ {:else if loadError}
+ <div class="alert alert-error">
+ <span>{loadError}</span>
+ <button class="btn btn-sm btn-ghost" onclick={load}>{m['common.retry']()}</button>
+ </div>
  {:else if revisions.length === 0}
  <div class="card bg-base-100 text-center py-16">
  <ClipboardList size={40} class="mx-auto text-base-content/55 mb-3" />
@@ -166,7 +199,7 @@ let expandedId = $state<string | null>(null);
  onkeydown={(e) => e.key === 'Enter' || e.key === ' ' ? (expandedId = expandedId === rev.id ? null : rev.id) : null}
 >
  <td class="text-xs font-mono whitespace-nowrap">
- {new Date(rev.created_at).toLocaleString()}
+ {fmtDateTime(rev.created_at)}
  </td>
  <td><code class="text-xs">{rev.collection}</code></td>
  <td><code class="text-xs text-base-content/65">{rev.record_id?.substring(0, 8)}…</code></td>
@@ -176,7 +209,7 @@ let expandedId = $state<string | null>(null);
  <td class="text-xs text-base-content/70">
  {formatDiff(rev.before_data, rev.after_data).join(', ')}
  </td>
- <td class="text-xs text-base-content/65 font-mono">{rev.user_id?.substring(0, 8) || 'system'}…</td>
+ <td class="text-xs text-base-content/65 font-mono">{rev.user_id ? `${rev.user_id.substring(0, 8)}…` : m['audit.systemActor']()}</td>
  <td class="text-xs text-base-content/65">{expandedId === rev.id ? '▲' : '▼'}</td>
  </tr>
  {#if expandedId === rev.id}

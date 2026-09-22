@@ -74,7 +74,13 @@ async function run(cmd: string[], env: Record<string, string>): Promise<void> {
 async function main(): Promise<void> {
   const env = engineEnv();
 
-  if (!existsSync(env.STUDIO_DIST_PATH)) {
+  // The Studio integration lane (packages/studio, vitest.integration.config.ts)
+  // reuses this boot for its engine, but mounts pages from SOURCE through vite
+  // — it never fetches `studio-dist`, so requiring a build there would make the
+  // lane cost a Studio build it does not read.
+  const needsStudioBuild = process.env.BOOT_WITHOUT_STUDIO !== '1';
+
+  if (needsStudioBuild && !existsSync(env.STUDIO_DIST_PATH)) {
     throw new Error(
       `No Studio build at ${env.STUDIO_DIST_PATH}. Run \`cd packages/studio && bun x vite build\` ` +
         'first — this suite exists partly to catch a Studio that does not render, so it must ' +
