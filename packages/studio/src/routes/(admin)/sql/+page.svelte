@@ -86,7 +86,7 @@ function handleKeydown(e: KeyboardEvent) {
 
   {#if rowCount !== null}
     <div class="flex items-center gap-4 mb-3 text-sm text-base-content/65">
-      <span>{rowCount} row{rowCount !== 1 ? 's' : ''}</span>
+      <span>{m['sqled.rowCount']({ count: rowCount })}</span>
       {#if elapsed !== null}<span>{elapsed}ms</span>{/if}
     </div>
 
