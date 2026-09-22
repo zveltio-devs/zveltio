@@ -8,20 +8,6 @@
  * network.
  */
 
-/**
- * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
- * resolve), and that is load-bearing rather than cosmetic.
- *
- * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
- * carries the name in a `Host` header. So the moment the test hostname
- * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
- * object instead of the plain record it was handed — and every assertion below
- * that compares a URL or indexes a header fails. `hooks.example.com` does not
- * resolve on a developer machine and DOES resolve on the CI runner, so these
- * tests passed locally and went red in CI on branches that changed nothing
- * near them. Pinning itself is covered by `pinnedRequestForTests`.
- */
-
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
@@ -82,17 +68,42 @@ class FakeRedis {
 let originalFetch: typeof fetch;
 let fetchUrls: string[];
 
+/**
+ * `safeFetch` pins a resolved hostname to its ADDRESS — it calls `fetch` with
+ * `https://<ip>/…` and moves the name into a `Host` header — so recording the
+ * URL verbatim made these assertions depend on the resolver rather than on the
+ * code. They passed on a developer machine, where the test host does not
+ * resolve, and failed on the CI runner, whose resolver answers every name
+ * (`.invalid` included) with 93.184.216.34.
+ *
+ * `unpin` puts the authority back from the `Host` header, which holds under
+ * either resolver.
+ */
+function unpin(input: RequestInfo | URL, init?: RequestInit): string {
+  const raw = String(input);
+  const h = init?.headers;
+  const host =
+    h instanceof Headers
+      ? h.get('host')
+      : ((h as Record<string, string> | undefined)?.host ??
+        (h as Record<string, string> | undefined)?.Host);
+  if (!host) return raw;
+  const u = new URL(raw);
+  u.host = host;
+  return u.toString();
+}
+
 function stubFetch(status = 200): void {
   fetchUrls = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    fetchUrls.push(String(input));
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    fetchUrls.push(unpin(input, init));
     return { status, ok: status < 400, text: async () => '' } as Response;
   }) as unknown as typeof fetch;
 }
 
 function payload(over: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    url: 'https://hooks.invalid/x',
+    url: 'https://hooks.example.com/x',
     event: 'record.created',
     collection: 'c',
     data: { id: '1' },
@@ -124,7 +135,7 @@ describe('webhookWorker._process', () => {
     const cache = new FakeRedis({ lmpop: [payload()] });
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.invalid/x']);
+    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
     expect(cache.zaddCalls.length).toBe(0); // 2xx → no retry scheduled
   });
 
@@ -169,7 +180,7 @@ describe('webhookWorker._process', () => {
     expect(cache.lpushCalls.length).toBe(1);
     expect(cache.lpushCalls[0][0]).toBe(WEBHOOK_DLQ_KEY);
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
-    expect(dead.url).toBe('https://hooks.invalid/x');
+    expect(dead.url).toBe('https://hooks.example.com/x');
     expect(dead.event).toBe('record.created');
     expect(dead.data).toEqual({ id: '1' }); // the body, so a replay can resend it
     expect(typeof dead.failedAt).toBe('string');
@@ -191,7 +202,7 @@ describe('webhookWorker._process', () => {
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
     expect(dead.secret).toBeUndefined();
     expect(cache.lpushCalls[0][1]).not.toContain('plaintext-signing-secret');
-    expect(dead.url).toBe('https://hooks.invalid/x'); // the rest still recorded
+    expect(dead.url).toBe('https://hooks.example.com/x'); // the rest still recorded
   });
 
   it('caps the dead-letter queue', async () => {
@@ -221,7 +232,7 @@ describe('webhookWorker._process', () => {
     cache.lpopQueue = [payload()];
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.invalid/x']);
+    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
   });
 
   it('re-enqueues retries that are now due', async () => {
