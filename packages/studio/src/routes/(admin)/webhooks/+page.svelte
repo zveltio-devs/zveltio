@@ -16,6 +16,7 @@ let webhooks = $state<any[]>([]);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let collections = $state<any[]>([]);
 let loading = $state(true);
+let loadError = $state('');
 let currentPage = $state(1);
 let total = $state(0);
 const LIMIT = 20;
@@ -78,6 +79,7 @@ onMount(load);
 async function load() {
   loading = true;
   try {
+    loadError = '';
     const [wh, col] = await Promise.all([webhooksApi.list(), collectionsApi.list()]);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const allWebhooks: any[] = Array.isArray(wh) ? wh : ((wh as any).webhooks ?? wh);
@@ -85,6 +87,12 @@ async function load() {
     total = (wh as any).total ?? allWebhooks.length;
     webhooks = allWebhooks.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
     collections = col.collections || [];
+  } catch (err) {
+    // A refusal used to render the empty state — "no webhooks yet" over a 403,
+    // on the screen that says what is and is not wired to the outside world.
+    webhooks = [];
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
+    toast.error(loadError);
   } finally {
     loading = false;
   }
@@ -105,7 +113,12 @@ function openEdit(wh: any) {
     events: [...(wh.events || [])],
     collections: [...(wh.collections || [])],
     active: wh.active ?? true,
-    secret: wh.secret || '',
+    // NOT wh.secret. The list endpoint masks it, so this field used to open
+    // pre-filled with the mask — and saving wrote that mask back as the signing
+    // secret, so every later delivery was signed with eight bullet characters
+    // and every receiver's HMAC check failed. Empty means "leave it alone"; the
+    // placeholder says a secret is set.
+    secret: '',
     retry_attempts: wh.retry_attempts ?? 3,
     timeout: wh.timeout ?? 5000,
   };
@@ -127,7 +140,8 @@ async function save() {
   if (!form.name || !form.url || form.events.length === 0) return;
   saving = true;
   try {
-    const payload = { ...form, secret: form.secret || undefined };
+    // `undefined` when untouched, so the engine keeps the stored secret.
+    const payload = { ...form, secret: form.secret.trim() || undefined };
     editTarget
       ? await webhooksApi.update(editTarget.id, payload)
       : await webhooksApi.create(payload);
@@ -164,12 +178,17 @@ async function remove(id: string, name: string) {
               events: snapshot.events,
               collections: snapshot.collections,
               active: snapshot.active,
-              secret: snapshot.secret || undefined,
+              // The snapshot came from the list, where the secret is masked —
+              // sending it back would store the mask as the signing secret,
+              // which is the same defect this page had in its edit dialog. The
+              // restored webhook therefore has no secret, and the toast says so.
+              secret: undefined,
               retry_attempts: snapshot.retry_attempts,
               timeout: snapshot.timeout,
             });
             await load();
-            toast.success(m['wh.restored']({ name }));
+            if (snapshot.secret) toast.error(m['wh.restoredNoSecret']({ name }));
+            else toast.success(m['wh.restored']({ name }));
           },
         });
       } catch (err) {
@@ -212,6 +231,12 @@ async function testWebhook(id: string) {
   }}
 >
   {#snippet list()}
+    {#if loadError}
+      <div class="alert alert-error mb-4">
+        <span>{loadError}</span>
+        <button class="btn btn-sm btn-ghost" onclick={load}>{m['common.retry']()}</button>
+      </div>
+    {/if}
     <div class="card bg-base-100 shadow-sm overflow-x-auto">
       <table class="table table-sm w-full">
         <thead>
@@ -301,7 +326,8 @@ async function testWebhook(id: string) {
    <span class="label-text">{m['wh.secretOptional']()}</span>
    <span class="label-text-alt text-base-content/65">{m['wh.hmacHint']()}</span>
  </label>
- <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder={m['wh.signingSecretPh']()} />
+ <input id="webhook-secret" type="password" class="input font-mono" bind:value={form.secret}
+   placeholder={editTarget?.secret ? m['wh.secretSetPh']() : m['wh.signingSecretPh']()} />
  </div>
  </div>
  <div class="grid grid-cols-2 gap-4">
@@ -364,7 +390,7 @@ async function testWebhook(id: string) {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />

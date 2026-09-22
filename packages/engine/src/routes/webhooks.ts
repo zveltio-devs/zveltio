@@ -55,6 +55,15 @@ function generateWebhookSecret(): string {
     .join('');
 }
 
+/**
+ * What a masked secret reads as on the wire — and what must never be stored.
+ *
+ * One constant rather than three literals, because the guard in PATCH has to
+ * compare against exactly the string the read paths emit; two copies of a
+ * bullet run are a typo away from a guard that never matches.
+ */
+const MASK = '••••••••';
+
 async function signBody(body: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -85,7 +94,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   function maskSecret(webhook: any): any {
     if (!webhook) return webhook;
-    return { ...webhook, secret: webhook.secret ? '••••••••' : null };
+    return { ...webhook, secret: webhook.secret ? MASK : null };
   }
 
   // ── Dead-letter queue ───────────────────────────────────────────────────
@@ -237,10 +246,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     // Return plaintext secret only on creation — subsequent GETs return masked value
-    return c.json(
-      { webhook: { ...webhook, secret: '••••••••' }, secret, _secret_shown_once: true },
-      201,
-    );
+    return c.json({ webhook: { ...webhook, secret: MASK }, secret, _secret_shown_once: true }, 201);
   });
 
   // PATCH /:id — Update webhook
@@ -259,7 +265,17 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // plaintext over the encrypted column and leak the signing key.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const toSet: Record<string, any> = { ...data, updated_at: new Date() };
-    if (typeof data.secret === 'string' && data.secret.length > 0) {
+    // Never write the mask back over the secret it stands for.
+    //
+    // `maskSecret` replaces the stored value with MASK on the way out, and the
+    // Studio's edit dialog put that string straight into its form field — so
+    // saving a webhook after changing only its URL re-signed every future
+    // delivery with the literal bullet characters, and every receiver's HMAC
+    // check started failing, silently. `routes/settings.ts` has defended against
+    // exactly this since secrets were masked there; this route had not.
+    if (data.secret === MASK) {
+      delete toSet.secret;
+    } else if (typeof data.secret === 'string' && data.secret.length > 0) {
       toSet.secret = (await maybeEncrypt(data.secret, true)) as string;
     }
     const webhook = await reqDb(c, db)

@@ -32,7 +32,12 @@ async function saveProfile(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name.trim() }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // The engine's own message, not `HTTP 400` — it says which field was
+      // refused, and this is the only place a person can act on that.
+      const body = (await res.json().catch(() => ({}))) as { detail?: string; error?: string };
+      throw new Error(body.detail ?? body.error ?? `HTTP ${res.status}`);
+    }
     toast.success(m['profile.updated']());
     await auth.init();
   } catch (e) {
@@ -83,7 +88,7 @@ async function saveProfile(): Promise<void> {
         <div class="flex justify-end">
           <button class="btn btn-primary btn-sm gap-1.5" onclick={saveProfile} disabled={saving}>
             <Save size={14} />
-            {saving ? 'Saving…' : 'Save profile'}
+            {saving ? m['common.saving']() : m['acct.saveProfile']()}
           </button>
         </div>
       </div>

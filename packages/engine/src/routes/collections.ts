@@ -21,6 +21,7 @@ import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 import { toJsonb } from '../lib/jsonb.js';
+import { virtualList, type VirtualConfig } from '../lib/virtual-collection-adapter.js';
 
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
@@ -30,6 +31,16 @@ const RELATION_REVERSE_TYPES = new Set(['o2m']);
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+/** A draft virtual source, as the Studio's create form holds it before saving. */
+const VirtualTestSchema = z.object({
+  source_url: z.string().url(),
+  auth_type: z.enum(['none', 'bearer', 'api_key', 'basic']).default('none'),
+  auth_value: z.string().optional(),
+  list_path: z.string().optional(),
+  id_field: z.string().optional(),
+  field_mapping: z.record(z.string(), z.string()).optional().default({}),
+});
 
 // Reserved system column names — cannot be used as user field names because the
 // physical table already owns them. Imported from DDLManager so the routes and
@@ -105,6 +116,39 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     }
     const preview = await DDLManager.previewCollection(data);
     return c.json(preview);
+  });
+
+  // POST /virtual-test — dial a draft virtual source, from the ENGINE.
+  //
+  // The Studio used to run this check in the browser: `fetch(source_url, {
+  // Authorization: Bearer <token typed in the form> })`. Three things followed
+  // from that, and all three are why this endpoint exists.
+  //
+  //  - It bypassed the SSRF guard completely. `safeFetch` validates the exact
+  //    URL and every redirect hop; a browser validates nothing, and the network
+  //    it can reach is the ADMINISTRATOR's, not the engine's. `http://192.168.1.1`
+  //    typed into that form made the admin's own browser the prober.
+  //  - It sent the credential to whatever host was typed, over whatever scheme
+  //    was typed, before anything had been saved.
+  //  - It could not succeed anyway: a third-party API does not send CORS headers
+  //    for a Studio origin, so the browser refused to read the response and the
+  //    check reported a network error for sources that were perfectly reachable.
+  //    A check that cannot pass teaches people to ignore it.
+  //
+  // Same adapter the collection itself will use once created, so a green result
+  // here means the real read path works — including auth headers, list_path and
+  // field mapping.
+  app.post('/virtual-test', zValidator('json', VirtualTestSchema), async (c) => {
+    const config = c.req.valid('json') as VirtualConfig;
+    try {
+      const result = await virtualList(config, { page: 1, limit: 1 });
+      return c.json({ ok: true, total: result.total, sample: result.data[0] ?? null });
+    } catch (err) {
+      // The adapter's message already names what failed — an SSRF refusal, a
+      // non-2xx from the source, a DNS failure. Passed through rather than
+      // flattened into "connection failed".
+      return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // POST / — Create collection (async via DDL queue)
