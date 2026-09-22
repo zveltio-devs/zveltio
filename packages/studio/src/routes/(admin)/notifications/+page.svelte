@@ -2,6 +2,8 @@
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { fmtDateTime } from '$lib/stores/format.svelte.js';
 import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 
@@ -18,6 +20,7 @@ interface Notification {
 
 let notifications = $state<Notification[]>([]);
 let loading = $state(true);
+let loadError = $state('');
 let markingAll = $state(false);
 let unreadOnly = $state(false);
 let activeTab = $state<'inbox' | 'rules'>('inbox');
@@ -35,8 +38,10 @@ async function loadNotifications() {
       `/api/admin/notifications${params}`,
     );
     notifications = data.notifications || [];
-  } catch {
+    loadError = '';
+  } catch (err) {
     notifications = [];
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
   } finally {
     loading = false;
   }
@@ -46,8 +51,11 @@ async function markRead(id: string) {
   try {
     await api.patch(`/api/admin/notifications/${id}/read`, {});
     notifications = notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n));
-  } catch {
-    /* silent */
+  } catch (err) {
+    // Not silent. The row used to grey out whether or not the server accepted
+    // it, so an operator could clear an inbox that was still full — and find it
+    // full again after a reload, with no idea which of the two views was true.
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   }
 }
 
@@ -56,8 +64,8 @@ async function markAllRead() {
   try {
     await api.post('/api/admin/notifications/mark-all-read', {});
     notifications = notifications.map((n) => ({ ...n, is_read: true }));
-  } catch {
-    /* silent */
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
     markingAll = false;
   }
@@ -87,10 +95,6 @@ function typeIcon(type: string): string {
     default:
       return 'ℹ';
   }
-}
-
-function fmt(s: string) {
-  return new Date(s).toLocaleString();
 }
 </script>
 
@@ -135,6 +139,11 @@ function fmt(s: string) {
  {#if activeTab === 'inbox'}
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
+ {:else if loadError}
+ <div class="alert alert-error">
+ <span>{loadError}</span>
+ <button class="btn btn-sm btn-ghost" onclick={loadNotifications}>{m['common.retry']()}</button>
+ </div>
  {:else if filtered.length === 0}
  <div class="text-center py-16 text-base-content/65">
  {#if unreadOnly}
@@ -163,7 +172,7 @@ function fmt(s: string) {
  <div class="flex-1 min-w-0">
  <div class="flex items-center justify-between gap-2">
  <p class="font-medium text-sm {!notif.is_read ? '' : 'text-base-content/70'}">{notif.title}</p>
- <span class="text-xs text-base-content/65 shrink-0">{fmt(notif.created_at)}</span>
+ <span class="text-xs text-base-content/65 shrink-0">{fmtDateTime(notif.created_at)}</span>
  </div>
  <p class="text-sm text-base-content/65 mt-0.5">{notif.message}</p>
  </div>
