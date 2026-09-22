@@ -19,7 +19,19 @@ const emptyState = (): ExtensionConfirmState => ({
 });
 
 export function createExtensionConfirm() {
-  let confirmState = $state<ExtensionConfirmState>(emptyState());
+  // MUTATED, never reassigned. Callers destructure this object
+  // (`const { confirmState } = createExtensionConfirm()`), so a reassignment
+  // here rebinds only the local variable and leaves every consumer holding the
+  // first `emptyState()`: `ConfirmModal` on SchemaPage and DetailLayout read
+  // `open: false` forever, so no extension page's confirm ever opened and no
+  // confirmed action ever ran. The Svelte compiler warned about exactly this
+  // ("This reference only captures the initial value of `confirmState`") and a
+  // warning is not a build failure.
+  const confirmState = $state<ExtensionConfirmState>(emptyState());
+
+  function reset(): void {
+    Object.assign(confirmState, emptyState());
+  }
 
   function askConfirm(
     message: string,
@@ -27,24 +39,24 @@ export function createExtensionConfirm() {
     opts?: { title?: string; confirmLabel?: string; confirmClass?: string },
   ) {
     const isDelete = /delete|remove|discard|revoke|cancel/i.test(message);
-    confirmState = {
+    Object.assign(confirmState, {
       open: true,
       title: opts?.title ?? (isDelete ? m['common.delete']() : m['common.confirm']()),
       message,
       confirmLabel: opts?.confirmLabel ?? (isDelete ? m['common.delete']() : m['common.confirm']()),
       confirmClass: opts?.confirmClass ?? (isDelete ? 'btn-error' : 'btn-primary'),
       action,
-    };
+    });
   }
 
   async function runConfirmAction() {
     const fn = confirmState.action;
-    confirmState = emptyState();
+    reset();
     if (fn) await fn();
   }
 
   function cancelConfirm() {
-    confirmState = emptyState();
+    reset();
   }
 
   return { confirmState, askConfirm, runConfirmAction, cancelConfirm };

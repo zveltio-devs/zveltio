@@ -152,7 +152,13 @@ export function installGlobalApi(engineUrl: string): void {
         return;
       }
       if (!_slots[name]) _slots[name] = [];
-      _slots[name].push(contribution);
+      // Replace, never stack. This path has no owner to key on, so identity is
+      // the component itself: a page whose `<script>` runs a second time — HMR,
+      // a remount, navigating back to the same route — used to register the
+      // same widget again and the slot rendered one copy per registration.
+      const existing = _slots[name].findIndex((c) => c.component === contribution.component);
+      if (existing >= 0) _slots[name][existing] = contribution as OwnedSlotContribution;
+      else _slots[name].push(contribution as OwnedSlotContribution);
     },
     registerFormAlter(formId: string, hook: FormAlterHook) {
       if (!formId || typeof formId !== 'string') {
@@ -164,7 +170,10 @@ export function installGlobalApi(engineUrl: string): void {
         return;
       }
       if (!_formAlters[formId]) _formAlters[formId] = [];
-      _formAlters[formId].push(hook);
+      // Same reason as `registerSlot` above, with a worse symptom: a hook
+      // registered twice runs twice, so an alter that appends a field appends
+      // it twice and one that renames a label runs against its own output.
+      if (!_formAlters[formId].includes(hook)) _formAlters[formId].push(hook);
     },
     // Existing surfaces — keep stable for already-published bundles.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

@@ -1,3 +1,5 @@
+import { m } from '$lib/i18n.svelte.js';
+
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 export interface ToastAction {
@@ -71,7 +73,11 @@ export class ToastStore {
     return this.add(opts.type ?? 'success', message, {
       duration: opts.duration ?? 6000,
       action: {
-        label: 'Undo',
+        // Was the literal 'Undo'. Every other label in the Studio goes through
+        // the catalogue, and the key already existed — `CollectionDataTable`
+        // passes `m['common.undo']()` for the same button — so a Romanian or
+        // German operator got one English word on a destructive action.
+        label: m['common.undo'](),
         handler: opts.onUndo,
       },
     });

@@ -43,6 +43,11 @@ type SystemListener = (event: RealtimeEvent) => void;
 const ENGINE_URL = (typeof window !== 'undefined' && (window as any).__ZVELTIO_ENGINE_URL__) || '';
 
 let socket: WebSocket | null = null;
+// Set while `disconnect()` is tearing the socket down. The `close` event lands
+// asynchronously — after `disconnect()` has returned and cleared `socket` — so
+// without this flag the close handler cannot tell a sign-out from a dropped
+// connection and reconnects the tab that just signed out.
+let closingOnPurpose = false;
 let connectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -76,6 +81,9 @@ function scheduleReconnect() {
 }
 
 async function connect(): Promise<void> {
+  // A subscription taken after sign-out is a fresh start, not the teardown
+  // still in progress.
+  closingOnPurpose = false;
   if (
     socket &&
     (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
@@ -168,6 +176,10 @@ async function connect(): Promise<void> {
       pingTimer = null;
     }
     socket = null;
+    if (closingOnPurpose) {
+      closingOnPurpose = false;
+      return;
+    }
     scheduleReconnect();
   });
 }
@@ -245,6 +257,7 @@ function disconnect() {
     pingTimer = null;
   }
   if (socket) {
+    closingOnPurpose = true;
     try {
       socket.close();
     } catch {
@@ -256,6 +269,7 @@ function disconnect() {
   listeners.clear();
   systemListeners.clear();
   _connected = false;
+  _lastError = null;
 }
 
 export const realtime = {

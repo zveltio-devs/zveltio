@@ -90,3 +90,15 @@ describe('safeCssColor', () => {
     expect(safeCssColor(42, 'black')).toBe('black');
   });
 });
+
+describe('safeHtml — target', () => {
+  it('drops target="_blank" rather than pretending to add rel', () => {
+    // DOMPurify tests every attribute outside its URI-safe set against
+    // ALLOWED_URI_REGEXP, and `_blank` matches nothing there — so `target`
+    // never survived, despite being listed in ALLOWED_ATTRS and despite a
+    // comment claiming a rel="noopener" injection that never existed.
+    const out = safeHtml('<a href="https://example.test/" target="_blank">x</a>');
+    expect(out).not.toContain('target');
+    expect(out).toContain('href="https://example.test/"');
+  });
+});
