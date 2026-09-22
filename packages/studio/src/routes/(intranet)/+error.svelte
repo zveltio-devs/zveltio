@@ -1,10 +1,10 @@
 <script lang="ts">
 /**
- * Error boundary for the intranet zone. Renders inside the intranet shell so the
- * visitor stays oriented (navigation visible) instead of dropping into the
+ * Error boundary for the intranet zone. Renders inside the intranet shell so
+ * the visitor stays oriented (navigation visible) instead of dropping into the
  * root error page.
  *
- * This was a verbatim copy of the admin boundary: it told a intranet visitor
+ * This was a verbatim copy of the admin boundary: it told an intranet visitor
  * that the URL matched no ADMIN page and offered them the admin dashboard,
  * which most of them cannot open at all.
  *
