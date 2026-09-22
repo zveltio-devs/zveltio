@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, GhostDDL } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hgmulti_${Date.now()}`;
@@ -35,15 +40,11 @@ d('ghost DDL multi-statement (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql
-      .raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`)
-      .execute(db)
-      .catch(() => {});
-    await db
-      .deleteFrom('zvd_collections')
-      .where('name', '=', COLLECTION)
-      .execute()
-      .catch(() => {});
+    // Dropping the table by hand left `_zv_old_zvd_hgmulti_…` and
+    // `_zv_changelog_zvd_hgmulti_…` behind — `GhostDDL.execute` renames the
+    // original and schedules the drop sixty seconds out, well after this
+    // process exits. It turned master red on `check:test-leftovers`.
+    await dropTestCollection(db, COLLECTION).catch(() => {});
   });
 
   it('execute applies several ADD COLUMN changes in one migration', async () => {
