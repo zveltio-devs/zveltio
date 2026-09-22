@@ -1,9 +1,18 @@
 <script lang="ts">
+import type { Snippet } from 'svelte';
 import { m } from '$lib/i18n.svelte.js';
 import { FileText, ShoppingCart, MessageSquare, LogOut, Menu } from '@lucide/svelte';
 import { useAuth } from '$stores/auth.svelte';
 
-let { data, children } = $props();
+/**
+ * Typed here rather than from `./$types`: the load is annotated `LayoutLoad`
+ * with no type argument, which resolves its output to `{}` — so `data.user`
+ * arrived as an empty object and reading `data.user.name` was a type error
+ * that nothing reported, because the client package runs no `svelte-check`
+ * in CI. `requireRole` is what actually fills this.
+ */
+let { data, children }: { data: { user?: { name?: string; email?: string } }; children: Snippet } =
+  $props();
 const auth = useAuth();
 let drawerOpen = $state(false);
 </script>
