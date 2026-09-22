@@ -2,6 +2,7 @@
 import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import { base } from '$app/paths';
 import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import PageSpinner from '$lib/components/common/PageSpinner.svelte';
@@ -57,38 +58,49 @@ async function load() {
   }
 }
 
+/**
+ * Dial the draft source THROUGH THE ENGINE.
+ *
+ * What this replaces did two things it should not have. It first sent
+ * `POST /api/data/<name>` — a record CREATE — so pressing "Test connection"
+ * with the name of an existing collection inserted an empty row into it. When
+ * that failed it fell back to fetching the typed URL straight from the browser
+ * with the typed credential in the header: outside the engine's SSRF guard, on
+ * the administrator's own network rather than the engine's, and sending the
+ * token to whatever host had been typed. It could not even succeed — a
+ * third-party API sends no CORS header for the Studio's origin, so the browser
+ * refused to read the response and the check reported failure for sources that
+ * were perfectly reachable.
+ *
+ * `POST /api/collections/virtual-test` runs the same adapter the collection
+ * will use once created: `safeFetch`, every redirect hop re-validated, auth
+ * headers, list_path and field mapping all applied. Green here means the real
+ * read path works.
+ */
 async function testConnection() {
   testing = true;
   testResult = null;
   try {
-    const res = await api.post('/api/data/' + (form.name || '_test_'), {});
-    testResult = { ok: true, message: m['virtualCollections.connectionOk'](), sample: res };
-  } catch {
-    // Try a GET instead
-    try {
-      const url = new URL(form.source_url);
-      const headers: Record<string, string> = {};
-      if (form.auth_type === 'bearer' && form.auth_value)
-        headers['Authorization'] = `Bearer ${form.auth_value}`;
-      if (form.auth_type === 'api_key' && form.auth_value) headers['X-API-Key'] = form.auth_value;
-      const resp = await fetch(url.toString(), { headers });
-      if (resp.ok) {
-        const json = await resp.json();
-        testResult = {
+    const res = await api.post<{ ok: boolean; error?: string; total?: number; sample?: unknown }>(
+      '/api/collections/virtual-test',
+      {
+        source_url: form.source_url,
+        auth_type: form.auth_type,
+        auth_value: form.auth_value || undefined,
+        list_path: form.list_path || '$.data',
+        id_field: form.id_field || 'id',
+        field_mapping: parseFieldMapping(),
+      },
+    );
+    testResult = res.ok
+      ? {
           ok: true,
-          message: m['virtualCollections.connectedStatus']({ status: resp.status }),
-          sample: json,
-        };
-      } else {
-        testResult = {
-          ok: false,
-          message: m['virtualCollections.sourceReturned']({ status: resp.status }),
-        };
-      }
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    } catch (e2: any) {
-      testResult = { ok: false, message: e2.message };
-    }
+          message: m['virtualCollections.connectionOkRows']({ count: res.total ?? 0 }),
+          sample: res.sample,
+        }
+      : { ok: false, message: res.error ?? m['common.failed']() };
+  } catch (e) {
+    testResult = { ok: false, message: e instanceof Error ? e.message : m['common.failed']() };
   } finally {
     testing = false;
   }
@@ -185,7 +197,7 @@ onMount(load);
  </div>
  <div class="flex gap-2">
  <a
- href="/collections/{col.name}/data"
+ href="{base}/collections/{col.name}"
  class="btn btn-ghost btn-sm"
  title={m['virtualCollections.browseData']()}
  >
