@@ -8,7 +8,9 @@
  * column names in editors and `tsc` catches typos.
  *
  * Scope intentionally narrow:
- *   - Handles `CREATE TABLE [IF NOT EXISTS]` and `ALTER TABLE … ADD COLUMN`.
+ *   - Reads only the UP half of each file (everything before `-- DOWN`).
+ *   - Handles `CREATE TABLE [IF NOT EXISTS]`, `ALTER TABLE … ADD COLUMN`
+ *     and `ALTER TABLE … DROP COLUMN`.
  *   - Maps the common Postgres types we see in extension migrations to TS.
  *   - Ignores constraint-only ALTER TABLE statements (PRIMARY KEY, FK).
  *   - Ignores CREATE INDEX, CREATE TYPE, CREATE FUNCTION, etc.
@@ -109,6 +111,20 @@ function mapPgTypeToTs(pgType: string): string {
 }
 
 // ─── SQL parsing ───────────────────────────────────────────────────────────
+
+/**
+ * Keep only the UP half of a migration file. Extension migrations carry their
+ * rollback in the same file, after a line that is exactly `-- DOWN`; the
+ * engine's runner (`parseMigrationSql`) splits on that marker and only ever
+ * executes the UP half. Codegen read both halves, so a `DROP TABLE` /
+ * `ADD COLUMN` written for rollback described the generated types as much as
+ * the real schema did. Same anchored regex as the runner — a loose `-- DOWN`
+ * prefix match once cost the engine half a schema.
+ */
+function upSection(sql: string): string {
+  const i = sql.search(/^--\s*DOWN\s*$/im);
+  return i < 0 ? sql : sql.slice(0, i);
+}
 
 /**
  * Strip line comments (`-- …`) and block comments (`/* … * /`) so they don't
@@ -315,7 +331,7 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
     return tables.get(name)!;
   };
 
-  const allSql = sqlChunks.map(stripComments).join('\n');
+  const allSql = sqlChunks.map(upSection).map(stripComments).join('\n');
 
   // CREATE TABLE [IF NOT EXISTS] <name> ( <body> )
   const createRe =
@@ -335,7 +351,6 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
     const columns = parseColumnList(body);
     const tableCols = ensureTable(tableName);
     for (const c of columns) tableCols.set(c.name, c);
-    createRe.lastIndex = closeIdx + 1;
   }
 
   // ALTER TABLE <name> ADD COLUMN [IF NOT EXISTS] <col> <type> <rest>
@@ -350,6 +365,23 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
       const tableCols = ensureTable(tableName);
       tableCols.set(col.name, col);
     }
+  }
+
+  // ALTER TABLE <name> DROP COLUMN [IF EXISTS] <col>
+  //
+  // Run last, after every CREATE and ADD COLUMN: a column the migrations
+  // removed used to stay in the generated types, so `ctx.db` promised a
+  // column Postgres no longer has — the silent runtime failure this module
+  // exists to prevent.
+  //
+  // ponytail: a third pass, not an ordered walk of the statements. A column
+  // dropped and then re-added by a later migration would be lost; no
+  // extension does that today. Make the parser statement-ordered if one does.
+  const dropRe =
+    /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))/gi;
+  for (const m of allSql.matchAll(dropRe)) {
+    // Never `ensureTable` here — a DROP alone must not invent a table.
+    tables.get(m[1] ?? m[2])?.delete(m[3] ?? m[4]);
   }
 
   return {
