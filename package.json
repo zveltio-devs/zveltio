@@ -78,7 +78,7 @@
   "dependencies": {
     "@sveltejs/adapter-auto": "^7.0.1",
     "@testing-library/svelte": "^5.4.2",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.1",
     "browserslist": "^4.28.8",
     "fast-check": "^4.9.0",
     "kysely": "^0.29.5",
