@@ -21,6 +21,7 @@ interface LogEntry {
 let logs = $state<LogEntry[]>([]);
 let total = $state(0);
 let loading = $state(true);
+let loadError = $state('');
 let page = $state(1);
 const limit = 100;
 
@@ -39,8 +40,12 @@ async function load() {
     const res = await api.get<{ logs: LogEntry[]; total: number }>(`/api/admin/logs?${params}`);
     logs = res.logs;
     total = res.total;
-  } catch {
-    /* ignore */
+    loadError = '';
+  } catch (err) {
+    // "No requests logged yet" used to be what a 403 or a 500 looked like.
+    logs = [];
+    total = 0;
+    loadError = err instanceof Error ? err.message : m['common.loadFailed']();
   } finally {
     loading = false;
   }
@@ -91,8 +96,12 @@ function applyFilters() {
     />
     <select class="select select-bordered select-sm" bind:value={filterMethod} onchange={applyFilters}>
       <option value="">{m['rlog.allMethods']()}</option>
-      {#each ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as m}
-        <option value={m}>{m}</option>
+      <!-- `as method`, not `as m`: `m` is the message catalogue imported at the
+           top of this file, and an each-block binding shadows it for the whole
+           block. Nothing in this one calls a message, which is the only reason
+           it did not throw — the same shape crashed the tenants page. -->
+      {#each ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as method}
+        <option value={method}>{method}</option>
       {/each}
     </select>
     <select class="select select-bordered select-sm" bind:value={filterStatus} onchange={applyFilters}>
@@ -107,6 +116,11 @@ function applyFilters() {
 
   {#if loading}
     <PageSpinner size={24} />
+  {:else if loadError}
+    <div class="alert alert-error">
+      <span>{loadError}</span>
+      <button class="btn btn-sm btn-ghost" onclick={load}>{m['common.retry']()}</button>
+    </div>
   {:else if logs.length === 0}
     <div class="text-center py-16 text-base-content/65">
       <Activity class="w-10 h-10 mx-auto mb-3 opacity-30" />
