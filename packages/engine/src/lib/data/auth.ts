@@ -193,9 +193,16 @@ export async function validateApiKey(
   return apiKey;
 }
 
+/**
+ * `user` is narrowed to the three fields this function reads, rather than a
+ * whole `RequestUser`. It never looks at `name`, and demanding one obliged
+ * every caller outside the data path — `content/pages` renders collections
+ * through `ctx.internals.checkAccess` — to invent a value that is discarded.
+ * An absent `role` is simply not `'api_key'`, which is the session branch.
+ */
 export async function checkAccess(
   db: Database,
-  user: RequestUser,
+  user: Pick<RequestUser, 'id' | 'scopes'> & { role?: string },
   collection: string,
   action: string,
 ): Promise<boolean> {

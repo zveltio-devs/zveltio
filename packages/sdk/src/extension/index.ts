@@ -61,6 +61,27 @@ export type FilterOp =
   | 'null'
   | 'not_null';
 
+/**
+ * The actor a data-path call is made on behalf of.
+ *
+ * Declared here for the same reason as `RlsFilter` and `FilterOp`: it is part
+ * of what `ctx.internals.checkAccess` asks an extension for, and the engine
+ * re-exports it rather than keeping a second copy.
+ */
+export interface RequestUser {
+  id: string;
+  name: string;
+  role: string;
+  /** Present only for API-key auth — collection/action scopes. */
+  scopes?: unknown;
+  /** Present for session auth. */
+  email?: string;
+  /** API-key auth only: this key is exempt from row-level security. */
+  rlsBypass?: boolean;
+  /** API-key auth only: the `user` row authorship is recorded against. */
+  authorUserId?: string | null;
+}
+
 export interface FieldTypeRegistryAPI {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   register(definition: any): void;
@@ -336,14 +357,16 @@ export interface ExtensionInternals<DB = unknown> {
    * reimplementing them would be a second, quietly diverging copy of the
    * authorisation path.
    */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  checkAccess: (db: any, user: any, collection: string, action: string) => Promise<boolean>;
+  checkAccess: (
+    db: Kysely<DB>,
+    user: Pick<RequestUser, 'id' | 'scopes'> & { role?: string },
+    collection: string,
+    action: string,
+  ) => Promise<boolean>;
   applyColumnAccess: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    record: Record<string, any>,
+    record: Record<string, unknown>,
     access: { hidden: Set<string>; readOnly: Set<string> },
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  ) => Record<string, any>;
+  ) => Record<string, unknown>;
   /**
    * Compile one filter into a SQL condition, over the operators in `FilterOp`.
    */
