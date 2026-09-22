@@ -10,20 +10,6 @@
  * network, no Postgres, no Valkey (getCache() returns null in the unit env).
  */
 
-/**
- * The delivery target is `.invalid` (RFC 6761: a name guaranteed never to
- * resolve), and that is load-bearing rather than cosmetic.
- *
- * `safeFetch` pins a resolved hostname to its ADDRESS: it requests the IP and
- * carries the name in a `Host` header. So the moment the test hostname
- * resolves, `fetch` is called with `https://<ip>/…` and headers as a `Headers`
- * object instead of the plain record it was handed — and every assertion below
- * that compares a URL or indexes a header fails. `hooks.example.com` does not
- * resolve on a developer machine and DOES resolve on the CI runner, so these
- * tests passed locally and went red in CI on branches that changed nothing
- * near them. Pinning itself is covered by `pinnedRequestForTests`.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
@@ -40,12 +26,44 @@ function stubFetch(status = 200, ok = status < 400): void {
   }) as unknown as typeof fetch;
 }
 
+/**
+ * `safeFetch` pins a resolved hostname to its ADDRESS: it calls `fetch` with
+ * `https://<ip>/…` and moves the name into a `Host` header, and it builds a
+ * `Headers` object to do so — the plain record the caller passed is gone by
+ * then.
+ *
+ * So whether these assertions hold was a property of the resolver, not of the
+ * code: a name that does not resolve leaves the request untouched, one that
+ * does resolve rewrites it. The tests passed on a developer machine and failed
+ * on the CI runner, on branches that touched nothing near webhooks. Moving
+ * them to a `.invalid` host did not help — that runner's resolver answers
+ * every name, `hooks.invalid` included, with 93.184.216.34.
+ *
+ * These two helpers undo the pinning instead, which works under any resolver:
+ * the `Host` header is exactly the authority that was replaced.
+ */
 function headers(): Record<string, string> {
-  return (lastReq?.init?.headers as Record<string, string>) ?? {};
+  const h = lastReq?.init?.headers;
+  const entries =
+    h instanceof Headers
+      ? [...h.entries()]
+      : Object.entries((h as Record<string, string> | undefined) ?? {});
+  // `Headers` lower-cases its keys; callers below ask for `Content-Type`.
+  return Object.fromEntries(entries.map(([k, v]) => [k.toLowerCase(), v]));
+}
+
+/** The URL as the caller wrote it, with any address pinning reversed. */
+function sentUrl(): string | undefined {
+  if (!lastReq) return undefined;
+  const host = headers().host;
+  if (!host) return lastReq.url;
+  const u = new URL(lastReq.url);
+  u.host = host;
+  return u.toString();
 }
 
 const basePayload = {
-  url: 'https://hooks.invalid/receive',
+  url: 'https://hooks.example.com/receive',
   event: 'record.created',
   collection: 'contacts',
   data: { id: 'r1', name: 'Ada' },
@@ -65,8 +83,8 @@ describe('WebhookManager.deliver', () => {
   it('POSTs the JSON payload and returns true on 2xx', async () => {
     const ok = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(true);
-    expect(lastReq?.url).toBe(basePayload.url);
-    expect(headers()['Content-Type']).toBe('application/json');
+    expect(sentUrl()).toBe(basePayload.url);
+    expect(headers()['content-type']).toBe('application/json');
     expect(JSON.parse(lastReq?.init?.body as string)).toEqual({
       event: basePayload.event,
       collection: basePayload.collection,
@@ -77,7 +95,7 @@ describe('WebhookManager.deliver', () => {
 
   it('signs the body with HMAC-SHA256 when a secret is present', async () => {
     await WebhookManager.deliver({ ...basePayload, secret: 'sh-secret' });
-    const sig = headers()['X-Zveltio-Signature'];
+    const sig = headers()['x-zveltio-signature'];
     expect(sig).toMatch(/^sha256=[0-9a-f]{64}$/);
 
     // Recompute the expected signature independently and compare exactly.
@@ -108,9 +126,9 @@ describe('WebhookManager.deliver', () => {
       headers: { Authorization: 'Bearer leak', Cookie: 'sid=1', 'X-Custom': 'keep' },
     });
     const h = headers();
-    expect(h['X-Custom']).toBe('keep');
-    expect(h.Authorization).toBeUndefined();
-    expect(h.Cookie).toBeUndefined();
+    expect(h['x-custom']).toBe('keep');
+    expect(h.authorization).toBeUndefined();
+    expect(h.cookie).toBeUndefined();
   });
 
   it('blocks an internal target URL (SSRF) and never fetches', async () => {
@@ -173,7 +191,7 @@ describe('WebhookManager.trigger', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh1',
-        url: 'https://hooks.invalid/trigger',
+        url: 'https://hooks.example.com/trigger',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -186,6 +204,6 @@ describe('WebhookManager.trigger', () => {
     await WebhookManager.trigger('record.created', 'contacts', { id: 'r1' });
     // No Valkey → deliver() is fire-and-forget; let it flush.
     await new Promise((r) => setTimeout(r, 50));
-    expect(lastReq?.url).toBe('https://hooks.invalid/trigger');
+    expect(sentUrl()).toBe('https://hooks.example.com/trigger');
   });
 });
