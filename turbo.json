@@ -14,10 +14,15 @@
   // the tests and `bun run test` reported 286 failures on a healthy tree.
   "globalPassThroughEnv": [
     // e2e harness
+    "BOOT_WITHOUT_STUDIO",
     "E2E_BASE_URL",
     "E2E_DB",
     "E2E_PG_ADMIN",
     "E2E_PORT",
+    // studio integration lane (packages/studio/vitest.integration.config.ts)
+    "STUDIO_IT_BASE_URL",
+    "STUDIO_IT_EMAIL",
+    "STUDIO_IT_PASSWORD",
     "BASE_URL",
     "TEST_EMAIL",
     "TEST_PASS",
