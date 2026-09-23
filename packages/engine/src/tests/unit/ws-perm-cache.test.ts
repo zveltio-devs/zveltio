@@ -12,6 +12,7 @@ describe('invalidateWsUserPermCache', () => {
     const connId = 'test-conn-ws-perm';
     connections.set(connId, {
       userId: 'user-a',
+      user: { id: 'user-a' },
       tenantId: null,
       ws,
       subscriptions: new Set(),
@@ -38,6 +39,7 @@ describe('invalidateWsUserPermCache', () => {
     const wsB = {};
     connections.set('a', {
       userId: 'user-a',
+      user: { id: 'user-a' },
       tenantId: null,
       ws: wsA,
       subscriptions: new Set(),
@@ -47,6 +49,7 @@ describe('invalidateWsUserPermCache', () => {
     });
     connections.set('b', {
       userId: 'user-b',
+      user: { id: 'user-b' },
       tenantId: null,
       ws: wsB,
       subscriptions: new Set(),
