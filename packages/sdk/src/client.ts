@@ -179,11 +179,13 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     upload: (file: File, folder?: string) => {
       const fd = new FormData();
       fd.append('file', file);
-      if (folder) fd.append('folder', folder);
+      // The engine reads `folder_id`; a `folder` field is ignored and the file
+      // lands in the root.
+      if (folder) fd.append('folder_id', folder);
       return this.upload('/api/storage/upload', fd);
     },
     list: (folder?: string) =>
-      this.get(`/api/storage${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`),
+      this.get(`/api/storage${folder ? `?folder_id=${encodeURIComponent(folder)}` : ''}`),
     delete: (key: string) => this.delete(`/api/storage/${encodeURIComponent(key)}`),
   } as const;
 }

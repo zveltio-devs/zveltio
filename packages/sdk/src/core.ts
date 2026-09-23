@@ -112,8 +112,10 @@ export async function deleteRecord(
 
 export async function fetchSession(client: ZveltioClient): Promise<AuthState> {
   try {
-    const session = await client.auth.session();
-    return { user: session?.user ?? null, session };
+    // `/api/auth/get-session` answers `{ session, user }` (or null): `session`
+    // is the envelope's own member, not the envelope.
+    const res = await client.auth.session();
+    return { user: res?.user ?? null, session: res?.session ?? null };
   } catch {
     return { user: null, session: null };
   }
