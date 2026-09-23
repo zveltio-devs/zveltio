@@ -36,7 +36,7 @@ function installerDotenv(): Record<string, string> {
     'set -euo pipefail',
     'generate_secret() { openssl rand -hex "$1"; }',
     'VERSION=0.0.0-test DEFAULT_PORT=3000',
-    'POSTGRES_PASS=$(generate_secret 32) SECRET_KEY=$(generate_secret 64)',
+    'POSTGRES_PASS=$(generate_secret 32)',
     'S3_SECRET=$(generate_secret 32) VALKEY_PASS=$(generate_secret 32)',
     'PUBLIC_URL=http://203.0.113.5:3000',
     `cat << EOF\n${m[1]}\nEOF`,
@@ -88,6 +88,23 @@ describe('release compose assets', () => {
       // Not a boot failure, but every webhook create and every `encrypted: true`
       // write refuses without it.
       expect(env.FIELD_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
+    },
+  );
+
+  it.each(['docker-compose.yml', 'docker-compose.engine.yml'])(
+    '%s engine reads .env but keeps storage on S3',
+    (file) => {
+      const engine = (
+        Bun.YAML.parse(readFileSync(join(OUT, file), 'utf8')) as {
+          services: { engine: { env_file?: unknown; environment: Record<string, unknown> } };
+        }
+      ).services.engine;
+      // SMTP_*, OAuth and the like reach the engine only through the file.
+      expect(engine.env_file).toEqual([{ path: '.env', required: false }]);
+      // The installer .env says `local` (for native mode); through env_file that
+      // would write uploads to a container disk lost on recreate.
+      expect(dotenv.STORAGE_DRIVER).toBe('local');
+      expect(engine.environment.STORAGE_DRIVER).toBe('s3');
     },
   );
 

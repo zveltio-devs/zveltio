@@ -160,7 +160,18 @@ services:
     restart: unless-stopped
     ports:
       - "\${PORT:-3000}:3000"
+    # Everything else the operator puts in .env (SMTP_*, OAuth, payment keys)
+    # reaches the engine. Without this only the keys listed below did, so
+    # password-reset mail could not be configured without editing this file.
+    # Keys under environment: still win over the file.
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # Pinned: the installer's .env says STORAGE_DRIVER=local for NATIVE mode,
+      # and through env_file that would move uploads onto the container's own
+      # disk, lost on every recreate. Docker stores in S3 (SeaweedFS here).
+      STORAGE_DRIVER: s3
       DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgdog:6432/\${POSTGRES_DB:-zveltio}
       VALKEY_URL: redis://:\${VALKEY_PASSWORD}@valkey:6379
       S3_ENDPOINT: http://seaweedfs-filer:8333
@@ -169,7 +180,6 @@ services:
       S3_BUCKET: \${S3_BUCKET:-zveltio}
       PORT: 3000
       NODE_ENV: production
-      SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
       # Production refuses to boot without it (lib/startup-guards.ts): it is the
       # origin written into password-reset and verification mail.
@@ -340,7 +350,18 @@ services:
     restart: unless-stopped
     ports:
       - "\${PORT:-3000}:3000"
+    # Everything else the operator puts in .env (SMTP_*, OAuth, payment keys)
+    # reaches the engine. Without this only the keys listed below did, so
+    # password-reset mail could not be configured without editing this file.
+    # Keys under environment: still win over the file.
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # Pinned: the installer's .env says STORAGE_DRIVER=local for NATIVE mode,
+      # and through env_file that would move uploads onto the container's own
+      # disk, lost on every recreate. Docker stores in S3 (SeaweedFS here).
+      STORAGE_DRIVER: s3
       DATABASE_URL: \${DATABASE_URL:?Set DATABASE_URL in .env}
       VALKEY_URL: \${VALKEY_URL:?Set VALKEY_URL in .env}
       S3_ENDPOINT: \${S3_ENDPOINT:?Set S3_ENDPOINT in .env}
@@ -349,7 +370,6 @@ services:
       S3_BUCKET: \${S3_BUCKET:-zveltio}
       PORT: 3000
       NODE_ENV: production
-      SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
       # Production refuses to boot without it (lib/startup-guards.ts): it is the
       # origin written into password-reset and verification mail.

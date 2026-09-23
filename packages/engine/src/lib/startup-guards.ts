@@ -137,6 +137,18 @@ export function productionGuardViolations(
   // The other two entries here are settings whose absence is dangerous. This one
   // is a setting whose absence is silent, which is why it belongs beside them
   // rather than in a warning nobody reads at boot.
+  const fieldKey = env.FIELD_ENCRYPTION_KEY;
+  if (fieldKey && !/^[0-9a-fA-F]{64}$/.test(fieldKey)) {
+    violations.push({
+      variable: 'FIELD_ENCRYPTION_KEY',
+      message:
+        'set, but not 64 hex characters. The engine used to boot anyway and fail at the ' +
+        'first webhook create or `encrypted: true` write — long after the deploy looked ' +
+        'healthy. Generate one with `openssl rand -hex 32`. (Unset is still allowed: ' +
+        'encrypted fields are then refused, with a warning at boot.)',
+    });
+  }
+
   if (!env.BETTER_AUTH_URL) {
     violations.push({
       variable: 'BETTER_AUTH_URL',

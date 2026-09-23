@@ -47,21 +47,23 @@ d('templates routes (in-process)', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { templates: Array<{ id: string }> };
     expect(body.templates.length).toBeGreaterThan(0);
-    expect(body.templates.some((t) => t.id === 'crm')).toBe(true);
+    expect(body.templates.some((t) => t.id === 'helpdesk')).toBe(true);
+    // Removed: it collided with the crm extension's tables.
+    expect(body.templates.some((t) => t.id === 'crm')).toBe(false);
   });
 
   it('GET /api/templates/:id returns a full manifest', async () => {
-    const res = await app.request('/api/templates/crm', { headers: { cookie } });
+    const res = await app.request('/api/templates/helpdesk', { headers: { cookie } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { template: { id: string; collections: unknown[] } };
-    expect(body.template.id).toBe('crm');
+    expect(body.template.id).toBe('helpdesk');
     expect(body.template.collections.length).toBeGreaterThan(0);
   });
 
   it(
     'POST /api/templates/:id/install enqueues DDL jobs with a prefix',
     async () => {
-      const res = await app.request('/api/templates/crm/install', {
+      const res = await app.request('/api/templates/helpdesk/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', cookie },
         body: JSON.stringify({ prefix: PREFIX, skip_existing: true }),
