@@ -39,8 +39,14 @@ async function promptHidden(question: string): Promise<string> {
   });
 }
 
-export async function createGodCommand(opts: { url?: string; email?: string; name?: string }) {
+export async function createGodCommand(opts: {
+  url?: string;
+  email?: string;
+  name?: string;
+  recoveryToken?: string;
+}) {
   const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
+  const recoveryToken = opts.recoveryToken || process.env.RECOVERY_TOKEN || '';
 
   console.log('\n⚠️  SYSTEM RECOVERY OVERRIDE ACCOUNT');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -123,35 +129,40 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
       throw new Error(err.message || `HTTP ${res.status}`);
     }
 
-    const { user } = await res.json();
+    await res.json();
 
-    // Grant admin permission via Casbin through a direct DB call
-    // We use the engine's admin API (requires the engine to be running)
-    console.log('🔑 Granting god permissions...');
-
-    // First get a session token by signing in
-    const loginRes = await fetch(`${engineUrl}/api/auth/sign-in/email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), password }),
-    });
-
-    if (!loginRes.ok) {
-      console.warn('⚠️  Could not auto-grant admin role — grant manually via permissions API');
-      console.log(`\n✅ User created: ${email}\n`);
-      return;
+    // The grant runs through the recovery endpoint, which is the only route that
+    // can hand out `god`.
+    //
+    // What ran here before was a POST to `/api/permissions/assign-role` carrying
+    // the new account's OWN session — a route the engine has never mounted, on a
+    // flow that could not have been authorized if it had: the caller is a
+    // second-old ordinary user, and everything under `/api/permissions` is
+    // behind `requireAdmin`. So the request 404'd every time and the command
+    // reported `User created` with a warning about assigning "the admin role"
+    // manually. An operator following the banner at the top of this command
+    // ended up with an ordinary account and a password they believed was the
+    // recovery override.
+    if (!recoveryToken) {
+      console.log(`\n✅ User created: ${email.trim()}`);
+      console.warn('\n⚠️  NOT granted the god role — no recovery token available.');
+      console.warn('   `god` is handed out by one endpoint only, and it requires a token:');
+      console.warn('     RECOVERY_TOKEN=<32+ chars> zveltio create-god --email …');
+      console.warn('     zveltio create-god --recovery-token <token> --email …');
+      console.warn('   The engine must be started with the same RECOVERY_TOKEN set.');
+      console.warn('   With direct database access, the release binary does it without a');
+      console.warn('   token: DATABASE_URL=… zveltio create-god --email … --password …\n');
+      process.exit(1);
     }
 
-    const sessionCookie = loginRes.headers.get('set-cookie') || '';
-
-    // Grant admin role
-    const permRes = await fetch(`${engineUrl}/api/permissions/assign-role`, {
+    console.log('🔑 Granting god permissions...');
+    const permRes = await fetch(`${engineUrl}/api/permissions/bootstrap`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Cookie: sessionCookie,
+        Authorization: `Bearer ${recoveryToken}`,
       },
-      body: JSON.stringify({ userId: user.id, role: 'god' }),
+      body: JSON.stringify({ email: email.trim() }),
     });
 
     if (permRes.ok) {
@@ -159,11 +170,16 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
       console.log(`   Email: ${email.trim()}`);
       console.log(`   Name:  ${name.trim()}`);
       console.log(`   Role:  god\n`);
+      console.log('   The recovery token is now spent. Rotate RECOVERY_TOKEN before the');
+      console.log('   next recovery, and note that any previous god was stood down.\n');
       console.log(`👉 Log in at: ${engineUrl}/admin\n`);
     } else {
+      const body = (await permRes.json().catch(() => ({}))) as { error?: string };
       console.log(`\n✅ User created: ${email.trim()}`);
-      console.warn('⚠️  Could not auto-assign god role.');
-      console.warn('   Use the Permissions page in Studio to assign the admin role manually.\n');
+      console.error(
+        `\n❌ The role was NOT granted: ${body.error ?? `engine returned ${permRes.status}`}\n`,
+      );
+      process.exit(1);
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
