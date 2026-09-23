@@ -253,7 +253,12 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
   const schema = await Bun.file(`${EXT_DIR}/${rel}`)
     .json()
     .catch(() => null);
-  if (!schema?.resources) continue;
+  // Settings pages (`kind: 'settings'`) carry no `resources`: one GET
+  // (`dataSource`), one POST (`saveEndpoint`) and page actions that POST. The
+  // `continue` below skipped them whole — four schemas, none checked. Measured:
+  // pointing ldap's `saveEndpoint` at a route that does not exist passed.
+  const settings = !schema?.resources && typeof schema?.dataSource === 'string';
+  if (!schema?.resources && !settings) continue;
 
   // Engine sources for this extension, concatenated: a router may be split.
   let engineSrc = '';
@@ -265,6 +270,38 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
   if (!engineSrc) continue;
 
   const routes = routesOf(engineSrc);
+
+  if (settings) {
+    checked++;
+    const want: Array<[string, 'GET' | 'POST', string | undefined]> = [
+      ['dataSource', 'GET', schema.dataSource],
+      ['saveEndpoint', 'POST', schema.saveEndpoint],
+      ...((schema.actions ?? []) as Array<{ id?: string; endpoint?: string }>).map(
+        (a) =>
+          [`actions.${a.id ?? '?'}`, 'POST', a.endpoint] as [string, 'POST', string | undefined],
+      ),
+    ];
+    for (const [field, method, url] of want) {
+      if (!url) continue;
+      const p = localPath(url, extName);
+      if (p === null) {
+        problems.push({
+          ext: extName,
+          resource: '(settings)',
+          kind: `${field}-prefix`,
+          detail: `"${url}" does not start with /ext/${extName}`,
+        });
+      } else if (!matches(routes[method], p)) {
+        problems.push({
+          ext: extName,
+          resource: '(settings)',
+          kind: `${field}-missing`,
+          detail: `no ${method} ${p} on the engine (${field} "${url}")`,
+        });
+      }
+    }
+    continue;
+  }
 
   for (const res of schema.resources) {
     checked++;

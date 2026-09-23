@@ -18,3 +18,6 @@ export const WORKER_RUNTIME_SOURCE = "// @bun\n// ../../node_modules/.bun/hono@4
  * that set fails CI instead of shipping a runtime that was never under test.
  */
 export const WORKER_RUNTIME_SOURCE_SHA256 = "1b406f6348aa94e68ea5a53e17db7a42bbe6e565d5ab0a26391e5692e416727c";
+
+/** sha256 of `WORKER_RUNTIME_SOURCE` above, as the generator emitted it. */
+export const WORKER_RUNTIME_BUNDLE_SHA256 = "07c596eb36af91ac7eb1714b049be4779d8e1dd410d3d56f2c1fb9f3aca63a67";
