@@ -90,3 +90,60 @@ describe('LocalStore — conflict detection', () => {
     expect(rec?._conflictData).toBeUndefined();
   });
 });
+
+describe('LocalStore — what the SyncManager actually passes', () => {
+  let store: LocalStore;
+
+  beforeEach(async () => {
+    store = new LocalStore();
+    await store.open();
+    await store.clear();
+  });
+
+  afterEach(async () => {
+    await store.close();
+  });
+
+  it('flags a conflict when the confirmed server version is an epoch timestamp', async () => {
+    // `syncNow()` and `pull()` both pass `Date.now()` as the server version —
+    // the collections API returns no version column. From the first ACK on,
+    // `_serverVersion` is ~1.79e12 and `_localVersion` is still a small counter,
+    // so the version comparison alone can never be true again and every local
+    // edit was overwritten in silence.
+    await store.put('posts', 'rec-ts', { title: 'v1' });
+    const [op] = await store.getPendingOps();
+    await store.markSynced(op.id, 'posts', 'rec-ts', Date.now());
+
+    await store.put('posts', 'rec-ts', { title: 'local edit' });
+    await store.applyServerUpdate('posts', 'rec-ts', { title: 'server wins' }, Date.now());
+
+    const after = await store.get('posts', 'rec-ts');
+    expect(after?._syncStatus).toBe('conflict');
+    expect(after?.data).toEqual({ title: 'local edit' });
+    expect(after?._conflictData).toEqual({ title: 'server wins' });
+  });
+
+  it('queues the resolved row, so a resolution reaches the server', async () => {
+    await store.applyServerUpdate('posts', 'rec-res', { title: 'server' }, Date.now());
+    await store.resolveConflict('posts', 'rec-res', { title: 'resolved' });
+
+    const ops = await store.getPendingOps();
+    const mine = ops.filter((o) => o.recordId === 'rec-res');
+    expect(mine, 'the resolution was never queued').toHaveLength(1);
+    expect(mine[0].payload).toEqual({ title: 'resolved' });
+    expect(mine[0].operation).toBe('update');
+  });
+
+  it('keeps the CRDT document across a clean server update', async () => {
+    await store.put('posts', 'rec-crdt', { title: 'local' });
+    const [op] = await store.getPendingOps();
+    await store.markSynced(op.id, 'posts', 'rec-crdt', Date.now());
+
+    await store.applyServerUpdate('posts', 'rec-crdt', { title: 'server' }, Date.now());
+    const after = await store.get('posts', 'rec-crdt');
+    expect(
+      after?._crdtDoc,
+      'the CRDT document was dropped, so no later merge can run',
+    ).toBeDefined();
+  });
+});
