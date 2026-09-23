@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { SyncManager } from '@zveltio/sdk';
 import type { SyncStatus } from '../types.js';
-import { useZveltioClient } from '../context.js';
 
 export function useSyncStatus(syncManager?: SyncManager, pollIntervalMs = 2000): SyncStatus {
-  const client = useZveltioClient();
   const [status, setStatus] = useState<SyncStatus>({
     status: 'online',
     pendingCount: 0,
