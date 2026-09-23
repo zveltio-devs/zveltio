@@ -198,6 +198,10 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    # The engine refuses /metrics without METRICS_TOKEN (fail-closed), so the
+    # scrape carries the same token, read from /run/secrets/metrics_token.
+    secrets:
+      - metrics_token
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9090/-/healthy']
       interval: 10s
@@ -223,7 +227,9 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Not on the provisioning path: two mounts on one target and Docker
+      # refuses to create the container ("Duplicate mount point").
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     healthcheck:
       test:
         ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/api/health']
@@ -299,6 +305,10 @@ services:
       # Extensions (comma-separated)
       ZVELTIO_EXTENSIONS: '${ZVELTIO_EXTENSIONS:-}'
 
+      # Bearer token for /metrics; Prometheus below scrapes with the same one.
+      # Empty = /metrics refuses every request and the dashboards stay empty.
+      METRICS_TOKEN: '${METRICS_TOKEN:-}'
+
       # Studio dist is baked into the engine image at release (Tier-3 pages
       # baked, SDUI pages are data) — served directly, no rebuild sidecar.
       STUDIO_DIST_PATH: '/app/studio-dist'
@@ -316,6 +326,10 @@ services:
 networks:
   zveltio_internal:
     driver: bridge
+
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN
 
 volumes:
   postgres_data:

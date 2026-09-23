@@ -2,20 +2,16 @@
 # =============================================================================
 # Zveltio — One-command Installer
 # =============================================================================
-# Auto-detects the best installation mode:
-#   1. Native   — Bun + systemd. Picked when Bun is present OR the host
-#                 looks like a fresh systemd VPS. Less RAM, better for
-#                 production where you can manage Postgres/Valkey yourself.
-#   2. Docker   — compose stack with Postgres + Valkey bundled. Picked
-#                 when systemd isn't available (e.g. WSL without
-#                 systemd=true, containers) or only Docker is installed.
+# Native install: Bun + systemd + PostgreSQL 18 + Valkey + SeaweedFS.
+# Docker installs go through the release installer instead:
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode docker
+# (it uses the published image and compose file). This script's own Docker
+# mode downloaded the source docker-compose.yml, which builds from a source
+# tree that /opt/zveltio does not have, so it never worked.
 #
 # Usage:
-#   curl -fsSL https://get.zveltio.com | bash
-#
-# Force a specific mode:
-#   INSTALL_MODE=docker  bash install/install.sh
-#   INSTALL_MODE=native  bash install/install.sh
+#   curl -fsSL https://get.zveltio.com/install.sh | bash   (delegates here)
+#   bash install/install.sh
 #
 # Override defaults:
 #   ZVELTIO_PORT=4000 ZVELTIO_VERSION=v2.0.0 bash install/install.sh
@@ -40,7 +36,6 @@ ZVELTIO_PORT="${ZVELTIO_PORT:-3000}"
 ZVELTIO_VERSION="${ZVELTIO_VERSION:-latest}"
 ZVELTIO_DIR="${ZVELTIO_DIR:-/opt/zveltio}"
 ZVELTIO_USER="${ZVELTIO_USER:-zveltio}"
-INSTALL_MODE="${INSTALL_MODE:-auto}"   # auto | docker | native
 
 # ── Guards ────────────────────────────────────────────────────────────────────
 header "Zveltio — Installer"
@@ -70,54 +65,15 @@ esac
 
 info "Detected OS: ${OS_ID} ${OS_VERSION}"
 
-# ── Auto-detect mode ──────────────────────────────────────────────────────────
-# Native mode needs systemd to run the engine as a managed service.
-# WSL without `systemd=true` in /etc/wsl.conf has no systemd → native
-# install dies at `systemctl daemon-reload`. Containers (LXC without
-# systemd, Docker) hit the same wall.
-has_systemd() {
-  [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null
-}
-
-is_wsl() {
-  grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null
-}
-
-if [[ "$INSTALL_MODE" == "auto" ]]; then
-  HAS_DOCKER=0
-  command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1 && HAS_DOCKER=1
-
-  if ! has_systemd; then
-    # No systemd — native can't manage the service. Fall back to Docker.
-    if [[ $HAS_DOCKER -eq 1 ]]; then
-      INSTALL_MODE="docker"
-      if is_wsl; then
-        info "WSL without systemd detected — using Docker mode"
-      else
-        info "systemd not available — using Docker mode"
-      fi
-    else
-      error "Native mode needs systemd and Docker isn't installed either."
-      error "On WSL: enable systemd via /etc/wsl.conf (systemd=true), then re-run."
-      error "Otherwise install Docker first, or set INSTALL_MODE=native explicitly."
-      exit 1
-    fi
-  elif command -v bun &>/dev/null; then
-    # Bun + systemd present → native is the lowest-overhead path.
-    INSTALL_MODE="native"
-    info "Bun + systemd detected — using native mode"
-  elif [[ $HAS_DOCKER -eq 1 ]]; then
-    # Docker present but no Bun — respect the user's existing setup.
-    INSTALL_MODE="docker"
-    info "Docker detected (no Bun) — using Docker mode"
-  else
-    # Fresh server with systemd: install Bun and go native.
-    INSTALL_MODE="native"
-    info "No runtime detected — will install Bun (native mode)"
-  fi
+# ── Native mode needs systemd ─────────────────────────────────────────────────
+# The engine runs as a systemd service. WSL without `systemd=true` in
+# /etc/wsl.conf, and containers without systemd, cannot host it.
+if [[ "${INSTALL_MODE:-native}" != "native" ]] || ! [[ -d /run/systemd/system ]] || ! command -v systemctl &>/dev/null; then
+  error "This installer is native only and needs systemd."
+  error "On WSL: enable systemd via /etc/wsl.conf (systemd=true), then re-run."
+  error "For Docker: curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode docker"
+  exit 1
 fi
-
-info "Install mode: ${BOLD}${INSTALL_MODE}${RESET}"
 
 # ── Generate secrets ──────────────────────────────────────────────────────────
 gen_secret() { openssl rand -hex 32; }
@@ -135,7 +91,6 @@ MAIL_ENCRYPTION_KEY=$(gen_secret)
 AI_KEY_ENCRYPTION_KEY=$(gen_secret)
 S3_ACCESS_KEY=$(gen_secret | cut -c1-20)
 S3_SECRET_KEY=$(gen_secret)
-GRAFANA_ADMIN_PASSWORD=$(gen_secret | cut -c1-24)
 
 # ── Update-safety: preserve an existing install's secrets ─────────────────────
 # Re-running the installer to UPDATE must never rotate secrets. Regenerating the
@@ -147,7 +102,7 @@ if [[ -f "${ZVELTIO_DIR}/.env" ]]; then
   _keep_env() { grep -E "^$1=" "${ZVELTIO_DIR}/.env" | head -1 | cut -d= -f2-; }
   for _k in POSTGRES_PASSWORD VALKEY_PASSWORD BETTER_AUTH_SECRET \
             FIELD_ENCRYPTION_KEY MAIL_ENCRYPTION_KEY AI_KEY_ENCRYPTION_KEY \
-            S3_ACCESS_KEY S3_SECRET_KEY GRAFANA_ADMIN_PASSWORD; do
+            S3_ACCESS_KEY S3_SECRET_KEY; do
     _v="$(_keep_env "$_k")"
     [[ -n "$_v" ]] && printf -v "$_k" '%s' "$_v"
   done
@@ -159,7 +114,7 @@ header "Installing system dependencies"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl wget gnupg2 lsb-release ca-certificates \
-  apt-transport-https software-properties-common unzip git openssl
+  apt-transport-https software-properties-common unzip git openssl sudo
 success "System dependencies ready"
 
 # ── RAM detection (used by both modes for tuning) ─────────────────────────────
@@ -172,177 +127,6 @@ PG_EFFECTIVE_CACHE=$(( TOTAL_RAM_MB * 3 / 8 ))
 (( PG_EFFECTIVE_CACHE > 6144 )) && PG_EFFECTIVE_CACHE=6144
 
 info "RAM: ${TOTAL_RAM_MB}MB → PostgreSQL shared_buffers=${PG_SHARED_BUFFERS}MB, effective_cache=${PG_EFFECTIVE_CACHE}MB"
-
-# =============================================================================
-# DOCKER MODE
-# =============================================================================
-install_docker_mode() {
-  # ── Install Docker if missing ─────────────────────────────────────────────
-  if ! command -v docker &>/dev/null; then
-    header "Installing Docker"
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-    success "Docker installed: $(docker --version)"
-  else
-    info "Docker already installed: $(docker --version)"
-  fi
-
-  # Verify docker compose plugin
-  if ! docker compose version &>/dev/null 2>&1; then
-    error "Docker Compose plugin not found. Install it: https://docs.docker.com/compose/install/"
-    exit 1
-  fi
-
-  # ── Prepare install directory ─────────────────────────────────────────────
-  header "Preparing ${ZVELTIO_DIR}"
-  mkdir -p "${ZVELTIO_DIR}"
-
-  # ── Download docker-compose.yml ───────────────────────────────────────────
-  local COMPOSE_URL
-  if [[ "$ZVELTIO_VERSION" == "latest" || "$ZVELTIO_VERSION" == "main" ]]; then
-    COMPOSE_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/docker-compose.yml"
-  else
-    COMPOSE_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/${ZVELTIO_VERSION}/docker-compose.yml"
-  fi
-
-  info "Downloading docker-compose.yml from ${COMPOSE_URL}"
-  if ! curl -fsSL "$COMPOSE_URL" -o "${ZVELTIO_DIR}/docker-compose.yml"; then
-    error "Failed to download docker-compose.yml. Check your internet connection."
-    exit 1
-  fi
-  success "docker-compose.yml downloaded"
-
-  # ── Write .env ────────────────────────────────────────────────────────────
-  header "Writing configuration"
-
-  cat > "${ZVELTIO_DIR}/.env" << EOF
-PORT=${ZVELTIO_PORT}
-NODE_ENV=production
-
-# PostgreSQL
-POSTGRES_USER=${ZVELTIO_USER}
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-POSTGRES_DB=${ZVELTIO_USER}
-
-# PostgreSQL tuning (auto-calculated from available RAM: ${TOTAL_RAM_MB}MB)
-POSTGRES_SHARED_BUFFERS=${PG_SHARED_BUFFERS}MB
-POSTGRES_EFFECTIVE_CACHE=${PG_EFFECTIVE_CACHE}MB
-
-# Auth
-BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-BETTER_AUTH_URL=http://localhost:${ZVELTIO_PORT}
-
-# Cache
-VALKEY_PASSWORD=${VALKEY_PASSWORD}
-
-# Object storage. Default: local filesystem under the install dir (no external
-# store). To use SeaweedFS/S3 instead, set STORAGE_DRIVER=s3 and re-run the
-# installer (or set S3_ENDPOINT below); the S3_* values are ignored in local mode.
-STORAGE_DRIVER=${STORAGE_DRIVER:-local}
-STORAGE_LOCAL_DIR=${ZVELTIO_DIR}/storage
-# S3 (SeaweedFS/AWS/…): only consulted when STORAGE_DRIVER=s3.
-S3_ACCESS_KEY=${S3_ACCESS_KEY}
-S3_SECRET_KEY=${S3_SECRET_KEY}
-S3_PUBLIC_URL=http://localhost:8333
-
-# Encryption keys
-FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
-MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
-AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
-
-# Grafana
-GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-
-# Extensions (comma-separated)
-ZVELTIO_EXTENSIONS=
-EOF
-
-  chmod 600 "${ZVELTIO_DIR}/.env"
-  success "Configuration written to ${ZVELTIO_DIR}/.env"
-
-  # ── Copy helper scripts ───────────────────────────────────────────────────
-  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install"
-  for script in update.sh uninstall.sh; do
-    curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
-      cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
-    chmod +x "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
-  done
-
-  # ── Start services ────────────────────────────────────────────────────────
-  header "Starting Zveltio (Docker)"
-  cd "${ZVELTIO_DIR}"
-  docker compose up -d
-  success "Containers started"
-
-  # ── Wait for engine to be healthy ─────────────────────────────────────────
-  header "Waiting for engine to be ready"
-  local ATTEMPTS=0
-  local MAX_ATTEMPTS=60
-  until curl -sf "http://localhost:${ZVELTIO_PORT}/health" >/dev/null 2>&1; do
-    ATTEMPTS=$(( ATTEMPTS + 1 ))
-    if (( ATTEMPTS >= MAX_ATTEMPTS )); then
-      error "Engine did not start within ${MAX_ATTEMPTS}s."
-      error "Check logs: docker compose -f ${ZVELTIO_DIR}/docker-compose.yml logs engine"
-      exit 1
-    fi
-    printf '.'
-    sleep 2
-  done
-  echo ""
-  success "Engine is healthy"
-
-  # ── Run migrations ────────────────────────────────────────────────────────
-  header "Running database migrations"
-  docker compose exec -T engine zveltio migrate
-  success "Migrations complete"
-
-  # ── Create God user ───────────────────────────────────────────────────────
-  header "Creating admin account"
-  echo -n "  Email: "
-  read -r GOD_EMAIL </dev/tty
-  while true; do
-    echo -n "  Password: "
-    read -rs GOD_PASSWORD </dev/tty
-    echo ""
-    echo -n "  Confirm password: "
-    read -rs GOD_PASSWORD_CONFIRM </dev/tty
-    echo ""
-    if [[ "$GOD_PASSWORD" == "$GOD_PASSWORD_CONFIRM" ]]; then
-      break
-    fi
-    warn "Passwords do not match. Please try again."
-  done
-  docker compose exec -T engine zveltio create-god \
-    --email "$GOD_EMAIL" --password "$GOD_PASSWORD"
-  success "Admin account created"
-
-  # ── Firewall ──────────────────────────────────────────────────────────────
-  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-    ufw allow "${ZVELTIO_PORT}/tcp" comment "Zveltio" &>/dev/null || true
-    success "Firewall rule added for port ${ZVELTIO_PORT}"
-  fi
-
-  # ── Summary ───────────────────────────────────────────────────────────────
-  local SERVER_IP
-  SERVER_IP=$(hostname -I | awk '{print $1}')
-
-  header "Installation complete! (Docker mode)"
-  echo ""
-  echo -e "${BOLD}Admin email:${RESET}     ${GOD_EMAIL}"
-  echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
-  echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
-  echo ""
-  echo -e "  All credentials are stored in: ${BOLD}${ZVELTIO_DIR}/.env${RESET}"
-  echo -e "  ${YELLOW}Review with: cat ${ZVELTIO_DIR}/.env${RESET}"
-  echo ""
-  echo -e "${BOLD}Useful commands:${RESET}"
-  echo -e "  View logs:    docker compose -f ${ZVELTIO_DIR}/docker-compose.yml logs -f engine"
-  echo -e "  Restart:      docker compose -f ${ZVELTIO_DIR}/docker-compose.yml restart engine"
-  echo -e "  Update:       bash ${ZVELTIO_DIR}/update.sh"
-  echo -e "  Status:       docker compose -f ${ZVELTIO_DIR}/docker-compose.yml ps"
-  echo ""
-}
 
 # =============================================================================
 # NATIVE MODE (Bun + systemd)
@@ -1115,11 +899,4 @@ EOF
 # =============================================================================
 # DISPATCH
 # =============================================================================
-case "$INSTALL_MODE" in
-  docker) install_docker_mode ;;
-  native) install_native_mode ;;
-  *)
-    error "Unknown INSTALL_MODE: ${INSTALL_MODE}. Use 'docker' or 'native'."
-    exit 1
-    ;;
-esac
+install_native_mode
