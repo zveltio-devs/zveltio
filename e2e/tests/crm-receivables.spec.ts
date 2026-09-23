@@ -18,8 +18,10 @@ test.describe('CRM receivables widget', () => {
   test('renders on the admin dashboard after sign-in', async ({ page, request }) => {
     // Briefing exists only when CRM engine routes are mounted (401 without session).
     const briefingProbe = await request.get('/ext/crm/briefing');
+    // Locally a missing crm is a setup gap; CI clones the extensions on purpose,
+    // so there a 404 means crm stopped loading and must not read as a skip.
     test.skip(
-      briefingProbe.status() === 404,
+      briefingProbe.status() === 404 && !process.env.CI,
       'crm not loaded — set EXTENSIONS_DIR + ZVELTIO_EXTENSIONS=crm (CI clones zveltio-extensions)',
     );
 

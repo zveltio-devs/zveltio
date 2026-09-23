@@ -100,6 +100,21 @@ async function main(): Promise<void> {
   const ids: string[] = [];
   let latencies: number[] = [];
   let reqs = 0;
+  // Every status is counted. A soak that times fast 4xx/5xx answers measures an
+  // engine refusing work, and its RSS and p95 look better than a healthy one.
+  let totalReqs = 0;
+  let badReqs = 0;
+  const lastBad: string[] = [];
+  const rec = (label: string, r: { status: number; durationMs: number }) => {
+    latencies.push(r.durationMs);
+    reqs++;
+    totalReqs++;
+    if (r.status >= 400) {
+      badReqs++;
+      if (lastBad.length < 5) lastBad.push(`${label} → ${r.status}`);
+    }
+  };
+  let trafficError: unknown = null;
   const start = Date.now();
   const end = start + MINUTES * 60_000;
   let stop = false;
@@ -111,8 +126,7 @@ async function main(): Promise<void> {
     let i = 0;
     while (!stop && Date.now() < end) {
       const cr = await timedPost(client, `/api/data/${name}`, { title: `row-${i}`, count: i });
-      latencies.push(cr.durationMs);
-      reqs++;
+      rec('create', cr);
       const id =
         (cr.body as { id?: string; record?: { id?: string } })?.record?.id ??
         (cr.body as { id?: string })?.id;
@@ -120,24 +134,20 @@ async function main(): Promise<void> {
 
       if (ids.length > 0) {
         const g = await timedGet(client, `/api/data/${name}/${ids[i % ids.length]}`);
-        latencies.push(g.durationMs);
-        reqs++;
+        rec('get', g);
       }
       const l = await timedGet(client, `/api/data/${name}?limit=20`);
-      latencies.push(l.durationMs);
-      reqs++;
+      rec('list', l);
       if (ids.length > 0) {
         const p = await timedPatch(client, `/api/data/${name}/${ids[i % ids.length]}`, {
           count: i,
         });
-        latencies.push(p.durationMs);
-        reqs++;
+        rec('patch', p);
       }
       if (ids.length > 200) {
         const victim = ids.shift()!;
         const d = await timedDelete(client, `/api/data/${name}/${victim}`);
-        latencies.push(d.durationMs);
-        reqs++;
+        rec('delete', d);
       }
       i++;
     }
@@ -163,7 +173,9 @@ async function main(): Promise<void> {
     reqs = 0;
   }
   stop = true;
-  await traffic.catch(() => {});
+  await traffic.catch((err) => {
+    trafficError = err;
+  });
 
   await Bun.write(
     OUT,
@@ -196,6 +208,11 @@ async function main(): Promise<void> {
   }
 
   if (unhandled > 0) failures.push(`${unhandled} unhandled rejection(s) during the soak`);
+  if (trafficError) failures.push(`traffic loop stopped early: ${String(trafficError)}`);
+  if (totalReqs === 0) failures.push('no request was made');
+  else if (badReqs / totalReqs > 0.01) {
+    failures.push(`${badReqs} of ${totalReqs} requests failed (first: ${lastBad.join(', ')})`);
+  }
 
   console.log(
     `[soak] done: ${samples.length} samples, RSS slope ${rssSlope.toFixed(2)} MB/min, ` +

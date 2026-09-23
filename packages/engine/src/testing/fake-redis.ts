@@ -37,7 +37,9 @@ export class FakeRedis {
   /** ioredis: `set(key, value)` or `set(key, value, 'EX', seconds)`. */
   async set(key: string, value: string, mode?: string, ttl?: number): Promise<'OK'> {
     this.store.set(key, value);
+    // A plain SET clears any previous expiry, as the real one does.
     if (mode?.toUpperCase() === 'EX' && typeof ttl === 'number') this.ttls.set(key, ttl);
+    else this.ttls.delete(key);
     return 'OK';
   }
 
@@ -57,8 +59,7 @@ export class FakeRedis {
   async del(...keys: string[]): Promise<number> {
     let removed = 0;
     for (const k of keys) {
-      if (this.store.delete(k)) removed++;
-      this.sets.delete(k);
+      if (this.store.delete(k) || this.sets.delete(k)) removed++;
       this.ttls.delete(k);
     }
     return removed;
@@ -66,9 +67,11 @@ export class FakeRedis {
 
   async sadd(key: string, ...members: string[]): Promise<number> {
     const s = this.sets.get(key) ?? new Set<string>();
+    const before = s.size;
     for (const m of members) s.add(String(m));
     this.sets.set(key, s);
-    return members.length;
+    // Real SADD returns how many were NEW, not how many were passed.
+    return s.size - before;
   }
 
   async smembers(key: string): Promise<string[]> {
@@ -76,6 +79,8 @@ export class FakeRedis {
   }
 
   async expire(key: string, ttl: number): Promise<number> {
+    // Real EXPIRE answers 0 for a key that does not exist.
+    if (!this.store.has(key) && !this.sets.has(key)) return 0;
     this.ttls.set(key, ttl);
     return 1;
   }

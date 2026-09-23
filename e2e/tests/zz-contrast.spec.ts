@@ -106,4 +106,8 @@ test('text meets WCAG AA on the main screens', async ({ page }) => {
     console.log(
       `    ${String(w.ratio).padStart(5)}:1  ${String(Math.round(w.size)).padStart(2)}px  "${w.text}"`,
     );
+  // The title promises AA; for its whole life the test only printed the count,
+  // so a regression to 1:1 text would have logged a number and passed.
+  expect(all.length).toBeGreaterThan(0);
+  expect(worst).toEqual([]);
 });

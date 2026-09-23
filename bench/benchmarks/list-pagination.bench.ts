@@ -66,6 +66,13 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
       }
     }
 
+    // 207 is accepted above, and a 207 whose every row failed seeds nothing: the
+    // pages below would then time an empty table and pass any budget.
+    const seeded = await timedGet(client, `/api/data/${name}?page=1&limit=1`);
+    const total = (seeded.body as { pagination?: { total?: number } } | undefined)?.pagination
+      ?.total;
+    if (total !== seedRows) throw new Error(`seeded ${total} of ${seedRows} rows`);
+
     const deepPageNumber = Math.max(1, Math.floor(seedRows / pageSize));
 
     // ── Page 1 ─────────────────────────────────────────────────────
