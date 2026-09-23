@@ -4,6 +4,40 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.68] - 2026-09-23
+
+**Upgrade note — read before upgrading.** An engine whose `FIELD_ENCRYPTION_KEY`
+is set but is not 64 hex characters now refuses to start in production. It used
+to boot and fail at the first webhook or encrypted write; 64 non-hex characters
+were even accepted as an all-zero AES key. Unset is unchanged (a warning, and
+encrypted fields are refused). Fix: `openssl rand -hex 32`.
+
+**The docker-compose install shipped with beta.67 could not start.** The
+generated `docker-compose.yml` was invalid YAML, and the engine service lacked
+`BETTER_AUTH_URL`, which production requires. Both are fixed; the installer now
+writes `BETTER_AUTH_URL` and `FIELD_ENCRYPTION_KEY` (and backfills them on
+upgrade), and the release validates every compose file before publishing it.
+
+- Compose: the engine reads `.env` (SMTP, OAuth and the like now reach it);
+  storage stays pinned to S3. `SECRET_KEY` is gone — the engine never read it.
+- `zveltio update` failed for everyone because `versions.json` has no stable
+  release; `--channel beta` works again.
+- The builtin `crm` template is removed: it created the same tables as the `crm`
+  extension with different columns.
+- API keys can write; the permissions screen saves what it loads; server-side
+  realtime clients can authenticate with an API key.
+- The WebSocket fan-out now applies all three authorisation layers; the SVG
+  sanitiser blocks three more vectors; storage DELETE and sync push no longer
+  report success for work they did not do; the flow scheduler's fencing is
+  restored.
+- SDK: React/Vue bindings and SyncManager match the engine contract again;
+  offline conflict detection compares one clock.
+- CLI: `migrate` finds the engine, `create-god` grants the role, `extension
+  validate` checks the bundle against its manifest and source.
+- Studio: ~70 defects fixed across the admin shell, SDUI renderer, shared
+  components and admin pages (review sections C01–C14).
+- Release: binaries are built by one script, `build-binary.ts`, for every target.
+
 ## [3.0.0-beta.67] - 2026-09-19
 
 **beta.66 published nothing: the binary it built started nothing.** The release
