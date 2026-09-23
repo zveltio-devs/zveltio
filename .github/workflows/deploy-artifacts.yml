@@ -81,6 +81,8 @@ jobs:
           VALKEY_PASSWORD: x
           BETTER_AUTH_SECRET: x
           GRAFANA_ADMIN_PASSWORD: x
+          S3_ACCESS_KEY: x
+          S3_SECRET_KEY: x
         run: docker compose -f docker-compose.yml config -q
       - name: Installer syntax
         run: for f in install/*.sh scripts/install.sh; do bash -n "$f"; done
