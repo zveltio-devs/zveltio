@@ -128,7 +128,13 @@ export function sumNumeric<T>(
 export function roundMoney(value: number, decimals = 2): number {
   if (!Number.isFinite(value)) throw new NumericConversionError(value, 'roundMoney');
   const factor = 10 ** decimals;
-  return Math.round((value + Number.EPSILON) * factor) / factor;
+  // Round the MAGNITUDE, then restore the sign. `Math.round` breaks ties
+  // towards +Infinity, so a plain `Math.round(v * factor)` rounds 2.675 up to
+  // 2.68 and -2.675 up to -2.67 — a credit note and the charge it reverses
+  // stop cancelling, and `finance/accounting` computes its balance-sheet
+  // difference from exactly that subtraction. Money rounds away from zero.
+  const sign = value < 0 ? -1 : 1;
+  return (sign * Math.round((Math.abs(value) + Number.EPSILON) * factor)) / factor;
 }
 
 /**

@@ -243,7 +243,7 @@ export interface ExtensionInternals {
   maybeDecrypt: typeof maybeDecrypt;
   getRlsFilters: (
     collection: string,
-    user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+    user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
     authType: 'session' | 'api_key',
   ) => Promise<RlsFilter[]>;
   applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]) => Q;
@@ -415,7 +415,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     // neither side has to widen a parameter to `any` to stay assignable.
     getRlsFilters: (
       collection: string,
-      user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+      user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
       authType: 'session' | 'api_key',
     ) => getRlsFilters(collection, user, authType) as Promise<RlsFilter[]>,
     applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]): Q =>

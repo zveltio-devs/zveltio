@@ -210,3 +210,27 @@ describe('RLS policy CRUD', () => {
     await expect(invalidateRlsCache('contacts')).resolves.toBeUndefined();
   });
 });
+
+describe('a caller without a role', () => {
+  /**
+   * Better-Auth does not populate `role` on a session, so this is the ordinary
+   * shape of a caller, not an edge case. The engine's own routes cast the
+   * session user into a type that claims `role: string` and hand it straight in.
+   *
+   * What must NOT happen: the policy being skipped. `resolveValue` returning
+   * null means "cannot resolve", and the caller drops that policy — fail-open on
+   * the one source that is absent on every session. The Postgres twin of the
+   * same policy (`buildRowRulePredicate`) compares against
+   * `current_setting('zveltio.user_role')`, which is `''` when unset, and keeps
+   * the rule. The two must agree.
+   */
+  it('still gets a user_role policy, compared against the empty string', async () => {
+    const db = setup();
+    db.when(/FROM zvd_rls_policies/i, [
+      policy({ id: 'p-role', filter_field: 'team', filter_value_source: 'user_role' }),
+    ]);
+    const noRole = { id: 'u-3' } as { id: string; role?: string };
+    const filters = await getRlsFilters('contacts', noRole, 'session');
+    expect(filters).toEqual([{ field: 'team', condition: { op: 'eq', value: '' } }]);
+  });
+});

@@ -100,6 +100,19 @@ describe('roundMoney', () => {
     expect(roundMoney(2.005)).toBe(2.01);
     expect(roundMoney(1.23456, 4)).toBe(1.2346);
   });
+
+  it('rounds away from zero, so a credit note cancels the charge it reverses', () => {
+    // `Math.round` breaks ties towards +Infinity, which is not how money
+    // rounds: 2.675 went to 2.68 and -2.675 to -2.67, so a charge and its
+    // reversal left a penny behind. `finance/accounting` computes its
+    // balance-sheet difference from exactly that subtraction.
+    expect(roundMoney(2.675)).toBe(2.68);
+    expect(roundMoney(-2.675)).toBe(-2.68);
+    expect(roundMoney(2.675) + roundMoney(-2.675)).toBe(0);
+    expect(roundMoney(0.125)).toBe(0.13);
+    expect(roundMoney(-0.125)).toBe(-0.13);
+    expect(roundMoney(-1.005)).toBe(-1.01);
+  });
 });
 
 describe('isStorableNumeric', () => {
@@ -143,7 +156,7 @@ describe('engine and SDK copies agree', () => {
   });
 
   it('rounds money identically', () => {
-    for (const v of [0.1 + 0.2, 2.005, 59, 1.23456]) {
+    for (const v of [0.1 + 0.2, 2.005, 59, 1.23456, -2.675, 2.675, -0.125, -1.005]) {
       expect(roundMoney(v)).toBe(sdk.roundMoney(v));
     }
   });

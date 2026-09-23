@@ -46,11 +46,20 @@ export function initRls(db: Database): void {
 /** Resolve a filter_value_source against the current user context. */
 function resolveValue(
   source: string,
-  user: { id: string; email?: string; role: string },
+  user: { id: string; email?: string; role?: string },
 ): string | null {
   if (source === 'user_id') return user.id;
   if (source === 'user_email') return user.email ?? null;
-  if (source === 'user_role') return user.role;
+  // `?? ''`, and emphatically NOT `?? null`: null means "cannot resolve" to the
+  // caller, which SKIPS the policy — fail-open on the one source that is absent
+  // on an ordinary session, since Better-Auth does not populate `role`. The
+  // Postgres side is the reason the empty string is the right answer rather
+  // than a lazy one: `buildRowRulePredicate` compiles the same policy against
+  // `current_setting('zveltio.user_role')`, which is `''` when unset, and
+  // applies the rule with that value. `undefined` reached the condition
+  // untouched before this, so a `user_role` policy was emitted as
+  // `field = undefined` while its SQL twin compared against `''`.
+  if (source === 'user_role') return user.role ?? '';
   if (source.startsWith('static:')) return source.slice(7);
   return null;
 }
@@ -161,7 +170,7 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
  */
 export async function getRlsFilters(
   collection: string,
-  user: { id: string; email?: string; role: string; rlsBypass?: boolean },
+  user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
   authType: 'session' | 'api_key',
 ): Promise<Array<{ field: string; condition: FilterCondition }>> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
@@ -200,10 +209,13 @@ export async function getRlsFilters(
   try {
     userRoles = await getUserRoles(user.id);
   } catch {
-    userRoles = [user.role];
+    userRoles = [];
   }
-  // Always include the direct role
-  if (!userRoles.includes(user.role)) userRoles.push(user.role);
+  // Always include the direct role, when the caller has one. Better-Auth does
+  // not populate `role` on a session, so this is usually absent — and pushing
+  // `undefined` into the list only ever matched a policy role that cannot be
+  // undefined.
+  if (user.role && !userRoles.includes(user.role)) userRoles.push(user.role);
 
   const result: Array<{ field: string; condition: FilterCondition }> = [];
 

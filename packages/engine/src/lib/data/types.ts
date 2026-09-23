@@ -27,33 +27,9 @@ export type JsonValue =
 export type DynamicRow = Record<string, JsonValue>;
 
 /** Minimal user shape attached to every authenticated request context. */
-export interface RequestUser {
-  id: string;
-  name: string;
-  role: string;
-  /** Present only for API-key auth — collection/action scopes */
-  scopes?: unknown;
-  /** Email — present for session auth */
-  email?: string;
-  /**
-   * API-key auth only: this key is exempt from row-level security.
-   * Per key and visible in the admin UI, rather than a blanket exemption for
-   * every key that nobody chose. See migration 026.
-   */
-  rlsBypass?: boolean;
-  /**
-   * API-key auth only: the `user` row that authorship is recorded against.
-   *
-   * `id` is `apikey:<uuid>` for a key, which is deliberate — RLS actors and
-   * scope checks are written in those terms — but `created_by`/`updated_by` on
-   * every collection table is `TEXT REFERENCES "user"(id)`. Writing the
-   * principal id there raised `foreign_key_violation`, so no API key could
-   * create or update a row at all. This is the human who issued the key
-   * (`zv_api_keys.created_by`), or null for a key issued before that column
-   * was populated.
-   */
-  authorUserId?: string | null;
-}
+// Re-exported, not redeclared: `ctx.internals.checkAccess` takes one, so the
+// SDK is where an extension author reads this shape.
+export type { RequestUser } from '@zveltio/sdk/extension';
 
 /** One field in a collection definition (a subset of `FieldConfig`). Dynamic
  * collections are stored as JSON, so field shapes are validated by the field-type
