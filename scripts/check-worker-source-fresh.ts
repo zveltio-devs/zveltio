@@ -40,9 +40,29 @@ const ROOT = join(import.meta.dir, '..');
 const SRC = join(ROOT, 'packages/engine/src/lib/worker-extension-runtime.ts');
 const GEN = join(ROOT, 'packages/engine/src/lib/worker-extension-runtime-source.generated.ts');
 
-const { WORKER_RUNTIME_SOURCE_SHA256 } = (await import(GEN)) as {
-  WORKER_RUNTIME_SOURCE_SHA256?: string;
-};
+const { WORKER_RUNTIME_SOURCE, WORKER_RUNTIME_SOURCE_SHA256, WORKER_RUNTIME_BUNDLE_SHA256 } =
+  (await import(GEN)) as {
+    WORKER_RUNTIME_SOURCE?: string;
+    WORKER_RUNTIME_SOURCE_SHA256?: string;
+    WORKER_RUNTIME_BUNDLE_SHA256?: string;
+  };
+
+// The embedded string is the program the engine spawns. The source hash below
+// cannot see it: a hand edit or a mangled merge of the generated file left that
+// hash intact and this gate green over code no build produced. Measured — a
+// `throw` rewritten inside the string passed.
+const bundleActual = new Bun.CryptoHasher('sha256')
+  .update(WORKER_RUNTIME_SOURCE ?? '')
+  .digest('hex');
+if (!WORKER_RUNTIME_BUNDLE_SHA256 || bundleActual !== WORKER_RUNTIME_BUNDLE_SHA256) {
+  console.error(
+    '❌ worker-source-fresh: the embedded worker runtime is not the bytes the\n' +
+      '   generator emitted — the generated file was edited by hand, or carries\n' +
+      '   no bundle hash yet.\n\n' +
+      '   Regenerate it:  cd packages/engine && bun scripts/gen-worker-source.ts\n',
+  );
+  process.exit(1);
+}
 
 if (!WORKER_RUNTIME_SOURCE_SHA256) {
   console.error(

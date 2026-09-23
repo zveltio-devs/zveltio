@@ -71,6 +71,12 @@ const code = await result.outputs[0]!.text();
 // copy, with the freshness gate green over it.
 const sourceSha256 = hashWorkerSources(workerSourceSet(SRC, ROOT), ROOT);
 
+// And a hash of the OUTPUT, as emitted. The source hash proves the sources were
+// not edited since generation; it says nothing about the string below, which is
+// what the engine actually spawns. A hand edit or a mangled merge of this file
+// left the source hash intact and the gate green over code nobody built.
+const bundleSha256 = new Bun.CryptoHasher('sha256').update(code).digest('hex');
+
 const fileContent = `// AUTO-GENERATED FILE — DO NOT EDIT BY HAND.
 //
 // Regenerate via \`bun packages/engine/scripts/gen-worker-source.ts\`.
@@ -91,6 +97,9 @@ export const WORKER_RUNTIME_SOURCE = ${JSON.stringify(code)};
  * that set fails CI instead of shipping a runtime that was never under test.
  */
 export const WORKER_RUNTIME_SOURCE_SHA256 = ${JSON.stringify(sourceSha256)};
+
+/** sha256 of \`WORKER_RUNTIME_SOURCE\` above, as the generator emitted it. */
+export const WORKER_RUNTIME_BUNDLE_SHA256 = ${JSON.stringify(bundleSha256)};
 `;
 
 writeFileSync(OUT, fileContent, 'utf8');

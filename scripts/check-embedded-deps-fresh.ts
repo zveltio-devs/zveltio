@@ -66,10 +66,20 @@ const BUNDLED = ['hono', 'zod', 'kysely', '@hono/zod-validator'];
 
 /** `name@1.2.3` as the bundler leaves it in its resolved-path comments. */
 const EMBEDDED = /(?:\.bun\/)((?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)@(\d+\.\d+\.\d+)/g;
+/** The trailer `extension pack` writes for a dependency inlined from a hoisted tree. */
+const RECORDED = /^\/\/ @zveltio-bundled ((?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)@(\d+\.\d+\.\d+)$/gm;
 
 function embeddedVersions(text: string): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   for (const m of text.matchAll(EMBEDDED)) {
+    const [, name, version] = m;
+    if (!BUNDLED.includes(name!)) continue;
+    if (!out.has(name!)) out.set(name!, new Set());
+    out.get(name!)!.add(version!);
+  }
+  // `extension pack` records what it inlined from a hoisted node_modules,
+  // where the path comment names no version.
+  for (const m of text.matchAll(RECORDED)) {
     const [, name, version] = m;
     if (!BUNDLED.includes(name!)) continue;
     if (!out.has(name!)) out.set(name!, new Set());
@@ -146,10 +156,20 @@ if (locked.size === 0) {
 
 const stale: Array<{ label: string; dep: string; embedded: string; locked: string }> = [];
 const checked: string[] = [];
+const unverifiable: string[] = [];
 
 for (const { label, file } of artifacts()) {
   const text = await Bun.file(file).text();
   const embedded = embeddedVersions(text);
+  // An artifact that inlines one of these but carries no readable version is
+  // not "nothing bundled here" — it is a bundle this gate cannot check, and
+  // skipping it reported OK over it. Measured: stripping the path comments from
+  // the worker runtime dropped it from the count (51 -> 50) with the gate green.
+  // The worker is known to inline hono; an extension is judged by its paths.
+  const inlines = BUNDLED.filter((dep) => text.includes(`node_modules/${dep}/`));
+  const unread = inlines.filter((dep) => !embedded.has(dep));
+  if (file === WORKER_GEN && !embedded.has('hono')) unread.push('hono');
+  if (unread.length > 0) unverifiable.push(`${label}: ${[...new Set(unread)].join(', ')}`);
   if (embedded.size === 0) continue; // nothing bundled here
   checked.push(label);
   for (const [dep, versions] of embedded) {
@@ -166,6 +186,36 @@ if (REPORT_ONLY) {
   for (const s of stale)
     console.log(`  ${s.label.padEnd(30)} ${s.dep}@${s.embedded}  (locked ${s.locked})`);
   process.exit(0);
+}
+
+// The worker runtime is generated in this repository and known to inline hono:
+// an unreadable version there is a build that changed shape, and fails.
+// Extension bundles packed before `extension pack` recorded hoisted versions
+// carry none for kysely and @hono/zod-validator — every committed bundle today.
+// Failing on those would block CI until a repack of all of them; saying nothing
+// is what this gate did before, while its OK line claimed it had checked them.
+// So they are named, every run, until the repack lands.
+const fatal = unverifiable.filter((u) => u.startsWith('worker runtime:'));
+const unchecked = unverifiable.filter((u) => !u.startsWith('worker runtime:'));
+if (fatal.length > 0) {
+  console.error(
+    `\n❌ the worker runtime inlines a dependency whose version cannot be read.\n\n` +
+      `   The version is read from the bundler's resolved-path comments\n` +
+      `   (\`.bun/<name>@<version>/\`). Without them — a minified build, a hoisted\n` +
+      `   node_modules layout — the gate cannot tell a stale dependency from a fresh\n` +
+      `   one, and saying OK would be a guess.\n`,
+  );
+  for (const u of fatal) console.error(`  ${u}`);
+  console.error('\n  Regenerate: cd packages/engine && bun scripts/gen-worker-source.ts\n');
+  process.exit(1);
+}
+if (unchecked.length > 0) {
+  const deps = new Set(unchecked.flatMap((u) => u.split(': ')[1]!.split(', ')));
+  console.warn(
+    `⚠️  [embedded-deps] NOT checked: ${[...deps].join(', ')} in ${unchecked.length} extension ` +
+      `bundle(s) — inlined from a hoisted node_modules, no version recorded. Repack with a ` +
+      `current CLI (it writes \`// @zveltio-bundled <name>@<version>\`) to bring them under this gate.`,
+  );
 }
 
 if (stale.length > 0) {
@@ -201,6 +251,6 @@ if (stale.length > 0) {
 
 console.log(
   `[embedded-deps] OK — ${checked.length} artifact(s), every bundled ` +
-    `${BUNDLED.join('/')} matches ${relative(ROOT, LOCK)}` +
+    `${BUNDLED.join('/')} whose version it could read matches ${relative(ROOT, LOCK)}` +
     (existsSync(EXT_ROOT) ? ` (extensions: ${EXT_ROOT})` : ' (engine only — sibling absent)'),
 );
