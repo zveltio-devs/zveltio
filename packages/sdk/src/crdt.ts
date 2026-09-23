@@ -92,7 +92,12 @@ export function orSetMerge<T>(local: ORSet<T>, remote: ORSet<T>): ORSet<T> {
       merged.set(el.uid, el);
     }
   }
-  return Array.from(merged.values()).filter((el) => !el.removed);
+  // Tombstones stay in the set. Dropping them loses the only record that the
+  // element was ever removed, so the next merge against a replica that still
+  // holds it as present reads it as a new addition and resurrects it — the exact
+  // outcome an observed-remove set exists to prevent. `orSetValues` is what
+  // hides removed elements from callers.
+  return Array.from(merged.values());
 }
 
 export function orSetValues<T>(set: ORSet<T>): T[] {

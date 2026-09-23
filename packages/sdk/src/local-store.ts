@@ -239,8 +239,25 @@ export class LocalStore {
 
     const existing = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
 
-    // Conflict detection: local has changes not yet confirmed by server
-    if (existing && existing._localVersion > existing._serverVersion) {
+    // Conflict detection: local has changes not yet confirmed by server.
+    //
+    // `_syncStatus` is the signal that survives contact with the SyncManager.
+    // The version comparison alone does not: `syncNow()` and `pull()` both pass
+    // `Date.now()` as the server version, because the collections API returns no
+    // version column — so after the first ACK `_serverVersion` is an epoch
+    // millisecond count while `_localVersion` is still a small counter, and
+    // `2 > 1790144009198` is false forever. Every local edit made after that
+    // first sync was overwritten in silence: status `synced`, no `_conflictData`,
+    // nothing in `getConflicts()`. The unit tests missed it because they hand
+    // this method versions on the same scale as the counter (1, 2, 3, 5).
+    //
+    // The version comparison is kept as a second signal: it still catches the
+    // race where an ACK for an earlier operation marks the record synced while a
+    // later one is queued.
+    if (
+      existing &&
+      (existing._syncStatus !== 'synced' || existing._localVersion > existing._serverVersion)
+    ) {
       // CRDT field-level merge if both sides have CRDT docs
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       if (existing._crdtDoc && (data as any).__crdt) {
@@ -275,6 +292,10 @@ export class LocalStore {
       _serverVersion: serverVersion,
       _syncStatus: 'synced',
       _updatedAt: Date.now(),
+      // Carried over: rebuilding the record from scratch dropped the CRDT
+      // document, so the next merge had nothing on the local side to merge with
+      // and fell through to the manual-conflict branch.
+      ...(existing?._crdtDoc ? { _crdtDoc: existing._crdtDoc } : {}),
     };
 
     await this.db.put('records', record);
@@ -301,12 +322,29 @@ export class LocalStore {
   ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
     const record = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
-    if (record) {
-      record.data = resolvedData;
-      record._syncStatus = 'pending'; // Re-sync with server
-      record._localVersion += 1;
-      await this.db.put('records', record);
-    }
+    if (!record) return;
+    record.data = resolvedData;
+    record._syncStatus = 'pending'; // Re-sync with server
+    record._localVersion += 1;
+    record._conflictData = undefined;
+
+    // Nothing re-synced it. The status said `pending` and the queue held no
+    // operation carrying the resolved data, so a resolution — whether a person
+    // chose it in the UI or the CRDT merge produced it — stayed on the device.
+    // The only operation for this record was the one the server had already
+    // rejected.
+    const tx = this.db.transaction(['records', 'sync_queue'], 'readwrite');
+    await tx.objectStore('records').put(record);
+    await tx.objectStore('sync_queue').add({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      collection,
+      recordId: id,
+      operation: 'update',
+      payload: resolvedData,
+      attempts: 0,
+      createdAt: Date.now(),
+    } satisfies SyncQueueItem);
+    await tx.done;
   }
 
   /** Save an offline blob — returns a temporary ID 'local_blob_<UUID>' */
