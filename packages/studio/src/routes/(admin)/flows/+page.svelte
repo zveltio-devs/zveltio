@@ -63,7 +63,7 @@ async function loadFlows() {
   loading = true;
   try {
     const data = await api.get<{ flows: Flow[]; total?: number }>(
-      `/api/flows?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`,
+      `/api/flows?limit=${LIMIT}&page=${currentPage}`,
     );
     flows = data.flows || [];
     total = data.total ?? flows.length;

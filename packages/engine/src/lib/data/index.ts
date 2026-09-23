@@ -44,3 +44,6 @@ export { validateApiKey } from './auth.js';
 //     re-implemented the authorisation model as a single predicate: a view on
 //     a page published its collection to everyone who could open the page.
 export { checkAccess } from './auth.js';
+//   - `rowAuthorId` so routes outside the data handlers record authorship the
+//     way they do: an API key's writes are attributed to the person who issued it.
+export { rowAuthorId } from './auth.js';

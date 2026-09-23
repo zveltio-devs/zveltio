@@ -33,6 +33,7 @@ describe('afterWrite — flow trigger resilience', () => {
         action: 'create',
         data: { id: 'rec-flow', name: 'Ada' },
         userId: 'user-1',
+        author: 'user-1',
         tenantId: 'tenant-a',
       });
       expect(errSpy.mock.calls.some((c) => String(c[0]).includes('flow trigger failed'))).toBe(

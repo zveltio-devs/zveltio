@@ -159,12 +159,14 @@ function refresh(): void {
 
 async function loadSidebarData() {
   const [keysRes, hooksRes, permsRes, flowsRes] = await Promise.allSettled([
-    api.get<{ keys: unknown[] }>('/api/api-keys'),
+    api.get<{ api_keys: unknown[] }>('/api/api-keys'),
     api.get<{ webhooks: unknown[] }>('/api/webhooks'),
     api.get<{ permissions?: unknown[]; rules?: unknown[] }>('/api/permissions'),
     api.get<{ flows: unknown[] }>('/api/flows'),
   ]);
-  if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.keys ?? [];
+  // The route answers `{ api_keys }`; reading `keys` left the "create an API key"
+  // onboarding step unticked forever, whatever the tenant had.
+  if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.api_keys ?? [];
   if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
   if (permsRes.status === 'fulfilled')
     permissionsCount = (permsRes.value.permissions ?? permsRes.value.rules ?? []).length;

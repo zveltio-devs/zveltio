@@ -150,6 +150,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
       action: 'create',
       data: record,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: tid,
     }).catch((err: Error) => {
       console.warn(`[data] afterWrite(create, ${collection}/${record.id}) failed:`, err.message);
@@ -298,6 +299,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
       action: 'update',
       data: record,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: tid,
     }).catch((err: Error) => {
       console.warn(`[data] afterWrite(update, ${collection}/${record.id}) failed:`, err.message);
@@ -408,6 +410,7 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
         action: 'delete',
         data: record,
         userId: user.id,
+        author: rowAuthorId(user),
         tenantId: tid,
       }).catch((err: Error) => {
         console.warn(`[data] afterWrite(delete, ${collection}/${record.id}) failed:`, err.message);

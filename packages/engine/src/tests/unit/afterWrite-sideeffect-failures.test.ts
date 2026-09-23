@@ -34,6 +34,7 @@ describe('afterWrite — side-effect resilience', () => {
         action: 'update',
         data: { id: 'rec-1', name: 'Ada' },
         userId: 'user-1',
+        author: 'user-1',
         tenantId: 'tenant-a',
       });
       expect(
@@ -67,6 +68,7 @@ describe('afterWrite — side-effect resilience', () => {
         action: 'create',
         data: { id: 'rec-2' },
         userId: 'user-2',
+        author: 'user-2',
         tenantId: null,
       });
       expect(errSpy.mock.calls.some((c) => String(c[0]).includes('realtime publish failed'))).toBe(
