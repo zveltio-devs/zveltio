@@ -129,19 +129,11 @@ function bindValue(value: unknown, column: string, jsonb: Set<string>): RawBuild
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type FilterOp =
-  | 'eq'
-  | 'neq'
-  | 'lt'
-  | 'lte'
-  | 'gt'
-  | 'gte'
-  | 'like'
-  | 'ilike'
-  | 'in'
-  | 'not_in'
-  | 'null'
-  | 'not_null';
+// Re-exported, not redeclared: the SDK is where an extension author reads the
+// operator vocabulary, and `ctx.internals.buildCondition` hands them straight
+// to this compiler. Two lists would drift.
+export type { FilterOp } from '@zveltio/sdk/extension';
+import type { FilterOp } from '@zveltio/sdk/extension';
 
 export interface FilterCondition {
   op: FilterOp;
