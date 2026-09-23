@@ -1,0 +1,88 @@
+name: Deploy artifacts
+
+# Runs what an operator runs: build the image, render the chart, parse the
+# compose file. Nothing did before — the image was built only at release, with
+# continue-on-error — and E09 found a chart no kubelet would start, a network
+# policy that cut the engine off from its database and an installer that could
+# not download a release.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'charts/**'
+      - 'docker-compose*.yml'
+      - 'prometheus.yml'
+      - 'grafana/**'
+      - 'install/**'
+      - 'scripts/install.sh'
+      - '.github/workflows/deploy-artifacts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install helm + kubeconform
+        run: |
+          curl -fsSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar xz -C /tmp
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz -C /tmp
+      - name: Lint, render, validate
+        run: |
+          H=/tmp/linux-amd64/helm
+          A="--set engine.config.betterAuthSecret=x"
+          $H lint charts/zveltio $A
+          $H template t charts/zveltio $A > default.yaml
+          $H template t charts/zveltio $A \
+            --set postgresql.enabled=true --set postgresql.auth.password=p \
+            --set redis.enabled=true --set ingress.enabled=true \
+            --set podDisruptionBudget.enabled=true --set migrationJob.enabled=true \
+            --set autoscaling.enabled=true --set persistence.accessMode=ReadWriteMany > full.yaml
+          /tmp/kubeconform -strict -summary default.yaml full.yaml
+      - name: Refuse multi-replica on a ReadWriteOnce claim
+        run: |
+          if /tmp/linux-amd64/helm template t charts/zveltio \
+               --set engine.config.betterAuthSecret=x --set engine.replicaCount=2 >/dev/null 2>&1; then
+            echo "::error::replicaCount=2 with the default RWO PVC rendered; the guard is gone"
+            exit 1
+          fi
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build (amd64, not pushed)
+        run: docker build -t zveltio-engine:ci .
+      - name: Check what the chart and compose rely on
+        run: |
+          # Numeric USER: the kubelet cannot verify runAsNonRoot for a name.
+          user=$(docker inspect -f '{{.Config.User}}' zveltio-engine:ci)
+          [[ "$user" =~ ^[0-9]+(:[0-9]+)?$ ]] || { echo "::error::USER is '$user', not numeric"; exit 1; }
+          # Static files outside /data, where a volume would hide them.
+          docker run --rm --entrypoint sh zveltio-engine:ci -c \
+            'test -f "$STUDIO_DIST_PATH/index.html" && test -f "$CLIENT_DIST_PATH/index.html" &&
+             case "$STUDIO_DIST_PATH$CLIENT_DIST_PATH" in /data*) exit 1;; esac'
+          # The binary runs and knows `migrate` (the chart's migration Job).
+          docker run --rm zveltio-engine:ci --help | grep -q migrate
+
+  compose-and-installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Compose files parse
+        env:
+          POSTGRES_PASSWORD: x
+          VALKEY_PASSWORD: x
+          BETTER_AUTH_SECRET: x
+          GRAFANA_ADMIN_PASSWORD: x
+          S3_ACCESS_KEY: x
+          S3_SECRET_KEY: x
+        run: docker compose -f docker-compose.yml config -q
+      - name: Installer syntax
+        run: for f in install/*.sh scripts/install.sh; do bash -n "$f"; done

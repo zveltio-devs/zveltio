@@ -9,9 +9,11 @@
  *
  *   .env.example        the reference an operator copies, and a published
  *                       release asset (installation.md curls it)
- *   install/install.sh  writes its own .env from a heredoc — it must, because
- *                       it MINTS secrets with `openssl rand`, which an example
- *                       file cannot do
+ *   the installers      write their own .env from a heredoc — they must,
+ *                       because they MINT secrets with `openssl rand`, which
+ *                       an example file cannot do: scripts/install.sh (the
+ *                       get.zveltio.com installer, Docker mode) and
+ *                       install/install.sh (native, delegated to by the first)
  *   docker-compose.yml  derives some values from others, e.g.
  *                       VALKEY_URL from VALKEY_PASSWORD
  *
@@ -41,14 +43,14 @@ import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
 const ENV_EXAMPLE = join(ROOT, '.env.example');
-const INSTALLER = join(ROOT, 'install/install.sh');
+const INSTALLERS = [join(ROOT, 'scripts/install.sh'), join(ROOT, 'install/install.sh')];
 const COMPOSE = join(ROOT, 'docker-compose.yml');
 
 /** `NAME=` on a line that also says REQUIRED — the human's own marking. */
 const REQUIRED_LINE = /^([A-Z][A-Z0-9_]*)=.*\bREQUIRED\b/gm;
 
 const example = readFileSync(ENV_EXAMPLE, 'utf8');
-const installer = readFileSync(INSTALLER, 'utf8');
+const installer = INSTALLERS.map((f) => readFileSync(f, 'utf8')).join('\n');
 const compose = readFileSync(COMPOSE, 'utf8');
 
 const required = [...example.matchAll(REQUIRED_LINE)].map((m) => m[1] as string);
@@ -100,7 +102,7 @@ const envHeredocs = (() => {
 
 if (envHeredocs === '') {
   console.error(
-    `✗ ${INSTALLER} contains no \`cat > …/.env << EOF\` block.\n` +
+    `✗ ${INSTALLERS.join(', ')} contain no \`cat > …/.env << EOF\` block.\n` +
       `  This gate reads those heredocs to decide what an install produces. With none\n` +
       `  found the scan is broken, not the installer clean — it will not pass silently.`,
   );
@@ -170,7 +172,7 @@ console.error(`
   as a failed boot for a value they were told would be set.
 
   Fix whichever is true:
-    - the installer should write it  → add it to the heredoc in install/install.sh
+    - the installer should write it  → add it to the .env heredoc in scripts/install.sh (Docker) or install/install.sh (native)
     - compose should derive it       → add it to the service environment block
     - it is not actually mandatory   → drop REQUIRED from the .env.example line
 `);

@@ -11,11 +11,6 @@ scrape_configs:
     static_configs:
       - targets: ['engine:3000']
     metrics_path: '/metrics'
-
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres-exporter:9187']
-
-  - job_name: 'valkey'
-    static_configs:
-      - targets: ['valkey-exporter:9121']
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_token

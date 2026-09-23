@@ -1,3 +1,10 @@
+{{- /*
+More than one engine pod on a ReadWriteOnce claim: every pod after the first
+lands on another node and stays ContainerCreating on "Multi-Attach error".
+*/ -}}
+{{- if and .Values.persistence.enabled (eq .Values.persistence.accessMode "ReadWriteOnce") (or .Values.autoscaling.enabled (gt (int .Values.engine.replicaCount) 1)) }}
+{{- fail "engine.replicaCount > 1 or autoscaling.enabled needs persistence.accessMode=ReadWriteMany (or persistence.enabled=false with S3 storage)" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
