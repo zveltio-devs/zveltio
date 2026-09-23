@@ -91,7 +91,10 @@ async function getKey(): Promise<CryptoKey> {
   // sealed under the process's first key forever, silently, because the same
   // stale key also decrypted anything it had just encrypted.
   if (_key && _keyHexAtImport === hex) return _key;
-  if (!hex || hex.length !== 64) {
+  // Hex, not just 64 characters: `parseInt('zz', 16)` is NaN, which a
+  // Uint8Array stores as 0 — so 64 non-hex characters imported as an all-zero
+  // AES key and encrypted without a word.
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error(
       'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
         'Generate with: openssl rand -hex 32',
