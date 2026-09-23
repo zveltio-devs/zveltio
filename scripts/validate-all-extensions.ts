@@ -207,4 +207,9 @@ for (const r of rows) {
   );
 }
 
+// No manifest found means a wrong root, not a clean catalogue.
+if (rows.length === 0) {
+  console.log(`\nNo manifest.json under ${ROOT} — wrong extensions root?`);
+  process.exit(1);
+}
 process.exit(sduiFail.length + hashFail.length + validateFail.length > 0 ? 1 : 0);

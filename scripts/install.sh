@@ -268,6 +268,11 @@ ok "Directory: $INSTALL_DIR"
 # ── Generare .env ─────────────────────────────────────────────
 section "⚙️  Configuration"
 
+# Detect server LAN IP (the fallback public URL, and the success message)
+SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+DOMAIN=""
+DOMAIN_ASKED=false
+
 if [[ ! -f ".env" ]]; then
   log "Generating secure credentials..."
 
@@ -294,6 +299,26 @@ if [[ ! -f ".env" ]]; then
   # credential like the others and is generated the same way.
   VALKEY_PASS=$(generate_secret 32)
 
+  # BETTER_AUTH_URL is the origin written into password-reset and verification
+  # mail, and a production engine refuses to boot without it
+  # (lib/startup-guards.ts). It was never written here, so every install this
+  # script produced stopped at boot. The domain is therefore asked for now,
+  # before anything starts, instead of after the engine is already running.
+  if [[ "$UNATTENDED" == "false" ]]; then
+    echo -n "  Your domain (e.g. example.com) — leave blank to use IP only: "
+    read -r DOMAIN </dev/tty || true
+    DOMAIN="${DOMAIN,,}"  # lowercase
+    DOMAIN_ASKED=true
+    [[ -n "$DOMAIN" ]] && ok "Domain: ${DOMAIN}"
+  fi
+  if [[ -n "$DOMAIN" ]]; then
+    PUBLIC_URL="http://${DOMAIN}"
+  else
+    PUBLIC_URL="http://${SERVER_IP:-localhost}:${DEFAULT_PORT}"
+  fi
+  # Unattended installs can pass the real URL in the environment.
+  PUBLIC_URL="${BETTER_AUTH_URL:-$PUBLIC_URL}"
+
   cat > .env << EOF
 # Zveltio v${VERSION} — Generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # KEEP THIS FILE SAFE — contains your credentials
@@ -314,11 +339,11 @@ VALKEY_PASSWORD=${VALKEY_PASS}
 VALKEY_URL=redis://:${VALKEY_PASS}@localhost:6379
 
 # ── Storage ────────────────────────────────────────────────────
-# Default: local filesystem driver (engine_storage volume, mounted at
-# /data/storage in the container). Set STORAGE_DRIVER=s3 to use the SeaweedFS
-# container / any S3 endpoint via the S3_* block below instead.
+# Native mode: local filesystem driver under <install dir>/storage (the
+# engine's default). Docker mode does not read these two — the engine container
+# uses the SeaweedFS service through the S3_* block below. Set STORAGE_DRIVER=s3
+# to use S3 in native mode too.
 STORAGE_DRIVER=local
-STORAGE_LOCAL_DIR=/data/storage
 S3_PORT=8333
 S3_ENDPOINT=http://localhost:8333
 S3_ACCESS_KEY=zveltio
@@ -333,11 +358,17 @@ STUDIO_PORT=4174
 PORT=${DEFAULT_PORT}
 SECRET_KEY=${SECRET_KEY}
 BETTER_AUTH_SECRET=$(generate_secret 32)
+# The URL browsers use to reach this instance — links in auth mail, passkey
+# origin. Change it (and restart) when a domain or HTTPS is put in front.
+BETTER_AUTH_URL=${PUBLIC_URL}
 NODE_ENV=production
 ZVELTIO_VERSION=${VERSION}
 # Extensions are managed via Studio → Marketplace after deployment
 
 # ── Security ───────────────────────────────────────────────────
+# Encrypts webhook signing secrets and fields marked encrypted; without it both
+# are refused. Keep a copy: data encrypted with it is unreadable without it.
+FIELD_ENCRYPTION_KEY=$(generate_secret 32)
 # Required if mail extension is enabled (IMAP/SMTP password encryption)
 MAIL_ENCRYPTION_KEY=$(generate_secret 32)
 # Required if AI extension is enabled (AI API key encryption)
@@ -368,6 +399,31 @@ else
     ok "VALKEY_PASSWORD generated (Valkey now requires authentication)"
     warn "Valkey will restart with a password — cached sessions are dropped once."
   fi
+
+  # Keep the domain recorded at install time: it is rewritten into
+  # .zveltio-install.json at the end, and was being reset to empty.
+  DOMAIN=$(grep -o '"domain": *"[^"]*"' .zveltio-install.json 2>/dev/null | cut -d'"' -f4 || true)
+
+  # Production refuses to boot without BETTER_AUTH_URL, and no .env this
+  # installer wrote before had one.
+  if ! grep -q '^BETTER_AUTH_URL=' .env; then
+    if [[ -n "$DOMAIN" ]]; then
+      echo "BETTER_AUTH_URL=http://${DOMAIN}" >> .env
+    else
+      echo "BETTER_AUTH_URL=http://${SERVER_IP:-localhost}:$(grep '^PORT=' .env | cut -d= -f2 || echo "$DEFAULT_PORT")" >> .env
+    fi
+    ok "BETTER_AUTH_URL set to $(grep '^BETTER_AUTH_URL=' .env | cut -d= -f2-) — edit .env if browsers use another URL"
+  fi
+  # Absent before too: webhook creation and encrypted fields were refused.
+  # Nothing could have been encrypted without it, so adding one is safe.
+  if ! grep -q '^FIELD_ENCRYPTION_KEY=' .env; then
+    echo "FIELD_ENCRYPTION_KEY=$(generate_secret 32)" >> .env
+    ok "FIELD_ENCRYPTION_KEY generated"
+  fi
+  # Earlier installers wrote this. A native engine runs as the invoking user,
+  # who cannot create /data — every upload failed. Dropping it falls back to
+  # <install dir>/storage. (The engine container never received it.)
+  sed -i '/^STORAGE_LOCAL_DIR=\/data\/storage$/d' .env
 fi
 
 source .env
@@ -381,8 +437,6 @@ source .env
 DATABASE_URL="${DATABASE_URL//localhost/127.0.0.1}"
 export DATABASE_URL
 
-# Detect server LAN IP (used in success message)
-SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
 
 # ── Download fișiere ──────────────────────────────────────────
 section "⬇️  Downloading v${VERSION}"
@@ -626,7 +680,6 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
 fi
 
 # ── Optional Add-ons ──────────────────────────────────────────
-DOMAIN=""
 INSTALL_NPM=false
 NPM_PORT=81
 
@@ -636,10 +689,17 @@ ADDONS_CONFIGURED=false
 if [[ "$UNATTENDED" == "false" && "$ADDONS_CONFIGURED" == "false" ]]; then
   section "🌐 Configuration"
 
-  echo -n "  Your domain (e.g. example.com) — leave blank to use IP only: "
-  read -r DOMAIN </dev/tty || true
-  DOMAIN="${DOMAIN,,}"  # lowercase
-  [[ -n "$DOMAIN" ]] && ok "Domain: ${DOMAIN}"
+  # Asked before .env on a fresh install; only a retry over a half-finished
+  # one reaches here without an answer.
+  if [[ "$DOMAIN_ASKED" == "false" ]]; then
+    echo -n "  Your domain (e.g. example.com) — leave blank to use IP only: "
+    read -r DOMAIN </dev/tty || true
+    DOMAIN="${DOMAIN,,}"  # lowercase
+    if [[ -n "$DOMAIN" ]]; then
+      ok "Domain: ${DOMAIN}"
+      warn "Set BETTER_AUTH_URL=http://${DOMAIN} in .env and restart the engine — auth mail links use it."
+    fi
+  fi
 
   section "🔧 Optional Add-ons"
 
@@ -813,13 +873,20 @@ echo -e "  ${DIM}     }${NC}"
 echo ""
 fi
 echo -e "  ${BOLD}Data:${NC}     ${INSTALL_DIR}"
-echo -e "  ${BOLD}Logs:${NC}     ${INSTALL_DIR}/zveltio.log"
 echo ""
-echo -e "  ${DIM}Commands:${NC}"
-echo -e "  ${DIM}  zveltio status    — check services${NC}"
-echo -e "  ${DIM}  zveltio logs      — view logs${NC}"
-echo -e "  ${DIM}  zveltio update    — update to latest${NC}"
-echo -e "  ${DIM}  zveltio stop      — stop Zveltio${NC}"
+# The engine binary has no `logs` or `stop` subcommand (an unknown one STARTS a
+# second engine), and in docker mode there is no `zveltio` on the host at all.
+echo -e "  ${DIM}Commands (from ${INSTALL_DIR}):${NC}"
+if [[ "$MODE" == "docker" ]]; then
+echo -e "  ${DIM}  docker compose ps               — check services${NC}"
+echo -e "  ${DIM}  docker compose logs -f engine   — view logs${NC}"
+echo -e "  ${DIM}  docker compose down             — stop Zveltio${NC}"
+else
+echo -e "  ${DIM}  ./zveltio-engine status         — check the engine${NC}"
+echo -e "  ${DIM}  tail -f zveltio.log             — view logs${NC}"
+echo -e "  ${DIM}  kill \$(cat .zveltio.pid)        — stop the engine${NC}"
+fi
+echo -e "  ${DIM}  re-run this installer           — update to latest${NC}"
 echo ""
 echo -e "  ${YELLOW}Keep .env safe — it contains your credentials${NC}"
 echo ""

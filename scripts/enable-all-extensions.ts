@@ -10,31 +10,59 @@ const signRes = await fetch(`${BASE}/api/auth/sign-in/email`, {
   body: JSON.stringify({ email: EMAIL, password: PASS }),
 });
 const cookie = signRes.headers.get('set-cookie')?.split(';')[0] ?? '';
+if (!cookie) throw new Error(`sign-in failed (${signRes.status}) — check TEST_EMAIL/TEST_PASS`);
 const headers = { Cookie: cookie, 'Content-Type': 'application/json' };
 
-const extRes = await fetch(`${BASE}/api/extensions`, { headers });
-const d = await extRes.json();
-const names: string[] =
-  Array.isArray(d.extensions) && typeof d.extensions[0] === 'string'
-    ? d.extensions
-    : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      (d.extensions ?? d.meta ?? []).map((e: any) => e.name);
+// The catalogue, not `/api/extensions`. That route lists what is already ACTIVE,
+// so this script used to re-enable what was on and never touch the rest — on a
+// fresh engine it enabled 0 extensions and exited 0.
+const extRes = await fetch(`${BASE}/api/marketplace`, { headers });
+if (!extRes.ok) throw new Error(`GET /api/marketplace answered ${extRes.status}`);
+const { extensions } = (await extRes.json()) as {
+  extensions: { name: string; category?: string }[];
+};
+// `fixture` entries are the release job's smoke extensions, never in the registry;
+// the Studio marketplace hides them for the same reason.
+const names = extensions
+  .filter((e) => e.category !== 'fixture')
+  .map((e) => e.name)
+  .sort();
+if (names.length === 0) throw new Error('the marketplace lists no extensions');
 
-const results: { name: string; ok: boolean; hot: boolean; err: string }[] = [];
-
-for (const name of names.sort()) {
+type Result = { name: string; ok: boolean; hot: boolean; err: string };
+async function enable(name: string): Promise<Result> {
   const res = await fetch(`${BASE}/api/marketplace/${encodeURIComponent(name)}/enable`, {
     method: 'POST',
     headers,
     body: '{}',
   });
   const body = await res.json().catch(() => ({}));
-  results.push({
+  return {
     name,
     ok: !!body.success,
     hot: !!body.hot_loaded,
-    err: body.error_detail ?? body.message ?? (body.success ? '' : JSON.stringify(body)),
-  });
+    err:
+      body.detail ??
+      body.error_detail ??
+      body.message ??
+      (body.success ? '' : JSON.stringify(body)),
+  };
+}
+
+// Alphabetical order reaches an extension before the one it requires, which
+// refuses it. Retry the refusals until a pass enables nothing new.
+const results: Result[] = [];
+let queue = names;
+while (queue.length > 0) {
+  const pass = [];
+  for (const name of queue) pass.push(await enable(name));
+  results.push(...pass.filter((r) => r.ok));
+  const refused = pass.filter((r) => !r.ok);
+  if (refused.length === queue.length) {
+    results.push(...refused);
+    break;
+  }
+  queue = refused.map((r) => r.name);
 }
 
 const ok = results.filter((r) => r.ok);
