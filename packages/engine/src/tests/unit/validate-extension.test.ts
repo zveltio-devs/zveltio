@@ -185,6 +185,53 @@ describe('validateMigrations', () => {
     expect(errors).toEqual([]);
   });
 
+  it('flags a column-level UNIQUE that leaves out tenant_id', () => {
+    const errors = validateMigrations({
+      files: [
+        {
+          filename: '001.sql',
+          sql: 'CREATE TABLE zvd_products (id UUID, sku TEXT NOT NULL UNIQUE);',
+        },
+      ],
+    });
+    expect(errors.map((e) => e.code)).toEqual(['SCHEMA_UNIQUE_WITHOUT_TENANT']);
+  });
+
+  it('accepts a column-level UNIQUE a later migration widened with tenant_id', () => {
+    const errors = validateMigrations({
+      files: [
+        { filename: '001.sql', sql: 'CREATE TABLE zvd_products (sku TEXT NOT NULL UNIQUE);' },
+        {
+          filename: '006.sql',
+          sql: 'ALTER TABLE zvd_products DROP CONSTRAINT zvd_products_sku_key;\nALTER TABLE zvd_products ADD CONSTRAINT zvd_products_sku_key UNIQUE (tenant_id, sku);',
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('accepts a widened key whose columns are in a different order', () => {
+    const errors = validateMigrations({
+      files: [
+        { filename: '001.sql', sql: 'CREATE TABLE t (a TEXT, b TEXT, UNIQUE (a, b));' },
+        { filename: '002.sql', sql: 'CREATE UNIQUE INDEX ix ON t (tenant_id, b, a);' },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('does not read the word "unique" inside a CHECK literal as a constraint', () => {
+    const errors = validateMigrations({
+      files: [
+        {
+          filename: '001.sql',
+          sql: "CREATE TABLE t (rule_type TEXT NOT NULL CHECK (rule_type IN ('not_null','unique','range')));",
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
   it('does NOT flag non-destructive migrations', () => {
     const errors = validateMigrations({
       files: [
