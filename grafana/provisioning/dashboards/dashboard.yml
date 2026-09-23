@@ -5,4 +5,4 @@ providers:
     folder: 'Zveltio'
     type: file
     options:
-      path: /etc/grafana/provisioning/dashboards
+      path: /var/lib/grafana/dashboards

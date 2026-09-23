@@ -231,7 +231,7 @@ if [[ "$MODE" == "native" && "$HAS_DOCKER_COMPOSE" == "false" ]]; then
     curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
   fi
   chmod +x /tmp/zveltio-native-install.sh
-  INSTALL_MODE=native ZVELTIO_PORT="${DEFAULT_PORT}" ZVELTIO_VERSION="$VERSION" \
+  INSTALL_MODE=native ZVELTIO_PORT="${DEFAULT_PORT}" ZVELTIO_VERSION="v${VERSION}" \
     sudo bash /tmp/zveltio-native-install.sh
   rm -f /tmp/zveltio-native-install.sh
   exit 0
