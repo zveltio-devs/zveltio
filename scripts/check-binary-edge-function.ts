@@ -86,6 +86,23 @@ for (const site of BUILD_SITES) {
         'answers `unknown command "__edge-runner"` and every edge function fails.',
     );
   }
+  // release.yml does not compile anything itself: it delegates to
+  // build-binary.ts, which is checked in its own right. Require the delegation,
+  // on a non-comment line — a comment naming `binary-entry.ts` is what kept
+  // this site green after it stopped building anything.
+  if (site.endsWith('release.yml')) {
+    const code = text
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('#'))
+      .join('\n');
+    if (!/bun (run )?packages\/engine\/scripts\/build-binary\.ts/.test(code)) {
+      fail(
+        `${site} does not build its binaries through packages/engine/scripts/build-binary.ts`,
+        'A second recipe for the same binary drifts; release.yml must call the script.',
+      );
+    }
+    continue;
+  }
   if (!text.includes('binary-entry.ts')) {
     fail(
       `${site} compiles a binary but never names binary-entry.ts`,

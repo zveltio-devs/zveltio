@@ -106,3 +106,17 @@ describe('maybeDecrypt / decryptField — passthrough guards', () => {
     expect(await decryptField('plaintext')).toBe('plaintext');
   });
 });
+
+describe('key format', () => {
+  it('refuses 64 non-hex characters instead of encrypting with an all-zero key', async () => {
+    const saved = process.env.FIELD_ENCRYPTION_KEY;
+    process.env.FIELD_ENCRYPTION_KEY = 'z'.repeat(64);
+    resetFieldCryptoKeyCacheForTests();
+    try {
+      await expect(maybeEncrypt('secret', true)).rejects.toThrow('64-char hex');
+    } finally {
+      process.env.FIELD_ENCRYPTION_KEY = saved;
+      resetFieldCryptoKeyCacheForTests();
+    }
+  });
+});

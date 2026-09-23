@@ -470,7 +470,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Ad-hoc SQL editor — admin-only, audited
   app.route('/api/admin/sql', sqlEditorRoutes(poolDb, auth));
 
-  // Pre-built business templates (CRM / Invoicing / Project / Help Desk / Inventory)
+  // Pre-built business templates (Invoicing / Project / Help Desk / Inventory / ANSVSA — CRM is the crm extension)
   app.route('/api/templates', templatesRoutes(db, auth));
 
   // Per-user ERD positions for the schema-diagram view

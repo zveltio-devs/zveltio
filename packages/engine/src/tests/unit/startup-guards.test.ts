@@ -195,6 +195,19 @@ describe('Valkey is a requirement, not a preference', () => {
     expect(v.map((x) => x.variable)).not.toContain('VALKEY_URL');
   });
 
+  it('refuses a FIELD_ENCRYPTION_KEY that is set but not 64 hex characters', () => {
+    const env = { NODE_ENV: 'production', VALKEY_URL: CACHE, BETTER_AUTH_URL: BASE };
+    for (const bad of ['0', 'short', 'z'.repeat(64), '0'.repeat(63)]) {
+      const v = productionGuardViolations({ ...env, FIELD_ENCRYPTION_KEY: bad });
+      expect(v.map((x) => x.variable)).toEqual(['FIELD_ENCRYPTION_KEY']);
+    }
+    expect(productionGuardViolations({ ...env, FIELD_ENCRYPTION_KEY: 'aB'.repeat(32) })).toEqual(
+      [],
+    );
+    // Unset stays a warning, not a refusal.
+    expect(productionGuardViolations(env)).toEqual([]);
+  });
+
   it('does not fire outside production', () => {
     // A development box with no Valkey is a normal thing to run, and blocking it
     // would only teach people to set the hatch permanently.

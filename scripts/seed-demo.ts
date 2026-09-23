@@ -2,7 +2,7 @@
 /**
  * seed-demo.ts — turn a fresh engine into a populated, demo-ready instance in one
  * command. Installs every builtin business template and seeds its starter data, so
- * a `demo.zveltio.com` (or a local POC) shows working CRM / Invoicing / Projects /
+ * a `demo.zveltio.com` (or a local POC) shows working Invoicing / Projects /
  * Helpdesk / Inventory apps with real-looking rows instead of empty tables.
  *
  * Pairs with DEMO_MODE=true (middleware/demo-mode.ts), which lets visitors click
@@ -68,7 +68,7 @@ async function pollJobs(cookie: string, jobIds: string[], stallMs = 90_000): Pro
 }
 
 /**
- * POST, waiting out a 429. Six templates installed and seeded back to back trip
+ * POST, waiting out a 429. Templates installed and seeded back to back trip
  * the write limiter, and the last two installs failed with a bare 429. The
  * limiter escalates on repeat offences, so the wait is the one it asks for.
  */

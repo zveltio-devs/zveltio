@@ -290,7 +290,6 @@ if [[ ! -f ".env" ]]; then
   done
 
   POSTGRES_PASS=$(generate_secret 32)
-  SECRET_KEY=$(generate_secret 64)
   S3_SECRET=$(generate_secret 32)
   # The compose files start Valkey with `--requirepass ${VALKEY_PASSWORD}`.
   # This .env did not define it, so the variable interpolated to empty and the
@@ -356,7 +355,6 @@ STUDIO_PORT=4174
 
 # ── Engine ─────────────────────────────────────────────────────
 PORT=${DEFAULT_PORT}
-SECRET_KEY=${SECRET_KEY}
 BETTER_AUTH_SECRET=$(generate_secret 32)
 # The URL browsers use to reach this instance — links in auth mail, passkey
 # origin. Change it (and restart) when a domain or HTTPS is put in front.
@@ -666,7 +664,6 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         S3_SECRET_KEY="${S3_SECRET_KEY}" \
         S3_BUCKET="${S3_BUCKET:-zveltio}" \
         PORT="${PORT:-3000}" \
-        SECRET_KEY="${SECRET_KEY}" \
         NODE_ENV="production" \
         ZVELTIO_VERSION="${VERSION}" \
         ./zveltio-engine \

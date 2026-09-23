@@ -30,7 +30,6 @@ import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
 // Static imports so Bun.build bundles the JSON into the binary.
 // Adding a new builtin template = drop a JSON file + add the import here.
-import crm from '../templates/builtin/crm.json' with { type: 'json' };
 import invoicing from '../templates/builtin/invoicing.json' with { type: 'json' };
 import project from '../templates/builtin/project.json' with { type: 'json' };
 import helpdesk from '../templates/builtin/helpdesk.json' with { type: 'json' };
@@ -64,8 +63,10 @@ interface TemplateManifest {
   sampleData?: Record<string, Array<Record<string, unknown>>>;
 }
 
+// No `crm` template: the crm extension owns the same crm_* tables with other
+// columns, so installing both made the template's seed answer 500
+// (`column "subject" of relation "zvd_crm_activities" does not exist`).
 const BUILTIN: readonly TemplateManifest[] = [
-  crm as TemplateManifest,
   invoicing as TemplateManifest,
   project as TemplateManifest,
   helpdesk as TemplateManifest,
