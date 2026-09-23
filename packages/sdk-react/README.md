@@ -12,14 +12,16 @@ bun add @zveltio/react @zveltio/sdk
 
 ## Setup
 
-Wrap your app with `ZveltioProvider`:
+Create a client and wrap your app with `ZveltioProvider`:
 
 ```tsx
-import { ZveltioProvider } from '@zveltio/react';
+import { ZveltioProvider, createZveltioClient } from '@zveltio/react';
+
+const client = createZveltioClient({ baseUrl: 'https://your-engine.example.com' });
 
 export default function App() {
   return (
-    <ZveltioProvider url="https://your-engine.example.com">
+    <ZveltioProvider client={client}>
       <YourApp />
     </ZveltioProvider>
   );
@@ -34,17 +36,20 @@ export default function App() {
 import { useCollection, useRecord } from '@zveltio/react';
 
 function ProductList() {
-  const { data, loading, error, refresh } = useCollection('products', {
+  const { data, loading, error, refetch } = useCollection('products', {
     filter: { status: 'active' },
-    sort: '-createdAt',
+    sort: 'created_at',
+    order: 'desc',
     limit: 20,
   });
 
   if (loading) return <Spinner />;
-  return data.map((p) => <ProductCard key={p.id} product={p} />);
+  if (error) return <p>{error.message}</p>;
+  return (data ?? []).map((p) => <ProductCard key={p.id} product={p} />);
 }
 
 function ProductDetail({ id }: { id: string }) {
+  // Re-fetches when `id` changes.
   const { data: product } = useRecord('products', id);
   return <div>{product?.name}</div>;
 }
@@ -55,26 +60,39 @@ function ProductDetail({ id }: { id: string }) {
 ```tsx
 import { useRealtime } from '@zveltio/react';
 
-function LiveFeed() {
-  const event = useRealtime('orders');
-  // event: { action: 'create'|'update'|'delete', record: {...} } | null
-  return <div>Last event: {event?.action}</div>;
+function LiveOrders() {
+  const [orders, setOrders] = useState([]);
+
+  useRealtime(
+    'https://your-engine.example.com',
+    'orders',
+    'insert', // 'insert' | 'update' | 'delete', or null for every event
+    (event) => setOrders((prev) => [event.data, ...prev]),
+  );
+
+  return <OrderList orders={orders} />;
 }
 ```
 
-### Offline Sync
+The socket authenticates with the session cookie, so the engine must be same-site
+with your app (or behind the same reverse proxy).
+
+### Offline sync
 
 ```tsx
 import { useSyncCollection, useSyncStatus } from '@zveltio/react';
 
 function OfflineProducts() {
-  const { records, pending, conflicts } = useSyncCollection('products');
-  const { isOnline } = useSyncStatus();
+  const { data } = useSyncCollection('products', {
+    realtimeUrl: 'https://your-engine.example.com',
+    syncInterval: 30_000,
+  });
+  const { status, pendingCount } = useSyncStatus();
 
   return (
     <>
-      {!isOnline && <Banner>Offline — syncing when reconnected</Banner>}
-      {records.map((p) => (
+      {status === 'offline' && <Banner>Offline — {pendingCount} changes waiting</Banner>}
+      {(data ?? []).map((p) => (
         <div key={p.id} style={{ opacity: p._syncStatus === 'pending' ? 0.6 : 1 }}>
           {p.name}
         </div>
@@ -84,43 +102,51 @@ function OfflineProducts() {
 }
 ```
 
+Pass a `SyncManager` to `useSyncStatus(syncManager)` to see its pending queue;
+without one it reports only the browser's online state.
+
 ### Auth
 
 ```tsx
 import { useAuth } from '@zveltio/react';
 
 function Header() {
-  const { user, signIn, signOut, loading } = useAuth();
+  const { data, loading, login, logout } = useAuth();
 
   if (loading) return null;
-  if (!user) return <button onClick={() => signIn({ email, password })}>Sign In</button>;
+  if (!data?.user) return <button onClick={() => login(email, password)}>Sign In</button>;
   return (
     <div>
-      {user.email} <button onClick={signOut}>Sign Out</button>
+      {data.user.email} <button onClick={logout}>Sign Out</button>
     </div>
   );
 }
 ```
+
+`signup(email, password, name)` is returned alongside `login` and `logout`.
 
 ### Storage
 
 ```tsx
 import { useStorage } from '@zveltio/react';
 
-function FileUpload() {
-  const { upload, uploading, progress } = useStorage();
+function FileUpload({ folderId }: { folderId?: string }) {
+  const { upload, uploading, error } = useStorage();
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = await upload(file);
-      console.log('Uploaded:', url);
+      const stored = await upload(file, folderId);
+      console.log('Uploaded:', stored.url);
     }
   };
 
   return <input type="file" onChange={handleFile} disabled={uploading} />;
 }
 ```
+
+`list(folderId?)` and `remove(fileId)` are returned as well. The folder argument is a
+folder **id**; omit it for the root.
 
 ## Links
 

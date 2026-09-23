@@ -117,12 +117,12 @@ const session = await client.auth.session();
 ### Storage
 
 ```typescript
-// Upload a file
-const file = await client.storage.upload(fileInput.files[0], 'images/avatars');
-// Returns: { id, filename, url, size, mime_type }
+// Upload a file — the second argument is a folder id; omit it for the root
+const { file } = await client.storage.upload(fileInput.files[0], folderId);
+// file: { id, filename, url, size, mime_type, ... }
 
-// List files
-const { files } = await client.storage.list('images/avatars');
+// List files in that folder
+const { files } = await client.storage.list(folderId);
 
 // Delete file
 await client.storage.delete(file.id);
@@ -256,7 +256,7 @@ function FileUpload() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const result = await upload(file, 'avatars');
+    const result = await upload(file, folderId); // folder id, optional
     console.log(result.url);
   };
 
@@ -354,7 +354,8 @@ const { data: posts, loading, error, refetch } = useCollection('posts', {
 import { useRecord } from '@zveltio/vue';
 
 const props = defineProps<{ id: string }>();
-const { data: post, loading, error } = useRecord('posts', props.id);
+// A getter follows the prop; `props.id` alone would be read once, at setup.
+const { data: post, loading, error } = useRecord('posts', () => props.id);
 </script>
 ```
 
@@ -493,14 +494,15 @@ sync.stop();
 ### Svelte Integration
 
 ```typescript
-// In a Svelte 5 component
+// In a Svelte 5 component — each helper takes a setter and returns its cleanup
 import { useSyncCollection, useSyncStatus } from '@zveltio/sdk';
 
-const { data, loading } = useSyncCollection(client, 'notes', {
-  realtimeUrl: 'https://api.yourapp.com',
-});
+let notes = $state<any[]>([]);
+let status = $state({ pending: 0, conflicts: 0, isOnline: true });
 
-const { pendingOps, isSyncing, isOnline, lastSyncAt } = useSyncStatus(sync);
+const unsub = useSyncCollection(sync, 'notes', (records) => (notes = records));
+const unsubStatus = useSyncStatus(sync, (s) => (status = s));
+onDestroy(() => { unsub(); unsubStatus(); });
 ```
 
 ---
@@ -516,9 +518,9 @@ const realtime = new ZveltioRealtime('https://api.yourapp.com');
 realtime.connect();
 
 // Subscribe to a collection
-const unsubscribe = realtime.subscribe('orders', (event) => {
-  // event: { type: 'insert' | 'update' | 'delete', data: any }
-  console.log(event.type, event.data);
+const unsubscribe = realtime.subscribe('orders', (msg) => {
+  // msg: { type: 'event', collection, event: 'insert' | 'update' | 'delete', data, timestamp }
+  console.log(msg.event, msg.data);
 });
 
 // Unsubscribe
@@ -526,6 +528,17 @@ unsubscribe();
 
 // Auto-reconnects on disconnect — no manual handling needed
 realtime.disconnect();
+```
+
+From a server (Bun or Node), authenticate with an API key instead of a session
+cookie. The key's scopes decide which collections the socket may subscribe to,
+exactly as they do over REST. Browsers cannot set headers on a WebSocket and use
+the session cookie; never ship an API key to a browser.
+
+```typescript
+const realtime = new ZveltioRealtime('https://api.yourapp.com', {
+  headers: { 'X-API-Key': process.env.ZVELTIO_API_KEY! },
+});
 ```
 
 ### WebSocket protocol

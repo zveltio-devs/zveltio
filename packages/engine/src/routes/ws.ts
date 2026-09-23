@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
+import { authenticate, checkAccess, type RequestUser } from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
   applyColumnAccess,
-  checkPermission,
   DEFAULT_TENANT_ID,
   getColumnAccess,
   getRlsFilters,
@@ -35,6 +35,13 @@ const wsPermCache = new WeakMap<object, Map<string, { allowed: boolean; checkedA
 
 interface WSConnection {
   userId: string;
+  /**
+   * The principal as `authenticate` resolved it at upgrade. For a session that
+   * is just the id; for an API key it also carries the key's `scopes` and
+   * `rlsBypass`, which the subscribe check and the row policies must see —
+   * the same fields the REST path hands to `checkAccess` and `getRlsFilters`.
+   */
+  user: Pick<RequestUser, 'id' | 'scopes' | 'rlsBypass'> & { role?: string };
   /**
    * Tenant id resolved at upgrade time from the request's tenant
    * context. Used to scope `broadcastEvent` so a write in tenant A
@@ -124,8 +131,24 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
       return c.json({ error: 'Forbidden origin' }, 403);
     }
 
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    // Session cookie, or an API key in `X-API-Key` / `Authorization: Bearer` —
+    // the helper the REST data routes use, so a key is validated (hash, expiry,
+    // tenant) exactly as it is there. A browser cannot set headers on a
+    // WebSocket, so a key only ever arrives from a server-side client; the
+    // Origin check above still guards the cookie path.
+    const principal = wsDb ? await authenticate(c, auth, wsDb) : null;
+    if (!principal) return c.json({ error: 'Unauthorized' }, 401);
+    const authType: 'session' | 'api_key' =
+      principal.authType === 'api_key' ? 'api_key' : 'session';
+    const user =
+      authType === 'api_key'
+        ? {
+            id: principal.user.id,
+            role: 'api_key',
+            scopes: principal.user.scopes,
+            rlsBypass: principal.user.rlsBypass,
+          }
+        : { id: principal.user.id };
 
     const id = `ws_${++wsCounter}_${Date.now()}`;
     // Lock the tenant id at upgrade time. The WS connection persists
@@ -134,9 +157,8 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // each other's events.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
-    const authType = (c.get('authType') as 'session' | 'api_key' | undefined) ?? 'session';
     const upgraded = server.upgrade(c.req.raw, {
-      data: { id, userId: session.user.id, tenantId, authType },
+      data: { id, userId: user.id, user, tenantId, authType },
     });
 
     if (!upgraded) return c.text('WebSocket upgrade failed', 426);
@@ -200,8 +222,13 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
  * request-scoped store would have held, so the fix is to put it back.
  */
 async function socketMayRead(conn: WSConnection, collection: string): Promise<boolean> {
+  // `checkAccess` is `checkPermission` for a session, and adds an API key's
+  // scopes and its system-table refusal — without it a key would be judged by
+  // Casbin alone against the synthetic `apikey:<uuid>` subject.
+  if (!wsDb) return false;
+  const db = wsDb;
   return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-    checkPermission(conn.userId, collection, 'read'),
+    checkAccess(db, conn.user, collection, 'read'),
   ).catch(() => false);
 }
 
@@ -213,8 +240,8 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<void> {
   if (conn.access.has(collection)) return;
   const user = {
-    id: conn.userId,
-    role: await resolveUserRole({ id: conn.userId }).catch(() => 'user'),
+    ...conn.user,
+    role: await resolveUserRole(conn.user).catch(() => 'user'),
   };
   conn.access.set(collection, {
     rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
@@ -305,7 +332,7 @@ export const websocketHandler = {
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   open(ws: any) {
-    const { id, userId, tenantId, authType } = ws.data ?? {};
+    const { id, userId, user, tenantId, authType } = ws.data ?? {};
     if (!id || !userId) {
       // Should never happen — the /api/ws route enforces auth before upgrade.
       ws.close(4001, 'Unauthorized');
@@ -314,6 +341,7 @@ export const websocketHandler = {
 
     connections.set(id, {
       userId,
+      user: user ?? { id: userId },
       tenantId: tenantId ?? null,
       ws,
       subscriptions: new Set(), // no default subscriptions — clients must explicitly subscribe
