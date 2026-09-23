@@ -72,7 +72,9 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         name: col.name,
         display_name: col.display_name || col.name,
         type: 'collection' as const,
-        actions: ['view', 'create', 'update', 'delete'],
+        // The names the data handlers ask Casbin for. This said `view`, which no
+        // check asks for: every tick of it granted nothing (migration 015).
+        actions: ['read', 'create', 'update', 'delete'],
       })),
       ...zones.map((z) => ({
         name: z.slug,
@@ -183,8 +185,13 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       .filter((p) => roleNameToId.has(p.v0))
       .map((p) => ({
         role_id: roleNameToId.get(p.v0),
-        resource: p.v1,
-        action: p.v2,
+        // `bulk` below writes `(role, '*', resource, action)`: v1 is the DOMAIN,
+        // v2 the resource, v3 the action. Reading v1/v2 handed the screen
+        // resource `*` and the collection name as the action — every saved box
+        // came back unticked, and the next save sent `action: '<collection>'`,
+        // which the enum refuses with 400. One grant made the screen unsavable.
+        resource: p.v2,
+        action: p.v3,
       }));
 
     return c.json({ permissions });
@@ -223,7 +230,9 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         if (!roleName) continue;
         // Domain '*' = global (applies in every tenant), matching the pre-domain
         // behaviour. Per-tenant policies use a concrete tenant id instead.
-        await e.addPolicy(roleName, '*', perm.resource, perm.action);
+        // `view` is what this screen used to offer; it means `read` (see /resources).
+        const action = perm.action === 'view' ? 'read' : perm.action;
+        await e.addPolicy(roleName, '*', perm.resource, action);
       }
 
       await invalidatePermissionCache();

@@ -6,15 +6,26 @@ export class ZveltioRealtime {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private headers: Record<string, string> | undefined;
 
-  constructor(baseUrl: string) {
+  /**
+   * @param options.headers Sent with the upgrade — e.g. `{ 'X-API-Key': key }`
+   *   for a server-side client. Bun and Node (undici) accept them; a browser
+   *   cannot set headers on a WebSocket and authenticates by session cookie.
+   */
+  constructor(baseUrl: string, options: { headers?: Record<string, string> } = {}) {
     // Convert http(s) to ws(s)
     this.baseUrl = baseUrl.replace(/^http/, 'ws');
+    this.headers = options.headers;
   }
 
   connect(): void {
     const wsUrl = `${this.baseUrl}/api/ws`;
-    this.ws = new WebSocket(wsUrl);
+    // The two-argument form with `{ headers }` is the Bun/undici extension; the
+    // standard constructor stays in use when there is nothing to send.
+    this.ws = this.headers
+      ? new WebSocket(wsUrl, { headers: this.headers } as unknown as string[])
+      : new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;

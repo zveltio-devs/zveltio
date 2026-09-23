@@ -1,4 +1,4 @@
-import { ref, onMounted, type Ref } from 'vue';
+import { ref, onMounted, watch, toValue, type MaybeRefOrGetter, type Ref } from 'vue';
 import { inject } from 'vue';
 import { fetchCollection, type CollectionOptions } from '@zveltio/sdk';
 import type { ZveltioClient } from '@zveltio/sdk';
@@ -7,7 +7,9 @@ import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function useCollection<T = any>(
   collectionName: string,
-  options?: CollectionOptions,
+  // A ref or getter re-fetches when the options change, as `@zveltio/react`'s
+  // `useCollection` does; a plain object is read once.
+  options?: MaybeRefOrGetter<CollectionOptions | undefined>,
 ): {
   data: Ref<T[] | null>;
   loading: Ref<boolean>;
@@ -25,7 +27,7 @@ export function useCollection<T = any>(
     loading.value = true;
     error.value = null;
     try {
-      data.value = await fetchCollection<T>(client, collectionName, options);
+      data.value = await fetchCollection<T>(client, collectionName, toValue(options));
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
     } finally {
@@ -34,6 +36,7 @@ export function useCollection<T = any>(
   };
 
   onMounted(load);
+  watch(() => JSON.stringify(toValue(options)), load);
 
   return { data, loading, error, refetch: load };
 }

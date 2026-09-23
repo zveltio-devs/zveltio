@@ -124,6 +124,7 @@ describe('afterWrite', () => {
         action: 'create',
         data: { id: 'rec-1', name: 'Ada' },
         userId: 'user-1',
+        author: 'user-1',
         tenantId: 'tenant-a',
       });
       expect(db.executed(/zv_revisions/i).length).toBe(1);
@@ -154,6 +155,7 @@ describe('afterWrite', () => {
         data: { id: 'rec-2' },
         delta: { name: 'gone' },
         userId: 'user-2',
+        author: 'user-2',
         tenantId: null,
       });
       expect(wsSpy).toHaveBeenCalledWith('contacts', 'delete', { id: 'rec-2' }, null);
@@ -180,6 +182,7 @@ describe('afterWrite', () => {
         data: { id: 'rec-3', name: 'New' },
         delta: { name: 'New' },
         userId: 'user-3',
+        author: 'user-3',
         tenantId: 'tenant-b',
       });
       expect(wsSpy).toHaveBeenCalledWith(

@@ -291,6 +291,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
       action: 'create',
       data: record,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
     const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
@@ -404,6 +405,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       action: 'update',
       data: record,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
     const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
@@ -528,6 +530,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
       // labels this field "what changed".
       delta: finalPatch,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
     const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
@@ -612,6 +615,7 @@ export async function deleteRecord(c: Context, db: Database): Promise<Response> 
       action: 'delete',
       data: existing,
       userId: user.id,
+      author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
 
