@@ -912,7 +912,6 @@ const SECTIONS: Section[] = [
       'scripts/sql/',
       'scripts/sync-engine-version.ts',
       'scripts/validate-all-extensions.ts',
-      'scripts/backfill-i18n-prefixes.ts',
     ],
   },
   {

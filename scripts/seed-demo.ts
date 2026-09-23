@@ -31,6 +31,10 @@ async function signIn(): Promise<string> {
 
 async function jobDone(cookie: string, jobId: string): Promise<boolean> {
   const r = await fetch(`${BASE}/api/collections/jobs/${jobId}`, { headers: { Cookie: cookie } });
+  if (r.status === 429) {
+    await Bun.sleep((Number(r.headers.get('retry-after')) || 5) * 1000);
+    return false;
+  }
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const j = (await r.json().catch(() => ({}))) as any;
   const status = j?.job?.status;
@@ -38,17 +42,44 @@ async function jobDone(cookie: string, jobId: string): Promise<boolean> {
   return status === 'completed';
 }
 
-async function pollJobs(cookie: string, jobIds: string[], timeoutMs = 90_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+// The deadline is for a STALLED queue, not the whole install: jobs run one at a
+// time, and ansvsa's 64 collections take several minutes, so a flat 90 s failed
+// a queue that was working. Every finished job buys another window.
+async function pollJobs(cookie: string, jobIds: string[], stallMs = 90_000): Promise<void> {
+  let deadline = Date.now() + stallMs;
   const pending = new Set(jobIds);
   while (pending.size > 0 && Date.now() < deadline) {
+    const before = pending.size;
     for (const id of [...pending]) {
-      if (await jobDone(cookie, id).catch(() => false)) pending.delete(id);
+      // No `.catch` here: it swallowed the throw for a FAILED job, so a failure
+      // (`Collection 'crm_activities' already exists`) waited out the 90 s and
+      // was reported as "did not complete in time".
+      // The queue runs jobs in order, so the first unfinished one is where to
+      // stop. Asking about all 64 of ansvsa's every half second tripped the rate
+      // limiter, every answer became a 429, and a working queue looked stalled.
+      if (!(await jobDone(cookie, id))) break;
+      pending.delete(id);
     }
+    if (pending.size < before) deadline = Date.now() + stallMs;
     if (pending.size > 0) await Bun.sleep(500);
   }
   if (pending.size > 0)
     throw new Error(`${pending.size} collection job(s) did not complete in time`);
+}
+
+/**
+ * POST, waiting out a 429. Six templates installed and seeded back to back trip
+ * the write limiter, and the last two installs failed with a bare 429. The
+ * limiter escalates on repeat offences, so the wait is the one it asks for.
+ */
+async function post(url: string, headers: Record<string, string>): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { method: 'POST', headers, body: '{}' });
+    if (res.status !== 429 || attempt === 3) return res;
+    const wait = Number(res.headers.get('retry-after')) || 5;
+    console.log(`  … rate limited, waiting ${wait}s`);
+    await Bun.sleep(wait * 1000);
+  }
 }
 
 const cookie = await signIn();
@@ -66,11 +97,7 @@ const report: string[] = [];
 
 for (const t of templates) {
   // 1. Install (creates collections via the async DDL queue).
-  const insRes = await fetch(`${BASE}/api/templates/${encodeURIComponent(t.id)}/install`, {
-    method: 'POST',
-    headers,
-    body: '{}',
-  });
+  const insRes = await post(`${BASE}/api/templates/${encodeURIComponent(t.id)}/install`, headers);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const ins = (await insRes.json().catch(() => ({}))) as any;
   if (!ins?.installed) {
@@ -89,18 +116,23 @@ for (const t of templates) {
   }
 
   // 3. Seed starter rows (retry once: 425 means a table wasn't ready yet).
+  // Each call reports only the rows IT inserted, so the attempts add up. Anything
+  // but a 200 at the end — a 500, or a table still missing after the retry — is
+  // a failed seed: it used to print ✓ with "0 sample rows" and exit 0.
   let seeded = 0;
+  let seedStatus = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const seedRes = await fetch(`${BASE}/api/templates/${encodeURIComponent(t.id)}/seed`, {
-      method: 'POST',
-      headers,
-      body: '{}',
-    });
+    const seedRes = await post(`${BASE}/api/templates/${encodeURIComponent(t.id)}/seed`, headers);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const s = (await seedRes.json().catch(() => ({}))) as any;
-    seeded = s?.seeded ?? 0;
+    seeded += s?.seeded ?? 0;
+    seedStatus = seedRes.status;
     if (seedRes.status !== 425) break;
     await Bun.sleep(1000);
+  }
+  if (seedStatus !== 200) {
+    report.push(`✗ ${t.id}: seed answered ${seedStatus} after ${seeded} rows`);
+    continue;
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

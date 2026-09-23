@@ -237,7 +237,10 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
       EXPECTED_VISIBLE=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc \
         "SELECT count(*) FROM $PROBE_TABLE WHERE tenant_id::text = '$DRILL_TENANT'" 2>/dev/null | tr -d ' ' || true)
 
-      if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]]; then
+      # At least one own row, or the probe proved nothing: the INSERT above is
+      # `|| true`, and when it fails both counts are 0 and agree.
+      if [[ -n "$RESTORED_VISIBLE" ]] && [[ "$RESTORED_VISIBLE" == "$EXPECTED_VISIBLE" ]] \
+         && [[ "$EXPECTED_VISIBLE" -ge 1 ]]; then
         pass "restored data readable under tenant isolation ($RESTORED_VISIBLE of its own rows)" 0
       else
         fail "restored data not readable under tenant isolation" \

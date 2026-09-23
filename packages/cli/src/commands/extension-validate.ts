@@ -214,10 +214,26 @@ function inferExpectedName(dir: string): string {
  */
 export function checkBundleIntegrity(dir: string, manifest: unknown): ValidationError[] {
   const bundle = join(dir, 'engine', 'index.js');
-  if (!existsSync(bundle)) return [];
   const integrity = (manifest as { integrity?: { engineSha256?: string; sourceSha256?: string } })
     ?.integrity;
   if (!integrity) return [];
+  // Engine source plus a recorded bundle hash is a packed extension. With the
+  // bundle gone the loader falls back to engine/index.ts, which a compiled engine
+  // cannot resolve its dependencies from — and this was the one integrity failure
+  // that returned no error at all.
+  if (!existsSync(bundle)) {
+    return integrity.engineSha256 && existsSync(join(dir, 'engine', 'index.ts'))
+      ? [
+          {
+            code: 'BUNDLE_MISSING',
+            message:
+              'manifest records integrity.engineSha256 but engine/index.js does not exist. ' +
+              'Run `zveltio extension pack`.',
+            file: 'engine/index.js',
+          },
+        ]
+      : [];
+  }
   const out: ValidationError[] = [];
 
   if (integrity.engineSha256) {

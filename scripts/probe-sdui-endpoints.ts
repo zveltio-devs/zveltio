@@ -82,6 +82,9 @@ type Sev = 'OK' | 'HARD' | 'SOFT';
 type Row = { name: string; endpoint: string; status: number; sev: Sev; note: string };
 const rows: Row[] = [];
 
+type Todo = { name: string; primary: Pair; refusal?: { status: number; reason: string } };
+const todo: Todo[] = [];
+
 for (const manifestPath of findManifests(EXT_ROOT).sort()) {
   const dir = dirname(manifestPath);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -104,7 +107,21 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
         ? { dataSource: (master.dataSource as string).split('?')[0], dataPath: master.dataPath }
         : (pairs.find((x) => !x.dataSource.includes('{')) ?? pairs[0]);
     if (!primary) continue;
+    todo.push({ name, primary });
+  }
+}
 
+// Enable in passes. The catalogue is walked alphabetically, so an extension
+// that requires another one (ecommerce/store needs operations/inventory,
+// finance/banking needs finance/invoicing) is reached before its dependency and
+// refused with 422 "Missing required extensions". A single pass reported that
+// as SOFT, and those extensions' contracts were never probed at all. Retrying
+// the refusals once everything else is on lets dependencies land first; a pass
+// that enables nothing new ends it.
+let queue = todo;
+while (queue.length > 0) {
+  const refused: Todo[] = [];
+  for (const { name, primary } of queue) {
     // Enable the extension before probing. An enable failure is a SOFT result,
     // not a contract failure: in CI it usually means a missing Postgres
     // extension (postgis / pg_trgm) the image doesn't ship — an environment
@@ -126,13 +143,7 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
       const reason = (enableBody?.detail ?? enableBody?.error ?? enableBody?.message ?? '')
         .toString()
         .slice(0, 120);
-      rows.push({
-        name,
-        endpoint: primary.dataSource,
-        status: enableRes.status,
-        sev: 'SOFT',
-        note: `enable failed (env/deps?): ${reason}`,
-      });
+      refused.push({ name, primary, refusal: { status: enableRes.status, reason } });
       continue;
     }
 
@@ -179,6 +190,20 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
     }
     rows.push({ name, endpoint: primary.dataSource, status: res.status, sev, note });
   }
+  if (refused.length < queue.length) {
+    queue = refused;
+    continue;
+  }
+  for (const { name, primary, refusal } of refused) {
+    rows.push({
+      name,
+      endpoint: primary.dataSource,
+      status: refusal?.status ?? 0,
+      sev: 'SOFT',
+      note: `enable failed (env/deps?): ${refusal?.reason ?? ''}`,
+    });
+  }
+  break;
 }
 
 const hard = rows.filter((r) => r.sev === 'HARD');
@@ -195,4 +220,10 @@ if (hard.length) {
   for (const r of hard) console.log(`  ${r.name}\t${r.endpoint}\t${r.note}`);
 }
 
+// Every row SOFT means nothing was probed: an engine whose enable route refuses
+// every extension would otherwise pass this gate with 60 warnings.
+if (ok.length === 0) {
+  console.log('\n--- NO SCHEMA WAS PROBED --- every extension was refused or soft-failed.');
+  process.exit(1);
+}
 process.exit(hard.length > 0 ? 1 : 0);

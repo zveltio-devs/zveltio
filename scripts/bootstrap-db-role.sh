@@ -54,6 +54,10 @@ if [ -z "$APP_PASS" ]; then
   exit 1
 fi
 
+# Passwords go into SQL string literals, so a quote in one ended the literal:
+# `it's…` failed with `unrecognized role option "s"`. Double every quote.
+sql_str() { printf '%s' "${1//\'/\'\'}"; }
+
 SUPER_USER="${PGUSER:-postgres}"
 psql_super() { psql -v ON_ERROR_STOP=1 -U "$SUPER_USER" "$@"; }
 
@@ -67,10 +71,10 @@ psql_super -d postgres -q <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$APP_ROLE') THEN
-    CREATE ROLE $APP_ROLE LOGIN PASSWORD '$APP_PASS'
+    CREATE ROLE $APP_ROLE LOGIN PASSWORD '$(sql_str "$APP_PASS")'
       NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   ELSE
-    ALTER ROLE $APP_ROLE LOGIN PASSWORD '$APP_PASS'
+    ALTER ROLE $APP_ROLE LOGIN PASSWORD '$(sql_str "$APP_PASS")'
       NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
 END
@@ -146,10 +150,10 @@ if [ -n "$BACKUP_PASS" ]; then
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$BACKUP_ROLE') THEN
-    CREATE ROLE $BACKUP_ROLE LOGIN PASSWORD '$BACKUP_PASS'
+    CREATE ROLE $BACKUP_ROLE LOGIN PASSWORD '$(sql_str "$BACKUP_PASS")'
       NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
   ELSE
-    ALTER ROLE $BACKUP_ROLE LOGIN PASSWORD '$BACKUP_PASS'
+    ALTER ROLE $BACKUP_ROLE LOGIN PASSWORD '$(sql_str "$BACKUP_PASS")'
       NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
 END

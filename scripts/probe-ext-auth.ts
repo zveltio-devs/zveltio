@@ -169,6 +169,10 @@ console.log(
 if (softSkips.length > 0) {
   console.log(`   ⚠️  soft-skipped (not active here): ${softSkips.join(', ')}`);
 }
+// All of them skipped means the gate was never exercised — not that it holds.
+if (softSkips.length === manifests.length) {
+  failures.push(`every declaring extension was soft-skipped, so nothing was probed`);
+}
 if (failures.length > 0) {
   console.error(`\n❌ ext-auth gate probe FAILED (${failures.length}):`);
   for (const f of failures) console.error(`   • ${f}`);

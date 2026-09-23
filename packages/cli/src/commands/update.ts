@@ -29,7 +29,8 @@ interface VersionEntry {
 }
 
 interface VersionsJson {
-  latest: string;
+  /** null until the first stable release — every 3.0.0 build so far is a beta. */
+  latest: string | null;
   latest_beta: string | null;
   versions: VersionEntry[];
 }
@@ -95,8 +96,11 @@ export const updateCommand = new Command('update')
 
       versionsData = (await res.json()) as VersionsJson;
 
-      if (!versionsData?.latest) {
-        throw new Error('Invalid versions response (missing "latest" field)');
+      // `latest` is the newest STABLE release, and there has not been one: the
+      // live file says `"latest": null`. Requiring it made every `update`, even
+      // `--channel beta`, fail as "Invalid versions response".
+      if (!versionsData?.latest && !versionsData?.latest_beta) {
+        throw new Error('Invalid versions response (no "latest" or "latest_beta")');
       }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
@@ -139,6 +143,16 @@ export const updateCommand = new Command('update')
       (opts.channel === 'beta'
         ? (versionsData.latest_beta ?? versionsData.latest)
         : versionsData.latest);
+
+    if (!targetVersion) {
+      console.error(c.red('\n  No stable release has been published yet.'));
+      console.error(
+        c.dim(
+          `  Latest beta: v${versionsData.latest_beta} — run ${c.cyan('zveltio update --channel beta')}\n`,
+        ),
+      );
+      process.exit(1);
+    }
 
     console.log(`  Target version:  ${c.cyan(`v${targetVersion}`)}`);
 
