@@ -19,10 +19,13 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const engineRoot = join(import.meta.dir, '..');
-const outFile = process.env.ZVELTIO_BINARY_OUT ?? join(engineRoot, 'dist/zveltio');
+// Resolved against the caller's directory: the compile below runs with
+// `cwd: engineRoot`, so a relative path handed straight to `--outfile` landed
+// under packages/engine while the log reported the path as given.
+const outFile = resolve(process.env.ZVELTIO_BINARY_OUT ?? join(engineRoot, 'dist/zveltio'));
 const minify = process.env.ZVELTIO_BINARY_MINIFY === '1';
 
 function defaultTarget(): string {
@@ -64,7 +67,7 @@ async function main(): Promise<void> {
     );
   }
 
-  mkdirSync(join(engineRoot, 'dist'), { recursive: true });
+  mkdirSync(dirname(outFile), { recursive: true });
 
   const args = [
     'build',
