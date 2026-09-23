@@ -37,7 +37,7 @@ interface SeededRecord {
 interface SmokeState {
   collection: string;
   records: SeededRecord[];
-  webhookId: string | null;
+  webhookId: string;
   flowId: string | null;
 }
 
@@ -145,7 +145,11 @@ async function seed(): Promise<void> {
   }
 
   // ── A webhook (durable config resource) ─────────────────────────────────
-  let webhookId: string | null = null;
+  //
+  // Required, not best-effort. It used to warn and carry on, and verify then
+  // skipped the check and still printed "webhook survived": in CI the create
+  // had been answering 500 (FIELD_ENCRYPTION_KEY reached the engine as `0`, an
+  // unquoted YAML number) and the gate stayed green over a webhook it never made.
   const wh = await fetch(`${BASE}/api/webhooks`, {
     method: 'POST',
     headers: tenantHeaders({ Cookie: cookie, 'Content-Type': 'application/json' }),
@@ -156,12 +160,12 @@ async function seed(): Promise<void> {
       collections: [collection],
     }),
   });
-  if (wh.status < 300) {
-    const j = (await wh.json()) as Record<string, unknown> & { webhook?: { id?: string } };
-    webhookId = (j.webhook?.id ?? j.id ?? null) as string | null;
-  } else {
-    console.warn(`[upgrade-smoke] webhook seed skipped (HTTP ${wh.status})`);
+  if (wh.status >= 300) {
+    throw new Error(`webhook create failed: HTTP ${wh.status} ${await wh.text()}`);
   }
+  const whBody = (await wh.json()) as Record<string, unknown> & { webhook?: { id?: string } };
+  const webhookId = (whBody.webhook?.id ?? whBody.id) as string | undefined;
+  if (!webhookId) throw new Error(`webhook create returned no id: ${JSON.stringify(whBody)}`);
 
   // ── A flow (best-effort — schema varies; never fail seed on it) ──────────
   let flowId: string | null = null;
@@ -241,7 +245,7 @@ async function verify(): Promise<void> {
   }
 
   // 4. Webhook survived.
-  if (state.webhookId) {
+  {
     const res = await fetch(`${BASE}/api/webhooks/${state.webhookId}`, {
       headers: tenantHeaders({ Cookie: cookie }),
     });
@@ -263,7 +267,7 @@ async function verify(): Promise<void> {
   }
   console.log(
     `[upgrade-smoke] ✓ upgrade verified: ${state.records.length} records intact, ` +
-      `auth valid, health green, webhook${state.flowId ? ' + flow' : ''} survived.`,
+      `auth valid, health green, webhook${state.flowId ? ' + flow' : ' (flow not seeded)'} survived.`,
   );
 }
 

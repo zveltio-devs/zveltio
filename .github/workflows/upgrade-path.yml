@@ -52,7 +52,7 @@ jobs:
       VALKEY_URL: redis://localhost:6379
       BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
       BETTER_AUTH_URL: http://localhost:3000
-      FIELD_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
       # Makes enqueueDDLJob synchronously await the job (ddl-queue.ts) so a
       # collection-create isn't racing the worker poll; upgrade-smoke also polls.
       NODE_ENV: test
