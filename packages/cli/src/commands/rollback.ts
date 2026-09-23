@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { loadEngineMigrationModules } from '../lib/engine-modules.js';
 
 export const rollbackCommand = new Command('rollback')
   .description('Rollback database migrations to a specific version')
@@ -17,15 +18,21 @@ export const rollbackCommand = new Command('rollback')
 
     process.env.DATABASE_URL = databaseUrl;
 
-    // Runtime paths — avoids TypeScript rootDir cross-package errors
-    const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
-    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
-      .href;
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const { initDatabase } = (await import(dbPath)) as any;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const { getLastAppliedMigration, rollbackMigration } = (await import(migrationsPath)) as any;
+    let initDatabase: (() => Promise<{ destroy?: () => Promise<void> }>) | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: the engine's runtime modules are untyped from here
+    let getLastAppliedMigration: any;
+    // biome-ignore lint/suspicious/noExplicitAny: the engine's runtime modules are untyped from here
+    let rollbackMigration: any;
+    try {
+      const { db: dbModule, migrations } = await loadEngineMigrationModules();
+      initDatabase = dbModule.initDatabase;
+      getLastAppliedMigration = migrations.getLastAppliedMigration;
+      rollbackMigration = migrations.rollbackMigration;
+    } catch (err) {
+      console.error(`\n❌ ${(err as Error).message}\n`);
+      process.exit(1);
+    }
+    if (!initDatabase) process.exit(1);
 
     // Determine target version
     let targetVersion: number;

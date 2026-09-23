@@ -92,6 +92,10 @@ program
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .option('--email <email>', 'Admin email (skip prompt)')
   .option('--name <name>', 'Admin name (skip prompt)')
+  .option(
+    '--recovery-token <token>',
+    'RECOVERY_TOKEN the engine was started with — required to grant the god role (env: RECOVERY_TOKEN)',
+  )
   .action(createGodCommand);
 
 // ── zveltio generate ──────────────────────────────────────────────────────────
