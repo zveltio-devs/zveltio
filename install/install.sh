@@ -262,7 +262,7 @@ EOF
   success "Configuration written to ${ZVELTIO_DIR}/.env"
 
   # ── Copy helper scripts ───────────────────────────────────────────────────
-  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install"
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install"
   for script in update.sh uninstall.sh; do
     curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
       cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
@@ -689,6 +689,11 @@ UNIT
     exit 1
   fi
 
+  # Release tags carry a `v`; scripts/install.sh (get.zveltio.com) passes the
+  # bare version. Used as-is, every download below was a 404 and the native
+  # install stopped at "No pre-built binary found".
+  RESOLVED_VERSION="v${RESOLVED_VERSION#v}"
+
   info "Installing version: ${RESOLVED_VERSION}"
 
   local BINARY_INSTALLED=false
@@ -891,7 +896,7 @@ EOF
   chmod 600 "${ZVELTIO_DIR}/.env"
 
   # ── Copy helper scripts ───────────────────────────────────────────────────────
-  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install"
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install"
   for script in update.sh uninstall.sh; do
     curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
       cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true

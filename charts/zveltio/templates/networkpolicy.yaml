@@ -17,9 +17,13 @@ metadata:
   labels:
     {{- include "zveltio.labels" . | nindent 4 }}
 spec:
+  # Engine pods only. The bundled postgres and valkey pods carry the same
+  # selector labels, so without the component this policy also admitted
+  # nothing but port 3000 to them and the engine could not reach its database.
   podSelector:
     matchLabels:
       {{- include "zveltio.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: engine
   policyTypes:
     - Ingress
     - Egress
@@ -44,13 +48,17 @@ spec:
         - protocol: TCP
           port: 53
     # In-namespace dependencies (Postgres, Valkey).
-    - to:
-        - podSelector: {}
-      ports:
+    # Database, cache and HTTPS to any destination. `to: podSelector: {}`
+    # meant pods in this namespace only, which blocked the default setup — an
+    # external DATABASE_URL — and the extension registry, which the engine
+    # downloads extensions from on demand.
+    - ports:
         - protocol: TCP
           port: 5432
         - protocol: TCP
           port: 6379
+        - protocol: TCP
+          port: 443
     {{- with .Values.networkPolicy.extraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
