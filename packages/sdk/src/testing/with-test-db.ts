@@ -26,6 +26,7 @@
  */
 
 import type { Kysely } from 'kysely';
+import { parseMigrationSql } from '../validate/migration-parse.js';
 
 export interface WithTestDbOptions {
   /** Postgres image. Default: `postgres:18-alpine`. */
@@ -65,9 +66,6 @@ export interface TestDb {
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let _sharedContainer: any | null = null;
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-let _sharedClient: any | null = null;
-let _sharedDbCounter = 0;
 
 async function loadPgContainer(): Promise<typeof import('@testcontainers/postgresql')> {
   try {
@@ -131,7 +129,6 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
   const adminPool = await openPgPool(adminConnStr);
   try {
     await adminPool.query(`CREATE DATABASE "${database}"`);
-    _sharedDbCounter++;
   } finally {
     await adminPool.end();
   }
@@ -230,7 +227,13 @@ export async function withTestDb<T>(
 export async function applyMigrationStrings(db: Kysely<any>, sqlStrings: string[]): Promise<void> {
   const { sql } = await loadKysely();
   for (const raw of sqlStrings) {
-    const statements = splitStatements(raw);
+    // Only the UP half. A Zveltio migration keeps its rollback in the same file
+    // behind a `-- DOWN` marker, and the runner that applies it in production
+    // splits on that marker — this helper did not, so the documented example
+    // (glob `engine/migrations/*.sql`, hand them all to this function) created
+    // the schema and then dropped it again, in the same call. Every assertion
+    // after it failed on a table that had existed a statement earlier.
+    const statements = splitStatements(parseMigrationSql(raw).up);
     for (const stmt of statements) {
       const trimmed = stmt.trim();
       if (!trimmed) continue;
@@ -257,14 +260,6 @@ export async function applyMigrationFiles(db: Kysely<any>, paths: string[]): Pro
  * reuse container is active.
  */
 export async function stopReusedTestDb(): Promise<void> {
-  if (_sharedClient) {
-    try {
-      await _sharedClient.end();
-    } catch {
-      /* */
-    }
-    _sharedClient = null;
-  }
   if (_sharedContainer) {
     try {
       await _sharedContainer.stop();

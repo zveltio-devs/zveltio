@@ -276,12 +276,18 @@ export class SyncManager {
               ) {
                 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                 const merged = mergeLWW(localRecord._crdtDoc, (serverRecord as any).__crdt);
-                const resolvedData = fromDocument(merged);
-                await this.store.resolveConflict(op.collection, op.recordId, resolvedData);
+                await this.store.resolveConflict(op.collection, op.recordId, fromDocument(merged));
               } else {
                 const resolved = this.config.onConflict(localRecord?.data, serverRecord);
                 await this.store.resolveConflict(op.collection, op.recordId, resolved);
               }
+              // The operation the server just rejected stayed in the queue with
+              // its original payload and its attempt count untouched, so the next
+              // tick sent the same payload, took the same 409 and resolved the
+              // same conflict again — every `syncInterval`, with no end. Count
+              // the attempt so `maxRetries` retires it; the resolved row is
+              // queued by `resolveConflict` as its own operation.
+              await this.store.markFailed(op.id, 'rejected with 409 — resolved locally');
             } catch {
               /* fallback: server wins — ignore error */
             }
