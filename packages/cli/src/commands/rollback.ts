@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { loadEngineMigrationModules } from '../lib/engine-modules.js';
 
 export const rollbackCommand = new Command('rollback')
   .description('Rollback database migrations to a specific version')
@@ -17,15 +18,15 @@ export const rollbackCommand = new Command('rollback')
 
     process.env.DATABASE_URL = databaseUrl;
 
-    // Runtime paths — avoids TypeScript rootDir cross-package errors
-    const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
-    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
-      .href;
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const { initDatabase } = (await import(dbPath)) as any;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const { getLastAppliedMigration, rollbackMigration } = (await import(migrationsPath)) as any;
+    let engine: Awaited<ReturnType<typeof loadEngineMigrationModules>>;
+    try {
+      engine = await loadEngineMigrationModules();
+    } catch (err) {
+      console.error(`\n❌ ${(err as Error).message}\n`);
+      process.exit(1);
+    }
+    const { initDatabase } = engine.db;
+    const { getLastAppliedMigration, rollbackMigration } = engine.migrations;
 
     // Determine target version
     let targetVersion: number;

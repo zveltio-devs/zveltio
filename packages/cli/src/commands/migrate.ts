@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { loadEngineMigrationModules } from '../lib/engine-modules.js';
 
 export const migrateCommand = new Command('migrate')
   .description('Run pending database migrations')
@@ -22,16 +23,9 @@ async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<vo
   try {
     process.env.DATABASE_URL = databaseUrl;
 
-    // Runtime path — TypeScript won't resolve this statically (cross-package)
-    const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
-    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
-      .href;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const { initDatabase } = (await import(dbPath)) as any;
-    const { runMigrations, getAppliedMigrations, getLastAppliedMigration } = (await import(
-      migrationsPath
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    )) as any;
+    const { db: dbModule, migrations } = await loadEngineMigrationModules();
+    const { initDatabase } = dbModule;
+    const { runMigrations, getAppliedMigrations, getLastAppliedMigration } = migrations;
 
     const db = await initDatabase();
 
