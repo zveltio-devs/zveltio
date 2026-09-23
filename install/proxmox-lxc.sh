@@ -7,7 +7,7 @@
 # Bun + PostgreSQL 18 + pgvector + Valkey + SeaweedFS + systemd services.
 #
 # Usage:
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install/proxmox-lxc.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/proxmox-lxc.sh)"
 #
 # Or locally:
 #   bash install/proxmox-lxc.sh

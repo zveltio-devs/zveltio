@@ -1,0 +1,11 @@
+# The Dockerfile installs and builds everything itself; host build output and
+# dependencies must not leak into (or overwrite) what it builds.
+node_modules
+**/node_modules
+**/dist
+**/.svelte-kit
+packages/engine/src/studio-dist
+.git
+**/.env
+**/.env.*
+!**/.env.example

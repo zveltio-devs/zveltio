@@ -69,25 +69,33 @@ LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 
+# Numeric ids, pinned to what `adduser -S` assigned in every image so far, so
+# existing volumes stay writable. Kubernetes `runAsNonRoot` refuses an image
+# whose USER is a name ("cannot verify user is non-root").
 RUN apk add --no-cache curl tzdata && \
-    addgroup -S zveltio && \
-    adduser -S zveltio -G zveltio
+    addgroup -S -g 101 zveltio && \
+    adduser -S -u 100 -G zveltio zveltio
 
 COPY --from=engine-builder /zveltio /usr/local/bin/zveltio
 RUN chmod +x /usr/local/bin/zveltio
 
-WORKDIR /data
+# Static files live outside /data: a volume mounted on /data (the Helm chart's
+# PVC) hid them, and /admin served the "Studio UI files are missing" page.
+COPY --from=frontend-builder /app/packages/studio/dist /app/studio-dist
+COPY --from=frontend-builder /app/packages/client/dist /app/client-dist
+ENV STUDIO_DIST_PATH=/app/studio-dist
+ENV CLIENT_DIST_PATH=/app/client-dist
 
-# Static files served at runtime from CWD (/data)
-COPY --from=frontend-builder /app/packages/studio/dist ./studio-dist
-COPY --from=frontend-builder /app/packages/client/dist ./client-dist
+WORKDIR /data
 
 # /data must be writable by the zveltio user — the engine downloads extension
 # packages into /data/extensions/ and ensureExtensionCoreDeps() writes
 # package.json + node_modules there at first start. Without this chown, the
 # unprivileged user cannot create files in /data (which is root-owned by the
 # WORKDIR directive when no USER has been set yet).
-RUN mkdir -p /data/extensions && chown -R zveltio:zveltio /data
+# /data/storage exists in the image so a fresh named volume mounted there
+# inherits zveltio ownership instead of root's.
+RUN mkdir -p /data/extensions /data/storage && chown -R zveltio:zveltio /data
 
 ENV PORT=3000
 ENV NODE_ENV=production
@@ -97,7 +105,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
 
 EXPOSE 3000
 
-USER zveltio
+USER 100:101
 
 ENTRYPOINT ["/usr/local/bin/zveltio"]
 CMD ["start"]

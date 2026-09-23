@@ -15,7 +15,12 @@ global:
 
 scrape_configs:
   - job_name: zveltio
-    metrics_path: /api/metrics
+    # The engine serves /metrics (there is no /api/metrics route), and refuses
+    # it without METRICS_TOKEN. Put the same token here, or start the engine
+    # with METRICS_ALLOW_UNAUTHENTICATED=1 on a trusted network.
+    metrics_path: /metrics
+    # authorization:
+    #   credentials: <METRICS_TOKEN>
     # If METRICS_TOKEN is set on the engine, drop this in via env
     # substitution or expose via a sidecar — Prometheus doesn't support
     # bearer-token env vars natively.

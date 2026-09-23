@@ -1,11 +1,13 @@
 {{- /*
-Pre-install / pre-upgrade migration Job. Off by default — the engine
+Post-install / pre-upgrade migration Job. Off by default — the engine
 auto-migrates on startup (S4-10, MIGRATIONS_AUTO=true). Enable this for
 blue/green flows where you want migrations applied BEFORE any new pod
 takes traffic.
 
 Helm hook annotations:
-  - `pre-install,pre-upgrade` — runs before the Deployment rolls.
+  - `post-install,pre-upgrade` — on upgrade, runs before the Deployment
+    rolls. Not pre-install: hooks run before the release's own resources
+    exist, so the Secret this Job reads and its ServiceAccount were missing.
   - `hook-delete-policy: before-hook-creation,hook-succeeded` — clean
     up old Jobs so the same release name can be reinstalled.
 */ -}}
@@ -18,7 +20,7 @@ metadata:
     {{- include "zveltio.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": post-install,pre-upgrade
     "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
@@ -42,7 +44,9 @@ spec:
           imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
           # The standalone migration runner exits 0 on success, 1 on failure.
           # Uses the same DATABASE_URL the engine pod will use.
-          command: ["bun", "run", "migrate"]
+          # The image's entrypoint is the engine binary; there is no bun
+          # project in it, so `bun run migrate` found no script to run.
+          args: ["migrate"]
           envFrom:
             - secretRef:
                 name: {{ include "zveltio.secretName" . }}
