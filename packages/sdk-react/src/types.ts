@@ -1,12 +1,5 @@
-export interface CollectionOptions {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  filter?: Record<string, any>;
-  sort?: string;
-  order?: 'asc' | 'desc';
-  limit?: number;
-  page?: number;
-  search?: string;
-}
+// One definition, the SDK's: `fetchCollection` is what these options reach.
+export type { CollectionOptions } from '@zveltio/sdk';
 
 export interface HookResult<T> {
   data: T | null;

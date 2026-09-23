@@ -24,26 +24,31 @@ export function useSyncCollection<T = any>(
       syncInterval: options?.syncInterval,
     });
     syncRef.current = sync;
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     sync
       .start(options?.realtimeUrl)
       .then(() => {
-        const unsub = sync.collection(collectionName).subscribe((records) => {
+        if (cancelled) return;
+        unsub = sync.collection(collectionName).subscribe((records) => {
           setData(records as T[]);
           setLoading(false);
         });
-        return unsub;
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(err instanceof Error ? err : new Error(String(err)));
         setLoading(false);
       });
 
     return () => {
+      cancelled = true;
+      unsub?.();
       sync.stop();
       syncRef.current = null;
     };
-  }, [client, collectionName]);
+  }, [client, collectionName, options?.realtimeUrl, options?.syncInterval]);
 
   return { data, loading, error };
 }

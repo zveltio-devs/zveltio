@@ -35,7 +35,19 @@ describe('ZveltioClient URL building', () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test' });
     await client.storage.list('invoices&limit=9999');
-    expect(urls).toEqual(['https://engine.test/api/storage?folder=invoices%26limit%3D9999']);
+    expect(urls).toEqual(['https://engine.test/api/storage?folder_id=invoices%26limit%3D9999']);
+  });
+
+  it('sends the upload folder under the field name the engine reads', async () => {
+    let body: FormData | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      body = init?.body as FormData;
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.storage.upload(new File(['x'], 'a.txt'), 'folder-uuid');
+    expect(body?.get('folder_id')).toBe('folder-uuid');
+    expect(body?.has('folder')).toBe(false);
   });
 
   it('leaves an ordinary id and collection name untouched', async () => {

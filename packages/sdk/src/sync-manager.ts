@@ -28,6 +28,15 @@ export class SyncManager {
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private isOnline: boolean = true;
   private isSyncing: boolean = false;
+  /** Set by `stop()`; `start()` checks it after every await it makes. */
+  private stopped = false;
+  private readonly onOnline = () => {
+    this.isOnline = true;
+    this.syncNow(); // Sync immediately on reconnect
+  };
+  private readonly onOffline = () => {
+    this.isOnline = false;
+  };
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   private listeners: Map<string, Set<(records: any[]) => void>> = new Map();
 
@@ -44,23 +53,24 @@ export class SyncManager {
   }
 
   async start(realtimeUrl?: string): Promise<void> {
+    this.stopped = false;
     await this.store.open();
+    // A caller that unmounts before `start()` settles calls `stop()` first — a
+    // React effect cleanup, and StrictMode runs one on every mount in
+    // development. Arming the timer and socket after that leaked both forever.
+    if (this.stopped) return this.store.close();
 
     // Online/offline detection
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => {
-        this.isOnline = true;
-        this.syncNow(); // Sync immediately on reconnect
-      });
-      window.addEventListener('offline', () => {
-        this.isOnline = false;
-      });
+      window.addEventListener('online', this.onOnline);
+      window.addEventListener('offline', this.onOffline);
       this.isOnline = navigator.onLine;
     }
 
     // Realtime: receives push updates from server
     if (realtimeUrl) {
       const { ZveltioRealtime } = await import('./realtime.js');
+      if (this.stopped) return;
       this.realtime = new ZveltioRealtime(realtimeUrl);
       this.realtime.connect();
       // Subscriptions are per-collection via collection()
@@ -148,17 +158,21 @@ export class SyncManager {
         let unsubRealtime: (() => void) | undefined;
         if (this.realtime) {
           unsubRealtime = this.realtime.subscribe(name, async (event) => {
-            // Apply update from server to local store
-            if (event.event === 'record.created' || event.event === 'record.updated') {
+            // Apply update from server to local store. The engine's socket
+            // sends `{ type: 'event', event: 'insert'|'update'|'delete', data }`
+            // (routes/ws.ts `broadcastEvent`); the id lives on `data`.
+            const id = event.data?.id;
+            if (event.type !== 'event' || !id) return;
+            if (event.event === 'insert' || event.event === 'update') {
               try {
-                const serverRecord = await this.client.collection(name).get(event.record_id);
-                await this.store.applyServerUpdate(name, event.record_id, serverRecord, Date.now());
+                const serverRecord = await this.client.collection(name).get(id);
+                await this.store.applyServerUpdate(name, id, serverRecord, Date.now());
                 this.notifyListeners(name);
               } catch {
                 /* offline or error — ignore, periodic sync will resolve */
               }
-            } else if (event.event === 'record.deleted') {
-              await this.store.delete(name, event.record_id);
+            } else if (event.event === 'delete') {
+              await this.store.applyServerDelete(name, id);
               this.notifyListeners(name);
             }
           });
@@ -384,8 +398,15 @@ export class SyncManager {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.syncTimer) clearInterval(this.syncTimer);
+    this.syncTimer = null;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onOnline);
+      window.removeEventListener('offline', this.onOffline);
+    }
     this.realtime?.disconnect();
+    this.realtime = null;
     await this.store.close();
   }
 }

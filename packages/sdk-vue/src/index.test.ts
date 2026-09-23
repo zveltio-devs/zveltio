@@ -93,3 +93,38 @@ describe('the injection boundary', () => {
     );
   });
 });
+
+describe('reactive arguments', () => {
+  // `@zveltio/react` re-fetches when a hook's id or options change. The Vue
+  // composables took plain values, so `watch(() => id, load)` watched a
+  // constant and a route change left the old record on screen.
+  it('useRecord re-fetches when a getter id changes', async () => {
+    const { ref, nextTick } = await import('vue');
+    const { useRecord } = await import('./composables/useRecord.js');
+    const seen: string[] = [];
+    const client = {
+      collection: () => ({
+        get: async (id: string) => {
+          seen.push(id);
+          return { id };
+        },
+      }),
+    } as unknown as ZveltioClient;
+    const id = ref('a');
+    // `runWithContext` gives the composable the plugin's `inject` without a
+    // DOM renderer; `onMounted` has no instance there, so only the watcher
+    // can issue the fetch this test sees.
+    const app = createSSRApp(defineComponent({ render: () => null }));
+    app.use(ZveltioPlugin, { client });
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      app.runWithContext(() => useRecord('posts', () => id.value));
+    } finally {
+      console.warn = warn;
+    }
+    id.value = 'b';
+    await nextTick();
+    expect(seen).toContain('b');
+  });
+});
