@@ -516,9 +516,9 @@ const realtime = new ZveltioRealtime('https://api.yourapp.com');
 realtime.connect();
 
 // Subscribe to a collection
-const unsubscribe = realtime.subscribe('orders', (event) => {
-  // event: { type: 'insert' | 'update' | 'delete', data: any }
-  console.log(event.type, event.data);
+const unsubscribe = realtime.subscribe('orders', (msg) => {
+  // msg: { type: 'event', collection, event: 'insert' | 'update' | 'delete', data, timestamp }
+  console.log(msg.event, msg.data);
 });
 
 // Unsubscribe
@@ -526,6 +526,17 @@ unsubscribe();
 
 // Auto-reconnects on disconnect — no manual handling needed
 realtime.disconnect();
+```
+
+From a server (Bun or Node), authenticate with an API key instead of a session
+cookie. The key's scopes decide which collections the socket may subscribe to,
+exactly as they do over REST. Browsers cannot set headers on a WebSocket and use
+the session cookie; never ship an API key to a browser.
+
+```typescript
+const realtime = new ZveltioRealtime('https://api.yourapp.com', {
+  headers: { 'X-API-Key': process.env.ZVELTIO_API_KEY! },
+});
 ```
 
 ### WebSocket protocol
