@@ -64,10 +64,14 @@ for (const enPath of enFiles()) {
     const next: Record<string, string> = {};
     for (const [key, enVal] of Object.entries(en)) {
       const fromDict = dict[enVal]?.[locale];
-      if (fromDict) {
+      // A prior translation wins over the dictionary. The dictionary is keyed by
+      // the English string alone, so it cannot see context: it turned 374
+      // context-correct strings back into a generic form (ro `Aprobată`, agreeing
+      // with `cerere`, into `Aprobat`) on every run.
+      if (existing[key] && existing[key] !== enVal) {
+        next[key] = existing[key];
+      } else if (fromDict) {
         next[key] = fromDict;
-      } else if (existing[key] && existing[key] !== enVal) {
-        next[key] = existing[key]; // keep a prior human translation
       } else {
         next[key] = enVal; // fall back to English
         if (enVal.trim().length > 1) missing.set(enVal, (missing.get(enVal) ?? 0) + 1);
