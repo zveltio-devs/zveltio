@@ -304,7 +304,6 @@ services:
       STUDIO_DIST_PATH: '/app/studio-dist'
 
     volumes:
-      - ./extensions:/app/extensions:ro
       # Local storage driver persists uploads here (default driver). Ignored
       # when STORAGE_DRIVER=s3.
       - engine_storage:/data/storage
