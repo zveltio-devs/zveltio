@@ -44,3 +44,7 @@ export { validateApiKey } from './auth.js';
 //     re-implemented the authorisation model as a single predicate: a view on
 //     a page published its collection to everyone who could open the page.
 export { checkAccess } from './auth.js';
+//   - `authenticate` so the WebSocket upgrade resolves a session or an API key
+//     with the same checks as the data API — it accepted cookies only.
+export { authenticate } from './auth.js';
+export type { RequestUser } from './types.js';

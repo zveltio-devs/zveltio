@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
-import { authenticate, checkAccess } from '../lib/data/auth.js';
-import type { RequestUser } from '../lib/data/types.js';
+import { authenticate, checkAccess, type RequestUser } from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
   applyColumnAccess,
