@@ -9,6 +9,7 @@
  *   $ zveltio extension validate
  */
 
+import { createHash } from 'crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import {
@@ -20,6 +21,7 @@ import {
 } from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
 import { resolvePublisherTier, tierAllowsInline } from '../lib/publisher-tier.js';
+import { hashEngineSources } from './extension-pack.js';
 
 // ANSI helpers
 const c = {
@@ -191,6 +193,69 @@ function inferExpectedName(dir: string): string {
     return norm.slice(idx + marker.length).replace(/\/$/, '');
   }
   return norm.split('/').filter(Boolean).pop() ?? '';
+}
+
+/**
+ * Does the bundle on disk match what the manifest claims, and the source it was
+ * built from?
+ *
+ * `validate` checked only that `integrity.engineSha256` was PRESENT. A bundle
+ * whose bytes had moved since pack — edited by hand, or simply never repacked
+ * after a source change — passed, and `publish --no-pack` then archived and
+ * signed exactly those bytes. The failure is invisible until the extension runs
+ * in production with code nobody reviewed, which is the 2026-08-02 class again:
+ * three security fixes merged into a source file, never repacked, never ran.
+ *
+ * Both hashes are recomputed the same way `pack` wrote them, so this needs no
+ * bundler and cannot fail for bundler-version reasons.
+ *
+ * A manifest with no `sourceSha256` was packed by an older CLI: warn, don't
+ * fail — there is nothing to compare against, and the author's fix is a repack.
+ */
+export function checkBundleIntegrity(dir: string, manifest: unknown): ValidationError[] {
+  const bundle = join(dir, 'engine', 'index.js');
+  if (!existsSync(bundle)) return [];
+  const integrity = (manifest as { integrity?: { engineSha256?: string; sourceSha256?: string } })
+    ?.integrity;
+  if (!integrity) return [];
+  const out: ValidationError[] = [];
+
+  if (integrity.engineSha256) {
+    const actual = createHash('sha256').update(readFileSync(bundle)).digest('hex');
+    if (actual !== integrity.engineSha256) {
+      out.push({
+        code: 'BUNDLE_HASH_MISMATCH',
+        message:
+          `engine/index.js (sha256 ${actual.slice(0, 12)}…) does not match ` +
+          `integrity.engineSha256 (${integrity.engineSha256.slice(0, 12)}…). ` +
+          'Re-pack — the engine refuses a bundle whose hash disagrees with its manifest.',
+        file: 'engine/index.js',
+      });
+    }
+  }
+
+  if (!existsSync(join(dir, 'engine', 'index.ts'))) return out;
+  if (!integrity.sourceSha256) {
+    out.push({
+      code: 'BUNDLE_SOURCE_UNRECORDED',
+      severity: 'warning',
+      message:
+        'manifest has no integrity.sourceSha256, so nothing can tell whether the bundle ' +
+        'was built from the committed source. Re-pack to record it.',
+      file: 'manifest.json',
+    });
+    return out;
+  }
+  if (hashEngineSources(dir) !== integrity.sourceSha256) {
+    out.push({
+      code: 'BUNDLE_OLDER_THAN_SOURCE',
+      message:
+        'engine/index.js was NOT built from the current engine/ sources, so the changes in ' +
+        'them do not run anywhere. Run `zveltio extension pack`.',
+      file: 'engine/index.js',
+    });
+  }
+  return out;
 }
 
 export async function extensionValidateCommand(opts: ExtensionValidateOptions = {}): Promise<void> {
@@ -513,6 +578,15 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     );
     if (opts.silentExit) throw new Error('Validation failed: incomplete v2 manifest');
     process.exit(1);
+  }
+
+  // Integrity: the bundle must match its declared hash and the source it was
+  // built from. Runs after the v2 gate above, which has already established
+  // that an engine block exists.
+  const integrityErrors = checkBundleIntegrity(dir, manifest);
+  if (integrityErrors.length > 0) {
+    result.errors.push(...integrityErrors);
+    if (integrityErrors.some((e) => e.severity !== 'warning')) result.ok = false;
   }
 
   const warnings = result.errors.filter((e) => e.severity === 'warning');

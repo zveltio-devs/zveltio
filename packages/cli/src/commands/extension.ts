@@ -294,21 +294,15 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # Validate FIRST, on the COMMITTED bundle. It checks the bundle against
+      # manifest integrity.engineSha256 and against the source it was built
+      # from, so a bundle nobody repacked fails here. Running pack before this
+      # would rewrite both hashes and the check could never fail.
+      - name: Validate committed bundle, manifest + structure
+        run: bunx @zveltio/cli extension validate
+
       - name: Pack extension (engine/index.ts → engine/index.js + manifest hash)
         run: bunx @zveltio/cli extension pack
-
-      - name: Verify committed bundle matches manifest engineSha256
-        run: |
-          actual=$(sha256sum engine/index.js | awk '{print $1}')
-          declared=$(node -e "console.log(require('./manifest.json').integrity?.engineSha256 ?? '')")
-          if [ "$actual" != "$declared" ]; then
-            echo "::error::Bundle hash $actual ≠ manifest engineSha256 $declared"
-            echo "::error::Run \\\`bunx @zveltio/cli extension pack\\\` locally and commit the result."
-            exit 1
-          fi
-
-      - name: Validate manifest + structure
-        run: bunx @zveltio/cli extension validate
 `,
   );
 
