@@ -305,6 +305,53 @@ function userRefFixedColumns(upSql: string): string[] {
  *   - keys made of `*_id` columns, because a uuid parent already belongs to one
  *     company, so the child cannot straddle two.
  */
+/** Top-level items of every `CREATE TABLE ... ( … )` body in `sql`. */
+function createTableColumnDefs(sql: string): string[] {
+  const out: string[] = [];
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^(]*\(/gi;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex loop
+  while ((m = re.exec(sql)) !== null) {
+    let depth = 1;
+    let item = '';
+    let i = m.index + m[0].length;
+    for (; i < sql.length && depth > 0; i++) {
+      const ch = sql[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+      if (depth === 1 && ch === ',') {
+        out.push(item);
+        item = '';
+        continue;
+      }
+      item += ch;
+    }
+    out.push(item);
+    re.lastIndex = i;
+  }
+  return out;
+}
+
+/** Column names carrying an inline `UNIQUE` constraint. */
+function columnLevelUniqueColumns(sql: string): string[] {
+  const out: string[] = [];
+  for (const def of createTableColumnDefs(sql)) {
+    const t = def.trim();
+    // Strip string literals first: `CHECK (rule_type IN ('unique', …))` is a
+    // column whose ALLOWED VALUES include the word, not a unique constraint.
+    const bare = t.replace(/'(?:[^']|'')*'/g, "''");
+    if (!/\bUNIQUE\b(?!\s*\()/i.test(bare)) continue;
+    const name = /^([a-z_][a-z0-9_]*)\s+\S/i.exec(t)?.[1];
+    if (!name) continue;
+    if (/^(?:primary|unique|constraint|foreign|check|exclude|like)$/i.test(name)) continue;
+    out.push(name);
+  }
+  return out;
+}
+
 function keyColumnSets(upSql: string): string[][] {
   const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const sets: string[][] = [];
@@ -318,6 +365,16 @@ function keyColumnSets(upSql: string): string[][] {
   for (const m of s.matchAll(/\bUNIQUE\s*\(([^)]+)\)/gi)) add(m[1]);
   for (const m of s.matchAll(/\bPRIMARY\s+KEY\s*\(([^)]+)\)/gi)) add(m[1]);
   for (const m of s.matchAll(/CREATE\s+UNIQUE\s+INDEX[^(]*\(([^)]+)\)/gi)) add(m[1]);
+  // Column-level `sku TEXT NOT NULL UNIQUE` — the same constraint, written
+  // inline. Fifty-eight of these are in the shipped extensions and every one was
+  // invisible here, because the three patterns above all require a parenthesised
+  // column list. A `UNIQUE` with no `(` after it is a column constraint, and the
+  // column is the name the definition opens with.
+  for (const col of columnLevelUniqueColumns(s)) add(col);
+  for (const m of s.matchAll(
+    /\bADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)[^,;\n]*?\bUNIQUE\b(?!\s*\()/gi,
+  ))
+    add(m[1]);
   return sets;
 }
 
@@ -333,13 +390,15 @@ function narrowKey(parts: string[]): string | null {
   // without naming the tenant. Requiring EVERY part to be an id was too strict
   // and flagged sixteen keys that a hand review had already accepted.
   if (parts.some((p) => /_id$/.test(p))) return null;
-  return parts.join(', ');
+  // Sorted, so a later migration that re-adds the key with its columns in a
+  // different order still counts as the fix for this one.
+  return [...parts].sort().join(', ');
 }
 
 /** Wide: the same key WITH `tenant_id`, which is a later migration fixing it. */
 function widenedKey(parts: string[]): string | null {
   if (!parts.includes('tenant_id')) return null;
-  const rest = parts.filter((p) => p !== 'tenant_id');
+  const rest = parts.filter((p) => p !== 'tenant_id').sort();
   return rest.length > 0 ? rest.join(', ') : null;
 }
 
