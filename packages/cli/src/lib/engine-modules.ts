@@ -24,8 +24,29 @@
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
-// biome-ignore lint/suspicious/noExplicitAny: the engine's runtime modules are untyped from here
-type EngineModules = { db: any; migrations: any };
+/** The handle `initDatabase()` returns — only what these two commands call. */
+export interface EngineDb {
+  destroy?(): Promise<void>;
+}
+
+export interface EngineDbModule {
+  initDatabase(): Promise<EngineDb>;
+}
+
+export interface EngineMigrationsModule {
+  runMigrations(db: EngineDb): Promise<unknown>;
+  getAppliedMigrations(db: EngineDb): Promise<unknown[]>;
+  getLastAppliedMigration(db: EngineDb): Promise<number>;
+  rollbackMigration(
+    db: EngineDb,
+    targetVersion: number,
+  ): Promise<{ success: boolean; error?: string }>;
+}
+
+interface EngineModules {
+  db: EngineDbModule;
+  migrations: EngineMigrationsModule;
+}
 
 const CANDIDATES = [
   // src/commands/migrate.ts → packages/engine/…
@@ -56,8 +77,10 @@ export async function loadEngineMigrationModules(): Promise<EngineModules> {
     // checkout is `.ts`, and Bun resolves either — so probe for both.
     const path = fileURLToPath(dbUrl);
     if (!existsSync(path) && !existsSync(path.replace(/\.js$/, '.ts'))) continue;
-    const db = await import(dbUrl.href);
-    const migrations = await import(new URL(`${base}migrations/index.js`, import.meta.url).href);
+    const db = (await import(dbUrl.href)) as EngineDbModule;
+    const migrations = (await import(
+      new URL(`${base}migrations/index.js`, import.meta.url).href
+    )) as EngineMigrationsModule;
     return { db, migrations };
   }
   throw new EngineModulesUnavailable();

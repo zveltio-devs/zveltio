@@ -18,21 +18,15 @@ export const rollbackCommand = new Command('rollback')
 
     process.env.DATABASE_URL = databaseUrl;
 
-    let initDatabase: (() => Promise<{ destroy?: () => Promise<void> }>) | undefined;
-    // biome-ignore lint/suspicious/noExplicitAny: the engine's runtime modules are untyped from here
-    let getLastAppliedMigration: any;
-    // biome-ignore lint/suspicious/noExplicitAny: the engine's runtime modules are untyped from here
-    let rollbackMigration: any;
+    let engine: Awaited<ReturnType<typeof loadEngineMigrationModules>>;
     try {
-      const { db: dbModule, migrations } = await loadEngineMigrationModules();
-      initDatabase = dbModule.initDatabase;
-      getLastAppliedMigration = migrations.getLastAppliedMigration;
-      rollbackMigration = migrations.rollbackMigration;
+      engine = await loadEngineMigrationModules();
     } catch (err) {
       console.error(`\n❌ ${(err as Error).message}\n`);
       process.exit(1);
     }
-    if (!initDatabase) process.exit(1);
+    const { initDatabase } = engine.db;
+    const { getLastAppliedMigration, rollbackMigration } = engine.migrations;
 
     // Determine target version
     let targetVersion: number;
