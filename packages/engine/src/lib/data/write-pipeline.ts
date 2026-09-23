@@ -13,6 +13,7 @@
  * byte-identical to the pre-split inline helpers — zero behaviour change.
  */
 
+import { withSavepoint } from '../savepoint.js';
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Database } from '../../db/index.js';
@@ -431,6 +432,13 @@ export async function afterWrite(
     delta?: Record<string, unknown>;
     userId: string;
     /**
+     * Who the revision row is recorded as — `rowAuthorId(user)`, NOT `userId`.
+     * `zv_revisions.user_id` is a foreign key into `user`; an API key's id is
+     * `apikey:<uuid>`, so writing it there failed with 23503, aborted the
+     * request transaction, and turned EVERY key-authenticated write into a 500.
+     */
+    author: string | null;
+    /**
      * Tenant id from the request's `tenantTrx` context. Forwarded onto
      * `engineEvents.emit('record.*')` so subscribers (notably the
      * `ai` extension's auto-embedding hook) can tag their writes with
@@ -441,42 +449,52 @@ export async function afterWrite(
     tenantId?: string | null;
   },
 ): Promise<void> {
-  const { collection, recordId, action, data, delta, userId, tenantId } = opts;
+  const { collection, recordId, action, data, delta, userId, author, tenantId } = opts;
 
-  // Revision log — awaited so callers see a consistent DB state after the write,
-  // but errors are swallowed (non-fatal).
-  await db
-    .insertInto('zv_revisions')
-    .values({
-      collection,
-      record_id: recordId,
-      action,
-      // The object, NOT `JSON.stringify(it)`. The column is `jsonb`, and a
-      // string parameter is stored as a jsonb STRING containing JSON text —
-      // `jsonb_typeof` says `string`, `data->>'field'` returns NULL, and
-      // `data ? 'field'` is false. Measured, all three.
-      //
-      // `sql`${JSON.stringify(data)}::jsonb`` is the obvious repair and is
-      // equally wrong, for the same reason: the parameter is already a JSON
-      // string, so the cast produces a jsonb string. Also measured. Passing the
-      // object is the only form that yields `jsonb_typeof = object`.
-      //
-      // Two readers had grown compensations for this — `list.ts` normalises with
-      // `CASE WHEN jsonb_typeof(data) = 'string' …` on the `?as_of=` path,
-      // `revisions.ts` with `typeof x === 'string' ? JSON.parse(x)`. Both keep
-      // working against the fixed shape. The admin audit route
-      // (`system-routes.ts`) has no compensation and was handing the
-      // double-encoded string straight to the caller.
-      data,
-      ...(delta ? { delta } : {}),
-      user_id: userId,
-      // Tag history with the writing tenant so the audit trail + time-travel
-      // (?as_of=) can't be read across tenants. afterWrite runs on the pool, not
-      // the request transaction, so it can't rely on the RLS GUC.
-      tenant_id: tenantId ?? DEFAULT_TENANT_ID,
-    })
-    .execute()
-    .catch((err) => console.error('[afterWrite] revision log failed:', err));
+  // Revision log — awaited so callers see a consistent DB state after the write.
+  // Non-fatal, and that takes a SAVEPOINT: `db` is the request's transaction,
+  // and a `.catch` alone left it aborted — the next statement (the flow trigger)
+  // failed with 25P02 and the write answered 500 after the row was in.
+  await withSavepoint(
+    db,
+    'zv_revision_log',
+    () =>
+      db
+        .insertInto('zv_revisions')
+        .values({
+          collection,
+          record_id: recordId,
+          action,
+          // The object, NOT `JSON.stringify(it)`. The column is `jsonb`, and a
+          // string parameter is stored as a jsonb STRING containing JSON text —
+          // `jsonb_typeof` says `string`, `data->>'field'` returns NULL, and
+          // `data ? 'field'` is false. Measured, all three.
+          //
+          // `sql`${JSON.stringify(data)}::jsonb`` is the obvious repair and is
+          // equally wrong, for the same reason: the parameter is already a JSON
+          // string, so the cast produces a jsonb string. Also measured. Passing the
+          // object is the only form that yields `jsonb_typeof = object`.
+          //
+          // Two readers had grown compensations for this — `list.ts` normalises with
+          // `CASE WHEN jsonb_typeof(data) = 'string' …` on the `?as_of=` path,
+          // `revisions.ts` with `typeof x === 'string' ? JSON.parse(x)`. Both keep
+          // working against the fixed shape. The admin audit route
+          // (`system-routes.ts`) has no compensation and was handing the
+          // double-encoded string straight to the caller.
+          data,
+          ...(delta ? { delta } : {}),
+          user_id: author,
+          // Tag history with the writing tenant so the audit trail + time-travel
+          // (?as_of=) can't be read across tenants. afterWrite runs on the pool, not
+          // the request transaction, so it can't rely on the RLS GUC.
+          tenant_id: tenantId ?? DEFAULT_TENANT_ID,
+        })
+        .execute(),
+    (err) => {
+      console.error('[afterWrite] revision log failed:', err);
+      return [];
+    },
+  );
 
   const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 

@@ -130,11 +130,11 @@ onMount(async () => {
 async function loadUsers() {
   loading = true;
   try {
-    const res = await usersApi.list({ limit: LIMIT, offset: (currentPage - 1) * LIMIT });
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    users = Array.isArray(res) ? res : ((res as any).users ?? res);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    total = (res as any).total ?? users.length;
+    // `page`, not `offset`: `/api/users` reads `page`, so the pager kept
+    // fetching the first page whatever was clicked.
+    const res = await usersApi.list({ limit: LIMIT, page: currentPage });
+    users = res.users;
+    total = res.total;
   } catch (err) {
     // A rejection here used to leave an empty table and no explanation — the
     // same shape as a tenant that genuinely has no users.

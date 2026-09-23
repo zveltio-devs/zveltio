@@ -18,7 +18,13 @@ import {
   getRlsFilters,
   resolveUserRole,
 } from '../lib/tenancy/index.js';
-import { DDLManager, afterWrite, processInput, serializeRecord } from '../lib/data/index.js';
+import {
+  DDLManager,
+  afterWrite,
+  processInput,
+  rowAuthorId,
+  serializeRecord,
+} from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
 
@@ -329,6 +335,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             action: 'create',
             data: { ...payload, id: recordId },
             userId: (c.get('user') as { id: string }).id,
+            author: rowAuthorId(c.get('user') as { id: string; authorUserId?: string | null }),
             tenantId: syncTid,
           });
         }

@@ -121,6 +121,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       .limit(parsedLimit)
       .offset(offset)
       .execute();
+    // The Studio pages by this. Without it the page count was the length of the
+    // page just fetched, so a tenant with more keys than one page never saw a
+    // second one.
+    const counted = await db
+      .selectFrom('zv_api_keys')
+      .select((eb) => eb.fn.count('id').as('count'))
+      .where('tenant_id', '=', getCurrentDomain())
+      .executeTakeFirst();
     // A boolean rather than leaving an operator to recognise a UUID. This is
     // the fact they need — "this key is not confined to one tenant" — and
     // asking them to memorise the root tenant's id to learn it is the kind of
@@ -138,6 +146,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         scopes: parseScopes(k.scopes),
         is_instance_wide: k.tenant_id === DEFAULT_TENANT_ID,
       })),
+      total: Number(counted?.count ?? 0),
     });
   });
 

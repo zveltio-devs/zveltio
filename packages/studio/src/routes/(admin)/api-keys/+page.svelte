@@ -59,13 +59,15 @@ let creating = $state(false);
 let newlyCreatedKey = $state<string | null>(null);
 let copied = $state(false);
 
-const ALL_ACTIONS = ['read', 'write', 'delete'];
+// The action names `checkAccess` asks for. `write` was offered here and the
+// engine never checks it: a key made with it could not create or update.
+const ALL_ACTIONS = ['read', 'create', 'update', 'delete'];
 
 const emptyForm = () => ({
   name: '',
   rate_limit: 1000,
   expires_at: '',
-  scopes: [{ collection: '*', actions: ['read', 'write', 'delete'] as string[] }],
+  scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] as string[] }],
 });
 let form = $state(emptyForm());
 
@@ -75,7 +77,9 @@ async function loadKeys() {
   loading = true;
   try {
     const res = await api.get<{ api_keys: ApiKey[]; total?: number }>(
-      `/api/api-keys?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`,
+      // `page`, not `offset`: the route reads `page` and ignored `offset`, so
+      // every page of the pager fetched the first one.
+      `/api/api-keys?limit=${LIMIT}&page=${currentPage}`,
     );
     apiKeys = res.api_keys || [];
     total = res.total ?? apiKeys.length;

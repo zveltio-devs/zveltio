@@ -29,6 +29,7 @@ describe('afterWrite — swallowed revision failures', () => {
         action: 'create',
         data: { id: 'rec-9' },
         userId: 'user-9',
+        author: 'user-9',
         tenantId: 'tenant-z',
       });
       expect(errSpy.mock.calls.some((c) => String(c[0]).includes('revision log failed'))).toBe(

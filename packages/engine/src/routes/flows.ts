@@ -163,14 +163,30 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   });
 
   // GET / — list flows (no steps, just the flow rows)
+  //
+  // Paged the way `/api/users` and `/api/api-keys` are (`page`, `limit`, a
+  // `total`). It returned every flow and read no parameter, so the Studio's
+  // pager asked for page 2 and got the same full list back.
   app.get('/', async (c) => {
-    const flows = await db
-      .selectFrom('zv_flows')
-      .selectAll()
-      .where('tenant_id', '=', tenantOf(c))
-      .orderBy('updated_at', 'desc')
-      .execute();
-    return c.json({ flows });
+    const { page = '1', limit = '50' } = c.req.query();
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+    const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
+    const [flows, counted] = await Promise.all([
+      db
+        .selectFrom('zv_flows')
+        .selectAll()
+        .where('tenant_id', '=', tenantOf(c))
+        .orderBy('updated_at', 'desc')
+        .limit(parsedLimit)
+        .offset(offset)
+        .execute(),
+      db
+        .selectFrom('zv_flows')
+        .select((eb) => eb.fn.count('id').as('count'))
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    ]);
+    return c.json({ flows, total: Number(counted?.count ?? 0) });
   });
 
   // GET /dlq — dead letter queue. MUST be registered before /:id, otherwise

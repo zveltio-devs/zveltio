@@ -232,8 +232,12 @@ export const usersApi = {
   list: async (params?: QueryParams) => {
     const qs = params ? `?${toQueryString(params)}` : '';
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const data = await api.get<{ users: any[]; pagination: any }>(`/api/users${qs}`);
-    return data.users || [];
+    const data = await api.get<{ users: any[]; pagination?: { total?: number } }>(
+      `/api/users${qs}`,
+    );
+    // The total travels with the rows: returning the array alone left the
+    // users screen counting the page it had just fetched as the whole list.
+    return { users: data.users || [], total: data.pagination?.total ?? data.users?.length ?? 0 };
   },
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   get: (id: string) => api.get<{ user: any }>(`/api/users/${id}`),

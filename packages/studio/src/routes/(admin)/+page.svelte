@@ -159,15 +159,19 @@ function refresh(): void {
 
 async function loadSidebarData() {
   const [keysRes, hooksRes, permsRes, flowsRes] = await Promise.allSettled([
-    api.get<{ keys: unknown[] }>('/api/api-keys'),
+    api.get<{ api_keys: unknown[] }>('/api/api-keys'),
     api.get<{ webhooks: unknown[] }>('/api/webhooks'),
-    api.get<{ permissions?: unknown[]; rules?: unknown[] }>('/api/permissions'),
+    // Grants on custom roles — what the permissions screen writes. `/api/permissions`
+    // answers `{ policies }`, never `permissions`/`rules`, and would count the
+    // seeded built-in policies anyway: the step could never tick or always would.
+    api.get<{ permissions: unknown[] }>('/api/admin/permissions'),
     api.get<{ flows: unknown[] }>('/api/flows'),
   ]);
-  if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.keys ?? [];
+  // The route answers `{ api_keys }`; reading `keys` left the "create an API key"
+  // onboarding step unticked forever, whatever the tenant had.
+  if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.api_keys ?? [];
   if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
-  if (permsRes.status === 'fulfilled')
-    permissionsCount = (permsRes.value.permissions ?? permsRes.value.rules ?? []).length;
+  if (permsRes.status === 'fulfilled') permissionsCount = (permsRes.value.permissions ?? []).length;
   if (flowsRes.status === 'fulfilled') flowsCount = flowsRes.value.flows?.length ?? 0;
 }
 

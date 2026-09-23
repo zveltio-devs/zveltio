@@ -283,7 +283,14 @@ export async function checkAccess(
       // widen its reads would have silently narrowed everything else.
       const matches = scopes.filter((s) => s.collection === collection || s.collection === '*');
       if (matches.length === 0) return false;
-      return matches.some((m) => m.actions.includes(action) || m.actions.includes('*'));
+      // `write` is what the Studio's key form offered — the engine never asks
+      // for it, so every key made there could read and delete but not create or
+      // update. Keys already stored with it mean what the operator ticked.
+      const granted = (m: { actions: string[] }) =>
+        m.actions.includes(action) ||
+        m.actions.includes('*') ||
+        ((action === 'create' || action === 'update') && m.actions.includes('write'));
+      return matches.some(granted);
     }
     // No `scopes` value at all (a NULL column) says the same thing an empty list
     // says: nothing was granted.
