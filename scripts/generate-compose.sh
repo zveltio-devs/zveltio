@@ -86,7 +86,7 @@ services:
     # Password-protected even though this instance is only reachable on the
     # internal compose network — a compromised sibling container should not
     # inherit read/write on sessions and rate-limit state.
-    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with: openssl rand -base64 32} --save 60 1 --loglevel warning
+    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with openssl rand -base64 32} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -171,11 +171,16 @@ services:
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      # Production refuses to boot without it (lib/startup-guards.ts): it is the
+      # origin written into password-reset and verification mail.
+      BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}
       CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
+      # Webhook signing secrets and every encrypted field are refused without it.
+      FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
     depends_on:
       postgres:
         condition: service_healthy
@@ -249,7 +254,7 @@ services:
     # anyone who could reach the host could read sessions and rate-limit state.
     # The engine runs on the host in native mode, so the port must stay
     # published; 127.0.0.1 keeps it reachable there and nowhere else.
-    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with: openssl rand -base64 32} --save 60 1 --loglevel warning
+    command: valkey-server --requirepass \${VALKEY_PASSWORD:?VALKEY_PASSWORD must be set in .env — generate one with openssl rand -base64 32} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     ports:
@@ -346,11 +351,16 @@ services:
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      # Production refuses to boot without it (lib/startup-guards.ts): it is the
+      # origin written into password-reset and verification mail.
+      BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}
       CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
+      # Webhook signing secrets and every encrypted field are refused without it.
+      FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s

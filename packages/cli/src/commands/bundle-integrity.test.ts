@@ -4,7 +4,7 @@
  * `engine/index.js` and said nothing.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +39,13 @@ describe('checkBundleIntegrity', () => {
     writeFileSync(join(f.dir, 'engine', 'index.js'), 'export default 2;');
     const codes = checkBundleIntegrity(f.dir, { integrity: f.integrity }).map((e) => e.code);
     expect(codes).toContain('BUNDLE_HASH_MISMATCH');
+  });
+
+  test('flags a packed bundle that was deleted', () => {
+    const f = fixture({ bundle: 'export default 1;', source: 'export default 1;' });
+    rmSync(join(f.dir, 'engine', 'index.js'));
+    const codes = checkBundleIntegrity(f.dir, { integrity: f.integrity }).map((e) => e.code);
+    expect(codes).toEqual(['BUNDLE_MISSING']);
   });
 
   test('flags a source edited after the last pack', () => {

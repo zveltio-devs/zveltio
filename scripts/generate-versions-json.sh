@@ -24,7 +24,11 @@ RELEASES=$(curl -fsSL \
   "${API_URL}?per_page=50")
 
 echo "$RELEASES" | jq --arg repo "$REPO" '
-  [.[] | select(.draft == false) | {
+  # Package releases (`@zveltio/sdk@…`) share this repository release list; they
+  # are not platform versions, and were 4 of every 5 entries here. A release with
+  # an empty body has `.body == null`, on which `test` is an error that aborted
+  # the whole file.
+  [.[] | select(.draft == false and (.tag_name | startswith("@") | not)) | {
     version: (.tag_name | ltrimstr("v")),
     channel: (if .prerelease then (
         if (.tag_name | test("-alpha\\.")) then "alpha"
@@ -33,7 +37,7 @@ echo "$RELEASES" | jq --arg repo "$REPO" '
         end
       ) else "stable" end),
     published_at: .published_at,
-    breaking_changes: (.body | test("BREAKING") // false),
+    breaking_changes: ((.body // "") | test("BREAKING")),
     release_notes: .html_url,
     assets: (
       .assets | map({
