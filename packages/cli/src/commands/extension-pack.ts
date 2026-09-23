@@ -166,6 +166,41 @@ function scrubBuildPaths(outfile: string, dir: string): number {
 // Re-export for bare-import sanity check after bundle.
 const CORE_DEPS = [...EXTENSION_BUNDLE_CORE_DEPS];
 
+/**
+ * Append `// @zveltio-bundled <name>@<version>` for each core dependency the
+ * bundle inlines from a HOISTED `node_modules/<name>/`, where the path carries
+ * no version.
+ *
+ * `scripts/check-embedded-deps-fresh.ts` reads what shipped from the bundler's
+ * path comments, and only a store layout (`.bun/<name>@<version>/`) names the
+ * version. The extensions checkout installs kysely and @hono/zod-validator
+ * hoisted, so in 51 and 55 committed bundles respectively that gate had
+ * nothing to read — and reported them as checked. The version is recorded
+ * here, at the one moment it is known: the package the bundler just resolved.
+ */
+export function recordBundledVersions(outfile: string, dir: string): string[] {
+  let text = readFileSync(outfile, 'utf8');
+  const recorded: string[] = [];
+  for (const dep of CORE_DEPS) {
+    if (!text.includes(`node_modules/${dep}/`) || text.includes(`.bun/${dep}@`)) continue;
+    // The bundler resolved `dep` from the entry's directory upward; so does this.
+    for (let at = resolve(dir); ; at = resolve(at, '..')) {
+      const pkg = join(at, 'node_modules', dep, 'package.json');
+      if (existsSync(pkg)) {
+        const { version } = JSON.parse(readFileSync(pkg, 'utf8')) as { version?: string };
+        if (version) recorded.push(`${dep}@${version}`);
+        break;
+      }
+      if (at === resolve(at, '..')) break;
+    }
+  }
+  if (recorded.length === 0) return recorded;
+  text = text.replace(/\n*$/, '\n');
+  text += recorded.map((r) => `// @zveltio-bundled ${r}\n`).join('');
+  writeFileSync(outfile, text, 'utf8');
+  return recorded;
+}
+
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
   green: (s: string) => `\x1b[32m${s}\x1b[0m`,
@@ -355,6 +390,11 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   const scrubbed = scrubBuildPaths(outfile, dir);
   if (scrubbed > 0) {
     console.log(`  ${c.green('✓')} ${c.dim(`${scrubbed} build path(s) neutralised`)}`);
+  }
+
+  const recorded = recordBundledVersions(outfile, dir);
+  if (recorded.length > 0) {
+    console.log(`  ${c.green('✓')} ${c.dim(`recorded bundled ${recorded.join(', ')}`)}`);
   }
 
   const bundleBytes = readFileSync(outfile);

@@ -238,7 +238,13 @@ function checkKeyReferences(): string[] {
         walk(p);
         continue;
       }
-      if (!entry.name.endsWith('.svelte')) continue;
+      // `.ts` too: five helpers under `src/lib` call `m['…']()`, and a missing
+      // key there throws the same TypeError the moment the helper runs. Measured
+      // before this line: a missing key added to `clipboard.ts` passed.
+      const scanned =
+        entry.name.endsWith('.svelte') ||
+        (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts'));
+      if (!scanned) continue;
 
       const src = readFileSync(p, 'utf-8');
       src.split('\n').forEach((line, i) => {
