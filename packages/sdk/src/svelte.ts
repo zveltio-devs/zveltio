@@ -6,7 +6,7 @@
  * ```svelte
  * <script lang="ts">
  *   import { SyncManager } from '@zveltio/sdk';
- *   import { useSyncCollection, useSyncStatus } from '@zveltio/sdk/svelte';
+ *   import { useSyncCollection, useSyncStatus } from '@zveltio/sdk';
  *
  *   let todos = $state<any[]>([]);
  *   const unsub = useSyncCollection(sync, 'todos', (records) => { todos = records; });

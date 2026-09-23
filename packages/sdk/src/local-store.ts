@@ -301,6 +301,15 @@ export class LocalStore {
     await this.db.put('records', record);
   }
 
+  /**
+   * The server deleted a record: drop the local copy WITHOUT queueing a delete.
+   * `delete()` would queue one, echoing the server's own deletion back at it.
+   */
+  async applyServerDelete(collection: string, id: string): Promise<void> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    await this.db.delete('records', [collection, id]);
+  }
+
   /** Get records with conflicts for UI resolution */
   async getConflicts(collection?: string): Promise<LocalRecord[]> {
     if (!this.db) throw new Error('LocalStore not opened');
