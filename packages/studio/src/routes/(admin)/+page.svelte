@@ -171,8 +171,7 @@ async function loadSidebarData() {
   // onboarding step unticked forever, whatever the tenant had.
   if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.api_keys ?? [];
   if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
-  if (permsRes.status === 'fulfilled')
-    permissionsCount = (permsRes.value.permissions ?? []).length;
+  if (permsRes.status === 'fulfilled') permissionsCount = (permsRes.value.permissions ?? []).length;
   if (flowsRes.status === 'fulfilled') flowsCount = flowsRes.value.flows?.length ?? 0;
 }
 
