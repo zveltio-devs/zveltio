@@ -322,6 +322,32 @@ d('one rule, four interpreters (in-process)', () => {
     expect(ids).toEqual([]);
   });
 
+  it('an unknown value source hides every row, in all four', async () => {
+    // The route refuses such a source now; a row stored before it did — the
+    // `user.id` typo — used to be skipped by the resolver AND left out of the
+    // policy, so it hid nothing anywhere. Every operator, both column types:
+    // the refusal must not depend on what the rule would have compared.
+    for (const field of FIELDS) {
+      for (const op of OPERATORS) {
+        const rule = ruleOf(field, op, 'user.id');
+        const filters = await resolveFor(rule);
+        const seen = {
+          engine: await viaEngineSql(filters),
+          policy: await viaPolicy(rule),
+          matcher: viaMatcher(filters),
+          snapshot: await viaSnapshot(filters),
+        };
+        expect({ rule: `${field} ${op}`, ...seen }).toEqual({
+          rule: `${field} ${op}`,
+          engine: [],
+          policy: [],
+          matcher: [],
+          snapshot: [],
+        });
+      }
+    }
+  });
+
   for (const field of FIELDS) {
     for (const op of OPERATORS) {
       for (const source of SOURCES) {
