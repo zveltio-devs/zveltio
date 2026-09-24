@@ -21,6 +21,7 @@ import {
 import { auditLog } from '../lib/audit.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 
 /**
  * The settings key recording that a recovery token has been spent.
@@ -56,14 +57,6 @@ function secretsMatch(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < ab.length; i++) diff |= ab[i]! ^ bb[i]!;
   return diff === 0;
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await requireInstanceAdmin(session.user.id))) return null;
-  return session.user;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -250,8 +243,8 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 
   // Store admin user in context so handlers can access it for audit logging.
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
     c.set('adminUser', user);
     await next();
   });

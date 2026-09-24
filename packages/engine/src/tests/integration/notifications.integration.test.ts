@@ -116,7 +116,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
         type: 'info',
       }),
     });
-    expect(res.status).toBeOneOf([401, 403]);
+    expect(res.status).toBe(403);
   });
 
   it('GET /api/notifications — the broadcast reached the recipient, unread', async () => {
