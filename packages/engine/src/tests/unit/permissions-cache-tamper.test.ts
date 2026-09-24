@@ -8,6 +8,7 @@ import {
   checkPermission,
   getUserRoles,
   initPermissions,
+  isGodUser,
   runWithDomain,
 } from '../../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
@@ -17,6 +18,7 @@ import { CannedDb } from './fixtures/canned-db.js';
 const POLICY_ROWS = [
   { ptype: 'p', v0: 'editor', v1: '*', v2: 'contacts', v3: 'read', v4: null, v5: null },
   { ptype: 'g', v0: 'u-editor', v1: 'editor', v2: '*', v3: null, v4: null, v5: null },
+  { ptype: 'g', v0: 'u-a', v1: 'editor', v2: 'tenant-a', v3: null, v4: null, v5: null },
 ];
 
 function makeCache(store = new Map<string, string>()) {
@@ -80,6 +82,64 @@ describe('tampered permission caches', () => {
 
     await runWithDomain(domain, async () => {
       expect(await getUserRoles('u-editor')).toEqual(['editor']);
+    });
+  });
+
+  // The entries above fail on shape (a 4-byte signature, or no parseable JSON)
+  // before the HMAC is compared. A forger writes the right shape: these carry a
+  // 64-hex signature and a value Casbin would not grant, so only the signature
+  // comparison stands between them and the answer.
+  const FORGED_SIG = '0'.repeat(64);
+
+  it('refuses a well-formed permission grant with a forged signature', async () => {
+    const cacheKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`;
+    _setCacheForTests(makeCache(new Map([[cacheKey, `1:${FORGED_SIG}`]])) as never);
+
+    expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
+  });
+
+  it('refuses a well-formed roles list with a forged signature', async () => {
+    const cacheKey = `roles:${DEFAULT_TENANT_ID}:u-editor`;
+    _setCacheForTests(makeCache(new Map([[cacheKey, `["admin"]:${FORGED_SIG}`]])) as never);
+
+    await runWithDomain(DEFAULT_TENANT_ID, async () => {
+      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+    });
+  });
+
+  it('refuses a well-formed god flag with a forged signature', async () => {
+    _setCacheForTests(makeCache(new Map([['god:u-forged', `1:${FORGED_SIG}`]])) as never);
+
+    expect(await isGodUser('u-forged')).toBe(false);
+  });
+
+  // A genuine entry copied to another key. The signature is valid, so only its
+  // binding to the key it was written under can refuse it.
+  it('refuses a genuine permission answer replayed under another action', async () => {
+    const store = new Map<string, string>();
+    _setCacheForTests(makeCache(store) as never);
+    const readKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`;
+    expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
+    const granted = store.get(readKey);
+    expect(granted).toBeString();
+
+    store.set(`perm:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`, granted!);
+    expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
+  });
+
+  it('keeps roles cached for one tenant out of another', async () => {
+    const store = new Map<string, string>();
+    _setCacheForTests(makeCache(store) as never);
+    await runWithDomain('tenant-a', async () => {
+      expect(await getUserRoles('u-a')).toEqual(['editor']);
+    });
+    await runWithDomain('tenant-b', async () => {
+      expect(await getUserRoles('u-a')).toEqual([]);
+    });
+
+    store.set('roles:tenant-b:u-a', store.get('roles:tenant-a:u-a')!);
+    await runWithDomain('tenant-b', async () => {
+      expect(await getUserRoles('u-a')).toEqual([]);
     });
   });
 });
