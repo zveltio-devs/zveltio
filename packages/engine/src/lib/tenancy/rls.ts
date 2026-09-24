@@ -242,10 +242,11 @@ export async function getRlsFilters(
       // enabled hid nothing. It now hides everything: `in []` is the one
       // condition all four appliers read as "no row" (rule-operators.ts).
       //
-      // Not a throw, although `unsupportedOperator` throws: the SSE, WebSocket
-      // and `?expand=` callers catch this function's errors as "no filters",
-      // which is fail-open, and the fan-out loops run the matcher outside any
-      // try, so a throw there would stop delivery to every other subscriber.
+      // Not a throw, although `unsupportedOperator` throws: a throw here would
+      // refuse the whole request or stream over one broken rule, while `in []`
+      // hides only what the rule covers — and the fan-out loops run the matcher
+      // outside any try, so a throw there would stop delivery to every other
+      // subscriber.
       if (!warnedUnknownSource.has(policy.id)) {
         warnedUnknownSource.add(policy.id);
         console.warn(
