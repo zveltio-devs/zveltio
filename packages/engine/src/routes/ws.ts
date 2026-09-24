@@ -41,7 +41,7 @@ interface WSConnection {
    * `rlsBypass`, which the subscribe check and the row policies must see —
    * the same fields the REST path hands to `checkAccess` and `getRlsFilters`.
    */
-  user: Pick<RequestUser, 'id' | 'scopes' | 'rlsBypass'> & { role?: string };
+  user: Pick<RequestUser, 'id' | 'email' | 'scopes' | 'rlsBypass'> & { role?: string };
   /**
    * Tenant id resolved at upgrade time from the request's tenant
    * context. Used to scope `broadcastEvent` so a write in tenant A
@@ -148,7 +148,9 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
             scopes: principal.user.scopes,
             rlsBypass: principal.user.rlsBypass,
           }
-        : { id: principal.user.id };
+        : // The email rides along because a `user_email` row rule resolves
+          // from it; without it the rule matches nothing for this socket.
+          { id: principal.user.id, email: principal.user.email };
 
     const id = `ws_${++wsCounter}_${Date.now()}`;
     // Lock the tenant id at upgrade time. The WS connection persists

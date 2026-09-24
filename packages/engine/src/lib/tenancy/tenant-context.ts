@@ -419,8 +419,8 @@ export function createRequestScopedDb(pool: Database): Database {
  *
  * `role` is `api_key`, the same string the engine gives such a caller, so a rule
  * written against `user_role` means the same thing on both sides. `user_email`
- * stays empty: a key has none, and an empty setting makes a rule using it skip —
- * which is what the engine does when it cannot resolve a value.
+ * stays empty: a key has none, and a rule using it compares against `''`, so it
+ * matches no owner — which is what the engine does too.
  */
 export async function publishApiKeyActor(userId: string, bypass: boolean): Promise<void> {
   const trx = getCurrentTenantTrx();

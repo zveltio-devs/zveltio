@@ -490,7 +490,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // per subscriber, so it cannot go to the database; and `checkPermission`
     // alone — which is all this route used to do — is one of the three layers
     // the REST path applies.
-    const user = { id: userId, role: (session.user as { role?: string }).role ?? 'user' };
+    // `email` for a `user_email` row rule, which otherwise matches nothing here.
+    const user = {
+      id: userId,
+      email: session.user.email,
+      role: (session.user as { role?: string }).role ?? 'user',
+    };
     const access = new Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>();
     const authType = c.get('authType');
     const role = await resolveUserRole(user).catch(() => 'user');
