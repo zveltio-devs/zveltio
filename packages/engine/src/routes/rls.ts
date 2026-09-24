@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -34,6 +34,22 @@ const PolicySchema = z.object({
   description: z.string().max(512).optional(),
 });
 
+/**
+ * A rule the layers cannot agree on is refused with the reason, not stored and
+ * left to mean three different things. Anything else is rethrown.
+ */
+function refuseUnenforceable(c: Context, err: unknown): Response {
+  if ((err as Error).name !== 'UnenforceableRuleError') throw err;
+  return c.json(
+    {
+      error: 'This rule cannot be enforced',
+      detail: (err as Error).message,
+      code: 'unenforceable_rls_rule',
+    },
+    400,
+  );
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function rlsRoutes(_db: Database, auth: any): Hono {
   const app = new Hono();
@@ -57,19 +73,7 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
       const policy = await createRlsPolicy(data);
       return c.json({ policy }, 201);
     } catch (err) {
-      // A rule the layers cannot agree on is refused with the reason, not
-      // stored and left to mean three different things.
-      if ((err as Error).name === 'UnenforceableRuleError') {
-        return c.json(
-          {
-            error: 'This rule cannot be enforced',
-            detail: (err as Error).message,
-            code: 'unenforceable_rls_rule',
-          },
-          400,
-        );
-      }
-      throw err;
+      return refuseUnenforceable(c, err);
     }
   });
 
@@ -80,7 +84,12 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
 
     const id = c.req.param('id');
     const data = c.req.valid('json');
-    const policy = await updateRlsPolicy(id, data);
+    let policy: Awaited<ReturnType<typeof updateRlsPolicy>>;
+    try {
+      policy = await updateRlsPolicy(id, data);
+    } catch (err) {
+      return refuseUnenforceable(c, err);
+    }
     if (!policy) return c.json({ error: 'Policy not found' }, 404);
     return c.json({ policy });
   });
