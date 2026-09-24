@@ -145,6 +145,22 @@ describe('checkPermission cache', () => {
     expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
     expect(store.get(denyKey)?.startsWith('0:')).toBe(true);
   });
+
+  it('files every resource no policy names under one entry', async () => {
+    // The flood bound: invented names must not each cost a cache entry (and an
+    // enforce()). A name a policy mentions keeps its own entry.
+    const store = new Map<string, string>();
+    _setCacheForTests(makeCache(store) as never);
+    for (const name of ['invented-a', 'invented-b', 'invented-c']) {
+      expect(await checkPermission('u-editor', name, 'read')).toBe(false);
+    }
+    expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
+
+    const permKeys = [...store.keys()].filter((k) => k.startsWith('perm:'));
+    expect(permKeys).toHaveLength(2);
+    expect(permKeys).toContain(`perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`);
+    expect(permKeys.some((k) => k.includes('invented'))).toBe(false);
+  });
 });
 
 describe('getUserRoles cache', () => {
