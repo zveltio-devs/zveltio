@@ -499,10 +499,14 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const access = new Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>();
     const authType = c.get('authType');
     const role = await resolveUserRole(user).catch(() => 'user');
+    // Not caught: `[]` / `null` mean "nothing to filter", so reading a failed
+    // lookup that way opened a stream delivering every row and column the
+    // caller's rules hide. The stream is refused instead (500), as the REST
+    // list path refuses on the same error.
     for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
       access.set(col, {
-        rls: await getRlsFilters(col, user, authType).catch(() => []),
-        columns: await getColumnAccess(_db, col, role, user.id).catch(() => null),
+        rls: await getRlsFilters(col, user, authType),
+        columns: await getColumnAccess(_db, col, role, user.id),
       });
     }
 

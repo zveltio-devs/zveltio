@@ -239,22 +239,31 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
  * permissions the fan-out must apply, with the same helpers the SSE stream and
  * the REST list path use.
  */
-async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<void> {
-  if (conn.access.has(collection)) return;
+async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
+  if (conn.access.has(collection)) return true;
   const user = {
     ...conn.user,
     role: await resolveUserRole(conn.user).catch(() => 'user'),
   };
-  conn.access.set(collection, {
-    rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-      getRlsFilters(collection, user, conn.authType),
-    ).catch(() => []),
-    columns: wsDb
-      ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-          getColumnAccess(wsDb as Database, collection, user.role, user.id),
-        ).catch(() => null)
-      : null,
-  });
+  // A failed lookup denies the subscription. It used to be caught as `[]` /
+  // `null` — "nothing to filter" — so the socket then received every row and
+  // column the caller's rules hide.
+  try {
+    conn.access.set(collection, {
+      rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+        getRlsFilters(collection, user, conn.authType),
+      ),
+      columns: wsDb
+        ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+            getColumnAccess(wsDb as Database, collection, user.role, user.id),
+          )
+        : null,
+    });
+    return true;
+  } catch (err) {
+    console.error(`[ws] denied subscribe to "${collection}": access lookup failed:`, err);
+    return false;
+  }
 }
 
 async function socketMayReadCached(
@@ -269,14 +278,12 @@ async function socketMayReadCached(
   const hit = permCache.get(collectionName);
   const now = Date.now();
   if (hit && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) {
-    if (hit.allowed) await resolveSocketAccess(conn, collectionName);
-    return hit.allowed;
+    return hit.allowed && (await resolveSocketAccess(conn, collectionName));
   }
 
   const allowed = await socketMayRead(conn, collectionName);
   permCache.set(collectionName, { allowed, checkedAt: now });
-  if (allowed) await resolveSocketAccess(conn, collectionName);
-  return allowed;
+  return allowed && (await resolveSocketAccess(conn, collectionName));
 }
 
 /**

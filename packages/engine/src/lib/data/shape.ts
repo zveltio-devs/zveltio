@@ -185,9 +185,12 @@ export async function applyExpand(
       continue;
     }
 
-    // Row-level policies of the target collection.
+    // Row-level policies of the target collection. Not caught: `[]` means "no
+    // policy restricts this caller", so reading a failed lookup as `[]` expanded
+    // every row the policies hide. The request fails instead, as the REST list
+    // path does on the same error.
     const rlsConditions = user
-      ? await getRlsFilters(exp.targetCollection, user, authType ?? 'session').catch(() => [])
+      ? await getRlsFilters(exp.targetCollection, user, authType ?? 'session')
       : [];
 
     let rows: { rows: DynamicRow[] };
