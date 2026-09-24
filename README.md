@@ -234,9 +234,12 @@ Interactive installer — picks Docker or native, configures `.env`, runs migrat
 ### Docker
 
 ```bash
-curl -fsSL https://get.zveltio.com/docker-compose.yml -o docker-compose.yml
-curl -fsSL https://get.zveltio.com/.env.example -o .env
-# Edit .env (BETTER_AUTH_SECRET, S3 keys, GRAFANA_ADMIN_PASSWORD)
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+curl -fsSL $BASE/docker-compose.yml -o docker-compose.yml
+curl -fsSL $BASE/.env.example -o .env
+# Edit .env (POSTGRES_PASSWORD, VALKEY_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, S3_SECRET_KEY)
 docker compose up -d
 ```
 
@@ -245,7 +248,10 @@ Engine: `http://localhost:3000`. Studio: `http://localhost:3000/admin`.
 ### Native binary
 
 ```bash
-curl -fsSL https://get.zveltio.com/releases/latest/zveltio-linux-x64 -o zveltio
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+curl -fsSL $BASE/zveltio-linux-x64 -o zveltio
 chmod +x zveltio && ./zveltio start
 ```
 

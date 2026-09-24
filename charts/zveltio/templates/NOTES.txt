@@ -53,4 +53,4 @@ Get the application URL:
 Create the first super-admin once the engine is reachable:
   kubectl exec -it deploy/{{ include "zveltio.fullname" . }}-engine -n {{ .Release.Namespace }} -- zveltio create-god
 
-For full deployment guidance see docs/DEPLOYMENT-K8S.md in the repo.
+For full deployment guidance see docs/platform/deployment-k8s.md in the repo.

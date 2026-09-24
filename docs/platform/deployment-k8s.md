@@ -12,7 +12,7 @@ cd charts/zveltio
 
 # 2. Generate the required secrets
 BETTER_AUTH_SECRET=$(openssl rand -hex 32)
-ENCRYPTION_KEY=$(openssl rand -base64 32)
+ENCRYPTION_KEY=$(openssl rand -hex 32)   # 64 hex chars; anything else is refused
 MAIL_ENCRYPTION_KEY=$(openssl rand -base64 32)
 AI_KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
@@ -20,6 +20,8 @@ AI_KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)
 helm install zveltio . \
   --namespace zveltio --create-namespace \
   --set postgresql.enabled=true \
+  --set postgresql.auth.password="$(openssl rand -hex 16)" \
+  --set redis.enabled=true \
   --set engine.config.betterAuthSecret="$BETTER_AUTH_SECRET" \
   --set engine.config.betterAuthUrl="http://localhost:3000" \
   --set engine.config.encryptionKey="$ENCRYPTION_KEY" \

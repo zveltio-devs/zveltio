@@ -5,7 +5,9 @@
 # Production checklist — set these before installing:
 #   - `engine.config.databaseUrl`            external Postgres connection
 #   - `engine.config.betterAuthSecret`       32+ char random string
-#   - `engine.config.encryptionKey`          base64 of 32 random bytes
+#   - `engine.config.betterAuthUrl`          public URL browsers use (required)
+#   - `redis.enabled` or `engine.config.valkeyUrl`   a cache (required)
+#   - `engine.config.encryptionKey`          64 hex chars: openssl rand -hex 32
 #   - `ingress.hosts[0].host`                your domain
 #   - `engine.image.tag`                     pin a real release tag, not "latest"
 
@@ -108,7 +110,7 @@ engine:
     betterAuthUrl: ""    # public base URL, e.g. https://zveltio.example.com
 
     # ── Encryption-at-rest keys (S2 security work) ─────────────────────────
-    encryptionKey: ""        # AES-256-GCM master key (base64 of 32 bytes)
+    encryptionKey: ""        # FIELD_ENCRYPTION_KEY: 64 hex chars (openssl rand -hex 32)
     mailEncryptionKey: ""    # SMTP credentials encryption
     aiKeyEncryptionKey: ""   # AI provider keys encryption
 

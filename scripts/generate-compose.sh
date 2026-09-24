@@ -18,7 +18,7 @@ cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 #
 # Quick start:
-#   curl -fsSL https://get.zveltio.com/releases/${VERSION}/.env.example -o .env
+#   curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${VERSION}/.env.example -o .env
 #   # Edit .env with your credentials
 #   docker compose up -d
 
@@ -29,6 +29,10 @@ services:
     container_name: zveltio-postgres
     restart: unless-stopped
     environment:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker and
+      # refuse to start while a volume is mounted on .../data. PGDATA keeps the
+      # data where this volume has always been mounted.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_USER: \${POSTGRES_USER:-zveltio}
       POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: \${POSTGRES_DB:-zveltio}
@@ -239,6 +243,10 @@ services:
     container_name: zveltio-postgres
     restart: unless-stopped
     environment:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker and
+      # refuse to start while a volume is mounted on .../data. PGDATA keeps the
+      # data where this volume has always been mounted.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_USER: \${POSTGRES_USER:-zveltio}
       POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: \${POSTGRES_DB:-zveltio}

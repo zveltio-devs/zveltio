@@ -62,12 +62,14 @@ The installer:
 ### Full Stack (Engine + all infrastructure)
 
 ```bash
-# Download compose file and example env
-curl -fsSL https://get.zveltio.com/releases/latest/docker-compose.yml -o docker-compose.yml
-curl -fsSL https://get.zveltio.com/releases/latest/.env.example -o .env
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+curl -fsSL $BASE/docker-compose.yml -o docker-compose.yml
+curl -fsSL $BASE/.env.example -o .env
 
 # Edit .env — at minimum set these:
-# POSTGRES_PASSWORD, SECRET_KEY, S3_SECRET_KEY
+# POSTGRES_PASSWORD, VALKEY_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, S3_SECRET_KEY
 
 docker compose up -d
 ```
@@ -79,21 +81,22 @@ Services started:
 | PostgreSQL 18   | pgvector/pgvector:pg18         | —    |
 | PgDog (pooler)  | ghcr.io/pgdogdev/pgdog         | —    |
 | Valkey          | valkey/valkey:8-alpine         | —    |
-| SeaweedFS       | chrislusf/seaweedfs:3.68       | 8333 (opt-in — `--profile storage`, `STORAGE_DRIVER=s3`) |
-| Engine + Studio | ghcr.io/zveltio/zveltio-engine | 3000 |
+| SeaweedFS       | chrislusf/seaweedfs:3.68       | 8333 (loopback) |
+| Engine + Studio | ghcr.io/zveltio-devs/zveltio-engine | 3000 |
 
-> **Storage:** By default the engine stores uploaded files on local disk (the
-> `engine_storage` volume) — no object store required. To use SeaweedFS or any
-> S3-compatible service instead, start it with `docker compose --profile storage up -d`
-> and set `STORAGE_DRIVER=s3` in `.env`.
+> **Storage:** this stack stores uploads in the bundled SeaweedFS (`STORAGE_DRIVER=s3`
+> is pinned in the compose file). The native installer defaults to local disk instead.
 
 ### Infrastructure Only (run engine natively)
 
 Use this if you have Bun installed and want to run the engine outside Docker:
 
 ```bash
-curl -fsSL https://get.zveltio.com/releases/latest/docker-compose.infra.yml -o docker-compose.infra.yml
-curl -fsSL https://get.zveltio.com/releases/latest/.env.example -o .env
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+curl -fsSL $BASE/docker-compose.infra.yml -o docker-compose.infra.yml
+curl -fsSL $BASE/.env.example -o .env
 # Edit .env
 docker compose -f docker-compose.infra.yml up -d
 zveltio migrate
@@ -105,7 +108,10 @@ zveltio start
 Use this when you have existing PostgreSQL, Redis, and S3:
 
 ```bash
-curl -fsSL https://get.zveltio.com/releases/latest/docker-compose.engine.yml -o docker-compose.yml
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+curl -fsSL $BASE/docker-compose.engine.yml -o docker-compose.yml
 # Set DATABASE_URL, REDIS_URL, S3_ENDPOINT in .env
 docker compose up -d
 ```
@@ -117,12 +123,16 @@ docker compose up -d
 Download and run without Docker at all:
 
 ```bash
+# Release assets live on GitHub; get.zveltio.com only says which version is current.
+V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
+
 # Linux x64
-curl -fsSL https://get.zveltio.com/releases/latest/zveltio-linux-x64 -o zveltio
+curl -fsSL $BASE/zveltio-linux-x64 -o zveltio
 chmod +x zveltio
 
 # macOS Apple Silicon
-curl -fsSL https://get.zveltio.com/releases/latest/zveltio-macos-arm64 -o zveltio
+curl -fsSL $BASE/zveltio-macos-arm64 -o zveltio
 chmod +x zveltio
 
 # Run

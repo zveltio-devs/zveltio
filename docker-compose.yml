@@ -14,6 +14,10 @@ services:
     container_name: zveltio-db
     restart: unless-stopped
     environment:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker and
+      # refuse to start while a volume is mounted on .../data. PGDATA keeps the
+      # data where this volume has always been mounted.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_USER: ${POSTGRES_USER:-zveltio}
       # Refuse to start without an explicit password — the previous
       # `:-zveltio` fallback meant any operator who skipped the .env
@@ -305,9 +309,10 @@ services:
       # Extensions (comma-separated)
       ZVELTIO_EXTENSIONS: '${ZVELTIO_EXTENSIONS:-}'
 
-      # Bearer token for /metrics; Prometheus below scrapes with the same one.
-      # Empty = /metrics refuses every request and the dashboards stay empty.
-      METRICS_TOKEN: '${METRICS_TOKEN:-}'
+      # Bearer token for /metrics; Prometheus below scrapes with the same one
+      # (compose secret). Required: the secret cannot be built from an unset
+      # variable, and compose then refuses to start Prometheus.
+      METRICS_TOKEN: '${METRICS_TOKEN:?ERROR: METRICS_TOKEN must be set in .env - generate with: openssl rand -hex 32}'
 
       # Studio dist is baked into the engine image at release (Tier-3 pages
       # baked, SDUI pages are data) — served directly, no rebuild sidecar.

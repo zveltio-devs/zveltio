@@ -36,7 +36,7 @@ jobs:
       - name: Lint, render, validate
         run: |
           H=/tmp/linux-amd64/helm
-          A="--set engine.config.betterAuthSecret=x"
+          A="--set engine.config.betterAuthSecret=x --set engine.config.betterAuthUrl=https://zv.example --set engine.config.valkeyUrl=redis://cache:6379"
           $H lint charts/zveltio $A
           $H template t charts/zveltio $A > default.yaml
           $H template t charts/zveltio $A \
@@ -47,8 +47,8 @@ jobs:
           /tmp/kubeconform -strict -summary default.yaml full.yaml
       - name: Refuse multi-replica on a ReadWriteOnce claim
         run: |
-          if /tmp/linux-amd64/helm template t charts/zveltio \
-               --set engine.config.betterAuthSecret=x --set engine.replicaCount=2 >/dev/null 2>&1; then
+          A="--set engine.config.betterAuthSecret=x --set engine.config.betterAuthUrl=https://zv.example --set engine.config.valkeyUrl=redis://cache:6379"
+          if /tmp/linux-amd64/helm template t charts/zveltio $A --set engine.replicaCount=2 >/dev/null 2>&1; then
             echo "::error::replicaCount=2 with the default RWO PVC rendered; the guard is gone"
             exit 1
           fi
@@ -83,6 +83,7 @@ jobs:
           GRAFANA_ADMIN_PASSWORD: x
           S3_ACCESS_KEY: x
           S3_SECRET_KEY: x
+          METRICS_TOKEN: x
         run: docker compose -f docker-compose.yml config -q
       - name: Installer syntax
         run: for f in install/*.sh scripts/install.sh; do bash -n "$f"; done
