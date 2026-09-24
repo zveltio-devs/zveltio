@@ -100,6 +100,8 @@ describe('webhooks — against the engine', () => {
         method: 'POST',
         events: ['data.create'],
       }),
-    ).rejects.toThrow();
+      // Any 400 satisfied a bare `toThrow()`: a payload the schema refused
+      // for another reason read as the SSRF guard working.
+    ).rejects.toThrow(/internal\/private address/);
   });
 });

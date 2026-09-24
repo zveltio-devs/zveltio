@@ -87,4 +87,32 @@ describe('ConfirmModal', () => {
     expect(document.activeElement?.textContent).toBe('Delete');
     cleanup();
   });
+
+  it('keeps Tab inside the dialog, both ways', async () => {
+    render(ConfirmModal, { props: { ...base, open: true, confirmLabel: 'Delete' } });
+    await new Promise((r) => setTimeout(r, 0));
+    const tab = (shiftKey: boolean) =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true }),
+      );
+    // Confirm is last: Tab wraps to Cancel, Shift+Tab wraps back.
+    expect(tab(false)).toBe(false);
+    expect(document.activeElement?.textContent).toBe('Cancel');
+    expect(tab(true)).toBe(false);
+    expect(document.activeElement?.textContent).toBe('Delete');
+    cleanup();
+  });
+
+  it('gives focus back to where it was when it closes', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { rerender } = render(ConfirmModal, { props: { ...base, open: true } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).not.toBe(opener);
+    await rerender({ ...base, open: false });
+    expect(document.activeElement).toBe(opener);
+    cleanup();
+    opener.remove();
+  });
 });

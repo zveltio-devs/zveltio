@@ -36,6 +36,23 @@ describe('Pagination', () => {
     cleanup();
   });
 
+  it('windows the page buttons around the current page, keeping first and last', () => {
+    const pages = () =>
+      screen
+        .getAllByRole('button')
+        .map((b) => b.textContent)
+        .filter((t) => /^\d+$/.test(t ?? ''));
+    render(Pagination, { props: { total: 200, page: 10, limit: 10, onchange: vi.fn() } });
+    expect(pages()).toEqual(['1', '8', '9', '10', '11', '12', '20']);
+    cleanup();
+    render(Pagination, { props: { total: 200, page: 2, limit: 10, onchange: vi.fn() } });
+    expect(pages()).toEqual(['1', '2', '3', '4', '5', '6', '20']);
+    cleanup();
+    render(Pagination, { props: { total: 200, page: 19, limit: 10, onchange: vi.fn() } });
+    expect(pages()).toEqual(['1', '15', '16', '17', '18', '19', '20']);
+    cleanup();
+  });
+
   it('fires onchange with the next page number', async () => {
     const onchange = vi.fn();
     render(Pagination, { props: { total: 50, page: 2, limit: 10, onchange } });
