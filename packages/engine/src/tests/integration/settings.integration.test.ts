@@ -62,6 +62,12 @@ afterAll(async () => {
   await db.destroy().catch(() => {});
 });
 
+async function siteName(): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}/api/settings/site_name`, { headers: { Cookie: godCookie } });
+  expect(res.status).toBe(200);
+  return ((await res.json()) as any).value;
+}
+
 describe.skipIf(skipAll)('Settings — Integration', () => {
   it('GET /api/settings — returns settings object (god)', async () => {
     const res = await fetch(`${BASE_URL}/api/settings`, {
@@ -91,6 +97,7 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
       body: JSON.stringify({ site_name: 'Zveltio Test' }),
     });
     expect(res.status).toBeOneOf([200, 204]);
+    expect(await siteName()).toBe('Zveltio Test');
   });
 
   it('GET /api/settings/public — returns public settings without auth', async () => {
@@ -100,12 +107,16 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
     expect(typeof body).toBe('object');
   });
 
-  it('PATCH /api/settings — rejects non-admin update', async () => {
-    const res = await fetch(`${BASE_URL}/api/settings`, {
+  // Aimed at `/bulk`, the route that writes. `PATCH /api/settings` has no
+  // handler, so a request there is refused by the guard whether or not the
+  // guard protects anything a member could actually reach.
+  it('PATCH /api/settings/bulk — rejects non-admin update', async () => {
+    const res = await fetch(`${BASE_URL}/api/settings/bulk`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: regularCookie },
       body: JSON.stringify({ site_name: 'Hacked' }),
     });
-    expect(res.status).toBeOneOf([401, 403]);
+    expect(res.status).toBe(403);
+    expect(await siteName()).toBe('Zveltio Test');
   });
 });
