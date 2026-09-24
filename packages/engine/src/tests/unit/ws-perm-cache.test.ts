@@ -3,7 +3,11 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { invalidateWsUserPermCache, _wsPermCacheForTests } from '../../routes/ws.js';
+import {
+  broadcastEvent,
+  invalidateWsUserPermCache,
+  _wsPermCacheForTests,
+} from '../../routes/ws.js';
 
 describe('invalidateWsUserPermCache', () => {
   it('clears the per-socket perm map for matching userId', () => {
@@ -68,5 +72,40 @@ describe('invalidateWsUserPermCache', () => {
 
     connections.delete('a');
     connections.delete('b');
+  });
+});
+
+describe('broadcastEvent', () => {
+  // A subscription whose access was never resolved has no row or column
+  // filter to apply. The fan-out used to read that as "nothing to filter".
+  function deliveredTo(access: Map<string, unknown>): string[] {
+    const { connections, indexSubscription } = _wsPermCacheForTests();
+    const sent: string[] = [];
+    connections.set('ws-no-access', {
+      userId: 'user-a',
+      user: { id: 'user-a' } as never,
+      tenantId: null,
+      ws: { send: (p: string) => sent.push(p) } as never,
+      subscriptions: new Set(['contacts']),
+      connectedAt: Date.now(),
+      authType: 'session' as const,
+      access: access as never,
+    });
+    indexSubscription('contacts', 'ws-no-access');
+    try {
+      broadcastEvent('contacts', 'insert', { id: 'c-1' }, null);
+    } finally {
+      connections.delete('ws-no-access');
+    }
+    return sent;
+  }
+
+  it('delivers nothing to a subscription with no resolved access', () => {
+    expect(deliveredTo(new Map())).toEqual([]);
+  });
+
+  it('delivers to a subscription whose access was resolved', () => {
+    const access = new Map([['contacts', { rls: [], columns: null }]]);
+    expect(deliveredTo(access).join('')).toContain('"c-1"');
   });
 });
