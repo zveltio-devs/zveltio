@@ -18,7 +18,7 @@ cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 #
 # Quick start:
-#   curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${VERSION}/.env.example -o .env
+#   curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${VERSION}/env.example -o .env
 #   # Edit .env with your credentials
 #   docker compose up -d
 
