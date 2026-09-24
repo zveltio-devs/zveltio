@@ -7,6 +7,7 @@ import { EXECUTABLE_STEP_TYPES, executeFlow } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
 import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { toJsonb } from '../lib/jsonb.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,14 +21,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const tenantOf = (c: Context): string =>
   (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await isTenantAdmin(session.user.id))) return null;
-  return session.user;
-}
 
 // The wire format for steps in POST/PATCH bodies. Internally each step
 // lives as a row in `zv_flow_steps` with a `step_order` column; the
@@ -156,8 +149,8 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // Admin auth middleware — flows are admin-only resources
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, isTenantAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });
