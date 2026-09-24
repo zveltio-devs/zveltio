@@ -1,24 +1,32 @@
 /**
  * Application-layer RLS (lib/tenancy/rls.ts) — unit-tested over CannedDb.
  *
- * getRlsFilters' role expansion calls Casbin's getUserRoles, which throws in
- * the unit environment (enforcer not initialized) — the code's documented
- * fallback to the user's direct role makes that path deterministic here.
+ * getRlsFilters' role expansion calls Casbin's getUserRoles. The enforcer is
+ * initialised over an empty policy set, so the user holds no Casbin role and
+ * only its direct role matches. It used to be left uninitialised and lean on a
+ * `catch` that read the failed lookup as "no roles" — the fail-open that
+ * rls-roles-lookup-fail-closed.test.ts now pins shut.
  * Valkey cache branches are skipped by design (getCache() is null).
  */
 
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
   createRlsPolicy,
   deleteRlsPolicy,
   getRlsFilters,
+  initPermissions,
   initRls,
   invalidateRlsCache,
   listRlsPolicies,
   updateRlsPolicy,
 } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+beforeAll(async () => {
+  process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
+  await initPermissions(new CannedDb().kysely as unknown as Database);
+});
 
 function setup(): CannedDb {
   const db = new CannedDb();
