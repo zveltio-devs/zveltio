@@ -162,11 +162,11 @@ describe('registerMarketplaceRoutes (unit)', () => {
     mock.restore();
   });
 
-  it('GET /api/marketplace returns 401 for non-admin', async () => {
+  it('GET /api/marketplace returns 403 for a signed-in non-admin', async () => {
     getSessionSpy.mockResolvedValue({ user: { id: 'u-nobody' } } as never);
     const app = mountRoutes(db, extBase);
     const res = await app.request('/api/marketplace', { headers: adminHeaders });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
   // Installing, enabling, disabling, uninstalling, configuring or licensing an
@@ -187,67 +187,67 @@ describe('registerMarketplaceRoutes (unit)', () => {
       headers: opts,
       body: '{}',
     });
-    expect(install.status).toBe(401);
+    expect(install.status).toBe(403);
 
     const enable = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/enable`, {
       method: 'POST',
       headers: opts,
       body: '{}',
     });
-    expect(enable.status).toBe(401);
+    expect(enable.status).toBe(403);
 
     const disable = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/disable`, {
       method: 'POST',
       headers: opts,
       body: '{}',
     });
-    expect(disable.status).toBe(401);
+    expect(disable.status).toBe(403);
 
     const uninstall = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/uninstall`, {
       method: 'POST',
       headers: opts,
       body: '{}',
     });
-    expect(uninstall.status).toBe(401);
+    expect(uninstall.status).toBe(403);
 
     const config = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/config`, {
       method: 'PUT',
       headers: opts,
       body: '{}',
     });
-    expect(config.status).toBe(401);
+    expect(config.status).toBe(403);
 
     const approve = await app.request(
       `/api/marketplace/${CATALOG_ENTRY.name}/approve-capabilities`,
       { method: 'POST', headers: opts, body: '{}' },
     );
-    expect(approve.status).toBe(401);
+    expect(approve.status).toBe(403);
 
     const licenseSet = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
       method: 'POST',
       headers: opts,
       body: JSON.stringify({ license_key: 'x' }),
     });
-    expect(licenseSet.status).toBe(401);
+    expect(licenseSet.status).toBe(403);
 
     const licenseDelete = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
       method: 'DELETE',
       headers: adminHeaders,
     });
-    expect(licenseDelete.status).toBe(401);
+    expect(licenseDelete.status).toBe(403);
 
     const rotate = await app.request('/api/admin/license/rotate', {
       method: 'POST',
       headers: adminHeaders,
     });
-    expect(rotate.status).toBe(401);
+    expect(rotate.status).toBe(403);
 
     const enableAll = await app.request('/api/marketplace/enable-all', {
       method: 'POST',
       headers: opts,
       body: '{}',
     });
-    expect(enableAll.status).toBe(401);
+    expect(enableAll.status).toBe(403);
   });
 
   it('GET /api/marketplace merges catalog with registry rows', async () => {

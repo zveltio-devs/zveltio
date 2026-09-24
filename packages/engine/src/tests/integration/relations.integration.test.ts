@@ -63,7 +63,7 @@ beforeAll(async () => {
   });
   godCookie = godRes.headers.get('set-cookie') ?? '';
 
-  // Regular user (for 401/403 tests)
+  // Regular user (for the 403 tests)
   const regEmail = `reg-rel-${TS}@test.local`;
   await fetch(`${BASE_URL}/api/auth/sign-up/email`, {
     method: 'POST',
@@ -96,11 +96,11 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/relations — returns 401/403 for non-admin', async () => {
+  it('GET /api/relations — returns 403 for non-admin', async () => {
     const res = await fetch(`${BASE_URL}/api/relations`, {
       headers: { Cookie: regularCookie },
     });
-    expect(res.status).toBeOneOf([401, 403]);
+    expect(res.status).toBe(403);
   });
 
   it('GET /api/relations — lists all relations (god)', async () => {
