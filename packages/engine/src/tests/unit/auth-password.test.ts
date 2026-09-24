@@ -124,8 +124,14 @@ describe('verifyPassword (legacy scrypt)', () => {
     ).toISOString();
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const hash = legacyScryptHash();
-      expect(await verifyPassword({ hash, password: 'old' })).toBe(false);
+      // The correct password: with a wrong one this reads false whether or not
+      // the deadline is enforced.
+      const password = 'Correct1!';
+      const keyHex = 'd'.repeat(128);
+      const hash = legacyScryptHash(keyHex);
+      await withScryptMock(password, keyHex, async () => {
+        expect(await verifyPassword({ hash, password })).toBe(false);
+      });
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('Refusing legacy scrypt'))).toBe(
         true,
       );

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { countLegacyScryptHashes } from '../../lib/auth.js';
 
 /**
@@ -6,65 +6,15 @@ import { countLegacyScryptHashes } from '../../lib/auth.js';
  *
  * The full re-hash flow runs inside `betterAuth().password.verify` and
  * needs a real auth instance + DB to exercise end-to-end (integration
- * test territory). Here we cover the pure pieces:
- *
- *   - Deadline-gate behavior: `PASSWORD_LEGACY_SCRYPT_DEADLINE` env
- *     controls whether scrypt verification is accepted.
- *   - `countLegacyScryptHashes` operator helper: query shape for
- *     monitoring how many accounts still need migration.
+ * test territory). Here we cover `countLegacyScryptHashes`, the operator
+ * helper that counts accounts still on scrypt. The deadline gate is tested
+ * against the production function in auth-password.test.ts.
  *
  * The verify-callback's side effect (re-hash write back to `account`) is
  * fire-and-forget — we don't await it inside verify, so testing it
  * requires a live better-auth setup. Skipped here; covered when the
  * engine's integration suite migrates to `withTestDb` (S4-06).
  */
-
-// Re-implement the deadline check in this file. It's a one-liner the
-// production code uses; this duplicate exists so the test asserts the
-// production semantics without re-importing across module boundaries
-// (the function is `unexported` on purpose).
-function isLegacyScryptDeadlinePassed(): boolean {
-  const deadline = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
-  if (!deadline) return false;
-  const d = new Date(deadline);
-  if (Number.isNaN(d.getTime())) return false;
-  return Date.now() > d.getTime();
-}
-
-describe('S4-09 isLegacyScryptDeadlinePassed', () => {
-  const originalEnv = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
-  afterEach(() => {
-    if (originalEnv === undefined) delete process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
-    else process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = originalEnv;
-  });
-
-  it('returns false when env is unset (accept scrypt indefinitely)', () => {
-    delete process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
-    expect(isLegacyScryptDeadlinePassed()).toBe(false);
-  });
-
-  it('returns false when deadline is in the future', () => {
-    const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = future;
-    expect(isLegacyScryptDeadlinePassed()).toBe(false);
-  });
-
-  it('returns true when deadline is in the past', () => {
-    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = past;
-    expect(isLegacyScryptDeadlinePassed()).toBe(true);
-  });
-
-  it('returns false on malformed dates (fail open — never accidentally lock out users)', () => {
-    process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = 'not-a-date';
-    expect(isLegacyScryptDeadlinePassed()).toBe(false);
-  });
-
-  it('returns false on empty string', () => {
-    process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = '';
-    expect(isLegacyScryptDeadlinePassed()).toBe(false);
-  });
-});
 
 // ── countLegacyScryptHashes: SQL shape ──────────────────────────────────────
 //
