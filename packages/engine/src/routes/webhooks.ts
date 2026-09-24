@@ -25,14 +25,7 @@ import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.j
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await isTenantAdmin(session.user.id))) return null;
-  return session.user;
-}
+import { guardAdmin } from '../lib/admin-guard.js';
 
 const WebhookSchema = z.object({
   name: z.string().min(1),
@@ -84,8 +77,8 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, isTenantAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });

@@ -76,7 +76,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/revisions`, {
       headers: { Cookie: regularCookie },
     });
-    expect(res.status).toBeOneOf([401, 403]);
+    expect(res.status).toBe(403);
   });
 
   it('GET /api/revisions — lists revisions (god)', async () => {

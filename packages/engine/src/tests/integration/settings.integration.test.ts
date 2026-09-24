@@ -87,7 +87,7 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/settings`, {
       headers: { Cookie: regularCookie },
     });
-    expect(res.status).toBeOneOf([401, 403]);
+    expect(res.status).toBe(403);
   });
 
   it('PATCH /api/settings — updates a setting (god)', async () => {

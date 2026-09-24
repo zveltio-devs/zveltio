@@ -87,7 +87,7 @@ describe.skipIf(skipAll)('Users — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/users`, {
       headers: { Cookie: regularCookie },
     });
-    expect(res.status).toBeOneOf([403, 401]);
+    expect(res.status).toBe(403);
   });
 
   it('GET /api/users/:id — returns user details (god)', async () => {

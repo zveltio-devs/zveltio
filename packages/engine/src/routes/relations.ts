@@ -9,14 +9,7 @@ import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 import { toJsonb } from '../lib/jsonb.js';
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await requireInstanceAdmin(session.user.id))) return null;
-  return session.user;
-}
+import { guardAdmin } from '../lib/admin-guard.js';
 
 const SAFE_IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 
@@ -125,8 +118,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });

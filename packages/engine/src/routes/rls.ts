@@ -9,14 +9,7 @@ import {
   updateRlsPolicy,
   deleteRlsPolicy,
 } from '../lib/tenancy/index.js';
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await requireInstanceAdmin(session.user.id))) return null;
-  return session.user;
-}
+import { guardAdmin } from '../lib/admin-guard.js';
 
 const PolicySchema = z.object({
   collection: z.string().min(1).max(128),
@@ -47,8 +40,8 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
 
   // GET /api/admin/rls — list all policies
   app.get('/', async (c) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Forbidden' }, 403);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
 
     const policies = await listRlsPolicies();
     return c.json({ policies });
@@ -56,8 +49,8 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
 
   // POST /api/admin/rls — create policy
   app.post('/', zValidator('json', PolicySchema), async (c) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Forbidden' }, 403);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
 
     const data = c.req.valid('json');
     try {
@@ -82,8 +75,8 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
 
   // PATCH /api/admin/rls/:id — update policy
   app.patch('/:id', zValidator('json', PolicySchema.partial()), async (c) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Forbidden' }, 403);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
 
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -94,8 +87,8 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
 
   // DELETE /api/admin/rls/:id — delete policy
   app.delete('/:id', async (c) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Forbidden' }, 403);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
 
     const id = c.req.param('id');
     const ok = await deleteRlsPolicy(id);

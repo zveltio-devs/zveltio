@@ -22,6 +22,7 @@ import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 import { toJsonb } from '../lib/jsonb.js';
 import { virtualList, type VirtualConfig } from '../lib/virtual-collection-adapter.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
@@ -47,24 +48,14 @@ const VirtualTestSchema = z.object({
 // introspection cannot drift apart (they did: `search_text` was missing here).
 const SYSTEM_FIELDS = SYSTEM_COLUMNS;
 
-// Auth helper — checks session from request headers
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  const hasAdmin = await requireInstanceAdmin(session.user.id);
-  if (!hasAdmin) return null;
-  return session.user;
-}
-
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function collectionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   // Admin auth middleware
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });

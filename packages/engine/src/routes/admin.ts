@@ -19,22 +19,15 @@ import { registerSystemRoutes } from './admin/system-routes.js';
 import { registerPermissionRoutes } from './admin/permission-routes.js';
 import { registerConfigRoutes } from './admin/config-routes.js';
 import { registerStorageAdminRoutes } from './admin/storage-routes.js';
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await requireInstanceAdmin(session.user.id))) return null;
-  return session.user;
-}
+import { guardAdmin } from '../lib/admin-guard.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function adminRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
-    const user = await requireAdmin(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });
@@ -57,13 +50,8 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
-    const user = await (async () => {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
-      if (!session) return null;
-      if (!(await requireInstanceAdmin(session.user.id))) return null;
-      return session.user;
-    })();
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
     c.set('user', user);
     await next();
   });

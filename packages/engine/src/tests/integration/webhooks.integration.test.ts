@@ -169,14 +169,18 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
     //
     // Two-step fix: bump the test wall-clock to 15 s (httpbin's 95p) so
     // we don't tie at exactly 5 s, AND assert that even on timeout the
-    // engine still returns a structured response (not 5xx) — that's what
-    // the test really cares about, the outbound delivery success is
-    // covered by other tests.
+    // engine still returns a structured response — that's what the test
+    // really cares about, the outbound delivery success is covered by other
+    // tests. The handler answers 200 either way and carries the outcome in
+    // `success`, so pin that shape rather than "anything below 500", which a
+    // 404 for a lost fixture or a 403 from the guard would also satisfy.
     const res = await fetch(`${BASE_URL}/api/webhooks/${webhookId}/test`, {
       method: 'POST',
       headers: { Cookie: godCookie },
     });
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success?: unknown };
+    expect(typeof body.success).toBe('boolean');
   }, 15_000);
 
   it('inactive webhook does NOT trigger on insert', async () => {

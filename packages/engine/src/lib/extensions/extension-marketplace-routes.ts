@@ -37,6 +37,7 @@ import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError } from './extension-errors.js';
 import { auditLog } from '../audit.js';
+import { guardAdmin } from '../admin-guard.js';
 import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionLoader } from './extension-loader.js';
@@ -55,12 +56,7 @@ export function registerMarketplaceRoutes(
 ): void {
   const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
   // Admin-only guard
-  async function requireAdmin(c: Context): Promise<boolean> {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return false;
-    const isAdmin = await requireInstanceAdmin(session.user.id);
-    return isAdmin;
-  }
+  const requireAdmin = (c: Context) => guardAdmin(c, auth, requireInstanceAdmin);
 
   /**
    * Installing, enabling or removing an extension is a GOD decision.
@@ -81,11 +77,7 @@ export function registerMarketplaceRoutes(
    * cannot install anything until `zveltio create-god` has been run. That is the
    * intended shape — a single superadmin per instance — not an oversight.
    */
-  async function requireGod(c: Context): Promise<boolean> {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return false;
-    return isGodUser(session.user.id);
-  }
+  const requireGod = (c: Context) => guardAdmin(c, auth, isGodUser);
 
   // Resolve optional tenant scope from X-Tenant-Id header.
   // null = global (no tenant filter); string = scoped to that tenant.
@@ -100,7 +92,8 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/license/:name — store (and optionally verify) a license key
   const setLicense = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = body?.license_key as string | undefined;
@@ -158,7 +151,8 @@ export function registerMarketplaceRoutes(
 
   // DELETE /api/marketplace/license/:name — remove a stored license key
   app.delete('/api/marketplace/license/:name{.+}', async (c) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     const name = c.req.param('name') ?? '';
     await db
@@ -192,7 +186,8 @@ export function registerMarketplaceRoutes(
 
   // POST /api/admin/license/rotate — mint a fresh marketplace token
   app.post('/api/admin/license/rotate', async (c) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
     // 32 bytes of high-entropy randomness, hex-encoded → 64 chars.
@@ -230,7 +225,8 @@ export function registerMarketplaceRoutes(
 
   // GET /api/admin/license/history — last 50 audit entries (most recent first)
   app.get('/api/admin/license/history', async (c) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
+    const gate = await requireAdmin(c);
+    if (gate instanceof Response) return gate;
     // An audit trail that renders empty is a statement — "no licence action has
     // ever been taken here" — and it is the statement an administrator checking for
     // unauthorised changes is least able to verify independently. A failed read must
@@ -246,7 +242,8 @@ export function registerMarketplaceRoutes(
 
   // GET /api/marketplace — catalog fetched from registry (fallback: local) merged with DB state
   app.get('/api/marketplace', async (c) => {
-    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireAdmin(c);
+    if (gate instanceof Response) return gate;
 
     const tenantId = getTenantId(c);
     const extBase = resolveExtensionsBase();
@@ -411,7 +408,8 @@ export function registerMarketplaceRoutes(
   };
 
   const installExtension = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
       const catalog = await fetchCatalog();
@@ -540,7 +538,8 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/enable (registered via the dispatcher below)
   const enableExtension = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
       // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
@@ -686,7 +685,8 @@ export function registerMarketplaceRoutes(
   // the extension is_enabled=true (it self-heals on the next boot) and records
   // last_load_error — never flips it off.
   const enableAllExtensions = async (c: Context) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     // No `.catch(() => [])`. This is "enable every installed extension": an empty
     // list means there is nothing to enable, so a failed read enabled nothing and
@@ -751,7 +751,8 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/disable
   const disableExtension = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
       await db
@@ -792,7 +793,8 @@ export function registerMarketplaceRoutes(
 
   // PUT /api/marketplace/:name/config (registered via the dispatcher below)
   const configExtension = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     const config = await c.req.json();
 
@@ -823,7 +825,8 @@ export function registerMarketplaceRoutes(
   // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
   // rows, remove files from disk, delete the registry row. Fully destructive.
   const uninstallExtension = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     const purgeData = c.req.query('purgeData') === 'true';
 
@@ -921,7 +924,8 @@ export function registerMarketplaceRoutes(
    * click has to mean the specific set the admin was shown.
    */
   const approveCapabilities = async (c: Context, name: string) => {
-    if (!(await requireGod(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
 
     const extBase = resolveExtensionsBase();
     const extDir = join(extBase, name);
@@ -1005,11 +1009,8 @@ export function registerMarketplaceRoutes(
   };
 
   const setActivation = async (c: Context, name: string, enabled: boolean) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await isTenantAdmin(session.user.id).catch(() => false))) {
-      return c.json({ error: 'Unauthorized or admin required' }, 401);
-    }
+    const gate = await guardAdmin(c, auth, (id) => isTenantAdmin(id).catch(() => false));
+    if (gate instanceof Response) return gate;
 
     const tenantId = resolveFirm(c);
     if (!tenantId) return c.json({ error: 'No tenant resolved for this request' }, 400);
