@@ -77,7 +77,7 @@ afterAll(async () => {
 
 describe.skipIf(skipAll)('Tenant membership — HTTP pivot', () => {
   it('blocks pivot to a non-member tenant (X-Tenant-Slug: B → 403)', async () => {
-    const res = await fetch(`${BASE_URL}/api/collections`, {
+    const res = await fetch(`${BASE_URL}/api/notifications`, {
       headers: { Cookie: cookie, 'X-Tenant-Slug': SLUG_B },
     });
     expect(res.status).toBe(403);
@@ -86,24 +86,17 @@ describe.skipIf(skipAll)('Tenant membership — HTTP pivot', () => {
   });
 
   it('allows the member tenant (X-Tenant-Slug: A → not the membership 403)', async () => {
-    const res = await fetch(`${BASE_URL}/api/collections`, {
+    // A route a plain member may call. `/api/collections` is instance-admin
+    // only, so it refused this user for a reason unrelated to membership and
+    // the old branch on 403 could not tell the two apart.
+    const res = await fetch(`${BASE_URL}/api/notifications`, {
       headers: { Cookie: cookie, 'X-Tenant-Slug': SLUG_A },
     });
-    if (res.status === 403) {
-      const body = await res.json().catch(() => ({}));
-      expect(JSON.stringify(body)).not.toContain('not a member');
-    } else {
-      expect(res.status).toBeLessThan(500);
-    }
+    expect(res.status).toBe(200);
   });
 
   it('allows the default tenant (no X-Tenant-Slug → no membership check)', async () => {
-    const res = await fetch(`${BASE_URL}/api/collections`, { headers: { Cookie: cookie } });
-    if (res.status === 403) {
-      const body = await res.json().catch(() => ({}));
-      expect(JSON.stringify(body)).not.toContain('not a member');
-    } else {
-      expect(res.status).toBeLessThan(500);
-    }
+    const res = await fetch(`${BASE_URL}/api/notifications`, { headers: { Cookie: cookie } });
+    expect(res.status).toBe(200);
   });
 });

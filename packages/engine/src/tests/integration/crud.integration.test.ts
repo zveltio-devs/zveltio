@@ -133,7 +133,8 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.records.every((r: any) => r.price > 10)).toBe(true);
+    // Only Item B (24.99) clears 10. `every` alone passes on an empty page.
+    expect(body.records.map((r: any) => r.title)).toEqual(['Item B']);
   });
 
   it('GET /api/data/:collection?search — full-text search', async () => {

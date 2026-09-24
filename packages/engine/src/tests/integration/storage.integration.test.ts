@@ -21,6 +21,7 @@ const skipAll = !TEST_DB_URL;
 
 let db: Database;
 let sessionCookie: string;
+let otherCookie: string;
 let uploadedFileId: string;
 let createdFolderId: string;
 
@@ -44,6 +45,21 @@ beforeAll(async () => {
     body: JSON.stringify({ email, password: 'StorPass123!' }),
   });
   sessionCookie = res.headers.get('set-cookie') ?? '';
+
+  // A second, ordinary account: every call below is the owner acting on their
+  // own file, so without one nothing here says the file is theirs alone.
+  const otherEmail = `storage-other-${Date.now()}@test.local`;
+  await fetch(`${BASE_URL}/api/auth/sign-up/email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: otherEmail, password: 'StorPass123!', name: 'Other User' }),
+  });
+  const other = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: otherEmail, password: 'StorPass123!' }),
+  });
+  otherCookie = other.headers.get('set-cookie') ?? '';
 });
 
 afterAll(async () => {
@@ -100,7 +116,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
   });
 
   it('GET /api/storage/:id — returns file metadata', async () => {
-    if (!uploadedFileId) return;
+    expect(uploadedFileId).toBeTruthy();
     const res = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
       headers: { Cookie: sessionCookie },
     });
@@ -122,13 +138,10 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
       body: JSON.stringify({ name: `test-folder-${Date.now()}` }),
     });
-    expect(res.status).toBeOneOf([200, 201, 503]);
-    if (res.status === 200 || res.status === 201) {
-      const body = (await res.json()) as any;
-      const folder = body.folder ?? body;
-      expect(folder).toHaveProperty('id');
-      createdFolderId = folder.id;
-    }
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as any;
+    expect(body.folder).toHaveProperty('id');
+    createdFolderId = body.folder.id;
   });
 
   it('GET /api/storage/folders — lists folders', async () => {
@@ -140,13 +153,36 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
     expect(Array.isArray(body.folders)).toBe(true);
   });
 
+  it("another user can neither see nor delete the owner's file", async () => {
+    const one = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
+      headers: { Cookie: otherCookie },
+    });
+    expect(one.status).toBe(404);
+    const list = await fetch(`${BASE_URL}/api/storage`, { headers: { Cookie: otherCookie } });
+    expect(list.status).toBe(200);
+    const listed = ((await list.json()) as any).files.map((f: any) => f.id);
+    expect(listed).not.toContain(uploadedFileId);
+    const del = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
+      method: 'DELETE',
+      headers: { Cookie: otherCookie },
+    });
+    expect(del.status).toBeOneOf([403, 404]);
+    const still = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
+      headers: { Cookie: sessionCookie },
+    });
+    expect(still.status).toBe(200);
+  });
+
   it('DELETE /api/storage/:id — deletes the uploaded file', async () => {
-    if (!uploadedFileId) return;
     const res = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
       method: 'DELETE',
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBeOneOf([200, 204]);
+    const gone = await fetch(`${BASE_URL}/api/storage/${uploadedFileId}`, {
+      headers: { Cookie: sessionCookie },
+    });
+    expect(gone.status).toBe(404);
     uploadedFileId = ''; // prevent afterAll cleanup attempt
   });
 });

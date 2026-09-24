@@ -91,7 +91,7 @@ describe.skipIf(skipAll)('Users — Integration', () => {
   });
 
   it('GET /api/users/:id — returns user details (god)', async () => {
-    if (!regularUserId) return;
+    expect(regularUserId).toBeTruthy();
     const res = await fetch(`${BASE_URL}/api/users/${regularUserId}`, {
       headers: { Cookie: godCookie },
     });
@@ -102,13 +102,15 @@ describe.skipIf(skipAll)('Users — Integration', () => {
   });
 
   it('PATCH /api/users/:id — updates user name (god)', async () => {
-    if (!regularUserId) return;
+    expect(regularUserId).toBeTruthy();
     const res = await fetch(`${BASE_URL}/api/users/${regularUserId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: godCookie },
       body: JSON.stringify({ name: 'Updated Name' }),
     });
     expect(res.status).toBeOneOf([200, 204]);
+    const me = await fetch(`${BASE_URL}/api/me`, { headers: { Cookie: regularCookie } });
+    expect(((await me.json()) as any).user.name).toBe('Updated Name');
   });
 
   it('GET /api/me — returns current user profile', async () => {

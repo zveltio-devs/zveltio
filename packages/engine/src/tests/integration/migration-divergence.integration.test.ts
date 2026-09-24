@@ -67,7 +67,7 @@ describe.skipIf(skipAll)('migration chain divergence fails closed', () => {
   });
 
   it('accepts a database whose recorded chain matches the shipped files', async () => {
-    expect(assertChainCompatible(db)).resolves.toBeUndefined();
+    await expect(assertChainCompatible(db)).resolves.toBeUndefined();
   });
 
   it('refuses when a number was reused by a different file (the squash case)', async () => {
@@ -120,6 +120,6 @@ describe.skipIf(skipAll)('migration chain divergence fails closed', () => {
   it('treats a baseline row as compatible — that is what a squash marks', async () => {
     await sql`UPDATE zv_schema_versions SET checksum = 'baseline'
               WHERE version = ${original?.version}`.execute(db);
-    expect(assertChainCompatible(db)).resolves.toBeUndefined();
+    await expect(assertChainCompatible(db)).resolves.toBeUndefined();
   });
 });
