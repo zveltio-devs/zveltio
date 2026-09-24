@@ -37,6 +37,36 @@ describe('safeCss', () => {
     expect(safeCss('.a{background:url(https://evil/x)}')).not.toMatch(/\burl\s*\(/);
   });
 
+  it('sees url() and @import through CSS escapes', () => {
+    // The CSS parser decodes escapes before it recognises a function or an
+    // at-rule, so `u\72l(` is `url(` to the browser and invisible to a regex
+    // that looks for the letters. `custom_css` has no server-side filter —
+    // this function is the only one.
+    for (const css of [
+      '.a{background:u\\72l(https://evil/x)}',
+      '.a{background:\\75 rl(https://evil/x)}',
+      '.a{background:\\u\\r\\l(https://evil/x)}',
+      '@\\69mport "https://evil/x.css"; .a{}',
+    ]) {
+      expect(safeCss(css)).not.toContain('evil');
+    }
+  });
+
+  it('neutralises image-set(), which fetches a bare string', () => {
+    // No url() needed: `image-set("https://…" 1x)` is a request of its own.
+    for (const css of [
+      '.a{background:image-set("https://evil/x" 1x)}',
+      '.a{background:-webkit-image-set("https://evil/x" 1x)}',
+    ]) {
+      expect(safeCss(css)).not.toMatch(/image-set\s*\(/i);
+    }
+  });
+
+  it('keeps escapes that do not spell a fetch', () => {
+    const css = '.q::before{content:"\\201C"}';
+    expect(safeCss(css)).toBe(css);
+  });
+
   it('removes @import', () => {
     expect(safeCss('@import url("https://evil/x.css"); .a{}')).not.toMatch(/@import/i);
   });
