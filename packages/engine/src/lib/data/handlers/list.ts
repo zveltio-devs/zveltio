@@ -18,6 +18,7 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import {
+  applyRlsFilters,
   getRlsFilters,
   getSingleTenantId,
   matchesRlsFilters,
@@ -290,12 +291,14 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   // ── RLS injection ──────────────────────────────────────────────
-  // Merge row-level security filters into existing query filters.
-  // RLS conditions are ANDed with any user-supplied filters.
+  // ANDed onto the query as a LIST, through `applyRlsFilters` like every other
+  // reader. They used to be merged into the client's filter map by field, which
+  // holds one condition per field: a second rule on the same field replaced the
+  // first (whose rows were then listed), and a rule on a field the client
+  // filtered on replaced the client's condition.
   const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
-  for (const { field, condition } of rlsFilters) {
-    filters[field] = condition; // RLS wins over same-field user filter
-  }
+  const applyAlters = <Q>(qb: Q): Q =>
+    applyRlsFilters(queryAlterRegistry.applyAll(qb, tableName, user), rlsFilters);
 
   const effectiveDb = getDb(c, db);
   const sortField = query.sort ?? 'created_at';
@@ -314,23 +317,16 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
       let kQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll();
 
-      // Apply existing filters — RLS conditions among them, merged above.
-      //
-      // Through `buildCondition`, the same helper the offset path uses via
-      // `dynamicSelect`. This branch used to re-implement it and covered only
-      // the six comparison operators, so `in` and `not_in` fell through the
-      // `else if` chain and were never applied. Both are valid RLS operators,
-      // which meant a row policy written with `in` stopped applying the moment
-      // a caller added `?cursor=` — the filters were not refused, they simply
-      // were not there.
+      // The client's filters through `buildCondition`, the helper the offset
+      // path uses via `dynamicSelect`. This branch once re-implemented it and
+      // covered only six operators, so `in`/`not_in` silently did nothing here.
       for (const [field, cond] of Object.entries(filters)) {
         kQuery = kQuery.where(buildCondition(field, cond));
       }
 
-      // Extension query alters, which the offset path applies through
-      // `dynamicSelect`. An extension that narrows a collection was likewise
-      // bypassed by paginating with a cursor.
-      kQuery = queryAlterRegistry.applyAll(kQuery, tableName, user);
+      // Row rules and extension alters, as the offset path applies them through
+      // `dynamicSelect`. Both were once bypassed by paginating with a cursor.
+      kQuery = applyAlters(kQuery);
 
       // Add keyset condition (compound: sort col + tiebreak by id)
       if (query.order === 'asc') {
@@ -365,7 +361,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           fts: query.search ? query.search.trim().substring(0, 500) : undefined,
           hasTrgm: !!collectionDef.has_trgm,
           tenantScopeId: getSingleTenantId(),
-          applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
+          applyAlters,
         }),
       );
     }
@@ -384,7 +380,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       countMode: query.count,
       // Null whenever a hierarchy is in play, and then nothing is added.
       tenantScopeId: getSingleTenantId(),
-      applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
+      applyAlters,
     });
   }
 
