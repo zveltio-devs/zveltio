@@ -43,7 +43,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await initPermissions(new CannedDb().kysely as unknown as Database);
+  const empty = new CannedDb().kysely as unknown as Database;
+  await initPermissions(empty);
+  initRls(empty);
 });
 
 describe('RLS override via data:view_all', () => {
