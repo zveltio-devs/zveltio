@@ -29,29 +29,74 @@ function asRedirect(e: unknown): { status: number; location: string } {
   return { status: r.status, location: r.location };
 }
 
-/** A fetch that answers `get-session` with whatever body is given. */
-function sessionFetch(body: unknown, ok = true) {
-  return vi.fn(async () => ({ ok, json: async () => body }) as unknown as Response);
+/**
+ * Response bodies captured from a live engine (3.0.0-beta.69) — do not invent
+ * fields here. The first version of this file mocked `get-session` with a
+ * `role` it never carries, so the guard passed its tests and bounced every
+ * real user, god included.
+ */
+const REAL = {
+  /** better-auth's session: no role of any kind. */
+  getSession: {
+    session: { id: 's1', userId: 'u1', expiresAt: '2026-10-01T06:56:33.657Z' },
+    user: { id: 'u1', name: 'emp', email: 'emp@x.test', emailVerified: false, image: null },
+  },
+  /** `/api/me` for a member holding the Casbin role `employee`. */
+  employee: {
+    user: { id: 'u1', name: 'emp', email: 'emp@x.test', role: 'member', roles: ['employee'] },
+  },
+  partner: {
+    user: { id: 'u2', name: 'prt', email: 'prt@x.test', role: 'member', roles: ['partner'] },
+  },
+  /** A god holds no Casbin role; `god` is the `user.role` column. */
+  god: { user: { id: 'u3', name: 'god', email: 'god@x.test', role: 'god', roles: [] } },
+  /** `/api/me` anonymous: 401 with a problem document. */
+  anonymous: { status: 401, title: 'Unauthorized', detail: 'Not authenticated' },
+};
+
+/**
+ * A fetch that answers like the engine: `/api/me` with `me`, get-session with
+ * the real session body. A guard that reads the wrong endpoint gets the wrong
+ * answer here, as it would in production.
+ */
+function engineFetch(me: unknown, ok = true) {
+  return vi.fn(async (url: string) => {
+    if (url.endsWith('/api/auth/get-session')) {
+      return { ok: true, json: async () => REAL.getSession } as unknown as Response;
+    }
+    if (url.endsWith('/api/me')) return { ok, json: async () => me } as unknown as Response;
+    throw new Error(`unexpected fetch ${url}`);
+  });
 }
 
 const url = (path: string) => new URL(`http://localhost${path}`);
 
-describe('requireRole', () => {
-  it('returns the user when the role is allowed', async () => {
-    const fetchFn = sessionFetch({ user: { id: 'u1', role: 'employee' } });
+const EMPLOYEE_GROUP = ['employee', 'manager', 'admin', 'god'];
+const PARTNER_GROUP = ['partner', 'manager', 'admin', 'god'];
 
-    const result = await requireRole(fetchFn as never, url('/employee/dashboard'), ['employee']);
+describe('requireRole', () => {
+  it('lets a member holding the Casbin role in', async () => {
+    const fetchFn = engineFetch(REAL.employee);
+
+    const result = await requireRole(fetchFn as never, url('/employee/dashboard'), EMPLOYEE_GROUP);
 
     expect(result.user.id).toBe('u1');
-    expect(result.user.role).toBe('employee');
+    expect(result.user.roles).toEqual(['employee']);
+  });
+
+  it('lets a god into both portals, though a god holds no Casbin role', async () => {
+    for (const allowed of [EMPLOYEE_GROUP, PARTNER_GROUP]) {
+      const result = await requireRole(engineFetch(REAL.god) as never, url('/x'), allowed);
+      expect(result.user.role).toBe('god');
+    }
   });
 
   it('sends an anonymous visitor to login, remembering where they were going', async () => {
     // The returnTo is the point: without it, signing in drops you on a default
     // page and the link someone followed is lost.
-    const fetchFn = sessionFetch({});
+    const fetchFn = engineFetch(REAL.anonymous, false);
 
-    const err = await requireRole(fetchFn as never, url('/employee/reports'), ['employee']).catch(
+    const err = await requireRole(fetchFn as never, url('/employee/reports'), EMPLOYEE_GROUP).catch(
       (e) => e,
     );
 
@@ -64,15 +109,27 @@ describe('requireRole', () => {
     // Same destination, different reason. A partner who lands on an employee
     // page has a different problem from a visitor, and the login screen needs
     // to be able to say so.
-    const fetchFn = sessionFetch({ user: { id: 'u2', role: 'partner' } });
+    const fetchFn = engineFetch(REAL.partner);
 
-    const err = await requireRole(fetchFn as never, url('/employee/dashboard'), ['employee']).catch(
-      (e) => e,
-    );
+    const err = await requireRole(
+      fetchFn as never,
+      url('/employee/dashboard'),
+      EMPLOYEE_GROUP,
+    ).catch((e) => e);
 
     const r = asRedirect(err);
     expect(r.location).toBe('/auth/login?error=insufficient_role');
     expect(r.location).not.toContain('returnTo');
+  });
+
+  it('does not treat the `member` grade as a portal role', async () => {
+    const fetchFn = engineFetch({ user: { ...REAL.employee.user, roles: [] } });
+
+    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
+      (e) => e,
+    );
+
+    expect(asRedirect(err).location).toBe('/auth/login?error=insufficient_role');
   });
 
   it('treats an unreachable engine as not signed in', async () => {
@@ -83,43 +140,35 @@ describe('requireRole', () => {
       throw new Error('ECONNREFUSED');
     });
 
-    const err = await requireRole(fetchFn as never, url('/employee/x'), ['employee']).catch(
+    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
       (e) => e,
     );
 
     expect(asRedirect(err).location).toContain('/auth/login');
   });
 
-  it('treats a non-OK session response as not signed in', async () => {
-    // better-auth answers 200 with a null body for an expired session, but a
-    // proxy or a restart can produce a 502 here. Neither is a licence to enter.
-    const fetchFn = sessionFetch({ user: { id: 'u3', role: 'employee' } }, false);
+  it('treats a non-OK response as not signed in', async () => {
+    // A proxy or a restart can produce a 502 with a body that looks like a
+    // user. That is not a licence to enter.
+    const fetchFn = engineFetch(REAL.employee, false);
 
-    const err = await requireRole(fetchFn as never, url('/employee/x'), ['employee']).catch(
+    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
       (e) => e,
     );
 
     expect(asRedirect(err).location).toContain('/auth/login');
-  });
-
-  it('accepts any of several allowed roles', async () => {
-    const fetchFn = sessionFetch({ user: { id: 'u4', role: 'manager' } });
-
-    const result = await requireRole(fetchFn as never, url('/employee/x'), ['employee', 'manager']);
-
-    expect(result.user.role).toBe('manager');
   });
 
   it('sends the session cookie', async () => {
     // Without `credentials: 'include'` the request carries no cookie, the
     // engine answers "no session", and every authenticated user is bounced to
     // login — a total outage that looks like an auth bug.
-    const fetchFn = sessionFetch({ user: { id: 'u5', role: 'employee' } });
+    const fetchFn = engineFetch(REAL.employee);
 
-    await requireRole(fetchFn as never, url('/employee/x'), ['employee']);
+    await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP);
 
     expect(fetchFn).toHaveBeenCalledWith(
-      expect.stringContaining('/api/auth/get-session'),
+      expect.stringContaining('/api/me'),
       expect.objectContaining({ credentials: 'include' }),
     );
   });

@@ -8,7 +8,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -73,6 +79,26 @@ d('auth + invitation routes (in-process)', () => {
     expect((await app.request('/api/me')).status).toBe(401);
     const authed = await app.request('/api/me', { headers: { cookie } });
     expect(authed.status).toBe(200);
+  });
+
+  // The client portal's route guard reads roles from here. `user.role` is only
+  // `god` or `member`; a Casbin role like `employee` must arrive in `roles`,
+  // because nothing else a signed-in non-admin can call exposes it.
+  it("GET /api/me carries the caller's Casbin roles", async () => {
+    const member = await createMemberSession(app, db, { role: 'member', grants: [] });
+    const e = await getEnforcer();
+    await e.addRoleForUser(member.userId, 'employee', '*');
+    await invalidateUserPermCache(member.userId);
+    try {
+      const res = await app.request('/api/me', { headers: { cookie: member.cookie } });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { user: { role: string; roles: string[] } };
+      expect(body.user.role).toBe('member');
+      expect(body.user.roles).toContain('employee');
+    } finally {
+      await e.deleteRoleForUser(member.userId, 'employee', '*');
+      await invalidateUserPermCache(member.userId);
+    }
   });
 
   it('PATCH /api/me updates the profile (authed), 401 anonymous', async () => {

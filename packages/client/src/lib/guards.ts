@@ -23,19 +23,25 @@ import { redirect } from '@sveltejs/kit';
  * the only thing standing between a request and data; a determined visitor can
  * always skip client-side code. What this buys is that people who are not
  * signed in land on the login page instead of a broken-looking empty app.
+ *
+ * It asks `/api/me`, not better-auth's `/api/auth/get-session`. The session
+ * carries no role at all, so a guard reading `session.user.role` bounced every
+ * signed-in user — god included — to `insufficient_role`. `/api/me` returns the
+ * `user` row, whose `role` is only `god` or `member`, plus `roles`: the caller's
+ * Casbin roles, which is where employee, partner, manager and admin live.
  */
 export async function requireRole(
   fetchFn: typeof fetch,
   url: URL,
   allowed: readonly string[],
-): Promise<{ user: { id: string; role: string; [k: string]: unknown } }> {
+): Promise<{ user: { id: string; role: string; roles: string[]; [k: string]: unknown } }> {
   const engineUrl =
     import.meta.env.PUBLIC_ENGINE_URL ??
     (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
-  let session: { user?: { id: string; role: string } } | null = null;
+  let session: { user?: { id: string; role: string; roles?: string[] } } | null = null;
   try {
-    const res = await fetchFn(`${engineUrl}/api/auth/get-session`, { credentials: 'include' });
+    const res = await fetchFn(`${engineUrl}/api/me`, { credentials: 'include' });
     if (res.ok) session = await res.json();
   } catch {
     // Engine unreachable. Treat it as "not signed in" — sending someone to the
@@ -48,8 +54,9 @@ export async function requireRole(
   if (!user) {
     throw redirect(302, `/auth/login?returnTo=${encodeURIComponent(url.pathname)}`);
   }
-  if (!allowed.includes(user.role)) {
+  const roles = user.roles ?? [];
+  if (![user.role, ...roles].some((r) => allowed.includes(r))) {
     throw redirect(302, '/auth/login?error=insufficient_role');
   }
-  return { user };
+  return { user: { ...user, roles } };
 }
