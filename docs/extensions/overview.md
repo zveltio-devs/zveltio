@@ -117,7 +117,7 @@ extensions.
 ## Building your own
 
 ```sh
-zveltio extension init <name>
+zveltio extension create <name>
 ```
 
 Then read the [Developer Guide](/extension-developer-guide) — mental model,
