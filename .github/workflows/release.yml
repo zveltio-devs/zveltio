@@ -622,7 +622,8 @@ jobs:
           cp dist/studio.tar.gz flat-assets/
           cp dist/studio-source.tar.gz flat-assets/
           cp dist/client.tar.gz flat-assets/
-          cp release-assets/* flat-assets/
+          # `*` skips dotfiles: .env.example never reached the artifact.
+          cp -a release-assets/. flat-assets/
 
       - name: Upload release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -706,6 +707,9 @@ jobs:
           prerelease: ${{ steps.info.outputs.prerelease == 'true' }}
 
           generate_release_notes: true
+          # A listed asset that is missing was a log line nobody read; beta.68
+          # and beta.69 shipped without .env.example that way.
+          fail_on_unmatched_files: true
           files: |
             all-assets/zveltio-linux-x64
             all-assets/zveltio-linux-x64-baseline
