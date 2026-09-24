@@ -70,8 +70,11 @@ let saveError = $state('');
  * kept it.
  */
 let dirty = $state(false);
+// Counts edits, so a Save only marks clean the work its snapshot carried.
+let edits = 0;
 function touch() {
   dirty = true;
+  edits++;
 }
 
 beforeNavigate((nav) => {
@@ -104,13 +107,14 @@ async function saveFlow() {
   if (!flow) return;
   saving = true;
   saveError = '';
+  const sent = edits;
   try {
     await api.patch(`/api/flows/${flow.id}`, {
       name: flow.name,
       description: flow.description,
       steps: flow.steps,
     });
-    dirty = false;
+    if (edits === sent) dirty = false;
     toast.success(m['common.saved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
