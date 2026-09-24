@@ -19,6 +19,7 @@ on:
       - 'grafana/**'
       - 'install/**'
       - 'scripts/install.sh'
+      - 'scripts/generate-compose.sh'
       - '.github/workflows/deploy-artifacts.yml'
 
 permissions:
@@ -67,7 +68,7 @@ jobs:
           # Static files outside /data, where a volume would hide them.
           docker run --rm --entrypoint sh zveltio-engine:ci -c \
             'test -f "$STUDIO_DIST_PATH/index.html" && test -f "$CLIENT_DIST_PATH/index.html" &&
-             case "$STUDIO_DIST_PATH$CLIENT_DIST_PATH" in /data*) exit 1;; esac'
+             case "$STUDIO_DIST_PATH:$CLIENT_DIST_PATH" in /data*|*:/data*) exit 1;; esac'
           # The binary runs and knows `migrate` (the chart's migration Job).
           docker run --rm zveltio-engine:ci --help | grep -q migrate
 
@@ -76,14 +77,30 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Compose files parse
+        # Users download the files generate-compose.sh writes at release, not
+        # the repo's docker-compose.yml — parse both, plus the opt-in overlays.
         env:
           POSTGRES_PASSWORD: x
           VALKEY_PASSWORD: x
           BETTER_AUTH_SECRET: x
+          BETTER_AUTH_URL: http://localhost:3000
+          DATABASE_URL: postgresql://zveltio:x@postgres:5432/zveltio
+          VALKEY_URL: redis://:x@valkey:6379
           GRAFANA_ADMIN_PASSWORD: x
           S3_ACCESS_KEY: x
           S3_SECRET_KEY: x
+          S3_ENDPOINT: http://seaweedfs:8333
           METRICS_TOKEN: x
-        run: docker compose -f docker-compose.yml config -q
+          ELECTRIC_AUTH_TOKEN: x
+        run: |
+          docker compose -f docker-compose.yml config -q
+          for o in ai dev electric; do
+            docker compose -f docker-compose.yml -f "docker-compose.$o.yml" config -q
+          done
+          mkdir -p gen && bash scripts/generate-compose.sh 0.0.0-ci gen/
+          for f in docker-compose.yml docker-compose.infra.yml docker-compose.engine.yml; do
+            test -s "gen/$f" || { echo "::error::gen/$f was not generated"; exit 1; }
+            docker compose -f "gen/$f" config -q
+          done
       - name: Installer syntax
         run: for f in install/*.sh scripts/install.sh; do bash -n "$f"; done
