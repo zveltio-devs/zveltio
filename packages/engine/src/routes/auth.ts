@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { getEnforcer, invalidateUserPermCache } from '../lib/tenancy/index.js';
+import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../lib/tenancy/index.js';
 import { withAuthorizedUserCreation } from '../lib/auth.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
@@ -26,7 +26,13 @@ export function authRoutes(db: Database, auth: any): Hono {
       .where('id', '=', session.user.id)
       .executeTakeFirst();
 
-    return c.json({ user: user || session.user });
+    // `roles` are the caller's Casbin roles. `user.role` is only `god` or
+    // `member` (a CHECK constraint); employee, partner, manager and the rest
+    // exist nowhere but Casbin, and better-auth's get-session carries no role at
+    // all — so without this a browser app had no way to learn its own roles,
+    // and the client portal's role guard bounced every user, god included.
+    const roles = await getUserRoles(session.user.id);
+    return c.json({ user: { ...(user || session.user), roles } });
   });
 
   // PATCH / — update own profile (mounted at /api/me)
