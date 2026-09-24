@@ -160,7 +160,7 @@ enforces that the host does not carry per-extension page code.
 ## 9. Publishing
 
 ```sh
-zveltio extension init <name>       # scaffold
+zveltio extension create <name>     # scaffold
 zveltio extension validate          # manifest + contract checks
 zveltio extension pack              # build + archive + sign
 zveltio extension publish           # upload to the registry

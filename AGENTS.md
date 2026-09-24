@@ -295,7 +295,7 @@ generated).
   on Better-Auth tables). Optional WASM runtime for strict isolation.
 - Extension dev loop, manifest v2 schema, and publishing:
   `docs/extensions/developer-guide.md` (§12 covers the local loop).
-  Scaffold with `zveltio extension init <name>`.
+  Scaffold with `zveltio extension create <name>`.
 - The SDK extension surface (`ZveltioExtension`, `@zveltio/sdk/extension`,
   manifest v2, marketplace flow, worker isolation contract) is **API-stable in
   beta — do not break it**. Engine internals and Studio layout may move.

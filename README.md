@@ -120,7 +120,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 - Studio rebuilds itself with the new pages — bulletproof against Svelte runtime fragmentation (we tried dynamic component loading; it broke. Postmortem in `git log alpha.71..alpha.74`).
 - Both engine routes and Studio pages appear without engine restart for the API layer.
 
-Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension publish` signs + uploads. Full guide: [docs/extensions/developer-guide.md](docs/extensions/developer-guide.md).
+Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension publish` signs + uploads. Full guide: [docs/extensions/developer-guide.md](docs/extensions/developer-guide.md).
 
 ---
 

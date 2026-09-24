@@ -34,6 +34,9 @@ export async function extensionStatusCommand(
   // there → status='published'. If not, fall back to the developer
   // detail endpoint which returns everything the calling user owns.
   const listRes = await fetch(`${registryUrl}/api/extensions/list`).catch(() => null);
+  // An unreachable registry is not an answer; reporting it as "not found"
+  // told the author their published extension was missing.
+  unreachable(listRes);
   if (listRes?.ok) {
     const body = (await listRes.json()) as {
       extensions: Array<{ name: string; version: string; status?: string }>;
@@ -54,6 +57,7 @@ export async function extensionStatusCommand(
   const detailRes = await fetch(
     `${registryUrl}/api/dev/extensions/by-name/${encodeURIComponent(name)}`,
   ).catch(() => null);
+  unreachable(detailRes);
   if (detailRes?.ok) {
     const body = (await detailRes.json()) as {
       status: string;
@@ -99,4 +103,12 @@ export async function extensionStatusCommand(
     ),
   );
   console.log('');
+}
+
+function unreachable(res: Response | null): void {
+  if (res && res.status < 500) return;
+  console.error(
+    c.red(`  ✗ Registry unreachable (${res ? `HTTP ${res.status}` : 'network error'}).`),
+  );
+  process.exit(1);
 }

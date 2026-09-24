@@ -25,7 +25,12 @@ import pkg from '../package.json' with { type: 'json' };
 
 const program = new Command();
 
-program.name('zveltio').description('The official Zveltio CLI').version(pkg.version);
+// commander 12 accepts undeclared positionals; subcommands inherit this.
+program
+  .name('zveltio')
+  .allowExcessArguments(false)
+  .description('The official Zveltio CLI')
+  .version(pkg.version);
 
 // ── zveltio init [dir] ────────────────────────────────────────────────────────
 program
