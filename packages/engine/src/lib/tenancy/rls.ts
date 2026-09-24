@@ -20,6 +20,7 @@ import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
   isRuleOperator,
+  keepsNothing,
   RULE_OPERATORS,
   unsupportedOperator,
 } from './rule-operators.js';
@@ -50,8 +51,9 @@ function resolveValue(
 ): string | null {
   if (source === 'user_id') return user.id;
   // `user_email` and `user_role` both answer `''` for an absent value, and
-  // emphatically NOT null: null means "cannot resolve" to the caller, which
-  // SKIPS the policy — fail-open.
+  // emphatically NOT null: null means "unknown source" to the caller, which
+  // hides every row — right for a source nobody can resolve, wrong for a
+  // caller who merely has no email.
   //
   // For email that was live. An API key has no email, and the WebSocket and SSE
   // paths built their session user without one, so `owner_email eq user_email`
@@ -233,7 +235,28 @@ export async function getRlsFilters(
     if (!roleMatch) continue;
 
     const value = resolveValue(policy.filter_value_source, user);
-    if (value === null) continue; // can't resolve value — skip (fail-open for this policy)
+    if (value === null) {
+      // A source this engine does not know — a row stored before the route
+      // refused them (`user.id`), or written straight into the table. It used to
+      // be SKIPPED, and the generated policy left it out too, so a rule listed as
+      // enabled hid nothing. It now hides everything: `in []` is the one
+      // condition all four appliers read as "no row" (rule-operators.ts).
+      //
+      // Not a throw, although `unsupportedOperator` throws: the SSE, WebSocket
+      // and `?expand=` callers catch this function's errors as "no filters",
+      // which is fail-open, and the fan-out loops run the matcher outside any
+      // try, so a throw there would stop delivery to every other subscriber.
+      if (!warnedUnknownSource.has(policy.id)) {
+        warnedUnknownSource.add(policy.id);
+        console.warn(
+          `[rls] policy ${policy.id} on ${policy.collection}: value source ` +
+            `${JSON.stringify(policy.filter_value_source)} is not known — hiding every row ` +
+            `until it is fixed or disabled.`,
+        );
+      }
+      result.push({ field: policy.filter_field, condition: { op: 'in', value: [] } });
+      continue;
+    }
 
     const op = (policy.filter_op as FilterCondition['op']) || 'eq';
     // `in`/`not_in` need a list, and resolveValue only ever produces a scalar.
@@ -255,6 +278,9 @@ export async function getRlsFilters(
   return result;
 }
 
+/** Policies already reported, so a broken one warns once, not per request. */
+const warnedUnknownSource = new Set<string>();
+
 /**
  * Apply RLS filter conditions to a query builder.
  *
@@ -269,7 +295,10 @@ export async function getRlsFilters(
  * names via `dynamicDb`, which has no static schema to check the field against.
  */
 /** The only shape this needs from a query builder. */
-type WhereChain = { where(field: string, op: string, value: unknown): WhereChain };
+type WhereChain = {
+  where(field: string, op: string, value: unknown): WhereChain;
+  where(expr: unknown): WhereChain;
+};
 
 export function applyRlsFilters<Q>(
   query: Q,
@@ -278,7 +307,9 @@ export function applyRlsFilters<Q>(
   let out = query as unknown as WhereChain;
   for (const { field, condition } of filters) {
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
-    if (isRuleOperator(condition.op)) {
+    if (keepsNothing(condition.op, condition.value)) {
+      out = out.where(sql<boolean>`false`);
+    } else if (isRuleOperator(condition.op)) {
       const op = RULE_OPERATORS[condition.op];
       out = out.where(field, op.kysely, op.list ? asList(condition.value) : condition.value);
     } else {
@@ -373,6 +404,10 @@ export function rlsJsonConditions(
   const out: Array<ReturnType<typeof sql<boolean>>> = [];
   for (const { field, condition } of filters) {
     if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
+    if (keepsNothing(condition.op, condition.value)) {
+      out.push(sql<boolean>`false`);
+      continue;
+    }
     const op = RULE_OPERATORS[condition.op];
     // `::text` is not decoration. Postgres has both `jsonb -> text` (object key)
     // and `jsonb -> integer` (array element); with an untyped parameter it

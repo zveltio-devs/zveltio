@@ -189,6 +189,15 @@ d('row rules are enforced by the database (in-process)', () => {
       await clearRules();
     });
 
+    it('hides every row for a value source nobody knows, and stands down with no actor', async () => {
+      // A legacy `user.id` (a dot for an underscore) used to be left out of the
+      // policy — and skipped by the engine — so it hid nothing anywhere.
+      await setRule({ source: 'user.id' });
+      expect(await forgottenWhere(asUser(ALICE))).toEqual([]);
+      expect((await forgottenWhere(undefined)).length).toBe(4);
+      await clearRules();
+    });
+
     it('does not apply a rule to a role the caller does not hold', async () => {
       await setRule({ role: 'editor' });
       expect((await forgottenWhere(asUser(ALICE))).length).toBe(4);

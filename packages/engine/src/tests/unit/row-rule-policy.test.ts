@@ -149,6 +149,20 @@ describe('row rules as a Postgres predicate', () => {
       expect(skipped[0]?.reason).toContain('jsonb');
     });
 
+    it('hides everything for a value source it does not know, whatever the column', () => {
+      // It used to be SKIPPED — and `getRlsFilters` skipped it too, so a legacy
+      // `user.id` rule hid nothing anywhere. Not skipped even where a known
+      // source would be (missing or jsonb column): the engine hides regardless.
+      for (const filter_field of ['created_by', 'nope', 'payload']) {
+        const { predicate, skipped } = buildRowRulePredicate(
+          [rule({ filter_field, filter_value_source: 'user.id' })],
+          TYPES,
+        );
+        expect(skipped).toEqual([]);
+        expect(predicate).toContain('OR false)');
+      }
+    });
+
     it('will not generate for a column that is not there', () => {
       const { skipped } = buildRowRulePredicate([rule({ filter_field: 'nope' })], TYPES);
       expect(skipped[0]?.reason).toContain('does not exist');
