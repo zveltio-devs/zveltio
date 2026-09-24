@@ -4,6 +4,42 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.69] - 2026-09-24
+
+**No Docker install of beta.68 could start.** PostgreSQL 18 refuses a volume
+mounted on `/var/lib/postgresql/data`, so the published `docker-compose.yml` put
+the database in a restart loop on the first `up`. The generated compose now sets
+`PGDATA` to that path. A beta.68 Docker install never started, so there is no
+data to migrate.
+
+**The Helm chart's default install crash-looped, and the image could not run
+under it.** The chart now requires `betterAuthUrl` and a cache (`redis.enabled`
+or `valkeyUrl`) at render time, and emits the encryption key as
+`FIELD_ENCRYPTION_KEY` (64 hex; it used to be `ENCRYPTION_KEY`, which the engine
+never read). The image runs as uid 100/gid 101 so `runAsNonRoot` passes, and
+Studio/client files moved to `/app/*`, out from under the `/data` volume. The
+migration Job runs the binary's `migrate`; the network policy no longer cuts the
+engine off from its database. `replicaCount > 1` or autoscaling on a
+ReadWriteOnce claim is refused at render time.
+
+- Native installer: downloads used a tag without the `v` prefix and 404'd;
+  helper scripts were fetched from a nonexistent `main` branch; `sudo` is now
+  installed. `install/install.sh` no longer has a Docker mode —
+  `scripts/install.sh --mode docker` owns Docker installs. `proxmox-lxc.sh`
+  creates the container and runs the native installer inside it.
+- Download URLs in the release notes, README and installation guide pointed at
+  a host that returns an HTML page with 200; they now use the GitHub release.
+  `.env.example` is attached to the release again.
+- Root compose: Prometheus authenticates to `/metrics` with `METRICS_TOKEN`;
+  Grafana no longer mounts two directories on one path; the dead
+  `./extensions` mount is gone.
+- CLI: a positional argument a command does not declare is an error —
+  `extension validate <dir>` used to validate the current directory instead;
+  use `--dir`. `extension status` reports an unreachable registry instead of
+  "not found".
+- CI: the image, chart and every published compose file are built, rendered
+  and parsed on each pull request that touches them.
+
 ## [3.0.0-beta.68] - 2026-09-23
 
 **Upgrade note — read before upgrading.** An engine whose `FIELD_ENCRYPTION_KEY`
