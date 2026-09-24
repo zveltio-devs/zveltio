@@ -21,13 +21,13 @@ import DOMPurify from 'dompurify';
 // server-side sanitizer validates each CSS property; here we match its intent by
 // dropping any style value carrying an exfil/execution vector. Registered once
 // (hooks are global to the DOMPurify instance) and only in a DOM context.
-const DANGEROUS_STYLE = /url\(|expression\(|@import|javascript:|\/\*/i;
+const DANGEROUS_STYLE = /url\(|image-set\(|expression\(|@import|javascript:|\/\*/i;
 let _styleHookAdded = false;
 function ensureStyleHook(): void {
   if (_styleHookAdded || typeof window === 'undefined') return;
   _styleHookAdded = true;
   DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
-    if (data.attrName === 'style' && DANGEROUS_STYLE.test(data.attrValue)) {
+    if (data.attrName === 'style' && DANGEROUS_STYLE.test(decodeCssEscapes(data.attrValue))) {
       data.keepAttr = false;
     }
   });
@@ -130,27 +130,46 @@ export function safeCss(css: unknown): string {
   if (typeof css !== 'string' || css.length === 0) return '';
   // 64 KB is far beyond any legitimate theme override and bounds the work.
   if (css.length > 64_000) return '';
-  return (
-    css
-      // Anything that could close the <style> element, in any casing, and the
-      // HTML comment delimiters that let a payload hide from the CSS parser.
-      .replace(/<\s*\/?\s*(style|script)\b[^>]*>/gi, '')
-      .replace(/<!--|-->/g, '')
-      // Network fetches: url(), @import, and the legacy IE expression().
-      //
-      // Renamed to an unknown function rather than wrapped in a CSS comment:
-      // a comment ends at the first `*/`, so an input already containing one
-      // would close it early and hand the rest back to the parser as live CSS.
-      // `zvx(` is not a function any engine knows, so the whole declaration is
-      // dropped — and nothing that looks like `url(` survives in the output to
-      // confuse the next reader.
-      .replace(/@import\b[^;]*;?/gi, '')
-      .replace(/\burl\s*\(/gi, 'zvx(')
-      .replace(/\bexpression\s*\(/gi, 'zvx(')
-      // Scheme-bearing values that survive the above.
-      .replace(/javascript\s*:/gi, '')
-      .replace(/\bbehavior\s*:/gi, '')
-  );
+  const out = css
+    // Anything that could close the <style> element, in any casing, and the
+    // HTML comment delimiters that let a payload hide from the CSS parser.
+    .replace(/<\s*\/?\s*(style|script)\b[^>]*>/gi, '')
+    .replace(/<!--|-->/g, '')
+    // Network fetches: url(), @import, and the legacy IE expression().
+    //
+    // Renamed to an unknown function rather than wrapped in a CSS comment:
+    // a comment ends at the first `*/`, so an input already containing one
+    // would close it early and hand the rest back to the parser as live CSS.
+    // `zvx(` is not a function any engine knows, so the whole declaration is
+    // dropped — and nothing that looks like `url(` survives in the output to
+    // confuse the next reader.
+    .replace(/@import\b[^;]*;?/gi, '')
+    .replace(/\burl\s*\(/gi, 'zvx(')
+    .replace(/\bexpression\s*\(/gi, 'zvx(')
+    // `image-set("https://…" 1x)` fetches a bare string, no url() needed.
+    // `\b` also catches `-webkit-image-set(`.
+    .replace(/\bimage-set\s*\(/gi, 'zvx(')
+    // Scheme-bearing values that survive the above.
+    .replace(/javascript\s*:/gi, '')
+    .replace(/\bbehavior\s*:/gi, '');
+  // The CSS parser decodes escapes before it recognises a function name or an
+  // at-rule, so `u\72l(` and `@\69mport` are `url(` and `@import` to the
+  // browser and invisible to the replacements above. Nothing legitimate spells
+  // them that way, so a stylesheet that still fetches once decoded is refused
+  // whole rather than repaired.
+  return CSS_FETCH.test(decodeCssEscapes(out)) ? '' : out;
+}
+
+const CSS_FETCH =
+  /\burl\s*\(|@import|\bimage-set\s*\(|\bexpression\s*\(|javascript\s*:|\bbehavior\s*:/i;
+
+/** CSS Syntax §4.3.7: `\` + 1–6 hex digits (+ one whitespace), or `\` + any other char. */
+function decodeCssEscapes(s: string): string {
+  return s.replace(/\\(?:([0-9a-f]{1,6})[ \t\n\r\f]?|([^\n0-9a-f]))/gi, (_, hex, ch) => {
+    if (ch !== undefined) return ch;
+    const cp = Number.parseInt(hex, 16);
+    return cp === 0 || cp > 0x10ffff ? '\ufffd' : String.fromCodePoint(cp);
+  });
 }
 
 /**
