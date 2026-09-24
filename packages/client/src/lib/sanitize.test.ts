@@ -65,6 +65,16 @@ describe('safeHtml — what must not survive', () => {
     }
   });
 
+  it('drops a style that fetches through a CSS escape or image-set()', () => {
+    // `u\\72l(` is `url(` once the CSS parser decodes it.
+    for (const style of [
+      'background: u\\72l(https://evil.test/t.png)',
+      'background: image-set("https://evil.test/t.png" 1x)',
+    ]) {
+      expect(safeHtml(`<div style='${style}'>x</div>`)).not.toContain('evil.test');
+    }
+  });
+
   it('strips a data: URI from a link', () => {
     // The dangerous direction: navigating to `data:text/html` executes the
     // document. The anchor survives, its destination does not.
