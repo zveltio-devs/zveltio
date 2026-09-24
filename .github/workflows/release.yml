@@ -629,6 +629,9 @@ jobs:
         with:
           name: release-assets
           path: flat-assets/
+          # .env.example is a dotfile, and upload-artifact v4 drops hidden files
+          # by default: the release listed it and never attached it.
+          include-hidden-files: true
           retention-days: 1
 
   # ── Job 5: Publish Release ───────────────────────────────────
@@ -730,8 +733,8 @@ jobs:
 
             ### 🐳 Docker Only
             ```bash
-            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/docker-compose.yml -o docker-compose.yml
-            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/.env.example -o .env
+            curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/docker-compose.yml -o docker-compose.yml
+            curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/.env.example -o .env
             # Edit .env then:
             docker compose up -d
             ```
@@ -739,7 +742,7 @@ jobs:
             ### 📦 Manual Binary
             ```bash
             # Linux x64
-            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/zveltio-linux-x64 -o zveltio
+            curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/zveltio-linux-x64 -o zveltio
             chmod +x zveltio && ./zveltio start
             ```
 
