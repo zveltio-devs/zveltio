@@ -238,7 +238,7 @@ Interactive installer — picks Docker or native, configures `.env`, runs migrat
 V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
 curl -fsSL $BASE/docker-compose.yml -o docker-compose.yml
-curl -fsSL $BASE/.env.example -o .env
+curl -fsSL $BASE/env.example -o .env
 # Edit .env (POSTGRES_PASSWORD, VALKEY_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, S3_SECRET_KEY)
 docker compose up -d
 ```

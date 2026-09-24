@@ -575,7 +575,9 @@ jobs:
 
       - name: Copy other assets
         run: |
-          cp .env.example release-assets/
+          # GitHub renames an asset whose name starts with a dot (it published
+          # beta.69's as default.env.example), so the asset has no dot.
+          cp .env.example release-assets/env.example
           cp scripts/install.sh release-assets/
           chmod +x release-assets/install.sh
 
@@ -726,7 +728,7 @@ jobs:
             all-assets/checksums.sha256.cosign.bundle
             all-assets/latest.json
             all-assets/install.sh
-            all-assets/.env.example
+            all-assets/env.example
           body: |
             ## Zveltio v${{ steps.info.outputs.version }}
 
@@ -738,7 +740,7 @@ jobs:
             ### 🐳 Docker Only
             ```bash
             curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/docker-compose.yml -o docker-compose.yml
-            curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/.env.example -o .env
+            curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${{ steps.info.outputs.version }}/env.example -o .env
             # Edit .env then:
             docker compose up -d
             ```

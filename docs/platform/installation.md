@@ -66,7 +66,7 @@ The installer:
 V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
 curl -fsSL $BASE/docker-compose.yml -o docker-compose.yml
-curl -fsSL $BASE/.env.example -o .env
+curl -fsSL $BASE/env.example -o .env
 
 # Edit .env — at minimum set these:
 # POSTGRES_PASSWORD, VALKEY_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL, S3_SECRET_KEY
@@ -96,7 +96,7 @@ Use this if you have Bun installed and want to run the engine outside Docker:
 V=$(curl -fsSL https://get.zveltio.com/latest.json | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 BASE=https://github.com/zveltio-devs/zveltio/releases/download/v$V
 curl -fsSL $BASE/docker-compose.infra.yml -o docker-compose.infra.yml
-curl -fsSL $BASE/.env.example -o .env
+curl -fsSL $BASE/env.example -o .env
 # Edit .env
 docker compose -f docker-compose.infra.yml up -d
 zveltio migrate
