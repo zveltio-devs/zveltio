@@ -126,7 +126,7 @@ describe('getRlsFilters — policy matching', () => {
     });
   });
 
-  it('resolves user_role and static: sources; an absent email matches nothing; an unknown source is skipped', async () => {
+  it('resolves user_role and static: sources; an absent email matches nothing; an unknown source hides everything', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-role', filter_field: 'team', filter_value_source: 'user_role' }),
@@ -141,6 +141,9 @@ describe('getRlsFilters — policy matching', () => {
     expect(filters).toEqual([
       { field: 'team', condition: { op: 'eq', value: 'editor' } },
       { field: 'region', condition: { op: 'eq', value: 'eu' } },
+      // Unknown source: it used to be skipped, so it hid nothing. `in []` is
+      // the condition all four appliers read as "no row".
+      { field: 'x', condition: { op: 'in', value: [] } },
       { field: 'y', condition: { op: 'eq', value: '' } },
     ]);
   });

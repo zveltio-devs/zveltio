@@ -18,8 +18,9 @@
  * that disagree are worse than one. So the semantics below are transcribed from
  * `getRlsFilters`, including the parts that are easy to get wrong:
  *
- *   - a value that cannot be resolved SKIPS its rule (fail-open for that rule),
- *     it does not hide everything;
+ *   - a value SOURCE neither side knows (a legacy `user.id`) hides every row
+ *     the rule applies to — it used to be left out, on both sides, so it hid
+ *     nothing;
  *   - `neq` is `<>`, not `IS DISTINCT FROM`: on a NULL column the engine drops
  *     the row, so the policy must drop it too;
  *   - `in`/`not_in` split on commas ONLY for a `static:` source, because that is
@@ -125,6 +126,53 @@ function roleGuard(role: string): string | null {
 }
 
 /**
+ * One rule's term: its condition, unless the rule does not apply to the caller.
+ *
+ * `perActor` for a source read from the caller — every source but `static:`.
+ */
+function applicable(rule: RowRule, condition: string, perActor: boolean): string {
+  // A rule the caller's roles do not match does not apply.
+  const guards: string[] = [];
+  const role = roleGuard(rule.role);
+  if (role) guards.push(`NOT (${role})`);
+  // A rule stands down exactly where `getRlsFilters` stands down — and that is
+  // PER SOURCE, which this used to get wrong.
+  //
+  // The engine never skips a rule for an empty value:
+  //
+  //     user_id     -> user.id            an empty string does NOT skip
+  //     user_email  -> user.email ?? ''   an empty string does NOT skip
+  //     user_role   -> user.role ?? ''    an empty string does NOT skip
+  //
+  // `user_email` used to be the exception — an absent email skipped, and this
+  // guard skipped with it on an empty setting. Every API key publishes an empty
+  // email, so a key with RLS enforced saw every row under an email rule, here
+  // and in the engine alike. It now compares against '' like the other two.
+  //
+  // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
+  // a session whose role is unset — which is every session, because
+  // better-auth does not populate `session.user.role` — made the engine hide
+  // every row and the policy show all four. Measured: engine [], policy
+  // [1,2,3,4]. The policy was the more permissive of the two, which is the one
+  // direction that matters, because this policy exists for the request whose
+  // handler forgot its filters.
+  //
+  // It hid for a while behind the differential suite, which modelled the
+  // resolver instead of calling it — and the model skipped on empty, agreeing
+  // with the policy against the engine.
+  if (perActor) {
+    // No actor at all: background jobs and boot reconcilers, which publish no
+    // identity. They get today's behaviour, and they are the callers the old
+    // comment here was really about. `zveltio.actor` is its own setting
+    // because an unset GUC and an emptied one are indistinguishable after the
+    // first transaction on a pooled connection — see tenant-manager.
+    guards.push(`(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`);
+  }
+
+  return guards.length > 0 ? `(${guards.join(' OR ')} OR ${condition})` : `(${condition})`;
+}
+
+/**
  * Build the `USING (...)` body for one collection's rules.
  *
  * The shape is: exempt, or every applicable rule satisfied.
@@ -144,6 +192,15 @@ export function buildRowRulePredicate(
     const fingerprint = `${rule.role}|${rule.filter_field}|${rule.filter_op}|${rule.filter_value_source}`;
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
+    // A source nobody can resolve hides every row the rule applies to, whatever
+    // its column or operator — `getRlsFilters` hides them regardless of either.
+    // Decided before the checks below, which LEAVE a rule out: that is what this
+    // once did for an unknown source, and the engine skipped it too, so a rule
+    // listed as enabled hid nothing on either side.
+    if (!valueExpr(rule.filter_value_source, 'text')) {
+      terms.push(applicable(rule, 'false', true));
+      continue;
+    }
     const col = ident(rule.filter_field);
     if (!col) {
       skipped.push({
@@ -172,13 +229,7 @@ export function buildRowRulePredicate(
       continue;
     }
     const value = valueExpr(rule.filter_value_source, pgType);
-    if (!value) {
-      skipped.push({
-        rule,
-        reason: `value source ${JSON.stringify(rule.filter_value_source)} is not known`,
-      });
-      continue;
-    }
+    if (!value) continue; // unreachable: unknown sources returned above
 
     if (!isRuleOperator(rule.filter_op)) {
       skipped.push({ rule, reason: `operator ${JSON.stringify(rule.filter_op)} is not known` });
@@ -209,45 +260,7 @@ export function buildRowRulePredicate(
       condition = `${col} ${opSem.sql} ${value.sql}`;
     }
 
-    // A rule the caller's roles do not match does not apply.
-    const guards: string[] = [];
-    const role = roleGuard(rule.role);
-    if (role) guards.push(`NOT (${role})`);
-    // A rule stands down exactly where `getRlsFilters` stands down — and that is
-    // PER SOURCE, which this used to get wrong.
-    //
-    // The engine skips a policy only when `resolveValue` returns null:
-    //
-    //     user_id     -> user.id            an empty string does NOT skip
-    //     user_email  -> user.email ?? ''   an empty string does NOT skip
-    //     user_role   -> user.role ?? ''    an empty string does NOT skip
-    //
-    // `user_email` used to be the exception — an absent email skipped, and this
-    // guard skipped with it on an empty setting. Every API key publishes an empty
-    // email, so a key with RLS enforced saw every row under an email rule, here
-    // and in the engine alike. It now compares against '' like the other two.
-    //
-    // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
-    // a session whose role is unset — which is every session, because
-    // better-auth does not populate `session.user.role` — made the engine hide
-    // every row and the policy show all four. Measured: engine [], policy
-    // [1,2,3,4]. The policy was the more permissive of the two, which is the one
-    // direction that matters, because this policy exists for the request whose
-    // handler forgot its filters.
-    //
-    // It hid for a while behind the differential suite, which modelled the
-    // resolver instead of calling it — and the model skipped on empty, agreeing
-    // with the policy against the engine.
-    if (value.guc) {
-      // No actor at all: background jobs and boot reconcilers, which publish no
-      // identity. They get today's behaviour, and they are the callers the old
-      // comment here was really about. `zveltio.actor` is its own setting
-      // because an unset GUC and an emptied one are indistinguishable after the
-      // first transaction on a pooled connection — see tenant-manager.
-      guards.push(`(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`);
-    }
-
-    terms.push(guards.length > 0 ? `(${guards.join(' OR ')} OR ${condition})` : `(${condition})`);
+    terms.push(applicable(rule, condition, value.guc !== undefined));
   }
 
   if (terms.length === 0) return { predicate: null, skipped };

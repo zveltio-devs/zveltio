@@ -95,6 +95,20 @@ export function droppedForMissingValue(value: unknown): boolean {
   return value === null || value === undefined;
 }
 
+/**
+ * `in` against an empty list keeps NO row — in all four appliers.
+ *
+ * The in-memory one gets it for free (`[].some(...)` is false). SQL has no
+ * `IN ()`: it is a syntax error, so the two SQL appliers read this and emit
+ * `false` instead. That makes it the one condition every applier can express
+ * as "nothing", which is what `getRlsFilters` hands out for a rule it cannot
+ * resolve (see `resolveValue`) — so it must stay a deliberate `false`, never
+ * an error someone later "fixes" by dropping the condition.
+ */
+export function keepsNothing(op: string, value: unknown): boolean {
+  return op === 'in' && Array.isArray(value) && value.length === 0;
+}
+
 /** The refusal every applier gives for an operator it cannot express. */
 export function unsupportedOperator(field: string, op: string): Error {
   // Fail CLOSED, and identically in all four. `in` and `not_in` were once
