@@ -108,6 +108,20 @@ describe('getRlsFilters with Valkey cache', () => {
     expect(db.executed(/FROM zvd_rls_policies/i).length).toBeGreaterThan(0);
   });
 
+  it('ignores a well-formed entry whose signature does not match its key', async () => {
+    // `[]` above has no separator, so it never reaches the HMAC comparison.
+    // These do: a zero signature, and a genuine signature minted for another
+    // collection's key and copied here.
+    for (const forged of [`${'0'.repeat(64)}:[]`, encodeSigned('rls', 'rls:policies:other', [])]) {
+      _setCacheForTests(makeCache(new Map([['rls:policies:contacts', forged]])) as never);
+      const db = setup();
+      db.when(/FROM zvd_rls_policies/i, [POLICY]);
+
+      const filters = await getRlsFilters('contacts', { id: 'u-1', role: 'editor' }, 'session');
+      expect(filters).toHaveLength(1);
+    }
+  });
+
   it('populates cache on DB miss and invalidateRlsCache clears it', async () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
