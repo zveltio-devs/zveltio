@@ -233,6 +233,7 @@ const SECTIONS: Section[] = [
     focus: 'Sessions, API keys, SSO, key material. Revocation must reach every replica.',
     match: [
       `${E}lib/auth.ts`,
+      `${E}lib/admin-guard.ts`,
       `${E}routes/auth.ts`,
       `${E}routes/users.ts`,
       `${E}lib/security/sso-session.ts`,
