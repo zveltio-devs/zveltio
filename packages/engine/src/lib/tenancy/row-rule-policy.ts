@@ -219,8 +219,13 @@ export function buildRowRulePredicate(
     // The engine skips a policy only when `resolveValue` returns null:
     //
     //     user_id     -> user.id            an empty string does NOT skip
-    //     user_email  -> user.email ?? null an absent email DOES skip
-    //     user_role   -> user.role          an empty string does NOT skip
+    //     user_email  -> user.email ?? ''   an empty string does NOT skip
+    //     user_role   -> user.role ?? ''    an empty string does NOT skip
+    //
+    // `user_email` used to be the exception — an absent email skipped, and this
+    // guard skipped with it on an empty setting. Every API key publishes an empty
+    // email, so a key with RLS enforced saw every row under an email rule, here
+    // and in the engine alike. It now compares against '' like the other two.
     //
     // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
     // a session whose role is unset — which is every session, because
@@ -240,11 +245,6 @@ export function buildRowRulePredicate(
       // because an unset GUC and an emptied one are indistinguishable after the
       // first transaction on a pooled connection — see tenant-manager.
       guards.push(`(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`);
-      // And for the one source the engine itself cannot resolve, empty means
-      // unresolved rather than "the empty value".
-      if (value.guc === 'zveltio.user_email') {
-        guards.push(`(SELECT nullif(current_setting(${lit(value.guc)}, true), '') IS NULL)`);
-      }
     }
 
     terms.push(guards.length > 0 ? `(${guards.join(' OR ')} OR ${condition})` : `(${condition})`);

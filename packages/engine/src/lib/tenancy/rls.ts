@@ -49,10 +49,18 @@ function resolveValue(
   user: { id: string; email?: string; role?: string },
 ): string | null {
   if (source === 'user_id') return user.id;
-  if (source === 'user_email') return user.email ?? null;
-  // `?? ''`, and emphatically NOT `?? null`: null means "cannot resolve" to the
-  // caller, which SKIPS the policy — fail-open on the one source that is absent
-  // on an ordinary session, since Better-Auth does not populate `role`. The
+  // `user_email` and `user_role` both answer `''` for an absent value, and
+  // emphatically NOT null: null means "cannot resolve" to the caller, which
+  // SKIPS the policy — fail-open.
+  //
+  // For email that was live. An API key has no email, and the WebSocket and SSE
+  // paths built their session user without one, so `owner_email eq user_email`
+  // held on `GET /api/data` and was dropped for every key and on both realtime
+  // doors — which filter in memory, with no database policy behind them. `''`
+  // matches no real owner, which is what "a caller with no email" should see.
+  if (source === 'user_email') return user.email ?? '';
+  // For `user_role` the absent value is the ordinary case, since Better-Auth
+  // does not populate `role` on a session. The
   // Postgres side is the reason the empty string is the right answer rather
   // than a lazy one: `buildRowRulePredicate` compiles the same policy against
   // `current_setting('zveltio.user_role')`, which is `''` when unset, and

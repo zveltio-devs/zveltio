@@ -60,8 +60,8 @@ describe('row rules as a Postgres predicate', () => {
     // The guard was `nullif(current_setting('zveltio.user_id'), '') IS NULL` —
     // skip on any EMPTY setting. But `getRlsFilters` skips only where
     // `resolveValue` returns null, and that is per source: `user_id` and
-    // `user_role` return the value even when it is the empty string, while
-    // `user_email` returns null when there is no email.
+    // `user_role` return the value even when it is the empty string (and
+    // `user_email` now does too).
     //
     // So `bucket eq user_role` against a session whose role is unset — every
     // session, since better-auth does not populate it — had the engine hiding
@@ -77,15 +77,16 @@ describe('row rules as a Postgres predicate', () => {
     expect(predicate).not.toContain("nullif(current_setting('zveltio.user_id', true), '')");
   });
 
-  it('still treats an absent email as unresolved, because the engine does', () => {
-    // The one source where empty genuinely means "cannot resolve":
-    // `resolveValue` returns `user.email ?? null`, so a caller with no email
-    // skips the rule. An API key is the case that matters.
+  it('applies an email rule against an empty email instead of standing down', () => {
+    // It used to stand down, mirroring `resolveValue`'s `user.email ?? null`.
+    // Every API key publishes an empty email, so a key with RLS enforced saw
+    // every row under an email rule. Both sides now compare against ''.
     const { predicate } = buildRowRulePredicate(
       [rule({ filter_value_source: 'user_email' })],
       TYPES,
     );
-    expect(predicate).toContain("nullif(current_setting('zveltio.user_email', true), '') IS NULL");
+    expect(predicate).not.toContain("nullif(current_setting('zveltio.user_email'");
+    expect(predicate).toContain("current_setting('zveltio.user_email', true)");
   });
 
   it("does not apply a rule the caller's roles do not match", () => {

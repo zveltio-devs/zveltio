@@ -126,7 +126,7 @@ describe('getRlsFilters — policy matching', () => {
     });
   });
 
-  it('resolves user_role and static: sources; unresolvable sources fail open', async () => {
+  it('resolves user_role and static: sources; an absent email matches nothing; an unknown source is skipped', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-role', filter_field: 'team', filter_value_source: 'user_role' }),
@@ -134,11 +134,14 @@ describe('getRlsFilters — policy matching', () => {
       policy({ id: 'p-unknown', filter_field: 'x', filter_value_source: 'nonsense' }),
       policy({ id: 'p-noemail', filter_field: 'y', filter_value_source: 'user_email' }),
     ]);
-    const noEmail = { id: 'u-2', role: 'editor' }; // no email → user_email unresolvable
+    // No email: the rule still applies, against '' — it used to be dropped,
+    // which showed every row to an API key and on both realtime doors.
+    const noEmail = { id: 'u-2', role: 'editor' };
     const filters = await getRlsFilters('contacts', noEmail, 'session');
     expect(filters).toEqual([
       { field: 'team', condition: { op: 'eq', value: 'editor' } },
       { field: 'region', condition: { op: 'eq', value: 'eu' } },
+      { field: 'y', condition: { op: 'eq', value: '' } },
     ]);
   });
 
