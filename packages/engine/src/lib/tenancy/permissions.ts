@@ -9,7 +9,12 @@ import {
   POLICY_CHANGED_EVENT,
   realtimeBus,
 } from '../runtime/index.js';
-import { getCurrentDomain, getCurrentDomainOrNull } from './tenant-context.js';
+import {
+  getCurrentDomain,
+  getCurrentDomainOrNull,
+  getCurrentTenantTrx,
+  onAfterCommit,
+} from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
 // Cache TTLs
@@ -1146,8 +1151,24 @@ export async function getUserRoles(userId: string): Promise<string[]> {
  * active. `god:` and `urole:` are not namespaced — they cache the "user" row,
  * not the model — and are deleted by name. The set itself is deleted in case a
  * version that still wrote it left one behind.
+ *
+ * Open subscriptions are swept on every instance, once the change is visible —
+ * after the commit — with the caches dropped again first. The sweep used to run
+ * here, inside the request that UPDATEs "user", so it read the old role back
+ * and filed it again (a demoted god stayed god, and kept its streams); and it
+ * ran on this instance only, so no replica re-checked at all.
  */
 export async function invalidateUserPermCache(userId: string): Promise<void> {
+  await dropUserPermCaches(userId);
+  if (getCurrentTenantTrx()) {
+    onAfterCommit(async () => {
+      await dropUserPermCaches(userId);
+      revalidateSocketsEverywhere(userId);
+    });
+  } else revalidateSocketsEverywhere(userId);
+}
+
+async function dropUserPermCaches(userId: string): Promise<void> {
   clearLocalPermissionCache(userId);
   const cache = getCache();
   if (cache) {
@@ -1162,9 +1183,6 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   // served stale for up to the TTL.
   const { invalidateUserQueryCache } = await import('../data/index.js');
   await invalidateUserQueryCache(userId);
-  // The bump above already voids every socket's cached subscribe decision; open
-  // subscriptions are re-checked too, so a revoke stops the stream.
-  revalidateSockets();
 }
 
 let _sweep: Promise<void> | null = null;
@@ -1230,13 +1248,18 @@ export function revalidateSockets(): void {
  * column permission change, which lives in the table and the shared cache but
  * in each instance's open subscriptions too. Call once the change is committed
  * and the shared caches are dropped — a receiver re-resolves from them at once.
+ *
+ * `userId`, for a change to that user's own row: a receiver also drops its
+ * in-process memos of them, and with them every socket's cached subscribe
+ * decision. It names whom to re-read, never what they may do.
  */
-export function revalidateSocketsEverywhere(): void {
+export function revalidateSocketsEverywhere(userId?: string): void {
   revalidateSockets();
   realtimeBus()
     .publish({
       event: ACCESS_RULES_CHANGED_EVENT,
       collection: '',
+      data: userId ? { userId } : undefined,
       timestamp: new Date().toISOString(),
     })
     .catch((err: Error) => {

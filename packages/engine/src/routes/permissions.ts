@@ -221,20 +221,24 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     const result = outcome?.granted ?? null;
     if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
 
-    const { invalidateGodCache } = await import('../lib/tenancy/index.js');
+    // `invalidateUserPermCache`, not `invalidateGodCache`: this route runs in the
+    // request transaction, and only the former waits for the commit before its
+    // last cache drop and socket sweep, and reaches the other instances. The
+    // latter cleared here, before commit, so a re-read could file `god` again,
+    // and no replica heard of the change at all.
     // The demoted holders first: leaving their cached `god = true` behind hands
     // the role back for the length of the TTL, which is the opposite of what a
     // recovery is for.
     for (const id of outcome?.demotedIds ?? []) {
-      await invalidateGodCache(id).catch((err: Error) => {
-        console.error('[permissions] invalidateGodCache failed for a demoted god:', err.message);
+      await invalidateUserPermCache(id).catch((err: Error) => {
+        console.error('[permissions] cache invalidation failed for a demoted god:', err.message);
       });
     }
-    await invalidateGodCache(result.id).catch((err: Error) => {
+    await invalidateUserPermCache(result.id).catch((err: Error) => {
       // Cache invalidation failure on a privilege grant is HIGH-IMPACT:
       // the new god role won't be visible until the cache TTL expires.
       // Logging is the minimum — operator may need to bounce the cache.
-      console.error('[permissions] invalidateGodCache failed after role grant:', err.message);
+      console.error('[permissions] cache invalidation failed after role grant:', err.message);
     });
     return c.json({
       success: true,
