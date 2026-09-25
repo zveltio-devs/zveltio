@@ -76,9 +76,8 @@ interface WSConnection {
    *
    * Resolved at subscribe time rather than per event, exactly as
    * `routes/realtime.ts` does it: the delivery loop is synchronous and runs per
-   * subscriber per write, so it cannot go to the database. The cost is the same
-   * one SSE carries — a policy change reaches an open socket when the client
-   * resubscribes or reconnects.
+   * subscriber per write, so it cannot go to the database. A policy change
+   * re-resolves it in `revalidateWsSubscriptions`.
    */
   access: Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
 }
@@ -246,13 +245,18 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
  * the REST list path use.
  */
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
-  if (conn.access.has(collection)) return true;
+  if (!conn.access.has(collection))
+    conn.access.set(collection, await lookupSocketAccess(conn, collection));
+  return true;
+}
+
+async function lookupSocketAccess(conn: WSConnection, collection: string) {
   // A failed lookup throws; it is never caught here as `[]` / `null`. That
   // used to read as "nothing to filter", so the socket then received every row
   // and column the caller's rules hide. The role lookup too: it was caught as
   // `'user'`, a role no rule names, so a `member` rule stopped applying.
   const user = { ...conn.user, role: await resolveUserRole(conn.user) };
-  conn.access.set(collection, {
+  return {
     rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
       getRlsFilters(collection, user, conn.authType),
     ),
@@ -261,8 +265,7 @@ async function resolveSocketAccess(conn: WSConnection, collection: string): Prom
           getColumnAccess(wsDb as Database, collection, user.role, user.id),
         )
       : null,
-  });
-  return true;
+  };
 }
 
 async function socketMayReadCached(
@@ -318,6 +321,11 @@ export async function revalidateWsSubscriptions(): Promise<boolean> {
       let allowed: boolean;
       try {
         allowed = await socketMayReadCached(conn.ws, conn, collection);
+        // Row rules and column permissions too: `resolveSocketAccess` keeps the
+        // snapshot it took at subscribe, so a rule written since reached the
+        // socket only when its client resubscribed. Replaced only on success —
+        // a lookup that throws leaves the rules it had in force.
+        if (allowed) conn.access.set(collection, await lookupSocketAccess(conn, collection));
       } catch (err) {
         console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
         failed = true;
