@@ -251,4 +251,55 @@ d('policy reconcile', () => {
       connections.delete(connId);
     }
   });
+
+  it('a WebSocket re-check that throws keeps the subscription; the retry lands a revoke', async () => {
+    const e = await getEnforcer();
+    const user = `rc-u8-${tag}`;
+    const role = `rc_role8_${tag}`;
+    const res = `rc_res8_${tag}`;
+    await e.addRoleForUser(user, role, TENANT);
+    await e.addPolicy(role, '*', res, 'read');
+
+    const { connections, indexSubscription } = _wsPermCacheForTests();
+    const frames: string[] = [];
+    const connId = `rc-ws8-${tag}`;
+    connections.set(connId, {
+      userId: user,
+      user: { id: user, role: 'member' } as never,
+      tenantId: TENANT,
+      ws: { send: (f: string) => frames.push(f) },
+      subscriptions: new Set([res]),
+      connectedAt: Date.now(),
+      authType: 'session',
+      access: new Map([[res, { rls: [], columns: null }]]),
+    });
+    indexSubscription(res, connId);
+    const subs = () => [...connections.get(connId)!.subscriptions];
+    try {
+      // The policy lookup fails — an outage, not a revoke.
+      e.getPolicy = async () => {
+        throw new Error('policy lookup down');
+      };
+      await invalidateAllPermissionCaches();
+      expect(await revalidateWsSubscriptions()).toBe(true);
+      expect(subs()).toEqual([res]);
+      expect(frames.some((f) => f.includes('"unsubscribed"'))).toBe(false);
+
+      // Revoked during the outage: that sweep fails too and schedules the retry.
+      await e.removePolicy(role, '*', res, 'read');
+      await invalidateAllPermissionCaches();
+      await Bun.sleep(100);
+      expect(subs()).toEqual([res]);
+
+      // Lookups recover and no further policy change arrives: only the retry
+      // sweep can end the subscription now.
+      Reflect.deleteProperty(e, 'getPolicy');
+      for (let i = 0; i < 80 && subs().length > 0; i++) await Bun.sleep(100);
+      expect(subs()).toEqual([]);
+      expect(frames.some((f) => f.includes('"forbidden"') && f.includes(res))).toBe(true);
+    } finally {
+      Reflect.deleteProperty(e, 'getPolicy');
+      connections.delete(connId);
+    }
+  }, 15_000);
 });
