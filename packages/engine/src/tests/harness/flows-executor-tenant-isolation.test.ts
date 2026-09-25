@@ -16,7 +16,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
-import { triggerDataFlows } from '../../routes/flows.js';
+import { triggerDataFlows } from '../../lib/flows/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
