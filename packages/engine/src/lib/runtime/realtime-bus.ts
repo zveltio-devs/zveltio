@@ -162,8 +162,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
       });
   }
   if (msg.event === ACCESS_RULES_CHANGED_EVENT) {
+    const userId = (msg.data as { userId?: unknown } | undefined)?.userId;
     return import('../tenancy/index.js')
-      .then((m) => m.revalidateSockets())
+      .then((m) => {
+        // A user's own row changed: drop what this instance remembers of them.
+        if (typeof userId === 'string' && userId) m.clearLocalPermissionCache(userId);
+        m.revalidateSockets();
+      })
       .catch((err: Error) => {
         console.error('[realtime-bus] rule change sweep not started:', err.message);
       });
