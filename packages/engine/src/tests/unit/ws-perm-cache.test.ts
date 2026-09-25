@@ -1,77 +1,52 @@
 /**
- * WS permission cache invalidation — role changes must clear subscribe decisions.
+ * WS permission cache — any policy change must void cached subscribe decisions.
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  broadcastEvent,
-  invalidateWsUserPermCache,
-  _wsPermCacheForTests,
-} from '../../routes/ws.js';
+import { clearLocalPermissionCache, permissionGeneration } from '../../lib/tenancy/index.js';
+import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
 
-describe('invalidateWsUserPermCache', () => {
-  it('clears the per-socket perm map for matching userId', () => {
+describe('WS subscribe decisions', () => {
+  // It used to be cleared only for the subject of a role-link change on a
+  // receiving instance: a revoked RULE, or any change on the instance that made
+  // it, kept a cached `allowed` answering for up to the 60 s TTL.
+  it('are re-evaluated after any policy change, whoever it touched', async () => {
     const { wsPermCache, connections } = _wsPermCacheForTests();
-    const ws = {};
-    const connId = 'test-conn-ws-perm';
-    connections.set(connId, {
+    const sent: string[] = [];
+    const ws = { data: { id: 'test-conn-gen' }, send: (p: string) => sent.push(p) };
+    connections.set('test-conn-gen', {
       userId: 'user-a',
-      user: { id: 'user-a' },
+      user: { id: 'user-a' } as never,
       tenantId: null,
       ws,
       subscriptions: new Set(),
       connectedAt: Date.now(),
       authType: 'session' as const,
-      access: new Map(),
+      access: new Map([['contacts', { rls: [], columns: null }]]),
     });
-    const map = new Map<string, { allowed: boolean; checkedAt: number }>();
-    map.set('contacts', { allowed: true, checkedAt: Date.now() });
-    wsPermCache.set(ws, map);
+    try {
+      wsPermCache.set(
+        ws,
+        new Map([
+          ['contacts', { allowed: true, checkedAt: Date.now(), gen: permissionGeneration() }],
+        ]),
+      );
+      const subscribe = () =>
+        websocketHandler.message(
+          ws as never,
+          JSON.stringify({ type: 'subscribe', collections: ['contacts'] }),
+        );
 
-    invalidateWsUserPermCache('user-a');
+      await subscribe();
+      expect(JSON.parse(sent.pop()!).collections).toEqual(['contacts']);
 
-    const after = wsPermCache.get(ws);
-    expect(after).toBeDefined();
-    expect(after!.size).toBe(0);
-
-    connections.delete(connId);
-  });
-
-  it('does not clear caches for other users', () => {
-    const { wsPermCache, connections } = _wsPermCacheForTests();
-    const wsA = {};
-    const wsB = {};
-    connections.set('a', {
-      userId: 'user-a',
-      user: { id: 'user-a' },
-      tenantId: null,
-      ws: wsA,
-      subscriptions: new Set(),
-      connectedAt: Date.now(),
-      authType: 'session' as const,
-      access: new Map(),
-    });
-    connections.set('b', {
-      userId: 'user-b',
-      user: { id: 'user-b' },
-      tenantId: null,
-      ws: wsB,
-      subscriptions: new Set(),
-      connectedAt: Date.now(),
-      authType: 'session' as const,
-      access: new Map(),
-    });
-    const mapB = new Map([['orders', { allowed: true, checkedAt: Date.now() }]]);
-    wsPermCache.set(wsA, new Map([['contacts', { allowed: true, checkedAt: Date.now() }]]));
-    wsPermCache.set(wsB, mapB);
-
-    invalidateWsUserPermCache('user-a');
-
-    expect(wsPermCache.get(wsA)!.size).toBe(0);
-    expect(wsPermCache.get(wsB)!.get('orders')?.allowed).toBe(true);
-
-    connections.delete('a');
-    connections.delete('b');
+      clearLocalPermissionCache(); // what every policy change does
+      await subscribe();
+      // No routes mounted, so a fresh check has no database and refuses.
+      expect(JSON.parse(sent.pop()!).denied).toEqual(['contacts']);
+    } finally {
+      connections.delete('test-conn-gen');
+    }
   });
 });
 

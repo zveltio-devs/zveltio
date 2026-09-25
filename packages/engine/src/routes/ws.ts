@@ -9,6 +9,7 @@ import {
   getRlsFilters,
   isTenantAdmin,
   matchesRlsFilters,
+  permissionGeneration,
   resolveUserRole,
   runWithDomain,
 } from '../lib/tenancy/index.js';
@@ -29,9 +30,12 @@ type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
 let wsDb: Database | null = null;
 
 // Per-connection permission cache (lives only for the WS session duration).
-// Maps collectionName → { allowed, checkedAt } — re-checked after TTL.
+// Maps collectionName → { allowed, checkedAt, gen } — re-checked after TTL, and
+// after ANY policy change: an entry from an older `permissionGeneration()` is a
+// miss, whoever changed what.
 const WS_PERM_CACHE_TTL_MS = 60_000;
-const wsPermCache = new WeakMap<object, Map<string, { allowed: boolean; checkedAt: number }>>();
+type WsPermEntry = { allowed: boolean; checkedAt: number; gen: number };
+const wsPermCache = new WeakMap<object, Map<string, WsPermEntry>>();
 
 interface WSConnection {
   userId: string;
@@ -269,35 +273,71 @@ async function socketMayReadCached(
   conn: WSConnection,
   collectionName: string,
 ): Promise<boolean> {
-  const permCache =
-    wsPermCache.get(ws) ?? new Map<string, { allowed: boolean; checkedAt: number }>();
+  const permCache = wsPermCache.get(ws) ?? new Map<string, WsPermEntry>();
   if (!wsPermCache.has(ws)) wsPermCache.set(ws, permCache);
 
   const hit = permCache.get(collectionName);
   const now = Date.now();
-  if (hit && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) {
+  if (hit && hit.gen === permissionGeneration() && now - hit.checkedAt < WS_PERM_CACHE_TTL_MS) {
     return hit.allowed && (await resolveSocketAccess(conn, collectionName));
   }
 
+  // Read before the check: one that straddles a change is filed as already stale.
+  const gen = permissionGeneration();
   const allowed = await socketMayRead(conn, collectionName);
-  permCache.set(collectionName, { allowed, checkedAt: now });
+  permCache.set(collectionName, { allowed, checkedAt: now, gen });
   return allowed && (await resolveSocketAccess(conn, collectionName));
 }
 
+let _sweep: Promise<void> | null = null;
+let _sweepAgain = false;
+
 /**
- * Drop cached subscribe decisions for every open socket owned by `userId`.
+ * Re-check every open subscription after a policy change, and end the ones the
+ * subscriber may no longer read.
  *
- * Called from `invalidateUserPermCache` so role grants/revokes take effect on
- * the next WS subscribe within the TTL window, not only after reconnect.
- * Existing subscriptions keep receiving until the client unsubscribes or the
- * socket closes — clearing the map only affects the next permission check.
+ * The fan-out is synchronous and cannot ask Casbin per event, so without this a
+ * revoke reached an open socket only when its client resubscribed: a member
+ * whose read on a collection was taken away kept receiving its writes for as
+ * long as the socket stayed open. One sweep at a time; a change during a sweep
+ * runs one more.
  */
-export function invalidateWsUserPermCache(userId: string): void {
-  for (const conn of connections.values()) {
-    if (conn.userId === userId) {
-      wsPermCache.set(conn.ws, new Map());
-    }
+export function revalidateWsSubscriptions(): Promise<void> {
+  if (_sweep) {
+    _sweepAgain = true;
+    return _sweep;
   }
+  _sweep = (async () => {
+    do {
+      _sweepAgain = false;
+      for (const [connId, conn] of [...connections]) {
+        const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
+        for (const collection of collections) {
+          // A lookup that throws denies, like every other failed lookup here —
+          // and must not end the sweep, or the connections after it keep a
+          // revoked read.
+          const allowed = await socketMayReadCached(conn.ws, conn, collection).catch(() => false);
+          if (allowed) continue;
+          const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
+          for (const ch of dropped) {
+            conn.subscriptions.delete(ch);
+            unindexSubscription(ch, connId);
+          }
+          conn.access.delete(collection);
+          try {
+            conn.ws.send(
+              JSON.stringify({ type: 'unsubscribed', collections: dropped, reason: 'forbidden' }),
+            );
+          } catch {
+            /* socket already gone — cleanupSocket handles it */
+          }
+        }
+      }
+    } while (_sweepAgain);
+  })().finally(() => {
+    _sweep = null;
+  });
+  return _sweep;
 }
 
 /** Test-only: seed / inspect the in-process WS registries. */

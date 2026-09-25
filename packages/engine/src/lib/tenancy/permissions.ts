@@ -101,6 +101,36 @@ let _policyObjects: Set<string> | null = null;
  */
 let _policyGen = 0;
 
+/**
+ * Where this process files its answers in the SHARED cache, and why it has one.
+ *
+ * Keys carry the instance and its policy generation, so a clear is a bump and
+ * nothing more: the old keys are never read again and die by TTL. The shared
+ * copy used to be purged with a SCAN on every instance for every change —
+ * because a replica that had not heard yet wrote its stale answer back into the
+ * shared key after the publisher purged it, and everyone then served it. An
+ * instance now only ever reads what its own enforcer computed in its current
+ * generation, and every change it applies bumps that generation.
+ */
+const INSTANCE_ID = crypto.randomUUID().slice(0, 8);
+function cacheNamespace(): string {
+  return `${INSTANCE_ID}.${_policyGen}`;
+}
+
+/** Test seam: the namespace cache keys are written under right now. */
+export function __cacheNamespace(): string {
+  return cacheNamespace();
+}
+
+/**
+ * The current policy generation. A decision cached outside this module (the
+ * WebSocket subscribe cache) is valid only while this still returns the value
+ * read before the decision was computed.
+ */
+export function permissionGeneration(): number {
+  return _policyGen;
+}
+
 /** Dropped whenever policies change, so a newly named resource stops collapsing. */
 function invalidatePolicyObjectIndex(): void {
   _policyObjects = null;
@@ -274,7 +304,7 @@ export function clearLocalPermissionCache(userId?: string): void {
   }
   _localGod.delete(userId);
   _localRole.delete(userId);
-  // Key shape: `perm:${domain}:${userId}:${resource}:${action}`
+  // Key shape: `perm:${namespace}:${domain}:${userId}:${resource}:${action}`
   const needle = `:${userId}:`;
   for (const key of _localPerm.keys()) {
     if (key.includes(needle)) _localPerm.delete(key);
@@ -335,8 +365,8 @@ let _enforcer: Enforcer | null = null;
 class KyselyCasbinAdapter {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async loadPolicy(model: any): Promise<void> {
-    clearLocalPermissionCache();
-    invalidatePolicyObjectIndex();
+    // No cache clear here: this only ever loads an enforcer nobody reads yet
+    // (`buildEnforcer`), and the swap that installs it clears after itself.
     const policies = await sql<{
       ptype: string;
       v0: string | null;
@@ -403,11 +433,13 @@ class KyselyCasbinAdapter {
     // memo and the object index catches all of them.
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
-    await sql`
-      INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
-      VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
-              ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
-    `.execute(_db);
+    await trackPolicyWrite(() =>
+      sql`
+        INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
+        VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
+                ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
+      `.execute(_db),
+    );
   }
 
   async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
@@ -440,7 +472,9 @@ class KyselyCasbinAdapter {
       const value = rule[i];
       conditions.push(value === undefined ? sql`${column} IS NULL` : sql`${column} = ${value}`);
     }
-    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
+    await trackPolicyWrite(() =>
+      sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db),
+    );
   }
 
   async removeFilteredPolicy(
@@ -479,20 +513,35 @@ class KyselyCasbinAdapter {
       conditions.push(sql`${sql.ref(`v${column}`)} = ${value}`);
     });
 
-    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
+    await trackPolicyWrite(() =>
+      sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db),
+    );
   }
+}
+
+/**
+ * A complete enforcer loaded from the table — built off to the side, never by
+ * reloading the live one (see `casbin-reload-window.test.ts`).
+ */
+async function buildEnforcer(): Promise<Enforcer> {
+  const e = await newEnforcer(newModelFromString(CASBIN_MODEL), new KyselyCasbinAdapter());
+  // Make '*' a wildcard domain in role grants (g): a grant `(user, role, '*')`
+  // then applies in every tenant. Validated against casbin 5.x.
+  await e.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
+  // Every enforcer write (admin routes, role grants, tenant membership) tells
+  // the other instances — see `publishPolicyChange`.
+  e.setWatcherEx(policyWatcherFor(e));
+  return e;
 }
 
 export async function initPermissions(db: Database): Promise<void> {
   _db = db;
-  const model = newModelFromString(CASBIN_MODEL);
-  _enforcer = await newEnforcer(model, new KyselyCasbinAdapter());
-  // Make '*' a wildcard domain in role grants (g): a grant `(user, role, '*')`
-  // then applies in every tenant. Validated against casbin 5.x.
-  _enforcer.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
-  // Every enforcer write (admin routes, role grants, tenant membership) tells
-  // the other instances — see `publishPolicyChange`.
-  _enforcer.setWatcherEx(policyWatcher);
+  // Read before the load, so a write landing in between makes the next
+  // reconcile rebuild rather than trust a state that never held it.
+  const fingerprint = await policyFingerprint();
+  _enforcer = await buildEnforcer();
+  _appliedFingerprint = fingerprint;
+  clearLocalPermissionCache();
 
   // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
@@ -840,7 +889,7 @@ export async function checkPermission(
   // Filing every such name under one key is what stops an invented-name flood
   // from costing one full `enforce()` each.
   const named = (await policyObjectIndex()).has(resource) ? resource : UNKNOWN_RESOURCE;
-  const cacheKey = `perm:${domain}:${userId}:${named}:${action}`;
+  const cacheKey = `perm:${cacheNamespace()}:${domain}:${userId}:${named}:${action}`;
 
   if (cache) {
     try {
@@ -1009,7 +1058,8 @@ export async function listAllRoles(): Promise<string[]> {
 export async function getUserRoles(userId: string): Promise<string[]> {
   const domain = getCurrentDomain();
   const cache = getCache();
-  const cacheKey = `roles:${domain}:${userId}`;
+  const gen = _policyGen;
+  const cacheKey = `roles:${cacheNamespace()}:${domain}:${userId}`;
 
   if (cache) {
     try {
@@ -1030,7 +1080,8 @@ export async function getUserRoles(userId: string): Promise<string[]> {
   // honours the '*' domain-matching func, so global grants are included.
   const roles = await e.getRolesForUser(userId, domain);
 
-  if (cache) {
+  // Same rule as `checkPermission`: never file an answer computed across a change.
+  if (cache && gen === _policyGen) {
     try {
       // SETEX  — O(1): write HMAC-signed roles under a single key.
       // SADD   — O(1): register this key in the per-user tracking Set.
@@ -1094,34 +1145,42 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   // served stale for up to the TTL.
   const { invalidateUserQueryCache } = await import('../data/index.js');
   await invalidateUserQueryCache(userId);
-  // Open WebSocket sessions cache subscribe decisions for WS_PERM_CACHE_TTL_MS —
-  // clear those too so a revoke is visible on the next subscribe without waiting
-  // for the TTL (or a reconnect). Dynamic import avoids tenancy → routes cycle.
-  try {
-    const { invalidateWsUserPermCache } = await import('../../routes/ws.js');
-    invalidateWsUserPermCache(userId);
-  } catch {
-    /* ws module unavailable in some unit-test graphs */
-  }
+  // The bump above already voids every socket's cached subscribe decision; open
+  // subscriptions are re-checked too, so a revoke stops the stream.
+  revalidateSockets();
 }
 
 /**
- * Drop every cached permission answer — this process's and the shared Valkey
- * copy — after a policy change whose reach is not one user.
- *
- * The two admin routes kept one copy each, and each missed something: one never
- * cleared the in-process memo, so a revoke raced by a concurrent check stayed
- * allowed on that instance for the memo's TTL; the other left the per-user key
- * sets behind.
+ * Re-check every open WebSocket subscription against the policy as it now is.
+ * Only after the change is applied, never from the adapter (which runs before
+ * the model moves). Dynamic import avoids a tenancy → routes cycle.
  */
-export async function invalidateAllPermissionCaches(): Promise<void> {
+function revalidateSockets(): void {
+  import('../../routes/ws.js')
+    .then((m) => m.revalidateWsSubscriptions())
+    .catch(() => {
+      /* ws module unavailable in some unit-test graphs */
+    });
+}
+
+/**
+ * Drop every cached permission answer after a policy change whose reach is not
+ * one user, and re-check the WebSocket subscriptions it may have revoked.
+ *
+ * The bump in `clearLocalPermissionCache` moves this instance to a fresh cache
+ * namespace, so the shared copy needs no purge — see `cacheNamespace`.
+ * `{ shared: true }` is the operator's manual flush, which also drops the god
+ * and role flags a raw SQL edit of "user" leaves behind.
+ */
+export async function invalidateAllPermissionCaches(opts?: { shared?: boolean }): Promise<void> {
   // First and unconditionally — see `_localPerm`.
   clearLocalPermissionCache();
+  revalidateSockets();
   const cache = getCache();
-  if (!cache) return;
+  if (!cache || !opts?.shared) return;
   try {
     const allKeys: string[] = [];
-    for (const pattern of ['perm:*', 'roles:*', 'god:*', 'user:perm-keys:*']) {
+    for (const pattern of ['perm:*', 'roles:*', 'god:*', 'urole:*', 'user:perm-keys:*']) {
       let cursor = '0';
       do {
         const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
@@ -1154,9 +1213,10 @@ export async function invalidateAllPermissionCaches(): Promise<void> {
 // links, no adapter, no re-publish), never `loadPolicy()` — see
 // `casbin-reload-window.test.ts` for what a live reload does to requests in flight.
 //
-// ponytail: a message lost while the bus is down (Valkey reconnect) leaves that
-// replica stale until the next change to the same rules or a restart; a periodic
-// full reconcile is the upgrade if that ever matters.
+// The bus is lossy (a Valkey reconnect, a dropped NOTIFY), so it is only the
+// fast path: `reconcilePolicies` compares a fingerprint of the table against the
+// state this instance last loaded, on a timer and on every bus reconnect, and
+// rebuilds the enforcer from the table when they differ.
 
 interface PolicyChange {
   sec: 'p' | 'g';
@@ -1201,32 +1261,41 @@ export function publishPolicyChange(change: PolicyChange): void {
   }
 }
 
-const policyWatcher = {
-  async updateForAddPolicy(sec: string, ptype: string, ...rule: string[]) {
-    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
-  },
-  async updateForRemovePolicy(sec: string, ptype: string, ...rule: string[]) {
-    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
-  },
-  async updateForAddPolicies(sec: string, ptype: string, ...rules: string[][]) {
-    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules });
-  },
-  async updateForRemovePolicies(sec: string, ptype: string, ...rules: string[][]) {
-    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules });
-  },
-  async updateForRemoveFilteredPolicy(
-    sec: string,
-    ptype: string,
-    fieldIndex: number,
-    ...fieldValues: string[]
-  ) {
-    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, fieldIndex, fieldValues });
-  },
-  // `savePolicy` rewrites the whole table and nothing calls it at runtime.
-  async updateForSavePolicy() {
-    return false;
-  },
-};
+function policyWatcherFor(owner: Enforcer) {
+  const changed = (change: PolicyChange) => {
+    publishPolicyChange(change);
+    // A request that fetched the enforcer before a reconcile swapped it wrote to
+    // the table and to a model nobody reads any more. The table is right; bring
+    // the live enforcer to it now rather than at the next tick.
+    if (owner !== _enforcer) void reconcilePolicies();
+  };
+  return {
+    async updateForAddPolicy(sec: string, ptype: string, ...rule: string[]) {
+      changed({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
+    },
+    async updateForRemovePolicy(sec: string, ptype: string, ...rule: string[]) {
+      changed({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
+    },
+    async updateForAddPolicies(sec: string, ptype: string, ...rules: string[][]) {
+      changed({ sec: sec as 'p' | 'g', ptype, rules });
+    },
+    async updateForRemovePolicies(sec: string, ptype: string, ...rules: string[][]) {
+      changed({ sec: sec as 'p' | 'g', ptype, rules });
+    },
+    async updateForRemoveFilteredPolicy(
+      sec: string,
+      ptype: string,
+      fieldIndex: number,
+      ...fieldValues: string[]
+    ) {
+      changed({ sec: sec as 'p' | 'g', ptype, fieldIndex, fieldValues });
+    },
+    // `savePolicy` rewrites the whole table and nothing calls it at runtime.
+    async updateForSavePolicy() {
+      return false;
+    },
+  };
+}
 
 function parsePolicyChange(data: unknown): PolicyChange | null {
   if (!data || typeof data !== 'object') return null;
@@ -1301,17 +1370,10 @@ async function reconcilePolicyChange(change: PolicyChange): Promise<void> {
   if (touched.size === 0) return;
 
   // After the model, not before: a check that ran in between would re-cache
-  // the old answer. The shared cache too — this replica may have written a
-  // stale answer into it after the publisher purged it.
+  // the old answer.
+  // Local only — see `cacheNamespace`. The bump also voids every socket's
+  // cached subscribe decision, role link or rule alike.
   await invalidateAllPermissionCaches();
-  if (sec === 'g') {
-    try {
-      const { invalidateWsUserPermCache } = await import('../../routes/ws.js');
-      for (const subject of touched) invalidateWsUserPermCache(subject);
-    } catch {
-      /* ws module unavailable in some unit-test graphs */
-    }
-  }
 }
 
 let _receiveChain: Promise<void> = Promise.resolve();
@@ -1329,6 +1391,142 @@ export function receivePolicyChange(data: unknown): Promise<void> {
       );
     });
   return _receiveChain;
+}
+
+// ── Periodic full reconcile ────────────────────────────────────────────────
+
+/** The table's fingerprint when the live enforcer was loaded from it. */
+let _appliedFingerprint: string | null = null;
+/** Bumped when a policy write starts AND when it ends; see `trackPolicyWrite`. */
+let _writeGen = 0;
+let _writesInFlight = 0;
+
+/**
+ * Run a write to `zvd_permissions`. A rebuild that overlaps one cannot know
+ * whether its load saw the row, so it does not swap — see `rebuildEnforcer`.
+ */
+export async function trackPolicyWrite<T>(write: () => Promise<T>): Promise<T> {
+  _writeGen++;
+  _writesInFlight++;
+  try {
+    return await write();
+  } finally {
+    _writesInFlight--;
+    _writeGen++;
+  }
+}
+
+/**
+ * Changes on any insert, delete or edit; `id` is left out so equal tables agree.
+ * `COLLATE "C"`: a locale sort took 40 ms over 7 359 rules, a byte sort 16.
+ */
+async function policyFingerprint(): Promise<string> {
+  const r = await sql<{ fp: string | null }>`
+    SELECT md5(string_agg(t, E'\n' ORDER BY t COLLATE "C")) AS fp
+    FROM (SELECT json_build_array(ptype, v0, v1, v2, v3, v4, v5)::text AS t
+          FROM zvd_permissions) s
+  `.execute(_db);
+  return r.rows[0]?.fp ?? '';
+}
+
+/**
+ * Whether the live model already holds exactly the table. The bus usually
+ * delivered every change, and comparing costs ~15 ms where a rebuild costs
+ * ~400 ms of loading and role-link building (measured, 7 359 rules).
+ */
+async function liveModelMatchesTable(e: Enforcer): Promise<boolean> {
+  const rows = await sql<{
+    ptype: string;
+    v0: string | null;
+    v1: string | null;
+    v2: string | null;
+    v3: string | null;
+    v4: string | null;
+    v5: string | null;
+  }>`SELECT ptype, v0, v1, v2, v3, v4, v5 FROM zvd_permissions`.execute(_db);
+  const table = new Set(
+    rows.rows.map((r) =>
+      JSON.stringify([r.ptype, r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v) => v !== null)),
+    ),
+  );
+  let held = 0;
+  for (const sec of ['p', 'g']) {
+    for (const rule of e.getModel().getPolicy(sec, sec)) {
+      if (!table.has(JSON.stringify([sec, ...rule]))) return false;
+      held++;
+    }
+  }
+  return held === table.size;
+}
+
+async function rebuildEnforcer(): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Before the load: a write landing between the two leaves them unequal, and
+    // the next tick rebuilds again instead of trusting a load that missed it.
+    const fingerprint = await policyFingerprint();
+    if (fingerprint === _appliedFingerprint) return false;
+    const writes = _writeGen;
+    const settled = () => _writesInFlight === 0 && writes === _writeGen;
+    if (await liveModelMatchesTable(await getEnforcer())) {
+      if (settled()) _appliedFingerprint = fingerprint;
+      return false;
+    }
+    const fresh = await buildEnforcer();
+    // A local write overlapped the load and may have gone to the old model
+    // only. Try again rather than swap it away.
+    if (!settled()) continue;
+    _enforcer = fresh;
+    _appliedFingerprint = fingerprint;
+    // After the swap: bumps the generation, so a check that read the old
+    // enforcer across it is not cached.
+    await invalidateAllPermissionCaches();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Bring this instance's enforcer to what `zvd_permissions` holds, if the table
+ * changed since it was loaded. Serialized with the bus receiver; never throws.
+ * Resolves `true` when it swapped in a rebuilt enforcer.
+ */
+export function reconcilePolicies(): Promise<boolean> {
+  const run = _receiveChain.then(rebuildEnforcer);
+  _receiveChain = run.then(
+    () => undefined,
+    (err: Error) => {
+      console.error('[permissions] policy reconcile failed:', err.message);
+    },
+  );
+  return run.catch(() => false);
+}
+
+// 30-60 s: jittered so replicas do not all rebuild on the same second.
+const RECONCILE_BASE_MS = 30_000;
+let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function startPolicyReconcile(): void {
+  if (_reconcileTimer) return;
+  const arm = () => {
+    const timer = setTimeout(
+      async () => {
+        try {
+          await reconcilePolicies();
+        } finally {
+          if (_reconcileTimer === timer) arm();
+        }
+      },
+      RECONCILE_BASE_MS + Math.random() * RECONCILE_BASE_MS,
+    );
+    timer.unref?.();
+    _reconcileTimer = timer;
+  };
+  arm();
+}
+
+export function stopPolicyReconcile(): void {
+  if (_reconcileTimer) clearTimeout(_reconcileTimer);
+  _reconcileTimer = null;
 }
 
 /**

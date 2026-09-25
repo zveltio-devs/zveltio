@@ -21,7 +21,13 @@ import { setTenantScopedTables } from './lib/tenancy/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
-import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
+import {
+  initPermissions,
+  checkPermission,
+  getUserRoles,
+  startPolicyReconcile,
+  stopPolicyReconcile,
+} from './lib/tenancy/index.js';
 import { initRls } from './lib/tenancy/index.js';
 import { createRequestScopedDb } from './lib/tenancy/index.js';
 import { fieldTypeRegistry } from './lib/data/index.js';
@@ -1172,6 +1178,7 @@ async function bootstrap() {
 
   // 3. Permissions + RLS
   await initPermissions(db);
+  startPolicyReconcile();
   initRls(db);
   initValidationEngine(db);
   console.log('✅ Permissions + RLS initialized');
@@ -1534,6 +1541,7 @@ async function shutdown() {
   webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
+  stopPolicyReconcile();
   // Stop isolated extension workers before the DB pool drains.
   try {
     await getWorkerHostIfInitialized()?.stopAll();

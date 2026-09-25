@@ -38,10 +38,10 @@ import { sql } from 'kysely';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import {
   checkPermission,
-  getEnforcer,
   invalidateUserPermCache,
   listSensitiveResources,
   materializeDefaultGrants,
+  reconcilePolicies,
   registerSensitiveResources,
 } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
@@ -61,8 +61,9 @@ async function grantRole(
     VALUES ('g', ${userId}, ${role}, ${TENANT})
   `.execute(db);
   // The enforcer holds its policies in memory; a row written behind it is
-  // invisible until reloaded. Same for the per-user decision cache.
-  await (await getEnforcer()).loadPolicy();
+  // invisible until the reconcile picks it up. Same for the per-user decision
+  // cache. (Never `loadPolicy()` on the live enforcer: casbin-reload-window.)
+  await reconcilePolicies();
   await invalidateUserPermCache(userId);
 }
 
@@ -164,7 +165,7 @@ d('sensitive resources', () => {
       VALUES ('p', ${role}, '*', 'payroll', 'read')
     `.execute(db);
     await grantRole(db, user, role);
-    await (await getEnforcer()).loadPolicy();
+    await reconcilePolicies();
 
     await runWithDomain(TENANT, async () => {
       expect(await checkPermission(user, 'payroll', 'read')).toBe(true);
@@ -196,7 +197,7 @@ d('sensitive resources', () => {
     expect(listSensitiveResources()).toContain('medical_records');
 
     await materializeDefaultGrants(db, ['lab_results', 'medical_records']);
-    await (await getEnforcer()).loadPolicy();
+    await reconcilePolicies();
     await invalidateUserPermCache(user);
 
     await runWithDomain(TENANT, async () => {
