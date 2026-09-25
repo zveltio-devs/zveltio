@@ -1172,6 +1172,11 @@ let _sweepRetryMs = SWEEP_RETRY_MS;
  * revoke) and says so; then one retry sweep is scheduled, for both doors, so a
  * revoke still lands once lookups recover.
  */
+/** Test seam: settles once no realtime sweep is running. */
+export function __sweepIdle(): Promise<void> {
+  return _sweep ?? Promise.resolve();
+}
+
 export function revalidateSockets(): void {
   if (_sweep) {
     _sweepAgain = true;

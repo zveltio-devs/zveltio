@@ -12,16 +12,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import {
+  __sweepIdle,
   revalidateSockets,
   startPolicyReconcile,
   stopPolicyReconcile,
 } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 
-/** Let the async work a timer started run to completion. */
+/** Let an async timer callback run to completion (microtasks only: no timer is involved). */
 async function flush(): Promise<void> {
-  for (let i = 0; i < 50; i++) await Promise.resolve();
-  await new Promise<void>((r) => setImmediate(r));
   for (let i = 0; i < 50; i++) await Promise.resolve();
 }
 
@@ -30,10 +29,8 @@ describe('realtime re-check sweep retry', () => {
   let runs = 0;
 
   beforeEach(async () => {
-    // Warm the dynamic imports on real time so a fake-time sweep only awaits
-    // microtasks.
-    revalidateSockets();
-    await Bun.sleep(50);
+    // A sweep left running by an earlier file must finish before counting.
+    await __sweepIdle();
     runs = 0;
     const sub = {
       stream: { abort() {} },
@@ -56,7 +53,7 @@ describe('realtime re-check sweep retry', () => {
     // Fire the pending retry while time is still fake (switching back drops
     // it), so it sweeps clean and resets the backoff for the next test.
     jest.advanceTimersByTime(60_000);
-    await flush();
+    await __sweepIdle();
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
@@ -65,16 +62,16 @@ describe('realtime re-check sweep retry', () => {
   async function expectRetryAfter(ms: number) {
     const before = runs;
     jest.advanceTimersByTime(ms - 1);
-    await flush();
+    await __sweepIdle();
     expect(runs).toBe(before);
     jest.advanceTimersByTime(1);
-    await flush();
+    await __sweepIdle();
     expect(runs).toBe(before + 1);
   }
 
   it('backs off 5 s, 10 s, 20 s, 40 s, then holds at 60 s while lookups keep failing', async () => {
     revalidateSockets();
-    await flush();
+    await __sweepIdle();
     expect(runs).toBe(1);
     await expectRetryAfter(5_000);
     await expectRetryAfter(10_000);
@@ -86,18 +83,18 @@ describe('realtime re-check sweep retry', () => {
 
   it('a sweep with no failures resets the wait to 5 s', async () => {
     revalidateSockets();
-    await flush();
+    await __sweepIdle();
     await expectRetryAfter(5_000);
     await expectRetryAfter(10_000);
     // Lookups recover: the pending retry sweeps clean.
     const subs = _sseConnectionsForTests().get(USER)!;
     _sseConnectionsForTests().delete(USER);
     jest.advanceTimersByTime(20_000);
-    await flush();
+    await __sweepIdle();
     // Fail again: the first retry is 5 s away, not 40.
     _sseConnectionsForTests().set(USER, subs);
     revalidateSockets();
-    await flush();
+    await __sweepIdle();
     await expectRetryAfter(5_000);
   });
 });
@@ -110,22 +107,24 @@ describe('periodic policy reconcile timer', () => {
 
   beforeEach(() => {
     ticks = 0;
+    // Jitter fixed at the middle of [30 s, 60 s): 45 s, so every step is exact.
+    spyOn(Math, 'random').mockReturnValue(0.5);
     jest.useFakeTimers();
   });
 
   afterEach(() => {
     stopPolicyReconcile();
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
-  it('first tick lands in 30-60 s, then re-arms after every tick', async () => {
+  it('first tick lands after the jittered delay, then re-arms after every tick', async () => {
     startPolicyReconcile(tick);
-    jest.advanceTimersByTime(29_999);
-    await flush();
-    expect(ticks).toBe(0);
     for (let n = 1; n <= 4; n++) {
-      // Each delay is in [30 s, 60 s): one 60 s step crosses exactly one tick.
-      jest.advanceTimersByTime(60_000 - (n === 1 ? 29_999 : 0));
+      jest.advanceTimersByTime(44_999);
+      await flush();
+      expect(ticks).toBe(n - 1);
+      jest.advanceTimersByTime(1);
       await flush();
       expect(ticks).toBe(n);
     }
