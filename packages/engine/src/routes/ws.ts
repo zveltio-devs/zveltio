@@ -289,9 +289,6 @@ async function socketMayReadCached(
   return allowed && (await resolveSocketAccess(conn, collectionName));
 }
 
-let _sweep: Promise<void> | null = null;
-let _sweepAgain = false;
-
 /**
  * Re-check every open subscription after a policy change, and end the ones the
  * subscriber may no longer read.
@@ -299,45 +296,32 @@ let _sweepAgain = false;
  * The fan-out is synchronous and cannot ask Casbin per event, so without this a
  * revoke reached an open socket only when its client resubscribed: a member
  * whose read on a collection was taken away kept receiving its writes for as
- * long as the socket stayed open. One sweep at a time; a change during a sweep
- * runs one more.
+ * long as the socket stayed open. Serialized by the caller, `revalidateSockets`.
  */
-export function revalidateWsSubscriptions(): Promise<void> {
-  if (_sweep) {
-    _sweepAgain = true;
-    return _sweep;
-  }
-  _sweep = (async () => {
-    do {
-      _sweepAgain = false;
-      for (const [connId, conn] of [...connections]) {
-        const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
-        for (const collection of collections) {
-          // A lookup that throws denies, like every other failed lookup here —
-          // and must not end the sweep, or the connections after it keep a
-          // revoked read.
-          const allowed = await socketMayReadCached(conn.ws, conn, collection).catch(() => false);
-          if (allowed) continue;
-          const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
-          for (const ch of dropped) {
-            conn.subscriptions.delete(ch);
-            unindexSubscription(ch, connId);
-          }
-          conn.access.delete(collection);
-          try {
-            conn.ws.send(
-              JSON.stringify({ type: 'unsubscribed', collections: dropped, reason: 'forbidden' }),
-            );
-          } catch {
-            /* socket already gone — cleanupSocket handles it */
-          }
-        }
+export async function revalidateWsSubscriptions(): Promise<void> {
+  for (const [connId, conn] of [...connections]) {
+    const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
+    for (const collection of collections) {
+      // A lookup that throws denies, like every other failed lookup here —
+      // and must not end the sweep, or the connections after it keep a
+      // revoked read.
+      const allowed = await socketMayReadCached(conn.ws, conn, collection).catch(() => false);
+      if (allowed) continue;
+      const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
+      for (const ch of dropped) {
+        conn.subscriptions.delete(ch);
+        unindexSubscription(ch, connId);
       }
-    } while (_sweepAgain);
-  })().finally(() => {
-    _sweep = null;
-  });
-  return _sweep;
+      conn.access.delete(collection);
+      try {
+        conn.ws.send(
+          JSON.stringify({ type: 'unsubscribed', collections: dropped, reason: 'forbidden' }),
+        );
+      } catch {
+        /* socket already gone — cleanupSocket handles it */
+      }
+    }
+  }
 }
 
 /** Test-only: seed / inspect the in-process WS registries. */

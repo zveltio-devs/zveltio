@@ -3,7 +3,14 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
+import {
+  checkPermission,
+  DEFAULT_TENANT_ID,
+  isTenantAdmin,
+  permissionGeneration,
+  revalidateSockets,
+  runWithDomain,
+} from '../lib/tenancy/index.js';
 import { getRlsFilters, matchesRlsFilters } from '../lib/tenancy/index.js';
 import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
 import type { ColumnAccess } from '../lib/tenancy/index.js';
@@ -321,6 +328,71 @@ export function broadcastDataEvent(
   }
 }
 
+/** `?channel=data:<collection>[:event]` — gated as a read on the collection. */
+const DATA_CHANNEL = /^zveltio:data:([a-zA-Z0-9_]+)(?::[a-zA-Z0-9_]+)?$/;
+
+/** Does everything this stream was opened with still pass the gate in `/stream`? */
+function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
+  const reads = new Set(sub.collections.map((col) => col.split(':')[0]!));
+  let needsAdmin = sub.collections.length === 0; // the wildcard stream
+  for (const ch of sub.channels) {
+    const m = DATA_CHANNEL.exec(ch);
+    if (m) reads.add(m[1]!);
+    else needsAdmin = true;
+  }
+  // The stream captured its tenant when it opened; the request that held the
+  // domain is long gone.
+  return runWithDomain(sub.tenantId ?? DEFAULT_TENANT_ID, async () => {
+    if (needsAdmin && !(await isTenantAdmin(userId))) return false;
+    for (const col of reads) if (!(await checkPermission(userId, col, 'read'))) return false;
+    return true;
+  });
+}
+
+const SSE_RECHECK_RETRY_MS = 5_000;
+let _recheckRetry: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Re-check every open SSE stream after a policy change, and end the ones whose
+ * subscriber may no longer read what the stream delivers.
+ *
+ * The stream's subscription set is its URL, so a revoke ends it rather than
+ * trims it: the client's reconnect goes back through `/stream`, which answers
+ * with the collections it may still read (`denied` lists the rest) or 403, and
+ * resolves row and column rules afresh.
+ *
+ * A lookup that throws is not a revoke. Ending every stream on a transient
+ * error would send each client into a gate that, during the same outage,
+ * refuses it — and an `EventSource` does not retry a 403. So the stream stays
+ * and the sweep runs again shortly; a revoke still lands once lookups recover.
+ * Called by `revalidateSockets`, which serializes it.
+ */
+export async function revalidateSseStreams(): Promise<void> {
+  let failed = false;
+  for (const [userId, subs] of [...connections]) {
+    for (const sub of [...subs]) {
+      let allowed: boolean;
+      try {
+        allowed = await streamStillAllowed(userId, sub);
+      } catch (err) {
+        console.error('[realtime] SSE permission recheck failed; retrying:', err);
+        failed = true;
+        continue;
+      }
+      // The stream's abort listener leaves the registry synchronously, before
+      // any further write can reach it.
+      if (!allowed) sub.stream.abort();
+    }
+  }
+  if (failed && !_recheckRetry) {
+    _recheckRetry = setTimeout(() => {
+      _recheckRetry = null;
+      revalidateSockets();
+    }, SSE_RECHECK_RETRY_MS);
+    _recheckRetry.unref?.();
+  }
+}
+
 /**
  * Broadcast a generic (non-data) event to the clients subscribed to `channel`.
  *
@@ -394,6 +466,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   app.get('/stream', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    // Read before the gate: a revoke swept while this request is between its
+    // checks and its registration would otherwise miss the stream.
+    const gen = permissionGeneration();
 
     const userId = session.user.id;
     const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
@@ -466,7 +541,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // enumerate what happens to be sensitive today.
     const allowedExtraChannels: string[] = [];
     for (const ch of extraChannels) {
-      const dataMatch = /^zveltio:data:([a-zA-Z0-9_]+)(?::[a-zA-Z0-9_]+)?$/.exec(ch);
+      const dataMatch = DATA_CHANNEL.exec(ch);
       if (dataMatch) {
         if (await checkPermission(userId, dataMatch[1], 'read').catch(() => false)) {
           allowedExtraChannels.push(ch);
@@ -528,10 +603,36 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       const userSubs = connections.get(userId)!;
       userSubs.add(sub);
 
-      // Subscribe to cache channels if cache is available
-      const cache = getCache();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       let subscriber: any = null;
+      let pingInterval: ReturnType<typeof setInterval> | undefined;
+      // Registered before the first await: `revalidateSseStreams` can abort the
+      // stream from here on, and an abort with no listener yet leaks the
+      // subscriber and the ping timer and never ends the handler.
+      const ended = new Promise<void>((resolve) => {
+        stream.onAbort(async () => {
+          clearInterval(pingInterval);
+          userSubs.delete(sub);
+          // Only our own set: a revoke may have removed it, and a new stream
+          // for the same user put a fresh one in its place.
+          if (userSubs.size === 0 && connections.get(userId) === userSubs) {
+            connections.delete(userId);
+          }
+          if (subscriber) {
+            try {
+              await subscriber.unsubscribe();
+              await subscriber.disconnect();
+            } catch {
+              /* ignore */
+            }
+          }
+          resolve();
+        });
+      });
+      if (permissionGeneration() !== gen) revalidateSockets();
+
+      // Subscribe to cache channels if cache is available
+      const cache = getCache();
 
       if (cache) {
         try {
@@ -584,26 +685,13 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         event: 'connected',
       });
 
-      const pingInterval = setInterval(() => {
-        stream.writeSSE({ data: 'ping', event: 'ping' }).catch(() => {});
-      }, 30_000);
+      if (!stream.aborted) {
+        pingInterval = setInterval(() => {
+          stream.writeSSE({ data: 'ping', event: 'ping' }).catch(() => {});
+        }, 30_000);
+      }
 
-      await new Promise<void>((resolve) => {
-        stream.onAbort(async () => {
-          clearInterval(pingInterval);
-          userSubs.delete(sub);
-          if (userSubs.size === 0) connections.delete(userId);
-          if (subscriber) {
-            try {
-              await subscriber.unsubscribe();
-              await subscriber.disconnect();
-            } catch {
-              /* ignore */
-            }
-          }
-          resolve();
-        });
-      });
+      await ended;
     });
   });
 
