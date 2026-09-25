@@ -13,6 +13,13 @@
  *
  * This asserts a flow RUN row rather than the absence of a log line: a test that
  * greps stderr passes the day someone changes the wording.
+ *
+ * And a SUCCESSFUL run, not just a run row. The flow was started on the request's
+ * transaction without being awaited, so the row went in while the transaction
+ * was open and everything after it — loading the steps, marking the run done —
+ * met `Transaction is already committed`, even the attempt to mark it failed.
+ * Every data-triggered run stayed `running` for good, while a count of rows
+ * went up and passed.
  */
 import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
@@ -82,7 +89,8 @@ d('bulk writes fire their automations (in-process)', () => {
 
   async function runsFor(): Promise<number> {
     const r = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid
+      SELECT count(*)::int AS n FROM zv_flow_runs
+       WHERE flow_id = ${flowId}::uuid AND status = 'success'
     `.execute(db);
     return r.rows[0]!.n;
   }

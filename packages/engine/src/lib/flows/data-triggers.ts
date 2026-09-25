@@ -1,5 +1,5 @@
-import type { Database } from '../../db/index.js';
-import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
+import { getDb, type Database } from '../../db/index.js';
+import { DEFAULT_TENANT_ID, getCurrentTenantTrx, onAfterCommit } from '../tenancy/index.js';
 import { executeFlow } from './flow-executor.js';
 
 /**
@@ -13,6 +13,17 @@ import { executeFlow } from './flow-executor.js';
  * other tenant's matching flow — cross-tenant execution. The write pipeline passes
  * its resolved tenant id; when absent (single-tenant installs) it falls back to the
  * default tenant, which is also where those flows' backfilled tenant_id points.
+ *
+ * Inside a request the flows are looked up and run on the pool, once the write
+ * has committed. `db` there is the request's transaction and nothing awaits the
+ * run, so it outlived it: the run row went in, and every statement after it —
+ * the step lookup, a step's own `db.transaction()`, marking the run done or even
+ * failed — met `Transaction is already committed`. Every data-triggered run
+ * stayed `running`. After the commit is also when the record exists for anyone
+ * else to read, and a rolled-back write fires nothing.
+ *
+ * Queued BEFORE any await: the caller does not await this either, and a job
+ * queued after the transaction's queue has been taken is never run.
  */
 export async function triggerDataFlows(
   db: Database,
@@ -20,6 +31,22 @@ export async function triggerDataFlows(
   event: 'insert' | 'update' | 'delete',
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   record: any,
+  tenantId?: string | null,
+): Promise<void> {
+  if (getCurrentTenantTrx()) {
+    onAfterCommit(() => {
+      void fireDataFlows(getDb(), collection, event, record, tenantId);
+    });
+    return;
+  }
+  await fireDataFlows(db, collection, event, record, tenantId);
+}
+
+async function fireDataFlows(
+  db: Database,
+  collection: string,
+  event: 'insert' | 'update' | 'delete',
+  record: unknown,
   tenantId?: string | null,
 ): Promise<void> {
   try {
