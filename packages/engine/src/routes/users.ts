@@ -13,6 +13,7 @@ import { auditLog } from '../lib/audit.js';
 import { revokeAllUserSessions } from '../lib/auth.js';
 import { escapeLike } from '../lib/data/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { isEmailConfigured, sendEmail } from '../lib/email.js';
 
 function escapeHtml(str: string): string {
   return str
@@ -259,11 +260,9 @@ export function usersRoutes(
       const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
       const inviteUrl = `${siteUrl}/accept-invite?token=${token}`;
 
-      if (process.env.SMTP_HOST) {
+      let emailSent = false;
+      if (isEmailConfigured()) {
         try {
-          // Dynamic import — email module may not always be present
-          // @ts-ignore — email.ts is an optional module; absence handled by catch below
-          const { sendEmail } = await import('../lib/email.js');
           await sendEmail({
             to: email,
             subject: 'You have been invited to Zveltio',
@@ -272,8 +271,10 @@ export function usersRoutes(
 <p><a href="${escapeHtml(inviteUrl)}">${escapeHtml(inviteUrl)}</a></p>
 <p>This link expires in 48 hours.</p>`,
           });
-        } catch {
-          // Email sending failed — still return the invite URL
+          emailSent = true;
+        } catch (err) {
+          // The invitation exists either way — the admin can hand over invite_url.
+          console.warn('[users] invite email failed:', err instanceof Error ? err.message : err);
         }
       }
 
@@ -287,7 +288,8 @@ export function usersRoutes(
 
       return c.json(
         {
-          message: 'Invitation sent',
+          message: emailSent ? 'Invitation sent' : 'Invitation created',
+          email_sent: emailSent,
           invite_url: inviteUrl,
           expires_at: expiresAt,
         },
