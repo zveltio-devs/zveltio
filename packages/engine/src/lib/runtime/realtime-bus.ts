@@ -162,6 +162,18 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   broadcastDataEvent(msg.collection, wsEvent, data, msg.tenantId ?? null);
 }
 
+/**
+ * Messages published while this subscriber was away are gone, so catch up on
+ * the policy table rather than wait for the next reconcile tick.
+ */
+function onBusReconnected(): void {
+  import('../tenancy/index.js')
+    .then((m) => m.reconcilePolicies())
+    .catch((err: Error) => {
+      console.error('[realtime-bus] policy reconcile after reconnect failed:', err.message);
+    });
+}
+
 function attachIoredisErrorHandler(client: Redis, label: string): void {
   client.on('error', (err: Error) => {
     console.error(`[realtime-bus] Valkey ${label} error:`, err.message);
@@ -206,6 +218,8 @@ class ValkeyRealtimeBus implements RealtimeBus {
       dispatchToWs(msg);
     });
     await this.subscriber.subscribe(CHANNEL_NAME);
+    // `ready` fires again on every reconnect (ioredis resubscribes by itself).
+    this.subscriber.on('ready', onBusReconnected);
     this._running = true;
     console.log(`✅ Realtime bus: Valkey PUB/SUB on ${CHANNEL_NAME} (origin=${ORIGIN_ID})`);
   }
@@ -323,6 +337,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       });
       this.attachSubscriptionHandlers();
       this._running = true;
+      if (this.retryAttempt > 0) onBusReconnected();
       this.retryAttempt = 0;
       console.log(
         `✅ Realtime bus: pg_notify LISTEN on ${PG_NOTIFY_CHANNEL} (origin=${ORIGIN_ID})`,

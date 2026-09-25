@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  __cacheNamespace,
   checkPermission,
   getUserRoles,
   initPermissions,
@@ -69,7 +70,7 @@ afterAll(async () => {
 describe('tampered permission caches', () => {
   it('ignores a tampered permission-result cache and re-evaluates via Casbin', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `perm:${domain}:u-editor:contacts:read`;
+    const cacheKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:read`;
     _setCacheForTests(makeCache(new Map([[cacheKey, '1:deadbeef']])) as never);
 
     expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
@@ -77,7 +78,7 @@ describe('tampered permission caches', () => {
 
   it('ignores a tampered roles cache and reloads from Casbin', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `roles:${domain}:u-editor`;
+    const cacheKey = `roles:${__cacheNamespace()}:${domain}:u-editor`;
     _setCacheForTests(makeCache(new Map([[cacheKey, '["admin"]:deadbeef']])) as never);
 
     await runWithDomain(domain, async () => {
@@ -92,14 +93,14 @@ describe('tampered permission caches', () => {
   const FORGED_SIG = '0'.repeat(64);
 
   it('refuses a well-formed permission grant with a forged signature', async () => {
-    const cacheKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`;
+    const cacheKey = `perm:${__cacheNamespace()}:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`;
     _setCacheForTests(makeCache(new Map([[cacheKey, `1:${FORGED_SIG}`]])) as never);
 
     expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
   });
 
   it('refuses a well-formed roles list with a forged signature', async () => {
-    const cacheKey = `roles:${DEFAULT_TENANT_ID}:u-editor`;
+    const cacheKey = `roles:${__cacheNamespace()}:${DEFAULT_TENANT_ID}:u-editor`;
     _setCacheForTests(makeCache(new Map([[cacheKey, `["admin"]:${FORGED_SIG}`]])) as never);
 
     await runWithDomain(DEFAULT_TENANT_ID, async () => {
@@ -118,12 +119,12 @@ describe('tampered permission caches', () => {
   it('refuses a genuine permission answer replayed under another action', async () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
-    const readKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`;
+    const readKey = `perm:${__cacheNamespace()}:${DEFAULT_TENANT_ID}:u-editor:contacts:read`;
     expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
     const granted = store.get(readKey);
     expect(granted).toBeString();
 
-    store.set(`perm:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`, granted!);
+    store.set(`perm:${__cacheNamespace()}:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`, granted!);
     expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
   });
 
@@ -137,7 +138,10 @@ describe('tampered permission caches', () => {
       expect(await getUserRoles('u-a')).toEqual([]);
     });
 
-    store.set('roles:tenant-b:u-a', store.get('roles:tenant-a:u-a')!);
+    store.set(
+      `roles:${__cacheNamespace()}:tenant-b:u-a`,
+      store.get(`roles:${__cacheNamespace()}:tenant-a:u-a`)!,
+    );
     await runWithDomain('tenant-b', async () => {
       expect(await getUserRoles('u-a')).toEqual([]);
     });

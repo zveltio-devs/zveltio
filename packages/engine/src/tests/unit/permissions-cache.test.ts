@@ -7,6 +7,7 @@ import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  __cacheNamespace,
   checkPermission,
   getUserRoles,
   initPermissions,
@@ -129,7 +130,7 @@ describe('isGodUser cache', () => {
 describe('checkPermission cache', () => {
   it('returns a cached allow/deny without hitting Casbin', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `perm:${domain}:u-editor:contacts:read`;
+    const cacheKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:read`;
     const store = new Map<string, string>([[cacheKey, encodePerm(cacheKey, true)]]);
     _setCacheForTests(makeCache(store) as never);
 
@@ -141,7 +142,7 @@ describe('checkPermission cache', () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
     const domain = DEFAULT_TENANT_ID;
-    const denyKey = `perm:${domain}:u-editor:contacts:delete`;
+    const denyKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:delete`;
     expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
     expect(store.get(denyKey)?.startsWith('0:')).toBe(true);
   });
@@ -158,7 +159,9 @@ describe('checkPermission cache', () => {
 
     const permKeys = [...store.keys()].filter((k) => k.startsWith('perm:'));
     expect(permKeys).toHaveLength(2);
-    expect(permKeys).toContain(`perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`);
+    expect(permKeys).toContain(
+      `perm:${__cacheNamespace()}:${DEFAULT_TENANT_ID}:u-editor:contacts:read`,
+    );
     expect(permKeys.some((k) => k.includes('invented'))).toBe(false);
   });
 });
@@ -166,7 +169,7 @@ describe('checkPermission cache', () => {
 describe('getUserRoles cache', () => {
   it('returns HMAC-signed roles from cache', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `roles:${domain}:u-editor`;
+    const cacheKey = `roles:${__cacheNamespace()}:${domain}:u-editor`;
     const store = new Map<string, string>([[cacheKey, encodeRoles('u-editor', ['editor'])]]);
     _setCacheForTests(makeCache(store) as never);
 
@@ -177,10 +180,10 @@ describe('getUserRoles cache', () => {
 
   it('invalidateUserPermCache clears perm keys, roles, god, and tracking set', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const permKey = `perm:${domain}:u-editor:contacts:read`;
+    const permKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:read`;
     const store = new Map<string, string>([
       [permKey, encodePerm(permKey, true)],
-      [`roles:${domain}:u-editor`, encodeRoles('u-editor', ['editor'])],
+      [`roles:${__cacheNamespace()}:${domain}:u-editor`, encodeRoles('u-editor', ['editor'])],
       ['god:u-editor', encodeGod('u-editor', false)],
     ]);
     const cache = makeCache(store);

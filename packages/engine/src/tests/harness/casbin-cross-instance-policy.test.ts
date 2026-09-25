@@ -43,6 +43,8 @@ const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
+let scans = 0;
+
 /** Just enough of ioredis for the permission cache, shared like Valkey is. */
 function fakeValkey(): Redis {
   const kv = new Map<string, string>();
@@ -67,6 +69,7 @@ function fakeValkey(): Redis {
       return n;
     },
     scan: async (_cursor: string, _match: string, pattern: string) => {
+      scans++;
       const prefix = pattern.replace(/\*$/, '');
       return ['0', [...kv.keys(), ...sets.keys()].filter((k) => k.startsWith(prefix))];
     },
@@ -242,7 +245,12 @@ d('policy changes cross instances', () => {
       clearLocalPermissionCache();
       expect(await check(user, rule[2]!)).toBe(true);
 
+      // Without a SCAN of the shared keyspace: every receiver used to walk it
+      // for every change. The receiver's clear moves it to a fresh namespace,
+      // so the stale `1` is simply never read again.
+      scans = 0;
       await deliverToReplica();
+      expect(scans).toBe(0);
       expect(await check(user, rule[2]!)).toBe(false);
     } finally {
       _setCacheForTests(null);
