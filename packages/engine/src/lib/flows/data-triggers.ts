@@ -23,7 +23,9 @@ import { executeFlow } from './flow-executor.js';
  * else to read, and a rolled-back write fires nothing.
  *
  * Queued BEFORE any await: the caller does not await this either, and a job
- * queued after the transaction's queue has been taken is never run.
+ * queued after the transaction's queue has been taken used to be lost.
+ * `onAfterCommit` now keeps a late one, but queuing it in time is still the
+ * clearer contract.
  */
 export async function triggerDataFlows(
   db: Database,

@@ -5,7 +5,13 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { drainAfterCommit, runWithTenantTrx, setSingleTenantScope } from './tenant-context.js';
+import {
+  currentAfterCommitQueue,
+  runAfterCommitJob,
+  runWithTenantTrx,
+  setSingleTenantScope,
+  settleAfterCommit,
+} from './tenant-context.js';
 import { isGodUser } from './permissions.js';
 
 /**
@@ -835,10 +841,15 @@ export async function withTenantIsolation<T>(
   // it. Four callers used `setTimeout(…, 0)` for this, and an audit showed the
   // timer fires with the transaction still open — so the write they were trying
   // to keep off the request's connection took a second one anyway.
-  let queuedAfterCommit: Array<() => void | Promise<void>> = [];
+  //
+  // The queue is SETTLED here, after the transaction, not drained inside it: a
+  // job queued after the handler returned — by a caller that does not await its
+  // own promise — lands between the two, and used to be pushed onto a queue
+  // already taken.
+  let afterCommit: ReturnType<typeof currentAfterCommitQueue>;
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  const result = await (_db as any).transaction().execute(async (trx: Database) => {
+  const run = (_db as any).transaction().execute(async (trx: Database) => {
     // Drop to a role Postgres will actually apply RLS to.
     //
     // `docker-compose.yml` passes POSTGRES_USER to the official Postgres image,
@@ -983,23 +994,23 @@ export async function withTenantIsolation<T>(
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
-      try {
-        return await fn(trx);
-      } finally {
-        // Captured while the store is still alive; run below, after the commit.
-        queuedAfterCommit = drainAfterCommit();
-      }
+      // Captured while the store is alive; settled below, once the transaction is.
+      afterCommit = currentAfterCommitQueue();
+      return await fn(trx);
     });
   });
 
-  for (const job of queuedAfterCommit) {
-    // One failed follow-up must not take the request's answer with it: the
-    // transaction is already committed and the caller already has its result.
-    await Promise.resolve()
-      .then(job)
-      .catch((err: Error) => {
-        console.warn('[after-commit] queued work failed:', err.message);
-      });
+  let result: unknown;
+  try {
+    result = await run;
+  } catch (err) {
+    if (afterCommit) settleAfterCommit(afterCommit, false);
+    throw err;
+  }
+  // One failed follow-up must not take the request's answer with it: the
+  // transaction is already committed and the caller already has its result.
+  for (const job of afterCommit ? settleAfterCommit(afterCommit, true) : []) {
+    await runAfterCommitJob(job);
   }
   return result as T;
 }
