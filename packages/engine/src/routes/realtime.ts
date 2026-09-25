@@ -16,7 +16,7 @@ import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tena
 import type { ColumnAccess } from '../lib/tenancy/index.js';
 /** What `getRlsFilters` returns — no exported alias for it. */
 type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
-import { getCache } from '../lib/runtime/index.js';
+import { getCache, ORIGIN_ID } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
 export const CHANNELS = {
@@ -676,13 +676,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
           subscriber.on('message', (_channel: string, message: string) => {
             try {
-              // Per-record / per-filter: parse message and check before forwarding
-              if (recordId || filters.length > 0) {
-                const parsed = JSON.parse(message);
-                const col =
-                  parsed?.collection ?? stripBusNamespace(_channel).replace('zveltio:data:', '');
-                if (!matchesSub(sub, col, parsed?.data ?? parsed)) return;
-              }
+              // Every publisher on these channels also delivers in-process, so
+              // this instance's own message would arrive twice. `record_id` and
+              // `?filter=` are not checked here: they describe records, these
+              // channels carry none, and matching them against the channel name
+              // dropped every message from another replica for such a stream.
+              if (JSON.parse(message)?.originId === ORIGIN_ID) return;
               stream.writeSSE({ data: message, event: 'data' });
             } catch {
               /* stream closed or malformed message */
@@ -758,6 +757,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         await cache.publish(
           busChannel(presenceTenant, `zveltio:presence:${channel}`),
           JSON.stringify({
+            originId: ORIGIN_ID,
             event: 'presence.join',
             channel,
             userId: session.user.id,
@@ -798,6 +798,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         await cache.publish(
           busChannel(presenceTenant, `zveltio:presence:${channel}`),
           JSON.stringify({
+            originId: ORIGIN_ID,
             event: 'presence.leave',
             channel,
             userId: session.user.id,
@@ -881,7 +882,10 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const cache = getCache();
     if (cache) {
       try {
-        await cache.publish(busChannel(ctxTenantId(c), broadcastChannel), JSON.stringify(message));
+        await cache.publish(
+          busChannel(ctxTenantId(c), broadcastChannel),
+          JSON.stringify({ ...message, originId: ORIGIN_ID }),
+        );
       } catch {
         /* non-fatal */
       }
@@ -944,6 +948,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         await cache.publish(
           busChannel(ctxTenantId(c), body.channel),
           JSON.stringify({
+            originId: ORIGIN_ID,
             payload: body.payload,
             userId: session.user.id,
             timestamp: Date.now(),
