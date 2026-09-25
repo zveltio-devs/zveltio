@@ -40,13 +40,19 @@ const PG_NOTIFY_CHANNEL = 'zveltio_changes';
 /** Postgres pg_notify payload limit is 8000 bytes — stay under it. */
 export const PG_NOTIFY_PAYLOAD_MAX = 7900;
 
+/**
+ * A Casbin policy write on another instance (`lib/tenancy/permissions.ts`).
+ * Not a record event: it goes to the enforcer, never to a subscriber.
+ */
+export const POLICY_CHANGED_EVENT = 'casbin.policy';
+
 // Per-process origin id so we can filter our own echoed messages.
 const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
 export interface RealtimeBusMessage {
   /** Originator's process id; bus filters echoes by matching this. */
   originId: string;
-  /** Engine event name. Today: `record.created` / `record.updated` / `record.deleted`. */
+  /** Engine event name: `record.created` / `record.updated` / `record.deleted`, or `POLICY_CHANGED_EVENT`. */
   event: string;
   /** Collection name without the `zvd_` prefix. */
   collection: string;
@@ -138,8 +144,16 @@ const EVENT_MAP: Record<string, 'insert' | 'update' | 'delete'> = {
  * `broadcastDataEvent` applies the subscriber's row policies and column
  * permissions, so a cross-instance event is filtered exactly like a local one.
  */
-function dispatchToWs(msg: RealtimeBusMessage): void {
+function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   if (msg.originId === ORIGIN_ID) return; // own echo
+  if (msg.event === POLICY_CHANGED_EVENT) {
+    // Imported lazily: tenancy imports this module, and the change is rare.
+    return import('../tenancy/index.js')
+      .then((m) => m.receivePolicyChange(msg.data))
+      .catch((err: Error) => {
+        console.error('[realtime-bus] policy change not applied:', err.message);
+      });
+  }
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
