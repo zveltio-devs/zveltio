@@ -924,11 +924,17 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (typeof body?.channel !== 'string' || !body.channel || !body?.payload) {
       return c.json({ error: 'channel and payload are required' }, 400);
     }
+    // The tenant namespace is added here, never taken from the caller. With no
+    // request tenant `busChannel` keeps the name as given, so `t:<uuid>:<name>`
+    // landed verbatim on another tenant's Valkey channel.
+    if (stripBusNamespace(body.channel) !== body.channel) {
+      return c.json({ error: 'Channel names cannot carry a tenant namespace' }, 400);
+    }
     // A data channel carries record events, and those come from the write path,
     // which filters each one through the subscriber's row rules and column
     // permissions. A payload published here reached every stream on
     // `?channel=data:<collection>` with neither, dressed as a record event.
-    if (stripBusNamespace(body.channel).startsWith('zveltio:data:')) {
+    if (body.channel.startsWith('zveltio:data:')) {
       return c.json({ error: 'Data channels are published by the write path only' }, 400);
     }
 
