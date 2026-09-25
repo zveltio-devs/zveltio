@@ -1,5 +1,10 @@
 /**
- * send_notification — getUsersForRole swallows SQL errors (flow-executor.ts).
+ * send_notification — a role lookup that fails fails the step (flow-executor.ts).
+ *
+ * `getUsersForRole` used to swallow the error and return `[]`, so the step
+ * reported `{ sent: true, count: 0 }`: a notification nobody received, recorded
+ * as a successful run. Thrown, it goes through the step's `on_error` like any
+ * other step failure.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -10,22 +15,21 @@ import { CannedDb } from './fixtures/canned-db.js';
 const { executeStep } = _internalForTests;
 
 describe('executeStep — send_notification role lookup failures', () => {
-  it('reports sent with count 0 when the permissions query throws', async () => {
+  it('throws when the permissions query throws, and notifies nobody', async () => {
     const db = new CannedDb();
-    db.fail(/SELECT v0 FROM zvd_permissions/i, new Error('permissions table missing'));
+    db.fail(/FROM zvd_permissions/i, new Error('permissions table missing'));
 
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'send_notification',
-        config: { role: 'editor', title: 'Hi', message: 'There' },
-      },
-      {},
-      {},
-    );
-
-    expect(output.sent).toBe(true);
-    expect(output.count).toBe(0);
+    await expect(
+      executeStep(
+        db.kysely as unknown as Database,
+        {
+          type: 'send_notification',
+          config: { role: 'editor', title: 'Hi', message: 'There' },
+        },
+        {},
+        {},
+      ),
+    ).rejects.toThrow('permissions table missing');
     expect(db.executed(/INSERT INTO "zv_notifications"/i)).toHaveLength(0);
   });
 });

@@ -215,7 +215,7 @@ describe('executeFlow (CannedDb)', () => {
 describe('executeStep — CannedDb branches', () => {
   it('send_notification fans out to every user in a Casbin role', async () => {
     const db = new CannedDb();
-    db.when(/SELECT v0 FROM zvd_permissions/i, [{ v0: 'u-a' }, { v0: 'u-b' }]);
+    db.when(/FROM zvd_permissions/i, [{ v0: 'u-a' }, { v0: 'u-b' }]);
     db.when(/INSERT INTO "zv_notifications"/i, []);
 
     const { output } = await executeStep(
