@@ -164,6 +164,7 @@ d('one rule, four interpreters (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLL}`.execute(db).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS ${TABLE} CASCADE`)
       .execute(db)
@@ -181,9 +182,10 @@ d('one rule, four interpreters (in-process)', () => {
   type Outcome = number[] | 'error';
 
   async function viaEngineSql(filters: unknown[]): Promise<Outcome> {
-    let q = db.selectFrom(TABLE as never).select('id' as never);
-    if (filters.length > 0) q = applyRlsFilters(q, filters as never);
     try {
+      let q = db.selectFrom(TABLE as never).select('id' as never);
+      // Inside the try: an operator no applier knows throws while BUILDING.
+      if (filters.length > 0) q = applyRlsFilters(q, filters as never);
       const rows = (await q.execute()) as Array<{ id: number }>;
       return rows.map((r) => r.id).sort((a, b) => a - b);
     } catch {
@@ -200,8 +202,8 @@ d('one rule, four interpreters (in-process)', () => {
    * reads empty strings and keeps everything. The first version of this suite
    * did exactly that and reported every case as a divergence.
    */
-  async function viaPolicy(rule: RowRule): Promise<Outcome> {
-    const { predicate } = buildRowRulePredicate([rule], TYPES);
+  async function viaPolicy(rule: RowRule, types: Record<string, string> = TYPES): Promise<Outcome> {
+    const { predicate } = buildRowRulePredicate([rule], types);
     const where = predicate ?? 'true';
     return db.transaction().execute(async (trx) => {
       await sql`
@@ -345,6 +347,75 @@ d('one rule, four interpreters (in-process)', () => {
           snapshot: [],
         });
       }
+    }
+  });
+
+  // The two tests below store rules the save route refuses. They exist anyway:
+  // a `*` rule, a rule written before its table, a PATCH, a row written straight
+  // into the table — none passes through `describeRuleProblem`. Whatever is
+  // stored, the four must still agree, and none may be the one that opens.
+
+  it('an empty static list means the same in all four', async () => {
+    // `in []` keeps nothing — the sentinel for an unresolvable rule. `not_in []`
+    // excludes nothing, so it keeps every row whose field is present; a NULL
+    // field drops the row on every operator. It used to be `NOT IN ()` on the
+    // live table and in snapshots, a syntax error and a 500 on every request,
+    // while the matcher kept the rows and the policy left the rule out.
+    const present = (field: string) =>
+      ROWS.filter((r) => r[field as keyof (typeof ROWS)[number]] !== null).map((r) => r.id);
+    for (const field of FIELDS) {
+      for (const op of ['in', 'not_in'] as const) {
+        for (const source of ['static:', 'static:,', 'static: , ']) {
+          const rule = ruleOf(field, op, source);
+          const filters = await resolveFor(rule);
+          const want = op === 'in' ? [] : present(field);
+          expect({
+            rule: `${field} ${op} ${source}`,
+            engine: await viaEngineSql(filters),
+            policy: await viaPolicy(rule),
+            matcher: viaMatcher(filters),
+            snapshot: await viaSnapshot(filters),
+          }).toEqual({
+            rule: `${field} ${op} ${source}`,
+            engine: want,
+            policy: want,
+            matcher: want,
+            snapshot: want,
+          });
+        }
+      }
+    }
+  });
+
+  it('a rule the policy cannot express hides every row there, as the engine does', async () => {
+    // A missing column, an unknown operator, a type a setting cannot be cast
+    // into: the engine refuses the query or drops every row. The policy used to
+    // LEAVE THE RULE OUT — in a RESTRICTIVE policy, an omitted term is a rule
+    // that does not bind, so the database kept every row the engine hides.
+    const types = { ...TYPES, data: 'jsonb' };
+    const cases = [
+      ruleOf('nope', 'eq', 'static:alpha'),
+      ruleOf('nope', 'eq', 'user_id'),
+      ruleOf('bucket', 'gt', 'static:alpha'),
+      ruleOf('data', 'eq', 'static:alpha'),
+    ];
+    const hidden = (o: Outcome) => (o === 'error' || o.length === 0 ? 'hidden' : o);
+    for (const rule of cases) {
+      const filters = await resolveFor(rule);
+      const label = `${rule.filter_field} ${rule.filter_op} ${rule.filter_value_source}`;
+      expect({
+        rule: label,
+        engine: hidden(await viaEngineSql(filters)),
+        policy: await viaPolicy(rule, types),
+        matcher: hidden(viaMatcher(filters)),
+        snapshot: hidden(await viaSnapshot(filters)),
+      }).toEqual({
+        rule: label,
+        engine: 'hidden',
+        policy: [],
+        matcher: 'hidden',
+        snapshot: 'hidden',
+      });
     }
   });
 

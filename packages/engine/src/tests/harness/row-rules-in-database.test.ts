@@ -214,15 +214,17 @@ d('row rules are enforced by the database (in-process)', () => {
     });
   });
 
-  it('refuses to enforce a rule it cannot express, and says which', async () => {
-    // A policy that is almost right on a security path is worse than none,
-    // because it looks whole. `id` is uuid and castable; a jsonb column is not,
-    // so the generator refuses — and the engine keeps applying that rule alone.
+  it('hides every row for a rule it cannot express, and says which', async () => {
+    // A jsonb column is not castable, so the generator cannot compare it. It
+    // used to LEAVE THE RULE OUT — and in a RESTRICTIVE policy a term left out
+    // is a rule that does not bind, while the engine's own query fails on it.
+    // It is `false` now: the database hides what the engine would.
     await sql.raw(`ALTER TABLE ${TABLE} ADD COLUMN payload jsonb`).execute(db);
     await setRule({ field: 'payload' });
     const res = await applyRowRulePolicy(db, COLL);
-    expect(res.applied).toBe(false);
+    expect(res.applied).toBe(true);
     expect(res.skipped[0]?.reason).toContain('jsonb');
+    expect(await forgottenWhere(asUser(ALICE))).toEqual([]);
     await clearRules();
     await sql.raw(`ALTER TABLE ${TABLE} DROP COLUMN payload`).execute(db);
   });

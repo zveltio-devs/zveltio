@@ -84,6 +84,44 @@ d('admin RLS routes (in-process)', () => {
     expect(body.policy.description).toBe('updated harness rls');
   });
 
+  it('PATCH refuses a rule POST would refuse, instead of storing it in two steps', async () => {
+    // `created_by` is text, so the only thing wrong here is the empty list —
+    // which POST refuses and PATCH used to store.
+    const res = await app.request(`/api/admin/rls/${policyId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ filter_op: 'not_in', filter_value_source: 'static:,' }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe('unenforceable_rls_rule');
+    const row = await sql<{ filter_op: string }>`
+      SELECT filter_op FROM zvd_rls_policies WHERE id = ${policyId}::uuid
+    `.execute(db);
+    expect(row.rows[0]?.filter_op).toBe('eq');
+  });
+
+  it('POST refuses an empty static list on a `*` rule, which has no table to check', async () => {
+    const res = await app.request('/api/admin/rls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        collection: '*',
+        role: 'member',
+        filter_field: 'created_by',
+        filter_op: 'in',
+        filter_value_source: 'static: , ',
+      }),
+    });
+    // A `*` rule stored by mistake applies to every collection in this database
+    // and would fail every later suite, so it goes before the assertion can.
+    if (res.status === 201) {
+      const { policy } = (await res.clone().json()) as { policy: { id: string } };
+      await sql`DELETE FROM zvd_rls_policies WHERE id = ${policy.id}::uuid`.execute(db);
+    }
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe('unenforceable_rls_rule');
+  });
+
   it('DELETE /api/admin/rls/:id removes the policy', async () => {
     const res = await app.request(`/api/admin/rls/${policyId}`, {
       method: 'DELETE',

@@ -20,6 +20,7 @@ import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
   isRuleOperator,
+  keepsEveryPresent,
   keepsNothing,
   RULE_OPERATORS,
   unsupportedOperator,
@@ -310,6 +311,8 @@ export function applyRlsFilters<Q>(
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
     if (keepsNothing(condition.op, condition.value)) {
       out = out.where(sql<boolean>`false`);
+    } else if (keepsEveryPresent(condition.op, condition.value)) {
+      out = out.where(field, 'is not', null);
     } else if (isRuleOperator(condition.op)) {
       const op = RULE_OPERATORS[condition.op];
       out = out.where(field, op.kysely, op.list ? asList(condition.value) : condition.value);
@@ -409,6 +412,10 @@ export function rlsJsonConditions(
       out.push(sql<boolean>`false`);
       continue;
     }
+    if (keepsEveryPresent(condition.op, condition.value)) {
+      out.push(sql<boolean>`${col} ->> ${field}::text IS NOT NULL`);
+      continue;
+    }
     const op = RULE_OPERATORS[condition.op];
     // `::text` is not decoration. Postgres has both `jsonb -> text` (object key)
     // and `jsonb -> integer` (array element); with an untyped parameter it
@@ -484,6 +491,11 @@ async function assertEnforceable(data: {
   filter_value_source?: string;
 }): Promise<void> {
   const { collection, filter_field, filter_op, filter_value_source, role } = data;
+  const { describeRuleProblem, emptyStaticList } = await import('./row-rule-policy.js');
+  // Before the early returns: it needs no table, and a `*` rule is the one
+  // most likely to carry it everywhere.
+  const empty = filter_op && filter_value_source && emptyStaticList(filter_op, filter_value_source);
+  if (empty) throw new UnenforceableRuleError(empty);
   if (!collection || collection === '*') return;
   if (!filter_field || !filter_op || !filter_value_source) return;
 
@@ -497,7 +509,6 @@ async function assertEnforceable(data: {
   const types: Record<string, string> = {};
   for (const col of cols.rows) types[col.column_name] = col.data_type;
 
-  const { describeRuleProblem } = await import('./row-rule-policy.js');
   const problem = describeRuleProblem(
     { role: role ?? '*', filter_field, filter_op, filter_value_source },
     types,
@@ -532,6 +543,23 @@ export async function updateRlsPolicy(
   id: string,
   data: Partial<Omit<RlsPolicy, 'id'>>,
 ): Promise<RlsPolicy | null> {
+  // The rule as it will be after the update, through the same door as a create.
+  // PATCH used to skip it, so any rule `createRlsPolicy` refuses could be
+  // stored in two steps.
+  const current = await sql<RlsPolicy>`
+    SELECT collection, role, filter_field, filter_op, filter_value_source
+      FROM zvd_rls_policies WHERE id = ${id}
+  `.execute(rlsDb());
+  const cur = current.rows[0];
+  if (cur) {
+    await assertEnforceable({
+      collection: data.collection ?? cur.collection,
+      role: data.role ?? cur.role,
+      filter_field: data.filter_field ?? cur.filter_field,
+      filter_op: data.filter_op ?? cur.filter_op,
+      filter_value_source: data.filter_value_source ?? cur.filter_value_source,
+    });
+  }
   const rows = await sql<RlsPolicy>`
     UPDATE zvd_rls_policies
     SET
