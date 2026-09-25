@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { ACCESS_RULES_CHANGED_EVENT, realtimeBus } from '../../lib/runtime/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -83,10 +84,29 @@ d('recovery bootstrap (in-process)', () => {
     ).toBe(true);
   });
 
-  it('grants god on the real token', async () => {
-    const { status, body } = await bootstrap(TOKEN);
-    expect(status).toBe(200);
-    expect((body.user as { role: string }).role).toBe('god');
+  it('grants god on the real token, and tells every instance to re-check the user', async () => {
+    // The grant used to clear this instance's caches only, before the commit;
+    // other replicas kept their cached answer and their open subscriptions.
+    const bus = realtimeBus();
+    const origPublish = bus.publish;
+    const published: { event: string; data?: unknown }[] = [];
+    bus.publish = async (payload) => {
+      published.push(payload);
+    };
+    try {
+      const { status, body } = await bootstrap(TOKEN);
+      expect(status).toBe(200);
+      expect((body.user as { role: string }).role).toBe('god');
+    } finally {
+      bus.publish = origPublish;
+    }
+    expect(
+      published.some(
+        (m) =>
+          m.event === ACCESS_RULES_CHANGED_EVENT &&
+          (m.data as { userId?: string } | undefined)?.userId === userId,
+      ),
+    ).toBe(true);
   });
 
   it('records the grant — the most privileged action wrote nothing at all before', async () => {
