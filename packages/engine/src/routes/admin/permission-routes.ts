@@ -5,13 +5,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
   checkPermission,
-  clearLocalPermissionCache,
   getEnforcer,
+  invalidateAllPermissionCaches,
 } from '../../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { getCache } from '../../lib/runtime/index.js';
 import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
@@ -157,7 +156,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     await e.removeFilteredGroupingPolicy(1, role.name);
 
     await db.deleteFrom('zv_roles').where('id', '=', id).execute();
-    await invalidatePermissionCache();
+    await invalidateAllPermissionCaches();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
@@ -235,7 +234,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         await e.addPolicy(roleName, '*', perm.resource, action);
       }
 
-      await invalidatePermissionCache();
+      await invalidateAllPermissionCaches();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -318,7 +317,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         );
       }
       await e.addRoleForUser(child, parent, '*');
-      await invalidatePermissionCache();
+      await invalidateAllPermissionCaches();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -345,7 +344,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const { child, parent } = c.req.valid('json');
       const e = await getEnforcer();
       await e.deleteRoleForUser(child, parent, '*');
-      await invalidatePermissionCache();
+      await invalidateAllPermissionCaches();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -357,27 +356,4 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       return c.json({ success: true });
     },
   );
-}
-
-async function invalidatePermissionCache() {
-  // First, and unconditionally: the in-process memo is the only cache a
-  // deployment without Valkey has, and returning early below would leave a
-  // revoked grant answering `true` until its TTL ran out.
-  clearLocalPermissionCache();
-  const cache = getCache();
-  if (!cache) return;
-  try {
-    const allKeys: string[] = [];
-    for (const pattern of ['perm:*', 'roles:*', 'god:*']) {
-      let cursor = '0';
-      do {
-        const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-        cursor = nextCursor;
-        allKeys.push(...batch);
-      } while (cursor !== '0');
-    }
-    if (allKeys.length > 0) await cache.del(...allKeys);
-  } catch {
-    /* cache unavailable */
-  }
 }

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getCache } from '../runtime/index.js';
+import { getCache, POLICY_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
 import { getCurrentDomain, getCurrentDomainOrNull } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
@@ -92,6 +92,15 @@ function localPermSet(key: string, value: boolean): void {
 const UNKNOWN_RESOURCE = '\u0000unnamed';
 let _policyObjects: Set<string> | null = null;
 
+/**
+ * Bumped on every clear. An answer is memoized only if no clear happened while
+ * it was being computed: the enforcer is read across awaits (role lookups are
+ * async), so a revoke applied mid-check — by a bus message from another
+ * instance, or a local write — would otherwise be cached AFTER the clear that
+ * was meant to drop it, and served for the whole TTL.
+ */
+let _policyGen = 0;
+
 /** Dropped whenever policies change, so a newly named resource stops collapsing. */
 function invalidatePolicyObjectIndex(): void {
   _policyObjects = null;
@@ -99,13 +108,14 @@ function invalidatePolicyObjectIndex(): void {
 
 async function policyObjectIndex(): Promise<Set<string>> {
   if (_policyObjects) return _policyObjects;
+  const gen = _policyGen;
   const e = await getEnforcer();
   const index = new Set<string>();
   for (const rule of await e.getPolicy()) {
     const obj = rule[2];
     if (typeof obj === 'string') index.add(obj);
   }
-  _policyObjects = index;
+  if (gen === _policyGen) _policyObjects = index;
   return index;
 }
 
@@ -153,6 +163,7 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
   const hit = _effective.get(key);
   if (hit && hit.expires > Date.now()) return hit.perms;
 
+  const gen = _policyGen;
   const e = await getEnforcer();
   // Role chains and the `'*'` domain grant, resolved by casbin itself.
   const subjects = new Set<string>([userId]);
@@ -174,6 +185,7 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
     else perms.exact.add(`${po}\u0000${pa}`);
   }
 
+  if (gen !== _policyGen) return perms;
   if (_effective.size >= LOCAL_PERM_MAX) {
     const oldest = _effective.keys().next().value;
     if (oldest !== undefined) _effective.delete(oldest);
@@ -251,6 +263,7 @@ export function __localGodCacheSize(): number {
 }
 
 export function clearLocalPermissionCache(userId?: string): void {
+  _policyGen++;
   if (!userId) {
     _localPerm.clear();
     _effective.clear();
@@ -477,6 +490,9 @@ export async function initPermissions(db: Database): Promise<void> {
   // Make '*' a wildcard domain in role grants (g): a grant `(user, role, '*')`
   // then applies in every tenant. Validated against casbin 5.x.
   _enforcer.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
+  // Every enforcer write (admin routes, role grants, tenant membership) tells
+  // the other instances — see `publishPolicyChange`.
+  _enforcer.setWatcherEx(policyWatcher);
 
   // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
@@ -814,6 +830,7 @@ export async function checkPermission(
   // ═══ HARDCODED GOD BYPASS ═══
   // Independent of Casbin — even if ALL policies are deleted,
   // a user with role='god' will ALWAYS have full access.
+  const gen = _policyGen;
   const isGod = await isGodUser(userId);
   if (isGod) return true;
 
@@ -849,6 +866,8 @@ export async function checkPermission(
   // rules to conclude nothing applied, at 364-885 ms each. Those are the answers
   // an attacker asks for, and now they cost a Set miss.
   const result = allowedBy(await effectivePermissions(userId, domain), resource, action);
+  // Computed across a policy change: right for this request, not for the next.
+  if (gen !== _policyGen) return result;
 
   if (cache) {
     try {
@@ -1084,6 +1103,232 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   } catch {
     /* ws module unavailable in some unit-test graphs */
   }
+}
+
+/**
+ * Drop every cached permission answer — this process's and the shared Valkey
+ * copy — after a policy change whose reach is not one user.
+ *
+ * The two admin routes kept one copy each, and each missed something: one never
+ * cleared the in-process memo, so a revoke raced by a concurrent check stayed
+ * allowed on that instance for the memo's TTL; the other left the per-user key
+ * sets behind.
+ */
+export async function invalidateAllPermissionCaches(): Promise<void> {
+  // First and unconditionally — see `_localPerm`.
+  clearLocalPermissionCache();
+  const cache = getCache();
+  if (!cache) return;
+  try {
+    const allKeys: string[] = [];
+    for (const pattern of ['perm:*', 'roles:*', 'god:*', 'user:perm-keys:*']) {
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = nextCursor;
+        allKeys.push(...batch);
+      } while (cursor !== '0');
+    }
+    if (allKeys.length > 0) await cache.del(...allKeys);
+  } catch {
+    /* cache unavailable */
+  }
+}
+
+// ── Cross-instance policy propagation ───────────────────────────────────────
+//
+// Casbin holds its policies in memory, loaded once at boot. A write reached the
+// database and the memory of the instance that ran it, and no other: a revoked
+// grant stayed honoured on every other replica until it restarted (the shared
+// cache was purged, and the stale replica wrote its stale answer straight back
+// into it), and a collection created on one replica answered 403 on the rest.
+//
+// Each write now goes out on the realtime bus. The message names the rules; it
+// does not carry authority. The Valkey channel can be written by anyone who can
+// write the cache — the threat every cache HMAC in this file exists for — so the
+// receiver re-reads the named rules from `zvd_permissions` and makes its model
+// agree with the table. A forged message can therefore only make a replica
+// re-read what is already true, and messages may arrive in any order.
+//
+// Applied incrementally (`selfAddPolicy`/`selfRemovePolicy`: model plus role
+// links, no adapter, no re-publish), never `loadPolicy()` — see
+// `casbin-reload-window.test.ts` for what a live reload does to requests in flight.
+//
+// ponytail: a message lost while the bus is down (Valkey reconnect) leaves that
+// replica stale until the next change to the same rules or a restart; a periodic
+// full reconcile is the upgrade if that ever matters.
+
+interface PolicyChange {
+  sec: 'p' | 'g';
+  ptype: string;
+  /** Concrete rules added or removed. */
+  rules?: string[][];
+  /** A `removeFilteredPolicy` call, re-evaluated against the receiver's own model. */
+  fieldIndex?: number;
+  fieldValues?: string[];
+}
+
+/** Rules per message — keeps each one far below pg_notify's 8 KB cap. */
+const RULES_PER_MESSAGE = 50;
+let _publishChain: Promise<void> = Promise.resolve();
+
+/**
+ * Tell the other instances that these rules changed. Fire-and-forget, in order:
+ * casbin does not await its watcher, and a remove followed by a re-add of the
+ * same rule must not be reordered on the way out.
+ */
+export function publishPolicyChange(change: PolicyChange): void {
+  const rules = change.rules ?? [];
+  const batches: Array<string[][] | undefined> = [];
+  for (let i = 0; i < rules.length; i += RULES_PER_MESSAGE) {
+    batches.push(rules.slice(i, i + RULES_PER_MESSAGE));
+  }
+  if (batches.length === 0) batches.push(undefined);
+  for (const batch of batches) {
+    const data: PolicyChange = { ...change, rules: batch };
+    _publishChain = _publishChain
+      .then(() =>
+        realtimeBus().publish({
+          event: POLICY_CHANGED_EVENT,
+          collection: '',
+          data,
+          timestamp: new Date().toISOString(),
+        }),
+      )
+      .catch((err: Error) => {
+        console.error('[permissions] could not publish a policy change:', err.message);
+      });
+  }
+}
+
+const policyWatcher = {
+  async updateForAddPolicy(sec: string, ptype: string, ...rule: string[]) {
+    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
+  },
+  async updateForRemovePolicy(sec: string, ptype: string, ...rule: string[]) {
+    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules: [rule] });
+  },
+  async updateForAddPolicies(sec: string, ptype: string, ...rules: string[][]) {
+    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules });
+  },
+  async updateForRemovePolicies(sec: string, ptype: string, ...rules: string[][]) {
+    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, rules });
+  },
+  async updateForRemoveFilteredPolicy(
+    sec: string,
+    ptype: string,
+    fieldIndex: number,
+    ...fieldValues: string[]
+  ) {
+    publishPolicyChange({ sec: sec as 'p' | 'g', ptype, fieldIndex, fieldValues });
+  },
+  // `savePolicy` rewrites the whole table and nothing calls it at runtime.
+  async updateForSavePolicy() {
+    return false;
+  },
+};
+
+function parsePolicyChange(data: unknown): PolicyChange | null {
+  if (!data || typeof data !== 'object') return null;
+  const c = data as Record<string, unknown>;
+  const sec = c.sec;
+  // One policy type per section in this model, named after it.
+  if ((sec !== 'p' && sec !== 'g') || c.ptype !== sec) return null;
+  const isRule = (r: unknown): r is string[] =>
+    Array.isArray(r) && r.length >= 1 && r.length <= 6 && r.every((v) => typeof v === 'string');
+  const rules = c.rules === undefined ? [] : c.rules;
+  if (!Array.isArray(rules) || !rules.every(isRule)) return null;
+  if (c.fieldIndex === undefined) return { sec, ptype: sec, rules };
+  if (
+    !Number.isInteger(c.fieldIndex) ||
+    (c.fieldIndex as number) < 0 ||
+    (c.fieldIndex as number) > 5 ||
+    !Array.isArray(c.fieldValues) ||
+    !c.fieldValues.every((v) => typeof v === 'string')
+  ) {
+    return null;
+  }
+  return {
+    sec,
+    ptype: sec,
+    rules,
+    fieldIndex: c.fieldIndex as number,
+    fieldValues: c.fieldValues as string[],
+  };
+}
+
+async function reconcilePolicyChange(change: PolicyChange): Promise<void> {
+  const e = await getEnforcer();
+  const { sec, ptype } = change;
+  const candidates = [...(change.rules ?? [])];
+  if (change.fieldIndex !== undefined) {
+    candidates.push(
+      ...e
+        .getModel()
+        .getFilteredPolicy(sec, ptype, change.fieldIndex, ...(change.fieldValues ?? [])),
+    );
+  }
+  if (candidates.length === 0) return;
+
+  const subjects = [...new Set(candidates.map((r) => r[0]!))];
+  const rows = await sql<{
+    v0: string | null;
+    v1: string | null;
+    v2: string | null;
+    v3: string | null;
+    v4: string | null;
+    v5: string | null;
+  }>`
+    SELECT v0, v1, v2, v3, v4, v5 FROM zvd_permissions
+    WHERE ptype = ${ptype} AND v0 = ANY(${subjects})
+  `.execute(_db);
+  const held = new Set(
+    rows.rows.map((r) =>
+      JSON.stringify([r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v) => v !== null)),
+    ),
+  );
+
+  // Synchronous from here to the clear (bar casbin's in-memory role-link
+  // awaits), so no request reads a half-applied change and caches it.
+  const touched = new Set<string>();
+  for (const rule of candidates) {
+    const want = held.has(JSON.stringify(rule));
+    if (want === e.getModel().hasPolicy(sec, ptype, rule)) continue;
+    if (want) await e.selfAddPolicy(sec, ptype, rule);
+    else await e.selfRemovePolicy(sec, ptype, rule);
+    touched.add(rule[0]!);
+  }
+  if (touched.size === 0) return;
+
+  // After the model, not before: a check that ran in between would re-cache
+  // the old answer. The shared cache too — this replica may have written a
+  // stale answer into it after the publisher purged it.
+  await invalidateAllPermissionCaches();
+  if (sec === 'g') {
+    try {
+      const { invalidateWsUserPermCache } = await import('../../routes/ws.js');
+      for (const subject of touched) invalidateWsUserPermCache(subject);
+    } catch {
+      /* ws module unavailable in some unit-test graphs */
+    }
+  }
+}
+
+let _receiveChain: Promise<void> = Promise.resolve();
+
+/** Apply a policy change another instance published. Serialized, never throws. */
+export function receivePolicyChange(data: unknown): Promise<void> {
+  const change = parsePolicyChange(data);
+  if (!change) return _receiveChain;
+  _receiveChain = _receiveChain
+    .then(() => reconcilePolicyChange(change))
+    .catch((err: Error) => {
+      console.error(
+        '[permissions] could not apply a policy change from another instance:',
+        err.message,
+      );
+    });
+  return _receiveChain;
 }
 
 /**

@@ -31,7 +31,12 @@
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { clearLocalPermissionCache, getEnforcer, isSensitiveResource } from './permissions.js';
+import {
+  getEnforcer,
+  invalidateAllPermissionCaches,
+  isSensitiveResource,
+  publishPolicyChange,
+} from './permissions.js';
 
 /**
  * What the seeded partial wildcards granted, written out.
@@ -141,12 +146,18 @@ export async function materializeDefaultGrants(
   // `Model.addPolicy` is synchronous and skips a rule already held, so this
   // adds exactly what the table now holds for these resources and clears nothing.
   //
+  // Then the other instances, which would otherwise keep answering 403 until
+  // they restart, and every cached answer: a `0` filed for one of these
+  // resources a moment ago lives out its TTL in the SHARED cache otherwise.
+  //
   // Non-fatal: the rows are committed either way and the next boot loads them.
   try {
     const model = (await getEnforcer()).getModel();
-    let added = false;
-    for (const rule of rules) added = model.addPolicy('p', 'p', rule) || added;
-    if (added) clearLocalPermissionCache();
+    const added = rules.filter((rule) => model.addPolicy('p', 'p', rule));
+    if (added.length > 0) {
+      publishPolicyChange({ sec: 'p', ptype: 'p', rules: added });
+      await invalidateAllPermissionCaches();
+    }
   } catch (err) {
     console.warn(
       '[resource-grants] wrote grants but could not add them to the enforcer; they take effect on restart:',
