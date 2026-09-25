@@ -15,6 +15,7 @@ import {
   checkPermission,
   getEnforcer,
   getUserRoles,
+  invalidateAllPermissionCaches,
   invalidateUserPermCache,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
@@ -349,7 +350,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.addPolicy(subject, '*', resource, action);
-      await invalidateAllPermissionCache();
+      await invalidateAllPermissionCaches();
       // F2 FIX: Audit trail for policy creation.
       auditLog(db, {
         type: 'permission.granted',
@@ -382,7 +383,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.removePolicy(subject, '*', resource, action);
-      await invalidateAllPermissionCache();
+      await invalidateAllPermissionCaches();
       // F2 FIX: Audit trail for policy removal.
       auditLog(db, {
         type: 'permission.revoked',
@@ -400,32 +401,9 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 
   // POST /cache/invalidate — Manual cache invalidation
   app.post('/cache/invalidate', async (c) => {
-    await invalidateAllPermissionCache();
+    await invalidateAllPermissionCaches();
     return c.json({ success: true, message: 'Permission cache invalidated' });
   });
 
   return app;
-}
-
-// F2 FIX: Replace O(N) blocking KEYS command with non-blocking SCAN iteration.
-// KEYS scans every key in the Redis keyspace and blocks the server for the duration —
-// prohibited in production. SCAN iterates in batches without blocking.
-async function invalidateAllPermissionCache() {
-  const { getCache } = await import('../lib/runtime/index.js');
-  const cache = getCache();
-  if (!cache) return;
-  try {
-    const allKeys: string[] = [];
-    for (const pattern of ['perm:*', 'roles:*', 'god:*', 'user:perm-keys:*']) {
-      let cursor = '0';
-      do {
-        const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-        cursor = nextCursor;
-        allKeys.push(...batch);
-      } while (cursor !== '0');
-    }
-    if (allKeys.length > 0) await cache.del(...allKeys);
-  } catch {
-    /* cache unavailable */
-  }
 }
