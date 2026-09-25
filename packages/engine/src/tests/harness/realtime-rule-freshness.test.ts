@@ -168,6 +168,14 @@ d('open realtime subscriptions follow row and column rule changes', () => {
     await reader.cancel().catch(() => {});
   });
 
+  it('POST /realtime/publish refuses a channel that names a tenant namespace', async () => {
+    const res = await admin('/api/realtime/publish', {
+      channel: 't:00000000-0000-4000-8000-000000000001:zveltio:broadcast:x',
+      payload: { forged: true },
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('a WebSocket applies a row rule created after it subscribed', async () => {
     const { member, sent } = await openSocket(WS_COL);
     expect((await ownRowsOnly(WS_COL)).status).toBe(201);
