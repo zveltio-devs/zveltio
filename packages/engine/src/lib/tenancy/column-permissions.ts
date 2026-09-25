@@ -1,6 +1,7 @@
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { checkPermission } from './permissions.js';
+import { checkPermission, revalidateSockets } from './permissions.js';
+import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 
 export interface ColumnAccess {
@@ -129,6 +130,19 @@ export async function getColumnAccess(
 }
 
 export async function invalidateColumnPermCache(collection?: string): Promise<void> {
+  await dropColumnPermCaches(collection);
+  // Open realtime subscriptions mask with the columns they resolved when they
+  // opened; nothing re-resolved them until the client reconnected. Swept after
+  // the commit, with the caches dropped again first — see `invalidateRlsCache`.
+  if (getCurrentTenantTrx()) {
+    onAfterCommit(async () => {
+      await dropColumnPermCaches(collection);
+      revalidateSockets();
+    });
+  } else revalidateSockets();
+}
+
+async function dropColumnPermCaches(collection?: string): Promise<void> {
   const cache = getCache();
   if (!cache) return;
   // Column access is cached as `colperms:<collection>:<role>`. SCAN + delete the
