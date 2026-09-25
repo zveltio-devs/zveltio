@@ -18,6 +18,7 @@ import type { Database } from '../../db/index.js';
 import {
   getCurrentTenantTrx,
   onAfterCommit,
+  runWithDomain,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -88,5 +89,94 @@ d('after-commit work (in-process)', () => {
       { userId: null },
     );
     expect(answer).toBe('the caller already has this');
+  });
+});
+
+d('after-commit work queued late', () => {
+  // A caller that does not await its own promise — `afterWrite` firing
+  // `triggerDataFlows`, say — can reach `onAfterCommit` after the handler has
+  // returned and the transaction has taken its queue. It is still inside the
+  // transaction's async context, so it queued into an array nobody would read
+  // again, and the work vanished without a word.
+  async function tenantId(db: Database): Promise<string> {
+    return (
+      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
+    ).rows[0]!.id;
+  }
+
+  type Seen = { value: boolean; trxVisible: boolean | null };
+
+  /**
+   * Starts work that queues its follow-up only after an await, and does not
+   * wait for it. Awaiting a query on the transaction lands the follow-up
+   * between the handler's return and the COMMIT (the driver runs the query
+   * first); awaiting a timer lands it after the COMMIT.
+   */
+  function queueLate(trx: Database, after: 'query' | 'timer', seen: Seen): Promise<void> {
+    return (async () => {
+      if (after === 'query') await sql`SELECT pg_sleep(0.05)`.execute(trx).catch(() => {});
+      else await new Promise((r) => setTimeout(r, 50));
+      onAfterCommit(() => {
+        seen.value = true;
+        seen.trxVisible = getCurrentTenantTrx() !== undefined;
+      });
+    })();
+  }
+
+  for (const after of ['query', 'timer'] as const) {
+    it(`runs after the commit when queued late (after a ${after})`, async () => {
+      const { db } = (await getTestApp()) as { db: Database };
+      const seen: Seen = { value: false, trxVisible: null };
+      let late: Promise<void> | undefined;
+
+      await withTenantIsolation(
+        await tenantId(db),
+        async (trx) => {
+          late = queueLate(trx, after, seen);
+        },
+        { userId: null },
+      );
+      await late;
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(seen.value).toBe(true);
+      // Outside the finished transaction, like the follow-ups queued in time.
+      expect(seen.trxVisible).toBe(false);
+    });
+
+    it(`is dropped when the transaction rolls back (after a ${after})`, async () => {
+      const { db } = (await getTestApp()) as { db: Database };
+      const seen: Seen = { value: false, trxVisible: null };
+      let late: Promise<void> | undefined;
+
+      await expect(
+        withTenantIsolation(
+          await tenantId(db),
+          async (trx) => {
+            late = queueLate(trx, after, seen);
+            throw new Error('planted: roll this back');
+          },
+          { userId: null },
+        ),
+      ).rejects.toThrow('planted');
+      await late;
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(seen.value).toBe(false);
+    });
+  }
+
+  it('runs when the store has a domain but no transaction', async () => {
+    // A route the tenant middleware skips (`/api/collections`, `/api/flows`, …)
+    // runs inside `runWithDomain` with no transaction. The request log and the
+    // god audit queue there, and nothing drains that store.
+    let ran = false;
+    runWithDomain(await tenantId(((await getTestApp()) as { db: Database }).db), () => {
+      onAfterCommit(() => {
+        ran = true;
+      });
+    });
+    await Promise.resolve();
+    expect(ran).toBe(true);
   });
 });
