@@ -55,7 +55,25 @@ interface TenantStore {
    * A queue drained after the commit says what was meant, instead of assuming
    * it.
    */
-  afterCommit?: Array<() => void | Promise<void>>;
+  afterCommit?: AfterCommitQueue;
+}
+
+/**
+ * One transaction's after-commit work, and whether the transaction has settled.
+ *
+ * The state is what keeps a LATE job: a caller that does not await its own
+ * promise can call `onAfterCommit` after the handler returned and the queue was
+ * taken, still inside this transaction's async context. With only an array it
+ * was pushed onto one nobody read again. Now it waits while the transaction is
+ * `open` (the handler has returned, the COMMIT has not), runs at once when it
+ * is `committed`, and is dropped when it `rolled-back` — the same fate as the
+ * jobs queued in time.
+ */
+interface AfterCommitQueue {
+  jobs: Array<() => void | Promise<void>>;
+  state: 'open' | 'committed' | 'rolled-back';
+  /** The context the jobs run in: the one outside the transaction's. */
+  outer: TenantStore | undefined;
 }
 
 const store = new AsyncLocalStorage<TenantStore>();
@@ -115,7 +133,14 @@ export function runWithTenantTrx<T>(trx: Database, tenantId: string, fn: () => T
   // carried forward so the original intent — a nested `withTenantIsolation`
   // inside a request keeps its domain — still holds.
   const existing = store.getStore();
-  return store.run({ domain: existing?.domain ?? tenantId, trx }, fn);
+  return store.run(
+    {
+      domain: existing?.domain ?? tenantId,
+      trx,
+      afterCommit: { jobs: [], state: 'open', outer: existing },
+    },
+    fn,
+  );
 }
 
 export function getCurrentDomain(): string {
@@ -190,25 +215,57 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
  * Run `fn` once the request's transaction has committed.
  *
  * Outside a transaction there is nothing to wait for, so it runs immediately —
- * which is what a background job or a boot reconciler wants.
+ * which is what a background job or a boot reconciler wants, and what a route
+ * the tenant middleware opens no transaction for gets: its store has a domain
+ * and no transaction, and work queued there used to wait for a commit that
+ * would never come.
  */
 export function onAfterCommit(fn: () => void | Promise<void>): void {
   const current = store.getStore();
-  if (!current) {
-    void fn();
+  const queue = current?.trx ? current.afterCommit : undefined;
+  if (!queue) {
+    void runAfterCommitJob(fn);
     return;
   }
-  current.afterCommit ??= [];
-  current.afterCommit.push(fn);
+  if (queue.state === 'open') queue.jobs.push(fn);
+  else if (queue.state === 'committed') {
+    // Late: the queue has been run. Run this one now, outside the finished
+    // transaction, exactly where the queued ones ran.
+    const run = () => void runAfterCommitJob(fn);
+    if (queue.outer) store.run(queue.outer, run);
+    else store.exit(run);
+  }
+  // 'rolled-back': dropped, like everything queued before the rollback.
 }
 
-/** Take the queued work. Called by `withTenantIsolation` after the commit. */
-export function drainAfterCommit(): Array<() => void | Promise<void>> {
-  const current = store.getStore();
-  if (!current?.afterCommit) return [];
-  const queued = current.afterCommit;
-  current.afterCommit = [];
-  return queued;
+/** The queue of the transaction in the current context. For `withTenantIsolation`. */
+export function currentAfterCommitQueue(): AfterCommitQueue | undefined {
+  return store.getStore()?.afterCommit;
+}
+
+/**
+ * Mark the transaction settled and take what it queued — empty after a
+ * rollback. Synchronous with the state change, so a job queued from here on is
+ * run or dropped by `onAfterCommit` itself and none falls between the two.
+ */
+export function settleAfterCommit(
+  queue: AfterCommitQueue,
+  committed: boolean,
+): Array<() => void | Promise<void>> {
+  queue.state = committed ? 'committed' : 'rolled-back';
+  const jobs = queue.jobs;
+  queue.jobs = [];
+  return committed ? jobs : [];
+}
+
+/**
+ * One follow-up, isolated: the transaction is already committed and the caller
+ * already has its answer, so a failure is logged and goes no further.
+ */
+export function runAfterCommitJob(job: () => void | Promise<void>): Promise<void> {
+  return new Promise<void>((resolve) => resolve(job())).catch((err: Error) => {
+    console.warn('[after-commit] queued work failed:', err?.message);
+  });
 }
 
 export function getCurrentTenantTrx(): Database | undefined {
