@@ -1605,13 +1605,50 @@ export function reconcilePolicies(): Promise<boolean> {
   return run.catch(() => false);
 }
 
+/** `zvd_rls_policies` + `zvd_column_permissions` as last seen by `reconcileRules`. */
+let _rulesFingerprint: string | null = null;
+
+async function rulesFingerprint(): Promise<string> {
+  const r = await sql<{ fp: string | null }>`
+    SELECT md5(coalesce((SELECT string_agg(row_to_json(p)::text, E'\n' ORDER BY p.id)
+                         FROM zvd_rls_policies p), '')
+            || E'\n--\n' ||
+               coalesce((SELECT string_agg(row_to_json(c)::text, E'\n' ORDER BY c.id)
+                         FROM zvd_column_permissions c), '')) AS fp
+  `.execute(_db);
+  return r.rows[0]?.fp ?? '';
+}
+
+/**
+ * Re-check open subscriptions if a row rule or column permission changed since
+ * the last look. The `access.rules` bus event normally carries that; this
+ * catches one lost while the bus stayed up, which `reconcilePolicies` does for
+ * Casbin. The first call only records the baseline. Never throws.
+ */
+export async function reconcileRules(): Promise<boolean> {
+  try {
+    const fp = await rulesFingerprint();
+    const changed = _rulesFingerprint !== null && fp !== _rulesFingerprint;
+    _rulesFingerprint = fp;
+    if (changed) revalidateSockets();
+    return changed;
+  } catch (err) {
+    console.error('[permissions] rule reconcile failed:', (err as Error).message);
+    return false;
+  }
+}
+
 // 30-60 s: jittered so replicas do not all rebuild on the same second.
 const RECONCILE_BASE_MS = 30_000;
 let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** `tick` is a test seam; production always runs `reconcilePolicies`. */
-export function startPolicyReconcile(tick: () => Promise<unknown> = reconcilePolicies): void {
+/** `tick` is a test seam; production runs `reconcilePolicies` and `reconcileRules`. */
+export function startPolicyReconcile(
+  tick: () => Promise<unknown> = () => Promise.all([reconcilePolicies(), reconcileRules()]),
+): void {
   if (_reconcileTimer) return;
+  // Baseline now, so a change before the first tick is not taken as the start.
+  void reconcileRules();
   const arm = () => {
     const timer = setTimeout(
       async () => {
