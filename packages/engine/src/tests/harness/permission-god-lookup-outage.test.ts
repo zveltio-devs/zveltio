@@ -30,6 +30,8 @@ import {
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `godout_${Date.now()}`;
+// Rendered as 503 + Retry-After: "cannot check now, retry", not a refusal.
+const UNAVAILABLE = { status: 503, code: 'permission.unavailable', retryAfter: 5 };
 
 d('a god lookup that fails', () => {
   let app: Hono;
@@ -92,9 +94,11 @@ d('a god lookup that fails', () => {
     });
     await duringOutage(async () => {
       // A god with no explicit grant: not provably allowed, not provably denied.
-      await expect(check(godId, COLLECTION)).rejects.toThrow();
+      await expect(check(godId, COLLECTION)).rejects.toMatchObject(UNAVAILABLE);
       // A member without a grant: same — the refusal is an error, never a yes.
-      await expect(check(member.userId, `nothing_${COLLECTION}`)).rejects.toThrow();
+      await expect(check(member.userId, `nothing_${COLLECTION}`)).rejects.toMatchObject(
+        UNAVAILABLE,
+      );
       // A grant Casbin holds does not depend on the god lookup at all.
       expect(await check(member.userId, COLLECTION)).toBe(true);
     });

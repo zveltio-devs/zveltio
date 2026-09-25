@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { problem } from '../problem.js';
 import { getCache, POLICY_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
 import { getCurrentDomain, getCurrentDomainOrNull } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
@@ -898,9 +899,16 @@ export async function checkPermission(
   // while the realtime sweeps read it as "retry", not as a revoke that ends a
   // god's streams on a database blip.
   if (allowed || godLookupError === undefined) return allowed;
-  throw new Error(`[permissions] cannot decide ${action} on "${resource}": god lookup failed`, {
-    cause: godLookupError,
-  });
+  // 503 + Retry-After, not a bare 500: the caller is told the check is
+  // temporarily impossible and can retry, rather than that it was refused.
+  const err = problem(
+    'permission.unavailable',
+    503,
+    `Permission for  on "" cannot be checked right now; retry shortly.`,
+  );
+  err.retryAfter = 5;
+  err.cause = godLookupError;
+  throw err;
 }
 
 /** The Casbin half of `checkPermission`: memo, shared cache, resolved set. */

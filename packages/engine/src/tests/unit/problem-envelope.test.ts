@@ -209,6 +209,25 @@ describe('H-13 error envelope', () => {
     expect(body.traceId).toBe('fedcba9876543210fedcba9876543210');
   });
 
+  it('a problem with retryAfter sends Retry-After; one without sends none', async () => {
+    const app = new Hono();
+    app.onError(problemOnError);
+    app.get('/api/busy', () => {
+      const err = problem('permission.unavailable', 503, 'retry shortly');
+      err.retryAfter = 5;
+      throw err;
+    });
+    app.get('/api/plain', () => {
+      throw problem('demo.plain', 503, 'not configured');
+    });
+    const busy = await app.request('http://local/api/busy');
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get('retry-after')).toBe('5');
+    expect(((await busy.json()) as Record<string, unknown>).code).toBe('permission.unavailable');
+    const plain = await app.request('http://local/api/plain');
+    expect(plain.headers.get('retry-after')).toBeNull();
+  });
+
   it('thrown problem() surfaces structured errors on the envelope', async () => {
     const app = new Hono();
     app.onError(problemOnError);

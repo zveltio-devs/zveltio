@@ -92,6 +92,8 @@ export class ProblemException extends HTTPException {
   readonly code: string;
   readonly problemDetail?: string;
   readonly errors?: unknown;
+  /** Seconds a client should wait before retrying; sent as `Retry-After`. */
+  retryAfter?: number;
   constructor(code: string, status: number, detail?: string, errors?: unknown) {
     // Store the human detail as the HTTPException message (used if it escapes).
     super(status as ConstructorParameters<typeof HTTPException>[0], { message: detail ?? code });
@@ -114,11 +116,10 @@ export function problem(
   return new ProblemException(code, status, detail, errors);
 }
 
-function toResponse(p: ProblemDetails): Response {
-  return new Response(JSON.stringify(p), {
-    status: p.status,
-    headers: { 'content-type': PROBLEM_CONTENT_TYPE },
-  });
+function toResponse(p: ProblemDetails, retryAfter?: number): Response {
+  const headers: Record<string, string> = { 'content-type': PROBLEM_CONTENT_TYPE };
+  if (retryAfter !== undefined) headers['retry-after'] = String(retryAfter);
+  return new Response(JSON.stringify(p), { status: p.status, headers });
 }
 
 /** Hono `app.onError` handler — renders thrown errors as problem+json. */
@@ -127,16 +128,19 @@ export function problemOnError(err: Error, c: Context): Response {
   const traceId = traceIdFrom(c);
 
   if (err instanceof ProblemException) {
-    return toResponse({
-      type: 'about:blank',
-      title: statusTitle(err.status),
-      status: err.status,
-      code: err.code,
-      detail: err.problemDetail,
-      instance,
-      traceId,
-      errors: err.errors,
-    });
+    return toResponse(
+      {
+        type: 'about:blank',
+        title: statusTitle(err.status),
+        status: err.status,
+        code: err.code,
+        detail: err.problemDetail,
+        instance,
+        traceId,
+        errors: err.errors,
+      },
+      err.retryAfter,
+    );
   }
 
   if (err instanceof HTTPException) {
