@@ -10,6 +10,7 @@ import { BunSqlDialect } from '../db/bun-sql-dialect.js';
 import type { Database } from '../db/index.js';
 import { withIdleInTransactionTimeout } from '../db/index.js';
 import type { DbSchema } from '../db/schema.js';
+import { sendEmail as deliverEmail, _internalForTests as emailInternals } from './email.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
@@ -307,51 +308,8 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
 // reads this module-level binding so it sees the value after init.
 let _authDb: Database | null = null;
 
-// Cached transporter — nodemailer's `createTransport` opens a pool when
-// `pool: true` is passed, so we want a single shared instance across
-// magic-link emails / password resets / verification mails instead of
-// reconnecting per send. The transporter is recreated whenever the
-// SMTP env vars change shape (e.g. test harness flips them between
-// runs); in normal production they're static after process start.
-let _smtpTransport: import('nodemailer').Transporter | null = null;
-let _smtpFingerprint = '';
-
-function smtpFingerprint(): string {
-  return [
-    process.env.SMTP_HOST ?? '',
-    process.env.SMTP_PORT ?? '',
-    process.env.SMTP_SECURE ?? '',
-    process.env.SMTP_USER ?? '',
-  ].join('|');
-}
-
-async function getSmtpTransport(): Promise<import('nodemailer').Transporter> {
-  const fp = smtpFingerprint();
-  if (_smtpTransport && fp === _smtpFingerprint) return _smtpTransport;
-  const { createTransport } = await import('nodemailer');
-  _smtpTransport = createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
-      : undefined,
-    pool: true,
-    maxConnections: 3,
-  });
-  _smtpFingerprint = fp;
-  return _smtpTransport;
-}
-
-async function sendEmail(to: string, subject: string, html: string, text: string) {
-  const transport = await getSmtpTransport();
-  await transport.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@zveltio.com',
-    to,
-    subject,
-    html,
-    text,
-  });
+function sendEmail(to: string, subject: string, html: string, text: string) {
+  return deliverEmail({ to, subject, html, text });
 }
 
 // Re-export auth instance for convenience in routes
@@ -763,15 +721,11 @@ export function getAuth() {
 
 /** Test-only export — never import outside src/tests/. */
 export const _internalForTests = {
-  resetSmtpCacheForTests() {
-    _smtpTransport = null;
-    _smtpFingerprint = '';
-  },
+  resetSmtpCacheForTests: emailInternals.resetSmtpCacheForTests,
   resetAuthModuleForTests() {
     _auth = null;
     _authDb = null;
-    _smtpTransport = null;
-    _smtpFingerprint = '';
+    emailInternals.resetSmtpCacheForTests();
   },
   setAuthDbForTests(db: Database | null) {
     _authDb = db;

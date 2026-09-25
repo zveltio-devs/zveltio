@@ -19,6 +19,7 @@ import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
+import { sendEmail } from '../email.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { serviceRegistry } from '../service-registry.js';
 import { traced } from '../runtime/index.js';
@@ -276,19 +277,15 @@ async function executeStep(
       // Sanitize subject — strip newlines to prevent header injection
       const subject = String(cfg.subject ?? 'Flow notification').replace(/[\r\n]/g, ' ');
 
-      try {
-        // @ts-ignore — email module is an optional extension
-        const { sendEmailDirectly } = await import('../email.js');
-        await sendEmailDirectly({
-          recipient,
-          subject,
-          bodyHtml: cfg.body_html ?? cfg.body ?? '',
-          bodyText: cfg.body ?? '',
-        });
-        return { output: { sent: true, to: recipient } };
-      } catch {
-        return { output: { sent: false, error: 'Email service not configured' } };
-      }
+      // A failed send fails the step, so the flow's on_error decides what
+      // happens next — never a successful run with no email behind it.
+      await sendEmail({
+        to: recipient,
+        subject,
+        html: cfg.body_html ?? cfg.body ?? '',
+        text: cfg.body ?? '',
+      });
+      return { output: { sent: true, to: recipient } };
     }
 
     // ── webhook ──
@@ -405,22 +402,22 @@ async function executeStep(
         });
 
         if (cfg.email_to && exportResult?.buffer) {
-          // @ts-ignore — email module is an optional extension
-          const { sendEmailWithAttachment } = await import('../email.js');
           const ext = cfg.format === 'excel' ? 'xlsx' : (cfg.format ?? 'csv');
-          await sendEmailWithAttachment({
-            recipient: cfg.email_to,
+          await sendEmail({
+            to: cfg.email_to,
             subject: cfg.email_subject ?? `Report: ${cfg.collection}`,
-            bodyHtml: cfg.email_body ?? '<p>Please find the attached report.</p>',
-            bodyText: cfg.email_body ?? 'Please find the attached report.',
-            attachment: {
-              filename: `${cfg.filename ?? cfg.collection}.${ext}`,
-              content: exportResult.buffer,
-              contentType:
-                cfg.format === 'excel'
-                  ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                  : 'text/csv',
-            },
+            html: cfg.email_body ?? '<p>Please find the attached report.</p>',
+            text: cfg.email_body ?? 'Please find the attached report.',
+            attachments: [
+              {
+                filename: `${cfg.filename ?? cfg.collection}.${ext}`,
+                content: exportResult.buffer,
+                contentType:
+                  cfg.format === 'excel'
+                    ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    : 'text/csv',
+              },
+            ],
           });
           return { output: { exported: true, sent_to: cfg.email_to, rows: rows.rows.length } };
         }

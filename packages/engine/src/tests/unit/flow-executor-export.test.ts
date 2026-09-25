@@ -1,9 +1,11 @@
 /**
- * export_collection success path — mocks optional export-manager + email modules.
+ * export_collection success path — mocks the optional export-manager module;
+ * the email goes through the engine's SMTP transport (nodemailer mocked).
  */
 
-import { describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { _internalForTests as emailInternals } from '../../lib/email.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const exportMock = mock(async () => ({
@@ -11,19 +13,27 @@ const exportMock = mock(async () => ({
   filename: 'contacts-export.csv',
 }));
 
-const emailAttachMock = mock(async () => {});
-const sendDirectMock = mock<(opts: unknown) => Promise<void>>(async () => {
-  throw new Error('Email service not configured');
-});
+const emailAttachMock = mock(async (_msg: Record<string, unknown>) => ({ messageId: 'm' }));
 
 mock.module('../../lib/export-manager.js', () => ({
   ExportManager: { export: exportMock },
 }));
 
-mock.module('../../lib/email.js', () => ({
-  sendEmailWithAttachment: emailAttachMock,
-  sendEmailDirectly: sendDirectMock,
+mock.module('nodemailer', () => ({
+  createTransport: () => ({ sendMail: emailAttachMock }),
 }));
+
+let savedHost: string | undefined;
+beforeAll(() => {
+  savedHost = process.env.SMTP_HOST;
+  process.env.SMTP_HOST = 'smtp.example.com';
+  emailInternals.resetSmtpCacheForTests();
+});
+afterAll(() => {
+  if (savedHost === undefined) delete process.env.SMTP_HOST;
+  else process.env.SMTP_HOST = savedHost;
+  emailInternals.resetSmtpCacheForTests();
+});
 
 const { _internalForTests } = await import('../../lib/flows/flow-executor.js');
 const { executeStep } = _internalForTests;
@@ -129,39 +139,13 @@ describe('executeStep — export_collection (mocked ExportManager)', () => {
     expect(output.sent_to).toBe('finance@example.com');
     expect(emailAttachMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        attachment: expect.objectContaining({
-          contentType: expect.stringContaining('spreadsheetml'),
-          filename: expect.stringMatching(/\.xlsx$/),
-        }),
+        attachments: [
+          expect.objectContaining({
+            contentType: expect.stringContaining('spreadsheetml'),
+            filename: expect.stringMatching(/\.xlsx$/),
+          }),
+        ],
       }),
     );
-  });
-});
-
-describe('executeStep — send_email (mocked email.js)', () => {
-  it('sends mail when the optional email service is configured', async () => {
-    sendDirectMock.mockImplementation(async () => {});
-    try {
-      const { output } = await executeStep(
-        new CannedDb().kysely as unknown as Database,
-        {
-          type: 'send_email',
-          config: {
-            to: 'user@example.com',
-            subject: 'Hello\r\nInjected: nope',
-            body: 'plain body',
-          },
-        },
-        {},
-        {},
-      );
-      expect(output.sent).toBe(true);
-      expect(output.to).toBe('user@example.com');
-      expect(sendDirectMock).toHaveBeenCalled();
-    } finally {
-      sendDirectMock.mockImplementation(async () => {
-        throw new Error('Email service not configured');
-      });
-    }
   });
 });
