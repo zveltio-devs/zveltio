@@ -7,7 +7,7 @@ import type { Database } from '../../db/index.js';
 import { afterWrite } from '../../lib/data/write-pipeline.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
-import * as flowsModule from '../../routes/flows.js';
+import * as flowsModule from '../../lib/flows/index.js';
 import * as wsModule from '../../routes/ws.js';
 import { CannedDb } from './fixtures/canned-db.js';
 

@@ -7,6 +7,7 @@ export {
   type ExecutableStepType,
   type FlowRunResult,
 } from './flow-executor.js';
+export { triggerDataFlows } from './data-triggers.js';
 export { flowScheduler } from './flow-scheduler.js';
 // Cron parsing lives here because flows needed it first, but it is not a flows
 // concept — `lib/backup/scheduler.ts` computes a backup's next run with the same
