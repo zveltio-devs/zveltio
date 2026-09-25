@@ -47,7 +47,7 @@ export const PG_NOTIFY_PAYLOAD_MAX = 7900;
 export const POLICY_CHANGED_EVENT = 'casbin.policy';
 
 // Per-process origin id so we can filter our own echoed messages.
-const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
+export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
 export interface RealtimeBusMessage {
   /** Originator's process id; bus filters echoes by matching this. */
