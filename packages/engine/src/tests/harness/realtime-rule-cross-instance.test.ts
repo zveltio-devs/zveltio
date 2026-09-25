@@ -24,7 +24,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { dispatchToWs, realtimeBus, type RealtimeBusMessage } from '../../lib/runtime/index.js';
-import { __sweepIdle } from '../../lib/tenancy/index.js';
+import { __sweepIdle, reconcileRules } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { _wsPermCacheForTests, broadcastEvent, websocketHandler } from '../../routes/ws.js';
 import {
@@ -40,6 +40,7 @@ const STAMP = Date.now();
 const ROW_COL = `rtxi_row_${STAMP}`;
 const MASK_COL = `rtxi_mask_${STAMP}`;
 const SSE_COL = `rtxi_sse_${STAMP}`;
+const LOST_COL = `rtxi_lost_${STAMP}`;
 const FIELDS = [
   { name: 'title', type: 'text', required: false, unique: false, indexed: false },
   { name: 'salary', type: 'text', required: false, unique: false, indexed: false },
@@ -70,7 +71,7 @@ d('row and column rule changes reach other instances', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     god = await createGodSession(app, db);
-    for (const name of [ROW_COL, MASK_COL, SSE_COL]) {
+    for (const name of [ROW_COL, MASK_COL, SSE_COL, LOST_COL]) {
       await DDLManager.createCollection(db, { name, fields: FIELDS } as never);
     }
     bus.publish = async (payload) => {
@@ -82,7 +83,7 @@ d('row and column rule changes reach other instances', () => {
     bus.publish = origPublish;
     if (!db) return;
     for (const id of probes) _wsPermCacheForTests().connections.delete(id);
-    for (const name of [ROW_COL, MASK_COL, SSE_COL]) {
+    for (const name of [ROW_COL, MASK_COL, SSE_COL, LOST_COL]) {
       await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`
         .execute(db)
         .catch(() => {});
@@ -216,5 +217,33 @@ d('row and column rule changes reach other instances', () => {
     await deliverToReplica();
     expect(after.open()).toBe(false);
     await after.reader.cancel().catch(() => {});
+  });
+  it('a rule change whose bus message was lost is caught up by the periodic reconcile', async () => {
+    const { member, sent: frames, conn } = await openSocket(LOST_COL);
+    await reconcileRules(); // baseline
+    expect(await reconcileRules()).toBe(false);
+    const stale = conn.access.get(LOST_COL);
+
+    const res = await admin('/api/admin/rls', {
+      collection: LOST_COL,
+      role: 'member',
+      filter_field: 'owner',
+      filter_op: 'eq',
+      filter_value_source: 'user_id',
+    });
+    expect(res.status).toBe(201);
+    await settle(() => conn.access.get(LOST_COL) !== stale);
+
+    // Instance B: never swept, and the message never arrives.
+    conn.access.set(LOST_COL, stale!);
+    sent.length = 0;
+    expect(await reconcileRules()).toBe(true);
+    await __sweepIdle();
+
+    frames.length = 0;
+    broadcastEvent(LOST_COL, 'insert', { id: 'o3', title: 'OTHERS-ROW', owner: 'x' }, null);
+    broadcastEvent(LOST_COL, 'insert', { id: 'm3', title: 'OWN-ROW', owner: member.userId }, null);
+    expect(frames.join('\n')).toContain('OWN-ROW');
+    expect(frames.join('\n')).not.toContain('OTHERS-ROW');
   });
 });
