@@ -15,7 +15,7 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
-import { checkPermission, getUserRoles } from './permissions.js';
+import { checkPermission, getUserRoles, revalidateSockets } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
@@ -159,11 +159,40 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
     console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
   }
 
+  await dropRlsCaches(collection);
+
+  // Open realtime subscriptions filter with the rules they resolved when they
+  // opened, and nothing re-resolved them: a rule written here reached an open
+  // socket or stream only when its client reconnected. Swept once the rule is
+  // visible — after the commit — and with the caches dropped again first,
+  // since a read between the drop above and the commit can have put the old
+  // rules back, and the sweep would then pin them.
+  if (getCurrentTenantTrx()) {
+    onAfterCommit(async () => {
+      await dropRlsCaches(collection);
+      revalidateSockets();
+    });
+  } else revalidateSockets();
+}
+
+async function dropRlsCaches(collection: string): Promise<void> {
   const cache = getCache();
   if (!cache) return;
   try {
-    await cache.del(`rls:policies:${collection}`);
-    await cache.del('rls:policies:*'); // also clear wildcard collection cache
+    // Rules are cached per collection, and each entry holds that collection's
+    // `*` rules too — so a `*` change stales every entry. `DEL` takes no
+    // pattern: `del('rls:policies:*')` removed only the entry of the literal
+    // collection `*`.
+    const keys = [`rls:policies:${collection}`];
+    if (collection === '*') {
+      let cursor = '0';
+      do {
+        const [next, batch] = await cache.scan(cursor, 'MATCH', 'rls:policies:*', 'COUNT', 200);
+        cursor = next;
+        keys.push(...batch);
+      } while (cursor !== '0');
+    } else keys.push('rls:policies:*');
+    await cache.del(...keys);
   } catch {
     /* cache unavailable */
   }

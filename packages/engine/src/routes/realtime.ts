@@ -68,11 +68,28 @@ interface StreamSub {
    * read through a different door, answered a different question.
    *
    * Resolved at subscribe time rather than per event: the alternative is two
-   * database lookups per subscriber per write. The cost is that a policy change
-   * takes effect for an open stream when the client reconnects, which is the
-   * same window every long-lived connection has.
+   * database lookups per subscriber per write. A policy change re-resolves it
+   * in `revalidateSseStreams`, which ends the stream when the answer moved.
    */
-  access: Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
+  access: StreamAccess;
+  /** How `access` was resolved, for the sweep to ask again. */
+  resolveAccess: () => Promise<StreamAccess>;
+}
+
+type StreamAccess = Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
+
+/**
+ * What a stream's access means for delivery, comparable across two lookups.
+ * Hidden columns only — a read-only column is still delivered.
+ */
+function accessKey(access: StreamAccess): string {
+  return JSON.stringify(
+    [...access].map(([col, a]) => [
+      col,
+      a.rls.map((f) => JSON.stringify(f)).sort(),
+      a.columns ? [...a.columns.hidden].sort() : null,
+    ]),
+  );
 }
 
 // Active SSE connections: userId → Set of subscriptions
@@ -331,7 +348,14 @@ export function broadcastDataEvent(
 /** `?channel=data:<collection>[:event]` — gated as a read on the collection. */
 const DATA_CHANNEL = /^zveltio:data:([a-zA-Z0-9_]+)(?::[a-zA-Z0-9_]+)?$/;
 
-/** Does everything this stream was opened with still pass the gate in `/stream`? */
+/**
+ * Does everything this stream was opened with still pass the gate in `/stream`,
+ * and resolve to the row rules and column permissions it is filtering with?
+ *
+ * Those used to be read once, at open: a rule written afterwards reached the
+ * stream only when its client reconnected. A change ends the stream rather than
+ * swapping the snapshot, for the reason `revalidateSseStreams` gives.
+ */
 function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
   const reads = new Set(sub.collections.map((col) => col.split(':')[0]!));
   let needsAdmin = sub.collections.length === 0; // the wildcard stream
@@ -345,7 +369,7 @@ function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
   return runWithDomain(sub.tenantId ?? DEFAULT_TENANT_ID, async () => {
     if (needsAdmin && !(await isTenantAdmin(userId))) return false;
     for (const col of reads) if (!(await checkPermission(userId, col, 'read'))) return false;
-    return true;
+    return accessKey(await sub.resolveAccess()) === accessKey(sub.access);
   });
 }
 
@@ -562,22 +586,27 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // never populated, so every stream ran as `'user'`, a role nothing is
     // granted as: a `member` column or row rule never applied here even while
     // the database was healthy. `email` for a `user_email` row rule.
-    const role = await resolveUserRole({
-      id: userId,
-      role: (session.user as { role?: string }).role,
-    });
-    const user = { id: userId, email: session.user.email, role };
-    const access = new Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>();
     const authType = c.get('authType');
     // Not caught, the role lookup included: `[]` / `null` mean "nothing to
     // filter" and a fallback role escapes the real role's rules, so a failed
     // lookup is refused (500), as the REST list path refuses on the same error.
-    for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
-      access.set(col, {
-        rls: await getRlsFilters(col, user, authType),
-        columns: await getColumnAccess(_db, col, role, user.id),
+    // The sweep calls it again outside this request, under the stream's tenant.
+    const resolveAccess = async (): Promise<StreamAccess> => {
+      const role = await resolveUserRole({
+        id: userId,
+        role: (session.user as { role?: string }).role,
       });
-    }
+      const user = { id: userId, email: session.user.email, role };
+      const access: StreamAccess = new Map();
+      for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
+        access.set(col, {
+          rls: await getRlsFilters(col, user, authType),
+          columns: await getColumnAccess(_db, col, role, user.id),
+        });
+      }
+      return access;
+    };
+    const access = await resolveAccess();
 
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = {
@@ -588,6 +617,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         tenantId,
         channels: allowedExtraChannels,
         access,
+        resolveAccess,
       };
 
       if (!connections.has(userId)) connections.set(userId, new Set());
@@ -625,22 +655,23 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       // Subscribe to cache channels if cache is available
       const cache = getCache();
 
-      if (cache) {
+      // No data channel is subscribed here. Record events reach this stream
+      // through `broadcastDataEvent` alone — from this instance's write path and
+      // from other instances via `realtimeBus` — which applies the stream's row
+      // rules and column permissions. This subscription forwarded whatever
+      // arrived on `zveltio:data:<collection>` with neither, and the engine's
+      // only publisher there was `POST /publish`, which now refuses data channels.
+      //
+      // Namespaced by tenant. Without this the subscription was to a channel
+      // whose name is the same in every tenant, so one Valkey shared by several
+      // engine instances delivered other tenants' messages here.
+      const channels = allowedExtraChannels
+        .filter((ch) => !DATA_CHANNEL.test(ch))
+        .map((ch) => busChannel(tenantId, ch));
+
+      if (cache && channels.length > 0) {
         try {
           subscriber = cache.duplicate();
-          const dataChannels =
-            collections.length > 0
-              ? collections.map((col) => `zveltio:data:${col}`)
-              : [CHANNELS.DATA_CHANGES];
-          // Namespaced by tenant. Without this the subscription was to a
-          // channel whose name is the same in every tenant, so one Valkey
-          // shared by several engine instances delivered other tenants'
-          // writes here — the one path around the tenant check that
-          // `broadcastDataEvent` applies in-process.
-          const channels = [...dataChannels, ...allowedExtraChannels].map((ch) =>
-            busChannel(tenantId, ch),
-          );
-
           await subscriber.subscribe(...channels);
 
           subscriber.on('message', (_channel: string, message: string) => {
@@ -658,7 +689,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
             }
           });
         } catch {
-          /* Redis unavailable — in-process broadcastDataEvent still works */
+          /* Redis unavailable — in-process broadcastSSE still works */
         }
       }
 
@@ -890,8 +921,15 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const body = await c.req.json().catch(() => null);
-    if (!body?.channel || !body?.payload) {
+    if (typeof body?.channel !== 'string' || !body.channel || !body?.payload) {
       return c.json({ error: 'channel and payload are required' }, 400);
+    }
+    // A data channel carries record events, and those come from the write path,
+    // which filters each one through the subscriber's row rules and column
+    // permissions. A payload published here reached every stream on
+    // `?channel=data:<collection>` with neither, dressed as a record event.
+    if (stripBusNamespace(body.channel).startsWith('zveltio:data:')) {
+      return c.json({ error: 'Data channels are published by the write path only' }, 400);
     }
 
     const cache = getCache();
