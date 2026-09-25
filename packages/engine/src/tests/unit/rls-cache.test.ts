@@ -2,9 +2,14 @@
  * RLS policy cache (lib/tenancy/rls.ts) — loadPolicies Valkey hit/miss/invalidate.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { getRlsFilters, initRls, invalidateRlsCache } from '../../lib/tenancy/index.js';
+import {
+  getRlsFilters,
+  initPermissions,
+  initRls,
+  invalidateRlsCache,
+} from '../../lib/tenancy/index.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { encodeSigned } from '../../lib/tenancy/signed-cache.js';
 // The engine refuses to start without BETTER_AUTH_SECRET (see initPermissions):
@@ -61,6 +66,12 @@ function setup(): CannedDb {
   initRls(db.kysely as unknown as Database);
   return db;
 }
+
+// getRlsFilters asks Casbin for the caller's roles; an enforcer over an empty
+// policy set answers "none" rather than failing the lookup.
+beforeAll(async () => {
+  await initPermissions(new CannedDb().kysely as unknown as Database);
+});
 
 beforeEach(() => {
   _setCacheForTests(null);

@@ -215,13 +215,13 @@ export async function getRlsFilters(
   const policies = await loadPolicies(collection);
   if (policies.length === 0) return [];
 
-  // Get user's roles from Casbin (includes inherited roles)
-  let userRoles: string[];
-  try {
-    userRoles = await getUserRoles(user.id);
-  } catch {
-    userRoles = [];
-  }
+  // Get user's roles from Casbin (includes inherited roles).
+  //
+  // No catch. A rule keyed on a role restricts the holders of that role, and a
+  // rule whose role the caller lacks is skipped below — so reading a failed
+  // lookup as `[]` stood down every role-keyed rule and served the rows they
+  // hide. A rejection here refuses the request, as a failed policy load does.
+  const userRoles = await getUserRoles(user.id);
   // Always include the direct role, when the caller has one. Better-Auth does
   // not populate `role` on a session, so this is usually absent — and pushing
   // `undefined` into the list only ever matched a policy role that cannot be
