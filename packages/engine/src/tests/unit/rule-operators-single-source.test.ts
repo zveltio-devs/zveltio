@@ -130,6 +130,7 @@ describe('the four appliers read one table', () => {
     expect(() => rlsJsonConditions([bad])).toThrow(/cannot apply/);
     // The policy generator reports rather than throws: it runs over every stored
     // rule at once, and one bad rule must not stop the others being enforced.
+    // It fails closed like the others, though: the rule becomes `false`.
     const { predicate, skipped } = buildRowRulePredicate(
       [
         {
@@ -141,7 +142,7 @@ describe('the four appliers read one table', () => {
       ],
       TYPES,
     );
-    expect(predicate).toBeNull();
+    expect(predicate).toContain('(false)');
     expect(skipped[0]?.reason).toContain('regex');
   });
 });

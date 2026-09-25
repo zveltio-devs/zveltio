@@ -31,14 +31,20 @@
  *
  * `current_setting()` returns text. Against an `integer` column that is a type
  * error, not a comparison, so the value is cast to the column's own type, read
- * at generation time. For a type this cannot cast safely, the rule is NOT
- * generated and the caller is told which one — a policy that is almost right on
- * a security path is worse than none, because it looks whole.
+ * at generation time. A rule this cannot express — a type it cannot cast
+ * safely, a missing column, an unknown operator — hides every row it applies
+ * to, and the caller is told which one. It used to be left out, and in a
+ * RESTRICTIVE policy a term left out is a rule that does not bind.
  */
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { isRuleOperator, RULE_OPERATORS } from './rule-operators.js';
+import {
+  isRuleOperator,
+  keepsEveryPresent,
+  keepsNothing,
+  RULE_OPERATORS,
+} from './rule-operators.js';
 
 export interface RowRule {
   role: string;
@@ -50,7 +56,7 @@ export interface RowRule {
 export interface GeneratedPolicy {
   /** `USING (...)` body, or null when nothing is enforceable. */
   predicate: string | null;
-  /** Rules left out, with the reason, so nothing is dropped silently. */
+  /** Rules it cannot express — each enforced as `false` — with the reason. */
   skipped: Array<{ rule: RowRule; reason: string }>;
 }
 
@@ -68,8 +74,6 @@ const CASTABLE = new Set([
   'double precision',
   'real',
 ]);
-
-const OPS = new Set(['eq', 'neq', 'in', 'not_in']);
 
 /** A single-quoted SQL literal. */
 function lit(v: string): string {
@@ -201,44 +205,44 @@ export function buildRowRulePredicate(
       terms.push(applicable(rule, 'false', true));
       continue;
     }
+    // A rule this cannot express hides every row it applies to — `false`, not
+    // left out. This is a RESTRICTIVE policy: a term left out is a rule that
+    // does not bind, so the database kept every row the engine hides (a missing
+    // column and a type it cannot cast make the engine's query fail, an unknown
+    // operator makes every applier throw). The save route refuses all of these,
+    // but a `*` rule, a PATCH or a row written straight into the table never
+    // meets it. Still reported, so it is not discovered by reading code.
+    const perActor = !rule.filter_value_source.startsWith('static:');
+    const deny = (reason: string) => {
+      skipped.push({ rule, reason });
+      terms.push(applicable(rule, 'false', perActor));
+    };
     const col = ident(rule.filter_field);
     if (!col) {
-      skipped.push({
-        rule,
-        reason: `field ${JSON.stringify(rule.filter_field)} is not an identifier`,
-      });
+      deny(`field ${JSON.stringify(rule.filter_field)} is not an identifier`);
       continue;
     }
     const pgType = columnTypes[rule.filter_field];
     if (!pgType) {
-      skipped.push({ rule, reason: `column ${rule.filter_field} does not exist on the table` });
+      deny(`column ${rule.filter_field} does not exist on the table`);
       continue;
     }
     if (!CASTABLE.has(pgType)) {
-      skipped.push({
-        rule,
-        reason: `column ${rule.filter_field} is ${pgType}, which this cannot cast a setting into safely`,
-      });
+      deny(
+        `column ${rule.filter_field} is ${pgType}, which this cannot cast a setting into safely`,
+      );
       continue;
     }
-    if (!OPS.has(rule.filter_op)) {
-      skipped.push({
-        rule,
-        reason: `operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`,
-      });
+    if (!isRuleOperator(rule.filter_op)) {
+      deny(`operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`);
       continue;
     }
     const value = valueExpr(rule.filter_value_source, pgType);
     if (!value) continue; // unreachable: unknown sources returned above
 
-    if (!isRuleOperator(rule.filter_op)) {
-      skipped.push({ rule, reason: `operator ${JSON.stringify(rule.filter_op)} is not known` });
-      continue;
-    }
     const opSem = RULE_OPERATORS[rule.filter_op];
-    const isList = opSem.list;
     let condition: string;
-    if (isList) {
+    if (opSem.list) {
       // Only a `static:` source can be a list; the user_* ones are scalars, and
       // a one-element list means the same as `eq`. Exactly what the engine does.
       const items = rule.filter_value_source.startsWith('static:')
@@ -251,11 +255,11 @@ export function buildRowRulePredicate(
       const list = items
         ? items.map((v) => (pgType === 'text' ? lit(v) : `CAST(${lit(v)} AS ${pgType})`)).join(', ')
         : value.sql;
-      if (items && items.length === 0) {
-        skipped.push({ rule, reason: 'the static list is empty' });
-        continue;
-      }
-      condition = `${col} ${opSem.sql} (${list})`;
+      // An empty list means what it means in the engine (rule-operators.ts):
+      // `in []` keeps nothing, `not_in []` keeps every row whose field is present.
+      if (items && keepsNothing(rule.filter_op, items)) condition = 'false';
+      else if (items && keepsEveryPresent(rule.filter_op, items)) condition = `${col} IS NOT NULL`;
+      else condition = `${col} ${opSem.sql} (${list})`;
     } else {
       condition = `${col} ${opSem.sql} ${value.sql}`;
     }
@@ -274,6 +278,24 @@ export function buildRowRulePredicate(
     `(SELECT lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) ` +
     `IN ('on', 'true', '1'))`;
   return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped };
+}
+
+/**
+ * Why a list rule's `static:` list is empty, or `null` when it is not.
+ *
+ * Needs no column types, so the save path asks it even where it cannot ask
+ * `describeRuleProblem` — a `*` rule, or a collection with no table yet.
+ */
+export function emptyStaticList(op: string, source: string): string | null {
+  if (op !== 'in' && op !== 'not_in') return null;
+  if (!source.startsWith('static:')) return null;
+  const items = source
+    .slice('static:'.length)
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (items.length > 0) return null;
+  return 'the list is empty: `in` would hide every row and `not_in` would exclude nothing';
 }
 
 /**
@@ -300,7 +322,7 @@ export function describeRuleProblem(
   if (!CASTABLE.has(pgType)) {
     return `column ${rule.filter_field} is ${pgType}, which a setting cannot be cast into safely`;
   }
-  if (!OPS.has(rule.filter_op)) {
+  if (!isRuleOperator(rule.filter_op)) {
     return `operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`;
   }
 
@@ -313,20 +335,11 @@ export function describeRuleProblem(
   if (!known) return `value source ${JSON.stringify(source)} is not known`;
 
   // An empty list is refused for EVERY column type, not just the strict ones.
-  // The engine turns it into `in ()`, which is a syntax error on every request
-  // to the collection; the generated policy skips the rule, which opens it. One
-  // saved mistake, two opposite failures.
-  if (
-    (rule.filter_op === 'in' || rule.filter_op === 'not_in') &&
-    source.startsWith('static:') &&
-    source
-      .slice('static:'.length)
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean).length === 0
-  ) {
-    return 'the list is empty, which the engine turns into `in ()` and the policy ignores';
-  }
+  // Every applier gives it a meaning now (rule-operators.ts): `in` hides every
+  // row, `not_in` excludes nothing. Neither is what someone typing `static:,`
+  // meant, so it is refused here rather than stored and obeyed.
+  const empty = emptyStaticList(rule.filter_op, source);
+  if (empty) return empty;
 
   const numeric = new Set(['integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real']);
   const strictly = numeric.has(pgType) || pgType === 'uuid' || pgType === 'boolean';
@@ -437,12 +450,12 @@ export async function applyRowRulePolicy(
   }
 
   if (skipped.length > 0) {
-    // Named, not counted. A rule the database cannot express is still enforced
-    // by the engine — but only by the engine, which is the situation this whole
-    // change exists to end, so it must not be discovered by reading code.
+    // Named, not counted. A rule the database cannot express hides every row it
+    // applies to there, which an administrator will see as missing data — so it
+    // must not be discovered by reading code.
     console.warn(
-      `[row-rules] ${collection}: ${skipped.length} rule(s) NOT enforced in the database ` +
-        `(the engine still applies them): ` +
+      `[row-rules] ${collection}: ${skipped.length} rule(s) cannot be expressed in the ` +
+        `database and hide every row they apply to there: ` +
         skipped.map((s) => `${s.rule.filter_field} ${s.rule.filter_op} — ${s.reason}`).join('; '),
     );
   }

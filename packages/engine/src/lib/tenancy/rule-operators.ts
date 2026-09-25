@@ -109,6 +109,25 @@ export function keepsNothing(op: string, value: unknown): boolean {
   return op === 'in' && Array.isArray(value) && value.length === 0;
 }
 
+/**
+ * `not_in` against an empty list excludes nothing — it keeps every row whose
+ * field is PRESENT, in all four appliers.
+ *
+ * Present, not every row: a NULL field drops the row on every operator (see
+ * the header), and "not in nothing" is no exception. The in-memory applier gets
+ * this for free (`droppedForMissingValue`, then `![].some(...)`). SQL has no
+ * `NOT IN ()`, so the SQL appliers read this and emit `IS NOT NULL`.
+ *
+ * Reachable although the save route refuses an empty list: `static:` or
+ * `static:,` splits to `[]`, and a `*` rule, a PATCH or a row written straight
+ * into the table never passes that door. It was `NOT IN ()` on the live table —
+ * a syntax error, so every request to the collection failed — while the matcher
+ * kept the rows and the database policy left the rule out.
+ */
+export function keepsEveryPresent(op: string, value: unknown): boolean {
+  return op === 'not_in' && Array.isArray(value) && value.length === 0;
+}
+
 /** The refusal every applier gives for an operator it cannot express. */
 export function unsupportedOperator(field: string, op: string): Error {
   // Fail CLOSED, and identically in all four. `in` and `not_in` were once

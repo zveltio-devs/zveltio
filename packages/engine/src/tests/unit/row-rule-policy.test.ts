@@ -119,13 +119,20 @@ describe('row rules as a Postgres predicate', () => {
       expect(predicate).toContain(`"created_by" IN (current_setting('zveltio.user_id', true))`);
     });
 
-    it('refuses an empty static list rather than emitting IN ()', () => {
-      const { predicate, skipped } = buildRowRulePredicate(
+    it('reads an empty static list the way the engine does, never as IN ()', () => {
+      // `in []` keeps nothing; `not_in []` excludes nothing, so it keeps every
+      // row whose field is present. Left out, either one stopped binding.
+      const inEmpty = buildRowRulePredicate(
         [rule({ filter_op: 'in', filter_value_source: 'static: , ' })],
         TYPES,
       );
-      expect(predicate).toBeNull();
-      expect(skipped[0]?.reason).toContain('empty');
+      expect(inEmpty.predicate).toContain('((false))');
+      const notInEmpty = buildRowRulePredicate(
+        [rule({ filter_field: 'bucket', filter_op: 'not_in', filter_value_source: 'static:,' })],
+        TYPES,
+      );
+      expect(notInEmpty.predicate).toContain('("bucket" IS NOT NULL)');
+      expect(`${inEmpty.predicate}${notInEmpty.predicate}`).not.toContain('()');
     });
   });
 
@@ -140,12 +147,14 @@ describe('row rules as a Postgres predicate', () => {
       expect(predicate).toContain("CAST('5' AS integer)");
     });
 
-    it('will not generate for a type it cannot cast into', () => {
+    it('hides every row for a type it cannot cast into, and says so', () => {
+      // Left out, the rule did not bind: a RESTRICTIVE policy is the AND of its
+      // terms, and the engine's own query fails on such a rule.
       const { predicate, skipped } = buildRowRulePredicate(
         [rule({ filter_field: 'payload' })],
         TYPES,
       );
-      expect(predicate).toBeNull();
+      expect(predicate).toContain('OR false)');
       expect(skipped[0]?.reason).toContain('jsonb');
     });
 
