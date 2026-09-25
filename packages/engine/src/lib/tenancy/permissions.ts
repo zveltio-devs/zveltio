@@ -3,7 +3,12 @@ import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { problem } from '../problem.js';
-import { getCache, POLICY_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
+import {
+  ACCESS_RULES_CHANGED_EVENT,
+  getCache,
+  POLICY_CHANGED_EVENT,
+  realtimeBus,
+} from '../runtime/index.js';
 import { getCurrentDomain, getCurrentDomainOrNull } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
@@ -1218,6 +1223,25 @@ export function revalidateSockets(): void {
   })().finally(() => {
     _sweep = null;
   });
+}
+
+/**
+ * `revalidateSockets`, here and on every other instance: for a row rule or
+ * column permission change, which lives in the table and the shared cache but
+ * in each instance's open subscriptions too. Call once the change is committed
+ * and the shared caches are dropped — a receiver re-resolves from them at once.
+ */
+export function revalidateSocketsEverywhere(): void {
+  revalidateSockets();
+  realtimeBus()
+    .publish({
+      event: ACCESS_RULES_CHANGED_EVENT,
+      collection: '',
+      timestamp: new Date().toISOString(),
+    })
+    .catch((err: Error) => {
+      console.error('[permissions] could not publish a rule change:', err.message);
+    });
 }
 
 /**
