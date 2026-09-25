@@ -34,16 +34,19 @@ export interface FlowRunResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Resolve user IDs that belong to a Casbin role (ptype='g'). */
-async function getUsersForRole(db: Database, role: string): Promise<string[]> {
-  try {
-    const rows = await sql<{ v0: string }>`
-      SELECT v0 FROM zvd_permissions WHERE ptype = 'g' AND v1 = ${role}
-    `.execute(db);
-    return rows.rows.map((r) => r.v0);
-  } catch {
-    return [];
-  }
+/**
+ * Users holding a Casbin role (ptype='g') in one tenant. `zvd_permissions` is
+ * global and a grant is (user, role, domain), so without the domain predicate a
+ * flow told every holder of the role in every tenant. `*` is every domain, as in
+ * the enforcer's `g` matching function. No catch: a lookup that fails fails the
+ * step — an empty list here was reported as `{ sent: true, count: 0 }`.
+ */
+async function getUsersForRole(db: Database, role: string, tenantId: string): Promise<string[]> {
+  const rows = await sql<{ v0: string }>`
+    SELECT DISTINCT v0 FROM zvd_permissions
+     WHERE ptype = 'g' AND v1 = ${role} AND (v2 = ${tenantId} OR v2 = '*')
+  `.execute(db);
+  return rows.rows.map((r) => r.v0);
 }
 
 /** Replaces {{key.nested}} placeholders from a context object. */
@@ -350,7 +353,7 @@ async function executeStep(
       } as const;
 
       if (cfg.role) {
-        const userIds = await getUsersForRole(db, cfg.role);
+        const userIds = await getUsersForRole(db, cfg.role, flowTenantId);
         if (userIds.length > 0) {
           await sendNotification(db, { ...notifBase, user_id: userIds });
         }
