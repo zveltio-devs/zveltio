@@ -26,7 +26,7 @@ import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
 import { broadcastDataEvent } from '../../routes/realtime.js';
 import { engineEvents } from '../runtime/index.js';
-import { triggerDataFlows } from '../../routes/flows.js';
+import { triggerDataFlows } from '../flows/index.js';
 import { invalidateQueryCache } from './query-cache.js';
 import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields } from './shape.js';
