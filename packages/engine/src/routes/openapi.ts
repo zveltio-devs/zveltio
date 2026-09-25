@@ -1170,7 +1170,8 @@ function buildSpec() {
           description:
             'RFC 9457 problem-details envelope. `code` is a stable machine string. ' +
             'Common codes: `unauthorized`, `forbidden`, `not_found`, `validation_failed`, ' +
-            '`conflict`, `rate_limited`, `internal_error`, `tenant.membership_required`.',
+            '`conflict`, `rate_limited`, `internal_error`, `tenant.membership_required`, ' +
+            '`permission.unavailable` (503: permissions could not be checked; retry after `Retry-After` seconds).',
           properties: {
             type: { type: 'string', description: 'Problem type URI (`about:blank` by default)' },
             title: { type: 'string', description: 'Short human-readable summary' },
