@@ -177,8 +177,13 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           const sessionUser = prefetched?.user;
           let identity: RlsIdentity | undefined;
           if (sessionUser?.id) {
+            // No catch on the roles: the database policy applies a role-keyed
+            // rule only to callers whose list names the role, so an empty list
+            // published for a FAILED lookup stood every such rule down. The
+            // rejection refuses the request instead. The bypass may keep its
+            // `false` — denying the exemption is the restrictive answer.
             const [roles, bypass] = await Promise.all([
-              getUserRoles(sessionUser.id).catch(() => [] as string[]),
+              getUserRoles(sessionUser.id),
               checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
             ]);
             // The role is RESOLVED, not read off the session.
