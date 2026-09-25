@@ -233,9 +233,11 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
   // Casbin alone against the synthetic `apikey:<uuid>` subject.
   if (!wsDb) return false;
   const db = wsDb;
+  // A lookup that throws is left to the caller: the subscribe gate denies, the
+  // sweep keeps the subscription and retries — see `revalidateWsSubscriptions`.
   return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
     checkAccess(db, conn.user, collection, 'read'),
-  ).catch(() => false);
+  );
 }
 
 /**
@@ -245,27 +247,22 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
  */
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
   if (conn.access.has(collection)) return true;
-  // A failed lookup denies the subscription. It used to be caught as `[]` /
-  // `null` — "nothing to filter" — so the socket then received every row and
-  // column the caller's rules hide. The role lookup too: it was caught as
+  // A failed lookup throws; it is never caught here as `[]` / `null`. That
+  // used to read as "nothing to filter", so the socket then received every row
+  // and column the caller's rules hide. The role lookup too: it was caught as
   // `'user'`, a role no rule names, so a `member` rule stopped applying.
-  try {
-    const user = { ...conn.user, role: await resolveUserRole(conn.user) };
-    conn.access.set(collection, {
-      rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-        getRlsFilters(collection, user, conn.authType),
-      ),
-      columns: wsDb
-        ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-            getColumnAccess(wsDb as Database, collection, user.role, user.id),
-          )
-        : null,
-    });
-    return true;
-  } catch (err) {
-    console.error(`[ws] denied subscribe to "${collection}": access lookup failed:`, err);
-    return false;
-  }
+  const user = { ...conn.user, role: await resolveUserRole(conn.user) };
+  conn.access.set(collection, {
+    rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+      getRlsFilters(collection, user, conn.authType),
+    ),
+    columns: wsDb
+      ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+          getColumnAccess(wsDb as Database, collection, user.role, user.id),
+        )
+      : null,
+  });
+  return true;
 }
 
 async function socketMayReadCached(
@@ -289,6 +286,14 @@ async function socketMayReadCached(
   return allowed && (await resolveSocketAccess(conn, collectionName));
 }
 
+/** The subscribe gate: a lookup that throws denies the subscription. */
+function socketMaySubscribe(ws: object, conn: WSConnection, collectionName: string) {
+  return socketMayReadCached(ws, conn, collectionName).catch((err) => {
+    console.error(`[ws] denied subscribe to "${collectionName}": access lookup failed:`, err);
+    return false;
+  });
+}
+
 /**
  * Re-check every open subscription after a policy change, and end the ones the
  * subscriber may no longer read.
@@ -296,16 +301,28 @@ async function socketMayReadCached(
  * The fan-out is synchronous and cannot ask Casbin per event, so without this a
  * revoke reached an open socket only when its client resubscribed: a member
  * whose read on a collection was taken away kept receiving its writes for as
- * long as the socket stayed open. Serialized by the caller, `revalidateSockets`.
+ * long as the socket stayed open.
+ *
+ * A lookup that throws is not a revoke. Dropping the subscription on a
+ * transient error sends the client back to a subscribe gate that, during the
+ * same outage, refuses it — and nothing resubscribes after `forbidden`. So the
+ * subscription stays, the sweep goes on to the other connections, and the
+ * answer `true` ("a lookup failed") makes `revalidateSockets`, which serializes
+ * this, run it again shortly.
  */
-export async function revalidateWsSubscriptions(): Promise<void> {
+export async function revalidateWsSubscriptions(): Promise<boolean> {
+  let failed = false;
   for (const [connId, conn] of [...connections]) {
     const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
     for (const collection of collections) {
-      // A lookup that throws denies, like every other failed lookup here —
-      // and must not end the sweep, or the connections after it keep a
-      // revoked read.
-      const allowed = await socketMayReadCached(conn.ws, conn, collection).catch(() => false);
+      let allowed: boolean;
+      try {
+        allowed = await socketMayReadCached(conn.ws, conn, collection);
+      } catch (err) {
+        console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
+        failed = true;
+        continue;
+      }
       if (allowed) continue;
       const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
       for (const ch of dropped) {
@@ -322,6 +339,7 @@ export async function revalidateWsSubscriptions(): Promise<void> {
       }
     }
   }
+  return failed;
 }
 
 /** Test-only: seed / inspect the in-process WS registries. */
@@ -418,7 +436,7 @@ export const websocketHandler = {
                 continue;
               }
 
-              const canRead = await socketMayReadCached(ws, conn, collectionName);
+              const canRead = await socketMaySubscribe(ws, conn, collectionName);
 
               if (canRead) {
                 conn.subscriptions.add(col);
@@ -440,7 +458,7 @@ export const websocketHandler = {
               break;
             }
             const collectionName = msg.channel.split(':')[0];
-            const canRead = await socketMayReadCached(ws, conn, collectionName);
+            const canRead = await socketMaySubscribe(ws, conn, collectionName);
             if (canRead) {
               conn.subscriptions.add(msg.channel);
               indexSubscription(msg.channel, ws.data.id);

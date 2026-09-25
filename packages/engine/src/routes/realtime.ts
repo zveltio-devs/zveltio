@@ -349,9 +349,6 @@ function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
   });
 }
 
-const SSE_RECHECK_RETRY_MS = 5_000;
-let _recheckRetry: ReturnType<typeof setTimeout> | null = null;
-
 /**
  * Re-check every open SSE stream after a policy change, and end the ones whose
  * subscriber may no longer read what the stream delivers.
@@ -364,10 +361,10 @@ let _recheckRetry: ReturnType<typeof setTimeout> | null = null;
  * A lookup that throws is not a revoke. Ending every stream on a transient
  * error would send each client into a gate that, during the same outage,
  * refuses it — and an `EventSource` does not retry a 403. So the stream stays
- * and the sweep runs again shortly; a revoke still lands once lookups recover.
- * Called by `revalidateSockets`, which serializes it.
+ * and the answer `true` ("a lookup failed") makes `revalidateSockets`, which
+ * serializes this, run it again shortly; a revoke lands once lookups recover.
  */
-export async function revalidateSseStreams(): Promise<void> {
+export async function revalidateSseStreams(): Promise<boolean> {
   let failed = false;
   for (const [userId, subs] of [...connections]) {
     for (const sub of [...subs]) {
@@ -384,13 +381,7 @@ export async function revalidateSseStreams(): Promise<void> {
       if (!allowed) sub.stream.abort();
     }
   }
-  if (failed && !_recheckRetry) {
-    _recheckRetry = setTimeout(() => {
-      _recheckRetry = null;
-      revalidateSockets();
-    }, SSE_RECHECK_RETRY_MS);
-    _recheckRetry.unref?.();
-  }
+  return failed;
 }
 
 /**
