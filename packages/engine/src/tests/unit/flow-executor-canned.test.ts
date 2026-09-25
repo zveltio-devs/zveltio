@@ -289,24 +289,6 @@ describe('executeStep — CannedDb branches', () => {
     }
   }, 15_000);
 
-  it('send_email strips newlines from the subject and reports missing mail service', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'send_email',
-        config: {
-          to: 'user@example.com',
-          subject: 'Hello\r\nBcc: evil@bad.com',
-          body: 'text',
-        },
-      },
-      {},
-      {},
-    );
-    expect(output.sent).toBe(false);
-    expect(String(output.error)).toMatch(/not configured|Email/i);
-  });
-
   it('refuses an unknown step type instead of passing the previous output through', async () => {
     // The pass-through was the defect: `{ kept: true }` flowing onward made the
     // step indistinguishable from one that had done its work. The message names

@@ -78,12 +78,21 @@ describe('CronRunnerImpl start/stop/_tick', () => {
       runner as unknown as { entries: Map<string, { nextRunAt: number; inFlight: boolean }> }
     ).entries;
     const entry = entries.get('ext::future');
-    entry!.nextRunAt = Date.now() + 60_000;
+    // Due, but the previous run has not finished: a slow handler must not
+    // overlap itself. Checked apart from "not yet due", which alone would
+    // keep this test green with the in-flight guard deleted.
+    entry!.nextRunAt = 0;
     entry!.inFlight = true;
-
     (runner as unknown as { db: Database | null }).db = stubDb();
     (runner as unknown as { ctx: unknown }).ctx = {};
     await (runner as unknown as { _tick: () => Promise<void> })._tick();
+    await Bun.sleep(30); // _runOne is dispatched, not awaited
+    expect(calls).toBe(0);
+
+    entry!.nextRunAt = Date.now() + 60_000;
+    entry!.inFlight = false;
+    await (runner as unknown as { _tick: () => Promise<void> })._tick();
+    await Bun.sleep(30); // _runOne is dispatched, not awaited
     expect(calls).toBe(0);
   });
 });
