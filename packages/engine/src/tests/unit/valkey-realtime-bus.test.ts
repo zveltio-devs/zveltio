@@ -8,6 +8,7 @@ import * as wsModule from '../../routes/ws.js';
 type MessageHandler = (channel: string, raw: string) => void;
 
 let messageHandler: MessageHandler | undefined;
+let readyHandler: (() => void) | undefined;
 const publishLog: Array<{ channel: string; payload: string }> = [];
 
 class FakeRedis {
@@ -19,6 +20,7 @@ class FakeRedis {
   async unsubscribe(_channel: string): Promise<void> {}
   on(event: string, handler: MessageHandler): void {
     if (event === 'message') messageHandler = handler;
+    if (event === 'ready') readyHandler = handler as unknown as () => void;
   }
   async publish(channel: string, payload: string): Promise<number> {
     publishLog.push({ channel, payload });
@@ -110,6 +112,26 @@ describe('ValkeyRealtimeBus (mocked ioredis)', () => {
         }),
       );
       expect(spy).toHaveBeenCalledWith('contacts', 'update', { id: 'x' }, 'tenant-a');
+    } finally {
+      spy.mockRestore();
+      await bus.stop();
+    }
+  });
+});
+
+describe('ValkeyRealtimeBus reconnect', () => {
+  // Messages published while the subscriber was away are simply gone, so a
+  // missed revoke would otherwise wait for the next reconcile tick.
+  it('reconciles the policy table when the subscriber comes back', async () => {
+    const tenancy = await import('../../lib/tenancy/index.js');
+    const spy = spyOn(tenancy, 'reconcilePolicies').mockResolvedValue(false);
+    const bus = new ValkeyRealtimeBus('redis://localhost:6379');
+    try {
+      await bus.start();
+      expect(spy).not.toHaveBeenCalled();
+      readyHandler?.();
+      await Bun.sleep(20);
+      expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       spy.mockRestore();
       await bus.stop();

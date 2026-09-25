@@ -87,3 +87,40 @@ describe('PgNotifyRealtimeBus start/stop (mocked Bun.SQL)', () => {
     expect(bus.isRunning).toBe(false);
   });
 });
+
+describe('PgNotifyRealtimeBus reconnect', () => {
+  // A NOTIFY sent while LISTEN was down is never redelivered, so a missed policy
+  // revoke would otherwise wait for the next reconcile tick.
+  it('reconciles the policy table once LISTEN is re-established', async () => {
+    const onClose: Array<() => void> = [];
+    // @ts-expect-error — a subscription that can be closed from the test
+    Bun.SQL = class ClosableSQL {
+      // biome-ignore lint/complexity/noUselessConstructor: types the argument.
+      constructor(_url: string) {}
+      async subscribe(_channel: string, _cb: ListenCallback) {
+        return {
+          unsubscribe: async () => {},
+          on: (event: string, h: () => void) => {
+            if (event === 'close') onClose.push(h);
+          },
+        };
+      }
+    };
+    const tenancy = await import('../../lib/tenancy/index.js');
+    const spy = spyOn(tenancy, 'reconcilePolicies').mockResolvedValue(false);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const bus = new PgNotifyRealtimeBus('postgres://localhost/zveltio_test');
+    try {
+      await bus.start();
+      expect(spy).not.toHaveBeenCalled();
+      onClose[0]!();
+      await Bun.sleep(1_200); // first reconnect is armed at 1 s
+      expect(bus.isRunning).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      await bus.stop();
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+});

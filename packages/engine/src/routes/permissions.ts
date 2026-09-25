@@ -401,7 +401,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 
   // POST /cache/invalidate — Manual cache invalidation
   app.post('/cache/invalidate', async (c) => {
-    await invalidateAllPermissionCaches();
+    await invalidateAllPermissionCaches({ shared: true });
     return c.json({ success: true, message: 'Permission cache invalidated' });
   });
 

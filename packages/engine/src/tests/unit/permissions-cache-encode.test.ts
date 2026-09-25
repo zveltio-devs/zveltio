@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  __cacheNamespace,
   checkPermission,
   getUserRoles,
   initPermissions,
@@ -89,7 +90,7 @@ describe('cache encode without BETTER_AUTH_SECRET', () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `perm:${domain}:u-editor:contacts:read`;
+    const cacheKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:read`;
 
     const saved = process.env.BETTER_AUTH_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
@@ -108,7 +109,7 @@ describe('cache encode without BETTER_AUTH_SECRET', () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
     const domain = DEFAULT_TENANT_ID;
-    const cacheKey = `roles:${domain}:u-editor`;
+    const cacheKey = `roles:${__cacheNamespace()}:${domain}:u-editor`;
 
     const saved = process.env.BETTER_AUTH_SECRET;
     delete process.env.BETTER_AUTH_SECRET;

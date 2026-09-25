@@ -36,6 +36,7 @@ import {
   invalidateAllPermissionCaches,
   isSensitiveResource,
   publishPolicyChange,
+  trackPolicyWrite,
 } from './permissions.js';
 
 /**
@@ -96,9 +97,20 @@ export async function materializeDefaultGrants(
   db: Database,
   resources: readonly string[],
 ): Promise<number> {
+  // Its rows would be announced to every instance and put into this one's
+  // model before they commit — and kept there if the caller rolled back.
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+    throw new Error(
+      'materializeDefaultGrants must run on the pool, not inside a transaction: ' +
+        'it publishes the grants to the other instances as soon as it writes them.',
+    );
+  }
   const targets = [...new Set(resources)].filter((r) => r && !isSensitiveResource(r));
   if (targets.length === 0) return 0;
+  return trackPolicyWrite(() => writeDefaultGrants(db, targets));
+}
 
+async function writeDefaultGrants(db: Database, targets: string[]): Promise<number> {
   let written = 0;
   const rules: string[][] = [];
   for (const resource of targets) {
