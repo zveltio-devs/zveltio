@@ -776,6 +776,15 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {
+  try {
+    return await lookupGod(userId);
+  } catch {
+    return false; // Fail closed — if DB is down, do NOT grant god access
+  }
+}
+
+/** `isGodUser` without the fallback: a failed database read throws. */
+async function lookupGod(userId: string): Promise<boolean> {
   // Checked before the remote cache: the point is to touch neither the pool nor
   // the network while a request holds its tenant transaction.
   const local = _localGod.get(userId);
@@ -808,27 +817,23 @@ export async function isGodUser(userId: string): Promise<boolean> {
   // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
   // followed by a `25P02` on an unrelated request — the guard had become the
   // thing it was added to prevent. See lib/savepoint.ts.
-  try {
-    const result = await sql<{ role: string }>`
-      SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
-    `.execute(_db);
+  const result = await sql<{ role: string }>`
+    SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
+  `.execute(_db);
 
-    const isGod = result.rows[0]?.role === 'god';
-    _localGod.set(userId, { value: isGod, at: Date.now() });
+  const isGod = result.rows[0]?.role === 'god';
+  _localGod.set(userId, { value: isGod, at: Date.now() });
 
-    if (cache) {
-      try {
-        // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
-        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
-      } catch {
-        /* cache unavailable */
-      }
+  if (cache) {
+    try {
+      // SETEX — O(1): write HMAC-signed value + TTL on a single known key.
+      await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeGodCache(userId, isGod));
+    } catch {
+      /* cache unavailable */
     }
-
-    return isGod;
-  } catch {
-    return false; // Fail closed — if DB is down, do NOT grant god access
   }
+
+  return isGod;
 }
 
 /**
@@ -880,9 +885,31 @@ export async function checkPermission(
   // Independent of Casbin — even if ALL policies are deleted,
   // a user with role='god' will ALWAYS have full access.
   const gen = _policyGen;
-  const isGod = await isGodUser(userId);
-  if (isGod) return true;
+  let godLookupError: unknown;
+  try {
+    if (await lookupGod(userId)) return true;
+  } catch (err) {
+    godLookupError = err ?? new Error('god lookup failed');
+  }
+  const allowed = await casbinAllows(userId, resource, action, gen);
+  // A failed god lookup is not "not god". A grant Casbin holds decides alone;
+  // a refusal cannot be told apart from an unreadable god flag, so it THROWS.
+  // Still a refusal to every request-path caller (none reads a throw as yes),
+  // while the realtime sweeps read it as "retry", not as a revoke that ends a
+  // god's streams on a database blip.
+  if (allowed || godLookupError === undefined) return allowed;
+  throw new Error(`[permissions] cannot decide ${action} on "${resource}": god lookup failed`, {
+    cause: godLookupError,
+  });
+}
 
+/** The Casbin half of `checkPermission`: memo, shared cache, resolved set. */
+async function casbinAllows(
+  userId: string,
+  resource: string,
+  action: string,
+  gen: number,
+): Promise<boolean> {
   const domain = getCurrentDomain();
   const cache = getCache();
   // A name no policy mentions cannot change the answer — see `policyObjectIndex`.
@@ -921,9 +948,9 @@ export async function checkPermission(
   if (cache) {
     try {
       // Store HMAC-signed value — prevents privilege escalation via Redis writes.
+      // Not tracked per user: a change bumps the namespace, so this key is never
+      // read again after one and dies by TTL — see `invalidateUserPermCache`.
       await cache.setex(cacheKey, PERMISSION_CACHE_TTL, _encodePermCache(cacheKey, result));
-      await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
-      await cache.expire(`user:perm-keys:${userId}`, PERMISSION_CACHE_TTL + 60);
     } catch {
       /* cache unavailable */
     }
@@ -1083,12 +1110,9 @@ export async function getUserRoles(userId: string): Promise<string[]> {
   // Same rule as `checkPermission`: never file an answer computed across a change.
   if (cache && gen === _policyGen) {
     try {
-      // SETEX  — O(1): write HMAC-signed roles under a single key.
-      // SADD   — O(1): register this key in the per-user tracking Set.
-      // EXPIRE — O(1): keeps the tracking Set TTL aligned with its contents.
+      // SETEX — O(1): HMAC-signed roles under a namespaced key, untracked like
+      // the permission answers.
       await cache.setex(cacheKey, ROLE_CACHE_TTL, _encodeRolesCache(cacheKey, userId, roles));
-      await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
-      await cache.expire(`user:perm-keys:${userId}`, ROLE_CACHE_TTL + 60);
     } catch {
       /* cache unavailable */
     }
@@ -1100,42 +1124,22 @@ export async function getUserRoles(userId: string): Promise<string[]> {
 /**
  * Invalidates all permission and role cache entries for a single user.
  *
- * Design: instead of scanning the keyspace (KEYS or SCAN), every cache write
- * registers its key in a per-user Set (`user:perm-keys:{userId}`).
- * Invalidation then reads only that Set and deletes the listed keys.
- *
- * Complexity breakdown:
- *   SMEMBERS user:perm-keys:{userId}
- *     — O(M) where M = number of distinct (resource, action) pairs ever checked
- *       for this user. M is bounded by the user's own policy surface (typically
- *       single-digit to low tens), not by the total number of keys in Valkey.
- *
- *   DEL key₁ key₂ … keyₘ  roles:{userId}  user:perm-keys:{userId}
- *     — O(M + 2) = O(M): removes M permission keys plus the roles and
- *       tracking-Set keys in a single round-trip.
- *
- *   Total invalidation cost: O(M) — strictly scoped to this user.
- *
- * Comparison with alternatives:
- *   KEYS perm:${userId}:*   — O(N) over the full keyspace; blocks Valkey while
- *                              iterating; prohibited in production.
- *   SCAN cursor MATCH …     — O(N) total across all iterations; non-blocking per
- *                              call but still touches every key slot; unnecessary
- *                              here because we track keys explicitly at write time.
+ * The permission and role answers need no DEL: `clearLocalPermissionCache`
+ * bumps this instance's namespace, so none of its old keys is read again, and
+ * another instance's keys answer from its own model, which only its own bump
+ * (bus or reconcile) moves. They used to be tracked in `user:perm-keys:<id>`
+ * and deleted here, but every change left the set holding dead-namespace keys
+ * and every write refreshed its TTL, so it grew for as long as the user stayed
+ * active. `god:` and `urole:` are not namespaced — they cache the "user" row,
+ * not the model — and are deleted by name. The set itself is deleted in case a
+ * version that still wrote it left one behind.
  */
 export async function invalidateUserPermCache(userId: string): Promise<void> {
   clearLocalPermissionCache(userId);
   const cache = getCache();
   if (cache) {
     try {
-      // O(M) — SMEMBERS returns all members of the per-user tracking Set.
-      //        M is the number of distinct permission checks cached for this user.
-      const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
-
-      // Role keys (roles:${domain}:${userId}) are registered in permKeys via getUserRoles().
-      // god / urole must be cleared on any permission change (TTLs differ from perm cache).
-      const allKeys = [...permKeys, `god:${userId}`, `urole:${userId}`, `user:perm-keys:${userId}`];
-      if (allKeys.length > 0) await cache.del(...allKeys);
+      await cache.del(`god:${userId}`, `urole:${userId}`, `user:perm-keys:${userId}`);
     } catch {
       /* cache unavailable */
     }
@@ -1153,7 +1157,10 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
 let _sweep: Promise<void> | null = null;
 let _sweepAgain = false;
 let _sweepRetry: ReturnType<typeof setTimeout> | null = null;
+/** First retry after a failed sweep; doubles per consecutive failure, capped. */
 const SWEEP_RETRY_MS = 5_000;
+const SWEEP_RETRY_MAX_MS = 60_000;
+let _sweepRetryMs = SWEEP_RETRY_MS;
 
 /**
  * Re-check every open realtime subscription — WebSocket and SSE — against the
@@ -1182,11 +1189,17 @@ export function revalidateSockets(): void {
         () => false, // a routes module unavailable in some unit-test graphs
       );
     } while (_sweepAgain);
-    if (failed && !_sweepRetry) {
+    // An outage that outlasts one retry is not hammered every five seconds for
+    // its whole length: each consecutive failure doubles the wait, up to a
+    // minute, and a clean sweep resets it.
+    if (!failed) _sweepRetryMs = SWEEP_RETRY_MS;
+    else if (!_sweepRetry) {
+      const delay = _sweepRetryMs;
+      _sweepRetryMs = Math.min(delay * 2, SWEEP_RETRY_MAX_MS);
       _sweepRetry = setTimeout(() => {
         _sweepRetry = null;
         revalidateSockets();
-      }, SWEEP_RETRY_MS);
+      }, delay);
       _sweepRetry.unref?.();
     }
   })().finally(() => {
@@ -1536,13 +1549,14 @@ export function reconcilePolicies(): Promise<boolean> {
 const RECONCILE_BASE_MS = 30_000;
 let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function startPolicyReconcile(): void {
+/** `tick` is a test seam; production always runs `reconcilePolicies`. */
+export function startPolicyReconcile(tick: () => Promise<unknown> = reconcilePolicies): void {
   if (_reconcileTimer) return;
   const arm = () => {
     const timer = setTimeout(
       async () => {
         try {
-          await reconcilePolicies();
+          await tick();
         } finally {
           if (_reconcileTimer === timer) arm();
         }
