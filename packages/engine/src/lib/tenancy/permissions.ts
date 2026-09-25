@@ -1152,12 +1152,18 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
 
 let _sweep: Promise<void> | null = null;
 let _sweepAgain = false;
+let _sweepRetry: ReturnType<typeof setTimeout> | null = null;
+const SWEEP_RETRY_MS = 5_000;
 
 /**
  * Re-check every open realtime subscription — WebSocket and SSE — against the
  * policy as it now is. Only after the change is applied, never from the adapter
  * (which runs before the model moves). One sweep at a time; a change during a
  * sweep runs one more. Dynamic imports avoid a tenancy → routes cycle.
+ *
+ * Each door keeps a subscription whose re-check threw (a lookup error is not a
+ * revoke) and says so; then one retry sweep is scheduled, for both doors, so a
+ * revoke still lands once lookups recover.
  */
 export function revalidateSockets(): void {
   if (_sweep) {
@@ -1165,15 +1171,24 @@ export function revalidateSockets(): void {
     return;
   }
   _sweep = (async () => {
+    let failed = false;
     do {
       _sweepAgain = false;
-      await Promise.all([
+      failed = await Promise.all([
         import('../../routes/ws.js').then((m) => m.revalidateWsSubscriptions()),
         import('../../routes/realtime.js').then((m) => m.revalidateSseStreams()),
-      ]).catch(() => {
-        /* a routes module unavailable in some unit-test graphs */
-      });
+      ]).then(
+        (doors) => doors.includes(true),
+        () => false, // a routes module unavailable in some unit-test graphs
+      );
     } while (_sweepAgain);
+    if (failed && !_sweepRetry) {
+      _sweepRetry = setTimeout(() => {
+        _sweepRetry = null;
+        revalidateSockets();
+      }, SWEEP_RETRY_MS);
+      _sweepRetry.unref?.();
+    }
   })().finally(() => {
     _sweep = null;
   });

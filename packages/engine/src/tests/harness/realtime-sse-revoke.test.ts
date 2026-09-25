@@ -15,8 +15,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { invalidateAllPermissionCaches } from '../../lib/tenancy/index.js';
-import { _sseConnectionsForTests, broadcastDataEvent } from '../../routes/realtime.js';
+import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/index.js';
+import {
+  _sseConnectionsForTests,
+  broadcastDataEvent,
+  revalidateSseStreams,
+} from '../../routes/realtime.js';
 import {
   createGodSession,
   createMemberSession,
@@ -110,4 +114,41 @@ d('an open SSE stream after a revoke', () => {
     expect(_sseConnectionsForTests().get(member.userId)?.size).toBe(1);
     await reader.cancel().catch(() => {});
   });
+
+  it('keeps a stream whose re-check throws; the retry lands a revoke', async () => {
+    const { member, reader, delivered, send } = await openStream();
+    const e = await getEnforcer();
+    const open = () => _sseConnectionsForTests().has(member.userId);
+    try {
+      // The policy lookup fails — an outage, not a revoke.
+      e.getPolicy = async () => {
+        throw new Error('policy lookup down');
+      };
+      await invalidateAllPermissionCaches();
+      expect(await revalidateSseStreams()).toBe(true);
+      expect(open()).toBe(true);
+
+      // Revoked during the outage: that sweep fails too and schedules the retry.
+      const res = await app.request('/api/permissions/policies', {
+        method: 'DELETE',
+        headers: { cookie: god, 'content-type': 'application/json' },
+        body: JSON.stringify({ subject: member.userId, resource: COLLECTION, action: 'read' }),
+      });
+      expect(res.status).toBe(200);
+      await Bun.sleep(100);
+      expect(open()).toBe(true);
+
+      // Lookups recover and no further policy change arrives: only the retry
+      // sweep can end the stream now.
+      Reflect.deleteProperty(e, 'getPolicy');
+      for (let i = 0; i < 80 && open(); i++) await Bun.sleep(100);
+      expect(open()).toBe(false);
+      delivered.length = 0;
+      send('after');
+      expect(delivered.join('')).not.toContain('"after"');
+    } finally {
+      Reflect.deleteProperty(e, 'getPolicy');
+      await reader.cancel().catch(() => {});
+    }
+  }, 15_000);
 });
