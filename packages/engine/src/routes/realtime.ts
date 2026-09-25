@@ -490,19 +490,22 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // per subscriber, so it cannot go to the database; and `checkPermission`
     // alone — which is all this route used to do — is one of the three layers
     // the REST path applies.
-    // `email` for a `user_email` row rule, which otherwise matches nothing here.
-    const user = {
+    //
+    // The role is RESOLVED, as the WebSocket and the REST paths resolve it. It
+    // used to be `session.user.role ?? 'user'` — and `session.user.role` is
+    // never populated, so every stream ran as `'user'`, a role nothing is
+    // granted as: a `member` column or row rule never applied here even while
+    // the database was healthy. `email` for a `user_email` row rule.
+    const role = await resolveUserRole({
       id: userId,
-      email: session.user.email,
-      role: (session.user as { role?: string }).role ?? 'user',
-    };
+      role: (session.user as { role?: string }).role,
+    });
+    const user = { id: userId, email: session.user.email, role };
     const access = new Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>();
     const authType = c.get('authType');
-    const role = await resolveUserRole(user).catch(() => 'user');
-    // Not caught: `[]` / `null` mean "nothing to filter", so reading a failed
-    // lookup that way opened a stream delivering every row and column the
-    // caller's rules hide. The stream is refused instead (500), as the REST
-    // list path refuses on the same error.
+    // Not caught, the role lookup included: `[]` / `null` mean "nothing to
+    // filter" and a fallback role escapes the real role's rules, so a failed
+    // lookup is refused (500), as the REST list path refuses on the same error.
     for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
       access.set(col, {
         rls: await getRlsFilters(col, user, authType),

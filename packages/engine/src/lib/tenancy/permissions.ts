@@ -654,8 +654,15 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
  * be overwritten by a lookup that would find nothing.
  *
  * Cached like `isGodUser`, HMAC-signed so a writable cache cannot promote a
- * member, and fails to `'public'` — the least-privileged role — when the
- * database is unreachable.
+ * member. When the database cannot answer, it THROWS.
+ *
+ * It used to answer `'public'` as "the least-privileged role", but there is no
+ * such role here: column rules and row rules are restrictions keyed BY role, so
+ * a rule written for `member` hides a column from members and from nobody
+ * else. A member read as `public` escaped every `member` rule — the fallback
+ * opened exactly what it was meant to close. `isGodUser` can fail to `false`
+ * because god is a grant; a role is not, so a caller that cannot learn it
+ * must refuse, the way the REST data path already does on any lookup error.
  */
 export async function resolveUserRole(user: { id?: string; role?: string }): Promise<string> {
   if (user.role) return user.role;
@@ -686,23 +693,21 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
   // followed by a `25P02` on an unrelated request — the guard had become the
   // thing it was added to prevent. See lib/savepoint.ts.
-  try {
-    const result = await sql<{ role: string }>`
-      SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
-    `.execute(_db);
-    const role = result.rows[0]?.role || 'public';
-    _localRole.set(userId, { value: role, at: Date.now() });
-    if (cache) {
-      try {
-        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(cacheKey, userId, [role]));
-      } catch {
-        /* cache unavailable */
-      }
+  //
+  // Not caught either: see the doc comment — there is no role to fall back to.
+  const result = await sql<{ role: string }>`
+    SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
+  `.execute(_db);
+  const role = result.rows[0]?.role || 'public';
+  _localRole.set(userId, { value: role, at: Date.now() });
+  if (cache) {
+    try {
+      await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(cacheKey, userId, [role]));
+    } catch {
+      /* cache unavailable */
     }
-    return role;
-  } catch {
-    return 'public'; // fail closed — least privilege when the DB is down
   }
+  return role;
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {

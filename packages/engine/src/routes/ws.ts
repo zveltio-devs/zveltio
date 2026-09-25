@@ -241,14 +241,12 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
  */
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
   if (conn.access.has(collection)) return true;
-  const user = {
-    ...conn.user,
-    role: await resolveUserRole(conn.user).catch(() => 'user'),
-  };
   // A failed lookup denies the subscription. It used to be caught as `[]` /
   // `null` — "nothing to filter" — so the socket then received every row and
-  // column the caller's rules hide.
+  // column the caller's rules hide. The role lookup too: it was caught as
+  // `'user'`, a role no rule names, so a `member` rule stopped applying.
   try {
+    const user = { ...conn.user, role: await resolveUserRole(conn.user) };
     conn.access.set(collection, {
       rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
         getRlsFilters(collection, user, conn.authType),
@@ -535,9 +533,14 @@ export function broadcastEvent(
       // the same helpers the REST and SSE paths use. Without them this door
       // delivered rows the API would have filtered and columns it would have
       // stripped.
+      //
+      // No entry means nothing resolved what this socket may see, so it gets
+      // nothing — not everything. Subscribing always resolves one; this is the
+      // backstop for a path that someday does not.
       const access = conn.access.get(collection);
-      if (access && access.rls.length > 0 && !matchesRlsFilters(data, access.rls)) continue;
-      const visible = access?.columns ? applyColumnAccess(data, access.columns) : data;
+      if (!access) continue;
+      if (access.rls.length > 0 && !matchesRlsFilters(data, access.rls)) continue;
+      const visible = access.columns ? applyColumnAccess(data, access.columns) : data;
       const body =
         visible === data
           ? payload
