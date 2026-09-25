@@ -9,6 +9,7 @@ import type { Database } from '../../db/index.js';
 import {
   __cacheNamespace,
   checkPermission,
+  clearLocalPermissionCache,
   getUserRoles,
   initPermissions,
   invalidateGodCache,
@@ -178,20 +179,40 @@ describe('getUserRoles cache', () => {
     });
   });
 
-  it('invalidateUserPermCache clears perm keys, roles, god, and tracking set', async () => {
+  it('invalidateUserPermCache drops god/urole and leaves no stale answer readable', async () => {
     const domain = DEFAULT_TENANT_ID;
-    const permKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:read`;
+    // A stale ALLOW for a pair the model denies, filed under the current namespace.
+    const permKey = `perm:${__cacheNamespace()}:${domain}:u-editor:contacts:delete`;
     const store = new Map<string, string>([
       [permKey, encodePerm(permKey, true)],
-      [`roles:${__cacheNamespace()}:${domain}:u-editor`, encodeRoles('u-editor', ['editor'])],
       ['god:u-editor', encodeGod('u-editor', false)],
+      ['urole:u-editor', 'x'],
+      ['user:perm-keys:u-editor', 'legacy'],
     ]);
-    const cache = makeCache(store);
-    await cache.sadd('user:perm-keys:u-editor', permKey);
-    _setCacheForTests(cache as never);
+    _setCacheForTests(makeCache(store) as never);
+    expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(true);
 
     await invalidateUserPermCache('u-editor');
     expect(store.has('god:u-editor')).toBe(false);
-    expect(store.has(permKey)).toBe(false);
+    expect(store.has('urole:u-editor')).toBe(false);
+    expect(store.has('user:perm-keys:u-editor')).toBe(false);
+    // The namespace moved: the old key is never read again.
+    expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
+  });
+});
+
+describe('per-user tracking set', () => {
+  it('does not collect keys from namespaces the instance has already left', async () => {
+    // Every policy change bumps the namespace, so a key filed under an old one
+    // is never read again. Tracking them only grew `user:perm-keys:<id>` for as
+    // long as the user stayed active, since every write refreshed its TTL.
+    const cache = makeCache();
+    _setCacheForTests(cache as never);
+    for (let i = 0; i < 20; i++) {
+      clearLocalPermissionCache('someone-else'); // any change bumps the namespace
+      expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
+      await runWithDomain(DEFAULT_TENANT_ID, () => getUserRoles('u-editor'));
+    }
+    expect((await cache.smembers('user:perm-keys:u-editor')).length).toBeLessThanOrEqual(2);
   });
 });
