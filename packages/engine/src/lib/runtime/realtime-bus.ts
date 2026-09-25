@@ -46,6 +46,13 @@ export const PG_NOTIFY_PAYLOAD_MAX = 7900;
  */
 export const POLICY_CHANGED_EVENT = 'casbin.policy';
 
+/**
+ * A row rule or column permission changed on another instance. Carries no
+ * rules: the receiver re-resolves its open subscriptions from the table, so a
+ * forged message can only cause a sweep.
+ */
+export const ACCESS_RULES_CHANGED_EVENT = 'access.rules';
+
 // Per-process origin id so we can filter our own echoed messages.
 const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -154,6 +161,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         console.error('[realtime-bus] policy change not applied:', err.message);
       });
   }
+  if (msg.event === ACCESS_RULES_CHANGED_EVENT) {
+    return import('../tenancy/index.js')
+      .then((m) => m.revalidateSockets())
+      .catch((err: Error) => {
+        console.error('[realtime-bus] rule change sweep not started:', err.message);
+      });
+  }
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
@@ -164,11 +178,15 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
 
 /**
  * Messages published while this subscriber was away are gone, so catch up on
- * the policy table rather than wait for the next reconcile tick.
+ * the policy table rather than wait for the next reconcile tick — and re-check
+ * open subscriptions, for a row or column rule change missed meanwhile.
  */
 function onBusReconnected(): void {
   import('../tenancy/index.js')
-    .then((m) => m.reconcilePolicies())
+    .then((m) => {
+      m.revalidateSockets();
+      return m.reconcilePolicies();
+    })
     .catch((err: Error) => {
       console.error('[realtime-bus] policy reconcile after reconnect failed:', err.message);
     });

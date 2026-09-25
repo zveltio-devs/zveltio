@@ -15,7 +15,7 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
-import { checkPermission, getUserRoles, revalidateSockets } from './permissions.js';
+import { checkPermission, getUserRoles, revalidateSocketsEverywhere } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
@@ -170,9 +170,9 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
   if (getCurrentTenantTrx()) {
     onAfterCommit(async () => {
       await dropRlsCaches(collection);
-      revalidateSockets();
+      revalidateSocketsEverywhere();
     });
-  } else revalidateSockets();
+  } else revalidateSocketsEverywhere();
 }
 
 async function dropRlsCaches(collection: string): Promise<void> {

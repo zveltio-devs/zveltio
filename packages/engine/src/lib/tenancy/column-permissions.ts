@@ -1,6 +1,6 @@
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { checkPermission, revalidateSockets } from './permissions.js';
+import { checkPermission, revalidateSocketsEverywhere } from './permissions.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 
@@ -137,9 +137,9 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
   if (getCurrentTenantTrx()) {
     onAfterCommit(async () => {
       await dropColumnPermCaches(collection);
-      revalidateSockets();
+      revalidateSocketsEverywhere();
     });
-  } else revalidateSockets();
+  } else revalidateSocketsEverywhere();
 }
 
 async function dropColumnPermCaches(collection?: string): Promise<void> {
