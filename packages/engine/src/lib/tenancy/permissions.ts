@@ -1150,17 +1150,33 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   revalidateSockets();
 }
 
+let _sweep: Promise<void> | null = null;
+let _sweepAgain = false;
+
 /**
- * Re-check every open WebSocket subscription against the policy as it now is.
- * Only after the change is applied, never from the adapter (which runs before
- * the model moves). Dynamic import avoids a tenancy → routes cycle.
+ * Re-check every open realtime subscription — WebSocket and SSE — against the
+ * policy as it now is. Only after the change is applied, never from the adapter
+ * (which runs before the model moves). One sweep at a time; a change during a
+ * sweep runs one more. Dynamic imports avoid a tenancy → routes cycle.
  */
-function revalidateSockets(): void {
-  import('../../routes/ws.js')
-    .then((m) => m.revalidateWsSubscriptions())
-    .catch(() => {
-      /* ws module unavailable in some unit-test graphs */
-    });
+export function revalidateSockets(): void {
+  if (_sweep) {
+    _sweepAgain = true;
+    return;
+  }
+  _sweep = (async () => {
+    do {
+      _sweepAgain = false;
+      await Promise.all([
+        import('../../routes/ws.js').then((m) => m.revalidateWsSubscriptions()),
+        import('../../routes/realtime.js').then((m) => m.revalidateSseStreams()),
+      ]).catch(() => {
+        /* a routes module unavailable in some unit-test graphs */
+      });
+    } while (_sweepAgain);
+  })().finally(() => {
+    _sweep = null;
+  });
 }
 
 /**
