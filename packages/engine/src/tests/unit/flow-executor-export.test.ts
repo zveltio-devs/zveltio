@@ -1,26 +1,25 @@
 /**
- * export_collection success path — mocks the optional export-manager module;
- * the email goes through the engine's SMTP transport (nodemailer mocked).
+ * export_collection (flow-executor.ts) — CSV export, optionally emailed.
+ *
+ * The step used to hand the rows to `lib/export-manager.js`, a module that has
+ * never existed. Every run reported `{ exported: false, error: 'Export service
+ * not configured' }`, and the tests here mocked the missing module into being.
+ * The step now writes the CSV itself (recordsToCsv), and the email goes through
+ * the engine's SMTP transport — nodemailer is what is mocked.
  */
 
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { _internalForTests as emailInternals } from '../../lib/email.js';
+import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-const exportMock = mock(async () => ({
-  buffer: new Uint8Array([99, 115, 118]),
-  filename: 'contacts-export.csv',
-}));
+const { executeStep } = _internalForTests;
 
-const emailAttachMock = mock(async (_msg: Record<string, unknown>) => ({ messageId: 'm' }));
-
-mock.module('../../lib/export-manager.js', () => ({
-  ExportManager: { export: exportMock },
-}));
+const sendMailMock = mock(async (_msg: Record<string, unknown>) => ({ messageId: 'm' }));
 
 mock.module('nodemailer', () => ({
-  createTransport: () => ({ sendMail: emailAttachMock }),
+  createTransport: () => ({ sendMail: sendMailMock }),
 }));
 
 let savedHost: string | undefined;
@@ -34,118 +33,98 @@ afterAll(() => {
   else process.env.SMTP_HOST = savedHost;
   emailInternals.resetSmtpCacheForTests();
 });
+beforeEach(() => {
+  sendMailMock.mockClear();
+  sendMailMock.mockImplementation(async () => ({ messageId: 'm' }));
+});
 
-const { _internalForTests } = await import('../../lib/flows/flow-executor.js');
-const { executeStep } = _internalForTests;
-
-describe('executeStep — export_collection (mocked ExportManager)', () => {
-  it('exports rows and returns counts when the export service is available', async () => {
-    const db = new CannedDb();
-    db.when(/set_config/i, []);
-    db.when(/from "zvd_contacts"/i, [
-      { id: '1', title: 'One' },
-      { id: '2', title: 'Two' },
-    ]);
-
-    const { output } = await executeStep(
+function run(table: string, rows: Record<string, unknown>[], config: Record<string, unknown>) {
+  const db = new CannedDb();
+  db.when(/set_config/i, []);
+  db.when(new RegExp(`from "${table}"`, 'i'), rows);
+  return {
+    db,
+    result: executeStep(
       db.kysely as unknown as Database,
-      {
-        type: 'export_collection',
-        config: { collection: 'contacts', format: 'csv', limit: 100 },
-      },
+      { type: 'export_collection', config },
       {},
       {},
+    ),
+  };
+}
+
+describe('executeStep — export_collection', () => {
+  it('returns the CSV as the step output when there is no recipient', async () => {
+    const { result } = run(
+      'zvd_contacts',
+      [
+        { id: '1', title: 'One' },
+        { id: '2', title: '=HYPERLINK("http://evil")' },
+      ],
+      { collection: 'contacts' },
     );
+    const { output } = await result;
 
     expect(output.exported).toBe(true);
     expect(output.rows).toBe(2);
-    expect(exportMock).toHaveBeenCalled();
+    expect(output.filename).toBe('contacts.csv');
+    // Header + rows, and a formula-looking cell neutralised for spreadsheets.
+    expect(output.csv).toBe('"id","title"\r\n"1","One"\r\n"2","\'=HYPERLINK(""http://evil"")"');
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 
-  it('emails the export when email_to is configured', async () => {
-    const db = new CannedDb();
-    db.when(/set_config/i, []);
-    db.when(/from "zvd_reports"/i, [{ id: '1', total: 9 }]);
-
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'export_collection',
-        config: {
-          collection: 'reports',
-          format: 'csv',
-          email_to: 'ops@example.com',
-          filename: 'monthly',
-        },
-      },
-      {},
-      {},
-    );
-
-    expect(output.exported).toBe(true);
-    expect(output.sent_to).toBe('ops@example.com');
-    expect(emailAttachMock).toHaveBeenCalled();
+  it('keeps only the configured columns, in their order', async () => {
+    const { result } = run('zvd_contacts', [{ id: '1', title: 'One', secret: 's' }], {
+      collection: 'contacts',
+      columns: ['title', 'id'],
+    });
+    const { output } = await result;
+    expect(output.csv).toBe('"title","id"\r\n"One","1"');
   });
 
-  it('skips email when email_to is set but ExportManager returns no buffer', async () => {
-    emailAttachMock.mockClear();
-    // @ts-expect-error — deliberate missing buffer to hit the non-email branch
-    exportMock.mockImplementationOnce(async () => ({ filename: 'reports-export.csv' }));
-    const db = new CannedDb();
-    db.when(/set_config/i, []);
-    db.when(/from "zvd_reports"/i, [{ id: '1', total: 9 }]);
-
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'export_collection',
-        config: {
-          collection: 'reports',
-          format: 'csv',
-          email_to: 'ops@example.com',
-        },
-      },
-      {},
-      {},
-    );
-
-    expect(output.exported).toBe(true);
+  it('accepts the zvd_ prefix on the collection name', async () => {
+    const { db, result } = run('zvd_contacts', [{ id: 'c1' }], { collection: 'zvd_contacts' });
+    const { output } = await result;
     expect(output.rows).toBe(1);
-    expect(output.sent_to).toBeUndefined();
-    expect(emailAttachMock).not.toHaveBeenCalled();
+    expect(db.executed(/from "zvd_contacts"/i)).toHaveLength(1);
   });
 
-  it('emails an excel export with the xlsx content type', async () => {
-    const db = new CannedDb();
-    db.when(/set_config/i, []);
-    db.when(/from "zvd_reports"/i, [{ id: '1' }]);
+  it('emails the CSV as an attachment when email_to is set', async () => {
+    const { result } = run('zvd_reports', [{ id: '1', total: 9 }], {
+      collection: 'reports',
+      email_to: 'ops@example.com',
+      filename: 'monthly',
+    });
+    const { output } = await result;
 
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'export_collection',
-        config: {
-          collection: 'reports',
-          format: 'excel',
-          email_to: 'finance@example.com',
-          filename: 'q1',
-        },
-      },
-      {},
-      {},
-    );
+    expect(output).toEqual({ exported: true, sent_to: 'ops@example.com', rows: 1 });
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const msg = sendMailMock.mock.calls[0][0] as {
+      to: string;
+      attachments: { filename: string; content: string; contentType: string }[];
+    };
+    expect(msg.to).toBe('ops@example.com');
+    expect(msg.attachments).toEqual([
+      { filename: 'monthly.csv', content: '"id","total"\r\n"1","9"', contentType: 'text/csv' },
+    ]);
+  });
 
-    expect(output.exported).toBe(true);
-    expect(output.sent_to).toBe('finance@example.com');
-    expect(emailAttachMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attachments: [
-          expect.objectContaining({
-            contentType: expect.stringContaining('spreadsheetml'),
-            filename: expect.stringMatching(/\.xlsx$/),
-          }),
-        ],
-      }),
-    );
+  it('fails the step when the email cannot be sent', async () => {
+    sendMailMock.mockImplementation(async () => {
+      throw new Error('550 mailbox unavailable');
+    });
+    const { result } = run('zvd_reports', [{ id: '1' }], {
+      collection: 'reports',
+      email_to: 'ops@example.com',
+    });
+    await expect(result).rejects.toThrow(/550 mailbox unavailable/);
+  });
+
+  it('refuses a format other than csv instead of reporting an export', async () => {
+    const { result } = run('zvd_reports', [{ id: '1' }], {
+      collection: 'reports',
+      format: 'excel',
+    });
+    await expect(result).rejects.toThrow(/format "excel" is not supported/);
   });
 });

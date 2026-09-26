@@ -47,7 +47,7 @@ export const stepSchemas = {
   /** Export rows to CSV/Excel, optionally emailing the file. */
   export_collection: z.object({
     collection: z.string().min(1, 'Collection is required'),
-    format: z.enum(['csv', 'excel']).default('csv'),
+    format: z.enum(['csv']).default('csv'),
     columns: z.array(z.string()).optional(),
     filename: z.string().optional(),
     limit: z.number().int().min(1).max(100_000).optional(),
