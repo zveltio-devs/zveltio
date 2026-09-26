@@ -25,7 +25,8 @@ import Redis from 'ioredis';
 import { initCache } from '../../lib/runtime/index.js';
 import { invalidateGodCache } from '../../lib/tenancy/index.js';
 
-const VALKEY_URL = process.env.VALKEY_URL;
+// CI exports TEST_VALKEY_URL; with VALKEY_URL alone these skipped there.
+const VALKEY_URL = process.env.TEST_VALKEY_URL ?? process.env.VALKEY_URL;
 
 describe.skipIf(!VALKEY_URL)('invalidateGodCache (live Valkey)', () => {
   const probe = new Redis(VALKEY_URL ?? '', { maxRetriesPerRequest: 1, lazyConnect: true });

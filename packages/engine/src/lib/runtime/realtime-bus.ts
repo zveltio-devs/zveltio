@@ -204,6 +204,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
  * open subscriptions, for a row or column rule change missed meanwhile.
  */
 function onBusReconnected(): void {
+  // Rate-limit config changes missed meanwhile: drop every cached limit, so the
+  // next request reads the table instead of waiting out the TTL.
+  import('../../middleware/rate-limit.js')
+    .then((m) => m.clearLocalRateLimitCache())
+    .catch((err: Error) => {
+      console.error('[realtime-bus] rate-limit cache clear after reconnect failed:', err.message);
+    });
   import('../tenancy/index.js')
     .then((m) => {
       m.revalidateSockets();
@@ -484,3 +491,6 @@ export function _resetForTests(): void {
 export const _ORIGIN_ID = ORIGIN_ID;
 
 export { ValkeyRealtimeBus, PgNotifyRealtimeBus, NoopRealtimeBus, dispatchToWs };
+
+/** Test-only export — never import outside src/tests/. */
+export const _internalForTests = { onBusReconnected };

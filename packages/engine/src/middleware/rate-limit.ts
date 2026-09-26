@@ -6,9 +6,9 @@ import { tenantId } from '../lib/route-db.js';
 import { apiKeyActsIn, onAfterCommit } from '../lib/tenancy/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
+/** `config: null` is a cached "no row": most api keys have no `apikey:<id>` override. */
 interface ConfigEntry {
-  windowMs: number;
-  max: number;
+  config: { windowMs: number; max: number } | null;
   ts: number;
 }
 const configCache = new Map<string, ConfigEntry>();
@@ -21,7 +21,7 @@ async function loadConfig(
   if (!db) return null;
   const now = Date.now();
   const cached = configCache.get(keyPrefix);
-  if (cached && now - cached.ts < CONFIG_TTL) return { windowMs: cached.windowMs, max: cached.max };
+  if (cached && now - cached.ts < CONFIG_TTL) return cached.config;
   try {
     const row = await db
       .selectFrom('zv_rate_limit_configs')
@@ -29,12 +29,11 @@ async function loadConfig(
       .where('key_prefix', '=', keyPrefix)
       .where('is_active', '=', true)
       .executeTakeFirst();
-    if (row) {
-      configCache.set(keyPrefix, { windowMs: row.window_ms, max: row.max_requests, ts: now });
-      return { windowMs: row.window_ms, max: row.max_requests };
-    }
+    const config = row ? { windowMs: row.window_ms, max: row.max_requests } : null;
+    configCache.set(keyPrefix, { config, ts: now });
+    return config;
   } catch {
-    /* DB not ready yet — use defaults */
+    /* DB not ready yet — use defaults; not cached, so the next request asks again */
   }
   return null;
 }
