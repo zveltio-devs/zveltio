@@ -298,13 +298,7 @@ All RLS admin endpoints require `admin` role.
 
 ### Rate Limiting
 
-Zveltio includes rate limiting to prevent abuse:
-
-```typescript
-// Default limits
-- API: 100 requests/second
-- Auth endpoints: 5 requests/minute
-```
+Zveltio rate-limits every surface per user, API key or IP (for example `api` 200 requests/minute, `auth` 10/minute), with an optional per-tenant limit on top. The tiers, their defaults and how to tune them are in [Security → Rate Limiting](../platform/security.md#rate-limiting).
 
 ### CORS Configuration
 

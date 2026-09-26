@@ -13,6 +13,7 @@ import type { RequestUser } from '../data.js';
 import {
   invalidateRateLimitCache,
   parseTenantLimitKey,
+  rateLimitDefaults,
   rateLimitTiers,
 } from '../../middleware/rate-limit.js';
 
@@ -129,19 +130,20 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   app.post('/rate-limits/reset', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
-    const defaults = [
-      { key_prefix: 'auth', window_ms: 60000, max_requests: 10 },
-      { key_prefix: 'api', window_ms: 60000, max_requests: 200 },
-      { key_prefix: 'ai', window_ms: 60000, max_requests: 20 },
-      { key_prefix: 'write', window_ms: 60000, max_requests: 60 },
-      { key_prefix: 'ddl', window_ms: 60000, max_requests: 10 },
-      { key_prefix: 'destructive', window_ms: 60000, max_requests: 10 },
-    ];
+    // The limiters' own compiled values. A second list here named six of the
+    // thirteen tiers, so reset left the other seven wherever they had been set.
+    const defaults = rateLimitDefaults();
     for (const d of defaults) {
       await db
-        .updateTable('zv_rate_limit_configs')
-        .set({ window_ms: d.window_ms, max_requests: d.max_requests, updated_at: new Date() })
-        .where('key_prefix', '=', d.key_prefix)
+        .insertInto('zv_rate_limit_configs')
+        .values(d)
+        .onConflict((oc) =>
+          oc.column('key_prefix').doUpdateSet({
+            window_ms: d.window_ms,
+            max_requests: d.max_requests,
+            updated_at: new Date(),
+          }),
+        )
         .execute();
     }
     invalidateRateLimitCache();

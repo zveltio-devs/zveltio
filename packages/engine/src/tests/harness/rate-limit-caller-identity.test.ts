@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { hashApiKey } from '../../lib/security/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -54,7 +54,7 @@ d('rate limit caller identity', () => {
   }
 
   async function newKey(tenantId: string): Promise<{ raw: string; id: string }> {
-    const raw = `zvk_rlid_${STAMP}_${keyNames.length}`;
+    const raw = generateApiKey();
     const name = `rlid-${STAMP}-${keyNames.length}`;
     keyNames.push(name);
     const row = await sql<{ id: string }>`
@@ -160,11 +160,11 @@ d('rate limit caller identity', () => {
 
     const ip = nextIp();
     const seen = [
-      (await hit(ip, { 'x-api-key': `zvk_bogus_${STAMP}_1` })).status,
-      (await hit(ip, { 'x-api-key': `zvk_bogus_${STAMP}_2` })).status,
+      (await hit(ip, { 'x-api-key': generateApiKey() })).status,
+      (await hit(ip, { 'x-api-key': generateApiKey() })).status,
       (await hit(ip, { 'x-api-key': foreign.raw })).status,
       (await hit(ip, { cookie: bogusCookie })).status,
-      (await hit(ip, { 'x-api-key': `zvk_bogus_${STAMP}_3` })).status,
+      (await hit(ip, { 'x-api-key': generateApiKey() })).status,
     ];
     await setApiTier(200);
     expect(seen.slice(0, 3)).not.toContain(429);

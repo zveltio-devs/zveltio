@@ -7,6 +7,18 @@
  * Must be consistent across all call sites — do NOT duplicate this function.
  * Any divergence silently makes keys created at one site unverifiable at another.
  */
+export function generateApiKey(): string {
+  return `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+/**
+ * The shape `generateApiKey` has minted since v1.0.0. Checked before the lookup:
+ * any `zvk_` header otherwise cost a query before a limiter could refuse it.
+ */
+export function isWellFormedApiKey(key: string): boolean {
+  return /^zvk_[0-9a-f]{32}$/.test(key);
+}
+
 export async function hashApiKey(key: string): Promise<string> {
   // `BETTER_AUTH_SECRET` alone. A `?? process.env.SECRET_KEY` fallback sat here
   // and in the two routes below, and it was unreachable in all three: `initAuth()`

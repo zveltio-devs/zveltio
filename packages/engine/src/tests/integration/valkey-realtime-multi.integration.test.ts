@@ -10,7 +10,8 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import Redis from 'ioredis';
 import * as wsModule from '../../routes/ws.js';
 
-const VALKEY_URL = process.env.VALKEY_URL;
+// CI exports TEST_VALKEY_URL; with VALKEY_URL alone these skipped there.
+const VALKEY_URL = process.env.TEST_VALKEY_URL ?? process.env.VALKEY_URL;
 const CHANNEL = 'zveltio:realtime';
 
 describe.skipIf(!VALKEY_URL)('Valkey realtime multi-instance (live)', () => {
