@@ -36,8 +36,10 @@ d('DELETE /api/users/:id with a role name', () => {
     (
       await sql<{ t: string }>`
         SELECT concat_ws(',', ptype, v0, v1, v2, v3) AS t FROM zvd_permissions
-         WHERE v0 = ${ROLE} OR v1 = ${ROLE} ORDER BY 1`.execute(db)
-    ).rows.map((r) => r.t);
+         WHERE v0 = ${ROLE} OR v1 = ${ROLE}`.execute(db)
+    ).rows
+      .map((r) => r.t)
+      .sort(); // in JS: ORDER BY follows the DB collation, and the member id is random
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -57,11 +59,9 @@ d('DELETE /api/users/:id with a role name', () => {
 
   it('answers 404 and leaves the role intact', async () => {
     const before = await rows();
-    expect(before).toEqual([
-      `g,${ROLE},employee,*`,
-      `g,${member},${ROLE},*`,
-      `p,${ROLE},*,${RES},read`,
-    ]);
+    expect(before).toEqual(
+      [`g,${ROLE},employee,*`, `g,${member},${ROLE},*`, `p,${ROLE},*,${RES},read`].sort(),
+    );
 
     const res = await app.request(`/api/users/${ROLE}`, { method: 'DELETE', headers: { cookie } });
 

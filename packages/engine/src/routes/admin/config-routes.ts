@@ -76,37 +76,51 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
         );
       }
 
-      let row = await db
-        .updateTable('zv_rate_limit_configs')
-        .set(updates)
-        .where('key_prefix', '=', keyPrefix)
-        .returningAll()
-        .executeTakeFirst();
-
-      if (!row && isTenantKey) {
-        if (body.window_ms === undefined || body.max_requests === undefined) {
+      // One write either way: an upsert for tenant keys (which may not exist
+      // yet), a plain update for the seeded tier and api-key rows.
+      if (isTenantKey && (body.window_ms === undefined || body.max_requests === undefined)) {
+        const exists = await db
+          .selectFrom('zv_rate_limit_configs')
+          .select('key_prefix')
+          .where('key_prefix', '=', keyPrefix)
+          .executeTakeFirst();
+        if (!exists) {
           return c.json(
             { error: 'window_ms and max_requests are required to create a tenant limit' },
             400,
           );
         }
-        row = await db
-          .insertInto('zv_rate_limit_configs')
-          .values({ key_prefix: keyPrefix, ...updates })
-          .onConflict((oc) => oc.column('key_prefix').doUpdateSet(updates))
-          .returningAll()
-          .executeTakeFirst();
       }
+
+      // The change and its audit row commit together: an unaudited limit
+      // change is exactly what an operator reviewing an incident must not find.
+      const row = await db.transaction().execute(async (trx) => {
+        const written = isTenantKey
+          ? await trx
+              .insertInto('zv_rate_limit_configs')
+              .values({ key_prefix: keyPrefix, ...updates })
+              .onConflict((oc) => oc.column('key_prefix').doUpdateSet(updates))
+              .returningAll()
+              .executeTakeFirst()
+          : await trx
+              .updateTable('zv_rate_limit_configs')
+              .set(updates)
+              .where('key_prefix', '=', keyPrefix)
+              .returningAll()
+              .executeTakeFirst();
+        if (!written) return undefined;
+        await auditLog(trx, {
+          type: 'settings.changed',
+          userId: user.id,
+          resourceId: keyPrefix,
+          resourceType: 'rate_limit',
+          metadata: body,
+        });
+        return written;
+      });
 
       if (!row) return c.json({ error: 'Rate limit config not found' }, 404);
       invalidateRateLimitCache(keyPrefix);
-      await auditLog(db, {
-        type: 'settings.changed',
-        userId: user.id,
-        resourceId: keyPrefix,
-        resourceType: 'rate_limit',
-        metadata: body,
-      });
       return c.json({ rate_limit: row });
     },
   );
