@@ -19,23 +19,25 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
+import { broadcastEvent, websocketHandler } from '../../routes/ws.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `wsauth_${Date.now()}`;
 
+/** Every socket opened here — closed in `afterAll`, see there. */
+const opened: unknown[] = [];
+
 /** A socket that records what the engine sent it. */
 function fakeSocket(id: string) {
   const sent: string[] = [];
-  return {
-    ws: {
-      data: { id, userId: MEMBER.id, tenantId: null, authType: 'session' },
-      send: (p: string) => sent.push(p),
-      close: () => {},
-    },
-    sent,
+  const ws = {
+    data: { id, userId: MEMBER.id, tenantId: null, authType: 'session' },
+    send: (p: string) => sent.push(p),
+    close: () => {},
   };
+  opened.push(ws);
+  return { ws, sent };
 }
 
 /** Filled in `beforeAll`; `fakeSocket` reads it when a socket opens. */
@@ -82,8 +84,9 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
 
   afterAll(async () => {
     if (!db) return;
-    const { connections } = _wsPermCacheForTests();
-    connections.delete('ws_probe');
+    // All of them, through the handler: a socket left open is re-checked by the
+    // sweep every later policy change starts, for the rest of the process.
+    for (const ws of opened.splice(0)) websocketHandler.close(ws);
     await sql
       .raw(`DELETE FROM zvd_rls_policies WHERE collection = '${COLLECTION}'`)
       .execute(db)

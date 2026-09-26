@@ -286,14 +286,19 @@ d('policy changes cross instances', () => {
 
     // The revoke lands while the check is between reading roles and policies —
     // what a replica applying a bus message does to a request in flight.
+    // Only on THIS user's lookup: the patch sees every caller in the process.
     const orig = e.getImplicitRolesForUser.bind(e);
     e.getImplicitRolesForUser = async (...args: Parameters<typeof orig>) => {
       const roles = await orig(...args);
+      if (args[0] !== user) return roles;
       await e.selfRemovePolicy('g', 'g', [user, role, TENANT]);
       clearLocalPermissionCache();
       return roles;
     };
     try {
+      // Someone else's check first — here what a realtime sweep for a socket an
+      // earlier suite left open did in CI. The enforcer is the whole process's.
+      expect(await check(`xi-u8-bystander-${tag}`, res)).toBe(false);
       // Started before the revoke, so allowing it is right — for this request.
       expect(await check(user, res)).toBe(true);
     } finally {

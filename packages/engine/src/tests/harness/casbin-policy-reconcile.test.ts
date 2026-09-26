@@ -130,6 +130,9 @@ d('policy reconcile', () => {
     const orig = live.getImplicitRolesForUser.bind(live);
     live.getImplicitRolesForUser = async (...args: Parameters<typeof orig>) => {
       const roles = await orig(...args);
+      // Only the check under test: a background socket re-check on the shared
+      // enforcer would otherwise fire the tick first (see ws-broadcast-authorisation).
+      if (args[0] !== user) return roles;
       await deleteRow(rule);
       expect(await reconcilePolicies()).toBe(true);
       return roles;
