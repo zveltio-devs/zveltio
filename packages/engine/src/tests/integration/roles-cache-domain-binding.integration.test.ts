@@ -22,7 +22,7 @@ import { sql } from 'kysely';
 import { getTestApp } from '../../testing/app-harness.js';
 import { initCache, getCache } from '../../lib/runtime/index.js';
 import { getEnforcer, getUserRoles, runWithDomain } from '../../lib/tenancy/index.js';
-import { __cacheNamespace } from '../../lib/tenancy/permissions.js';
+import { __cacheNamespace, initPermissions } from '../../lib/tenancy/permissions.js';
 
 // CI exports TEST_VALKEY_URL; with VALKEY_URL alone these skipped there.
 const VALKEY_URL = process.env.TEST_VALKEY_URL ?? process.env.VALKEY_URL;
@@ -30,6 +30,7 @@ const DB_URL = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!VALKEY_URL || !DB_URL)('roles cache is bound to its key', () => {
   let db: any;
+  let savedValkey: string | undefined;
   const probe = new Redis(VALKEY_URL ?? '', { maxRetriesPerRequest: 1, lazyConnect: true });
   const USER = `roles-bind-${crypto.randomUUID()}`;
   const TENANT_A = `tenant-a-${crypto.randomUUID()}`;
@@ -41,10 +42,14 @@ describe.skipIf(!VALKEY_URL || !DB_URL)('roles cache is bound to its key', () =>
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // Other files in this process (permissions, tenant-rbac) bind the global
+    // enforcer to their own connection and destroy it afterwards; rebind it here.
+    await initPermissions(db);
     // The harness deletes VALKEY_URL on purpose, so the realtime bus does not
     // dial a stray one. Put it back afterwards: without a cache `getUserRoles`
     // never writes the entry this test is about, and the test would pass by
     // measuring nothing.
+    savedValkey = process.env.VALKEY_URL;
     process.env.VALKEY_URL = VALKEY_URL;
     if (!getCache()) await initCache();
     expect(getCache()).not.toBeNull();
@@ -56,6 +61,8 @@ describe.skipIf(!VALKEY_URL || !DB_URL)('roles cache is bound to its key', () =>
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${USER}`.execute(db);
     await probe.del(key(TENANT_A), key(TENANT_B));
     probe.disconnect();
+    if (savedValkey === undefined) delete process.env.VALKEY_URL;
+    else process.env.VALKEY_URL = savedValkey;
   });
 
   it("does not accept tenant A's entry under tenant B's key", async () => {

@@ -30,11 +30,18 @@ const VALKEY_URL = process.env.TEST_VALKEY_URL ?? process.env.VALKEY_URL;
 
 describe.skipIf(!VALKEY_URL)('invalidateGodCache (live Valkey)', () => {
   const probe = new Redis(VALKEY_URL ?? '', { maxRetriesPerRequest: 1, lazyConnect: true });
+  let savedValkey: string | undefined;
   afterAll(() => {
     probe.disconnect();
+    if (savedValkey === undefined) delete process.env.VALKEY_URL;
+    else process.env.VALKEY_URL = savedValkey;
   });
 
   it('drops the role key as well as the god flag', async () => {
+    // initCache() reads VALKEY_URL; CI exports only TEST_VALKEY_URL, and without
+    // a cache the invalidation has nothing to delete from.
+    savedValkey = process.env.VALKEY_URL;
+    process.env.VALKEY_URL = VALKEY_URL;
     await initCache();
     const id = `god-cache-probe-${crypto.randomUUID()}`;
 
