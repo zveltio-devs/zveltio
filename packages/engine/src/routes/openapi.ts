@@ -931,10 +931,12 @@ function buildSpec() {
       '/admin/rate-limits': {
         get: {
           tags: ['Admin'],
-          summary: 'List all rate limit tier configs',
+          summary: 'List all rate limit configs — tiers, API-key and tenant limits',
           responses: {
             '200': {
-              description: 'Rate limit configs per tier (auth/api/ai/write/ddl/destructive)',
+              description:
+                '`rate_limits`: every row (tiers, `apikey:<id>`, `tenant:<tier>`, ' +
+                '`tenant:<tier>:<tenantId>`). `tiers`: the tier names a tenant key may use.',
             },
           },
         },
@@ -942,16 +944,18 @@ function buildSpec() {
       '/admin/rate-limits/{keyPrefix}': {
         patch: {
           tags: ['Admin'],
-          summary: 'Update a rate limit tier at runtime — no restart needed',
+          summary: 'Update a rate limit at runtime — no restart needed',
+          description:
+            'A tier (`api`, `write`, …) or an existing row is updated. A per-tenant limit is ' +
+            'created on first PATCH (window_ms and max_requests required): `tenant:<tier>` is ' +
+            'the default for every tenant on that tier, `tenant:<tier>:<tenantId>` overrides ' +
+            'it for one tenant. No active tenant row means no tenant limit. Instance admins only.',
           parameters: [
             {
               name: 'keyPrefix',
               in: 'path',
               required: true,
-              schema: {
-                type: 'string',
-                enum: ['auth', 'api', 'ai', 'write', 'ddl', 'destructive'],
-              },
+              schema: { type: 'string', example: 'tenant:api' },
             },
           ],
           requestBody: {
@@ -960,13 +964,22 @@ function buildSpec() {
               'application/json': {
                 schema: {
                   type: 'object',
-                  properties: { window_ms: { type: 'integer' }, max_requests: { type: 'integer' } },
+                  properties: {
+                    window_ms: { type: 'integer', minimum: 1000, maximum: 3_600_000 },
+                    max_requests: { type: 'integer', minimum: 1, maximum: 100_000 },
+                    is_active: { type: 'boolean' },
+                    description: { type: 'string' },
+                  },
                 },
               },
             },
           },
           responses: {
             '200': { description: 'Updated — takes effect within 60 seconds (config cache TTL)' },
+            '400': {
+              description: 'Malformed tenant key, or a new tenant limit without both numbers',
+            },
+            '404': { description: 'No such tier or row' },
           },
         },
       },

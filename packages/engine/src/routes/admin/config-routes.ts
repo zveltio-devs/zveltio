@@ -10,7 +10,11 @@ import { DDLManager } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
-import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
+import {
+  invalidateRateLimitCache,
+  parseTenantLimitKey,
+  rateLimitTiers,
+} from '../../middleware/rate-limit.js';
 
 /**
  * Admin config routes (rate-limit configs, column-level permissions, SQL editor,
@@ -27,7 +31,8 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .selectAll()
       .orderBy('key_prefix')
       .execute();
-    return c.json({ rate_limits: rows });
+    // `tiers`: what a `tenant:<tier>` key may name.
+    return c.json({ rate_limits: rows, tiers: rateLimitTiers() });
   });
 
   // PATCH /rate-limits/:keyPrefix — update a tier
@@ -44,8 +49,12 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     ),
     async (c) => {
       const user = c.get('user') as RequestUser;
-      const { keyPrefix } = c.req.param() as { keyPrefix: string };
+      const { keyPrefix: rawKey } = c.req.param() as { keyPrefix: string };
       const body = c.req.valid('json');
+      // Tenant ids are stored lowercase; an uppercase copy would be a row no
+      // lookup ever matches.
+      const isTenantKey = rawKey.startsWith('tenant:');
+      const keyPrefix = isTenantKey ? rawKey.toLowerCase() : rawKey;
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const updates: any = { updated_at: new Date(), updated_by: user.id };
@@ -54,12 +63,40 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       if (body.is_active !== undefined) updates.is_active = body.is_active;
       if (body.description !== undefined) updates.description = body.description;
 
-      const row = await db
+      // Tenant limits have no seeded row — absent means off — so PATCH creates
+      // one. The key is validated first: a typo would otherwise create a row no
+      // limiter ever reads, and the operator would believe the limit applies.
+      if (isTenantKey && !parseTenantLimitKey(keyPrefix)) {
+        return c.json(
+          {
+            error: 'Invalid tenant rate limit key',
+            detail: `Expected tenant:<tier> or tenant:<tier>:<tenant uuid>. Tiers: ${rateLimitTiers().join(', ')}`,
+          },
+          400,
+        );
+      }
+
+      let row = await db
         .updateTable('zv_rate_limit_configs')
         .set(updates)
         .where('key_prefix', '=', keyPrefix)
         .returningAll()
         .executeTakeFirst();
+
+      if (!row && isTenantKey) {
+        if (body.window_ms === undefined || body.max_requests === undefined) {
+          return c.json(
+            { error: 'window_ms and max_requests are required to create a tenant limit' },
+            400,
+          );
+        }
+        row = await db
+          .insertInto('zv_rate_limit_configs')
+          .values({ key_prefix: keyPrefix, ...updates })
+          .onConflict((oc) => oc.column('key_prefix').doUpdateSet(updates))
+          .returningAll()
+          .executeTakeFirst();
+      }
 
       if (!row) return c.json({ error: 'Rate limit config not found' }, 404);
       invalidateRateLimitCache(keyPrefix);
