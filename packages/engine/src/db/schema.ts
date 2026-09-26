@@ -68,6 +68,8 @@ export interface UserTable {
   role: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Sign-in blocked (migration 020). NULL and false both mean "may sign in". */
+  banned: boolean | null;
 }
 
 export interface SessionTable {

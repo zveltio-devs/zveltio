@@ -73,6 +73,8 @@ import {
   recordsToCsv,
 } from '../security/index.js';
 import { sendNotification } from '../notifications.js';
+import { deleteUser, revokeUserSessions, setUserActive } from '../users.js';
+import type { UserDeletion } from '../users.js';
 
 /**
  * Internal extension context — extends the public ExtensionContext from the SDK
@@ -384,6 +386,14 @@ export interface ExtensionInternals {
   csvCell: (value: unknown) => string;
   /** Rows → CSV document, using `csvCell` for every cell. */
   recordsToCsv: (records: Record<string, unknown>[]) => string;
+  /** `DELETE /api/users/:id` for an extension — see `lib/users.ts`. `db` is the
+   *  caller's transaction; the privileged pool is the host's. Gated `auth:users`. */
+  deleteUser: (db: unknown, userId: string, who: UserDeletion) => Promise<boolean>;
+  /** End a user's sessions (DB and cache). Gated `auth:users`. */
+  revokeUserSessions: (userId: string) => Promise<void>;
+  /** Block (`false`, and every session revoked) or restore sign-in by every
+   *  method. `db` is the caller's transaction. Gated `auth:users`. */
+  setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
 }
 
 /**
@@ -456,5 +466,10 @@ export function buildExtensionInternals(): ExtensionInternals {
     deriveTokenHash: hmacAuthSecret,
     csvCell,
     recordsToCsv,
+    deleteUser: (db: unknown, userId: string, who: UserDeletion) =>
+      deleteUser(db as Database, getDb(), userId, who),
+    revokeUserSessions: (userId: string) => revokeUserSessions(getDb(), userId),
+    setUserActive: (db: unknown, userId: string, active: boolean) =>
+      setUserActive(db as Database, getDb(), userId, active),
   };
 }
