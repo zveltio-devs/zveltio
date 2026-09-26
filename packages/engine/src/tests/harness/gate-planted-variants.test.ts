@@ -65,10 +65,9 @@ function fakeRoot(gate: string): string {
   const root = join(mkdtempSync(join(tmpdir(), 'e01-gate-')), 'repo');
   mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
   copyFileSync(join(SCRIPTS, gate), join(root, 'scripts', gate));
-  copyFileSync(
-    join(SCRIPTS, 'lib', 'require-sibling.ts'),
-    join(root, 'scripts', 'lib', 'require-sibling.ts'),
-  );
+  for (const lib of ['require-sibling.ts', 'sql-drops.ts']) {
+    copyFileSync(join(SCRIPTS, 'lib', lib), join(root, 'scripts', 'lib', lib));
+  }
   return root;
 }
 
@@ -496,6 +495,43 @@ describe('the migration readers grade the half that runs', () => {
       const { code, out } = await run(r, GATE);
       expect(out).toContain('zz_probe');
       expect(out).toContain('no migration enables row level security');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('check-tenant-boundary forgets a table a later migration drops, not one it recreates', async () => {
+    // It read CREATE TABLE and never DROP TABLE, so 018's `zv_tenant_usage` and
+    // 001's `zv_ddl_jobs` kept demanding entries for tables no install has.
+    const GATE = 'check-tenant-boundary.ts';
+    const r = fakeRoot(GATE);
+    try {
+      mkdirSync(join(r, 'quality-gates'), { recursive: true });
+      writeFileSync(
+        join(r, 'quality-gates', 'tenant-boundary.json'),
+        JSON.stringify({ instance_level: {}, unpoliced: {} }),
+      );
+      const table = (t: string) =>
+        `CREATE TABLE ${t} (\n  id uuid,\n  tenant_id uuid NOT NULL\n);\n`;
+      write(
+        r,
+        'packages/engine/src/db/migrations/sql/001.sql',
+        table('zz_gone') + table('zz_back'),
+      );
+      write(
+        r,
+        'packages/engine/src/db/migrations/sql/002.sql',
+        `DROP TABLE IF EXISTS zz_gone;\nDROP TABLE zz_back;\n${table('zz_back')}`,
+      );
+      mkdirSync(join(r, '..', 'zveltio-extensions', 'probe-ext'), { recursive: true });
+      writeFileSync(
+        join(r, '..', 'zveltio-extensions', 'probe-ext', 'manifest.json'),
+        JSON.stringify({ name: 'probe-ext' }),
+      );
+      const { code, out } = await run(r, GATE);
+      expect(out).not.toContain('zz_gone');
+      expect(out).toContain('zz_back');
       expect(code).toBe(1);
     } finally {
       rmSync(r, { recursive: true, force: true });

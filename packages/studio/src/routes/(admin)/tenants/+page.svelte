@@ -5,7 +5,6 @@ import { api } from '$lib/api.js';
 import {
   Building2,
   RefreshCw,
-  Edit,
   PauseCircle,
   PlayCircle,
   Layers,
@@ -30,18 +29,9 @@ let creating = $state(false);
 let createForm = $state({
   slug: '',
   name: '',
-  plan: 'free',
-  billing_email: '',
   admin_user_email: '',
 });
 let createError = $state('');
-
-// Edit limits modal
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-let editingTenant = $state<any>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-let editForm = $state<any>({});
-let saving = $state(false);
 
 // Environments panel
 let expandedTenant = $state<string | null>(null);
@@ -89,12 +79,10 @@ async function createTenant() {
     await api.post('/api/tenants', {
       slug: createForm.slug,
       name: createForm.name,
-      plan: createForm.plan,
-      billing_email: createForm.billing_email || undefined,
       admin_user_email: createForm.admin_user_email,
     });
     showCreateModal = false;
-    createForm = { slug: '', name: '', plan: 'free', billing_email: '', admin_user_email: '' };
+    createForm = { slug: '', name: '', admin_user_email: '' };
     await loadTenants();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
@@ -126,32 +114,6 @@ async function suspendTenant(tenant: any) {
       }
     },
   };
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function openEditLimits(tenant: any) {
-  editingTenant = tenant;
-  editForm = {
-    max_records: tenant.max_records,
-    max_storage_gb: tenant.max_storage_gb,
-    max_api_calls_day: tenant.max_api_calls_day,
-    max_users: tenant.max_users,
-    plan: tenant.plan,
-  };
-}
-
-async function saveLimits() {
-  saving = true;
-  try {
-    await api.patch(`/api/tenants/${editingTenant.id}`, editForm);
-    editingTenant = null;
-    await loadTenants();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  } catch (e: any) {
-    toast.error(e.message);
-  } finally {
-    saving = false;
-  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -273,14 +235,6 @@ async function createEnvironment() {
     creatingEnv = false;
   }
 }
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-const PLAN_BADGES: Record<string, string> = {
-  free: 'badge-ghost',
-  pro: 'badge-primary',
-  enterprise: 'badge-secondary',
-  custom: 'badge-accent',
-};
 </script>
 
 <CrudListPage
@@ -314,9 +268,6 @@ const PLAN_BADGES: Record<string, string> = {
  <thead>
  <tr>
  <th>{m['tenants.tenant']()}</th>
- <th>{m['tenants.plan']()}</th>
- <th>{m['common.col.records']()}</th>
- <th>{m['tenants.apiCallsToday']()}</th>
  <th>{m['common.col.status']()}</th>
  <th class="text-right">{m['common.actions']()}</th>
  </tr>
@@ -329,19 +280,6 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="font-medium text-sm">{tenant.name}</div>
  <div class="text-xs text-base-content/65 font-mono">{tenant.slug}</div>
  </td>
- <td>
- <span class="badge badge-xs {PLAN_BADGES[tenant.plan] ?? 'badge-ghost'} capitalize">{tenant.plan ?? 'free'}</span>
- </td>
- <td>
- <div class="flex items-center gap-2">
- <div class="w-16 h-1.5 bg-base-200 rounded-full overflow-hidden">
- <div class="h-full bg-primary rounded-full"
-      style="width: {Math.min(((tenant._record_count ?? 0) / (tenant.max_records ?? 10000)) * 100, 100)}%"></div>
- </div>
- <span class="text-xs text-base-content/65">{(tenant._record_count ?? 0).toLocaleString()}</span>
- </div>
- </td>
- <td class="text-xs text-base-content/65">{tenant._api_calls_today?.toLocaleString() ?? '—'}</td>
  <td>
  <span class="badge badge-xs {tenant.status === 'active' ? 'badge-success' : 'badge-error'}">{tenant.status ?? 'active'}</span>
  </td>
@@ -359,15 +297,6 @@ const PLAN_BADGES: Record<string, string> = {
  {:else}
  <ChevronDown size={12} />
  {/if}
- </button>
-
- <!-- Edit limits -->
- <button
- class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 focus-within:opacity-100 tooltip"
- data-tip={m['tenants.editLimitsShort']()}
- onclick={() => openEditLimits(tenant)}
- >
- <Edit size={14} />
  </button>
 
  <!-- Suspend / Reactivate -->
@@ -391,7 +320,7 @@ const PLAN_BADGES: Record<string, string> = {
  <!-- Environments row (expandable) -->
  {#if expandedTenant === tenant.id}
  <tr class="bg-base-200">
- <td colspan="6" class="py-3 px-6">
+ <td colspan="3" class="py-3 px-6">
  <div class="flex items-center justify-between mb-2">
  <span class="text-sm font-semibold opacity-70">{m['tenants.environments']()}</span>
  <button
@@ -553,18 +482,6 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
 
  <div class="form-control">
- <label class="label" for="tenant-plan">
- <span class="label-text">{m['tenants.plan']()}</span>
- </label>
- <select id="tenant-plan" class="select" bind:value={createForm.plan}>
- <option value="free">{m['tenants.planFree']()}</option>
- <option value="pro">{m['tenants.planPro']()}</option>
- <option value="enterprise">{m['tenants.planEnterprise']()}</option>
- <option value="custom">{m['tenants.planCustom']()}</option>
- </select>
- </div>
-
- <div class="form-control">
  <label class="label" for="tenant-admin-email">
  <span class="label-text">{m['tenants.adminEmail']()} <span class="text-error">*</span></span>
  <span class="label-text-alt opacity-60">{m['tenants.mustExist']()}</span>
@@ -578,19 +495,6 @@ const PLAN_BADGES: Record<string, string> = {
  />
  </div>
 
- <div class="form-control">
- <label class="label" for="tenant-billing-email">
- <span class="label-text">{m['tenants.billingEmail']()}</span>
- <span class="label-text-alt opacity-60">{m['common.optional']()}</span>
- </label>
- <input
- id="tenant-billing-email"
- type="email"
- class="input"
- placeholder="billing@mycompany.com"
- bind:value={createForm.billing_email}
- />
- </div>
  </div>
 
  <div class="modal-action">
@@ -616,103 +520,6 @@ const PLAN_BADGES: Record<string, string> = {
  aria-label={m['common.close']()}
  onclick={() => (showCreateModal = false)}
  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') showCreateModal = false; }}
- ></div>
- </div>
-{/if}
-
-<!-- ── Edit Limits Modal ───────────────────────────────────────────────────── -->
-{#if editingTenant}
- <div class="modal modal-open">
- <div class="modal-box max-w-md">
- <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">{m['tenants.editLimits']({ name: editingTenant.name })}</h3>
- <button class="btn btn-ghost btn-sm btn-circle" onclick={() => (editingTenant = null)}>
- <X size={16} />
- </button>
- </div>
-
- <div class="space-y-3">
- <div class="form-control">
- <label class="label" for="edit-plan">
- <span class="label-text">{m['tenants.plan']()}</span>
- </label>
- <select id="edit-plan" class="select" bind:value={editForm.plan}>
- <option value="free">{m['tenants.planFree']()}</option>
- <option value="pro">{m['tenants.planPro']()}</option>
- <option value="enterprise">{m['tenants.planEnterprise']()}</option>
- <option value="custom">{m['tenants.planCustom']()}</option>
- </select>
- </div>
-
- <div class="form-control">
- <label class="label" for="edit-max-records">
- <span class="label-text">{m['tenants.maxRecords']()}</span>
- </label>
- <input
- id="edit-max-records"
- type="number"
- class="input"
- bind:value={editForm.max_records}
- />
- </div>
-
- <div class="form-control">
- <label class="label" for="edit-max-storage">
- <span class="label-text">{m['tenants.maxStorage']()}</span>
- </label>
- <input
- id="edit-max-storage"
- type="number"
- step="0.1"
- class="input"
- bind:value={editForm.max_storage_gb}
- />
- </div>
-
- <div class="form-control">
- <label class="label" for="edit-max-api">
- <span class="label-text">{m['tenants.maxApiCalls']()}</span>
- </label>
- <input
- id="edit-max-api"
- type="number"
- class="input"
- bind:value={editForm.max_api_calls_day}
- />
- </div>
-
- <div class="form-control">
- <label class="label" for="edit-max-users">
- <span class="label-text">{m['tenants.maxUsers']()}</span>
- </label>
- <input
- id="edit-max-users"
- type="number"
- class="input"
- bind:value={editForm.max_users}
- />
- </div>
- </div>
-
- <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (editingTenant = null)}>{m['common.cancel']()}</button>
- <button class="btn btn-primary gap-2" onclick={saveLimits} disabled={saving}>
- {#if saving}
- <span class="loading loading-spinner loading-sm"></span>
- {:else}
- <Check size={16} />
- {/if}
- {m['common.save']()}
- </button>
- </div>
- </div>
- <div
- class="modal-backdrop"
- role="button"
- tabindex="0"
- aria-label={m['common.close']()}
- onclick={() => (editingTenant = null)}
- onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') editingTenant = null; }}
  ></div>
  </div>
 {/if}

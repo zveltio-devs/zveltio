@@ -32,6 +32,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { droppedColumns, droppedTables } from './lib/sql-drops.js';
 
 const ROOT = process.cwd();
 const EXT_ROOT = process.env.EXTENSIONS_ROOT ?? join(ROOT, '..', 'zveltio-extensions');
@@ -248,6 +249,9 @@ function parseSqlMigration(filePath: string, inventory: Map<string, TableInfo>):
     const c = t.columns.get(m[2].toLowerCase());
     if (c) c.notNull = false;
   }
+
+  for (const t of droppedTables(upSection)) inventory.delete(t.toLowerCase());
+  for (const [t, c] of droppedColumns(upSection)) inventory.get(t.toLowerCase())?.columns.delete(c);
 }
 
 function parseColumns(body: string): ColumnInfo[] {
@@ -566,6 +570,10 @@ function scanTsFile(file: string): CodeReference[] {
   };
 
   for (const m of src.matchAll(tableRe)) {
+    // A call quoted in a comment is history, not a reference: `ai`'s engine.ts
+    // documents the `insertInto('zv_ddl_jobs')` it stopped making, and 001
+    // drops that table.
+    if (/^\s*(\*|\/\/|\/\*)/.test(lines[lineOf(m.index ?? 0) - 1] ?? '')) continue;
     refs.push({
       table: m[1], // case preserved; PG lowercase tables are stored lowercase but `user` etc. stay as-is
       file,

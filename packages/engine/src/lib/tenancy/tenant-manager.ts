@@ -37,12 +37,7 @@ export interface Tenant {
   id: string;
   slug: string;
   name: string;
-  plan: string;
   status: string;
-  max_records: number;
-  max_storage_gb: number;
-  max_api_calls_day: number;
-  max_users: number;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   settings: Record<string, any>;
 }
@@ -74,12 +69,7 @@ const DEFAULT_TENANT: Tenant = {
   id: DEFAULT_TENANT_ID,
   slug: DEFAULT_TENANT_SLUG,
   name: 'Default',
-  plan: 'enterprise',
   status: 'active',
-  max_records: 2147483647,
-  max_storage_gb: 999999,
-  max_api_calls_day: 2147483647,
-  max_users: 2147483647,
   settings: {},
 };
 
@@ -489,8 +479,7 @@ export async function warnIfDbRoleBypassesRls(
 
 // ── Tenant cache HMAC signing ────────────────────────────────────────────────
 // Protects cached tenant data against tampering by an attacker with Valkey
-// write access (e.g. raising max_records, changing plan, activating a banned
-// tenant). Pattern mirrors the god-role cache in permissions.ts.
+// write access (e.g. activating a banned tenant). Pattern mirrors the god-role cache in permissions.ts.
 function _tenantHmac(key: string, value: string): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret) {
@@ -787,12 +776,7 @@ export async function resolveTenantFromRequest(
       id: envTenantId,
       slug: envTenantId,
       name: process.env.ZVELTIO_TENANT_NAME || 'Default',
-      plan: 'enterprise',
       status: 'active',
-      max_records: 2147483647,
-      max_storage_gb: 999999,
-      max_api_calls_day: 2147483647,
-      max_users: 2147483647,
       settings: {},
     };
   }

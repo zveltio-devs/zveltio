@@ -6,9 +6,9 @@
  * were incomplete in the same way: `get`, `setex`, `sadd`, `expire` and nothing
  * else. `_setCacheForTests` installs it into the GLOBAL cache singleton, so
  * every cache-backed middleware in the request chain met it — not just the query
- * cache the suites were about. `tenantQuota` calls `cache.set(k, v, 'EX', 300)`
- * and `cache.incr(k)`, got `undefined is not a function`, and was swallowed by
- * its own fail-open handler:
+ * cache the suites were about. The tenant quota middleware (since removed)
+ * called `cache.set(k, v, 'EX', 300)` and `cache.incr(k)`, got `undefined is
+ * not a function`, and was swallowed by its own fail-open handler:
  *
  *     [tenant-quota] middleware error (fail-open): cache.set is not a function
  *

@@ -56,7 +56,6 @@ import {
   filesRateLimit,
   initRateLimitDb,
 } from '../middleware/rate-limit.js';
-import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
 import { godAuditMiddleware } from '../middleware/god-audit.js';
 import { requestLogMiddleware } from '../middleware/request-log.js';
@@ -282,9 +281,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.on(['DELETE'], '/api/collections/*', destructiveRateLimit);
   app.on(['DELETE'], '/api/data/*', destructiveRateLimit);
   app.use('/api/*', apiRateLimit);
-
-  // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
-  app.use('/api/*', tenantQuota(db, poolDb));
 
   // ── God-role audit trail — logs all actions by users with role='god' ──────
   app.use('/api/*', godAuditMiddleware(poolDb));

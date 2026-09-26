@@ -43,8 +43,6 @@ const CreateTenantSchema = z.object({
     .max(50)
     .regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(200),
-  plan: z.enum(['free', 'pro', 'enterprise', 'custom']).default('free'),
-  billing_email: z.string().email().optional(),
   admin_user_email: z.string().email(),
 });
 
@@ -142,12 +140,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       db.transaction().execute(async (trx) => {
         const tenant = await trx
           .insertInto('zv_tenants')
-          .values({
-            slug: data.slug,
-            name: data.name,
-            plan: data.plan,
-            billing_email: data.billing_email || null,
-          })
+          .values({ slug: data.slug, name: data.name })
           .returningAll()
           .executeTakeFirst();
         if (!tenant) return null;
@@ -248,17 +241,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     }
 
     const body = await c.req.json();
-    const allowed = [
-      'name',
-      'plan',
-      'status',
-      'max_records',
-      'max_storage_gb',
-      'max_api_calls_day',
-      'max_users',
-      'billing_email',
-      'settings',
-    ];
+    const allowed = ['name', 'status', 'settings'];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const updateData: Record<string, any> = { updated_at: new Date() };
     for (const key of allowed) {
@@ -291,26 +274,6 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     });
 
     return c.json({ tenant: updated });
-  });
-
-  // GET /api/tenants/:id/usage — usage stats (last 30 days)
-  router.get('/:id/usage', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const user = (c as any).get('user');
-    const id = c.req.param('id');
-    if (!(await requireInstanceAdmin(user.id))) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
-
-    const usage = await db
-      .selectFrom('zv_tenant_usage')
-      .selectAll()
-      .where('tenant_id', '=', id)
-      .orderBy('date', 'desc')
-      .limit(30)
-      .execute();
-
-    return c.json({ usage });
   });
 
   // GET /api/tenants/:id/environments — list environments

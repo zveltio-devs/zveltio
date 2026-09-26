@@ -17,6 +17,7 @@ import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
+import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
 
 /**
  * Admin system + monitoring routes (status, migrate, schema, onboarding,
@@ -639,9 +640,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // GET /stats — aggregate stats for the dashboard
   app.get('/stats', async (c) => {
-    // Three of these four counts named tables that do not exist —
-    // `zv_collections`, `zv_webhooks` and `zv_tenant_quota`, where the schema
-    // has `zvd_collections`, `zvd_webhooks` and `zv_tenant_usage`. Each failure
+    // Three of these four counts named tables that did not exist —
+    // `zv_collections`, `zv_webhooks` and `zv_tenant_quota`. Each failure
     // was swallowed by the `.catch(() => 0)` below, so the dashboard reported
     // zero collections, zero active webhooks and zero API calls on an instance
     // that had all three, and looked like an empty install rather than a broken
@@ -687,13 +687,17 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         WHERE created_at >= NOW() - INTERVAL '24 hours'
       `.execute(db),
       ),
-      counted(
-        'api_calls',
-        sql<{ count: string }>`
-        SELECT COALESCE(SUM(api_calls), 0) AS count FROM zv_tenant_usage
-        WHERE date = CURRENT_DATE
+      // From the request log, which records every /api/* call except auth,
+      // health and metrics. When it samples successes the count is a fraction
+      // of the traffic, so it is reported as unknown rather than as a number.
+      REQUEST_LOG_SAMPLE_RATE < 1
+        ? null
+        : counted(
+            'api_calls',
+            sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zv_request_logs WHERE created_at >= CURRENT_DATE
       `.execute(db),
-      ),
+          ),
     ]);
 
     return c.json({

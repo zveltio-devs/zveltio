@@ -48,7 +48,6 @@ d('tenants routes (in-process)', () => {
       body: JSON.stringify({
         slug,
         name: 'Harness Tenant',
-        plan: 'free',
         admin_user_email: admin?.email ?? 'admin@test.local',
       }),
     });

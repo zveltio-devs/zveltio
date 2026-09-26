@@ -39,7 +39,6 @@ d('creating a company requires its administrator', () => {
       body: JSON.stringify({
         slug,
         name: 'Ghost Co',
-        plan: 'free',
         admin_user_email: `nobody-${STAMP}@example.com`,
       }),
     });
@@ -73,7 +72,7 @@ d('creating a company requires its administrator', () => {
     const res = await app.request('/api/tenants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ slug, name: 'Real Co', plan: 'free', admin_user_email: email }),
+      body: JSON.stringify({ slug, name: 'Real Co', admin_user_email: email }),
     });
     expect([200, 201]).toContain(res.status);
 

@@ -75,7 +75,6 @@ d('tenants lifecycle (in-process)', () => {
       json('POST', {
         slug: SLUG,
         name: 'Harness Tenant',
-        plan: 'free',
         admin_user_email: adminEmail,
       }),
     );
@@ -107,13 +106,8 @@ d('tenants lifecycle (in-process)', () => {
   it('patches a tenant (PATCH /:id)', async () => {
     const res = await app.request(
       `/api/tenants/${tenantId}`,
-      json('PATCH', { name: 'Renamed Tenant', plan: 'pro' }),
+      json('PATCH', { name: 'Renamed Tenant' }),
     );
-    expect(res.status).toBe(200);
-  });
-
-  it('reports usage (GET /:id/usage)', async () => {
-    const res = await app.request(`/api/tenants/${tenantId}/usage`, { headers: { cookie } });
     expect(res.status).toBe(200);
   });
 

@@ -236,16 +236,7 @@ export interface ZvTenantsTable {
   id: Generated<string>;
   slug: string;
   name: string;
-  // All quota/status columns have DEFAULTs in the migration so callers can
-  // INSERT a tenant with just slug+name.
-  plan: Generated<'free' | 'pro' | 'enterprise' | 'custom'>;
   status: Generated<'active' | 'suspended' | 'deleted'>;
-  max_records: Generated<number>;
-  max_storage_gb: PgNumericGenerated; // NUMERIC — read as string
-  max_api_calls_day: Generated<number>;
-  max_users: Generated<number>;
-  billing_email: string | null;
-  trial_ends_at: Date | null;
   settings: Generated<unknown>; // JSONB DEFAULT '{}'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -289,15 +280,6 @@ export interface ZvTenantTransfersTable {
   moved_at: Generated<Date>;
   moved_by: string | null;
   reason: string | null;
-}
-
-export interface ZvTenantUsageTable {
-  id: Generated<string>;
-  tenant_id: string;
-  date: Generated<Date>; // DEFAULT CURRENT_DATE
-  api_calls: Generated<number>; // DEFAULT 0
-  storage_bytes: PgNumericGenerated; // BIGINT DEFAULT 0 — read as string
-  record_count: Generated<number>; // DEFAULT 0
 }
 
 export interface ZvEnvironmentsTable {
@@ -1423,7 +1405,6 @@ export interface DbSchema {
   zv_invitations: ZvInvitationsTable;
   zv_tenants: ZvTenantsTable;
   zv_tenant_users: ZvTenantUsersTable;
-  zv_tenant_usage: ZvTenantUsageTable;
   zv_tenant_transfers: ZvTenantTransfersTable;
   zv_environments: ZvEnvironmentsTable;
   zv_flows: ZvFlowsTable;
