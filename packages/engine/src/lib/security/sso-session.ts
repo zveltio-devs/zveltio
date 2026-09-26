@@ -26,6 +26,23 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 
+export const SIGN_IN_BLOCKED = 'This account is disabled.';
+
+/**
+ * Whether `userId` may not sign in (`"user".banned`, set by `setUserActive` in
+ * `lib/users.ts`). Asked wherever a session is created: better-auth's
+ * `session.create.before` hook (password, magic link, passkey, OAuth,
+ * two-factor) and `createBetterAuthSession` below, which inserts its row itself
+ * and so never reaches that hook. Kept here, free of imports, because the worker
+ * runtime inlines this file.
+ */
+export async function isSignInBlocked(db: Database, userId: string): Promise<boolean> {
+  const r = await sql<{ banned: boolean | null }>`
+    SELECT banned FROM "user" WHERE id = ${userId}
+  `.execute(db);
+  return r.rows[0]?.banned === true;
+}
+
 export interface CreateSsoSessionOptions {
   ipAddress?: string;
   userAgent?: string;
@@ -80,6 +97,9 @@ export async function createBetterAuthSession(
   if (!secret) {
     throw new Error('[sso-session] BETTER_AUTH_SECRET is not set — cannot sign session cookie.');
   }
+  // This insert bypasses better-auth, and so its session hook: the one other
+  // place a deactivated user has to be refused.
+  if (await isSignInBlocked(db, userId)) throw new Error(SIGN_IN_BLOCKED);
 
   const token = generateSessionToken();
   const ttl = opts.ttlSeconds ?? DEFAULT_TTL_SECONDS;

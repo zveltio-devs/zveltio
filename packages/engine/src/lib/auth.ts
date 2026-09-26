@@ -496,6 +496,38 @@ export async function initAuth(db: Database) {
           },
         },
       },
+      // Every sign-in method ends here — password, magic link, passkey, OAuth,
+      // two-factor — so a deactivated user is refused by all of them at once.
+      //
+      // Fails CLOSED. better-auth awaits this before writing the session and
+      // catches nothing around it (`createWithHooks`, db/with-hooks), so any
+      // throw means no session. A failed lookup is still turned into the same
+      // FORBIDDEN rather than left as a raw error: that is one refusal every
+      // plugin handles, not a 500 some callback may treat differently.
+      session: {
+        create: {
+          before: async (session: { userId: string }) => {
+            const { isSignInBlocked, SIGN_IN_BLOCKED } = await import('./security/index.js');
+            let blocked: boolean;
+            try {
+              blocked = await isSignInBlocked(db, session.userId);
+            } catch (err) {
+              console.error('[auth] sign-in block lookup failed; refusing the session:', err);
+              throw new APIError('FORBIDDEN', {
+                code: 'sign_in_check_failed',
+                message: 'Sign-in is temporarily unavailable.',
+              });
+            }
+            if (blocked) {
+              throw new APIError('FORBIDDEN', {
+                code: 'account_disabled',
+                message: SIGN_IN_BLOCKED,
+              });
+            }
+            return { data: session };
+          },
+        },
+      },
     },
 
     emailAndPassword: {
@@ -729,6 +761,11 @@ export const _internalForTests = {
   },
   setAuthDbForTests(db: Database | null) {
     _authDb = db;
+  },
+  /** Put back the instance a test replaced with its own `initAuth` — suites
+   *  that follow patch `getAuth()` and must reach the app's instance. */
+  setAuthForTests(auth: typeof _auth) {
+    _auth = auth;
   },
   sendEmailForTests: sendEmail,
   hashPassword,

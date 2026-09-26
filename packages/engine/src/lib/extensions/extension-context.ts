@@ -32,6 +32,7 @@
 
 import type { Database } from '../../db/index.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
+import { withSavepoint } from '../savepoint.js';
 
 // All Kysely query-builder entry points that accept a table name as first arg.
 const QUERY_METHODS = [
@@ -380,6 +381,9 @@ function restrictQueryEntry<T extends object>(
   }) as T;
 }
 
+/** Savepoint names for joined extension transactions; unique so nesting is plain. */
+let savepointSeq = 0;
+
 export function createRestrictedDb(
   dbOrResolver: Database | (() => Database),
   extName: string,
@@ -418,12 +422,26 @@ export function createRestrictedDb(
       //
       // Joining is also the correct semantics: the extension's work commits
       // with the request that triggered it.
+      //
+      // But inside a SAVEPOINT, so a throw still undoes the block. A plain join
+      // did not: the handler's error became a 500 response, the request's
+      // transaction committed normally, and every write before the throw stayed.
+      // Measured on SCIM: a PatchOp renaming the god and deactivating them was
+      // refused, and the rename and the "inactive" flag were both kept.
       if (prop === 'transaction' && isTenantTransaction(target)) {
         return () => {
           const builder = {
             setIsolationLevel: () => builder,
             setAccessMode: () => builder,
-            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> => fn(target),
+            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> =>
+              withSavepoint(
+                target,
+                `zv_ext_trx_${++savepointSeq}`,
+                () => fn(target),
+                (err) => {
+                  throw err;
+                },
+              ),
           };
           return builder;
         };

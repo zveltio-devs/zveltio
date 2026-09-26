@@ -319,6 +319,7 @@ table twoFactor
   rls enabled
 
 table user
+  col banned                         boolean
   col createdAt                      timestamp with time zone NOT NULL DEFAULT now()
   col email                          text NOT NULL
   col emailVerified                  boolean NOT NULL DEFAULT false

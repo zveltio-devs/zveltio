@@ -32,6 +32,7 @@ import m015 from './sql/016_default_tenant_unlimited.sql' with { type: 'text' };
 import m016 from './sql/017_prune_deleted_user_grants.sql' with { type: 'text' };
 import m017 from './sql/018_drop_tenant_plans_and_quota.sql' with { type: 'text' };
 import m018 from './sql/019_seed_untuned_rate_limit_tiers.sql' with { type: 'text' };
+import m019 from './sql/020_user_sign_in_block.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -54,4 +55,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '017_prune_deleted_user_grants.sql': m016,
   '018_drop_tenant_plans_and_quota.sql': m017,
   '019_seed_untuned_rate_limit_tiers.sql': m018,
+  '020_user_sign_in_block.sql': m019,
 };
