@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { hashApiKey } from '../../lib/security/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -24,8 +24,8 @@ const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000fe';
 const ROOT_TENANT = '00000000-0000-0000-0000-000000000001';
 const STAMP = Date.now();
-const FOREIGN_KEY = `zvk_foreign_${STAMP}`;
-const ROOT_KEY = `zvk_root_${STAMP}`;
+const FOREIGN_KEY = generateApiKey();
+const ROOT_KEY = generateApiKey();
 const FN_ID = '00000000-0000-4000-8000-0000000000eb';
 const FN_NAME = `key-tenant-fn-${STAMP}`;
 

@@ -8,7 +8,7 @@ import { toJsonb } from '../../lib/jsonb.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
 import { escapeLike } from '../../lib/data/index.js';
-import { hashApiKey } from '../../lib/security/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -136,7 +136,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       const { name, scopes, rate_limit, expires_at } = c.req.valid('json');
 
       // Generate key
-      const rawKey = `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
+      const rawKey = generateApiKey();
       const prefix = rawKey.substring(0, 12);
 
       // Security: HMAC-SHA256 with the auth secret as a salt.

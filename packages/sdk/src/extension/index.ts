@@ -662,6 +662,39 @@ export interface ExtensionInternals<DB = unknown> {
    * legacy unencrypted rows still work during a rolling encryption rollout.
    */
   decryptSecret: (value: string) => Promise<string>;
+  /**
+   * Delete a user exactly as `DELETE /api/users/:id` does: revoke their
+   * sessions (database AND cache), drop their grants, delete the row and audit
+   * `user.deleted` with `who`. `db` is the handle the row delete and the audit
+   * row run on — pass your transaction so they commit with it. Resolves `false`
+   * when there is no such user. Needs the `auth:users` capability.
+   *
+   * `actorUserId` must be a real user id (the audit column references "user");
+   * a non-user actor — a SCIM token, the erased subject — goes in `actor`.
+   */
+  deleteUser: (
+    db: unknown,
+    userId: string,
+    who: {
+      actorUserId?: string | null;
+      actor?: string;
+      reason: string;
+      metadata?: Record<string, unknown>;
+    },
+  ) => Promise<boolean>;
+  /**
+   * End every session a user has, in the database AND the cache — `ctx.db`
+   * cannot reach either. Needs the `auth:users` capability.
+   */
+  revokeUserSessions: (userId: string) => Promise<void>;
+  /**
+   * `false` stops the user signing in by ANY method (password, magic link,
+   * passkey, OAuth, SSO) and revokes their sessions; `true` lets them back in
+   * with the credentials they had. Instance-wide: a user has one sign-in, not
+   * one per tenant. `db` is your transaction — pass the one that may already
+   * have written the user's row. Needs the `auth:users` capability.
+   */
+  setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
 }
 
 /**

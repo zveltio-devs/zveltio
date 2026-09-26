@@ -12,7 +12,9 @@
  *
  * Joining is also the right semantics: the extension's work commits with the
  * request that triggered it, rather than in a second transaction that could
- * survive a rollback of the first.
+ * survive a rollback of the first. The join runs inside a SAVEPOINT so a throw
+ * still undoes the block — proved against Postgres in
+ * `harness/extension-joined-transaction.test.ts`; these stubs cannot run one.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -40,7 +42,7 @@ function handle(tag: string, isTransaction: boolean) {
 }
 
 describe('extension db.transaction()', () => {
-  it('joins the request transaction instead of opening a second one', () => {
+  it('joins the request transaction instead of opening a second one', async () => {
     const trx = handle('request-trx', true);
     const db = createRestrictedDb(() => trx, 'probe/join');
     const used = (
@@ -48,10 +50,10 @@ describe('extension db.transaction()', () => {
     )
       .transaction()
       .execute((t) => t);
-    expect(used).toBe(trx);
+    expect(await used).toBe(trx);
   });
 
-  it('accepts the builder chain an extension would write', () => {
+  it('accepts the builder chain an extension would write', async () => {
     const trx = handle('request-trx', true);
     const db = createRestrictedDb(() => trx, 'probe/chain');
     const b = (
@@ -64,7 +66,7 @@ describe('extension db.transaction()', () => {
       }
     ).transaction();
     expect(
-      b
+      await b
         .setIsolationLevel('serializable')
         .setAccessMode('read write')
         .execute((t) => t),
@@ -84,7 +86,7 @@ describe('extension db.transaction()', () => {
     expect(used).toBe('pool:fresh-transaction');
   });
 
-  it('follows the resolver, so the same handle tracks the current request', () => {
+  it('follows the resolver, so the same handle tracks the current request', async () => {
     let current = handle('first', true);
     const db = createRestrictedDb(() => current, 'probe/resolver');
     const read = () =>
@@ -92,9 +94,9 @@ describe('extension db.transaction()', () => {
         .transaction()
         .execute((t) => t);
 
-    expect(read()).toBe(current);
+    expect(await read()).toBe(current);
     const second = handle('second', true);
     current = second;
-    expect(read()).toBe(second);
+    expect(await read()).toBe(second);
   });
 });

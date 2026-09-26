@@ -14,7 +14,7 @@ import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
 import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
-import { hashApiKey } from '../security/index.js';
+import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
 /** Authenticate request — session or API key. */
@@ -114,14 +114,36 @@ export function requestApiKey(c: Context): string | null {
   return raw?.startsWith('zvk_') ? raw : null;
 }
 
-/** An active, unexpired key row for `rawKey`, or null. No tenant check — see validateApiKey. */
+/**
+ * An active, unexpired key row for `rawKey`, or null. No tenant check — see
+ * validateApiKey.
+ *
+ * Refused too when the user who created the key is barred from signing in
+ * (`"user".banned`, set by SCIM deactivation): a deactivated employee's keys
+ * kept reading and writing after every sign-in method was closed to them. In the
+ * same query, so it fails the way the key lookup does — a thrown error, never a
+ * key. A key whose creator was deleted (`created_by` set NULL) keeps working:
+ * keys belong to their tenant, and deleting a user never revoked them.
+ */
 export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
+  // No query for a string no key can match: `generateApiKey` owns the shape.
+  if (!isWellFormedApiKey(rawKey)) return null;
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys')
-    .selectAll()
+    .selectAll('zv_api_keys')
     .where('key_hash', '=', hash)
     .where('is_active', '=', true)
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('user')
+            .select('user.id')
+            .whereRef('user.id', '=', 'zv_api_keys.created_by')
+            .where('user.banned', '=', true),
+        ),
+      ),
+    )
     .executeTakeFirst();
 
   if (!apiKey) return null;
