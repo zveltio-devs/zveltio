@@ -308,6 +308,16 @@ export function usersRoutes(
       return c.json({ error: 'Cannot delete your own account' }, 400);
     }
 
+    // Before anything below touches the id. `e.deleteUser` removes every Casbin
+    // row whose subject is this string, and a role name sits in the same column:
+    // `DELETE /api/users/editor` wiped the role's grants and parent edges.
+    const target = await db
+      .selectFrom('user')
+      .select('id')
+      .where('id', '=', userId)
+      .executeTakeFirst();
+    if (!target) return c.json({ error: 'User not found' }, 404);
+
     // Sessions first, and through a helper that also clears the cache: the
     // FK cascade removes the `session` rows but not better-auth's
     // `secondaryStorage` copy, so a deleted user's cookie kept working until
