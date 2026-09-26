@@ -242,7 +242,7 @@ Zveltio uses a sliding-window rate limiter backed by Valkey sorted sets. When Va
 | `ddl` | 10 req/min | Schema changes (create/drop collection) |
 | `destructive` | 10 req/min | Bulk deletes |
 
-Limits are identified **per user ID** for authenticated requests, or **per IP** for unauthenticated ones (using the real TCP connection address; `X-Forwarded-For` is only trusted when `TRUSTED_PROXY=true`).
+Limits are identified **per user ID** for authenticated requests, **per API key** for key requests, or **per IP** for unauthenticated ones (using the real TCP connection address; `X-Forwarded-For` is only trusted when `TRUSTED_PROXY=true`). The caller is the one verified before the limiters run: a valid session, else an active key that may act in the request's tenant. An invalid or foreign key or session is counted per IP, so rotating fake credentials does not buy a fresh bucket. The surfaces that stop guessing — `auth`, public forms, share links and SCIM — stay **per IP** even for a signed-in caller, so holding many accounts does not multiply the budget.
 
 **DB-driven live config:** All tier limits are stored in `zv_rate_limit_configs` and can be changed at runtime without a restart via `PATCH /api/admin/rate-limits/:keyPrefix`. Changes take effect within 60 seconds (config cache TTL).
 
@@ -254,7 +254,7 @@ Limits are identified **per user ID** for authenticated requests, or **per IP** 
 - **Resolution** — the tenant's own active row, then the tier's active `tenant:<tier>` row, then off. Setting `is_active: false` on an override drops that tenant back to the default. Changes apply within 60 seconds.
 - **Bucket** — `rl:<tier>:t:<tenantId>`, the same sliding window as the other buckets, with the same fail-closed in-memory fallback. The tenant is the one the request resolved (`x-tenant-slug` or subdomain, else the default tenant). An unknown slug is refused before any limiter runs, so a caller cannot invent a tenant to escape the bucket.
 - **Checked in addition to the caller's own bucket.** The caller's own bucket is checked first, and a request it refuses never spends the tenant's budget, so one member hammering the API cannot lock out the rest of the tenant. Refusals are not counted in the tenant bucket, and there is no adaptive escalation on it: a busy tenant is held at its limit, not locked out.
-- **Authenticated traffic only.** Anyone can name a tenant with `x-tenant-slug`, and membership is verified only for signed-in users. If anonymous requests counted, a handful of addresses could exhaust any tenant's budget. Anonymous traffic, such as public forms, stays limited per IP by its tier. Today a session is what identifies the caller at this point. API-key traffic on `/api/*` is authenticated later, in the route, so it is not counted yet.
+- **Authenticated traffic only.** Anyone can name a tenant with `x-tenant-slug`, and membership is verified only for signed-in users. If anonymous requests counted, a handful of addresses could exhaust any tenant's budget. Anonymous traffic, such as public forms, stays limited per IP by its tier. An API key counts against the tenant it acts in, and only when it is valid there.
 - **Response** — `429` with `Retry-After` and `{"error": "Tenant rate limit exceeded"}`, so an operator can tell it from the per-caller `Too Many Requests`.
 - The IP allowlist skips the tenant bucket like every other limit. The god user has no exemption, the same as with the other buckets.
 
