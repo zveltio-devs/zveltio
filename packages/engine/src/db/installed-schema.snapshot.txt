@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 389
+# tables: 388
 
 table account
   col accessToken                    text
@@ -3099,17 +3099,6 @@ table zv_tenant_transfers
   pk  zv_tenant_transfers_pkey PRIMARY KEY (id)
   fk  zv_tenant_transfers_to_tenant_fkey FOREIGN KEY (to_tenant) REFERENCES zv_tenants(id)
 
-table zv_tenant_usage
-  col api_calls                      integer NOT NULL DEFAULT 0
-  col date                           date NOT NULL DEFAULT CURRENT_DATE
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col record_count                   integer NOT NULL DEFAULT 0
-  col storage_bytes                  bigint NOT NULL DEFAULT 0
-  col tenant_id                      uuid NOT NULL
-  pk  zv_tenant_usage_pkey PRIMARY KEY (id)
-  uq  zv_tenant_usage_tenant_id_date_key UNIQUE (tenant_id, date)
-  fk  zv_tenant_usage_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE
-
 table zv_tenant_users
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col invited_by                     text
@@ -3131,27 +3120,19 @@ table zv_tenant_users
   fk  zv_tenant_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
 
 table zv_tenants
-  col billing_email                  text
   col closed_at                      timestamp with time zone
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col max_api_calls_day              integer NOT NULL DEFAULT 10000
-  col max_records                    integer NOT NULL DEFAULT 10000
-  col max_storage_gb                 numeric NOT NULL DEFAULT 1.0
-  col max_users                      integer NOT NULL DEFAULT 5
   col merged_into                    uuid
   col name                           text NOT NULL
   col parent_id                      uuid
-  col plan                           text NOT NULL DEFAULT 'free'::text
   col settings                       jsonb DEFAULT '{}'::jsonb
   col slug                           text NOT NULL
   col status                         text NOT NULL DEFAULT 'active'::text
-  col trial_ends_at                  timestamp with time zone
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   fk  zv_tenants_merged_into_fkey FOREIGN KEY (merged_into) REFERENCES zv_tenants(id)
   fk  zv_tenants_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zv_tenants(id)
   pk  zv_tenants_pkey PRIMARY KEY (id)
-  ck  zv_tenants_plan_check CHECK ((plan = ANY (ARRAY['free'::text, 'pro'::text, 'enterprise'::text, 'custom'::text])))
   uq  zv_tenants_slug_key UNIQUE (slug)
   ck  zv_tenants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'deleted'::text])))
 

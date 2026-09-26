@@ -51,6 +51,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireSibling } from './lib/require-sibling.js';
+import { droppedTables } from './lib/sql-drops.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
@@ -63,7 +64,9 @@ requireSibling(EXT_ROOT, 'tenant-boundary');
 function sqlUnder(dir: string): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
-  for (const e of readdirSync(dir)) {
+  // Sorted: a DROP only means something after the CREATE it undoes, and
+  // readdir order is the filesystem's, not the migration runner's.
+  for (const e of readdirSync(dir).sort()) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) out.push(...sqlUnder(p));
     else if (e.endsWith('.sql')) out.push(p);
@@ -201,6 +204,10 @@ for (const f of files) {
     if (norm(m[2]!) === 'tenant_id') tenantScoped.add(norm(m[1]!));
   }
   for (const m of src.matchAll(ENABLE_RLS)) policed.add(norm(m[1]!));
+  for (const t of droppedTables(src)) {
+    created.delete(t);
+    tenantScoped.delete(t);
+  }
   //
   // ...but such a loop almost always guards itself with
   // `IF to_regclass(...) IS NULL THEN CONTINUE`, which reads as "protect it if

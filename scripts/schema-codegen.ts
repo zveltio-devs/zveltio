@@ -51,6 +51,7 @@
 
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { droppedColumns, droppedTables } from './lib/sql-drops.js';
 
 const ROOT = process.cwd();
 const EXT_ROOT = process.env.EXTENSIONS_ROOT ?? join(ROOT, '..', 'zveltio-extensions');
@@ -155,6 +156,12 @@ function dropNotNull(t: Table, colName: string): void {
   t.columns[idx].notNull = false;
 }
 
+function dropColumn(t: Table | undefined, colName: string): void {
+  if (!t?.index.has(colName)) return;
+  t.columns = t.columns.filter((c) => c.name !== colName);
+  t.index = new Map(t.columns.map((c, i) => [c.name, i]));
+}
+
 function isAllowedTable(name: string): boolean {
   return name.startsWith('zv_') || name.startsWith('zvd_') || BETTER_AUTH.has(name);
 }
@@ -225,6 +232,9 @@ function parseSqlFile(filePath: string): void {
       }
     }
   }
+
+  for (const t of droppedTables(upSection)) inv.delete(t.toLowerCase());
+  for (const [t, c] of droppedColumns(upSection)) dropColumn(inv.get(t.toLowerCase()), c);
 }
 
 function parseColumns(body: string): Column[] {
