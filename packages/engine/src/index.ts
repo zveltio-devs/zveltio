@@ -716,8 +716,8 @@ async function buildHonoApp(): Promise<Hono> {
   // tenant transaction the role is `zveltio_rls`, which is forbidden to read
   // `session` — and that refusal aborts the transaction, taking the rest of the
   // request with it. See the header of session-prefetch.ts.
-  app.use('/api/*', sessionPrefetch(auth));
-  app.use('/ext/*', sessionPrefetch(auth));
+  app.use('/api/*', sessionPrefetch(auth, db));
+  app.use('/ext/*', sessionPrefetch(auth, db));
   app.use('/api/*', tenantMiddleware);
   // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
   // isolation as /api/*, or extension handlers using ctx.reqDb(c) fall back to

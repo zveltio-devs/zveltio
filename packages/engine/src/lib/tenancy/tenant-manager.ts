@@ -65,6 +65,19 @@ const TENANT_CACHE_TTL = 300; // 5 min
 export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 export const DEFAULT_TENANT_SLUG = 'default';
 
+/**
+ * May an API key owned by `keyTenantId` act in the request's tenant? Root keys
+ * act anywhere; a request with no tenant acts in root. One definition, because
+ * the auth path and the rate limiter must agree on which keys are real.
+ */
+export function apiKeyActsIn(
+  keyTenantId: string | null | undefined,
+  requestTenantId: string | null,
+): boolean {
+  if (!keyTenantId || keyTenantId === DEFAULT_TENANT_ID) return true;
+  return keyTenantId === (requestTenantId ?? DEFAULT_TENANT_ID);
+}
+
 const DEFAULT_TENANT: Tenant = {
   id: DEFAULT_TENANT_ID,
   slug: DEFAULT_TENANT_SLUG,

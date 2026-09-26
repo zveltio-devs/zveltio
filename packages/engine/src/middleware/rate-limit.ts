@@ -3,6 +3,7 @@ import { getCache } from '../lib/runtime/index.js';
 import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 import { tenantId } from '../lib/route-db.js';
+import { apiKeyActsIn } from '../lib/tenancy/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
 interface ConfigEntry {
@@ -125,8 +126,9 @@ async function loadTenantLimit(
  * with. The converse costs only that caller's own budget.
  *
  * Counts AUTHENTICATED traffic only. The tenant comes from `x-tenant-slug` or
- * the Host, which any caller picks, and membership is verified only for a
- * session (`tenantMembershipMiddleware`, mounted before every limiter). Counting
+ * the Host, which any caller picks; a session's membership is verified by
+ * `tenantMembershipMiddleware` (mounted before every limiter), and a key counts
+ * only when `apiKeyActsIn` accepts it for that tenant (`rateLimitCaller`). Counting
  * anonymous requests would let anyone with a handful of addresses exhaust any
  * tenant's budget by naming it. Anonymous traffic stays bounded per IP.
  *
@@ -143,10 +145,9 @@ async function tenantLimitRefusal(
   c: Context,
   tier: string,
   db: Database | undefined,
+  callerId: string | undefined,
 ): Promise<Response | null> {
-  const prefetched = c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined;
-  const userId = prefetched?.user?.id ?? (c.get('user') as { id?: string } | undefined)?.id;
-  if (!userId) return null;
+  if (!callerId) return null;
   const tenant = tenantId(c);
   const limit = await loadTenantLimit(db, tier, tenant);
   if (!limit) return null;
@@ -345,19 +346,42 @@ interface RateLimitConfig {
   keyPrefix: string;
   message?: string;
   db?: Database;
+  /**
+   * Bucket per IP even for a signed-in caller. For the surfaces that stop
+   * guessing (sign-in, share-link passwords, SCIM tokens): keyed per caller,
+   * anyone holding N accounts or keys would guess N times as fast.
+   */
+  perIp?: boolean;
+}
+
+/**
+ * The authenticated caller, or undefined. The tier limiters run before any
+ * route authenticates, so this reads what `sessionPrefetch` VERIFIED: a
+ * session, else an active key valid in this request's tenant. Never a header
+ * value as sent — a bogus or foreign identity must fall back to the IP bucket,
+ * or rotating fake keys would buy a fresh bucket each.
+ */
+export function rateLimitCaller(c: Context): string | undefined {
+  const sessionId = (c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined)
+    ?.user?.id;
+  if (sessionId) return sessionId;
+  const key = c.get('prefetchedApiKey');
+  if (key && apiKeyActsIn(key.tenant_id, tenantId(c))) return `apikey:${key.id}`;
+  // A route-level limiter mounted after its own auth middleware.
+  return (c.get('user') as { id?: string } | undefined)?.id;
 }
 
 export function rateLimit(config: RateLimitConfig) {
-  const { keyPrefix, message = 'Too Many Requests', db } = config;
+  const { keyPrefix, message = 'Too Many Requests', db, perIp = false } = config;
   knownTiers.add(keyPrefix);
 
   return async (c: Context, next: Next) => {
+    const callerId = rateLimitCaller(c);
+    // The bucket's identity; undefined = the client IP.
+    const bucketId = perIp ? undefined : callerId;
     // Resolve live limits from DB (falls back to compiled defaults)
     // Per-API-key override: if request uses API key auth, check apikey:<id> prefix first
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const session = (c as any).get?.('user');
-    const apiKeyId = session?.id?.startsWith('apikey:') ? session.id.slice(7) : null;
-    const perKeyPrefix = apiKeyId ? `apikey:${apiKeyId}` : null;
+    const perKeyPrefix = bucketId?.startsWith('apikey:') ? bucketId : null;
 
     const [live, perKeyLive] = await Promise.all([
       loadConfig(db ?? _db, keyPrefix),
@@ -392,7 +416,7 @@ export function rateLimit(config: RateLimitConfig) {
       //
       // On an authenticated API that is merely wrong. On the surfaces this
       // middleware now guards it inverts the fix: public form submission, share
-      // links and SCIM are anonymous by definition, so `session?.id` is always
+      // links and SCIM are anonymous by definition, so `bucketId` is always
       // undefined there, and twenty form submissions from anyone locked out
       // every other visitor for the rest of the window. Measured before the
       // change — client A exhausting SCIM made a completely fresh client B
@@ -401,21 +425,18 @@ export function rateLimit(config: RateLimitConfig) {
       // It only bites without a cache backend, which is the default shape of a
       // small self-hosted install: the one least likely to notice, and the one
       // where a single visitor can take the public forms down.
-      const identifier = session?.id ?? listedIp;
+      const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
       if (!allowed) {
         c.header('Retry-After', String(windowSec));
         return c.json({ error: message }, 429);
       }
-      return (await tenantLimitRefusal(c, keyPrefix, db ?? _db)) ?? next();
+      return (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ?? next();
     }
 
     try {
-      // Identifier: authenticated userId or client IP.
-      const userId: string | undefined = session?.id;
-      const ip = resolveClientIp(c);
-      const identifier = userId ?? ip;
+      const identifier = bucketId ?? listedIp;
 
       const key = `rl:${keyPrefix}:${identifier}`;
       const blockKey = `rl:block:${keyPrefix}:${identifier}`;
@@ -471,20 +492,18 @@ export function rateLimit(config: RateLimitConfig) {
       // Valkey error — fall back to in-memory limiter instead of failing open.
       // Failing open here would disable ALL rate limits on Valkey outage,
       // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const session = (c as any).get?.('user');
       // `?? listedIp`, matching the no-cache branch above and for the same
       // reason. `'unknown'` gave every anonymous caller ONE bucket per prefix —
       // a single counter for the whole internet — which on the pre-auth
       // surfaces this protects is not a weaker limit but an inverted one: they
-      // are anonymous by definition, so `session?.id` is always undefined, and
+      // are anonymous by definition, so `bucketId` is always undefined, and
       // twenty submissions from one visitor locked out everyone else.
       //
       // This is the more dangerous of the two branches. It runs when Valkey
       // FAILS, so an install that has a cache and believes itself covered
       // degrades into the broken behaviour during an outage — while it is
       // already busy with something else.
-      const identifier = session?.id ?? listedIp;
+      const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
       if (!allowed) {
@@ -493,7 +512,7 @@ export function rateLimit(config: RateLimitConfig) {
       }
     }
 
-    return (await tenantLimitRefusal(c, keyPrefix, db ?? _db)) ?? next();
+    return (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ?? next();
   };
 }
 
@@ -501,6 +520,7 @@ export const authRateLimit = rateLimit({
   windowMs: 60_000,
   max: 10,
   keyPrefix: 'auth',
+  perIp: true,
 });
 export const apiRateLimit = rateLimit({
   windowMs: 60_000,
@@ -549,16 +569,19 @@ export const publicFormRateLimit = rateLimit({
   windowMs: 60_000,
   max: 20,
   keyPrefix: 'form',
+  perIp: true,
 });
 export const shareLinkRateLimit = rateLimit({
   windowMs: 60_000,
   max: 10,
   keyPrefix: 'share',
+  perIp: true,
 });
 export const scimRateLimit = rateLimit({
   windowMs: 60_000,
   max: 100,
   keyPrefix: 'scim',
+  perIp: true,
 });
 
 export const extRateLimit = rateLimit({

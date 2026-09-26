@@ -13,7 +13,7 @@ import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
-import { checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
+import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { hashApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
@@ -39,18 +39,19 @@ export async function authenticate(
   if (session) return { user: session.user, authType: 'session' };
 
   // Try API key
-  const rawKey = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  const rawKey = requestApiKey(c);
 
-  if (rawKey?.startsWith('zvk_')) {
+  if (rawKey) {
     // Defensive: a context without `get` (partial mocks, any future caller
     // that builds one by hand) must not throw here. A hardening check that
     // crashes the authentication path is worse than the gap it closes — it
     // fails every request instead of the wrong ones.
-    const requestTenantId =
-      typeof c.get === 'function'
-        ? ((c.get('tenant') as { id?: string } | null)?.id ?? null)
-        : null;
-    const apiKey = await validateApiKey(db, rawKey, requestTenantId);
+    const hasGet = typeof c.get === 'function';
+    const requestTenantId = hasGet
+      ? ((c.get('tenant') as { id?: string } | null)?.id ?? null)
+      : null;
+    const prefetchedKey = hasGet ? c.get('prefetchedApiKey') : undefined;
+    const apiKey = await validateApiKey(db, rawKey, requestTenantId, prefetchedKey);
     if (apiKey) {
       // `validateApiKey` has already published this actor to the database.
       const bypass = (apiKey as { rls_bypass?: boolean }).rls_bypass === true;
@@ -107,11 +108,14 @@ export function rowAuthorId(user: { id: string; authorUserId?: string | null }):
   return user.id.startsWith('apikey:') ? (user.authorUserId ?? null) : user.id;
 }
 
-export async function validateApiKey(
-  db: Database,
-  rawKey: string,
-  requestTenantId: string | null,
-): Promise<ZvApiKeyRow | null> {
+/** The request's `zvk_` key, from `X-API-Key` or a bearer header; null when none. */
+export function requestApiKey(c: Context): string | null {
+  const raw = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  return raw?.startsWith('zvk_') ? raw : null;
+}
+
+/** An active, unexpired key row for `rawKey`, or null. No tenant check — see validateApiKey. */
+export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys')
@@ -122,6 +126,21 @@ export async function validateApiKey(
 
   if (!apiKey) return null;
   if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) return null;
+  return apiKey;
+}
+
+/**
+ * `found` is the row `sessionPrefetch` already looked up for this request's key
+ * (`undefined` = not looked up), so the data path does not query the key twice.
+ */
+export async function validateApiKey(
+  db: Database,
+  rawKey: string,
+  requestTenantId: string | null,
+  found?: ZvApiKeyRow | null,
+): Promise<ZvApiKeyRow | null> {
+  const apiKey = found !== undefined ? found : await findApiKey(db, rawKey);
+  if (!apiKey) return null;
 
   // The key must belong to the tenant this request is acting in. The lookup
   // above is hash-only, so a key issued in tenant A, sent with
@@ -147,7 +166,7 @@ export async function validateApiKey(
   // refuses.
   const keyTenantId = (apiKey as { tenant_id?: string | null }).tenant_id ?? null;
   const actingTenantId = requestTenantId ?? DEFAULT_TENANT_ID;
-  if (keyTenantId && keyTenantId !== DEFAULT_TENANT_ID && keyTenantId !== actingTenantId) {
+  if (!apiKeyActsIn(keyTenantId, requestTenantId)) {
     console.warn(
       `[api-key] refused: key ${apiKey.id} belongs to tenant ${keyTenantId} but the ` +
         `request is acting in ${actingTenantId}` +

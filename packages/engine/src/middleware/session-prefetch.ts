@@ -31,6 +31,8 @@
 // `authenticate()` reads the cached value, so nothing pays for a second lookup.
 
 import { createMiddleware } from 'hono/factory';
+import type { Database } from '../db/index.js';
+import type { ZvApiKeyRow } from '../db/schema.js';
 
 /** Resolved once per request, before the tenant transaction. `null` = anonymous. */
 export type PrefetchedSession = { user: unknown } | null;
@@ -39,6 +41,11 @@ declare module 'hono' {
   interface ContextVariableMap {
     /** Absent when the prefetch did not run; `null` when it ran and found none. */
     prefetchedSession?: PrefetchedSession;
+    /**
+     * The row for the request's `zvk_` key when there is no session: `null` =
+     * looked up, no active key. NOT tenant-checked — `apiKeyActsIn` decides.
+     */
+    prefetchedApiKey?: ZvApiKeyRow | null;
   }
 }
 
@@ -62,11 +69,21 @@ interface SessionReader {
   };
 }
 
-export function sessionPrefetch(auth: SessionReader) {
+export function sessionPrefetch(auth: SessionReader, db: Database) {
   return createMiddleware(async (c, next) => {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       c.set('prefetchedSession', (session ?? null) as PrefetchedSession);
+
+      // The API key too, for the same reason and one more: the rate limiters
+      // run before any route authenticates, and without this they saw no
+      // caller at all and bucketed every key per IP. `authenticate` reuses the
+      // row, so a key costs one lookup per request, as before.
+      if (!session) {
+        const { findApiKey, requestApiKey } = await import('../lib/data/index.js');
+        const rawKey = requestApiKey(c);
+        if (rawKey) c.set('prefetchedApiKey', await findApiKey(db, rawKey));
+      }
 
       // Resolve the god flag HERE, where there is no transaction open yet.
       //
