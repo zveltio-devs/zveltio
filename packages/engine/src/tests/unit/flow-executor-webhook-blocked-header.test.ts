@@ -21,7 +21,11 @@ describe('executeStep — webhook blocked headers', () => {
   it('drops Authorization from custom headers and warns', async () => {
     originalFetch = globalThis.fetch;
     warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-    globalThis.fetch = (async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+    let sent: Headers | undefined;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      sent = new Headers(init?.headers);
+      return { ok: true, status: 200 };
+    }) as unknown as typeof fetch;
 
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,
@@ -39,6 +43,9 @@ describe('executeStep — webhook blocked headers', () => {
     );
 
     expect(output.ok).toBe(true);
+    // The header is gone from the request itself, not merely warned about.
+    expect(sent?.get('Authorization')).toBeNull();
+    expect(sent?.get('X-Custom')).toBe('ok');
     expect(warnSpy.mock.calls.some((c: unknown[]) => String(c[0]).includes('Blocked header'))).toBe(
       true,
     );

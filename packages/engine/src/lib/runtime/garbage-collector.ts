@@ -1,5 +1,6 @@
 /**
- * Garbage Collector — deletes soft-deleted rows older than 30 days.
+ * Garbage Collector — deletes soft-deleted rows older than 30 days, applies
+ * log retention, and fails flow runs abandoned in 'running'.
  *
  * Scans all tenant_ + public schemas, finds tables with column
  * "_deletedAt" and executes DELETE for expired rows.
@@ -9,6 +10,8 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+
+const ABANDONED_RUN_HOURS = 6;
 
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
@@ -122,6 +125,30 @@ export async function runGarbageCollector(db: Database): Promise<void> {
     } catch (err) {
       console.warn('[GC] zv_audit_log purge failed:', (err as Error).message);
     }
+  }
+
+  // ── Flow runs nobody finished ─────────────────────────────────────
+  // A run is marked done by the process executing it. If that process dies
+  // mid-run, or its final UPDATE fails, the row says 'running' forever. Every
+  // step is bounded (timeouts of a minute or less), so a run started hours ago
+  // is not running anywhere; ABANDONED_RUN_HOURS is far past any real run.
+  try {
+    const abandoned = await sql<{ n: number }>`
+      WITH d AS (
+        UPDATE zv_flow_runs
+        SET status = 'failed',
+            error = 'abandoned: still running after ' || ${ABANDONED_RUN_HOURS}::int || 'h — the executing process stopped or could not record the result',
+            finished_at = NOW()
+        WHERE status = 'running'
+          AND started_at < NOW() - (${ABANDONED_RUN_HOURS}::int || ' hours')::interval
+        RETURNING 1
+      )
+      SELECT COUNT(*)::int AS n FROM d
+    `.execute(db);
+    const n = abandoned.rows[0]?.n ?? 0;
+    if (n > 0) console.warn(`[GC] zv_flow_runs: ${n} abandoned runs marked failed`);
+  } catch (err) {
+    console.warn('[GC] abandoned flow-run sweep failed:', (err as Error).message);
   }
 
   console.log(`[GC] Done. Total rows purged: ${totalDeleted}`);

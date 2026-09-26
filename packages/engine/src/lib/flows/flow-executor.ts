@@ -7,7 +7,7 @@
  *   send_email        — send email via email lib (graceful no-op if not configured)
  *   webhook           — HTTP call to an external URL
  *   send_notification — in-app notification to a user or role
- *   export_collection — export collection rows to CSV/Excel, optionally email the file
+ *   export_collection — export collection rows to CSV, optionally email the file
  *
  * Called by:
  *   - flowsRoutes POST /:id/run   (manual trigger via API)
@@ -20,6 +20,7 @@ import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
+import { recordsToCsv } from '../security/index.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { serviceRegistry } from '../service-registry.js';
 import { traced } from '../runtime/index.js';
@@ -377,58 +378,49 @@ async function executeStep(
         return { output: { error: `Invalid collection name: "${cfg.collection}"` } };
       }
 
-      try {
-        // @ts-ignore — export-manager is an optional extension
-        const { ExportManager } = await import('../export-manager.js');
-
-        const tableName = `zvd_${rawCollection}`;
-
-        // sql.id() quotes the identifier — safe against injection even if validation
-        // were somehow bypassed; sql.raw() was previously used here (vulnerability).
-        // Run inside a tenant transaction so FORCE-RLS'd collection rows are
-        // visible (and scoped to this flow's tenant).
-        const rows = await db.transaction().execute(async (trx: Database) => {
-          await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(
-            trx,
-          );
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          return sql<any>`
-            SELECT * FROM ${sql.id(tableName)}
-            LIMIT ${cfg.limit ?? 1000}
-          `.execute(trx);
-        });
-
-        const exportResult = await ExportManager.export(rows.rows, {
-          format: cfg.format ?? 'csv',
-          filename: cfg.filename ?? `${cfg.collection}-export`,
-          columns: cfg.columns,
-        });
-
-        if (cfg.email_to && exportResult?.buffer) {
-          const ext = cfg.format === 'excel' ? 'xlsx' : (cfg.format ?? 'csv');
-          await sendEmail({
-            to: cfg.email_to,
-            subject: cfg.email_subject ?? `Report: ${cfg.collection}`,
-            html: cfg.email_body ?? '<p>Please find the attached report.</p>',
-            text: cfg.email_body ?? 'Please find the attached report.',
-            attachments: [
-              {
-                filename: `${cfg.filename ?? cfg.collection}.${ext}`,
-                content: exportResult.buffer,
-                contentType:
-                  cfg.format === 'excel'
-                    ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    : 'text/csv',
-              },
-            ],
-          });
-          return { output: { exported: true, sent_to: cfg.email_to, rows: rows.rows.length } };
-        }
-
-        return { output: { exported: true, rows: rows.rows.length } };
-      } catch {
-        return { output: { exported: false, error: 'Export service not configured' } };
+      // CSV only: the engine carries no spreadsheet writer, and the "excel"
+      // format this step once advertised was never produced by anything.
+      if ((cfg.format ?? 'csv') !== 'csv') {
+        throw new Error(`export_collection: format "${cfg.format}" is not supported, use "csv"`);
       }
+
+      const tableName = `zvd_${rawCollection}`;
+
+      // sql.id() quotes the identifier — safe against injection even if validation
+      // were somehow bypassed; sql.raw() was previously used here (vulnerability).
+      // Run inside a tenant transaction so FORCE-RLS'd collection rows are
+      // visible (and scoped to this flow's tenant).
+      const rows = await db.transaction().execute(async (trx: Database) => {
+        await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        return sql<any>`
+          SELECT * FROM ${sql.id(tableName)}
+          LIMIT ${cfg.limit ?? 1000}
+        `.execute(trx);
+      });
+
+      const columns: string[] | undefined = cfg.columns?.length ? cfg.columns : undefined;
+      const records = columns
+        ? rows.rows.map((r: Record<string, unknown>) =>
+            Object.fromEntries(columns.map((col) => [col, r[col]])),
+          )
+        : rows.rows;
+      const csv = recordsToCsv(records);
+      const filename = `${cfg.filename ?? cfg.collection}.csv`;
+
+      if (cfg.email_to) {
+        await sendEmail({
+          to: cfg.email_to,
+          subject: cfg.email_subject ?? `Report: ${cfg.collection}`,
+          html: cfg.email_body ?? '<p>Please find the attached report.</p>',
+          text: cfg.email_body ?? 'Please find the attached report.',
+          attachments: [{ filename, content: csv, contentType: 'text/csv' }],
+        });
+        return { output: { exported: true, sent_to: cfg.email_to, rows: records.length } };
+      }
+
+      // No recipient: the file is the step's output, for the next step to use.
+      return { output: { exported: true, rows: records.length, filename, csv } };
     }
 
     // ── ai_decision ──
