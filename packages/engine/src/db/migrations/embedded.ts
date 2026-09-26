@@ -29,6 +29,7 @@ import m012 from './sql/013_push_token_single_owner.sql' with { type: 'text' };
 import m013 from './sql/014_push_token_unique_index.sql' with { type: 'text' };
 import m014 from './sql/015_permission_view_means_read.sql' with { type: 'text' };
 import m015 from './sql/016_default_tenant_unlimited.sql' with { type: 'text' };
+import m016 from './sql/017_prune_deleted_user_grants.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -48,4 +49,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '014_push_token_unique_index.sql': m013,
   '015_permission_view_means_read.sql': m014,
   '016_default_tenant_unlimited.sql': m015,
+  '017_prune_deleted_user_grants.sql': m016,
 };
