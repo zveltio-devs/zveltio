@@ -53,6 +53,12 @@ export const POLICY_CHANGED_EVENT = 'casbin.policy';
  */
 export const ACCESS_RULES_CHANGED_EVENT = 'access.rules';
 
+/**
+ * A `zv_rate_limit_configs` row changed on another instance. Names the key (or
+ * none: all of them); the receiver drops its cached copy and re-reads the table.
+ */
+export const RATE_LIMIT_CONFIG_CHANGED_EVENT = 'ratelimit.config';
+
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -171,6 +177,17 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
       })
       .catch((err: Error) => {
         console.error('[realtime-bus] rule change sweep not started:', err.message);
+      });
+  }
+  if (msg.event === RATE_LIMIT_CONFIG_CHANGED_EVENT) {
+    const keyPrefix = (msg.data as { keyPrefix?: unknown } | undefined)?.keyPrefix;
+    // Lazily, like tenancy above: the middleware imports this module.
+    return import('../../middleware/rate-limit.js')
+      .then((m) =>
+        m.clearLocalRateLimitCache(typeof keyPrefix === 'string' ? keyPrefix : undefined),
+      )
+      .catch((err: Error) => {
+        console.error('[realtime-bus] rate-limit config change not applied:', err.message);
       });
   }
   const wsEvent = EVENT_MAP[msg.event];

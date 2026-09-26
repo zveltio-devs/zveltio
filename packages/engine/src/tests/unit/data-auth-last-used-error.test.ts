@@ -11,7 +11,7 @@ import { CannedDb } from './fixtures/canned-db.js';
 process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
 const { hashApiKey } = await import('../../lib/security/api-key-hash.js');
 
-const RAW_KEY = 'zvk_last_used_fail_key_0123456789ab';
+const RAW_KEY = 'zvk_fedcba9876543210fedcba9876543210';
 
 function mockContext(headers: Record<string, string>): Context {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));

@@ -1,9 +1,9 @@
 import type { Context, Next } from 'hono';
-import { getCache } from '../lib/runtime/index.js';
+import { getCache, RATE_LIMIT_CONFIG_CHANGED_EVENT, realtimeBus } from '../lib/runtime/index.js';
 import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 import { tenantId } from '../lib/route-db.js';
-import { apiKeyActsIn } from '../lib/tenancy/index.js';
+import { apiKeyActsIn, onAfterCommit } from '../lib/tenancy/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
 interface ConfigEntry {
@@ -39,12 +39,41 @@ async function loadConfig(
   return null;
 }
 
-export function invalidateRateLimitCache(keyPrefix?: string) {
+/** This instance's copy only — what a bus message from another instance runs. */
+export function clearLocalRateLimitCache(keyPrefix?: string) {
   // A `tenant:<tier>` default feeds every tenant's resolved entry, so any tenant
   // change drops them all rather than guessing which ones it reached.
   if (!keyPrefix || keyPrefix.startsWith('tenant:')) tenantConfigCache.clear();
   if (keyPrefix) configCache.delete(keyPrefix);
   else configCache.clear();
+}
+
+/**
+ * After a config write: here, and on every other instance through the realtime
+ * bus, which otherwise kept the old limit for up to `CONFIG_TTL`. The TTL stays
+ * the fallback for a message the bus loses.
+ *
+ * The writers run inside the request transaction, so the new row is invisible
+ * until it commits: a request here, or a replica told now, would re-read the old
+ * one and keep it for another minute. So this instance drops it again, and the
+ * others hear of it, after the commit. The message names a key, never a value;
+ * a forged one can only cost a re-read.
+ */
+export function invalidateRateLimitCache(keyPrefix?: string) {
+  clearLocalRateLimitCache(keyPrefix);
+  onAfterCommit(async () => {
+    clearLocalRateLimitCache(keyPrefix);
+    await realtimeBus()
+      .publish({
+        event: RATE_LIMIT_CONFIG_CHANGED_EVENT,
+        collection: '',
+        data: keyPrefix ? { keyPrefix } : undefined,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err: Error) => {
+        console.error('[rate-limit] could not publish a config change:', err.message);
+      });
+  });
 }
 
 // ── Per-tenant limit (resource protection on shared multi-tenant instances) ──
@@ -55,10 +84,19 @@ export function invalidateRateLimitCache(keyPrefix?: string) {
 // a quota: nothing is metered or billed, it only stops one tenant saturating an
 // instance it shares.
 
-/** Every tier a limiter was built for — the only tiers a tenant key may name. */
-const knownTiers = new Set<string>();
+/**
+ * Every tier a limiter was built for, with its compiled default: the only tiers
+ * a tenant key may name, and what `POST /api/admin/rate-limits/reset` restores.
+ */
+const compiledDefaults = new Map<string, { windowMs: number; max: number }>();
 export function rateLimitTiers(): string[] {
-  return [...knownTiers].sort();
+  return [...compiledDefaults.keys()].sort();
+}
+export function rateLimitDefaults(): LimitRow[] {
+  return rateLimitTiers().map((key_prefix) => {
+    const d = compiledDefaults.get(key_prefix) as { windowMs: number; max: number };
+    return { key_prefix, window_ms: d.windowMs, max_requests: d.max };
+  });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,7 +104,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** `tenant:<tier>` / `tenant:<tier>:<uuid>` → its parts; anything else → null. */
 export function parseTenantLimitKey(key: string): { tier: string; tenantId: string | null } | null {
   const [head, tier, id, ...rest] = key.split(':');
-  if (head !== 'tenant' || !tier || rest.length > 0 || !knownTiers.has(tier)) return null;
+  if (head !== 'tenant' || !tier || rest.length > 0 || !compiledDefaults.has(tier)) return null;
   if (id === undefined) return { tier, tenantId: null };
   return UUID_RE.test(id) ? { tier, tenantId: id.toLowerCase() } : null;
 }
@@ -132,14 +170,9 @@ async function loadTenantLimit(
  * anonymous requests would let anyone with a handful of addresses exhaust any
  * tenant's budget by naming it. Anonymous traffic stays bounded per IP.
  *
- * No adaptive escalation, and refusals are not kept: a refused request's entry
- * is removed again, so the bucket never locks a whole tenant out for its busiest
- * member. It never admits more than `max` per window.
- *
- * ponytail: the add/count and the removal of a refused entry are two round
- * trips, so a request arriving in the gap sees that entry and can be refused
- * one slot early, only while the bucket is already at its limit. Make it one
- * atomic Lua script if that edge ever shows up in practice.
+ * No adaptive escalation, and refusals are not kept, so the bucket never locks a
+ * whole tenant out for its busiest member. It never admits more than `max` per
+ * window.
  */
 async function tenantLimitRefusal(
   c: Context,
@@ -153,29 +186,77 @@ async function tenantLimitRefusal(
   if (!limit) return null;
 
   const key = `rl:${tier}:t:${tenant}`;
-  let allowed: boolean | null = null;
+  // Seconds until a request would be admitted; 0 = admitted, null = no answer.
+  let wait: number | null = null;
   const cache = getCache();
   if (cache) {
     try {
-      const now = Date.now();
-      const member = `${now}-${crypto.randomUUID()}`;
-      const pipeline = cache.pipeline();
-      pipeline.zremrangebyscore(key, 0, now - limit.windowMs);
-      pipeline.zadd(key, now, member);
-      pipeline.zcard(key);
-      pipeline.pexpire(key, limit.windowMs);
-      const results = await pipeline.exec();
-      const count = (results?.[2]?.[1] as number) ?? 0;
-      allowed = count <= limit.max;
-      if (!allowed) await cache.zrem(key, member);
+      wait = (await slidingWindow(cache, key, limit.windowMs, limit.max, false)).wait;
     } catch {
-      allowed = null; // fall through to the in-memory bucket, closed like the tiers
+      wait = null; // fall through to the in-memory bucket, closed like the tiers
     }
   }
-  if (allowed === null) allowed = memoryRateLimit(key, limit.windowMs, limit.max, false);
-  if (allowed) return null;
-  c.header('Retry-After', String(Math.ceil(limit.windowMs / 1000)));
+  if (wait === null) wait = memoryRateLimit(key, limit.windowMs, limit.max, false);
+  if (wait === 0) return null;
+  c.header('Retry-After', String(wait));
   return c.json({ error: 'Tenant rate limit exceeded' }, 429);
+}
+
+/**
+ * One sliding-window step as a single script, so no other request — from this
+ * instance or another — runs between the count and the decision. The tenant
+ * bucket used to add, count, and then remove a refused entry in a second round
+ * trip; a request landing in between, after a slot had freed, still counted
+ * that entry and was refused while the slot stood empty.
+ *
+ * `keepRefused`: the tier buckets record a refusal too (a caller hammering past
+ * the limit keeps it closed); the tenant bucket records only what it admitted.
+ * On a refusal the script returns the score of the entry whose expiry admits
+ * the next request — the oldest one, when refusals are not recorded.
+ */
+const SLIDING_WINDOW_LUA = `
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local max = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - window)
+local n = redis.call('ZCARD', KEYS[1])
+local admit = n < max
+if admit or ARGV[5] == '1' then
+  redis.call('ZADD', KEYS[1], now, ARGV[4])
+  redis.call('PEXPIRE', KEYS[1], window)
+  n = n + 1
+end
+if admit then return {n, 0} end
+local freeing = redis.call('ZRANGE', KEYS[1], n - max, n - max, 'WITHSCORES')
+return {n, tonumber(freeing[2]) or now}
+`;
+
+/** Seconds from `now` until `freesAt`, at least 1: a `Retry-After` of 0 means "now". */
+function secondsUntil(freesAt: number, now: number): number {
+  return Math.max(1, Math.ceil((freesAt - now) / 1000));
+}
+
+async function slidingWindow(
+  cache: NonNullable<ReturnType<typeof getCache>>,
+  key: string,
+  windowMs: number,
+  max: number,
+  keepRefused: boolean,
+): Promise<{ count: number; wait: number }> {
+  const now = Date.now();
+  const member = `${now}-${crypto.randomUUID()}`;
+  const [count, freeing] = (await cache.eval(
+    SLIDING_WINDOW_LUA,
+    1,
+    key,
+    now,
+    windowMs,
+    max,
+    member,
+    keepRefused ? '1' : '0',
+  )) as [number, number];
+  // `freeing` is 0 exactly when admitted; a refusal's is a timestamp.
+  return { count, wait: freeing ? secondsUntil(freeing + windowMs, now) : 0 };
 }
 
 // Module-level DB reference — set once at engine startup via initRateLimitDb()
@@ -196,7 +277,8 @@ const memoryStore = new Map<string, RateLimitEntry>();
 let lastCleanup = Date.now();
 const CLEANUP_INTERVAL = 60_000; // Clean every minute
 
-function memoryRateLimit(key: string, windowMs: number, max: number, countRefused = true): boolean {
+/** 0 = admitted; otherwise the seconds until this key's window starts over. */
+function memoryRateLimit(key: string, windowMs: number, max: number, countRefused = true): number {
   const now = Date.now();
   const windowStart = now - windowMs;
 
@@ -233,20 +315,21 @@ function memoryRateLimit(key: string, windowMs: number, max: number, countRefuse
   if (!entry) {
     // New entry
     memoryStore.set(key, { count: 1, windowStart: now });
-    return true;
+    return 0;
   }
 
   // Check if window expired
   if (entry.windowStart < windowStart) {
     // Reset counter for new window
     memoryStore.set(key, { count: 1, windowStart: now });
-    return true;
+    return 0;
   }
 
-  if (!countRefused && entry.count >= max) return false;
+  const wait = secondsUntil(entry.windowStart + windowMs, now);
+  if (!countRefused && entry.count >= max) return wait;
   // Increment counter in current window
   entry.count++;
-  return entry.count <= max;
+  return entry.count <= max ? 0 : wait;
 }
 
 // ── Adaptive escalation + IP lists (TECHNICAL-GAPS 2.5) ──────────────────────
@@ -373,7 +456,7 @@ export function rateLimitCaller(c: Context): string | undefined {
 
 export function rateLimit(config: RateLimitConfig) {
   const { keyPrefix, message = 'Too Many Requests', db, perIp = false } = config;
-  knownTiers.add(keyPrefix);
+  compiledDefaults.set(keyPrefix, { windowMs: config.windowMs, max: config.max });
 
   return async (c: Context, next: Next) => {
     const callerId = rateLimitCaller(c);
@@ -427,9 +510,9 @@ export function rateLimit(config: RateLimitConfig) {
       // where a single visitor can take the public forms down.
       const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
-      const allowed = memoryRateLimit(key, windowMs, max);
-      if (!allowed) {
-        c.header('Retry-After', String(windowSec));
+      const wait = memoryRateLimit(key, windowMs, max);
+      if (wait > 0) {
+        c.header('Retry-After', String(wait));
         return c.json({ error: message }, 429);
       }
       return (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ?? next();
@@ -441,49 +524,37 @@ export function rateLimit(config: RateLimitConfig) {
       const key = `rl:${keyPrefix}:${identifier}`;
       const blockKey = `rl:block:${keyPrefix}:${identifier}`;
       const penaltyKey = `rl:pen:${keyPrefix}:${identifier}`;
-      const now = Date.now();
-      const windowStart = now - windowMs;
 
       // Already serving a cooldown? Short-circuit before touching the window —
-      // an abuser in penalty shouldn't cost us a pipeline per request.
+      // an abuser in penalty shouldn't cost us a script run per request.
       const blockTtl = await cache.ttl(blockKey);
       if (blockTtl > 0) {
         c.header('Retry-After', String(blockTtl));
         return c.json({ error: message }, 429);
       }
 
-      // Sliding window using a sorted set:
-      // - ZREMRANGEBYSCORE removes entries outside the window
-      // - ZADD adds current request timestamp
-      // - ZCARD counts requests in window
-      // All in a single pipeline for atomicity
-      const pipeline = cache.pipeline();
-      pipeline.zremrangebyscore(key, 0, windowStart);
-      pipeline.zadd(key, now, `${now}-${crypto.randomUUID()}`);
-      pipeline.zcard(key);
-      pipeline.pexpire(key, windowMs);
-      const results = await pipeline.exec();
-
-      const count = (results?.[2]?.[1] as number) ?? 0;
-      const resetAt = Math.ceil((now + windowMs) / 1000);
+      const { count, wait } = await slidingWindow(cache, key, windowMs, max, true);
+      const resetAt = Math.ceil((Date.now() + windowMs) / 1000);
 
       c.header('X-RateLimit-Limit', String(max));
       c.header('X-RateLimit-Remaining', String(Math.max(0, max - count)));
       c.header('X-RateLimit-Reset', String(resetAt));
 
-      if (count > max) {
+      if (wait > 0) {
         // Over the limit → record the offence and escalate the cooldown. Repeat
-        // bursts cost progressively more; a first-time offender just waits out
-        // the normal window. Best-effort: if the penalty bookkeeping fails we
-        // still deny with the plain window rather than letting the request past.
-        let retryAfter = windowSec;
+        // bursts cost progressively more; a first-time offender waits only until
+        // the window admits a request again. Best-effort: if the penalty
+        // bookkeeping fails we still deny rather than letting the request past.
+        let retryAfter = wait;
         try {
           const offences = await cache.incr(penaltyKey);
           if (offences === 1) await cache.pexpire(penaltyKey, PENALTY_WINDOW_MS);
-          retryAfter = escalationSeconds(offences, windowSec);
-          if (offences > 1) await cache.set(blockKey, '1', 'EX', retryAfter);
+          if (offences > 1) {
+            retryAfter = escalationSeconds(offences, windowSec);
+            await cache.set(blockKey, '1', 'EX', retryAfter);
+          }
         } catch {
-          /* keep the plain window */
+          /* keep the first-offence wait */
         }
         c.header('Retry-After', String(retryAfter));
         return c.json({ error: message }, 429);
@@ -505,9 +576,9 @@ export function rateLimit(config: RateLimitConfig) {
       // already busy with something else.
       const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
-      const allowed = memoryRateLimit(key, windowMs, max);
-      if (!allowed) {
-        c.header('Retry-After', String(windowSec));
+      const wait = memoryRateLimit(key, windowMs, max);
+      if (wait > 0) {
+        c.header('Retry-After', String(wait));
         return c.json({ error: message }, 429);
       }
     }
