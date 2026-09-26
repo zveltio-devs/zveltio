@@ -30,6 +30,7 @@
 //
 // `authenticate()` reads the cached value, so nothing pays for a second lookup.
 
+import { getSessionCookie } from 'better-auth/cookies';
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import type { ZvApiKeyRow } from '../db/schema.js';
@@ -69,8 +70,23 @@ interface SessionReader {
   };
 }
 
-export function sessionPrefetch(auth: SessionReader, db: Database) {
+export function sessionPrefetch(
+  auth: SessionReader,
+  db: Database,
+  opts: { onlyWithCredentials?: boolean } = {},
+) {
   return createMiddleware(async (c, next) => {
+    // For public surfaces (`/files/*`): a request with no session cookie and no
+    // key header has no caller to find, and a gallery's Range bursts must not
+    // pay a lookup each to learn that.
+    if (
+      opts.onlyWithCredentials &&
+      !getSessionCookie(c.req.raw.headers) &&
+      !c.req.header('authorization') &&
+      !c.req.header('x-api-key')
+    ) {
+      return next();
+    }
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       c.set('prefetchedSession', (session ?? null) as PrefetchedSession);
