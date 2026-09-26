@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono';
 import { getCache } from '../lib/runtime/index.js';
 import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
+import { tenantId } from '../lib/route-db.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
 interface ConfigEntry {
@@ -38,8 +39,142 @@ async function loadConfig(
 }
 
 export function invalidateRateLimitCache(keyPrefix?: string) {
+  // A `tenant:<tier>` default feeds every tenant's resolved entry, so any tenant
+  // change drops them all rather than guessing which ones it reached.
+  if (!keyPrefix || keyPrefix.startsWith('tenant:')) tenantConfigCache.clear();
   if (keyPrefix) configCache.delete(keyPrefix);
   else configCache.clear();
+}
+
+// ── Per-tenant limit (resource protection on shared multi-tenant instances) ──
+//
+// Configured in `zv_rate_limit_configs` like the tiers: `tenant:<tier>` is the
+// default for every tenant on that tier, `tenant:<tier>:<tenantId>` overrides it
+// for one. No active row = off, which is the shipped state. It is not a plan or
+// a quota: nothing is metered or billed, it only stops one tenant saturating an
+// instance it shares.
+
+/** Every tier a limiter was built for — the only tiers a tenant key may name. */
+const knownTiers = new Set<string>();
+export function rateLimitTiers(): string[] {
+  return [...knownTiers].sort();
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `tenant:<tier>` / `tenant:<tier>:<uuid>` → its parts; anything else → null. */
+export function parseTenantLimitKey(key: string): { tier: string; tenantId: string | null } | null {
+  const [head, tier, id, ...rest] = key.split(':');
+  if (head !== 'tenant' || !tier || rest.length > 0 || !knownTiers.has(tier)) return null;
+  if (id === undefined) return { tier, tenantId: null };
+  return UUID_RE.test(id) ? { tier, tenantId: id.toLowerCase() } : null;
+}
+
+type LimitRow = { key_prefix: string; window_ms: number; max_requests: number };
+
+/** Tenant-specific row, then the tier's tenant default, then off. */
+export function pickTenantLimit(
+  rows: LimitRow[],
+  tier: string,
+  tenant: string,
+): { windowMs: number; max: number } | null {
+  const row =
+    rows.find((r) => r.key_prefix === `tenant:${tier}:${tenant}`) ??
+    rows.find((r) => r.key_prefix === `tenant:${tier}`);
+  return row ? { windowMs: row.window_ms, max: row.max_requests } : null;
+}
+
+// Negative answers are cached too: "off" is the common case, and an uncached
+// miss would cost every authenticated request a query to learn nothing.
+const tenantConfigCache = new Map<
+  string,
+  { limit: { windowMs: number; max: number } | null; ts: number }
+>();
+
+async function loadTenantLimit(
+  db: Database | undefined,
+  tier: string,
+  tenant: string,
+): Promise<{ windowMs: number; max: number } | null> {
+  if (!db) return null;
+  const cacheKey = `${tier}:${tenant}`;
+  const now = Date.now();
+  const cached = tenantConfigCache.get(cacheKey);
+  if (cached && now - cached.ts < CONFIG_TTL) return cached.limit;
+  try {
+    const rows = await db
+      .selectFrom('zv_rate_limit_configs')
+      .select(['key_prefix', 'window_ms', 'max_requests'])
+      .where('key_prefix', 'in', [`tenant:${tier}:${tenant}`, `tenant:${tier}`])
+      .where('is_active', '=', true)
+      .execute();
+    const limit = pickTenantLimit(rows, tier, tenant);
+    tenantConfigCache.set(cacheKey, { limit, ts: now });
+    return limit;
+  } catch {
+    // Same stance as the tier lookup above: an unreadable config is not a
+    // reason to refuse traffic, and the per-user bucket has already applied.
+    return null;
+  }
+}
+
+/**
+ * The tenant's bucket, checked AFTER the caller's own one has admitted the
+ * request — so a caller the per-user bucket refused never spends the tenant's
+ * budget, which is what would let one abuser lock out everyone they share it
+ * with. The converse costs only that caller's own budget.
+ *
+ * Counts AUTHENTICATED traffic only. The tenant comes from `x-tenant-slug` or
+ * the Host, which any caller picks, and membership is verified only for a
+ * session (`tenantMembershipMiddleware`, mounted before every limiter). Counting
+ * anonymous requests would let anyone with a handful of addresses exhaust any
+ * tenant's budget by naming it. Anonymous traffic stays bounded per IP.
+ *
+ * No adaptive escalation, and refusals are not kept: a refused request's entry
+ * is removed again, so the bucket never locks a whole tenant out for its busiest
+ * member. It never admits more than `max` per window.
+ *
+ * ponytail: the add/count and the removal of a refused entry are two round
+ * trips, so a request arriving in the gap sees that entry and can be refused
+ * one slot early, only while the bucket is already at its limit. Make it one
+ * atomic Lua script if that edge ever shows up in practice.
+ */
+async function tenantLimitRefusal(
+  c: Context,
+  tier: string,
+  db: Database | undefined,
+): Promise<Response | null> {
+  const prefetched = c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined;
+  const userId = prefetched?.user?.id ?? (c.get('user') as { id?: string } | undefined)?.id;
+  if (!userId) return null;
+  const tenant = tenantId(c);
+  const limit = await loadTenantLimit(db, tier, tenant);
+  if (!limit) return null;
+
+  const key = `rl:${tier}:t:${tenant}`;
+  let allowed: boolean | null = null;
+  const cache = getCache();
+  if (cache) {
+    try {
+      const now = Date.now();
+      const member = `${now}-${crypto.randomUUID()}`;
+      const pipeline = cache.pipeline();
+      pipeline.zremrangebyscore(key, 0, now - limit.windowMs);
+      pipeline.zadd(key, now, member);
+      pipeline.zcard(key);
+      pipeline.pexpire(key, limit.windowMs);
+      const results = await pipeline.exec();
+      const count = (results?.[2]?.[1] as number) ?? 0;
+      allowed = count <= limit.max;
+      if (!allowed) await cache.zrem(key, member);
+    } catch {
+      allowed = null; // fall through to the in-memory bucket, closed like the tiers
+    }
+  }
+  if (allowed === null) allowed = memoryRateLimit(key, limit.windowMs, limit.max, false);
+  if (allowed) return null;
+  c.header('Retry-After', String(Math.ceil(limit.windowMs / 1000)));
+  return c.json({ error: 'Tenant rate limit exceeded' }, 429);
 }
 
 // Module-level DB reference — set once at engine startup via initRateLimitDb()
@@ -60,7 +195,7 @@ const memoryStore = new Map<string, RateLimitEntry>();
 let lastCleanup = Date.now();
 const CLEANUP_INTERVAL = 60_000; // Clean every minute
 
-function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
+function memoryRateLimit(key: string, windowMs: number, max: number, countRefused = true): boolean {
   const now = Date.now();
   const windowStart = now - windowMs;
 
@@ -107,6 +242,7 @@ function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
     return true;
   }
 
+  if (!countRefused && entry.count >= max) return false;
   // Increment counter in current window
   entry.count++;
   return entry.count <= max;
@@ -213,6 +349,7 @@ interface RateLimitConfig {
 
 export function rateLimit(config: RateLimitConfig) {
   const { keyPrefix, message = 'Too Many Requests', db } = config;
+  knownTiers.add(keyPrefix);
 
   return async (c: Context, next: Next) => {
     // Resolve live limits from DB (falls back to compiled defaults)
@@ -271,7 +408,7 @@ export function rateLimit(config: RateLimitConfig) {
         c.header('Retry-After', String(windowSec));
         return c.json({ error: message }, 429);
       }
-      return next();
+      return (await tenantLimitRefusal(c, keyPrefix, db ?? _db)) ?? next();
     }
 
     try {
@@ -356,7 +493,7 @@ export function rateLimit(config: RateLimitConfig) {
       }
     }
 
-    return next();
+    return (await tenantLimitRefusal(c, keyPrefix, db ?? _db)) ?? next();
   };
 }
 

@@ -60,6 +60,9 @@ let rlTiers = $state<
 >([]);
 let rlSaving = $state<string | null>(null);
 let rlResetting = $state(false);
+// A per-tenant limit has no seeded row until one is added (PATCH creates it).
+let rlTierNames = $state<string[]>([]);
+let newTenantLimit = $state({ tier: 'api', tenant: '', window_ms: 60000, max_requests: 1000 });
 
 onMount(async () => {
   try {
@@ -86,8 +89,9 @@ onMount(async () => {
 async function loadRateLimiting() {
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
+    const res = await api.get<{ rate_limits: any[]; tiers?: string[] }>('/api/admin/rate-limits');
     if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
+    rlTierNames = res?.tiers ?? [];
   } catch (err) {
     // A 403 or a 500 read exactly like the pre-migration case — the tier table
     // came back empty and the tab said "no rate limits configured", which is
@@ -120,6 +124,26 @@ async function saveTier(tier: (typeof rlTiers)[number]) {
       is_active: tier.is_active,
     });
     toast.success(m['settings.tierSaved']({ tier: tier.key_prefix }));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  } finally {
+    rlSaving = null;
+  }
+}
+
+async function addTenantLimit() {
+  const tenant = newTenantLimit.tenant.trim();
+  const key = tenant ? `tenant:${newTenantLimit.tier}:${tenant}` : `tenant:${newTenantLimit.tier}`;
+  rlSaving = key;
+  try {
+    await api.patch(`/api/admin/rate-limits/${key}`, {
+      window_ms: newTenantLimit.window_ms,
+      max_requests: newTenantLimit.max_requests,
+      is_active: true,
+    });
+    toast.success(m['settings.tierSaved']({ tier: key }));
+    newTenantLimit.tenant = '';
+    await loadRateLimiting();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
   } finally {
@@ -409,6 +433,44 @@ let confirmState = $state<{
  {/each}
  </tbody>
  </table>
+ </div>
+
+ <div class="mt-6">
+ <h3 class="font-semibold text-sm">{m['settings.tenantLimitTitle']()}</h3>
+ <p class="text-xs text-base-content/65 mb-2">{m['settings.tenantLimitHint']()}</p>
+ <div class="flex flex-wrap items-end gap-2">
+ <select class="select select-sm" aria-label={m['settings.tier']()} bind:value={newTenantLimit.tier}>
+ {#each rlTierNames as t}
+ <option value={t}>{t}</option>
+ {/each}
+ </select>
+ <input
+ class="input input-sm input-bordered w-80 font-mono text-xs"
+ placeholder={m['settings.tenantLimitTenant']()}
+ aria-label={m['settings.tenantLimitTenant']()}
+ bind:value={newTenantLimit.tenant}
+ />
+ <input
+ type="number"
+ class="input input-sm input-bordered w-24 font-mono text-xs"
+ aria-label={m['settings.window']()}
+ bind:value={newTenantLimit.window_ms}
+ min="1000"
+ max="3600000"
+ step="1000"
+ />
+ <input
+ type="number"
+ class="input input-sm input-bordered w-24 font-mono text-xs"
+ aria-label={m['settings.maxRequests']()}
+ bind:value={newTenantLimit.max_requests}
+ min="1"
+ max="100000"
+ />
+ <button class="btn btn-sm btn-primary" onclick={addTenantLimit} disabled={rlSaving !== null}>
+ {m['settings.tenantLimitAdd']()}
+ </button>
+ </div>
  </div>
  {/if}
 

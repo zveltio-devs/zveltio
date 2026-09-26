@@ -248,7 +248,17 @@ Limits are identified **per user ID** for authenticated requests, or **per IP** 
 
 **Per-API-key overrides:** Individual API keys can have their own window/max via `PUT /api/api-keys/:id/rate-limit`, which takes precedence over tier defaults. Useful for trusted integrations that need higher limits.
 
-**Multi-tenant installs (planned).** Every bucket above is keyed per user, API key or IP, so today one busy tenant can consume the capacity of an instance it shares with others. An optional per-tenant limit on the same limiter is planned: off by default, configured like the tier limits. It protects resources; it is not a subscription plan. Zveltio's core has no plans, quotas or usage metering.
+**Per-tenant limit (multi-tenant installs).** The buckets above are keyed per user, API key or IP, so on their own the members of one tenant together could consume the capacity of an instance they share with other tenants. An optional per-tenant bucket closes that. It is **off by default**: with no configuration nothing changes, and single-tenant installs never need it.
+
+- **Config** — rows in the same `zv_rate_limit_configs` table, set with `PATCH /api/admin/rate-limits/:keyPrefix` (instance admins only; a tenant admin cannot change it, and every change is audited). `tenant:<tier>` is the default for every tenant on that tier (`api`, `write`, `ai`, …; `GET /api/admin/rate-limits` returns the valid names as `tiers`). `tenant:<tier>:<tenantId>` overrides it for one tenant. The first `PATCH` of a tenant key creates the row and needs both `window_ms` and `max_requests`. The Studio lists these rows under Settings → Rate limiting and can add one.
+- **Resolution** — the tenant's own active row, then the tier's active `tenant:<tier>` row, then off. Setting `is_active: false` on an override drops that tenant back to the default. Changes apply within 60 seconds.
+- **Bucket** — `rl:<tier>:t:<tenantId>`, the same sliding window as the other buckets, with the same fail-closed in-memory fallback. The tenant is the one the request resolved (`x-tenant-slug` or subdomain, else the default tenant). An unknown slug is refused before any limiter runs, so a caller cannot invent a tenant to escape the bucket.
+- **Checked in addition to the caller's own bucket.** The caller's own bucket is checked first, and a request it refuses never spends the tenant's budget, so one member hammering the API cannot lock out the rest of the tenant. Refusals are not counted in the tenant bucket, and there is no adaptive escalation on it: a busy tenant is held at its limit, not locked out.
+- **Authenticated traffic only.** Anyone can name a tenant with `x-tenant-slug`, and membership is verified only for signed-in users. If anonymous requests counted, a handful of addresses could exhaust any tenant's budget. Anonymous traffic, such as public forms, stays limited per IP by its tier. Today a session is what identifies the caller at this point. API-key traffic on `/api/*` is authenticated later, in the route, so it is not counted yet.
+- **Response** — `429` with `Retry-After` and `{"error": "Tenant rate limit exceeded"}`, so an operator can tell it from the per-caller `Too Many Requests`.
+- The IP allowlist skips the tenant bucket like every other limit. The god user has no exemption, the same as with the other buckets.
+
+It protects resources; it is not a subscription plan. Zveltio's core has no plans, quotas or usage metering.
 
 #### CORS Configuration
 
