@@ -324,6 +324,17 @@ export function usersRoutes(
     // that would matter, and `session.userId` is ON DELETE CASCADE anyway.
     await revokeAllUserSessions(poolDb, userId);
 
+    // Then the user's Casbin rows — every `g` (role, in every domain) and `p`
+    // whose subject is this id. Nothing references `zvd_permissions.v0`, so the
+    // row delete below left them behind, and `GET /admin/roles/hierarchy` (which
+    // tells users from roles by "v0 is a user") listed each as an edge. Through
+    // the enforcer, so its watcher tells the other instances. Before the row
+    // delete for the same reason as the sessions: a failure after this leaves a
+    // user with no grants, not grants with no user.
+    const e = await getEnforcer();
+    await e.deleteUser(userId);
+    await invalidateUserPermCache(userId);
+
     await db.deleteFrom('user').where('id', '=', userId).execute();
 
     await auditLog(db, {

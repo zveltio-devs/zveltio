@@ -46,7 +46,7 @@ const MANDATORY: ReadonlySet<string> = new Set([
   // all.
   'sql-editor.ts:POST /',
   'permission-routes.ts:POST /roles',
-  'permission-routes.ts:DELETE /roles/:id',
+  'permission-routes.ts:DELETE /roles/:id{[0-9a-fA-F-]{36}}',
   'permission-routes.ts:POST /permissions/bulk',
   'permission-routes.ts:POST /roles/hierarchy',
   'permission-routes.ts:DELETE /roles/hierarchy',
