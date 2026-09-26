@@ -248,6 +248,8 @@ Limits are identified **per user ID** for authenticated requests, or **per IP** 
 
 **Per-API-key overrides:** Individual API keys can have their own window/max via `PUT /api/api-keys/:id/rate-limit`, which takes precedence over tier defaults. Useful for trusted integrations that need higher limits.
 
+**Multi-tenant installs (planned).** Every bucket above is keyed per user, API key or IP, so today one busy tenant can consume the capacity of an instance it shares with others. An optional per-tenant limit on the same limiter is planned: off by default, configured like the tier limits. It protects resources; it is not a subscription plan. Zveltio's core has no plans, quotas or usage metering.
+
 #### CORS Configuration
 
 ```typescript
