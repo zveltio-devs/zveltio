@@ -39,6 +39,9 @@ export { normalizeFields } from './shape.js';
 //     key to read it with.
 export { serializeRecord } from './shape.js';
 export { validateApiKey } from './auth.js';
+//   - `findApiKey`/`requestApiKey` so `sessionPrefetch` resolves the key once,
+//     before the rate limiters, and `authenticate` reuses that row.
+export { findApiKey, requestApiKey } from './auth.js';
 //   - `checkAccess` so the zones render path asks the same question the data
 //     API asks. It used to scope collection reads by `tenant_id` alone, which
 //     re-implemented the authorisation model as a single predicate: a view on

@@ -77,7 +77,13 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
         // tenant A's key authenticated here and the lookup below then served
         // tenant B's function.
         const { validateApiKey } = await import('../lib/data/index.js');
-        const apiKey = await validateApiKey(db, rawKey, tenantId(c)).catch(() => null);
+        // The prefetch looked this key up already (X-API-Key wins there too).
+        const apiKey = await validateApiKey(
+          db,
+          rawKey,
+          tenantId(c),
+          c.get('prefetchedApiKey'),
+        ).catch(() => null);
         authed = !!apiKey;
       }
     }

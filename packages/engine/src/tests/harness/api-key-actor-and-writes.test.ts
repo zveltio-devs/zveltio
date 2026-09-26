@@ -208,8 +208,10 @@ d('API keys and writes meet the same rules (in-process)', () => {
     ).rows[0]!.id;
 
     // Enough of a Hono context for this path: no session, the key in the header.
+    // Anything else unset, as Hono has it — a `null` prefetchedApiKey would
+    // mean "looked up, no such key".
     const ctx = {
-      get: (k: string) => (k === 'prefetchedSession' ? null : null),
+      get: (k: string) => (k === 'prefetchedSession' ? null : undefined),
       req: {
         header: (h: string) => (h === 'X-API-Key' ? raw : undefined),
         raw: { headers: new Headers() },
