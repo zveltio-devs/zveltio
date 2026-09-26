@@ -131,7 +131,11 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
   );
 
   // DELETE /roles/:id — Delete a custom role and its Casbin policies
-  app.delete('/roles/:id', async (c) => {
+  //
+  // `:id` is a zv_roles uuid, and the pattern says so. Unconstrained, this route
+  // (registered first) also matched `DELETE /roles/hierarchy`, cast `hierarchy`
+  // to uuid, and answered 400 — removing an inheritance edge was unreachable.
+  app.delete('/roles/:id{[0-9a-fA-F-]{36}}', async (c) => {
     const id = c.req.param('id');
     const role = await db
       .selectFrom('zv_roles')
@@ -265,18 +269,36 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     // — granting directly what a parent role already confers, or removing a role in
     // the belief nothing depends on it. A 500 says the tree could not be drawn,
     // which is the only honest answer when it could not be read.
-    const edges = await db
-      .selectFrom('zvd_permissions')
-      .select(['v0 as child', 'v1 as parent'])
-      .where('ptype', '=', 'g')
+    //
+    // A role edge and a user's role assignment are the same row shape —
+    // `('g', child_role, parent_role, '*')` and `('g', user_id, role, '*')` — so
+    // the only thing that tells them apart is whether v0 names a user. This used
+    // to test v0 against a UUID regex, but better-auth ids are 32-char
+    // alphanumerics: every user assignment was listed as an edge, and its delete
+    // button revoked that user's role. Domain `*` is the only one POST writes and
+    // DELETE removes; `child = parent` is the seeded `('g','admin','admin')`
+    // placeholder, which POST refuses and which is not inheritance.
+    const hierarchy = await db
+      .selectFrom('zvd_permissions as g')
+      .select(['g.v0 as child', 'g.v1 as parent'])
+      .where('g.ptype', '=', 'g')
+      .where('g.v2', '=', '*')
+      .whereRef('g.v0', '<>', 'g.v1')
+      .where(({ not, exists, selectFrom }) =>
+        not(exists(selectFrom('user').select('user.id').whereRef('user.id', '=', 'g.v0'))),
+      )
       .execute();
 
-    // Filter out user-role assignments (UUID v0) — keep only role-role edges
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const filtered = edges.filter((e) => !uuidRe.test(e.child));
-
-    return c.json({ hierarchy: filtered });
+    return c.json({ hierarchy });
   });
+
+  // POST and DELETE below manage role-to-role edges only. With a user id as
+  // `child` they would grant or revoke that user's role while the audit trail
+  // records a hierarchy change; role assignment has its own routes.
+  const isUserId = async (id: string) =>
+    (await db.selectFrom('user').select('id').where('id', '=', id).executeTakeFirst()) !==
+    undefined;
+  const notARole = { error: '"child" is a user, not a role' };
 
   // POST /roles/hierarchy — Add inheritance: child_role inherits parent_role
   app.post(
@@ -291,6 +313,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     async (c) => {
       const { child, parent } = c.req.valid('json');
       if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
+      if (await isUserId(child)) return c.json(notARole, 400);
 
       const e = await getEnforcer();
       // Circular inheritance, at any depth.
@@ -342,6 +365,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     ),
     async (c) => {
       const { child, parent } = c.req.valid('json');
+      if (await isUserId(child)) return c.json(notARole, 400);
       const e = await getEnforcer();
       await e.deleteRoleForUser(child, parent, '*');
       await invalidateAllPermissionCaches();
