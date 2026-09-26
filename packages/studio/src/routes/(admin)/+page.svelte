@@ -45,7 +45,8 @@ import { extensions } from '$lib/extensions.svelte.js';
 interface AdminStats {
   collections?: number;
   active_webhooks?: number;
-  api_calls_today?: number;
+  /** Null while the request log samples, when a count would be a fraction of the traffic. */
+  api_calls_today?: number | null;
 }
 interface SystemStatus {
   database: { status: string; version?: string; tables?: number };
@@ -75,7 +76,12 @@ let activityLoading = $state(true);
 let systemLoading = $state(true);
 let collectionsLoading = $state(true);
 
-let stats = $state({
+let stats = $state<{
+  collections: number;
+  total_records: number;
+  api_calls_today: number | null;
+  active_webhooks: number;
+}>({
   collections: 0,
   total_records: 0,
   api_calls_today: 0,
@@ -187,7 +193,7 @@ async function loadStats() {
     stats = {
       collections: s?.collections ?? c?.collections?.length ?? 0,
       total_records: 0,
-      api_calls_today: s?.api_calls_today ?? 0,
+      api_calls_today: s?.api_calls_today ?? null,
       active_webhooks: s?.active_webhooks ?? 0,
     };
   } finally {
@@ -462,7 +468,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
             <div class="p-2 bg-accent/10 rounded-xl"><Zap size={18} class="text-accent" /></div>
           </div>
           <div>
-            <p class="display-lg text-base-content">{stats.api_calls_today.toLocaleString()}</p>
+            <p class="display-lg text-base-content">{stats.api_calls_today?.toLocaleString() ?? '—'}</p>
             <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
           </div>
         </div>

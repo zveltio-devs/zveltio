@@ -4,17 +4,20 @@
 
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
 d('admin system routes (in-process)', () => {
   let app: Hono;
+  let db: Database;
   let cookie: string;
 
   beforeAll(async () => {
     const ctx = await getTestApp();
     app = ctx.app;
+    db = ctx.db;
     cookie = await createGodSession(app, ctx.db);
   });
 
@@ -68,6 +71,20 @@ d('admin system routes (in-process)', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(typeof body).toBe('object');
+  });
+
+  it("GET /api/admin/stats counts today's API calls from the request log", async () => {
+    // The count used to come from the tenant quota's usage ledger, which only a
+    // Valkey-backed quota ever wrote. The request log is written on every install.
+    const before = await app.request('/api/admin/stats', { headers: { cookie } });
+    const { api_calls_today: n0 } = (await before.json()) as { api_calls_today: number };
+    await db
+      .insertInto('zv_request_logs')
+      .values({ method: 'GET', path: '/api/probe', status: 200, duration_ms: 1 })
+      .execute();
+    const res = await app.request('/api/admin/stats', { headers: { cookie } });
+    const { api_calls_today: n1 } = (await res.json()) as { api_calls_today: number };
+    expect(n1).toBeGreaterThan(n0);
   });
 
   it('GET /api/admin/audit returns recent audit rows', async () => {

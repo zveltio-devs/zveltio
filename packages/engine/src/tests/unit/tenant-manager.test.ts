@@ -38,12 +38,7 @@ const TENANT = {
   id: 'aaaaaaaa-0000-4000-8000-000000000001',
   slug: 'acme',
   name: 'Acme',
-  plan: 'pro',
   status: 'active',
-  max_records: 1000,
-  max_storage_gb: 10,
-  max_api_calls_day: 10000,
-  max_users: 25,
   settings: {},
 };
 

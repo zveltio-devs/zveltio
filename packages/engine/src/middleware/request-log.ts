@@ -11,7 +11,7 @@ const SKIP_PREFIXES = ['/api/health', '/api/metrics', '/api/auth'];
 // (log everything) preserves prior behaviour; REQUEST_LOG_SAMPLE_RATE=0.1 keeps
 // ~10%, 0 disables success logging entirely. Non-2xx responses are ALWAYS
 // logged regardless of the rate, so errors are never sampled away.
-const SAMPLE_RATE = (() => {
+export const SAMPLE_RATE = (() => {
   const raw = Number(process.env.REQUEST_LOG_SAMPLE_RATE ?? '1');
   if (!Number.isFinite(raw)) return 1;
   return Math.min(1, Math.max(0, raw));

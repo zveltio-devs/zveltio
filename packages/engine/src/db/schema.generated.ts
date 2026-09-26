@@ -627,20 +627,6 @@ export interface ZvDashboardsTable {
   tenant_id: string | null;
 }
 
-export interface ZvDdlJobsTable {
-  id: Generated<string>;
-  type: string;
-  payload: unknown;
-  status: Generated<'pending' | 'running' | 'completed' | 'failed'>;
-  error: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  started_at: Date | null;
-  completed_at: Date | null;
-  retry_count: Generated<number>;
-  max_retries: Generated<number>;
-}
-
 export interface ZvDeveloperDatabaseSnippetsTable {
   id: Generated<string>;
   name: string;
@@ -2344,15 +2330,6 @@ export interface ZvTenantTransfersTable {
   reason: string | null;
 }
 
-export interface ZvTenantUsageTable {
-  id: Generated<string>;
-  tenant_id: string;
-  date: Generated<Date>;
-  api_calls: Generated<number>;
-  storage_bytes: Generated<number>;
-  record_count: Generated<number>;
-}
-
 export interface ZvTenantUsersTable {
   id: Generated<string>;
   tenant_id: string;
@@ -2370,14 +2347,7 @@ export interface ZvTenantsTable {
   id: Generated<string>;
   slug: string;
   name: string;
-  plan: Generated<'free' | 'pro' | 'enterprise' | 'custom'>;
   status: Generated<'active' | 'suspended' | 'deleted'>;
-  max_records: Generated<number>;
-  max_storage_gb: Generated<number>;
-  max_api_calls_day: Generated<number>;
-  max_users: Generated<number>;
-  billing_email: string | null;
-  trial_ends_at: Date | null;
   settings: Generated<unknown | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -4713,24 +4683,9 @@ export interface ZvdQualityRulesTable {
   tenant_id: string | null;
 }
 
-export interface ZvdQualityScoresTable {
-  id: Generated<string>;
-  collection: string;
-  scan_id: string;
-  score: Generated<number>;
-  total_records: Generated<number>;
-  critical_count: Generated<number>;
-  error_count: Generated<number>;
-  warning_count: Generated<number>;
-  info_count: Generated<number>;
-  calculated_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
 export interface ZvdQualitySlaTargetsTable {
   id: Generated<string>;
   collection: string;
-  min_score: Generated<number>;
   max_critical_issues: Generated<number>;
   max_error_issues: Generated<number>;
   alert_email: string | null;
@@ -5554,7 +5509,6 @@ export interface DbSchema {
   zv_content_drafts: ZvContentDraftsTable;
   zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
-  zv_ddl_jobs: ZvDdlJobsTable;
   zv_developer_database_snippets: ZvDeveloperDatabaseSnippetsTable;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_document_access_log: ZvDocumentAccessLogTable;
@@ -5672,7 +5626,6 @@ export interface DbSchema {
   zv_sms_templates: ZvSmsTemplatesTable;
   zv_storage_quotas: ZvStorageQuotasTable;
   zv_tenant_transfers: ZvTenantTransfersTable;
-  zv_tenant_usage: ZvTenantUsageTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenants: ZvTenantsTable;
   zv_usage_events: ZvUsageEventsTable;
@@ -5828,7 +5781,6 @@ export interface DbSchema {
   zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
   zvd_quality_remediations: ZvdQualityRemediationsTable;
   zvd_quality_rules: ZvdQualityRulesTable;
-  zvd_quality_scores: ZvdQualityScoresTable;
   zvd_quality_sla_targets: ZvdQualitySlaTargetsTable;
   zvd_quote_approvals: ZvdQuoteApprovalsTable;
   zvd_quote_lines: ZvdQuoteLinesTable;
