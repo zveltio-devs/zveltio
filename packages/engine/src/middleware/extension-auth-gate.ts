@@ -132,7 +132,14 @@ export function extensionAuthGate(auth: SessionResolver): MiddlewareHandler {
     }
 
     // Fail-closed: require an authenticated session.
-    const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+    // `sessionPrefetch` already asked; `undefined` = it did not run or threw.
+    const prefetched = c.get('prefetchedSession') as
+      | Awaited<ReturnType<SessionResolver['api']['getSession']>>
+      | undefined;
+    const session =
+      prefetched !== undefined
+        ? prefetched
+        : await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
     if (!session?.user) {
       return c.json(
         {

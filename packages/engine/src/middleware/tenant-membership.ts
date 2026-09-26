@@ -33,7 +33,16 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
 
     let userId: string | null = null;
     try {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      // `sessionPrefetch` already asked, with the same headers; `undefined` = it
+      // did not run or threw, so ask here exactly as before.
+      const prefetched = c.get('prefetchedSession') as
+        | { user?: { id?: string } }
+        | null
+        | undefined;
+      const session =
+        prefetched !== undefined
+          ? prefetched
+          : await auth.api.getSession({ headers: c.req.raw.headers });
       userId = session?.user?.id ?? null;
     } catch {
       /* unauthenticated — fall through to the route's own guard */

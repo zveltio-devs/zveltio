@@ -718,6 +718,8 @@ async function buildHonoApp(): Promise<Hono> {
   // request with it. See the header of session-prefetch.ts.
   app.use('/api/*', sessionPrefetch(auth, db));
   app.use('/ext/*', sessionPrefetch(auth, db));
+  // So `filesRateLimit` counts a signed-in caller, not their office's address.
+  app.use('/files/*', sessionPrefetch(auth, db, { onlyWithCredentials: true }));
   app.use('/api/*', tenantMiddleware);
   // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
   // isolation as /api/*, or extension handlers using ctx.reqDb(c) fall back to
