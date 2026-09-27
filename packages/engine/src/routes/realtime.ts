@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardSession } from '../lib/admin-guard.js';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
@@ -516,9 +516,11 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // generation predates the prefetch's lookup, the session trusted here.
     const gen = permissionGeneration();
     const sweep = c.get('prefetchSweepGen') ?? sweepGeneration();
-    const session = await requestSession(c, auth);
-    const token = session?.session?.token;
-    if (!session || !token) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
+    // A session without its token could never be re-asked by the sweep.
+    const token = session.session?.token;
+    if (!token) return c.json({ error: 'Unauthorized' }, 401);
 
     const userId = session.user.id;
     const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
@@ -755,8 +757,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   // ── Presence ───────────────────────────────────────────────────
   // POST /presence/:channel — Join a presence channel (or send heartbeat)
   app.post('/presence/:channel', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     const channel = c.req.param('channel');
     const meta = await c.req.json().catch(() => ({}));
@@ -810,8 +812,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // DELETE /presence/:channel — Leave a presence channel
   app.delete('/presence/:channel', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     const channel = c.req.param('channel');
     const cache = getCache();
@@ -851,8 +853,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // GET /presence/:channel — List users in a channel
   app.get('/presence/:channel', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     const channel = c.req.param('channel');
 
@@ -882,8 +884,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   // POST /broadcast/:channel — Publish a message to a custom channel
   // Any authenticated user can publish; clients subscribe via SSE ?channel=broadcast:name
   app.post('/broadcast/:channel', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     // Sending and receiving now need the same thing.
     //
@@ -934,8 +936,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // GET /connections — Admin: list active SSE connections
   app.get('/connections', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     // The comment above said "Admin" and the code checked only for a session,
     // so any member could enumerate every connected userId on the instance.
     // `/api/ws/stats` next door already gates the same information this way.
@@ -954,8 +956,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // POST /publish — Admin: publish a custom event to all SSE clients
   app.post('/publish', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);

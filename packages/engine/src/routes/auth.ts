@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requestSession } from '../middleware/session-prefetch.js';
+import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -19,7 +20,7 @@ export function authRoutes(db: Database, auth: any): Hono {
   // GET / — current user profile (mounted at /api/me)
   app.get('/', async (c) => {
     const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Not authenticated' }, 401);
+    if (!session) return refuseWithoutSession(c, 'Not authenticated');
 
     const user = await db
       .selectFrom('user')
@@ -48,7 +49,7 @@ export function authRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const session = await requestSession(c, auth);
-      if (!session) return c.json({ error: 'Not authenticated' }, 401);
+      if (!session) return refuseWithoutSession(c, 'Not authenticated');
 
       const { name, image } = c.req.valid('json');
       const updates: Record<string, unknown> = { updatedAt: new Date() };

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardSession } from '../lib/admin-guard.js';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
@@ -240,8 +240,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // Auth middleware
   app.use('*', async (c, next) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     c.set('user', session.user);
     await next();
   });
