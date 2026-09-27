@@ -10,7 +10,9 @@ import {
   permissionGeneration,
   revalidateSockets,
   runWithDomain,
+  sweepGeneration,
 } from '../lib/tenancy/index.js';
+import { stillAuthenticated, type RealtimePrincipal } from '../lib/data/index.js';
 import { getRlsFilters, matchesRlsFilters } from '../lib/tenancy/index.js';
 import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
 import type { ColumnAccess } from '../lib/tenancy/index.js';
@@ -74,6 +76,8 @@ interface StreamSub {
   access: StreamAccess;
   /** How `access` was resolved, for the sweep to ask again. */
   resolveAccess: () => Promise<StreamAccess>;
+  /** The session the stream opened with — `closeUnauthenticatedSse` re-asks it. */
+  principal: RealtimePrincipal;
 }
 
 type StreamAccess = Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
@@ -94,6 +98,9 @@ function accessKey(access: StreamAccess): string {
 
 // Active SSE connections: userId → Set of subscriptions
 const connections = new Map<string, Set<StreamSub>>();
+
+/** The handle `realtimeRoutes` was given — the sweep runs outside any request. */
+let sseDb: Database | null = null;
 
 /**
  * Redis channel name, namespaced by tenant.
@@ -409,6 +416,29 @@ export async function revalidateSseStreams(): Promise<boolean> {
 }
 
 /**
+ * End every stream whose session no longer authenticates — signed out, revoked,
+ * expired, its user barred or deleted. The whole stream: its reconnect meets
+ * `/stream`'s 401. One batched lookup; a failed one ends nothing and answers
+ * `true`, as `revalidateSseStreams` does.
+ */
+export async function closeUnauthenticatedSse(): Promise<boolean> {
+  const subs = [...connections.values()].flatMap((set) => [...set]);
+  if (subs.length === 0 || !sseDb) return false;
+  let live: Set<RealtimePrincipal>;
+  try {
+    ({ live } = await stillAuthenticated(
+      sseDb,
+      subs.flatMap((s) => (s.principal ? [s.principal] : [])),
+    ));
+  } catch (err) {
+    console.error('[realtime] SSE principal recheck failed; retrying:', err);
+    return true;
+  }
+  for (const sub of subs) if (!sub.principal || !live.has(sub.principal)) sub.stream.abort();
+  return false;
+}
+
+/**
  * Broadcast a generic (non-data) event to the clients subscribed to `channel`.
  *
  * It used to write to every open stream — every user, every tenant, whatever
@@ -470,6 +500,7 @@ function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function realtimeRoutes(_db: Database, _auth: any): Hono {
+  sseDb = _db;
   const app = new Hono();
 
   // GET /stream — SSE endpoint for real-time updates
@@ -479,11 +510,13 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   //   ?record_id=uuid                — only events for this record
   //   ?filter={"field":"value"}      — field-level filter on record payload
   app.get('/stream', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
     // Read before the gate: a revoke swept while this request is between its
     // checks and its registration would otherwise miss the stream.
     const gen = permissionGeneration();
+    const sweep = sweepGeneration();
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const token = (session as { session?: { token?: string } } | null)?.session?.token;
+    if (!session || !token) return c.json({ error: 'Unauthorized' }, 401);
 
     const userId = session.user.id;
     const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
@@ -618,6 +651,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         channels: allowedExtraChannels,
         access,
         resolveAccess,
+        principal: { kind: 'session', token, userId },
       };
 
       if (!connections.has(userId)) connections.set(userId, new Set());
@@ -650,7 +684,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
           resolve();
         });
       });
-      if (permissionGeneration() !== gen) revalidateSockets();
+      if (permissionGeneration() !== gen || sweepGeneration() !== sweep) revalidateSockets();
 
       // Subscribe to cache channels if cache is available
       const cache = getCache();

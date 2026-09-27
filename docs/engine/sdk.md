@@ -560,3 +560,30 @@ const realtime = new ZveltioRealtime('https://api.yourapp.com', {
 ```
 
 WebSocket endpoint: `ws://your-engine/api/ws`
+
+A socket lives only as long as what it authenticated with. When that session is
+signed out, revoked or expires, its user is deactivated or deleted, or that API
+key is revoked, expires or its creator is deactivated, the engine closes the
+socket with code `4001` (`Unauthorized`) and a reconnect is refused with 401. An
+SSE stream (`/api/realtime/stream`) ends the same way.
+
+The SDK clients do not retry a `4001`; they tell you instead. Sign in again (or
+swap the key), then call `connect()`:
+
+```typescript
+realtime.onUnauthorized(() => {
+  // the session or key is gone — re-authenticate, then realtime.connect()
+});
+```
+
+`ZveltioClient` forwards the same event to its `onUnauthorized` config callback.
+Until you call `connect()` again, `client.realtime.subscribe()` only records the
+subscription and sends it on that connect. Any other close is retried with
+backoff, at most 10 times. A refused upgrade (401) looks like an ordinary drop
+to a WebSocket in every runtime, so that retry limit is what stops it. A
+`ZveltioClient` configured with `apiKey` sends it on the socket as `X-API-Key`,
+and `watchSchema({ apiKey })` does the same.
+
+A key whose scopes are narrowed while its socket is open loses the collections
+it no longer covers: the socket stays open and receives
+`{ "type": "unsubscribed", "collections": [...], "reason": "forbidden" }`.

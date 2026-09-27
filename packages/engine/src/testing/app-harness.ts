@@ -308,3 +308,23 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
   }
   await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
 }
+
+/**
+ * The socket data `/api/ws` hands to `websocketHandler.open`, from the real
+ * upgrade through a stand-in `server` — so a probe socket carries the principal
+ * the realtime sweep re-asks. `undefined` when the upgrade was refused.
+ */
+export async function wsUpgradeData(
+  app: Hono,
+  headers: Record<string, string>,
+): Promise<Record<string, unknown> | undefined> {
+  let data: Record<string, unknown> | undefined;
+  const server = {
+    upgrade: (_req: Request, opts: { data: Record<string, unknown> }) => {
+      data = opts.data;
+      return true;
+    },
+  };
+  await app.request('/api/ws', { headers }, { server });
+  return data;
+}

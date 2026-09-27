@@ -5,7 +5,11 @@ import { sql, type ExpressionBuilder } from 'kysely';
 import type { Database } from '../../db/index.js';
 import type { DbSchema } from '../../db/schema.js';
 import { toJsonb } from '../../lib/jsonb.js';
-import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
+import {
+  checkPermission,
+  getEnforcer,
+  revalidatePrincipalsEverywhere,
+} from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
 import { escapeLike } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
@@ -200,6 +204,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     if (!revoked.numUpdatedRows) {
       return c.json({ error: 'API key not found' }, 404);
     }
+    // Sockets the key opened stay open until swept — see `stillAuthenticated`.
+    revalidatePrincipalsEverywhere();
 
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
@@ -238,6 +244,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         .where('id', '=', id)
         .where('tenant_id', '=', tenantId(c))
         .execute();
+      // Open sockets hold the key's scopes from their upgrade; re-read them.
+      if (data.scopes !== undefined) revalidatePrincipalsEverywhere();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {

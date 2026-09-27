@@ -23,7 +23,7 @@ export async function authenticate(
   // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in hardening plan item H-05
   auth: any,
   db: Database,
-): Promise<{ user: RequestUser; authType: string } | null> {
+): Promise<{ user: RequestUser; authType: string; sessionToken?: string } | null> {
   // Try session — the prefetch resolved it before the tenant transaction opened.
   //
   // Asking here directly is what produced `permission denied for table session`:
@@ -36,7 +36,10 @@ export async function authenticate(
     prefetched !== undefined
       ? prefetched
       : await auth.api.getSession({ headers: c.req.raw.headers });
-  if (session) return { user: session.user, authType: 'session' };
+  // The token rides along for a caller that outlives the request — a realtime
+  // socket re-asks with it whether the session still exists.
+  if (session)
+    return { user: session.user, authType: 'session', sessionToken: session.session?.token };
 
   // Try API key
   const rawKey = requestApiKey(c);
@@ -129,10 +132,20 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
   // No query for a string no key can match: `generateApiKey` owns the shape.
   if (!isWellFormedApiKey(rawKey)) return null;
   const hash = await hashApiKey(rawKey);
-  const apiKey = await db
-    .selectFrom('zv_api_keys')
+  const apiKey = await usableApiKeys(db)
     .selectAll('zv_api_keys')
     .where('key_hash', '=', hash)
+    .executeTakeFirst();
+
+  if (!apiKey) return null;
+  if (apiKeyExpired(apiKey)) return null;
+  return apiKey;
+}
+
+/** Active keys whose creator is not barred — `findApiKey` and the realtime recheck. */
+function usableApiKeys(db: Database) {
+  return db
+    .selectFrom('zv_api_keys')
     .where('is_active', '=', true)
     .where(({ not, exists, selectFrom }) =>
       not(
@@ -143,12 +156,87 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
             .where('user.banned', '=', true),
         ),
       ),
-    )
-    .executeTakeFirst();
+    );
+}
 
-  if (!apiKey) return null;
-  if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) return null;
-  return apiKey;
+function apiKeyExpired(key: { expires_at: unknown }): boolean {
+  return key.expires_at != null && new Date(key.expires_at as string) < new Date();
+}
+
+/** What a realtime connection authenticated as — kept so the sweep can ask again. */
+export type RealtimePrincipal =
+  | { kind: 'session'; token: string; userId: string }
+  | { kind: 'api_key'; keyId: string };
+
+/**
+ * Which of `principals` would still authenticate now. A socket or stream is
+ * authenticated once, at open, so without this a revoked session, a barred or
+ * deleted user and a revoked or expired key kept receiving data for as long as
+ * the connection stayed up.
+ *
+ * Sessions are asked through better-auth's own `findSessions` — Valkey first
+ * when it is configured, else the table, expired ones excluded — because that
+ * is where it looks; a SQL read of `session` misses every session held only in
+ * the cache. The user is read from the table: the cached copy of a session
+ * carries the user as it was at sign-in, before any ban. Keys go through the
+ * same predicate as `findApiKey`. One lookup per kind, whatever the count.
+ *
+ * `keys` carries each live key's grants as they are now: a connection
+ * snapshots them at open, so a key narrowed since kept its old reach.
+ *
+ * Throws when a lookup fails — that is not a revocation.
+ */
+export async function stillAuthenticated<P extends RealtimePrincipal>(
+  db: Database,
+  principals: P[],
+): Promise<{ live: Set<P>; keys: Map<string, ApiKeyGrants> }> {
+  const all: RealtimePrincipal[] = principals;
+  const sessions = all.flatMap((p) => (p.kind === 'session' ? [p] : []));
+  const keyIds = [...new Set(all.flatMap((p) => (p.kind === 'api_key' ? [p.keyId] : [])))];
+  const liveTokens = new Set<string>();
+  const liveUsers = new Set<string>();
+  const liveKeys = new Map<string, ApiKeyGrants>();
+  if (sessions.length > 0) {
+    const { getAuth } = await import('../auth.js');
+    const ctx = await getAuth().$context;
+    const tokens = [...new Set(sessions.map((p) => p.token))];
+    const found = await ctx.internalAdapter.findSessions(tokens, { onlyActiveSessions: true });
+    for (const s of found) liveTokens.add(s.session.token);
+    const users = await db
+      .selectFrom('user')
+      .select('id')
+      .where('id', 'in', [...new Set(sessions.map((p) => p.userId))])
+      .where((eb) => eb.or([eb('banned', 'is', null), eb('banned', '=', false)]))
+      .execute();
+    for (const u of users) liveUsers.add(u.id);
+  }
+  if (keyIds.length > 0) {
+    const keys = await usableApiKeys(db)
+      .select([
+        'zv_api_keys.id',
+        'zv_api_keys.expires_at',
+        'zv_api_keys.scopes',
+        'zv_api_keys.rls_bypass',
+      ])
+      .where('zv_api_keys.id', 'in', keyIds)
+      .execute();
+    for (const k of keys) {
+      // `=== true`, as `authenticate` reads it.
+      if (!apiKeyExpired(k))
+        liveKeys.set(k.id, { scopes: k.scopes, rlsBypass: k.rls_bypass === true });
+    }
+  }
+  const alive = (p: RealtimePrincipal) =>
+    p.kind === 'session'
+      ? liveTokens.has(p.token) && liveUsers.has(p.userId)
+      : liveKeys.has(p.keyId);
+  return { live: new Set(principals.filter(alive)), keys: liveKeys };
+}
+
+/** A key's reach, in the shape `authenticate` puts on the principal. */
+export interface ApiKeyGrants {
+  scopes: RequestUser['scopes'];
+  rlsBypass: boolean;
 }
 
 /**

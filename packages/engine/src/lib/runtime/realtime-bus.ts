@@ -168,12 +168,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
       });
   }
   if (msg.event === ACCESS_RULES_CHANGED_EVENT) {
-    const userId = (msg.data as { userId?: unknown } | undefined)?.userId;
+    const { userId, scope } = (msg.data ?? {}) as { userId?: unknown; scope?: unknown };
     return import('../tenancy/index.js')
       .then((m) => {
         // A user's own row changed: drop what this instance remembers of them.
         if (typeof userId === 'string' && userId) m.clearLocalPermissionCache(userId);
-        m.revalidateSockets();
+        // A revoked session or key: re-ask only who each connection is.
+        m.revalidateSockets(scope === 'principals' ? 'principals' : 'all');
       })
       .catch((err: Error) => {
         console.error('[realtime-bus] rule change sweep not started:', err.message);

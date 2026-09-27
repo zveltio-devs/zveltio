@@ -14,6 +14,7 @@ import {
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
   onAfterCommit,
+  runWithoutTenantTrx,
 } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
@@ -1185,8 +1186,12 @@ async function dropUserPermCaches(userId: string): Promise<void> {
   await invalidateUserQueryCache(userId);
 }
 
+/** `principals`: only re-ask whether each connection's session or key still holds. */
+export type SweepScope = 'all' | 'principals';
+
 let _sweep: Promise<void> | null = null;
-let _sweepAgain = false;
+let _sweepAgain: SweepScope | null = null;
+let _sweepGen = 0;
 let _sweepRetry: ReturnType<typeof setTimeout> | null = null;
 /** First retry after a failed sweep; doubles per consecutive failure, capped. */
 const SWEEP_RETRY_MS = 5_000;
@@ -1208,23 +1213,47 @@ export function __sweepIdle(): Promise<void> {
   return _sweep ?? Promise.resolve();
 }
 
-export function revalidateSockets(): void {
+/**
+ * Moves on every sweep request. A connection authenticated before a revocation
+ * and registered after the sweep it triggered compares this across the two and
+ * asks for another sweep — the sweep that ran could not see it.
+ */
+export function sweepGeneration(): number {
+  return _sweepGen;
+}
+
+export function revalidateSockets(scope: SweepScope = 'all'): void {
+  _sweepGen++;
   if (_sweep) {
-    _sweepAgain = true;
+    if (_sweepAgain !== 'all') _sweepAgain = scope;
     return;
   }
-  _sweep = (async () => {
+  // Never on the caller's transaction: a sweep asked for from inside a request
+  // would read "user" and the key table as `zveltio_rls` and abort it.
+  _sweep = runWithoutTenantTrx(async () => {
     let failed = false;
-    do {
-      _sweepAgain = false;
+    let next: SweepScope | null = scope;
+    while (next) {
+      const principalsOnly = next === 'principals';
+      _sweepAgain = null;
+      // Who first: a connection closed for its principal is not re-checked.
+      const door = async (who: () => Promise<boolean>, what: () => Promise<boolean>) => {
+        const whoFailed = await who();
+        return (!principalsOnly && (await what())) || whoFailed;
+      };
       failed = await Promise.all([
-        import('../../routes/ws.js').then((m) => m.revalidateWsSubscriptions()),
-        import('../../routes/realtime.js').then((m) => m.revalidateSseStreams()),
+        import('../../routes/ws.js').then((m) =>
+          door(m.closeUnauthenticatedWs, m.revalidateWsSubscriptions),
+        ),
+        import('../../routes/realtime.js').then((m) =>
+          door(m.closeUnauthenticatedSse, m.revalidateSseStreams),
+        ),
       ]).then(
         (doors) => doors.includes(true),
         () => false, // a routes module unavailable in some unit-test graphs
       );
-    } while (_sweepAgain);
+      next = _sweepAgain;
+    }
     // An outage that outlasts one retry is not hammered every five seconds for
     // its whole length: each consecutive failure doubles the wait, up to a
     // minute, and a clean sweep resets it.
@@ -1238,7 +1267,7 @@ export function revalidateSockets(): void {
       }, delay);
       _sweepRetry.unref?.();
     }
-  })().finally(() => {
+  }).finally(() => {
     _sweep = null;
   });
 }
@@ -1253,18 +1282,31 @@ export function revalidateSockets(): void {
  * in-process memos of them, and with them every socket's cached subscribe
  * decision. It names whom to re-read, never what they may do.
  */
-export function revalidateSocketsEverywhere(userId?: string): void {
-  revalidateSockets();
+export function revalidateSocketsEverywhere(userId?: string, scope: SweepScope = 'all'): void {
+  revalidateSockets(scope);
   realtimeBus()
     .publish({
       event: ACCESS_RULES_CHANGED_EVENT,
       collection: '',
-      data: userId ? { userId } : undefined,
+      data: userId || scope !== 'all' ? { ...(userId ? { userId } : {}), scope } : undefined,
       timestamp: new Date().toISOString(),
     })
     .catch((err: Error) => {
       console.error('[permissions] could not publish a rule change:', err.message);
     });
+}
+
+/**
+ * A session or API key was revoked, or a user barred or deleted: close what it
+ * opened, on every instance. Now, for a revocation already visible (sessions
+ * are deleted on the pool), and again after the caller's commit, for one still
+ * inside its transaction (a ban, a key's `is_active`).
+ */
+export function revalidatePrincipalsEverywhere(): void {
+  revalidateSocketsEverywhere(undefined, 'principals');
+  if (getCurrentTenantTrx()) {
+    onAfterCommit(() => revalidateSocketsEverywhere(undefined, 'principals'));
+  }
 }
 
 /**
@@ -1642,9 +1684,17 @@ export async function reconcileRules(): Promise<boolean> {
 const RECONCILE_BASE_MS = 30_000;
 let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** `tick` is a test seam; production runs `reconcilePolicies` and `reconcileRules`. */
+/**
+ * `tick` is a test seam; production runs `reconcilePolicies` and `reconcileRules`,
+ * and re-asks every open connection's principal: a session or key that expired
+ * on its own sends no event, and neither does a revocation whose bus message
+ * was lost.
+ */
 export function startPolicyReconcile(
-  tick: () => Promise<unknown> = () => Promise.all([reconcilePolicies(), reconcileRules()]),
+  tick: () => Promise<unknown> = () => {
+    revalidateSockets('principals');
+    return Promise.all([reconcilePolicies(), reconcileRules()]);
+  },
 ): void {
   if (_reconcileTimer) return;
   // Baseline now, so a change before the first tick is not taken as the start.

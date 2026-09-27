@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { runWithoutTenantTrx } from './tenancy/index.js';
+import { revalidatePrincipalsEverywhere, runWithoutTenantTrx } from './tenancy/index.js';
 import { betterAuth } from 'better-auth';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
@@ -284,6 +284,9 @@ export async function revokeAllUserSessions(
   let del = db.deleteFrom('session').where('userId', '=', userId);
   if (exceptToken) del = del.where('token', '!=', exceptToken);
   await del.execute();
+  // A socket or stream authenticates once, at open: close the ones these
+  // sessions opened, on every instance.
+  revalidatePrincipalsEverywhere();
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
@@ -307,6 +310,9 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
 // side effect. Captured from the initAuth parameter — the verify closure
 // reads this module-level binding so it sees the value after init.
 let _authDb: Database | null = null;
+// The pool the current auth instance was built on. Only a test that calls
+// initAuth() a second time needs it: each call opens a new one.
+let _authPool: Kysely<DbSchema> | null = null;
 
 function sendEmail(to: string, subject: string, html: string, text: string) {
   return deliverEmail({ to, subject, html, text });
@@ -319,6 +325,18 @@ export const auth = {
     return _auth.api;
   },
 };
+
+/** Endpoints after which an open socket's session may no longer exist. */
+const SESSION_ENDING_PATHS = new Set([
+  '/sign-out',
+  '/revoke-session',
+  '/revoke-sessions',
+  '/revoke-other-sessions',
+  '/change-password',
+  '/reset-password',
+  '/delete-user',
+  '/delete-user/callback',
+]);
 
 export async function initAuth(db: Database) {
   if (!process.env.BETTER_AUTH_SECRET) {
@@ -421,6 +439,7 @@ export async function initAuth(db: Database) {
       max: authPoolMax,
     }),
   });
+  _authPool = authDb;
   const database = { db: authDb, type: 'postgres' as const };
 
   // Optional cache secondary storage for sessions
@@ -477,6 +496,14 @@ export async function initAuth(db: Database) {
     verification: { storeIdentifier: 'hashed' },
     advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
+
+    // better-auth's own ways of ending a session. With Valkey no database hook
+    // fires for them, so the path is what says a session may have ended.
+    hooks: {
+      after: createAuthMiddleware(async (ctx) => {
+        if (SESSION_ENDING_PATHS.has(ctx.path)) revalidatePrincipalsEverywhere();
+      }),
+    },
 
     databaseHooks: {
       user: {
@@ -764,6 +791,11 @@ export const _internalForTests = {
   },
   /** Put back the instance a test replaced with its own `initAuth` — suites
    *  that follow patch `getAuth()` and must reach the app's instance. */
+  /** Close the pool the CURRENT auth instance opened. Call before restoring another instance. */
+  async closeAuthPoolForTests() {
+    await _authPool?.destroy();
+    _authPool = null;
+  },
   setAuthForTests(auth: typeof _auth) {
     _auth = auth;
   },

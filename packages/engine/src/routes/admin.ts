@@ -6,7 +6,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
@@ -261,6 +261,8 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     if (!revoked.numUpdatedRows) {
       return c.json({ error: 'API key not found' }, 404);
     }
+    // Sockets the key opened stay open until swept — see `stillAuthenticated`.
+    revalidatePrincipalsEverywhere();
 
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
