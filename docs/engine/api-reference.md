@@ -917,7 +917,7 @@ List all configurable rate limit tiers (stored in `zv_rate_limit_configs`).
 
 ### PATCH /api/admin/rate-limits/:keyPrefix
 
-Update a tier's window or max requests at runtime (no restart needed).
+Update a tier's window or max requests at runtime (no restart needed). Every tier has a row, and the change applies on every instance as soon as it commits.
 
 ```json
 // Request
@@ -926,7 +926,7 @@ Update a tier's window or max requests at runtime (no restart needed).
 
 ### POST /api/admin/rate-limits/reset
 
-Restore all tiers to compiled defaults.
+Restore every tier to the default compiled into its limiter. Per-API-key and per-tenant rows are left alone.
 
 ### POST /api/admin/explain
 

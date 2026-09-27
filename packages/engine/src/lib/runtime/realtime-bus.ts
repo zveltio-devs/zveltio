@@ -53,6 +53,12 @@ export const POLICY_CHANGED_EVENT = 'casbin.policy';
  */
 export const ACCESS_RULES_CHANGED_EVENT = 'access.rules';
 
+/**
+ * A `zv_rate_limit_configs` row changed on another instance. Names the key (or
+ * none: all of them); the receiver drops its cached copy and re-reads the table.
+ */
+export const RATE_LIMIT_CONFIG_CHANGED_EVENT = 'ratelimit.config';
+
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -173,6 +179,17 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         console.error('[realtime-bus] rule change sweep not started:', err.message);
       });
   }
+  if (msg.event === RATE_LIMIT_CONFIG_CHANGED_EVENT) {
+    const keyPrefix = (msg.data as { keyPrefix?: unknown } | undefined)?.keyPrefix;
+    // Lazily, like tenancy above: the middleware imports this module.
+    return import('../../middleware/rate-limit.js')
+      .then((m) =>
+        m.clearLocalRateLimitCache(typeof keyPrefix === 'string' ? keyPrefix : undefined),
+      )
+      .catch((err: Error) => {
+        console.error('[realtime-bus] rate-limit config change not applied:', err.message);
+      });
+  }
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
@@ -187,6 +204,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
  * open subscriptions, for a row or column rule change missed meanwhile.
  */
 function onBusReconnected(): void {
+  // Rate-limit config changes missed meanwhile: drop every cached limit, so the
+  // next request reads the table instead of waiting out the TTL.
+  import('../../middleware/rate-limit.js')
+    .then((m) => m.clearLocalRateLimitCache())
+    .catch((err: Error) => {
+      console.error('[realtime-bus] rate-limit cache clear after reconnect failed:', err.message);
+    });
   import('../tenancy/index.js')
     .then((m) => {
       m.revalidateSockets();
@@ -467,3 +491,6 @@ export function _resetForTests(): void {
 export const _ORIGIN_ID = ORIGIN_ID;
 
 export { ValkeyRealtimeBus, PgNotifyRealtimeBus, NoopRealtimeBus, dispatchToWs };
+
+/** Test-only export — never import outside src/tests/. */
+export const _internalForTests = { onBusReconnected };

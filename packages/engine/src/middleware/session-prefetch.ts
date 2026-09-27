@@ -30,7 +30,7 @@
 //
 // `authenticate()` reads the cached value, so nothing pays for a second lookup.
 
-import { getSessionCookie } from 'better-auth/cookies';
+import { getCookies, parseCookies } from 'better-auth/cookies';
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import type { ZvApiKeyRow } from '../db/schema.js';
@@ -68,6 +68,19 @@ interface SessionReader {
   api: {
     getSession(args: { headers: Headers }): Promise<{ user: unknown } | null>;
   };
+  /** Where a custom `advanced.cookiePrefix` or session cookie name lives. */
+  options?: Parameters<typeof getCookies>[0];
+}
+
+/**
+ * The session cookie's name as this instance sets it, without the `__Secure-`
+ * prefix (accepted either way, as better-auth's own reader does). Not
+ * `getSessionCookie(headers)`: that assumes the default `better-auth` prefix,
+ * so under a configured one every signed-in caller looked anonymous here.
+ */
+export function sessionCookieName(options: SessionReader['options']): string {
+  if (!options) return 'better-auth.session_token';
+  return getCookies(options).sessionToken.name.replace(/^__Secure-/, '');
 }
 
 export function sessionPrefetch(
@@ -75,13 +88,18 @@ export function sessionPrefetch(
   db: Database,
   opts: { onlyWithCredentials?: boolean } = {},
 ) {
+  const cookieName = sessionCookieName(auth.options);
+  const hasSessionCookie = (headers: Headers) => {
+    const cookies = parseCookies(headers.get('cookie') ?? '');
+    return Boolean(cookies.get(cookieName) || cookies.get(`__Secure-${cookieName}`));
+  };
   return createMiddleware(async (c, next) => {
     // For public surfaces (`/files/*`): a request with no session cookie and no
     // key header has no caller to find, and a gallery's Range bursts must not
     // pay a lookup each to learn that.
     if (
       opts.onlyWithCredentials &&
-      !getSessionCookie(c.req.raw.headers) &&
+      !hasSessionCookie(c.req.raw.headers) &&
       !c.req.header('authorization') &&
       !c.req.header('x-api-key')
     ) {

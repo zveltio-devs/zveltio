@@ -25,7 +25,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { validateApiKey } from '../../lib/data/auth.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
-import { hashApiKey } from '../../lib/security/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -36,8 +36,8 @@ d('an API key cannot reach root by resolving no tenant', () => {
   let db: Database;
   let tenantKeyId = '';
   let rootKeyId = '';
-  const tenantRaw = `zvk_${STAMP}_scoped`;
-  const rootRaw = `zvk_${STAMP}_root`;
+  const tenantRaw = generateApiKey();
+  const rootRaw = generateApiKey();
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
