@@ -31,7 +31,7 @@ import {
   registerSensitiveResources,
   describeDenial,
 } from '../tenancy/index.js';
-import { DDLManager } from '../data/index.js';
+import { announceSchemaChange, DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import {
   activationMiddlewareFor,
@@ -433,7 +433,7 @@ export function buildRestrictedContext(
     describeDenial: (resource: string, action: string) =>
       describeDenial(getCurrentTenantTrx() ?? ctx.db, resource, action),
     getUserRoles: ctx.getUserRoles ?? getUserRoles,
-    DDLManager: ctx.DDLManager ?? DDLManager,
+    DDLManager: ctx.DDLManager ?? announcingDDLManager,
     // Hand each extension a scoped view of the registry so its register()
     // calls are tagged for cleanup on unload. Idempotent on hot-reload.
     services: serviceRegistry.scope(extName),
@@ -885,3 +885,35 @@ export async function reRegisterExtension(
     console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
   }
 }
+
+/**
+ * `DDLManager` as extensions receive it: the mutating calls tell the schema
+ * watchers (`$schema`) once they succeed, as the host's own routes and the DDL
+ * queue do. An extension that creates a collection and fills it in the same
+ * request (ai-alchemist) cannot go through the queue, and without this its DDL
+ * reached no watcher. The announcement waits for the request transaction's
+ * commit when there is one; an extension running DDL inside a transaction of
+ * its own would announce before that commits.
+ */
+export const announcingDDLManager: typeof DDLManager = Object.assign(Object.create(DDLManager), {
+  async createCollection(...args: Parameters<typeof DDLManager.createCollection>) {
+    await DDLManager.createCollection(...args);
+    announceSchemaChange(args[1].name, 'create');
+  },
+  async dropCollection(...args: Parameters<typeof DDLManager.dropCollection>) {
+    await DDLManager.dropCollection(...args);
+    announceSchemaChange(args[1], 'drop');
+  },
+  async updateCollectionMetadata(...args: Parameters<typeof DDLManager.updateCollectionMetadata>) {
+    await DDLManager.updateCollectionMetadata(...args);
+    announceSchemaChange(args[1], 'alter');
+  },
+  async addField(...args: Parameters<typeof DDLManager.addField>) {
+    await DDLManager.addField(...args);
+    announceSchemaChange(args[1], 'alter');
+  },
+  async removeField(...args: Parameters<typeof DDLManager.removeField>) {
+    await DDLManager.removeField(...args);
+    announceSchemaChange(args[1], 'alter');
+  },
+});
