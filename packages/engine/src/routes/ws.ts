@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { auth } from '../lib/auth.js';
 import {
   authenticate,
@@ -150,8 +151,9 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // WebSocket, so a key only ever arrives from a server-side client; the
     // Origin check above still guards the cookie path.
     // Read before authenticating: a revocation swept between here and `open`
-    // could not see this socket — see `sweepGeneration`.
-    const sweepGen = sweepGeneration();
+    // could not see this socket — see `sweepGeneration`. The prefetch's value
+    // when it ran, since `authenticate` trusts the lookup the prefetch made.
+    const sweepGen = c.get('prefetchSweepGen') ?? sweepGeneration();
     const principal = wsDb ? await authenticate(c, auth, wsDb) : null;
     if (!principal) return c.json({ error: 'Unauthorized' }, 401);
     const authType: 'session' | 'api_key' =
@@ -206,7 +208,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
 
   // GET /api/ws/stats — Admin: per-user connection stats
   app.get('/api/ws/stats', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);

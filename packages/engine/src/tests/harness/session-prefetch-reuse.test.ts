@@ -14,8 +14,18 @@ import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
+import { revokeAllUserSessions } from '../../lib/auth.js';
+import { __sweepIdle } from '../../lib/tenancy/index.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _sseConnectionsForTests } from '../../routes/realtime.js';
+import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  wsUpgradeData,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -28,6 +38,8 @@ d('session prefetch reuse', () => {
   let original: Api['getSession'];
   let lookups = 0;
   let failNext = false;
+  /** Runs once, right after the next lookup answers: a revoke landing there. */
+  let afterNextLookup: (() => Promise<void>) | null = null;
   const savedEnv = process.env.NODE_ENV;
   const savedProxy = process.env.TRUSTED_PROXY;
   const tenant = { id: '', slug: '' };
@@ -54,7 +66,13 @@ d('session prefetch reuse', () => {
         failNext = false;
         return Promise.reject(new Error('lookup outage'));
       }
-      return original(...args);
+      const hook = afterNextLookup;
+      afterNextLookup = null;
+      if (!hook) return original(...args);
+      return original(...args).then(async (session) => {
+        await hook();
+        return session;
+      });
     };
   });
 
@@ -89,7 +107,7 @@ d('session prefetch reuse', () => {
     const member = await createMemberSession(app, db);
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id)
               VALUES (${tenant.id}::uuid, ${member.userId})`.execute(db);
-    // `/api/me` asks for the session itself; the default tenant skips membership.
+    // The default tenant skips membership: whatever it costs is the route's own.
     const baseline = await counted('/api/me', { cookie: member.cookie });
     const res = await counted('/api/me', { cookie: member.cookie, 'x-tenant-slug': tenant.slug });
     expect(res.status).toBe(200);
@@ -101,6 +119,68 @@ d('session prefetch reuse', () => {
     const res = await counted('/ext/no-such-extension/x', { cookie: member.cookie });
     expect(res.status).not.toBe(401);
     expect(res.lookups).toBe(1);
+  });
+
+  it('looks the session up once for /api/me, a realtime route and an rpc route', async () => {
+    const member = await createMemberSession(app, db);
+    const me = await counted('/api/me', { cookie: member.cookie });
+    expect(me.status).toBe(200);
+    expect(me.lookups).toBe(1);
+    const presence = await counted('/api/realtime/presence/spr-room', { cookie: member.cookie });
+    expect(presence.status).toBe(200);
+    expect(presence.lookups).toBe(1);
+    const god = await createGodSession(app, db);
+    const rpc = await counted('/api/rpc', { cookie: god });
+    expect(rpc.status).toBe(200);
+    expect(rpc.lookups).toBe(1);
+  });
+
+  // The prefetch answers before the route runs, so a revoke can land between
+  // them. The route's sweep generation must predate the lookup it trusts, or
+  // the sweep that revoke ran missed the connection and nothing re-checks it.
+  it('closes a socket whose session was revoked between the prefetch and the upgrade', async () => {
+    const member = await createMemberSession(app, db);
+    afterNextLookup = () => revokeAllUserSessions(db, member.userId);
+    const data = await wsUpgradeData(app, { cookie: member.cookie });
+    expect(data).toBeDefined();
+    const id = `ws_spr_${Date.now()}`;
+    const closed: Array<{ code: number; reason: string }> = [];
+    const ws = {
+      data: { ...data, id },
+      send: () => {},
+      close: (code: number, reason: string) => {
+        closed.push({ code, reason });
+      },
+    };
+    try {
+      websocketHandler.open(ws as never);
+      for (let i = 0; i < 100 && closed.length === 0; i++) await Bun.sleep(20);
+      await __sweepIdle();
+      expect(closed[0]).toEqual({ code: 4001, reason: 'Unauthorized' });
+    } finally {
+      _wsPermCacheForTests().connections.delete(id);
+    }
+  });
+
+  it('leaves no stream open whose session was revoked between the prefetch and the route', async () => {
+    const member = await createMemberSession(app, db, {
+      role: 'member',
+      grants: [{ collection: 'spr_stream', actions: ['read'] }],
+    });
+    afterNextLookup = () => revokeAllUserSessions(db, member.userId);
+    const res = await app.request('/api/realtime/stream?collection=spr_stream', {
+      headers: { cookie: member.cookie },
+    });
+    const reader = res.status === 200 ? res.body?.getReader() : undefined;
+    try {
+      await reader?.read(); // `connected`: the stream is registered
+      const open = () => _sseConnectionsForTests().has(member.userId);
+      for (let i = 0; i < 100 && open(); i++) await Bun.sleep(20);
+      await __sweepIdle();
+      expect(open()).toBe(false);
+    } finally {
+      await reader?.cancel().catch(() => {});
+    }
   });
 
   it('costs an anonymous /files request no session lookup, a signed-in one exactly one', async () => {

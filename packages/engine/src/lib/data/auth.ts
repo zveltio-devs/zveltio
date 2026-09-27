@@ -13,6 +13,7 @@ import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
+import { requestSession } from '../../middleware/session-prefetch.js';
 import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
@@ -31,11 +32,7 @@ export async function authenticate(
   // Auth's tables, and the refusal aborts the transaction rather than merely
   // failing this lookup. `undefined` means the prefetch did not run (a route
   // mounted outside it), so the direct call stays as the fallback.
-  const prefetched = c.get('prefetchedSession');
-  const session =
-    prefetched !== undefined
-      ? prefetched
-      : await auth.api.getSession({ headers: c.req.raw.headers });
+  const session = await requestSession(c, auth);
   // The token rides along for a caller that outlives the request — a realtime
   // socket re-asks with it whether the session still exists.
   if (session)

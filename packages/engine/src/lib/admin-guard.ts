@@ -1,4 +1,5 @@
 import type { Context, ContextVariableMap } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 
 /** The user a guarded route publishes as `c.set('user', …)`. */
 type SessionUser = ContextVariableMap['user'];
@@ -29,9 +30,7 @@ export async function guardAdmin(
   auth: SessionSource,
   allowed: (userId: string) => Promise<boolean>,
 ): Promise<SessionUser | Response> {
-  const session = (await auth.api.getSession({ headers: c.req.raw.headers })) as {
-    user: SessionUser;
-  } | null;
+  const session = await requestSession(c, auth);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
   if (!(await allowed(session.user.id))) return c.json({ error: 'Admin access required' }, 403);
   return session.user;

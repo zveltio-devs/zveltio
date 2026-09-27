@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -209,7 +210,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
   // All other settings require admin
   app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);

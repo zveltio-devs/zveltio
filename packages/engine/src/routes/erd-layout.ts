@@ -12,6 +12,7 @@
  */
 
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
@@ -37,7 +38,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
 
   // Auth guard — every endpoint needs a signed-in user.
   app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
     await next();
