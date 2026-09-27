@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { runWithoutTenantTrx } from './tenancy/index.js';
+import { revalidatePrincipalsEverywhere, runWithoutTenantTrx } from './tenancy/index.js';
 import { betterAuth } from 'better-auth';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
@@ -284,6 +284,9 @@ export async function revokeAllUserSessions(
   let del = db.deleteFrom('session').where('userId', '=', userId);
   if (exceptToken) del = del.where('token', '!=', exceptToken);
   await del.execute();
+  // A socket or stream authenticates once, at open: close the ones these
+  // sessions opened, on every instance.
+  revalidatePrincipalsEverywhere();
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
@@ -319,6 +322,18 @@ export const auth = {
     return _auth.api;
   },
 };
+
+/** Endpoints after which an open socket's session may no longer exist. */
+const SESSION_ENDING_PATHS = new Set([
+  '/sign-out',
+  '/revoke-session',
+  '/revoke-sessions',
+  '/revoke-other-sessions',
+  '/change-password',
+  '/reset-password',
+  '/delete-user',
+  '/delete-user/callback',
+]);
 
 export async function initAuth(db: Database) {
   if (!process.env.BETTER_AUTH_SECRET) {
@@ -477,6 +492,14 @@ export async function initAuth(db: Database) {
     verification: { storeIdentifier: 'hashed' },
     advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
+
+    // better-auth's own ways of ending a session. With Valkey no database hook
+    // fires for them, so the path is what says a session may have ended.
+    hooks: {
+      after: createAuthMiddleware(async (ctx) => {
+        if (SESSION_ENDING_PATHS.has(ctx.path)) revalidatePrincipalsEverywhere();
+      }),
+    },
 
     databaseHooks: {
       user: {

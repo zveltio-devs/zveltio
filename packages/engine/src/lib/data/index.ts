@@ -50,6 +50,8 @@ export { checkAccess } from './auth.js';
 //   - `authenticate` so the WebSocket upgrade resolves a session or an API key
 //     with the same checks as the data API — it accepted cookies only.
 export { authenticate } from './auth.js';
+//   - `stillAuthenticated` so an open socket or stream is re-asked, not trusted.
+export { stillAuthenticated, type ApiKeyGrants, type RealtimePrincipal } from './auth.js';
 export type { RequestUser } from './types.js';
 //   - `rowAuthorId` so routes outside the data handlers record authorship the
 //     way they do: an API key's writes are attributed to the person who issued it.

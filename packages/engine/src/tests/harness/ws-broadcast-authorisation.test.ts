@@ -20,7 +20,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { broadcastEvent, websocketHandler } from '../../routes/ws.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  wsUpgradeData,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `wsauth_${Date.now()}`;
@@ -32,7 +37,7 @@ const opened: unknown[] = [];
 function fakeSocket(id: string) {
   const sent: string[] = [];
   const ws = {
-    data: { id, userId: MEMBER.id, tenantId: null, authType: 'session' },
+    data: { ...MEMBER_WS, id, tenantId: null },
     send: (p: string) => sent.push(p),
     close: () => {},
   };
@@ -42,6 +47,8 @@ function fakeSocket(id: string) {
 
 /** Filled in `beforeAll`; `fakeSocket` reads it when a socket opens. */
 const MEMBER = { id: '' };
+/** The member's real upgrade data, principal included — filled in `beforeAll`. */
+const MEMBER_WS: Record<string, unknown> = {};
 
 d('WebSocket fan-out applies the same authorisation as SSE', () => {
   let app: Hono;
@@ -73,6 +80,7 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
     MEMBER.id = member.userId;
+    Object.assign(MEMBER_WS, await wsUpgradeData(app, { cookie: member.cookie }));
     // A row policy of the ordinary shape: a member sees only its own rows.
     await sql
       .raw(

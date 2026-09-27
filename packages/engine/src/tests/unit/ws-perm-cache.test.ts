@@ -22,6 +22,7 @@ describe('WS subscribe decisions', () => {
       subscriptions: new Set(),
       connectedAt: Date.now(),
       authType: 'session' as const,
+      principal: { kind: 'session' as const, token: 't', userId: 'user-a' },
       access: new Map([['contacts', { rls: [], columns: null }]]),
     });
     try {
@@ -64,6 +65,7 @@ describe('broadcastEvent', () => {
       subscriptions: new Set(['contacts']),
       connectedAt: Date.now(),
       authType: 'session' as const,
+      principal: { kind: 'session' as const, token: 't', userId: 'user-a' },
       access: access as never,
     });
     indexSubscription('contacts', 'ws-no-access');

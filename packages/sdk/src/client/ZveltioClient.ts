@@ -18,7 +18,13 @@ export class ZveltioClient {
   constructor(config: ZveltioConfig) {
     this.config = config;
     this.auth = new Auth(config);
-    this.realtime = new RealtimeClient(config.baseUrl);
+    // The key the HTTP calls send, sent with the upgrade too (server-side
+    // clients; a browser authenticates the socket by its session cookie).
+    this.realtime = new RealtimeClient(config.baseUrl, {
+      headers: config.apiKey ? { 'X-API-Key': config.apiKey } : undefined,
+    });
+    // A socket closed for revoked credentials is the same event as a 401.
+    this.realtime.onUnauthorized(() => config.onUnauthorized?.());
   }
 
   // Fluent query builder

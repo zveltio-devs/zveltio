@@ -26,7 +26,12 @@ import {
   broadcastEvent,
   revalidateWsSubscriptions,
 } from '../../routes/ws.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  wsUpgradeData,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -34,6 +39,7 @@ const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
 d('policy reconcile', () => {
   let db: Database;
+  let principal: unknown;
   const sent: Array<Omit<RealtimeBusMessage, 'originId'>> = [];
   const bus = realtimeBus();
   const origPublish = bus.publish;
@@ -50,7 +56,11 @@ d('policy reconcile', () => {
           AND v2 = ${rule[2]} AND v3 = ${rule[3]}`.execute(db);
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
+    const { app, db: testDb } = await getTestApp();
+    db = testDb;
+    // A live session for the hand-built sockets: the sweep closes one without.
+    const member = await createMemberSession(app, db);
+    principal = (await wsUpgradeData(app, { cookie: member.cookie }))?.principal;
     bus.publish = async (payload) => {
       sent.push(payload);
     };
@@ -227,6 +237,7 @@ d('policy reconcile', () => {
       subscriptions: new Set([res, `${res}:insert`, kept]),
       connectedAt: Date.now(),
       authType: 'session',
+      principal: principal as never,
       access: new Map([
         [res, { rls: [], columns: null }],
         [kept, { rls: [], columns: null }],
@@ -274,6 +285,7 @@ d('policy reconcile', () => {
       subscriptions: new Set([res]),
       connectedAt: Date.now(),
       authType: 'session',
+      principal: principal as never,
       access: new Map([[res, { rls: [], columns: null }]]),
     });
     indexSubscription(res, connId);

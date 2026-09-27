@@ -1,3 +1,10 @@
+/**
+ * The engine closes a socket with this code when the session or API key it
+ * opened with is no longer valid (signed out, revoked, expired, user
+ * deactivated). Reconnecting is refused with 401, so clients stop instead.
+ */
+export const WS_UNAUTHORIZED = 4001;
+
 export class ZveltioRealtime {
   private ws: WebSocket | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -7,6 +14,7 @@ export class ZveltioRealtime {
   private maxReconnectAttempts = 10;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private headers: Record<string, string> | undefined;
+  private unauthorizedCallbacks = new Set<() => void>();
 
   /**
    * @param options.headers Sent with the upgrade — e.g. `{ 'X-API-Key': key }`
@@ -55,7 +63,13 @@ export class ZveltioRealtime {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      if (event?.code === WS_UNAUTHORIZED) {
+        // No retry: every attempt would be refused. `connect()` again once the
+        // app holds a valid session or key.
+        this.unauthorizedCallbacks.forEach((cb) => cb());
+        return;
+      }
       this.attemptReconnect();
     };
 
@@ -92,6 +106,12 @@ export class ZveltioRealtime {
         }
       }
     };
+  }
+
+  /** Called when the engine ends the socket because its credentials were revoked. */
+  onUnauthorized(callback: () => void): () => void {
+    this.unauthorizedCallbacks.add(callback);
+    return () => this.unauthorizedCallbacks.delete(callback);
   }
 
   disconnect(): void {

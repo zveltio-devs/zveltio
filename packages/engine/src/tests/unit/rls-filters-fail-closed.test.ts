@@ -84,7 +84,10 @@ describe('a failed row-policy lookup fails closed', () => {
   });
 
   it('SSE: the stream is refused rather than opened unfiltered', async () => {
-    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({ user: USER } as never);
+    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({
+      user: USER,
+      session: { token: 'unit-token' },
+    } as never);
     try {
       const app = new Hono().route('/', realtimeRoutes(asDb(db), auth));
       const res = await app.request('/stream?collection=contacts');
@@ -111,7 +114,14 @@ describe('a failed row-policy lookup fails closed', () => {
     wsRoutes(asDb(db), auth);
     const sent: string[] = [];
     const ws = {
-      data: { id: 'ws_rls_fail', userId: USER.id, user: USER, tenantId: null, authType: 'session' },
+      data: {
+        id: 'ws_rls_fail',
+        userId: USER.id,
+        user: USER,
+        tenantId: null,
+        authType: 'session',
+        principal: { kind: 'session', token: 'unit-token', userId: USER.id },
+      },
       send: (p: string) => sent.push(p),
       close: () => {},
     };
