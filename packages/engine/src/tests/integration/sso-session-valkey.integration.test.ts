@@ -10,10 +10,11 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { type Database, initDatabase } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
+import { initPermissions } from '../../lib/tenancy/index.js';
 import { _setCacheForTests, getCache, initCache } from '../../lib/runtime/index.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -33,8 +34,12 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
   };
 
   beforeAll(async () => {
-    const booted = await getTestApp();
-    db = booted.db;
+    await getTestApp();
+    // Earlier files in this process (crud, webhooks, api-keys, permissions)
+    // replace the global pool with initDatabase() and destroy it, and the
+    // helper reads getDb(): take a live one, and bind the enforcer to it.
+    db = await initDatabase();
+    await initPermissions(db);
     appAuth = getAuth();
     savedValkey = process.env.VALKEY_URL;
     process.env.VALKEY_URL = VALKEY_URL;
