@@ -288,6 +288,7 @@ your `ctx`, not inside your own code.
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — mint a session for any user. |
+| `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive` — delete any user, end their sessions, or block and restore their sign-in. |
 | `notifications` | `sendNotification`. |
 | `files` | `moveToTrash`. |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |

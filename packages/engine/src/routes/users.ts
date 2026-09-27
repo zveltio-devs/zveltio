@@ -10,7 +10,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
-import { revokeAllUserSessions } from '../lib/auth.js';
+import { deleteUser } from '../lib/users.js';
 import { escapeLike } from '../lib/data/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
@@ -308,51 +308,15 @@ export function usersRoutes(
       return c.json({ error: 'Cannot delete your own account' }, 400);
     }
 
-    // Before anything below touches the id. `e.deleteUser` removes every Casbin
-    // row whose subject is this string, and a role name sits in the same column:
-    // `DELETE /api/users/editor` wiped the role's grants and parent edges.
-    const target = await db
-      .selectFrom('user')
-      .select('id')
-      .where('id', '=', userId)
-      .executeTakeFirst();
-    if (!target) return c.json({ error: 'User not found' }, 404);
-
-    // Sessions first, and through a helper that also clears the cache: the
-    // FK cascade removes the `session` rows but not better-auth's
-    // `secondaryStorage` copy, so a deleted user's cookie kept working until
-    // the entry aged out of Valkey.
-    // On `poolDb`. This used to run on `db` and raise `permission denied`,
-    // which a `.catch` in the revoker swallowed — leaving the request's
-    // transaction aborted, so the `deleteFrom('user')` below failed with
-    // `current transaction is aborted` and that was the only error anyone saw.
-    // Deleting a user has never worked since migration 044.
-    //
-    // Not atomic with the delete below, and that is the safe direction: if the
-    // delete then fails, the user still exists with their sessions revoked and
-    // simply signs in again. The reverse — user gone, sessions live — is the one
-    // that would matter, and `session.userId` is ON DELETE CASCADE anyway.
-    await revokeAllUserSessions(poolDb, userId);
-
-    // Then the user's Casbin rows — every `g` (role, in every domain) and `p`
-    // whose subject is this id. Nothing references `zvd_permissions.v0`, so the
-    // row delete below left them behind, and `GET /admin/roles/hierarchy` (which
-    // tells users from roles by "v0 is a user") listed each as an edge. Through
-    // the enforcer, so its watcher tells the other instances. Before the row
-    // delete for the same reason as the sessions: a failure after this leaves a
-    // user with no grants, not grants with no user.
-    const e = await getEnforcer();
-    await e.deleteUser(userId);
-    await invalidateUserPermCache(userId);
-
-    await db.deleteFrom('user').where('id', '=', userId).execute();
-
-    await auditLog(db, {
-      type: 'user.deleted',
-      userId: adminUser.id,
-      resourceId: userId,
-      resourceType: 'user',
+    // One helper for every way a user row goes — SCIM and GDPR erasure call it
+    // too. It checks the id first (a role name sits in the same Casbin column),
+    // then revokes sessions on `poolDb` (DB and cache), drops the grants, deletes
+    // the row and audits `user.deleted`. See `lib/users.ts`.
+    const deleted = await deleteUser(db, poolDb, userId, {
+      actorUserId: adminUser.id,
+      reason: 'admin',
     });
+    if (!deleted) return c.json({ error: 'User not found' }, 404);
     return c.json({ success: true });
   });
 
