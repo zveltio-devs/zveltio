@@ -16,6 +16,7 @@
 //     lookup uses the global pool, not the per-request tenant transaction.
 
 import { createMiddleware } from 'hono/factory';
+import { requestSession } from './session-prefetch.js';
 import type { Database } from '../db/index.js';
 import { isGodUser } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
@@ -33,16 +34,7 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
 
     let userId: string | null = null;
     try {
-      // `sessionPrefetch` already asked, with the same headers; `undefined` = it
-      // did not run or threw, so ask here exactly as before.
-      const prefetched = c.get('prefetchedSession') as
-        | { user?: { id?: string } }
-        | null
-        | undefined;
-      const session =
-        prefetched !== undefined
-          ? prefetched
-          : await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await requestSession(c, auth);
       userId = session?.user?.id ?? null;
     } catch {
       /* unauthenticated — fall through to the route's own guard */

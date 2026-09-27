@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
@@ -511,11 +512,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   //   ?filter={"field":"value"}      — field-level filter on record payload
   app.get('/stream', async (c) => {
     // Read before the gate: a revoke swept while this request is between its
-    // checks and its registration would otherwise miss the stream.
+    // checks and its registration would otherwise miss the stream. The sweep
+    // generation predates the prefetch's lookup, the session trusted here.
     const gen = permissionGeneration();
-    const sweep = sweepGeneration();
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    const token = (session as { session?: { token?: string } } | null)?.session?.token;
+    const sweep = c.get('prefetchSweepGen') ?? sweepGeneration();
+    const session = await requestSession(c, auth);
+    const token = session?.session?.token;
     if (!session || !token) return c.json({ error: 'Unauthorized' }, 401);
 
     const userId = session.user.id;
@@ -753,7 +755,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   // ── Presence ───────────────────────────────────────────────────
   // POST /presence/:channel — Join a presence channel (or send heartbeat)
   app.post('/presence/:channel', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const channel = c.req.param('channel');
@@ -808,7 +810,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // DELETE /presence/:channel — Leave a presence channel
   app.delete('/presence/:channel', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const channel = c.req.param('channel');
@@ -849,7 +851,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // GET /presence/:channel — List users in a channel
   app.get('/presence/:channel', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const channel = c.req.param('channel');
@@ -880,7 +882,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   // POST /broadcast/:channel — Publish a message to a custom channel
   // Any authenticated user can publish; clients subscribe via SSE ?channel=broadcast:name
   app.post('/broadcast/:channel', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     // Sending and receiving now need the same thing.
@@ -932,7 +934,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // GET /connections — Admin: list active SSE connections
   app.get('/connections', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     // The comment above said "Admin" and the code checked only for a session,
     // so any member could enumerate every connected userId on the instance.
@@ -952,7 +954,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
   // POST /publish — Admin: publish a custom event to all SSE clients
   app.post('/publish', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const isAdmin = await isTenantAdmin(session.user.id);

@@ -61,7 +61,7 @@ import {
   reconcileExtensionTenantRLS,
   warnIfDbRoleBypassesRls,
 } from './lib/tenancy/index.js';
-import { sessionPrefetch } from './middleware/session-prefetch.js';
+import { requestSession, sessionPrefetch } from './middleware/session-prefetch.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
@@ -900,7 +900,7 @@ rm studio.tar.gz</pre>
     // bundles for a signed-in user. An anonymous visitor has no bundles to
     // load, so requiring a session costs nothing. Checked before the query, so
     // an unauthenticated caller does not get to make the instance do work.
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     // No `.catch(() => [])`. This route reports which extensions are ACTIVE, and a

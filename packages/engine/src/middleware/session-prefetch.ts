@@ -28,9 +28,13 @@
 // it hands every extension the session table, which is the thing migration 043
 // and the worker-role split exist to prevent.
 //
-// `authenticate()` reads the cached value, so nothing pays for a second lookup.
+// Routes read the cached value through `requestSession`, so nothing pays for a
+// second lookup.
 
+import type { RequestUser } from '@zveltio/sdk/extension';
+import type { Session, User } from 'better-auth';
 import { getCookies, parseCookies } from 'better-auth/cookies';
+import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import type { ZvApiKeyRow } from '../db/schema.js';
@@ -47,7 +51,38 @@ declare module 'hono' {
      * looked up, no active key. NOT tenant-checked — `apiKeyActsIn` decides.
      */
     prefetchedApiKey?: ZvApiKeyRow | null;
+    /**
+     * `sweepGeneration()` as it stood BEFORE the lookups above. A realtime door
+     * compares against this, not its own later read: a revoke landing between
+     * the prefetch and the route swept before the connection existed.
+     */
+    prefetchSweepGen?: number;
   }
+}
+
+/**
+ * What `getSession` answers with. `role` is NOT among it (no `additionalFields`
+ * declares one; it reads `undefined`): it is typed as the `RequestUser` routes
+ * publish it as, which is what their untyped `auth` let them assume before.
+ */
+export type RequestSession = { session: Session; user: User & Pick<RequestUser, 'role'> };
+
+/**
+ * The request's session: the prefetch's answer when it ran, else a lookup of
+ * the route's own (`undefined` = mounted outside it, or it threw). `auth` is
+ * loose for the reason `admin-guard.ts` gives: the typed instance overloads it.
+ */
+export async function requestSession(
+  c: Context,
+  auth: { api: { getSession(args: { headers: Headers }): Promise<unknown> } },
+): Promise<RequestSession | null> {
+  const prefetched = c.get('prefetchedSession');
+  // The prefetch stored exactly what this same instance's `getSession` returned.
+  const session =
+    prefetched !== undefined
+      ? prefetched
+      : await auth.api.getSession({ headers: c.req.raw.headers });
+  return (session ?? null) as RequestSession | null;
 }
 
 /**
@@ -106,6 +141,8 @@ export function sessionPrefetch(
       return next();
     }
     try {
+      const { sweepGeneration } = await import('../lib/tenancy/index.js');
+      c.set('prefetchSweepGen', sweepGeneration());
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       c.set('prefetchedSession', (session ?? null) as PrefetchedSession);
 

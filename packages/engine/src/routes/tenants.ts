@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -64,7 +65,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
   // Auth guard
   router.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     c.set('user' as any, session.user);

@@ -1,4 +1,5 @@
 import { writeFileSync, unlinkSync } from 'node:fs';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
@@ -56,7 +57,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   async function requireAuth(c: any): Promise<boolean> {
     if (!auth) return true;
     try {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await requestSession(c, auth);
       return !!session;
     } catch {
       return false;
@@ -67,7 +68,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   async function requireAdmin(c: Context): Promise<boolean> {
     if (!auth) return true; // same test/older-call-site fallthrough as requireAuth
     try {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await requestSession(c, auth);
       if (!session?.user?.id) return false;
       return await requireInstanceAdmin(session.user.id);
     } catch {

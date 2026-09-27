@@ -21,6 +21,7 @@
  */
 
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { zValidator } from '@hono/zod-validator';
@@ -47,7 +48,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
   router.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);

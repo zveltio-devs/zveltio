@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -17,7 +18,7 @@ export function authRoutes(db: Database, auth: any): Hono {
 
   // GET / — current user profile (mounted at /api/me)
   app.get('/', async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Not authenticated' }, 401);
 
     const user = await db
@@ -46,7 +47,7 @@ export function authRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await requestSession(c, auth);
       if (!session) return c.json({ error: 'Not authenticated' }, 401);
 
       const { name, image } = c.req.valid('json');

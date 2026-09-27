@@ -23,6 +23,7 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
+import { requestSession } from './session-prefetch.js';
 
 /**
  * Minimal structural view of the better-auth instance this gate needs — just
@@ -132,14 +133,7 @@ export function extensionAuthGate(auth: SessionResolver): MiddlewareHandler {
     }
 
     // Fail-closed: require an authenticated session.
-    // `sessionPrefetch` already asked; `undefined` = it did not run or threw.
-    const prefetched = c.get('prefetchedSession') as
-      | Awaited<ReturnType<SessionResolver['api']['getSession']>>
-      | undefined;
-    const session =
-      prefetched !== undefined
-        ? prefetched
-        : await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+    const session = await requestSession(c, auth).catch(() => null);
     if (!session?.user) {
       return c.json(
         {

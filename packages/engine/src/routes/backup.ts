@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
@@ -135,7 +136,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // Auth + admin guard
   router.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
     if (!(await requireInstanceAdmin(session.user.id))) {
