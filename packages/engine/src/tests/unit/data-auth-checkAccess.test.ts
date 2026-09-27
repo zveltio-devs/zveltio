@@ -49,6 +49,15 @@ describe('checkAccess', () => {
     }
   });
 
+  // A key is known by its `apikey:` id, never by `role` — a column on "user".
+  // Read by role, this session skipped Casbin and was granted by the scopes.
+  it('a session user whose role reads api_key is still asked of Casbin', async () => {
+    const spy = spyOn(tenancy, 'checkPermission').mockResolvedValue(false);
+    const forged = apiUser([{ collection: '*', actions: ['*'] }], 'u-1');
+    expect(await checkAccess(db, forged, 'articles', 'read')).toBe(false);
+    expect(spy).toHaveBeenCalledWith('u-1', 'articles', 'read');
+  });
+
   it('api_key with an explicit wildcard still gets full access', async () => {
     const all = [{ collection: '*', actions: ['*'] }];
     expect(await checkAccess(db, apiUser(all), 'articles', 'read')).toBe(true);
