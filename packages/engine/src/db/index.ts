@@ -296,3 +296,12 @@ async function ensureMigrationsTable(db: Database): Promise<void> {
     .addColumn('ran_at', 'timestamptz', (col) => col.notNull().defaultTo(new Date()))
     .execute();
 }
+
+/** Test-only — never import outside src/tests/. Swap the global pool back after a test replaced it. */
+export const _internalForTests = {
+  swapDbForTests(db: Database | null): Database | null {
+    const previous = _db;
+    _db = db;
+    return previous;
+  },
+};

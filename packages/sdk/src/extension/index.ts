@@ -611,17 +611,17 @@ export interface ExtensionInternals<DB = unknown> {
     input: { user_id: string; type?: string; title: string; message?: string; data?: unknown },
   ) => Promise<void>;
   /**
-   * Create a Better-Auth session for an already-authenticated user (SSO bridge).
+   * Sign in a user your extension has already verified (SSO bridge: LDAP,
+   * SAML, OIDC). The session is written by the engine's better-auth — its pool
+   * and, with Valkey, its session cache — so `auth.api.getSession` accepts the
+   * cookie; `ctx.db` cannot reach the `session` table. Refuses a deactivated
+   * user with an error whose `code` is `'account_disabled'`.
    *
-   * SAML / LDAP / OIDC extensions verify the user out-of-band and need a
-   * Better-Auth session that `auth.api.getSession({ headers })` will accept.
-   * This helper handles the exact column shape (camelCase) of the `session`
-   * table AND the signed-cookie format Better-Auth expects, so SSO providers
-   * don't have to inline Better-Auth internals.
-   *
-   * Returns the `Set-Cookie` header value — the route handler attaches it to
-   * its Response. Pass `crossDomain: true` to emit `SameSite=None; Secure`
-   * (needed when Studio runs on a different origin than the engine).
+   * `db` is your transaction: pass the one that provisioned the user. A user it
+   * created gets their session when it commits, and none if it rolls back.
+   * `replaceExisting` ends the user's other sessions once this one is written
+   * and your request commits. Returns the `Set-Cookie` header value for your
+   * Response. Needs `auth:session`.
    */
   createBetterAuthSession: (
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -632,6 +632,7 @@ export interface ExtensionInternals<DB = unknown> {
       userAgent?: string;
       ttlSeconds?: number;
       crossDomain?: boolean;
+      replaceExisting?: boolean;
     },
   ) => Promise<{ token: string; setCookie: string }>;
   /**
