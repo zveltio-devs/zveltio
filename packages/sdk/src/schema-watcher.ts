@@ -25,12 +25,14 @@ export interface CollectionSchema {
 }
 
 export interface WatchSchemaOptions {
-  /** API token for the engine (admin key) */
+  /**
+   * A root-tenant API key holding the explicit scope
+   * `{ collection: '$schema', actions: ['read'] }` — a `*` scope does not include it.
+   */
   apiKey?: string;
   /**
    * Extra headers for the collections fetch and the socket upgrade — e.g. a
-   * `cookie` carrying a schema admin's session. The engine sends schema events
-   * only to whoever may alter collections, and an API key never may.
+   * `cookie` carrying the session of a user who may alter collections.
    */
   headers?: Record<string, string>;
   /** Reconnect delay in ms (default: 3000) */

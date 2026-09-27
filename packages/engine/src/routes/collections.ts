@@ -1,12 +1,19 @@
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
 import { DDLManager, CollectionSchema, FieldSchema, SYSTEM_COLUMNS } from '../lib/data/index.js';
 // requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
-import { requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { announceSchemaChange, enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
+import { getCurrentDomainOrNull, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import {
+  announceSchemaChange,
+  apiKeyMayWatchSchema,
+  authenticate,
+  enqueueDDLJob,
+  getDDLJob,
+  requestApiKey,
+} from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
   dynamicAddColumn,
@@ -52,8 +59,27 @@ const SYSTEM_FIELDS = SYSTEM_COLUMNS;
 export function collectionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
+  // `watchSchema`'s reads — the list and one collection — for an API key holding
+  // the explicit `$schema` scope. Path-scoped, GET only: every other door here,
+  // `/field-types` included, stays behind the admin gate below.
+  const schemaReaders = new WeakSet<Request>();
+  const schemaReader: MiddlewareHandler = async (c, next) => {
+    if (c.req.method === 'GET' && c.req.param('name') !== 'field-types' && requestApiKey(c)) {
+      const principal = await authenticate(c, auth, db);
+      if (
+        principal?.authType === 'api_key' &&
+        apiKeyMayWatchSchema(principal.user.scopes, getCurrentDomainOrNull())
+      )
+        schemaReaders.add(c.req.raw);
+    }
+    await next();
+  };
+  app.use('/', schemaReader);
+  app.use('/:name', schemaReader);
+
   // Admin auth middleware
   app.use('*', async (c, next) => {
+    if (schemaReaders.has(c.req.raw)) return next();
     const user = await guardAdmin(c, auth, requireInstanceAdmin);
     if (user instanceof Response) return user;
     c.set('user', user);
