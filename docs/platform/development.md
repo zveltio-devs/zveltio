@@ -178,7 +178,8 @@ Enforced by Biome (`biome.json`) and by review:
 
 Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`,
 `test:`), subject ≤ 72 characters, body explains *why*. One feature per PR.
-Add a changeset (`bun run changeset`) for any user-visible change.
+Describe user-visible changes in the PR description; release notes are written
+when a release is cut ([versioning](./versioning.md)).
 
 **Never commit or push without explicit approval.** Cutting a release is a
 manual, owner-only decision.
@@ -193,7 +194,7 @@ GitHub Actions in `.github/workflows/`, all pinned by SHA:
 route-collision checks, benchmarks), `e2e.yml`, `studio.yml`, `client.yml`,
 `migrate-safety.yml` (squawk DDL linting), `mutation.yml`, `soak.yml`,
 `release.yml`, `publish-npm.yml`, `build.yml`, `upgrade-path.yml`,
-`dr-smoke.yml`, `version.yml`, `dependabot-lockfile.yml`, `deprecate-npm.yml`.
+`dr-smoke.yml`, `dependabot-lockfile.yml`, `deprecate-npm.yml`.
 
 CI sets `DB_POOL_MAX=10` at workflow level because it boots many engines against
 one Postgres. Left unset, the engine sizes its pool from the server's

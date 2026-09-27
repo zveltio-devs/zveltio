@@ -12,7 +12,6 @@
     "any:suppress": "bun run scripts/suppress-existing-any.ts",
     "build": "turbo run build",
     "build:binary": "cd packages/engine && bun run build:binary",
-    "changeset": "changeset",
     "check": "biome check",
     "audit:gates": "bun scripts/audit-gates.ts",
     "check:fix": "biome check --write",
@@ -55,17 +54,15 @@
     "studio:build": "cd packages/studio && bun run build",
     "studio:dev": "cd packages/studio && bunx vite dev --port 5173",
     "studio:embed": "cp -r packages/studio/dist packages/engine/studio-dist && cp -r packages/studio/dist packages/engine/src/studio-dist",
-    "tag": "changeset tag",
     "test": "turbo run test",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "turbo run typecheck",
     "typecheck:force": "turbo run typecheck --force",
-    "version-packages": "changeset version && bun run scripts/sync-engine-version.ts"
+    "sync-versions": "bun run scripts/sync-engine-version.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@changesets/cli": "^2.31.1",
     "@playwright/test": "^1.62.1",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "2.70.3",

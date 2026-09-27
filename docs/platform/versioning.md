@@ -1,44 +1,68 @@
-# Zveltio — Versioning Guide
+# Versioning and releases
 
-Zveltio uses **[Changesets](https://github.com/changesets/changesets)** for automated semantic versioning across its monorepo packages.
-The goal: you write code, run one command, and everything else — version bumps, changelogs, Docker images, GitHub Releases — happens automatically.
+Every Zveltio package ships with **one version number** — the root package, the
+engine, Studio, the client, the SDK and its React and Vue bindings, the CLI, and
+the Helm chart's `appVersion`. The engine binary reports it on
+`/api/health/version`, Studio shows it in its footer, and the GitHub Release tag
+matches it.
 
----
+Releases are **cut by hand, by a maintainer**. There is no bot that bumps
+versions or opens a release PR, and pull requests carry no release files: what
+changed goes into `CHANGELOG.md` when the release is cut.
 
-## How the system works
+## Version numbers
 
-```
-Developer writes code
-        │
-        ▼
-bun run changeset          ← declares what changed + severity
-        │
-    (PR merged)
-        │
-        ▼
-GitHub Action: version.yml
-        │
-        ├─► [changeset files found]
-        │       Creates "chore: version packages" PR
-        │       Bumps package.json versions
-        │       Generates / updates CHANGELOG.md files
-        │       Syncs ENGINE_VERSION in version.ts
-        │
-        └─► [PR merged — no changeset files left]
-                Pushes Git tags  (e.g. v1.2.0)
-                        │
-                        ▼
-                GitHub Action: release.yml
-                        ├─ Builds Studio
-                        ├─ Compiles binaries (linux x64/arm64, macos x64/arm64)
-                        ├─ Builds + pushes Docker image to GHCR
-                        ├─ Creates GitHub Release with assets
-                        └─ Updates zveltio-get repo (versions.json / latest.json)
-```
+The current line is `3.0.0-beta.N`. Each beta raises `N` by one. Leaving beta
+(`3.0.0`) is a deliberate decision, not a side effect of any change.
 
-All packages (`engine`, `studio`, `sdk`, `sdk-react`, `sdk-vue`, `cli`) are **linked** — a single Changeset bumps all of them to the same version number.
+| Package | Where | Published |
+| --- | --- | --- |
+| `@zveltio/sdk` | `packages/sdk` | npm |
+| `@zveltio/react` | `packages/sdk-react` | npm |
+| `@zveltio/vue` | `packages/sdk-vue` | npm |
+| `@zveltio/cli` | `packages/cli` | npm |
+| engine | `packages/engine` | GitHub Release (binaries), GHCR |
+| Studio | `packages/studio` | embedded in the engine binary |
+| client | `packages/client` | no |
+| Helm chart | `charts/zveltio/Chart.yaml` (`appVersion`) | no |
 
----
+## Cutting a release
+
+1. **Bump the version** to `3.0.0-beta.N+1` in `packages/sdk`, `packages/sdk-react`,
+   `packages/sdk-vue`, `packages/cli` and `packages/client`, then run
+
+   ```bash
+   bun run sync-versions
+   ```
+
+   It copies the SDK's version to the root package, the engine, Studio and the
+   chart's `appVersion`, and stops with an error if the chart has no `appVersion`
+   line.
+2. **Write the release notes** in `CHANGELOG.md`, under `## [Unreleased]`.
+3. **Open a PR** named `chore/release-3.0.0-beta.N+1` with the commit
+   `chore(release): 3.0.0-beta.N+1`. A correct release commit touches exactly
+   **10 files**: eight `package.json`, `Chart.yaml` and `CHANGELOG.md`. Nine
+   means the chart was not bumped.
+4. **Before merging**, if the change touched migrations, extension loading or
+   anything the compiled binary embeds, build it locally:
+   `bun build packages/engine/src/index.ts --compile`, and start it. Bugs that
+   exist only in the binary are not caught by a push to master.
+5. **After the merge, tag the merge commit and push that tag on its own:**
+
+   ```bash
+   git tag -a v3.0.0-beta.N+1 <merge-sha> -m "3.0.0-beta.N+1"
+   git push origin refs/tags/v3.0.0-beta.N+1
+   ```
+
+   The `v*` tag starts `release.yml`: binaries, the Docker image on GHCR, the
+   signed checksums and the GitHub Release. Push it alone — GitHub emits no event
+   for tags beyond the third in a single push, and `release.yml` cannot be
+   started by hand.
+6. **Publish to npm** by running the `publish-npm.yml` workflow manually with the
+   version and the dist-tag (`beta` for prereleases). It authenticates through
+   GitHub OIDC; pushing a tag does not publish anything to npm.
+7. **Check the published assets** on the GitHub Release, including
+   `env.example` (GitHub renames dotfiles).
 
 ## Stable release gate
 
@@ -69,84 +93,13 @@ Any failure blocks the stable publish. Run it yourself before proposing a stable
 cut: `bun run scripts/release-gate.ts 3.0.0` (add `RELEASE_GATE_SKIP_NETWORK=1`
 to skip the GitHub-API checks offline).
 
----
+## What triggers what
 
-## Workflow for developers
-
-### 1. Work on a feature / bugfix as normal
-
-```bash
-git checkout -b feat/my-feature
-# ... write code ...
-```
-
-### 2. Declare your change with a Changeset
-
-Before you commit (or before opening a PR), run:
-
-```bash
-bun run changeset
-```
-
-The interactive prompt asks:
-
-| Question | What to answer |
-|---|---|
-| Which packages changed? | Select all affected packages (space to toggle) |
-| Bump type? | `major` — breaking change · `minor` — new feature · `patch` — bug fix |
-| Summary? | One-line description that appears in CHANGELOG, e.g. *"Add SAF-T XML export for Romanian compliance"* |
-
-This creates a small Markdown file in `.changeset/`. **Commit it with your code** — it's part of the PR.
-
-```bash
-git add .changeset/
-git commit -m "feat: add saft export"
-git push
-```
-
-### 3. Open a Pull Request
-
-Normal code review. The changeset file is included.
-
-### 4. Merge to main — automation takes over
-
-After merge:
-
-1. **`version.yml`** detects the changeset files and opens a PR titled **"chore: version packages"**.
-   This PR contains: bumped `package.json`, updated `CHANGELOG.md`, updated `ENGINE_VERSION` in `version.ts`.
-
-2. **Review and merge that PR** — one click.
-
-3. **`version.yml`** pushes a Git tag (e.g. `v1.2.0`).
-
-4. **`release.yml`** triggers automatically on the new tag, builds everything, and publishes the release.
-
-> **You never touch a version number manually.**
-
----
-
-## Bump type reference
-
-| Type | When to use | Example |
-|---|---|---|
-| `patch` | Bug fix, security fix, internal refactor | `1.0.0` → `1.0.1` |
-| `minor` | New feature, new endpoint, new extension API | `1.0.0` → `1.1.0` |
-| `major` | Breaking change in API / schema / CLI | `1.0.0` → `2.0.0` |
-
-When in doubt, use `minor`. A patch that fixes a security vulnerability is still `patch` (use the summary to highlight it).
-
----
-
-## Internal sync — ENGINE_VERSION
-
-`packages/engine/src/version.ts` contains a hardcoded `ENGINE_VERSION` constant.
-This is kept in sync automatically: the `version-packages` script calls `scripts/sync-engine-version.ts` right after Changesets bumps `packages/engine/package.json`.
-
-**You never need to update `ENGINE_VERSION` manually.**
-
-The `generate-versions-json.sh` script is now called by the CI/CD pipeline (`release.yml` → update-website job) after each release — it pulls data from GitHub Releases API and updates `zveltio-get/versions.json`. You do not need to run it locally.
-
----
+| Event | Runs |
+| --- | --- |
+| push to `master` | CI, Build Check, Studio, Client, E2E |
+| tag `v*` | Release — the only workflow that produces public artifacts |
+| manual dispatch | `publish-npm.yml` |
 
 ## Accessing and maintaining older versions
 
@@ -156,7 +109,7 @@ Every release is tagged and available as a GitHub Release:
 
 - **Tags**: `https://github.com/zveltio-devs/zveltio/tags`
 - **Releases**: `https://github.com/zveltio-devs/zveltio/releases`
-- **Changelog**: `packages/engine/CHANGELOG.md`, `packages/cli/CHANGELOG.md`, etc.
+- **Changelog**: `CHANGELOG.md` at the repository root
 
 ---
 
@@ -191,7 +144,7 @@ git add .
 git commit -m "fix: CVE-2026-XXXX — input sanitization in webhook handler"
 git push origin support/v1.x
 
-# Tag manually (Changesets doesn't manage support branches)
+# Tag the fix — the same v* tag that starts release.yml on master
 git tag v1.5.1
 git push origin v1.5.1
 # → release.yml triggers and publishes v1.5.1 binaries/Docker image
@@ -250,24 +203,12 @@ image: ghcr.io/zveltio/zveltio-engine:1.2.0
 
 Then `docker compose up -d`. No recompile needed.
 
----
-
-## GitHub token setup
-
-The `version.yml` workflow uses `CHANGESETS_TOKEN` (if set) or falls back to `GITHUB_TOKEN`.
-
-For PR-triggered CI to work on the Version Packages PR, set a **Personal Access Token** with `contents: write` and `pull-requests: write` scopes as a repository secret named `CHANGESETS_TOKEN`.
-Without it everything still works — the Version Packages PR just won't run CI checks.
-
----
-
 ## Quick reference
 
 | Command | What it does |
 |---|---|
-| `bun run changeset` | Declare a change before committing |
-| `bun run version-packages` | Bump versions + update CHANGELOG (run by CI) |
-| `bun run tag` | Create git tags after version bump (run by CI) |
-| `git checkout v1.2.0` | Inspect old version locally |
+| `bun run sync-versions` | Copy the SDK's version to root, engine, Studio and the chart |
+| `bun run scripts/release-gate.ts 3.0.0` | Check a stable cut before proposing it |
+| `git checkout v1.2.0` | Inspect an old version locally |
 | `git checkout -b support/v1.x v1.2.0` | Start a maintenance branch |
 | `git worktree add ../zveltio-v1 support/v1.x` | Run two versions in parallel |
