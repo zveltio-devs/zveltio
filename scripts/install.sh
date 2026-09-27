@@ -92,7 +92,7 @@ get_platform() {
 get_latest_version() {
   # /releases/latest only returns stable releases. Use /releases to also
   # pick up pre-release versions (alpha/beta/rc) when no stable exists yet.
-  # Filter to only v<semver> tags — changeset package tags (@scope/pkg@x.y.z)
+  # Filter to only v<semver> tags — per-package tags (@scope/pkg@x.y.z) from past releases
   # would otherwise appear first and produce broken download URLs.
   local ver
   ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \

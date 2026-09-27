@@ -202,7 +202,7 @@ See [security.md](security.md) for the threat model this ordering serves.
 | Cache / realtime | Valkey 8 | **Required in production**, not optional. |
 | Frontend | SvelteKit 2 + Svelte 5 runes, Tailwind 4, daisyUI 5 | |
 | i18n | Paraglide JS (inlang) | 9 locales. |
-| Tooling | Biome 2, Turborepo, Playwright, Stryker, Changesets, OpenTelemetry | |
+| Tooling | Biome 2, Turborepo, Playwright, Stryker, OpenTelemetry | |
 
 **On Valkey being required.** Without it the permission and identity caches
 degrade *in silence*: `isGodUser` and `resolveUserRole` hit the database on every
