@@ -17,6 +17,7 @@ import {
   isTenantAdmin,
   matchesRlsFilters,
   permissionGeneration,
+  requireInstanceAdmin,
   resolveUserRole,
   revalidateSockets,
   runWithDomain,
@@ -313,9 +314,35 @@ async function socketMayReadCached(
   return allowed && (await resolveSocketAccess(conn, collectionName));
 }
 
+/**
+ * The channel that carries collection create/alter/drop events. `$` cannot
+ * start a collection name (`CollectionSchema` requires `^[a-z]`), so it never
+ * collides with a collection's own record channel.
+ */
+export const SCHEMA_CHANNEL = '$schema';
+export type SchemaChangeAction = 'create' | 'alter' | 'drop';
+
+/**
+ * May this socket hear about schema changes? Exactly who may make them: the
+ * collections routes' gate, `guardAdmin(c, auth, requireInstanceAdmin)` — a
+ * session (an API key never passes it) that `requireInstanceAdmin` admits in
+ * the tenant the socket opened in. A delegated tenant admin outside the root
+ * tenant is refused there, and so here.
+ */
+async function socketIsSchemaAdmin(conn: WSConnection): Promise<boolean> {
+  const tenantId = conn.tenantId;
+  if (conn.authType !== 'session' || !tenantId) return false;
+  return runWithDomain(tenantId, () => requireInstanceAdmin(conn.userId));
+}
+
+/** Read for a collection, schema admin for `SCHEMA_CHANNEL`. Throws on a failed lookup. */
+function socketMayHear(ws: object, conn: WSConnection, name: string): Promise<boolean> {
+  return name === SCHEMA_CHANNEL ? socketIsSchemaAdmin(conn) : socketMayReadCached(ws, conn, name);
+}
+
 /** The subscribe gate: a lookup that throws denies the subscription. */
 function socketMaySubscribe(ws: object, conn: WSConnection, collectionName: string) {
-  return socketMayReadCached(ws, conn, collectionName).catch((err) => {
+  return socketMayHear(ws, conn, collectionName).catch((err) => {
     console.error(`[ws] denied subscribe to "${collectionName}": access lookup failed:`, err);
     return false;
   });
@@ -352,12 +379,13 @@ async function recheckSubscriptions(connId: string, conn: WSConnection): Promise
   for (const collection of collections) {
     let allowed: boolean;
     try {
-      allowed = await socketMayReadCached(conn.ws, conn, collection);
+      allowed = await socketMayHear(conn.ws, conn, collection);
       // Row rules and column permissions too: `resolveSocketAccess` keeps the
       // snapshot it took at subscribe, so a rule written since reached the
       // socket only when its client resubscribed. Replaced only on success —
       // a lookup that throws leaves the rules it had in force.
-      if (allowed) conn.access.set(collection, await lookupSocketAccess(conn, collection));
+      if (allowed && collection !== SCHEMA_CHANNEL)
+        conn.access.set(collection, await lookupSocketAccess(conn, collection));
     } catch (err) {
       console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
       failed = true;
@@ -695,4 +723,35 @@ export function broadcastEvent(
     }
   }
   for (const { channel, connId } of stale) unindexSubscription(channel, connId);
+}
+
+/**
+ * Tell the schema admins subscribed to `SCHEMA_CHANNEL` in `tenantId` that a
+ * collection was created, altered or dropped. The name and the verb only: no
+ * field definitions — a watcher re-reads `/api/collections`, which is gated.
+ * Delivered only to sockets opened in the same tenant; whether each may hear
+ * it was decided at subscribe and is re-decided by every sweep.
+ */
+export function broadcastSchemaChange(
+  collection: string,
+  action: SchemaChangeAction,
+  tenantId: string | null,
+): void {
+  const connIds = subscriptionIndex.get(SCHEMA_CHANNEL);
+  if (!connIds) return;
+  const payload = JSON.stringify({
+    type: 'schema:changed',
+    collection,
+    action,
+    timestamp: Date.now(),
+  });
+  for (const connId of connIds) {
+    const conn = connections.get(connId);
+    if (!conn || (conn.tenantId ?? null) !== (tenantId ?? null)) continue;
+    try {
+      conn.ws.send(payload);
+    } catch {
+      /* socket already gone — cleanupSocket handles it */
+    }
+  }
 }

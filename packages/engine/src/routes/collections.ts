@@ -6,7 +6,7 @@ import { DDLManager, CollectionSchema, FieldSchema, SYSTEM_COLUMNS } from '../li
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
+import { announceSchemaChange, enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
   dynamicAddColumn,
@@ -235,6 +235,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     if (!exists) return c.json({ error: 'Table does not exist' }, 404);
     const count = await DDLManager.syncFieldsFromDB(db, name);
     if (count > 0) {
+      announceSchemaChange(name, 'alter');
       await auditLog(db, {
         type: 'settings.changed',
         userId: user?.id,
@@ -301,6 +302,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const name = c.req.param('name');
       const updates = c.req.valid('json');
       await DDLManager.updateCollectionMetadata(db, name, updates);
+      announceSchemaChange(name, 'alter');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -325,6 +327,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const force = c.req.query('force') === 'true';
     try {
       await DDLManager.dropCollection(effectiveDb, name, { force });
+      announceSchemaChange(name, 'drop');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       await auditLog(db, {
@@ -539,6 +542,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           .execute();
       });
       DDLManager.invalidateCache(name);
+      announceSchemaChange(name, 'alter');
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
@@ -767,6 +771,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             metadata: { actions, from: fieldName, to: finalName },
           });
         });
+        announceSchemaChange(name, 'alter');
 
         return c.json({ success: true, field: updatedFieldShape, actions });
       } catch (error) {
@@ -859,6 +864,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
       await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+      announceSchemaChange(name, 'alter');
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;

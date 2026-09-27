@@ -27,6 +27,12 @@ export interface CollectionSchema {
 export interface WatchSchemaOptions {
   /** API token for the engine (admin key) */
   apiKey?: string;
+  /**
+   * Extra headers for the collections fetch and the socket upgrade — e.g. a
+   * `cookie` carrying a schema admin's session. The engine sends schema events
+   * only to whoever may alter collections, and an API key never may.
+   */
+  headers?: Record<string, string>;
   /** Reconnect delay in ms (default: 3000) */
   reconnectDelay?: number;
   /** Called after each successful type regeneration */
@@ -118,8 +124,12 @@ function toPascalCase(str: string): string {
     .join('');
 }
 
-async function fetchCollections(engineUrl: string, apiKey?: string): Promise<CollectionSchema[]> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+async function fetchCollections(
+  engineUrl: string,
+  apiKey?: string,
+  extra?: Record<string, string>,
+): Promise<CollectionSchema[]> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
   const res = await fetch(`${engineUrl}/api/collections`, { headers });
@@ -150,11 +160,11 @@ export async function watchSchema(
   outputPath: string,
   options: WatchSchemaOptions = {},
 ): Promise<() => void> {
-  const { apiKey, reconnectDelay = 3000, onUpdate, onError } = options;
+  const { apiKey, headers, reconnectDelay = 3000, onUpdate, onError } = options;
 
   // Generate initial types on startup
   try {
-    const collections = await fetchCollections(engineUrl, apiKey);
+    const collections = await fetchCollections(engineUrl, apiKey, headers);
     const content = generateTypesFile(collections);
     await writeTypes(outputPath, content);
     console.log(`[zveltio] ✓ Types generated at ${outputPath} (${collections.length} collections)`);
@@ -175,19 +185,27 @@ export async function watchSchema(
     // The key `fetchCollections` sends, on the upgrade too: without it the
     // engine refuses the socket (401) and the watcher only ever reconnected.
     // The two-argument form is the Bun/undici extension; a browser cannot set it.
-    ws = apiKey
-      ? new WebSocket(wsUrl, { headers: { 'X-API-Key': apiKey } } as unknown as string[])
-      : new WebSocket(wsUrl);
+    const upgradeHeaders = { ...headers, ...(apiKey ? { 'X-API-Key': apiKey } : {}) };
+    ws =
+      Object.keys(upgradeHeaders).length > 0
+        ? new WebSocket(wsUrl, { headers: upgradeHeaders } as unknown as string[])
+        : new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('[zveltio] Schema watcher connected.');
-      // Subscribe to all schema change events
-      ws!.send(JSON.stringify({ type: 'subscribe', channel: 'schema' }));
+      // The engine's schema channel: `$` cannot start a collection name, so it
+      // never collides with a collection's record events.
+      ws!.send(JSON.stringify({ type: 'subscribe', channel: '$schema' }));
     };
 
     ws.onmessage = async (event) => {
       try {
         const msg = JSON.parse(event.data);
+        // The subscribe was refused: this principal may not alter collections.
+        if (msg.type === 'error') {
+          onError?.(new Error(`Schema watcher: ${msg.message ?? 'subscribe refused'}`));
+          return;
+        }
         const isSchemaChange =
           msg.event === 'schema:changed' ||
           msg.type === 'schema:changed' ||
@@ -195,7 +213,7 @@ export async function watchSchema(
 
         if (!isSchemaChange) return;
 
-        const collections = await fetchCollections(engineUrl, apiKey);
+        const collections = await fetchCollections(engineUrl, apiKey, headers);
         const content = generateTypesFile(collections);
         await writeTypes(outputPath, content);
 
