@@ -94,6 +94,22 @@ d('session-only routes: 401 for nobody, 403 for a valid API key', () => {
     });
   }
 
+  // The fail-closed `/ext/*` gate is the same kind of door: a session, never a key.
+  it('GET /ext/* (fail-closed extension gate)', async () => {
+    const path = '/ext/no-such-ext/anything';
+    const anon = await send('GET', path);
+    expect(anon.status).toBe(401);
+    expect(((await anon.json()) as { code: string }).code).toBe('EXT_AUTH_REQUIRED');
+    const keyed = await send('GET', path, { 'X-API-Key': KEYS.valid.raw });
+    expect(keyed.status).toBe(403);
+    expect(((await keyed.json()) as { code: string }).code).toBe('EXT_SESSION_REQUIRED');
+    const bearer = await send('GET', path, { Authorization: `Bearer ${KEYS.valid.raw}` });
+    expect(bearer.status).toBe(403);
+    expect((await send('GET', path, { 'X-API-Key': KEYS.revoked.raw })).status).toBe(401);
+    expect((await send('GET', path, { 'X-API-Key': KEYS.foreign.raw })).status).toBe(401);
+    expect((await send('GET', path, { cookie })).status).not.toBe(401);
+  });
+
   it('a key sent as a bearer token is refused with 403 too', async () => {
     const res = await send('GET', '/api/storage', { Authorization: `Bearer ${KEYS.valid.raw}` });
     expect(res.status).toBe(403);

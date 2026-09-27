@@ -72,7 +72,7 @@ export async function guardAdmin(
  * the same `findApiKey` + `apiKeyActsIn` test `validateApiKey` applies? Reuses
  * the prefetched row; looks it up only where the prefetch did not run.
  */
-async function presentsUsableKey(c: Context): Promise<boolean> {
+export async function presentsUsableKey(c: Context): Promise<boolean> {
   const raw = requestApiKey(c);
   if (!raw) return false;
   let key = c.get('prefetchedApiKey');
