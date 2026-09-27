@@ -20,7 +20,6 @@ import type { Database } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
-import { createBetterAuthSession } from '../../lib/security/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
@@ -159,8 +158,9 @@ d('extension offboarding through ctx.internals', () => {
       await expect(authCtx.internalAdapter.createSession(userId)).rejects.toThrow(
         'This account is disabled.',
       );
-      // The SSO bridge (LDAP, SAML) inserts its own row.
-      await expect(createBetterAuthSession(db, userId)).rejects.toThrow(
+      // The SSO bridge (LDAP, SAML).
+      const sso = gateInternals('auth/ldap', buildExtensionInternals(), ['auth:session']);
+      await expect(sso.createBetterAuthSession(db, userId)).rejects.toThrow(
         'This account is disabled.',
       );
       const sessions = await sql`SELECT 1 FROM session WHERE "userId" = ${userId}`.execute(db);
