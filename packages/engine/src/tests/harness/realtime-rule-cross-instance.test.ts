@@ -33,6 +33,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  wsUpgradeData,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -122,7 +123,7 @@ d('row and column rule changes reach other instances', () => {
     probes.push(id);
     const sent: string[] = [];
     const ws = {
-      data: { id, userId: member.userId, tenantId: null, authType: 'session' },
+      data: { ...(await wsUpgradeData(app, { cookie: member.cookie })), id, tenantId: null },
       send: (p: string) => sent.push(p),
       close: () => {},
     };

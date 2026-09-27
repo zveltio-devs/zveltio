@@ -10,6 +10,8 @@
  *   await watchSchema('http://localhost:3000', './src/zveltio-types.d.ts');
  */
 
+import { WS_UNAUTHORIZED } from './realtime.js';
+
 export interface CollectionField {
   name: string;
   type: string;
@@ -170,7 +172,12 @@ export async function watchSchema(
   function connect() {
     if (stopped) return;
 
-    ws = new WebSocket(wsUrl);
+    // The key `fetchCollections` sends, on the upgrade too: without it the
+    // engine refuses the socket (401) and the watcher only ever reconnected.
+    // The two-argument form is the Bun/undici extension; a browser cannot set it.
+    ws = apiKey
+      ? new WebSocket(wsUrl, { headers: { 'X-API-Key': apiKey } } as unknown as string[])
+      : new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('[zveltio] Schema watcher connected.');
@@ -200,7 +207,13 @@ export async function watchSchema(
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (!stopped && event?.code === WS_UNAUTHORIZED) {
+        // The API key was revoked or expired: every retry would be refused.
+        stopped = true;
+        onError?.(new Error('Schema watcher stopped: the engine revoked its credentials.'));
+        return;
+      }
       if (!stopped) {
         console.log(`[zveltio] Schema watcher disconnected. Reconnecting in ${reconnectDelay}ms…`);
         setTimeout(connect, reconnectDelay);

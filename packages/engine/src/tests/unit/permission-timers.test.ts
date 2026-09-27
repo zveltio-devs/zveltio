@@ -16,6 +16,7 @@ import {
   revalidateSockets,
   startPolicyReconcile,
   stopPolicyReconcile,
+  sweepGeneration,
 } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 
@@ -140,5 +141,49 @@ describe('periodic policy reconcile timer', () => {
     jest.advanceTimersByTime(600_000);
     await flush();
     expect(ticks).toBe(1);
+  });
+});
+
+describe('the default reconcile tick', () => {
+  const USER = `tick-principals-${Date.now()}`;
+
+  afterEach(async () => {
+    stopPolicyReconcile();
+    _sseConnectionsForTests().delete(USER);
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    await __sweepIdle();
+  });
+
+  // An expired session or key sends no event, and a lost bus message sends
+  // nothing either: only this tick re-asks who each open connection is.
+  it('asks for a principals-only sweep', async () => {
+    await __sweepIdle();
+    let permissionPassRuns = 0;
+    const sub = {
+      stream: { abort() {} },
+      // Read by the permission pass only: a full sweep here would be a
+      // permission re-check of every connection every 30-60 s.
+      get collections(): string[] {
+        permissionPassRuns++;
+        return [];
+      },
+      channels: [],
+      filters: [],
+      tenantId: null,
+    };
+    _sseConnectionsForTests().set(USER, new Set([sub]) as never);
+    spyOn(console, 'error').mockImplementation(() => {});
+    spyOn(Math, 'random').mockReturnValue(0.5);
+    jest.useFakeTimers();
+
+    startPolicyReconcile(); // the production tick, not a seam
+    const before = sweepGeneration();
+    jest.advanceTimersByTime(45_000);
+    await flush();
+    await __sweepIdle();
+
+    expect(sweepGeneration()).toBeGreaterThan(before);
+    expect(permissionPassRuns).toBe(0);
   });
 });

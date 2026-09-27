@@ -35,6 +35,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  wsUpgradeData,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -83,7 +84,7 @@ d('a user role change reaches open subscriptions', () => {
     probes.push(id);
     const frames: string[] = [];
     const ws = {
-      data: { id, userId, tenantId: null, authType: 'session' },
+      data: { ...(await wsUpgradeData(app, { cookie })), id, tenantId: null },
       send: (p: string) => frames.push(p),
       close: () => {},
     };

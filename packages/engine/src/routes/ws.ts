@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
-import { authenticate, checkAccess, type RequestUser } from '../lib/data/index.js';
+import {
+  authenticate,
+  checkAccess,
+  stillAuthenticated,
+  type RealtimePrincipal,
+  type RequestUser,
+} from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
   applyColumnAccess,
@@ -11,7 +17,9 @@ import {
   matchesRlsFilters,
   permissionGeneration,
   resolveUserRole,
+  revalidateSockets,
   runWithDomain,
+  sweepGeneration,
 } from '../lib/tenancy/index.js';
 import type { ColumnAccess } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
@@ -62,6 +70,8 @@ interface WSConnection {
    * because the request context is gone by the time an event is delivered.
    */
   authType: 'session' | 'api_key';
+  /** The session or key the socket opened with — `closeUnauthenticatedWs` re-asks it. */
+  principal: RealtimePrincipal;
   /**
    * Row and column authorisation per collection, resolved when the socket
    * subscribes to it.
@@ -139,10 +149,22 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // tenant) exactly as it is there. A browser cannot set headers on a
     // WebSocket, so a key only ever arrives from a server-side client; the
     // Origin check above still guards the cookie path.
+    // Read before authenticating: a revocation swept between here and `open`
+    // could not see this socket — see `sweepGeneration`.
+    const sweepGen = sweepGeneration();
     const principal = wsDb ? await authenticate(c, auth, wsDb) : null;
     if (!principal) return c.json({ error: 'Unauthorized' }, 401);
     const authType: 'session' | 'api_key' =
       principal.authType === 'api_key' ? 'api_key' : 'session';
+    // What the sweep re-asks for as long as the socket stays open. A session
+    // without its token could never be re-asked, so it is refused here.
+    const live: RealtimePrincipal | null =
+      authType === 'api_key'
+        ? { kind: 'api_key', keyId: principal.user.id.replace(/^apikey:/, '') }
+        : principal.sessionToken
+          ? { kind: 'session', token: principal.sessionToken, userId: principal.user.id }
+          : null;
+    if (!live) return c.json({ error: 'Unauthorized' }, 401);
     const user =
       authType === 'api_key'
         ? {
@@ -163,7 +185,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
     const upgraded = server.upgrade(c.req.raw, {
-      data: { id, userId: user.id, user, tenantId, authType },
+      data: { id, userId: user.id, user, tenantId, authType, principal: live, sweepGen },
     });
 
     if (!upgraded) return c.text('WebSocket upgrade failed', 426);
@@ -316,35 +338,93 @@ function socketMaySubscribe(ws: object, conn: WSConnection, collectionName: stri
 export async function revalidateWsSubscriptions(): Promise<boolean> {
   let failed = false;
   for (const [connId, conn] of [...connections]) {
-    const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
-    for (const collection of collections) {
-      let allowed: boolean;
+    if (await recheckSubscriptions(connId, conn)) failed = true;
+  }
+  return failed;
+}
+
+/** One connection's share of `revalidateWsSubscriptions`; `true` = a lookup failed. */
+async function recheckSubscriptions(connId: string, conn: WSConnection): Promise<boolean> {
+  let failed = false;
+  const collections = new Set([...conn.subscriptions].map((ch) => ch.split(':')[0]!));
+  for (const collection of collections) {
+    let allowed: boolean;
+    try {
+      allowed = await socketMayReadCached(conn.ws, conn, collection);
+      // Row rules and column permissions too: `resolveSocketAccess` keeps the
+      // snapshot it took at subscribe, so a rule written since reached the
+      // socket only when its client resubscribed. Replaced only on success —
+      // a lookup that throws leaves the rules it had in force.
+      if (allowed) conn.access.set(collection, await lookupSocketAccess(conn, collection));
+    } catch (err) {
+      console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
+      failed = true;
+      continue;
+    }
+    if (allowed) continue;
+    const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
+    for (const ch of dropped) {
+      conn.subscriptions.delete(ch);
+      unindexSubscription(ch, connId);
+    }
+    conn.access.delete(collection);
+    try {
+      conn.ws.send(
+        JSON.stringify({ type: 'unsubscribed', collections: dropped, reason: 'forbidden' }),
+      );
+    } catch {
+      /* socket already gone — cleanupSocket handles it */
+    }
+  }
+  return failed;
+}
+
+/**
+ * Close every socket whose session or API key no longer authenticates — signed
+ * out, revoked, expired, its user barred or deleted, its key revoked or its
+ * creator barred. One batched lookup for all of them.
+ *
+ * Closed, not trimmed: the client's reconnect meets the upgrade's 401. A lookup
+ * that throws closes nothing and answers `true`, as `revalidateWsSubscriptions`
+ * does, so `revalidateSockets` retries.
+ */
+export async function closeUnauthenticatedWs(): Promise<boolean> {
+  const conns = [...connections];
+  if (conns.length === 0 || !wsDb) return false;
+  let found: Awaited<ReturnType<typeof stillAuthenticated<RealtimePrincipal>>>;
+  try {
+    found = await stillAuthenticated(
+      wsDb,
+      conns.flatMap(([, c]) => (c.principal ? [c.principal] : [])),
+    );
+  } catch (err) {
+    console.error('[ws] principal recheck failed; retrying:', err);
+    return true;
+  }
+  let failed = false;
+  for (const [connId, conn] of conns) {
+    if (!conn.principal || !found.live.has(conn.principal)) {
+      // Out of the registry first, so no event reaches it while the close runs.
+      cleanupSocket(conn.ws);
       try {
-        allowed = await socketMayReadCached(conn.ws, conn, collection);
-        // Row rules and column permissions too: `resolveSocketAccess` keeps the
-        // snapshot it took at subscribe, so a rule written since reached the
-        // socket only when its client resubscribed. Replaced only on success —
-        // a lookup that throws leaves the rules it had in force.
-        if (allowed) conn.access.set(collection, await lookupSocketAccess(conn, collection));
-      } catch (err) {
-        console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
-        failed = true;
-        continue;
-      }
-      if (allowed) continue;
-      const dropped = [...conn.subscriptions].filter((ch) => ch.split(':')[0] === collection);
-      for (const ch of dropped) {
-        conn.subscriptions.delete(ch);
-        unindexSubscription(ch, connId);
-      }
-      conn.access.delete(collection);
-      try {
-        conn.ws.send(
-          JSON.stringify({ type: 'unsubscribed', collections: dropped, reason: 'forbidden' }),
-        );
+        conn.ws.close(4001, 'Unauthorized');
       } catch {
-        /* socket already gone — cleanupSocket handles it */
+        /* already closed */
       }
+      continue;
+    }
+    // A key whose scopes or RLS exemption changed since the upgrade: take the
+    // grants as they are now and re-check its subscriptions against them —
+    // here, whatever the sweep's scope, and past the cached subscribe answers.
+    const grants = conn.principal.kind === 'api_key' && found.keys.get(conn.principal.keyId);
+    if (
+      grants &&
+      (JSON.stringify(grants.scopes) !== JSON.stringify(conn.user.scopes) ||
+        grants.rlsBypass !== (conn.user.rlsBypass === true))
+    ) {
+      conn.user = { ...conn.user, scopes: grants.scopes, rlsBypass: grants.rlsBypass };
+      wsPermCache.set(conn.ws, new Map());
+      if (await recheckSubscriptions(connId, conn)) failed = true;
     }
   }
   return failed;
@@ -389,8 +469,8 @@ export const websocketHandler = {
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   open(ws: any) {
-    const { id, userId, user, tenantId, authType } = ws.data ?? {};
-    if (!id || !userId) {
+    const { id, userId, user, tenantId, authType, principal, sweepGen } = ws.data ?? {};
+    if (!id || !userId || !principal) {
       // Should never happen — the /api/ws route enforces auth before upgrade.
       ws.close(4001, 'Unauthorized');
       return;
@@ -404,9 +484,11 @@ export const websocketHandler = {
       subscriptions: new Set(), // no default subscriptions — clients must explicitly subscribe
       connectedAt: Date.now(),
       authType: authType === 'api_key' ? 'api_key' : 'session',
+      principal,
       access: new Map(),
     });
     wsPermCache.set(ws, new Map());
+    if (sweepGen !== sweepGeneration()) revalidateSockets('principals');
 
     ws.send(
       JSON.stringify({

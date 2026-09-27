@@ -79,7 +79,10 @@ describe('a failed role lookup fails closed', () => {
   });
 
   it('SSE: the stream is refused rather than opened as another role', async () => {
-    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({ user: USER } as never);
+    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({
+      user: USER,
+      session: { token: 'unit-token' },
+    } as never);
     try {
       const app = new Hono().route('/', realtimeRoutes(asDb(db), auth));
       const res = await app.request('/stream?collection=contacts');
@@ -111,6 +114,7 @@ describe('a failed role lookup fails closed', () => {
         user: USER,
         tenantId: null,
         authType: 'session',
+        principal: { kind: 'session', token: 'unit-token', userId: USER.id },
       },
       send: (p: string) => sent.push(p),
       close: () => {},
@@ -140,7 +144,10 @@ describe('a healthy role lookup', () => {
   // The stream ran as `session.user.role ?? 'user'` — never populated, so
   // always `'user'` — and a `member` rule did not apply even with no failure.
   it('SSE: a member column rule masks the column', async () => {
-    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({ user: USER } as never);
+    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({
+      user: USER,
+      session: { token: 'unit-token' },
+    } as never);
     try {
       const app = new Hono().route('/', realtimeRoutes(asDb(db), auth));
       const res = await app.request('/stream?collection=contacts');
