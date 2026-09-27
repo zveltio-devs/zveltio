@@ -20,8 +20,15 @@ const authWithUser = {
 };
 const authAnon = { api: { getSession: async () => null } };
 
-function appWith(auth: unknown) {
+/** Stands in for session-prefetch: the key row it would have looked up (or null). */
+function appWith(auth: unknown, prefetchedKey?: { tenant_id: string | null } | null) {
   const app = new Hono();
+  if (prefetchedKey !== undefined) {
+    app.use('*', async (c, next) => {
+      c.set('prefetchedApiKey', prefetchedKey as never);
+      await next();
+    });
+  }
   app.use('/ext/*', extensionAuthGate(auth as never));
   // A representative extension route + a couple of siblings.
   app.get('/ext/sms/config', (c) => c.text('config'));
@@ -62,6 +69,35 @@ describe('extensionAuthGate', () => {
     const res = await appWith(authWithUser).request('/ext/sms/config');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('config');
+  });
+
+  // The SDK signs its client out on any 401, so a valid key is refused with 403.
+  it('403s a valid API key of this tenant — and never lets it through', async () => {
+    registerExtensionPublicRoutes('sms', []);
+    const key = 'zvk_0123456789abcdef';
+    const sends: Record<string, string>[] = [
+      { 'X-API-Key': key },
+      { Authorization: `Bearer ${key}` },
+    ];
+    for (const headers of sends) {
+      const res = await appWith(authAnon, { tenant_id: null }).request('/ext/sms/config', {
+        headers,
+      });
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { code: string }).code).toBe('EXT_SESSION_REQUIRED');
+    }
+  });
+
+  it('401s an unknown key and a key of another tenant', async () => {
+    registerExtensionPublicRoutes('sms', []);
+    const headers = { 'X-API-Key': 'zvk_0123456789abcdef' };
+    const unknown = await appWith(authAnon, null).request('/ext/sms/config', { headers });
+    expect(unknown.status).toBe(401);
+    expect(((await unknown.json()) as { code: string }).code).toBe('EXT_AUTH_REQUIRED');
+    const foreign = await appWith(authAnon, {
+      tenant_id: '00000000-0000-0000-0000-0000000000fd',
+    }).request('/ext/sms/config', { headers });
+    expect(foreign.status).toBe(401);
   });
 
   it('supports wildcard patterns', async () => {

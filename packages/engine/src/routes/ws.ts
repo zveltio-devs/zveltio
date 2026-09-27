@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardSession } from '../lib/admin-guard.js';
 import { auth } from '../lib/auth.js';
 import {
   apiKeyMayWatchSchema,
@@ -210,8 +210,8 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
 
   // GET /api/ws/stats — Admin: per-user connection stats
   app.get('/api/ws/stats', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
 

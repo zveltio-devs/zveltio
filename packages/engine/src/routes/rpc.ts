@@ -9,7 +9,7 @@
  */
 
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardSession } from '../lib/admin-guard.js';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { reqDb } from '../lib/route-db.js';
@@ -48,8 +48,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
 
   // POST /api/rpc/:function
   app.post('/:fn', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
 
     const fnName = c.req.param('fn');
     if (!FUNC_NAME_RE.test(fnName)) {
@@ -159,8 +159,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   // ── Admin: manage whitelist ────────────────────────────────────────
 
   app.get('/', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const rows = await sql`
@@ -171,8 +171,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   });
 
   app.post('/', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
@@ -189,8 +189,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   });
 
   app.patch('/:id', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
@@ -210,8 +210,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   });
 
   app.delete('/:id', async (c) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
     if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     await sql`DELETE FROM zvd_rpc_functions WHERE id = ${c.req.param('id')}`.execute(db);

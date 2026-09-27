@@ -23,6 +23,7 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
+import { presentsUsableKey } from '../lib/admin-guard.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -135,6 +136,18 @@ export function extensionAuthGate(auth: SessionResolver): MiddlewareHandler {
     // Fail-closed: require an authenticated session.
     const session = await requestSession(c, auth).catch(() => null);
     if (!session?.user) {
+      // A valid key of this tenant is somebody: refuse it with 403, never 401 —
+      // the SDK signs its client out on every 401 (see `refuseWithoutSession`).
+      if (await presentsUsableKey(c)) {
+        return c.json(
+          {
+            error: 'Session required',
+            code: 'EXT_SESSION_REQUIRED',
+            detail: 'This extension route requires a signed-in session; an API key cannot use it.',
+          },
+          403,
+        );
+      }
       return c.json(
         {
           error: 'Unauthorized',

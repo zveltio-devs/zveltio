@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardSession } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -8,12 +8,6 @@ import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
 import { getVapidConfig, isValidAuthSecret, isValidP256dh } from '../lib/web-push.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function requireAuth(c: any, auth: any): Promise<any | null> {
-  const session = await requestSession(c, auth);
-  return session?.user ?? null;
-}
 
 // `sendNotification` and `_settleNotificationPushes` live in lib/notifications.ts
 // and are re-exported here.
@@ -33,9 +27,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // Auth middleware
   app.use('*', async (c, next) => {
-    const user = await requireAuth(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', user);
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
+    c.set('user', session.user);
     await next();
   });
 
