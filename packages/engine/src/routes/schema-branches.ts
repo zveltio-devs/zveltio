@@ -9,7 +9,7 @@ import type { User } from 'better-auth';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
-import { DDLManager } from '../lib/data/index.js';
+import { announceSchemaChange, DDLManager } from '../lib/data/index.js';
 import { GhostDDL } from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 
@@ -409,6 +409,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                   await dynamicAddColumn(db, tableName, colDDL);
                 }
               }
+              announceSchemaChange(change.payload.collection, 'alter');
               applied.push(
                 `Add field: ${change.payload.field.name} to ${change.payload.collection}`,
               );
@@ -433,6 +434,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                 );
                 await dynamicDropColumn(db, tableName, change.payload.field);
               }
+              announceSchemaChange(change.payload.collection, 'alter');
               applied.push(
                 `Remove field: ${change.payload.field} from ${change.payload.collection}`,
               );

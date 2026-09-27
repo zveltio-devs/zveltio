@@ -587,3 +587,12 @@ and `watchSchema({ apiKey })` does the same.
 A key whose scopes are narrowed while its socket is open loses the collections
 it no longer covers: the socket stays open and receives
 `{ "type": "unsubscribed", "collections": [...], "reason": "forbidden" }`.
+
+Schema changes arrive on the `$schema` channel
+(`{ "type": "subscribe", "channel": "$schema" }`) as
+`{ "type": "schema:changed", "collection": "orders", "action": "create" | "alter" | "drop", "timestamp": … }`
+— the name and the verb, never the fields. Only a signed-in user who may alter
+collections (the gate of `/api/collections`) may subscribe; an API key never
+may, so `watchSchema` takes that user's session as
+`watchSchema(url, out, { headers: { cookie } })`. The subscription ends with
+`"reason": "forbidden"` once that right is revoked.

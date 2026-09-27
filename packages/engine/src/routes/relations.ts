@@ -6,7 +6,7 @@ import type { Database } from '../db/index.js';
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { DDLManager } from '../lib/data/index.js';
+import { announceSchemaChange, DDLManager } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { guardAdmin } from '../lib/admin-guard.js';
@@ -71,6 +71,7 @@ async function addFieldToCollection(
       .execute();
   });
   DDLManager.invalidateCache(collectionName);
+  announceSchemaChange(collectionName, 'alter');
 }
 
 /** Atomically remove a field from collection.fields JSON. */
@@ -111,6 +112,7 @@ async function removeFieldFromCollection(
       .execute();
   });
   DDLManager.invalidateCache(collectionName);
+  announceSchemaChange(collectionName, 'alter');
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
