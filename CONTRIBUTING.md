@@ -143,8 +143,8 @@ These are enforced in review. Skim before writing code:
 - Subject line ≤ 72 characters. Body explains *why*, not what.
 - One feature per PR. Three small PRs beat one big one — they review faster
   and are safer to revert.
-- We use [Changesets](https://github.com/changesets/changesets). Run
-  `bun run changeset` to add a release note for any user-visible change.
+- Releases are cut by a maintainer, who writes the release notes. Describe
+  user-visible changes in your PR description; no release file is needed.
 
 ## What we love
 

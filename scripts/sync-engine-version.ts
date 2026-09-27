@@ -1,27 +1,23 @@
 #!/usr/bin/env bun
 /**
- * sync-engine-version.ts — propagate the SDK's bumped version to the
- * non-Changesets-managed package.json files.
+ * sync-engine-version.ts — propagate the SDK's version to the root package,
+ * the engine, Studio and the Helm chart's appVersion.
  *
  * Why this exists:
  *
- *   Changesets only sees packages declared in workspaces (packages/*). The
- *   root `zveltio` is the workspace root, not a member, so Changesets can't
- *   bump it. `@zveltio/engine`, `@zveltio/studio`, and `@zveltio/client`
- *   are explicitly in the `ignore` list (they ship as binaries or compiled
- *   bundles, not npm packages).
- *
- *   But every release needs root + engine + studio to track the SDK version
+ *   Every release needs root + engine + studio to track the SDK version
  *   so:
  *     - the engine binary reports the right version on /api/health/version
  *       (engine reads its own package.json at build time);
  *     - the Studio shows a consistent version in the footer;
  *     - the GitHub Release tag matches what the binary self-reports.
  *
- *   `client` is intentionally left alone — it's a sample SvelteKit app, not
- *   versioned with the platform.
+ *   `client` is not touched here — it is bumped by hand with the published
+ *   packages.
  *
- * Called automatically by `bun run version-packages` after `changeset version`.
+ * Run as `bun run sync-versions` after setting the new version in the four
+ * published packages (sdk, sdk-react, sdk-vue, cli) and client — see
+ * docs/platform/versioning.md.
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -31,9 +27,8 @@ import { fileURLToPath } from 'url';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const root = join(__dir, '..');
 
-// SDK is the canonical bumped version. Changesets bumped it as the head of
-// the linked group [sdk, react, vue, cli], so all four are now at the same
-// version. We propagate from sdk → root → engine → studio.
+// SDK is the canonical version: the release commit sets it (with react, vue
+// and cli) by hand, and this propagates it sdk → root → engine → studio.
 const sdkPkgPath = join(root, 'packages/sdk/package.json');
 const sdkPkg = JSON.parse(readFileSync(sdkPkgPath, 'utf-8')) as { version: string };
 const newVersion = sdkPkg.version;

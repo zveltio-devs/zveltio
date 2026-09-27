@@ -97,8 +97,7 @@ Other top-level directories:
 - **Frontend:** SvelteKit 2 + Svelte 5 runes, Tailwind 4 + daisyUI,
   Paraglide JS (inlang) for i18n, Layerchart/D3, TipTap.
 - **Tooling:** Biome 2 (lint+format), Turborepo, Vitest (studio/client),
-  `bun test` (engine), Playwright (e2e), Stryker (mutation),
-  Changesets (versioning), OpenTelemetry.
+  `bun test` (engine), Playwright (e2e), Stryker (mutation), OpenTelemetry.
 
 ## Build and dev commands
 
@@ -352,10 +351,9 @@ generated).
   `build.yml`, `upgrade-path.yml`, `dr-smoke.yml`. Actions are pinned by SHA.
 - CI clones `zveltio-extensions` as a sibling (`../zveltio-extensions`),
   using a paired branch when one exists with the PR's branch name.
-- Versioning: Changesets. Add a changeset (`bun run changeset`) for any
-  user-visible change. Linked packages: sdk, react, vue, cli. Engine, Studio,
-  and client are ignored (private, versioned with the repo).
-  `bun run version-packages` bumps versions and syncs the engine version.
+- Versioning: releases are cut by hand by a maintainer (docs/platform/versioning.md).
+  Do NOT add release files to a PR — there is no Changesets and no version bot;
+  release notes go into CHANGELOG.md when the release is cut.
 - Commit style: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`,
   `refactor:`, `test:`), subject ≤ 72 chars, body explains *why*. One feature
   per PR. Open an issue first for anything bigger than a typo.
