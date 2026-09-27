@@ -50,6 +50,7 @@ const MANDATORY: ReadonlySet<string> = new Set([
   'permission-routes.ts:POST /permissions/bulk',
   'permission-routes.ts:POST /roles/hierarchy',
   'permission-routes.ts:DELETE /roles/hierarchy',
+  'permission-routes.ts:POST /permissions/orphans/prune',
   'config-routes.ts:POST /column-permissions',
   'config-routes.ts:PUT /column-permissions/:id',
   'config-routes.ts:DELETE /column-permissions/:id',
