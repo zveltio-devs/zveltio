@@ -327,17 +327,31 @@ export async function validateApiKey(
  */
 const SCHEMA_SCOPE = '$schema';
 
+/** The scope that lets an API key use `/api/storage` — `read`, `create`, `delete`. */
+export const STORAGE_SCOPE = '$storage';
+
 /**
  * May a key with `scopes`, acting in `tenantId`, watch the schema?
  *
- * Only by naming `SCHEMA_SCOPE` with `read` (or `*`): a `*` collection does not
- * imply it, because it is the data grant every integration key is minted with,
- * and the schema is instance-wide. Only in the root tenant — the rule
- * `requireInstanceAdmin` applies to a root admin, and `apiKeyActsIn` admits no
- * other tenant's key there, so this is also a root-tenant key.
+ * Only by naming `SCHEMA_SCOPE` with `read` (or `*`) — see `apiKeyHoldsScope`.
+ * Only in the root tenant — the rule `requireInstanceAdmin` applies to a root
+ * admin, and `apiKeyActsIn` admits no other tenant's key there, so this is also
+ * a root-tenant key.
  */
 export function apiKeyMayWatchSchema(scopes: unknown, tenantId: string | null): boolean {
-  if (tenantId !== DEFAULT_TENANT_ID) return false;
+  return tenantId === DEFAULT_TENANT_ID && apiKeyHoldsScope(scopes, SCHEMA_SCOPE, 'read');
+}
+
+/**
+ * Does a key's `scopes` grant `action` on an engine surface — `$schema`,
+ * `$storage` — rather than a collection?
+ *
+ * The entry must NAME the surface: a `*` collection does not reach it, because
+ * `*` is the data grant every integration key is minted with, and a surface is
+ * not data it was meant to cover. Actions read as `checkAccess` reads them.
+ * Unparseable scopes grant nothing.
+ */
+export function apiKeyHoldsScope(scopes: unknown, scope: string, action: string): boolean {
   let list = scopes;
   if (typeof list === 'string') {
     try {
@@ -350,10 +364,22 @@ export function apiKeyMayWatchSchema(scopes: unknown, tenantId: string | null): 
     Array.isArray(list) &&
     list.some(
       (s: { collection?: unknown; actions?: unknown } | null) =>
-        s?.collection === SCHEMA_SCOPE &&
-        Array.isArray(s.actions) &&
-        (s.actions.includes('read') || s.actions.includes('*')),
+        s?.collection === scope && Array.isArray(s.actions) && grantsAction(s.actions, action),
     )
+  );
+}
+
+/**
+ * Whether one scope entry's `actions` carry `action`. `write` is what the
+ * Studio's key form once offered — the engine never asks for it, so every key
+ * made there could read and delete but not create or update. Keys already
+ * stored with it mean what the operator ticked.
+ */
+function grantsAction(actions: unknown[], action: string): boolean {
+  return (
+    actions.includes(action) ||
+    actions.includes('*') ||
+    ((action === 'create' || action === 'update') && actions.includes('write'))
   );
 }
 
@@ -447,14 +473,7 @@ export async function checkAccess(
       // widen its reads would have silently narrowed everything else.
       const matches = scopes.filter((s) => s.collection === collection || s.collection === '*');
       if (matches.length === 0) return false;
-      // `write` is what the Studio's key form offered — the engine never asks
-      // for it, so every key made there could read and delete but not create or
-      // update. Keys already stored with it mean what the operator ticked.
-      const granted = (m: { actions: string[] }) =>
-        m.actions.includes(action) ||
-        m.actions.includes('*') ||
-        ((action === 'create' || action === 'update') && m.actions.includes('write'));
-      return matches.some(granted);
+      return matches.some((m) => grantsAction(m.actions, action));
     }
     // No `scopes` value at all (a NULL column) says the same thing an empty list
     // says: nothing was granted.

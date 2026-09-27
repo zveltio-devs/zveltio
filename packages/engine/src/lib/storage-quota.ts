@@ -28,13 +28,14 @@ export interface QuotaCheck {
 export async function checkStorageQuota(
   db: Database,
   tenantId: string | null,
-  userId: string,
+  userId: string | null,
   incomingBytes: number,
 ): Promise<QuotaCheck> {
   let usage = db
     .selectFrom('zv_media_files')
     .select(({ fn }) => fn.sum('size').as('total'))
-    .where('created_by', '=', userId)
+    // NULL: a key whose issuer is gone — its files share one authorless allowance.
+    .where('created_by', userId === null ? 'is' : '=', userId)
     .where('deleted_at', 'is', null);
   if (tenantId) usage = usage.where('tenant_id', '=', tenantId);
 

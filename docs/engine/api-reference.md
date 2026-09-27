@@ -340,24 +340,12 @@ DELETE /api/rpc/:id
 
 ## Storage
 
-### POST /api/storage/presign
+Every storage route takes a session, or an API key holding the `$storage`
+scope (see [POST /api/api-keys](#post-apiapi-keys)).
 
-Get a presigned URL for direct upload to S3-compatible storage.
+### POST /api/storage/upload
 
-```json
-// Request
-{
-  "filename": "document.pdf",
-  "contentType": "application/pdf"
-}
-
-// Response
-{
-  "uploadUrl": "https://...",
-  "fileId": "file_xyz",
-  "publicUrl": "https://..."
-}
-```
+Upload a file (multipart `file`, optional `folder_id`, `public=true`).
 
 ### GET /api/storage
 
@@ -752,6 +740,14 @@ Create an API key. The raw key is returned **only once** in the response.
 the schema — `GET /api/collections`, `GET /api/collections/:name` and the
 realtime `$schema` channel — and nothing else. It must be named: a `*`
 collection does not include it.
+
+`{ "collection": "$storage", "actions": ["read", "create", "delete"] }` lets a
+key use `/api/storage`: `read` lists and fetches files (metadata, signed URL,
+transform), `create` uploads and makes folders, `delete` deletes. It too must be
+named. A key's uploads are recorded as the person who issued it. A key owns no
+file: without `rls_bypass` it sees only files shared with the tenant and
+deletes none; with it, it sees and deletes every file in its tenant, as a
+tenant admin does.
 
 ### PUT /api/api-keys/:id/rate-limit
 

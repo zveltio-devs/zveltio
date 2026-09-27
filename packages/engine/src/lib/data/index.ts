@@ -48,8 +48,8 @@ export { findApiKey, requestApiKey } from './auth.js';
 //     a page published its collection to everyone who could open the page.
 export { checkAccess } from './auth.js';
 //   - `apiKeyMayWatchSchema` so the collections read and the `$schema` socket
-//     channel admit the same keys.
-export { apiKeyMayWatchSchema } from './auth.js';
+//     channel admit the same keys; `apiKeyHoldsScope` for every other `$` surface.
+export { apiKeyHoldsScope, apiKeyMayWatchSchema, STORAGE_SCOPE } from './auth.js';
 //   - `authenticate` so the WebSocket upgrade resolves a session or an API key
 //     with the same checks as the data API — it accepted cookies only.
 export { authenticate } from './auth.js';
