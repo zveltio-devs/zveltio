@@ -258,4 +258,56 @@ describe('watchSchema', () => {
       await rm(out, { force: true });
     }
   });
+
+  // The engine publishes schema changes on `$schema` as `schema:changed`, to a
+  // schema admin's session only — so the watcher must be able to send one.
+  it('regenerates on a schema:changed event, and reports a refused subscribe', async () => {
+    let upgradeCookie = null as string | null;
+    const subscribed: unknown[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req, srv) {
+        const url = new URL(req.url);
+        if (url.pathname === '/api/collections') return Response.json({ collections: [] });
+        if (url.pathname === '/api/ws') {
+          upgradeCookie = req.headers.get('cookie');
+          return srv.upgrade(req) ? undefined : new Response('no upgrade', { status: 426 });
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const msg = JSON.parse(String(raw));
+          subscribed.push(msg);
+          if (msg.channel !== '$schema') return;
+          ws.send(JSON.stringify({ type: 'subscribed', channel: '$schema' }));
+          ws.send(
+            JSON.stringify({ type: 'schema:changed', collection: 'orders', action: 'alter' }),
+          );
+          ws.send(JSON.stringify({ type: 'error', message: 'No read permission for "$schema"' }));
+        },
+      },
+    });
+    const out = `${tmpdir()}/zveltio-watch-evt-${Date.now()}.d.ts`;
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    let updates = 0;
+    const errors: string[] = [];
+    const stop = await watchSchema(`http://127.0.0.1:${server.port}`, out, {
+      headers: { cookie: 'session=abc' },
+      onUpdate: () => updates++,
+      onError: (e) => errors.push(e.message),
+    });
+    try {
+      for (let i = 0; i < 200 && (updates < 2 || errors.length === 0); i++) await Bun.sleep(10);
+      expect(upgradeCookie).toBe('session=abc');
+      expect(subscribed).toEqual([{ type: 'subscribe', channel: '$schema' }]);
+      expect(updates).toBe(2); // the initial generation, then the event
+      expect(errors).toEqual(['Schema watcher: No read permission for "$schema"']);
+    } finally {
+      stop();
+      log.mockRestore();
+      server.stop(true);
+      await rm(out, { force: true });
+    }
+  });
 });

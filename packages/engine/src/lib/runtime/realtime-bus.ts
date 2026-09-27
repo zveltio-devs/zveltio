@@ -32,7 +32,7 @@
 
 import Redis from 'ioredis';
 import { broadcastDataEvent } from '../../routes/realtime.js';
-import { broadcastEvent } from '../../routes/ws.js';
+import { broadcastEvent, broadcastSchemaChange } from '../../routes/ws.js';
 
 const CHANNEL_NAME = 'zveltio:realtime';
 const PG_NOTIFY_CHANNEL = 'zveltio_changes';
@@ -58,6 +58,12 @@ export const ACCESS_RULES_CHANGED_EVENT = 'access.rules';
  * none: all of them); the receiver drops its cached copy and re-reads the table.
  */
 export const RATE_LIMIT_CONFIG_CHANGED_EVENT = 'ratelimit.config';
+
+/**
+ * A collection was created, altered or dropped on another instance. `data` is
+ * `{ action }`; the receiver hands it to its own schema-channel subscribers.
+ */
+export const SCHEMA_CHANGED_EVENT = 'schema.changed';
 
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
@@ -190,6 +196,12 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
       .catch((err: Error) => {
         console.error('[realtime-bus] rate-limit config change not applied:', err.message);
       });
+  }
+  if (msg.event === SCHEMA_CHANGED_EVENT) {
+    const action = (msg.data as { action?: unknown } | undefined)?.action;
+    if (msg.collection && (action === 'create' || action === 'alter' || action === 'drop'))
+      broadcastSchemaChange(msg.collection, action, msg.tenantId ?? null);
+    return;
   }
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
