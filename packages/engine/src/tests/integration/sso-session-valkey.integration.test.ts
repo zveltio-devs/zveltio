@@ -10,7 +10,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import { type Database, initDatabase } from '../../db/index.js';
+import { _internalForTests as dbTesting, type Database, initDatabase } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -24,6 +24,7 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (live Valkey)', () => {
   let db: Database;
   let appAuth: ReturnType<typeof getAuth>;
+  let previousDb: Database | null = null;
   let savedValkey: string | undefined;
   const internals = gateInternals('auth/saml', buildExtensionInternals(), ['auth:session']);
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
@@ -38,6 +39,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
     // Earlier files in this process (crud, webhooks, api-keys, permissions)
     // replace the global pool with initDatabase() and destroy it, and the
     // helper reads getDb(): take a live one, and bind the enforcer to it.
+    previousDb = dbTesting.swapDbForTests(null);
     db = await initDatabase();
     await initPermissions(db);
     appAuth = getAuth();
@@ -48,7 +50,12 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
   });
 
   afterAll(async () => {
+    // The pools this file opened: CI's Postgres has no connections to spare,
+    // and failure-injection later in the same process ran out.
+    await authTesting.closeAuthPoolForTests();
     authTesting.setAuthForTests(appAuth);
+    await db.destroy();
+    dbTesting.swapDbForTests(previousDb);
     await getCache()?.quit();
     _setCacheForTests(null);
     if (savedValkey === undefined) delete process.env.VALKEY_URL;

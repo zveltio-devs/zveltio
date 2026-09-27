@@ -307,6 +307,9 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
 // side effect. Captured from the initAuth parameter — the verify closure
 // reads this module-level binding so it sees the value after init.
 let _authDb: Database | null = null;
+// The pool the current auth instance was built on. Only a test that calls
+// initAuth() a second time needs it: each call opens a new one.
+let _authPool: Kysely<DbSchema> | null = null;
 
 function sendEmail(to: string, subject: string, html: string, text: string) {
   return deliverEmail({ to, subject, html, text });
@@ -421,6 +424,7 @@ export async function initAuth(db: Database) {
       max: authPoolMax,
     }),
   });
+  _authPool = authDb;
   const database = { db: authDb, type: 'postgres' as const };
 
   // Optional cache secondary storage for sessions
@@ -764,6 +768,11 @@ export const _internalForTests = {
   },
   /** Put back the instance a test replaced with its own `initAuth` — suites
    *  that follow patch `getAuth()` and must reach the app's instance. */
+  /** Close the pool the CURRENT auth instance opened. Call before restoring another instance. */
+  async closeAuthPoolForTests() {
+    await _authPool?.destroy();
+    _authPool = null;
+  },
   setAuthForTests(auth: typeof _auth) {
     _auth = auth;
   },
