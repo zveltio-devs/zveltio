@@ -33,7 +33,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
-import { getCurrentDomainOrNull, onAfterCommit } from '../tenancy/index.js';
+import { onAfterCommit } from '../tenancy/index.js';
 
 // pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
 // default). Prior versions had a default export; the previous unwrap
@@ -157,36 +157,23 @@ async function reindexInvalid(db: Database): Promise<void> {
 }
 
 /**
- * Tell the schema admins watching (`SCHEMA_CHANNEL` in `routes/ws.ts`) that a
+ * Tell the schema watchers (`SCHEMA_CHANNEL` in `routes/ws.ts`) that a
  * collection was created, altered or dropped — on this instance and, through
  * the realtime bus, on every other. Once the change is committed: from inside a
- * request transaction it waits for the commit, and a rollback drops it.
- *
- * `tenantId` defaults to the caller's tenant; a pg-boss worker has none, so it
- * passes the one `enqueueDDLJob` recorded with the job.
+ * request transaction it waits for the commit, and a rollback drops it. No
+ * tenant: collections are instance-wide.
  */
-export function announceSchemaChange(
-  collection: string,
-  action: SchemaChangeAction,
-  tenantId: string | null = getCurrentDomainOrNull(),
-): void {
+export function announceSchemaChange(collection: string, action: SchemaChangeAction): void {
   onAfterCommit(() => {
-    broadcastSchemaChange(collection, action, tenantId);
+    broadcastSchemaChange(collection, action);
     return realtimeBus().publish({
       event: SCHEMA_CHANGED_EVENT,
       collection,
       data: { action },
       timestamp: new Date().toISOString(),
-      tenantId,
     });
   });
 }
-
-/**
- * Where a job keeps the tenant it was enqueued from, for `announceSchemaChange`
- * once the worker is done. Stripped from what `getDDLJob` returns.
- */
-const JOB_TENANT_KEY = '__zv_tenant';
 
 /**
  * Enqueue a DDL job. Returns the pg-boss job id (a uuid string).
@@ -206,8 +193,7 @@ export async function enqueueDDLJob(
   const queue = (QUEUE_NAMES as Record<string, string>)[type];
   if (!queue) throw new Error(`Unknown DDL job type: ${type}`);
 
-  const data = { ...(payload as object), [JOB_TENANT_KEY]: getCurrentDomainOrNull() };
-  const jobId = await _boss.send(queue, data, {
+  const jobId = await _boss.send(queue, payload as object, {
     retryLimit: DEFAULT_RETRY.retryLimit,
     retryDelay: DEFAULT_RETRY.retryDelay,
     retryBackoff: DEFAULT_RETRY.retryBackoff,
@@ -264,15 +250,10 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
     cancelled: 'failed',
     expired: 'failed',
   };
-  let payload: unknown = job.data;
-  if (payload && typeof payload === 'object') {
-    const { [JOB_TENANT_KEY]: _tenant, ...rest } = payload as Record<string, unknown>;
-    payload = rest;
-  }
   return {
     id: job.id,
     type,
-    payload,
+    payload: job.data,
     status: stateMap[job.state] ?? 'pending',
     started_at: job.startedOn ? new Date(job.startedOn) : null,
     completed_at: job.completedOn ? new Date(job.completedOn) : null,
@@ -322,7 +303,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
         (err as Error).message,
       );
     }
-    if (name) announceSchemaChange(name, 'create', jobTenant(job));
+    if (name) announceSchemaChange(name, 'create');
   });
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).
@@ -335,7 +316,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       await DDLManager.dropCollection(trx, payload.name, { force: payload.force === true });
       return true;
     });
-    if (ran) announceSchemaChange(payload.name, 'drop', jobTenant(job));
+    if (ran) announceSchemaChange(payload.name, 'drop');
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -348,7 +329,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       await DDLManager.addField(trx, payload.collection, payload.field);
       return true;
     });
-    if (ran) announceSchemaChange(payload.collection, 'alter', jobTenant(job));
+    if (ran) announceSchemaChange(payload.collection, 'alter');
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -360,7 +341,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       await DDLManager.removeField(trx, payload.collection, payload.fieldName);
       return true;
     });
-    if (ran) announceSchemaChange(payload.collection, 'alter', jobTenant(job));
+    if (ran) announceSchemaChange(payload.collection, 'alter');
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -385,16 +366,10 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 /** A pg-boss job as the handlers see it: `data` is what `enqueueDDLJob` sent. */
 type DdlJobData = { data?: Record<string, unknown> | null };
 
-/** The tenant `enqueueDDLJob` recorded with the job; `null` for an older job. */
-function jobTenant(job: DdlJobData): string | null {
-  const tenant = job.data?.[JOB_TENANT_KEY];
-  return typeof tenant === 'string' ? tenant : null;
-}
-
 /** A relation alters its source collection (an FK column, or a junction table). */
 function announceRelationChange(job: DdlJobData): void {
   const source = job.data?.source_collection;
-  if (typeof source === 'string' && source) announceSchemaChange(source, 'alter', jobTenant(job));
+  if (typeof source === 'string' && source) announceSchemaChange(source, 'alter');
 }
 
 /** BYOD guard: extension-managed (is_managed=false) collections opt out of

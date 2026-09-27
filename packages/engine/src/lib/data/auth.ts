@@ -320,6 +320,44 @@ export async function validateApiKey(
 }
 
 /**
+ * The scope that lets an API key watch the collection schema: read it from
+ * `GET /api/collections` and hear the realtime channel of the same name
+ * (`SCHEMA_CHANNEL`). `$` cannot start a collection name, so no data grant can
+ * be spelled this way.
+ */
+const SCHEMA_SCOPE = '$schema';
+
+/**
+ * May a key with `scopes`, acting in `tenantId`, watch the schema?
+ *
+ * Only by naming `SCHEMA_SCOPE` with `read` (or `*`): a `*` collection does not
+ * imply it, because it is the data grant every integration key is minted with,
+ * and the schema is instance-wide. Only in the root tenant — the rule
+ * `requireInstanceAdmin` applies to a root admin, and `apiKeyActsIn` admits no
+ * other tenant's key there, so this is also a root-tenant key.
+ */
+export function apiKeyMayWatchSchema(scopes: unknown, tenantId: string | null): boolean {
+  if (tenantId !== DEFAULT_TENANT_ID) return false;
+  let list = scopes;
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      return false;
+    }
+  }
+  return (
+    Array.isArray(list) &&
+    list.some(
+      (s: { collection?: unknown; actions?: unknown } | null) =>
+        s?.collection === SCHEMA_SCOPE &&
+        Array.isArray(s.actions) &&
+        (s.actions.includes('read') || s.actions.includes('*')),
+    )
+  );
+}
+
+/**
  * `user` is narrowed to the three fields this function reads, rather than a
  * whole `RequestUser`. It never looks at `name`, and demanding one obliged
  * every caller outside the data path — `content/pages` renders collections
