@@ -39,7 +39,9 @@ describe.skipIf(!VALKEY_URL || !DB_URL)('realtime principal recheck (live Valkey
     await initAuth(db);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    // initAuth() opened its own pool; CI's Postgres has no connections to spare.
+    await _internalForTests.closeAuthPoolForTests();
     _internalForTests.setAuthForTests(savedAuth);
     if (savedValkey === undefined) delete process.env.VALKEY_URL;
     else process.env.VALKEY_URL = savedValkey;
