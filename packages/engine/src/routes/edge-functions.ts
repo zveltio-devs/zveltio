@@ -28,7 +28,7 @@ const publicEdgeInvokeRateLimit = rateLimit({
 });
 
 // Public invocation endpoint — mounted at /api/fn
-// Supports session auth OR X-API-Key header
+// Supports session auth OR an API key (X-API-Key or Authorization: Bearer)
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -69,7 +69,10 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const session = await requestSession(c, auth).catch(() => null);
     let authed = !!session;
     if (!authed) {
-      const rawKey = c.req.header('X-API-Key');
+      const { requestApiKey, validateApiKey } = await import('../lib/data/index.js');
+      // `X-API-Key` or `Authorization: Bearer` — the reader the prefetch used,
+      // so `prefetchedApiKey` is the row for this same raw key.
+      const rawKey = requestApiKey(c);
       if (rawKey) {
         // Shared with the data API rather than re-implemented. The local copy
         // checked the hash, `is_active` and expiry but not `tenant_id`, and
@@ -77,8 +80,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
         // has to run before a tenant is known), so `reqDb` filtered nothing:
         // tenant A's key authenticated here and the lookup below then served
         // tenant B's function.
-        const { validateApiKey } = await import('../lib/data/index.js');
-        // The prefetch looked this key up already (X-API-Key wins there too).
+        // The prefetch looked this key up already.
         const apiKey = await validateApiKey(
           db,
           rawKey,
