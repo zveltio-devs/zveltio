@@ -64,6 +64,35 @@ The current line is `3.0.0-beta.N`. Each beta raises `N` by one. Leaving beta
 7. **Check the published assets** on the GitHub Release, including
    `env.example` (GitHub renames dotfiles).
 
+## Stable release gate
+
+Two rules, enforced by machine, not judgement:
+
+1. **Version numbers are never renumbered again.** The 1.0 → orphaned-2.0 → 3.0
+   history is behind us. A published version is immutable; a mistake is fixed by
+   moving *forward* to the next number, never by reusing or renumbering one.
+2. **Stable means the gate passed. Full stop.** A non-prerelease tag is only
+   published when `scripts/release-gate.ts` says so — it is a required job in
+   `release.yml` (`publish-release` needs it). Prerelease tags
+   (`-alpha`/`-beta`/`-rc.`) bypass the gate with a warning.
+
+The gate (`scripts/release-gate.ts`) asserts, with real checks:
+
+- the `any` suppression ratchet is at/below baseline (H-01);
+- gated coverage buckets meet their stable target — engine `lib/` ≥ 60% (H-02);
+- HEAD's migrations are a strict superset of the last release's — nothing
+  renamed/renumbered/deleted (reuses the H-11 invariant);
+- `package.json` version matches the tag;
+- the required CI checks are green on the release-candidate commit (H-09
+  adversarial + H-11 upgrade-path run inside integration; Type Check, Lint,
+  Unit, Integration, Perf Smoke);
+- the latest soak run is green (H-15);
+- there are no open `P0` issues.
+
+Any failure blocks the stable publish. Run it yourself before proposing a stable
+cut: `bun run scripts/release-gate.ts 3.0.0` (add `RELEASE_GATE_SKIP_NETWORK=1`
+to skip the GitHub-API checks offline).
+
 ## What triggers what
 
 | Event | Runs |
@@ -71,3 +100,115 @@ The current line is `3.0.0-beta.N`. Each beta raises `N` by one. Leaving beta
 | push to `master` | CI, Build Check, Studio, Client, E2E |
 | tag `v*` | Release — the only workflow that produces public artifacts |
 | manual dispatch | `publish-npm.yml` |
+
+## Accessing and maintaining older versions
+
+### View previous versions
+
+Every release is tagged and available as a GitHub Release:
+
+- **Tags**: `https://github.com/zveltio-devs/zveltio/tags`
+- **Releases**: `https://github.com/zveltio-devs/zveltio/releases`
+- **Changelog**: `CHANGELOG.md` at the repository root
+
+---
+
+### Time-travel locally (read-only)
+
+To check out the codebase exactly as it was at version `1.2.0`:
+
+```bash
+git checkout v1.2.0
+bun install
+bun run dev
+
+# Return to current work
+git checkout main
+```
+
+---
+
+### Fix a bug on an old release (Support Branch)
+
+Use this when a critical bug (e.g. security vulnerability) affects customers still running v1.x while `main` is already at v2.x.
+
+```bash
+# Create a support branch from the old tag
+git checkout -b support/v1.x v1.5.0
+
+# Fix the bug
+# ... edit code ...
+
+# Commit and push
+git add .
+git commit -m "fix: CVE-2026-XXXX — input sanitization in webhook handler"
+git push origin support/v1.x
+
+# Tag the fix — the same v* tag that starts release.yml on master
+git tag v1.5.1
+git push origin v1.5.1
+# → release.yml triggers and publishes v1.5.1 binaries/Docker image
+```
+
+Clients running v1.x can pin their `docker-compose.yml` to `ghcr.io/zveltio/zveltio-engine:1.5.1` and update safely.
+
+---
+
+### Work on two versions simultaneously (Git Worktrees)
+
+When you need to repair a bug on `support/v1.x` **while** keeping your current dev server running on `main`:
+
+```bash
+# Create a separate folder on disk with v1.x code
+# Uses the same local Git history — fast, no re-clone
+git worktree add ../zveltio-v1 support/v1.x
+
+# You now have:
+#   ~/zveltio-ecosystem/zveltio         ← main (v2.x dev server running)
+#   ~/zveltio-ecosystem/zveltio-v1      ← support/v1.x (separate server)
+
+# Open second VS Code window
+code ../zveltio-v1
+
+# Run v1.x on a different port
+cd ../zveltio-v1
+bun install
+PORT=3001 bun run dev
+
+# When done
+git worktree remove ../zveltio-v1
+```
+
+---
+
+### Docker images — all versions are permanent
+
+Every release publishes immutable Docker images:
+
+```
+ghcr.io/zveltio/zveltio-engine:1.2.0   ← specific version (never deleted)
+ghcr.io/zveltio/zveltio-engine:1.2     ← latest 1.2.x patch
+ghcr.io/zveltio/zveltio-engine:latest  ← always the newest stable
+```
+
+To roll back a self-hosted instance, edit `docker-compose.yml`:
+
+```yaml
+# Before (latest):
+image: ghcr.io/zveltio/zveltio-engine:latest
+
+# After (pinned rollback):
+image: ghcr.io/zveltio/zveltio-engine:1.2.0
+```
+
+Then `docker compose up -d`. No recompile needed.
+
+## Quick reference
+
+| Command | What it does |
+|---|---|
+| `bun run sync-versions` | Copy the SDK's version to root, engine, Studio and the chart |
+| `bun run scripts/release-gate.ts 3.0.0` | Check a stable cut before proposing it |
+| `git checkout v1.2.0` | Inspect an old version locally |
+| `git checkout -b support/v1.x v1.2.0` | Start a maintenance branch |
+| `git worktree add ../zveltio-v1 support/v1.x` | Run two versions in parallel |
