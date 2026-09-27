@@ -7,6 +7,7 @@ import {
   checkPermission,
   getEnforcer,
   invalidateAllPermissionCaches,
+  reconcilePolicies,
 } from '../../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -380,4 +381,139 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       return c.json({ success: true });
     },
   );
+
+  // ── Orphaned Casbin rows ─────────────────────────────────────
+  //
+  // Users deleted by SCIM, GDPR erasure or raw SQL before migration 017's
+  // trigger left their `g`/`p` rows, with no `user.deleted` audit row for 017
+  // to prune them by. Nothing can tell those ids apart from roles except the
+  // negative evidence below, so this lists candidates and an operator confirms.
+  //
+  // No tenant filter: `zvd_permissions` is a global table and the admin guard
+  // is `requireInstanceAdmin`, which only a god or a root-tenant admin passes —
+  // the "platform admin" every tenant-scoped sibling exempts.
+  const ORPHAN_REASON =
+    'subject is not a user, not a zv_roles role, not the role of any g row, and not engine-seeded';
+  const orphanKey = (ptype: string, rule: string[]) => JSON.stringify([ptype, ...rule]);
+  const findOrphans = async (subjects?: string[]) => {
+    let q = db
+      .selectFrom('zvd_permissions as p')
+      .select(['p.ptype', 'p.v0', 'p.v1', 'p.v2', 'p.v3', 'p.v4', 'p.v5'])
+      .where('p.ptype', 'in', ['g', 'p'])
+      .where('p.v0', 'not in', ENGINE_SEEDED_ROLES)
+      .where(({ not, exists, selectFrom }) =>
+        not(exists(selectFrom('user').select('user.id').whereRef('user.id', '=', 'p.v0'))),
+      )
+      .where(({ not, exists, selectFrom }) =>
+        not(exists(selectFrom('zv_roles as r').select('r.id').whereRef('r.name', '=', 'p.v0'))),
+      )
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('zvd_permissions as g')
+              .select('g.id')
+              .where('g.ptype', '=', 'g')
+              .whereRef('g.v1', '=', 'p.v0'),
+          ),
+        ),
+      );
+    if (subjects) q = q.where('p.v0', 'in', subjects);
+    const rows = await q.orderBy('p.v0').orderBy('p.ptype').execute();
+    return rows.map((r) => {
+      const rule = [r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v): v is string => v !== null);
+      return {
+        ptype: r.ptype as 'g' | 'p',
+        rule,
+        subject: r.v0,
+        // p = (sub, dom, obj, act); g = (user, role, dom).
+        domain: r.ptype === 'p' ? r.v1 : r.v2,
+        reason: ORPHAN_REASON,
+      };
+    });
+  };
+
+  // GET /permissions/orphans — `g`/`p` rows whose subject is neither a user nor a known role
+  app.get('/permissions/orphans', async (c) => c.json({ orphans: await findOrphans() }));
+
+  // POST /permissions/orphans/prune — remove the rows an operator confirmed
+  app.post(
+    '/permissions/orphans/prune',
+    zValidator(
+      'json',
+      z.object({
+        rows: z
+          .array(
+            z.object({
+              ptype: z.enum(['g', 'p']),
+              rule: z.array(z.string().min(1)).min(2).max(6),
+            }),
+          )
+          .min(1)
+          .max(1000),
+      }),
+    ),
+    async (c) => {
+      const { rows } = c.req.valid('json');
+      // The live model must hold a row for casbin to delete it: `removePolicy`
+      // on a rule the model lacks returns false and never reaches the adapter.
+      // A reconcile swaps in a rebuilt enforcer when the table moved — never a
+      // `loadPolicy` on the live one.
+      await reconcilePolicies();
+      // Re-checked here, not trusted from the list: a role may have been
+      // registered, or a row granted to the subject, since the operator looked.
+      const still = new Set(
+        (await findOrphans([...new Set(rows.map((r) => r.rule[0]!))])).map((o) =>
+          orphanKey(o.ptype, o.rule),
+        ),
+      );
+      const e = await getEnforcer();
+      const user = c.get('user');
+      const removed: Array<{ ptype: string; rule: string[] }> = [];
+      const skipped: Array<{ ptype: string; rule: string[]; reason: string }> = [];
+      for (const { ptype, rule } of rows) {
+        if (!still.has(orphanKey(ptype, rule))) {
+          skipped.push({ ptype, rule, reason: 'not an orphan row (any more)' });
+          continue;
+        }
+        // Through the enforcer: its watcher publishes the removal to the other
+        // replicas, the same path every permission mutation here takes.
+        const ok =
+          ptype === 'g' ? await e.removeGroupingPolicy(...rule) : await e.removePolicy(...rule);
+        if (!ok) {
+          skipped.push({ ptype, rule, reason: 'not held by the live enforcer' });
+          continue;
+        }
+        still.delete(orphanKey(ptype, rule));
+        removed.push({ ptype, rule });
+        await auditLog(db, {
+          type: 'permission.revoked',
+          userId: user?.id,
+          resourceId: rule[0],
+          resourceType: 'orphan_policy',
+          metadata: { ptype, rule, reason: ORPHAN_REASON },
+        });
+      }
+      if (removed.length > 0) await invalidateAllPermissionCaches();
+      return c.json({ removed, skipped });
+    },
+  );
 }
+
+/**
+ * Roles the engine seeds into Casbin only (migrations 001/009), with no
+ * `zv_roles` row — migration 017's list, plus the intranet/portal/CRM roles
+ * 001 grants policies to (`employee`, `manager`, `client`), which a fresh
+ * install holds with no member and would otherwise read as orphans.
+ */
+const ENGINE_SEEDED_ROLES = [
+  'admin',
+  'client',
+  'employee',
+  'manager',
+  'member',
+  'tenant_owner',
+  'tenant_admin',
+  'tenant_manager',
+  'tenant_member',
+  'tenant_viewer',
+];
