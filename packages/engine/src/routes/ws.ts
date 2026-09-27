@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { requestSession } from '../middleware/session-prefetch.js';
 import { auth } from '../lib/auth.js';
 import {
+  apiKeyMayWatchSchema,
   authenticate,
   checkAccess,
   stillAuthenticated,
@@ -323,15 +324,15 @@ export const SCHEMA_CHANNEL = '$schema';
 export type SchemaChangeAction = 'create' | 'alter' | 'drop';
 
 /**
- * May this socket hear about schema changes? Exactly who may make them: the
- * collections routes' gate, `guardAdmin(c, auth, requireInstanceAdmin)` — a
- * session (an API key never passes it) that `requireInstanceAdmin` admits in
- * the tenant the socket opened in. A delegated tenant admin outside the root
- * tenant is refused there, and so here.
+ * May this socket hear about schema changes? Whoever may read it through
+ * `/api/collections`: a session that `requireInstanceAdmin` admits in the tenant
+ * the socket opened in — a delegated tenant admin outside the root tenant is
+ * refused there, and so here — or a key `apiKeyMayWatchSchema` admits.
  */
 async function socketIsSchemaAdmin(conn: WSConnection): Promise<boolean> {
   const tenantId = conn.tenantId;
-  if (conn.authType !== 'session' || !tenantId) return false;
+  if (conn.authType === 'api_key') return apiKeyMayWatchSchema(conn.user.scopes, tenantId);
+  if (!tenantId) return false;
   return runWithDomain(tenantId, () => requireInstanceAdmin(conn.userId));
 }
 
@@ -726,17 +727,14 @@ export function broadcastEvent(
 }
 
 /**
- * Tell the schema admins subscribed to `SCHEMA_CHANNEL` in `tenantId` that a
- * collection was created, altered or dropped. The name and the verb only: no
- * field definitions — a watcher re-reads `/api/collections`, which is gated.
- * Delivered only to sockets opened in the same tenant; whether each may hear
- * it was decided at subscribe and is re-decided by every sweep.
+ * Tell every socket subscribed to `SCHEMA_CHANNEL` that a collection was
+ * created, altered or dropped. The name and the verb only: no field definitions
+ * — a watcher re-reads `/api/collections`, which is gated. No tenant filter:
+ * collections are instance-wide (`zvd_collections` has no tenant), so a god on
+ * any tenant's host must hear it. Whether each socket may hear it was decided at
+ * subscribe and is re-decided by every sweep — that gate is the only filter.
  */
-export function broadcastSchemaChange(
-  collection: string,
-  action: SchemaChangeAction,
-  tenantId: string | null,
-): void {
+export function broadcastSchemaChange(collection: string, action: SchemaChangeAction): void {
   const connIds = subscriptionIndex.get(SCHEMA_CHANNEL);
   if (!connIds) return;
   const payload = JSON.stringify({
@@ -747,7 +745,7 @@ export function broadcastSchemaChange(
   });
   for (const connId of connIds) {
     const conn = connections.get(connId);
-    if (!conn || (conn.tenantId ?? null) !== (tenantId ?? null)) continue;
+    if (!conn) continue;
     try {
       conn.ws.send(payload);
     } catch {

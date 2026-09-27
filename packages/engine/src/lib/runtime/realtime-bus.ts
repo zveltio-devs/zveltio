@@ -200,7 +200,7 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
     if (msg.collection && (action === 'create' || action === 'alter' || action === 'drop'))
-      broadcastSchemaChange(msg.collection, action, msg.tenantId ?? null);
+      broadcastSchemaChange(msg.collection, action);
     return;
   }
   const wsEvent = EVENT_MAP[msg.event];

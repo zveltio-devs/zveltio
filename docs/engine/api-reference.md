@@ -748,6 +748,11 @@ Create an API key. The raw key is returned **only once** in the response.
 }
 ```
 
+`{ "collection": "$schema", "actions": ["read"] }` lets a root-tenant key watch
+the schema — `GET /api/collections`, `GET /api/collections/:name` and the
+realtime `$schema` channel — and nothing else. It must be named: a `*`
+collection does not include it.
+
 ### PUT /api/api-keys/:id/rate-limit
 
 Set a custom rate limit for a specific API key, overriding the tier defaults.

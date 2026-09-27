@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { User } from 'better-auth';
@@ -72,11 +72,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
 
     // Admin-only middleware
     .use('*', async (c, next) => {
-      const session = await requestSession(c, auth);
-      if (!session) return c.json({ error: 'Unauthorized' }, 401);
-      c.set('user', session.user);
-      const hasAdmin = await requireInstanceAdmin(session.user.id);
-      if (!hasAdmin) return c.json({ error: 'Admin access required' }, 403);
+      const user = await guardAdmin(c, auth, requireInstanceAdmin);
+      if (user instanceof Response) return user;
+      c.set('user', user);
       await next();
     })
 

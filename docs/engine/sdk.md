@@ -591,8 +591,12 @@ it no longer covers: the socket stays open and receives
 Schema changes arrive on the `$schema` channel
 (`{ "type": "subscribe", "channel": "$schema" }`) as
 `{ "type": "schema:changed", "collection": "orders", "action": "create" | "alter" | "drop", "timestamp": … }`
-— the name and the verb, never the fields. Only a signed-in user who may alter
-collections (the gate of `/api/collections`) may subscribe; an API key never
-may, so `watchSchema` takes that user's session as
-`watchSchema(url, out, { headers: { cookie } })`. The subscription ends with
-`"reason": "forbidden"` once that right is revoked.
+— the name and the verb, never the fields, from every tenant's host alike:
+collections are instance-wide. Two principals may subscribe: a signed-in user
+who may alter collections (the gate of `/api/collections`), passed as
+`watchSchema(url, out, { headers: { cookie } })`, and a root-tenant API key
+holding the explicit scope `{ "collection": "$schema", "actions": ["read"] }`,
+passed as `watchSchema(url, out, { apiKey })` — that scope reads the schema and
+nothing else, and a `*` scope does not include it. The subscription ends with
+`"reason": "forbidden"` once that right is revoked, and a revoked key's socket
+is closed.

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
@@ -136,18 +136,15 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   // Auth + admin guard
   router.use('*', async (c, next) => {
-    const session = await requestSession(c, auth);
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', session.user);
-    if (!(await requireInstanceAdmin(session.user.id))) {
-      return c.json({ error: 'Admin access required' }, 403);
-    }
+    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    if (user instanceof Response) return user;
+    c.set('user', user);
     // Backups are whole-instance operations: a pg_dump captures EVERY tenant's
     // data and a PITR restore rewrites the entire instance. A per-tenant admin
     // must not trigger those. In the default/root tenant (single-tenant
     // deployments) admin:* is the instance owner, so this is a no-op there;
     // outside it, require the top-level god role.
-    if (getCurrentDomain() !== DEFAULT_TENANT_ID && !(await isGodUser(session.user.id))) {
+    if (getCurrentDomain() !== DEFAULT_TENANT_ID && !(await isGodUser(user.id))) {
       return c.json({ error: 'Instance-wide backups require the god role' }, 403);
     }
     await next();
