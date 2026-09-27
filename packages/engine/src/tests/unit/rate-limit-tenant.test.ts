@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import {
@@ -63,51 +63,45 @@ describe('pickTenantLimit', () => {
   });
 });
 
-/** Just enough of ioredis for the limiter: sorted sets in a pipeline. */
+/**
+ * Just enough of ioredis for the limiter: a sorted set per key, and `eval` of
+ * the one script the limiter runs, modelled step for step. The real script is
+ * run against a live Valkey in `integration/rate-limit-valkey-atomic`.
+ */
 class FakeValkey {
   zsets = new Map<string, Map<string, number>>();
   zset(k: string) {
     if (!this.zsets.has(k)) this.zsets.set(k, new Map());
     return this.zsets.get(k) as Map<string, number>;
   }
-  pipeline() {
-    const ops: Array<() => unknown> = [];
-    const p = {
-      zremrangebyscore: (k: string, min: number, max: number) => {
-        ops.push(() => {
-          for (const [m, sc] of this.zset(k)) if (sc >= min && sc <= max) this.zset(k).delete(m);
-        });
-        return p;
-      },
-      zadd: (k: string, sc: number, m: string) => {
-        ops.push(() => this.zset(k).set(m, sc));
-        return p;
-      },
-      zcard: (k: string) => {
-        ops.push(() => this.zset(k).size);
-        return p;
-      },
-      pexpire: () => {
-        ops.push(() => 1);
-        return p;
-      },
-      exec: async () => ops.map((f) => [null, f()]),
-    };
-    return p;
+  async eval(_script: string, _n: number, k: string, ...argv: Array<string | number>) {
+    const [now, window, max] = argv.slice(0, 3).map(Number) as [number, number, number];
+    const z = this.zset(k);
+    for (const [m, sc] of z) if (sc <= now - window) z.delete(m);
+    let n = z.size;
+    const admit = n < max;
+    if (admit || argv[4] === '1') {
+      z.set(String(argv[3]), now);
+      n++;
+    }
+    if (admit) return [n, 0];
+    return [n, [...z.values()].sort((a, b) => a - b)[n - max]];
   }
-  async zrem(k: string, m: string) {
-    return this.zset(k).delete(m) ? 1 : 0;
-  }
+  counters = new Map<string, number>();
+  blocks = new Map<string, number>();
   async ttl() {
     return -2;
   }
-  async incr() {
-    return 1;
+  async incr(k: string) {
+    const n = (this.counters.get(k) ?? 0) + 1;
+    this.counters.set(k, n);
+    return n;
   }
   async pexpire() {
     return 1;
   }
-  async set() {
+  async set(k: string, _v: string, _mode: string, seconds: number) {
+    this.blocks.set(k, seconds);
     return 'OK';
   }
 }
@@ -190,4 +184,86 @@ describe('tenant bucket next to the per-user bucket', () => {
       if (cache) expect(cache.zset(`rl:${tier}:t:${T1}`).size).toBe(3);
     });
   }
+});
+
+describe('Retry-After on a refusal', () => {
+  let savedEnv: string | undefined;
+  let savedProxy: string | undefined;
+  beforeAll(() => {
+    savedEnv = process.env.NODE_ENV;
+    savedProxy = process.env.TRUSTED_PROXY;
+    process.env.NODE_ENV = 'development';
+    process.env.TRUSTED_PROXY = 'true';
+  });
+  afterAll(() => {
+    _setCacheForTests(null);
+    if (savedEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv;
+    if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
+    else process.env.TRUSTED_PROXY = savedProxy;
+  });
+
+  /** Per-user max 2 and tenant max 3, both over 60 s, on a clock the test sets. */
+  function clocked(cache: FakeValkey | null) {
+    _setCacheForTests(cache as never);
+    const t0 = Date.now();
+    let offset = 0;
+    const clock = spyOn(Date, 'now').mockImplementation(() => t0 + offset);
+    const tier = `ra-${crypto.randomUUID()}`;
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('prefetchedSession', { user: { id: c.req.header('x-user') as string } });
+      c.set('tenant', { id: T1 } as never);
+      await next();
+    });
+    app.use('*', rateLimit({ keyPrefix: tier, max: 2, windowMs: 60_000, db: fakeDb(tier, 3) }));
+    app.get('/p', (c) => c.text('ok'));
+    const at = async (seconds: number, user: string) => {
+      offset = seconds * 1000;
+      const res = await app.request('/p', {
+        headers: { 'x-user': user, 'x-real-ip': '192.0.2.9' },
+      });
+      return res.status === 429 ? Number(res.headers.get('retry-after')) : res.status;
+    };
+    return { tier, at, restore: () => clock.mockRestore() };
+  }
+
+  for (const backend of ['valkey', 'memory'] as const) {
+    it(`[${backend}] the tenant bucket names when its oldest entry expires, not a whole window`, async () => {
+      const { at, restore } = clocked(backend === 'valkey' ? new FakeValkey() : null);
+      try {
+        expect([await at(0, 'a'), await at(10, 'b'), await at(20, 'c')]).toEqual([200, 200, 200]);
+        // The first entry (t=0) leaves the window at t=60.
+        expect(await at(25, 'd')).toBe(35);
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it('[valkey] a first per-user offence waits until a slot frees; a repeat keeps the block', async () => {
+    const cache = new FakeValkey();
+    const { tier, at, restore } = clocked(cache);
+    try {
+      expect([await at(0, 'u'), await at(10, 'u')]).toEqual([200, 200]);
+      // Refusals count here, so the refused entry is in the set too: the next
+      // request fits once the t=10 entry leaves, at t=70.
+      expect(await at(20, 'u')).toBe(50);
+      // A repeat offence: the escalated cooldown, and the block key carries it.
+      expect(await at(21, 'u')).toBe(120);
+      expect(cache.blocks.get(`rl:block:${tier}:u`)).toBe(120);
+    } finally {
+      restore();
+    }
+  });
+
+  it('[memory] a per-user refusal waits until the fixed window starts over', async () => {
+    const { at, restore } = clocked(null);
+    try {
+      expect([await at(0, 'u'), await at(10, 'u')]).toEqual([200, 200]);
+      expect(await at(20, 'u')).toBe(40);
+    } finally {
+      restore();
+    }
+  });
 });

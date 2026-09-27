@@ -25,7 +25,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { authenticate, validateApiKey } from '../../lib/data/auth.js';
 import { describeWriteRefusal, isRlsRefusal } from '../../lib/data/write-pipeline.js';
-import { hashApiKey } from '../../lib/security/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -165,7 +165,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
     // the second only uses the return value as a boolean. Asserting through
     // `validateApiKey` directly is what pins the guarantee for BOTH, and for
     // whatever third caller comes next.
-    const raw = `zvk_${STAMP}_shared`;
+    const raw = generateApiKey();
     const keyId = (
       await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
@@ -198,7 +198,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
     // `authenticate()` — the one place a key is resolved — and then reads the
     // table with no filter of its own, so the only thing that can narrow the
     // answer is the policy.
-    const raw = `zvk_${STAMP}_wiring`;
+    const raw = generateApiKey();
     const keyId = (
       await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)

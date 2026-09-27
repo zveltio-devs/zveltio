@@ -14,7 +14,7 @@ import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
 import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
-import { hashApiKey } from '../security/index.js';
+import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
 /** Authenticate request — session or API key. */
@@ -116,6 +116,8 @@ export function requestApiKey(c: Context): string | null {
 
 /** An active, unexpired key row for `rawKey`, or null. No tenant check — see validateApiKey. */
 export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
+  // No query for a string no key can match: `generateApiKey` owns the shape.
+  if (!isWellFormedApiKey(rawKey)) return null;
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys')

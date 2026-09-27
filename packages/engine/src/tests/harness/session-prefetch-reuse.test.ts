@@ -63,7 +63,9 @@ d('session prefetch reuse', () => {
     process.env.NODE_ENV = savedEnv;
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
-    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'files'`.execute(db);
+    // Back to the seeded default (migration 019), not deleted: later suites PATCH it.
+    await sql`UPDATE zv_rate_limit_configs SET window_ms = 60000, max_requests = 1200
+              WHERE key_prefix = 'files'`.execute(db);
     invalidateRateLimitCache('files');
     await sql`DELETE FROM zv_tenants WHERE id = ${tenant.id}::uuid`.execute(db);
   });
@@ -120,10 +122,8 @@ d('session prefetch reuse', () => {
     process.env.NODE_ENV = 'development';
     process.env.TRUSTED_PROXY = 'true';
     try {
-      // Not PATCH: `files` has no seeded row, so `PATCH /api/admin/rate-limits/files` is a 404.
-      await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
-                VALUES ('files', 60000, 2)
-                ON CONFLICT (key_prefix) DO UPDATE SET max_requests = 2`.execute(db);
+      await sql`UPDATE zv_rate_limit_configs SET max_requests = 2
+                WHERE key_prefix = 'files'`.execute(db);
       invalidateRateLimitCache('files');
 
       const office = nextIp();

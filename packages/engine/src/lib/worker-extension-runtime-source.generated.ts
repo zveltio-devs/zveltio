@@ -17,7 +17,7 @@ export const WORKER_RUNTIME_SOURCE = "// @bun\n// ../../node_modules/.bun/hono@4
  * `scripts/check-worker-source-fresh.ts` recomputes it, so an edit anywhere in
  * that set fails CI instead of shipping a runtime that was never under test.
  */
-export const WORKER_RUNTIME_SOURCE_SHA256 = "e584f6a69f37d7cf48cf18251358d7be301e2ea6b226fc8bb87fcaeb71514489";
+export const WORKER_RUNTIME_SOURCE_SHA256 = "7890130586ce9cd5301bbd28d546e0f0623d7a9382a4919bf98078237c52a1a0";
 
 /** sha256 of `WORKER_RUNTIME_SOURCE` above, as the generator emitted it. */
 export const WORKER_RUNTIME_BUNDLE_SHA256 = "07c596eb36af91ac7eb1714b049be4779d8e1dd410d3d56f2c1fb9f3aca63a67";
