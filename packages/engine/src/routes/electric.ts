@@ -32,6 +32,7 @@
  */
 
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import type { Database } from '../db/index.js';
 import { tenantId } from '../lib/route-db.js';
 
@@ -80,7 +81,7 @@ export function electricRoutes(_db: Database, auth: any): Hono {
 
   // Session guard for every route — Electric tokens are scoped per user.
   app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
     await next();

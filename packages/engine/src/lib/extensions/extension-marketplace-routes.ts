@@ -167,7 +167,7 @@ export function registerMarketplaceRoutes(
     await writeLicenseAudit(db, {
       action: 'delete',
       extension_name: name,
-      performed_by: (await auth.api.getSession({ headers: c.req.raw.headers }))?.user?.id ?? null,
+      performed_by: gate.id ?? null,
       ip: clientIp(c),
       user_agent: c.req.header('user-agent') ?? null,
     }).catch((err: Error) => {
@@ -188,7 +188,6 @@ export function registerMarketplaceRoutes(
   app.post('/api/admin/license/rotate', async (c) => {
     const gate = await requireGod(c);
     if (gate instanceof Response) return gate;
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
     // 32 bytes of high-entropy randomness, hex-encoded → 64 chars.
     const buf = new Uint8Array(32);
@@ -214,7 +213,7 @@ export function registerMarketplaceRoutes(
     await writeLicenseAudit(db, {
       action: 'rotate',
       extension_name: null,
-      performed_by: session?.user?.id ?? null,
+      performed_by: gate.id ?? null,
       ip: clientIp(c),
       user_agent: c.req.header('user-agent') ?? null,
       details: { old_token_fingerprint: oldFingerprint },
@@ -971,10 +970,9 @@ export function registerMarketplaceRoutes(
 
     await recordConsent(db, name, approve as string[]);
     const granted = [...new Set(approve as string[])].sort();
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
     await auditLog(db, {
       type: 'extension.capabilities.approved',
-      userId: session?.user?.id ?? undefined,
+      userId: gate.id ?? undefined,
       resourceId: name,
       resourceType: 'extension',
       metadata: { granted, declared },

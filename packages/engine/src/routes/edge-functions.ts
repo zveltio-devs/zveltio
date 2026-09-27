@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
@@ -65,7 +66,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const isPublic = parsedEnv?.ZVELTIO_PUBLIC === 'true';
 
     // Auth: accept session or API key
-    const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+    const session = await requestSession(c, auth).catch(() => null);
     let authed = !!session;
     if (!authed) {
       const rawKey = c.req.header('X-API-Key');

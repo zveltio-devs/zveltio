@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -160,7 +161,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
 
   // Auth middleware — all routes require a session
   app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
     return next();

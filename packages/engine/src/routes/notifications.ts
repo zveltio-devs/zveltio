@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -10,7 +11,7 @@ import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function requireAuth(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  const session = await requestSession(c, auth);
   return session?.user ?? null;
 }
 

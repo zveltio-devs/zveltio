@@ -6,6 +6,7 @@
  */
 
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
+import { requestSession } from '../middleware/session-prefetch.js';
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
@@ -35,7 +36,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
   // Auth middleware for all /sync routes
   app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const session = await requestSession(c, auth);
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
     // The REAL role, resolved from the database. `session.user.role` is always
     // undefined (not declared in better-auth's additionalFields), and this line
