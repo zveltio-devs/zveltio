@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { guardAdmin } from '../lib/admin-guard.js';
 import { ENGINE_VERSION } from '../version.js';
 import { auth } from '../lib/auth.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
@@ -19,10 +19,8 @@ export function openApiRoutes(): Hono {
     const inProd = process.env.NODE_ENV === 'production';
     const publicOverride = process.env.OPENAPI_PUBLIC === 'true';
     if (inProd && !publicOverride) {
-      const session = await requestSession(c, auth);
-      if (!session) return c.json({ error: 'Unauthorized' }, 401);
-      const isAdmin = await isTenantAdmin(session.user.id);
-      if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+      const user = await guardAdmin(c, auth, isTenantAdmin);
+      if (user instanceof Response) return user;
     }
     const spec = buildSpec();
     return c.json(spec);

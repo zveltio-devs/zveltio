@@ -311,7 +311,7 @@ d('schema events on the realtime socket', () => {
       await asKey(key, '/api/collections/field-types'),
       await asKey(key, '/api/collections/jobs/00000000-0000-0000-0000-000000000000'),
     ];
-    for (const r of refused) expect([401, 403]).toContain(r.status);
+    for (const r of refused) expect(r.status).toBe(403);
     // The collection the DELETE named is still there.
     const still = await ddl(`/api/collections/${FOURTH}`, 'GET');
     expect(still.status).toBe(200);
@@ -324,7 +324,7 @@ d('schema events on the realtime socket', () => {
       [{ collection: SCHEMA_CHANNEL, actions: ['create', 'update', 'delete'] }],
     ]) {
       const { key } = await createKey(scopes);
-      expect([401, 403]).toContain((await asKey(key, '/api/collections')).status);
+      expect((await asKey(key, '/api/collections')).status).toBe(403);
       const ws = await openSchemaWs({ 'X-API-Key': key });
       expect(ws.upgraded).toBe(true);
       expect(ws.sent.join('\n')).not.toContain('"subscribed"');
@@ -335,7 +335,7 @@ d('schema events on the realtime socket', () => {
     const viaOther = await app.request('/api/collections', {
       headers: { 'X-API-Key': key, 'x-tenant-slug': OTHER_SLUG },
     });
-    expect([401, 403]).toContain(viaOther.status);
+    expect(viaOther.status).toBe(403);
     const ws = await openSchemaWs({ 'X-API-Key': key, 'x-tenant-slug': OTHER_SLUG });
     expect(ws.upgraded).toBe(true);
     expect(ws.sent.join('\n')).not.toContain('"subscribed"');
@@ -372,7 +372,7 @@ d('schema events on the realtime socket', () => {
     ).toBe(true);
     expect(narrowedWs.isOpen()).toBe(true);
     const narrowedKey = await asKey(narrowed.key, '/api/collections');
-    expect([401, 403]).toContain(narrowedKey.status);
+    expect(narrowedKey.status).toBe(403);
   }, 60_000);
 
   it("fires the SDK's watchSchema with a $schema-scoped API key", async () => {
