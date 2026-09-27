@@ -1,5 +1,6 @@
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { requestSession } from '../middleware/session-prefetch.js';
+import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
@@ -126,14 +127,14 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
   // GET /api/health/version — detailed version info (auth-gated).
   app.get('/version', async (c) => {
-    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
     const schemaVersion = await getLastAppliedMigration(db).catch(() => 0);
     return c.json(getVersionInfo(schemaVersion));
   });
 
   // GET /api/health/migrations — migration status (auth-gated).
   app.get('/migrations', async (c) => {
-    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
     const migrations = await getAppliedMigrations(db);
     return c.json({ migrations, total: migrations.length });
   });
@@ -271,7 +272,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   // this deployment is built from and which parts are currently weak, which is
   // reconnaissance rather than something an ordinary member has any use for.
   app.get('/deep', async (c) => {
-    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
     if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
 
     const checks: Record<string, unknown> = {};
@@ -299,7 +300,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
   // GET /api/health/update-check — check for new engine release (auth-gated).
   app.get('/update-check', async (c) => {
-    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
     try {
       // Use /releases (not /releases/latest) so pre-release channels (alpha/beta)
       // are included in the update check.
@@ -348,7 +349,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   // signed-up non-admin member got 403 from /deep but 200 from /database,
   // /storage and /extensions individually before this gate was added.
   app.get('/:subsystem', async (c) => {
-    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
     if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
     const name = c.req.param('subsystem');
     const check = allChecks().find((ch) => ch.name === name) ?? getHealthCheck(name);
