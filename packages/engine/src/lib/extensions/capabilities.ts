@@ -36,7 +36,7 @@
  * The manifest may pin `capabilityContract` to refuse loading against an engine
  * that speaks a different major version.
  */
-export const CAPABILITY_CONTRACT_VERSION = 1;
+export const CAPABILITY_CONTRACT_VERSION = 2; // 2: `auth:users`
 
 /**
  * Every capability an extension may declare.
@@ -58,6 +58,12 @@ export const CAPABILITIES = [
    * nothing gated it.
    */
   'auth:session',
+  /**
+   * Delete any user, end their sessions, or stop them signing in at all. The
+   * offboarding extensions (SCIM, GDPR erasure) need it; the session table is
+   * out of reach of `ctx.db`, so this is the only way an extension can do it.
+   */
+  'auth:users',
   /** Send notifications to users. */
   'notifications',
   /** Read/extract from stored files, move to trash, schedule indexing. */
@@ -169,6 +175,10 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   deriveTokenHash: 'secrets',
   // Identity — "log anyone in"
   createBetterAuthSession: 'auth:session',
+  // Identity — "remove anyone"
+  deleteUser: 'auth:users',
+  revokeUserSessions: 'auth:users',
+  setUserActive: 'auth:users',
   // Messaging
   sendNotification: 'notifications',
   // Files
