@@ -9,7 +9,7 @@
  *   app.use('/api/*', godAuditMiddleware(db));
  */
 
-import { onAfterCommit } from '../lib/tenancy/index.js';
+import { afterRequestSettles } from './tenant.js';
 import { createMiddleware } from 'hono/factory';
 import { isGodUser } from '../lib/tenancy/index.js';
 import { clientIpForAudit } from '../lib/security/index.js';
@@ -102,14 +102,16 @@ export function godAuditMiddleware(poolDb: Database) {
         // than the audit trail.
         const ip = clientIpForAudit(c);
 
-        // Fire-and-forget AND deferred until the COMMIT.
+        // Fire-and-forget AND deferred until the request has settled.
         //
         // Un-awaited was not enough: the write goes to the pool and the
         // connection is taken the moment the statement is issued, which here is
         // still inside the request's tenant transaction. That is a second
         // connection, and at `c = DB_POOL_MAX` it can never be granted. A later
         // wait for the commit puts it after the commit — a tick, measured, does not.
-        onAfterCommit(() => {
+        // Settled, not committed: a god request whose handler threw rolls back,
+        // and it is still an action to account for.
+        afterRequestSettles(c, () => {
           logGodAction(poolDb, {
             userId: user.id,
             method: c.req.method,

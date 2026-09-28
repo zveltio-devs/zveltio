@@ -1,4 +1,4 @@
-import { onAfterCommit } from '../lib/tenancy/index.js';
+import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 import { clientIpForAudit } from '../lib/security/index.js';
@@ -56,7 +56,7 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
 
-    // Deferred until the COMMIT, not merely un-awaited.
+    // Deferred until the request has settled, not merely un-awaited.
     //
     // This write goes to the POOL while the request's tenant transaction is
     // still open: the middleware sits inside it, so "after next()" is still
@@ -68,8 +68,10 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // logged route never answers at all.
     //
     // An audit showed a later TICK does not: the timer fires with the transaction
-    // still open. `onAfterCommit` waits for the commit itself.
-    onAfterCommit(() => {
+    // still open. And not `onAfterCommit`: a handler that throws rolls the
+    // transaction back, which drops that queue — and failures are the rows this
+    // log exists for.
+    afterRequestSettles(c, () => {
       poolDb
         .insertInto('zv_request_logs')
         .values({
