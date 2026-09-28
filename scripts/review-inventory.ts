@@ -234,6 +234,8 @@ const SECTIONS: Section[] = [
     match: [
       `${E}lib/auth.ts`,
       `${E}lib/admin-guard.ts`,
+      `${E}lib/users.ts`,
+      `${E}lib/email.ts`,
       `${E}routes/auth.ts`,
       `${E}routes/users.ts`,
       `${E}lib/security/sso-session.ts`,
