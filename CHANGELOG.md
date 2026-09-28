@@ -4,6 +4,73 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.70] - 2026-09-28
+
+**Breaking: tenant plans, quotas and usage metering are gone from the engine
+(#675).** The engine is a plain backend; plans and limits belong in a billing
+extension. An install that upgrades loses nothing it could use: every install
+had been refusing API calls after 10,000 a day, because the default tenant was
+seeded on a free plan (#670).
+
+**Nine more tables are under the tenant row-level policy** (migrations 023–029):
+media files, folders, tags and file tags; revisions and import logs; dashboards;
+flows; webhooks and webhook deliveries; environments. Until now a whitelisted
+RPC function could read, and a tenant's transaction could write, another
+tenant's rows in them. The routes and background workers that read them (flow
+scheduler, webhook dispatcher, `/api/insights`, the tenant manager) now run as
+the tenant. On a database where the engine does not connect as a superuser,
+these paths would otherwise have seen only the default tenant.
+
+**Upgrade with storage/cloud 1.1.4 or later.** Public share links (`/share/:token`)
+to files of a non-default tenant answer 403 with an older storage/cloud once
+migration 023 runs.
+
+**Writes that did not happen were reported as done.**
+- A request whose COMMIT failed answered with the handler's status, e.g. 201
+  Created for a row that rolled back (#712). It now answers 500.
+- A handler that threw still committed what it wrote before the throw, and ran
+  its webhooks and flows (#713). The transaction now rolls back; request logs
+  and god audit rows are still written for these requests.
+- Webhooks fired before the write committed, so a rolled-back write had already
+  been sent to subscribers (#710).
+
+**Flows.**
+- Due cron flows hung in `running` and stopped advancing: the scheduler's row
+  lock blocked the insert of the run it had just started (#706).
+- A flow whose tenant cannot be resolved fails instead of running as the default
+  tenant; `ai_task` runs as its flow's tenant; suspended and deleted tenants'
+  cron flows no longer fire, and resume with one owed run on reactivation (#711).
+- Flows triggered by a data write stayed `running`, `export_collection` never
+  exported, `send_email` never sent, and a role notification reached that role
+  in every tenant (#665–#669).
+
+**API keys.** Keys can use storage (`$storage`), call whitelisted RPC functions
+(`$rpc`), open declared `/ext/*` routes (`$ext:<name>`), watch the schema
+(`$schema`) and open the SSE data stream, and read themselves at
+`/api/api-keys/self` (#691–#699). Session-only routes answer 403 to a valid key
+(#692). `PATCH /api/admin/api-keys/:id` stored scopes as a string, making every
+patched key deny-all (#698). Deleting a user revokes their keys (#704).
+
+**Permissions and realtime.** Row rules and column permissions failed open on a
+failed role lookup, an unknown value source, or a lost cross-replica message;
+policy changes now reach every engine instance and every open WebSocket/SSE
+subscription, and a revoked session, user or key closes its streams (#644–#664,
+#683, #687). Deleted users' Casbin grants are pruned (#671, #673, #688). SCIM and GDPR
+deletion now go through the same path as every other user delete (#681).
+
+**Rate limits** on `/api/*` are per user, not per IP, every tier is tunable, and
+an optional per-tenant limit stops one tenant from saturating a shared instance
+(#677–#680).
+
+**Other fixes.** Every LDAP and SAML login had failed since migration 044
+(#682). `watchSchema` never fired (#689, #690). Edge functions ignored an API
+key sent as `Authorization: Bearer` (#693). A migration that was rolled back
+re-applies (#700). The client portal's role guard bounced every signed-in user
+(#635); `safeCss` missed escaped `url()`/`@import` (#634). The Studio flow
+editor lost edits made while Save was in flight (#636).
+
+Releases are cut by hand; the Changesets bot is removed (#686).
+
 ## [3.0.0-beta.69] - 2026-09-24
 
 **No Docker install of beta.68 could start.** PostgreSQL 18 refuses a volume
