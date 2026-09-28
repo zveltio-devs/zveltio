@@ -81,8 +81,10 @@ export const rollbackCommand = new Command('rollback')
       }
 
       console.log(`\n✅ Rolled back to schema version ${targetVersion}.\n`);
-      console.log('   ⚠️  Restart engine after rollback:');
-      console.log('   zveltio stop && zveltio start\n');
+      // Restarting this same build re-applies what was just rolled back.
+      console.log('   ⚠️  Before restarting, install the engine build that matches this');
+      console.log('   schema version, or set MIGRATIONS_AUTO=false — restarting this build');
+      console.log('   re-applies the rolled-back migrations.\n');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
       console.error(`\n❌ Rollback error: ${err.message}\n`);

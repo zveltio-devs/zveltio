@@ -125,6 +125,42 @@ async function changedMigrations(): Promise<string[]> {
   }
 }
 
+/**
+ * `require-lock-timeout` is excluded above because the runner sets
+ * `lock_timeout` in the transaction it opens — which a `-- NO TRANSACTION`
+ * file does not get. The runner leaves the timeout off there on purpose
+ * (`CREATE INDEX CONCURRENTLY` waits on in-flight transactions by design), and
+ * squawk's rule cannot tell that apart: it fires on CONCURRENTLY too. So the
+ * rule is ours: in such a file every statement must be a CONCURRENTLY one.
+ * Anything else — an ALTER TABLE, a constraint adopted with USING INDEX —
+ * waits for its lock unbounded at the head of the queue, stalling every query
+ * on the table behind one open reader; it goes in a transactional sibling.
+ */
+function lockWaitsWithoutTimeout(file: string, up: string): Finding[] {
+  // Self-contained, like the rest of this gate (its tests run it from a bare
+  // temp root): comments, strings and dollar-quoted bodies folded so an inner `;`
+  // does not split a statement, then one entry per statement.
+  const statements = up
+    // One left-to-right pass, so a `--` inside a string or a `;` inside a
+    // comment is read as what encloses it.
+    .replace(/\$(\w*)\$[\s\S]*?\$\1\$|'(?:[^']|'')*'|\/\*[\s\S]*?\*\/|--[^\n]*/g, (m) =>
+      m[0] === '$' ? '$$' : m[0] === "'" ? "''" : ' ',
+    )
+    .split(';')
+    .map((stmt) => stmt.trim())
+    .filter(Boolean);
+  return statements
+    .filter((stmt) => !/\bCONCURRENTLY\b/i.test(stmt))
+    .map((stmt) => ({
+      file,
+      line: 0,
+      rule_name: 'no-transaction-lock-timeout',
+      level: 'Error',
+      message: `Runs under -- NO TRANSACTION, where the runner sets no lock_timeout: \`${stmt.split('\n')[0]?.slice(0, 80)}\``,
+      help: 'Move it to a transactional migration; keep only CONCURRENTLY statements here (013/014, 021/022).',
+    }));
+}
+
 async function lint(file: string): Promise<Finding[]> {
   const raw = await Bun.file(file).text();
   const up = raw.split(DOWN_MARKER)[0];
@@ -142,6 +178,7 @@ async function lint(file: string): Promise<Finding[]> {
   await Bun.write(tmp, up);
 
   const inTransaction = !NO_TRANSACTION_MARKER.test(up);
+  const unbounded = inTransaction ? [] : lockWaitsWithoutTimeout(file, up);
   const excluded = inTransaction
     ? [...ALWAYS_EXCLUDED, ...TRANSACTIONAL_ONLY_EXCLUDED]
     : ALWAYS_EXCLUDED;
@@ -190,7 +227,7 @@ async function lint(file: string): Promise<Finding[]> {
     // complaint was read as approval.
     const trimmed = out.trim();
     if (trimmed === '') {
-      if (code === 0) return []; // ran, said nothing: genuinely clean.
+      if (code === 0) return unbounded; // squawk ran and said nothing.
       console.error(`❌ ${file}: the migration linter did not run (exit ${code}).`);
       console.error(
         '   Nothing came back on stdout, so nothing was linted. Green here would mean\n' +
@@ -210,7 +247,7 @@ async function lint(file: string): Promise<Finding[]> {
       console.error(`   ${trimmed.split('\n').slice(0, 4).join('\n   ')}`);
       process.exit(1);
     }
-    return parsed.map((f) => ({ ...f, file }));
+    return [...unbounded, ...parsed.map((f) => ({ ...f, file }))];
   } finally {
     await $`rm -f ${tmp}`.quiet();
   }
