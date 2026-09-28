@@ -6,7 +6,12 @@ import { maybeDecrypt } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
 import { toJsonb } from './jsonb.js';
 import { withSavepoint } from './savepoint.js';
-import { withEveryTenant, withTenantIsolation } from './tenancy/index.js';
+import {
+  getCurrentTenantTrx,
+  onAfterCommit,
+  withEveryTenant,
+  withTenantIsolation,
+} from './tenancy/index.js';
 
 let _db: Database | null = null;
 
@@ -178,6 +183,21 @@ export const WebhookManager = {
     tenantId?: string | null,
   ): Promise<void> {
     if (!_db) return;
+    // Only once the writer's transaction has committed.
+    //
+    // The lookup and the delivery rows below run in a transaction of their OWN,
+    // so called from inside the request's they committed and the POST left
+    // while the record was still uncommitted — and a write that then rolled
+    // back had already been announced to the outside world.
+    //
+    // Re-entered from the after-commit queue, which runs outside the finished
+    // transaction. The job's promise is returned, so the request still answers
+    // only once the delivery rows exist. Outside any transaction (boot, a job,
+    // a route the tenant middleware opens none for) it runs now, as before.
+    if (getCurrentTenantTrx()) {
+      onAfterCommit(() => WebhookManager.trigger(event, collection, data, tenantId));
+      return;
+    }
     const tenant = tenantId ?? DEFAULT_TENANT_ID;
     try {
       // Inside the writing firm: both tables are under the tenant policy
