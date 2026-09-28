@@ -25,7 +25,11 @@ import { flowScheduler } from '../../lib/flows/flow-scheduler.js';
 import { executeFlow } from '../../lib/flows/flow-executor.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
-import { getCurrentTenantTrx, withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  getCurrentTenantTrx,
+  poolOrRefusal,
+  withTenantIsolation,
+} from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -243,18 +247,47 @@ d('zv_flows under tenant RLS', () => {
     expect(del.status).toBe(200);
   }, 30_000);
 
-  it('an ai_task flow hands the AI extension its own firm’s transaction', async () => {
-    // What the `ai` extension's `ctx.db` resolves: the job's tenant transaction,
-    // else the pool — which, with no GUC, answers for the default firm.
+  it('an ai_task flow waits on the model with no transaction open, and writes as its own firm', async () => {
+    // An LLM call takes seconds to minutes. A transaction left open across it —
+    // the claim holding the row lock, or a tenant transaction around the whole
+    // task — sits `idle in transaction` and is killed at
+    // `idle_in_transaction_session_timeout` (60 s), failing the task.
     const seen: { tenant: string | null; flows: number }[] = [];
-    serviceRegistry.registerAs('test', 'ai.runBackgroundTask', async () => {
-      const q = getCurrentTenantTrx() ?? plain;
-      const r = await sql<{ tenant: string | null; flows: number }>`
-        SELECT current_setting('zveltio.current_tenant', true) AS tenant,
-               (SELECT count(*)::int FROM zv_flows WHERE id = ${aiFlow}::uuid) AS flows
-      `.execute(q);
-      seen.push(r.rows[0]!);
-    });
+    let idleInTransaction = -1;
+    let dbOutsideWorkRefused = false;
+    const wrote = `${STAMP}-ai-wrote`;
+    serviceRegistry.registerAs(
+      'test',
+      'ai.runBackgroundTask',
+      async (_user: string, _instruction: string, opts: { tenantId?: string }) => {
+        await Bun.sleep(300); // the model
+        const idle = await sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM pg_stat_activity
+           WHERE datname = current_database() AND pid <> pg_backend_pid()
+             AND state LIKE 'idle in transaction%'`.execute(db);
+        idleInTransaction = idle.rows[0]!.n;
+        // What the extension's `ctx.db` resolves between stretches of DB work
+        // (`register.ts`): refused, never the pool answering as the default firm
+        // (or every firm).
+        dbOutsideWorkRefused = await sql`SELECT 1`
+          .execute(getCurrentTenantTrx() ?? poolOrRefusal(plain))
+          .then(() => false)
+          .catch(() => true);
+        // The task's DB work, as the extension does it: a short transaction as
+        // the firm the scheduler named (`ctx.internals.withTenantIsolation`).
+        await withTenantIsolation(opts.tenantId ?? '', async (trx) => {
+          const r = await sql<{ tenant: string | null; flows: number }>`
+            SELECT current_setting('zveltio.current_tenant', true) AS tenant,
+                   (SELECT count(*)::int FROM zv_flows WHERE id = ${aiFlow}::uuid) AS flows
+          `.execute(trx);
+          seen.push(r.rows[0]!);
+          await sql`INSERT INTO zv_flows (name, trigger_type) VALUES (${wrote}, 'manual')`.execute(
+            trx,
+          );
+        });
+        return { executed: true };
+      },
+    );
     // `ai_task` is admitted by the `ai` extension's migration, which widens the
     // CHECK. Widen it the same way here and put the original back afterwards.
     const check = await sql<{ def: string }>`
@@ -280,7 +313,12 @@ d('zv_flows under tenant RLS', () => {
           .execute(db);
       }
     }
+    expect(idleInTransaction).toBe(0);
+    expect(dbOutsideWorkRefused).toBe(true);
     expect(seen).toEqual([{ tenant: OTHER, flows: 1 }]);
+    const landed = await sql<{ tenant: string }>`
+      SELECT tenant_id::text AS tenant FROM zv_flows WHERE name = ${wrote}`.execute(db);
+    expect(landed.rows).toEqual([{ tenant: OTHER }]);
   }, 30_000);
 
   it('a suspended firm’s due flow is neither run nor advanced, and runs once when reactivated', async () => {
