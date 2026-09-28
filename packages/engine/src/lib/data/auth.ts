@@ -131,8 +131,8 @@ export function requestApiKey(c: Context): string | null {
  * (`"user".banned`, set by SCIM deactivation): a deactivated employee's keys
  * kept reading and writing after every sign-in method was closed to them. In the
  * same query, so it fails the way the key lookup does — a thrown error, never a
- * key. A key whose creator was deleted (`created_by` set NULL) keeps working:
- * keys belong to their tenant, and deleting a user never revoked them.
+ * key. Deleting the creator revokes their keys (`deleteUser`, migration 025
+ * for the ones deleted before), so a NULL `created_by` is no longer a live key.
  */
 export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
   // No query for a string no key can match: `generateApiKey` owns the shape.

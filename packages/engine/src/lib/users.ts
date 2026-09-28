@@ -89,6 +89,13 @@ export async function deleteUser(
   await e.deleteUser(userId);
   await invalidateUserPermCache(userId);
 
+  // Their API keys stop too. The FK only sets `created_by` NULL, which left a
+  // deleted user's keys working while a deactivated user's were refused.
+  // Revoked, not deleted: the access log cascades with the key row, and it is
+  // the record an offboarding is audited against.
+  await sql`UPDATE zv_api_keys SET is_active = false
+             WHERE created_by = ${userId} AND is_active`.execute(db);
+
   await sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db);
 
   await auditLog(db, {
