@@ -52,6 +52,11 @@ d('flow send_notification to a role stays in the flow tenant', () => {
         INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', ${uid}, ${ROLE}, ${dom})
       `.execute(db);
     }
+    // The flow's firm must exist: the executor refuses to run a flow whose firm
+    // it cannot see rather than run it as the default one.
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${TENANT_A}::uuid, ${`fnr-${TAG}`}, 'fnr', 'active')
+              ON CONFLICT DO NOTHING`.execute(db);
     const flow = await sql<{ id: string }>`
       INSERT INTO zv_flows (tenant_id, name, trigger_type, trigger_config, is_active)
       VALUES (${TENANT_A}, ${`probe-notify-${TAG}`}, 'manual', '{}'::jsonb, true)
@@ -72,6 +77,7 @@ d('flow send_notification to a role stays in the flow tenant', () => {
     await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`.execute(db).catch(() => {});
     await sql`DELETE FROM zv_flows WHERE id = ${flowId}`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_permissions WHERE v1 = ${ROLE}`.execute(db).catch(() => {});
+    await sql`DELETE FROM zv_tenants WHERE id = ${TENANT_A}::uuid`.execute(db).catch(() => {});
     for (const id of Object.values(users)) {
       await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
     }

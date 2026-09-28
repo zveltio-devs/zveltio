@@ -581,22 +581,45 @@ export async function executeFlow(
   // Every caller (manual run, cron scheduler, DLQ retry, data-event trigger) goes
   // through here, so resolving it from the flow row — rather than trusting
   // triggerData — closes both the "runs as default tenant" leak and the
-  // "caller spoofs trigger.tenantId" escalation. Best-effort: falls back to the
-  // default tenant if the lookup fails (a missing flow fails later on the run FK).
+  // "caller spoofs trigger.tenantId" escalation.
   //
   // Read across every firm: `zv_flows` is under the tenant policy (migration
   // 027), and on the bare pool a non-superuser database hides every other firm's
   // row — the lookup found nothing and a firm's flow ran as the DEFAULT firm.
-  let flowTenantId = DEFAULT_TENANT_ID;
+  //
+  // Fail closed. This used to keep the default tenant when the lookup failed or
+  // found no row, so a flow this connection cannot see — its firm gone from
+  // `zv_tenants`, a lookup that errored — ran its steps with the default firm's
+  // data. Not knowing whose flow it is means not running it.
+  let flowTenantId: string | undefined;
+  let lookupError = 'the flow row is not visible';
   try {
     const tRow = await withEveryTenant(db, (trx) =>
       sql<{ tenant_id: string }>`
       SELECT tenant_id::text AS tenant_id FROM zv_flows WHERE id = ${flowId}
     `.execute(trx),
     );
-    if (tRow.rows[0]?.tenant_id) flowTenantId = tRow.rows[0].tenant_id;
-  } catch {
-    // keep default tenant
+    flowTenantId = tRow.rows[0]?.tenant_id || undefined;
+  } catch (err) {
+    lookupError = String(err);
+  }
+  if (!flowTenantId) {
+    const error =
+      `Flow ${flowId}: cannot resolve the tenant it runs as (${lookupError}) — ` +
+      'refusing to run it as the default tenant.';
+    await sql`
+      UPDATE zv_flow_runs
+      SET status = 'failed', error = ${error}, finished_at = NOW()
+      WHERE id = ${runId}
+    `
+      .execute(db)
+      .catch((bookkeepingErr: Error) => {
+        console.warn(
+          `[flow-executor] failed to mark run ${runId} as failed:`,
+          bookkeepingErr.message,
+        );
+      });
+    return { runId, status: 'failed', output: {}, error };
   }
 
   try {

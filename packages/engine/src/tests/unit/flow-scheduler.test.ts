@@ -16,6 +16,7 @@ import type { Database } from '../../db/index.js';
 import { extensionRegistry } from '../../lib/extensions/index.js';
 import { flowScheduler, _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const FLOWS_SELECT = /select[\s\S]*from "zv_flows"/i;
@@ -23,6 +24,7 @@ const FLOWS_UPDATE = /update "zv_flows"/i;
 
 /** Inject a db into the module-scoped scheduler without leaving timers running. */
 async function injectDb(db: CannedDb): Promise<void> {
+  initTenantManager(db.kysely as unknown as Database);
   await flowScheduler.start(db.kysely as unknown as Database);
   flowScheduler.stop(); // clears the poll/GC timers; _db stays set
 }
@@ -38,6 +40,7 @@ beforeEach(() => {
 afterEach(() => {
   flowScheduler.stop();
   serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
+  initTenantManager(null as unknown as Database);
   _internalForTests.setExecuteFlowForTests(null);
 });
 
@@ -76,6 +79,7 @@ describe('flowScheduler._tick', () => {
         id: 'flow-ai',
         name: 'Daily digest',
         trigger_type: 'ai_task',
+        tenant_id: 'tenant-1',
         trigger_config: { user_id: 'u42', instruction: 'summarise', interval_seconds: 120 },
         created_by: 'u1',
       },
@@ -126,6 +130,7 @@ describe('flowScheduler._executeScheduledFlow (ai_task)', () => {
     id: 'flow-ai',
     name: 'AI Flow',
     trigger_type: 'ai_task',
+    tenant_id: 'tenant-1',
     trigger_config: { user_id: 'u7', instruction: 'do it', notify_on_result: false },
     created_by: 'creator',
   };

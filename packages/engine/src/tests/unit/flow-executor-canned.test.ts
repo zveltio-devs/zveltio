@@ -16,16 +16,34 @@ const { executeStep } = _internalForTests;
 const RUN_INSERT = /INSERT INTO zv_flow_runs/i;
 const STEPS_SELECT = /SELECT \* FROM zv_flow_steps/i;
 const RUN_UPDATE = /UPDATE zv_flow_runs/i;
+const TENANT_LOOKUP = /tenant_id FROM zv_flows/i;
 
 function dbForFlow(steps: unknown[], runId = 'run-1'): CannedDb {
   const db = new CannedDb();
   db.when(RUN_INSERT, [{ id: runId }]);
   db.when(STEPS_SELECT, steps);
+  db.when(TENANT_LOOKUP, [{ tenant_id: 'tenant-1' }]);
   db.whenAffected(RUN_UPDATE, 1);
   return db;
 }
 
 describe('executeFlow (CannedDb)', () => {
+  it('fails the run, running no step, when the flow’s tenant cannot be resolved', async () => {
+    const db = new CannedDb();
+    db.when(RUN_INSERT, [{ id: 'run-orphan' }]);
+    db.when(STEPS_SELECT, [
+      { id: 's1', name: 'q', type: 'query_db', step_order: 1, config: { query: 'SELECT 1' } },
+    ]);
+    db.when(TENANT_LOOKUP, []);
+    db.whenAffected(RUN_UPDATE, 1);
+    const result = await executeFlow(db.kysely as unknown as Database, 'flow-orphan', {});
+    expect(result.status).toBe('failed');
+    expect(result.runId).toBe('run-orphan');
+    expect(result.error).toMatch(/refusing to run it as the default tenant/);
+    expect(db.executed(/SELECT 1/).length).toBe(0);
+    expect(db.executed(RUN_UPDATE)[0]!.parameters).toContain(result.error);
+  });
+
   // Was 'creates a run, executes unknown step types, and marks success'. It
   // asserted the C-6 defect as the contract: a step type the executor does not
   // implement reported success and passed the previous output through, so a

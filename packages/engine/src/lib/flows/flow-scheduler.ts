@@ -113,6 +113,18 @@ export const flowScheduler = {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
           .where((eb) => eb.or([eb('next_run_at', 'is', null), eb('next_run_at', '<=', now)]))
+          // Only firms that are running. A suspended (or deleted) firm's due
+          // flows are not claimed, so `next_run_at` stays where it was and they
+          // resume on reactivation — once, at the first tick, because a claim
+          // takes a flow once and the advance counts from that run, not from
+          // the missed ones. Skip-and-advance was the alternative; it loses the
+          // run a reactivated firm is owed and buys nothing, as there is no
+          // burst to avoid.
+          .where(
+            'tenant_id',
+            'in',
+            trx.selectFrom('zv_tenants').select('id').where('status', '=', 'active'),
+          )
           // NO KEY, not FOR UPDATE: the executor inserts a `zv_flow_runs` row
           // for this flow on another connection, and that foreign key takes
           // FOR KEY SHARE on the row — which FOR UPDATE blocks and FOR NO KEY
@@ -186,15 +198,23 @@ export const flowScheduler = {
       } else {
         try {
           const cfg = flow.trigger_config ?? {};
-          await runTask(
-            cfg.user_id ?? flow.created_by,
-            cfg.instruction ?? flow.description ?? 'Generate a status report',
-            {
-              notifyOnResult: cfg.notify_on_result ?? true,
-              notifyOnlyIfData: cfg.notify_only_if_data ?? false,
-              notificationTitle: cfg.notification_title ?? flow.name,
-              maxIterations: cfg.max_iterations ?? 5,
-            },
+          // Inside the flow's own firm. The extension's `ctx.db` resolves the
+          // tenant transaction bound to the async context and falls back to the
+          // pool, which with no GUC answers for the DEFAULT firm — so every
+          // other firm's AI task read and wrote the default firm's data. No
+          // firm on the row means not running it, as in the executor.
+          if (!flow.tenant_id) throw new Error('the flow row carries no tenant_id');
+          await withTenantIsolation(flow.tenant_id, () =>
+            runTask(
+              cfg.user_id ?? flow.created_by,
+              cfg.instruction ?? flow.description ?? 'Generate a status report',
+              {
+                notifyOnResult: cfg.notify_on_result ?? true,
+                notifyOnlyIfData: cfg.notify_only_if_data ?? false,
+                notificationTitle: cfg.notification_title ?? flow.name,
+                maxIterations: cfg.max_iterations ?? 5,
+              },
+            ),
           );
           console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
