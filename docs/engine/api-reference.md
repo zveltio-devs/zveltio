@@ -303,6 +303,17 @@ Call a whitelisted PostgreSQL function directly from the API.
 
 Functions must be registered in Studio → RPC Functions (or via `/api/rpc/` admin endpoints) before they can be called.
 
+`POST /api/rpc/:function` takes a session, or an API key whose `$rpc` scope
+names the function or `execute` (see [POST /api/api-keys](#post-apiapi-keys)). The whitelist endpoints
+below take an instance administrator's session only.
+
+The function runs inside the request's tenant transaction as the `zveltio_rls`
+role, so tenant isolation and row policies apply to what it reads. It sees the
+caller in `current_setting('zveltio.user_id')` — the user's id, or
+`apikey:<uuid>` for a key, with `zveltio.user_role` = `api_key`. A function
+declared `SECURITY DEFINER` runs with its owner's rights instead, for a
+session and a key alike.
+
 ### POST /api/rpc/:function
 
 ```bash
@@ -328,7 +339,7 @@ POST /api/rpc/
 {
   "function_name": "get_user_stats",
   "description": "Returns aggregated stats for a user",
-  "required_role": "member",  // minimum role to call
+  "required_role": "member",  // minimum role a session needs; a key needs `$rpc`
   "is_enabled": true
 }
 
@@ -748,6 +759,17 @@ named. A key's uploads are recorded as the person who issued it. A key owns no
 file: without `rls_bypass` it sees only files shared with the tenant and
 deletes none; with it, it sees and deletes every file in its tenant, as a
 tenant admin does.
+
+`{ "collection": "$rpc", "actions": ["execute"] }` lets a key call every enabled
+function on the RPC whitelist, whatever its `required_role` — that role ranks a
+session's roles, and a key has none. `{ "collection": "$rpc", "actions":
+["get_user_stats", "close_month"] }` lets it call only the functions it names.
+Names match exactly: `execute` and `*` always mean every function, and no other
+action word stands for a function — `write` does not grant a function called
+`create`. A key gets 403 for any function it does not name, whitelisted or not;
+404 for one it may call that is not whitelisted or is disabled, as a session
+does. It too must be named. The function sees the key as `apikey:<uuid>`, never
+as the person who issued it.
 
 ### PUT /api/api-keys/:id/rate-limit
 

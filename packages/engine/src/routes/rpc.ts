@@ -9,7 +9,8 @@
  */
 
 import { Hono } from 'hono';
-import { guardSession } from '../lib/admin-guard.js';
+import { guardSession, guardSessionOrKey } from '../lib/admin-guard.js';
+import { isApiKeyPrincipal, RPC_SCOPE } from '../lib/data/index.js';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { reqDb } from '../lib/route-db.js';
@@ -46,12 +47,14 @@ const FUNC_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/;
 export function rpcRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
-  // POST /api/rpc/:function
+  // POST /api/rpc/:function — a session, or an API key whose `$rpc` scope names
+  // this function or `execute`. A key gets 403 for a function it does not name,
+  // whitelisted or not, so a narrow key cannot probe the whitelist.
   app.post('/:fn', async (c) => {
-    const session = await guardSession(c, auth);
-    if (session instanceof Response) return session;
-
     const fnName = c.req.param('fn');
+    const user = await guardSessionOrKey(c, auth, db, RPC_SCOPE, fnName);
+    if (user instanceof Response) return user;
+
     if (!FUNC_NAME_RE.test(fnName)) {
       return c.json({ error: 'Invalid function name' }, 400);
     }
@@ -73,14 +76,16 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Function not found' }, 404);
     }
 
-    // Check role
-    const user = session.user;
+    // Check role. A key has none to rank — Casbin is never asked for one — and
+    // its grant is the `$rpc` scope checked above (see `guardSessionOrKey`).
     // The real role, not `user.role ?? 'member'` — `session.user.role` is
     // always undefined (not declared in better-auth's additionalFields), so
     // every caller was ranked as `member` and the `god` short-circuit below
     // never fired. The Casbin fallback covered it, but ranking a god as a
     // member is the wrong input to a rank comparison.
-    const hasAccess = await userHasRole(user.id, fn.required_role, await resolveUserRole(user));
+    const hasAccess =
+      isApiKeyPrincipal(user) ||
+      (await userHasRole(user.id, fn.required_role, await resolveUserRole(user)));
     if (!hasAccess) return c.json({ error: 'Forbidden' }, 403);
 
     // Parse args — optional JSON body
@@ -112,7 +117,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       // rights. Executed on the raw pool it carried no tenant context, so a
       // function that reads a collection returned rows without regard to who
       // asked. On `reqDb(c)` the isolation policies apply to it like any other
-      // query.
+      // query — as `zveltio_rls`, under the caller's RLS actor: for a key its
+      // own `apikey:<uuid>`, which `authenticate` published on this transaction.
       const rdb = reqDb(c, db);
 
       if (keys.length === 0) {
