@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { extensionRegistry } from '../../lib/extensions/index.js';
 import { _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
@@ -137,5 +138,35 @@ d('media tables under tenant RLS', () => {
       ),
     );
     await expect(write).rejects.toThrow(/row-level security/);
+  });
+
+  // content/media's 002 polices these four tables under the same names. A DOWN
+  // that dropped them left every firm's media open, and nothing re-polices a
+  // table that no longer carries a `tenant_isolation_*` policy.
+  it('rolling 023 back keeps the policies content/media installed', async () => {
+    const file = Bun.file(
+      new URL('../../db/migrations/sql/023_media_tables_rls.sql', import.meta.url),
+    );
+    const { down } = parseMigrationFile(await file.text());
+    const rollback = new Error('rollback');
+    let forced: boolean | undefined;
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`INSERT INTO zv_migrations (name) VALUES ('ext:content/media:002_tenant_rls')
+                  ON CONFLICT DO NOTHING`.execute(trx);
+        for (const stmt of splitSqlStatements(down ?? '')) await sql.raw(stmt).execute(trx);
+        const r = await sql<{ forced: boolean }>`
+          SELECT relforcerowsecurity AND EXISTS (
+                   SELECT 1 FROM pg_policies WHERE tablename = 'zv_media_files'
+                    AND policyname = 'tenant_isolation_zv_media_files') AS forced
+            FROM pg_class WHERE oid = 'zv_media_files'::regclass`.execute(trx);
+        forced = r.rows[0]?.forced;
+        throw rollback;
+      })
+      .catch((err) => {
+        if (err !== rollback) throw err;
+      });
+    expect(forced).toBe(true);
   });
 });

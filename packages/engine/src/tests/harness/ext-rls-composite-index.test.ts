@@ -25,6 +25,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const WITH_TS = `zv_extidx_${STAMP}`;
 const NO_TS = `zv_extnots_${STAMP}`;
+const OWN_IDX = `zv_extown_${STAMP}`;
 
 async function indexesOn(db: Database, table: string): Promise<string[]> {
   const r = await sql<{ indexname: string }>`
@@ -50,12 +51,20 @@ d('extension tables get the composite index too', () => {
           '(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid)',
       )
       .execute(db);
+    // An author's own tenant index under another name, as every engine table
+    // 023-029 put under a policy has (`idx_<t>_tenant`).
+    await sql
+      .raw(`CREATE TABLE IF NOT EXISTS "${OWN_IDX}" (id uuid PRIMARY KEY, tenant_id uuid)`)
+      .execute(db);
+    await sql
+      .raw(`CREATE INDEX IF NOT EXISTS "${OWN_IDX}_t" ON "${OWN_IDX}" (tenant_id)`)
+      .execute(db);
     // The reconciler works from `pg_policies`, on names matching
     // `tenant_isolation_%` — it repairs tables an extension's own migration has
     // already put a policy on, and creates none itself. A probe without one is
     // simply not seen, which is what the first version of this test measured
     // without noticing: it asserted a missing index and got a missing table.
-    for (const t of [WITH_TS, NO_TS]) {
+    for (const t of [WITH_TS, NO_TS, OWN_IDX]) {
       await sql.raw(`ALTER TABLE "${t}" ENABLE ROW LEVEL SECURITY`).execute(db);
       await sql.raw(`CREATE POLICY "tenant_isolation_${t}" ON "${t}" USING (true)`).execute(db);
     }
@@ -63,7 +72,7 @@ d('extension tables get the composite index too', () => {
 
   afterAll(async () => {
     if (!db) return;
-    for (const t of [WITH_TS, NO_TS]) {
+    for (const t of [WITH_TS, NO_TS, OWN_IDX]) {
       await sql
         .raw(`DROP TABLE IF EXISTS "${t}" CASCADE`)
         .execute(db)
@@ -83,5 +92,35 @@ d('extension tables get the composite index too', () => {
     const idx = await indexesOn(db, NO_TS);
     expect(idx).toContain(`idx_${NO_TS}_tenant_id`);
     expect(idx).not.toContain(`idx_${NO_TS}_tenant_created`);
+  }, 60_000);
+
+  it('does not duplicate a tenant index the table already has under another name', async () => {
+    await reconcileExtensionTenantRLS(db);
+    expect(await indexesOn(db, OWN_IDX)).not.toContain(`idx_${OWN_IDX}_tenant_id`);
+    // Nor any engine table 023-029 put under a policy: each already had its
+    // `idx_<t>_tenant`, and got a second, identical one from the first boot.
+    const policed = [
+      'zv_media_files',
+      'zv_media_folders',
+      'zv_media_tags',
+      'zv_media_file_tags',
+      'zv_revisions',
+      'zv_import_logs',
+      'zv_dashboards',
+      'zv_flows',
+      'zvd_webhooks',
+      'zvd_webhook_deliveries',
+      'zv_environments',
+    ];
+    const dup = await sql<{ table: string }>`
+      SELECT c.relname AS table
+        FROM pg_index x
+        JOIN pg_class c ON c.oid = x.indrelid
+        JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = x.indkey[0]
+       WHERE a.attname = 'tenant_id' AND x.indnatts = 1 AND x.indpred IS NULL
+         AND c.relname = ANY (${policed})
+       GROUP BY c.relname HAVING COUNT(*) > 1
+    `.execute(db);
+    expect(dup.rows.map((r) => r.table)).toEqual([]);
   }, 60_000);
 });
