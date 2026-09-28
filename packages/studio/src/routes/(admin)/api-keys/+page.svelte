@@ -62,6 +62,9 @@ let copied = $state(false);
 // The action names `checkAccess` asks for. `write` was offered here and the
 // engine never checks it: a key made with it could not create or update.
 const ALL_ACTIONS = ['read', 'create', 'update', 'delete'];
+// `$rpc` takes `execute` (every whitelisted function) or function names; the
+// four above would mint a key that calls nothing.
+const actionsFor = (collection: string) => (collection === '$rpc' ? ['execute'] : ALL_ACTIONS);
 
 const emptyForm = () => ({
   name: '',
@@ -151,6 +154,24 @@ function addScope() {
 
 function removeScope(i: number) {
   form.scopes = form.scopes.filter((_, idx) => idx !== i);
+}
+
+/** A row just turned `$rpc` still holds data actions, which would read as function names. */
+function switchedToRpc(scopeIdx: number) {
+  const scope = form.scopes[scopeIdx];
+  if (scope.collection !== '$rpc') return;
+  const names = scope.actions.filter((a) => !ALL_ACTIONS.includes(a));
+  form.scopes = form.scopes.map((s, i) =>
+    i === scopeIdx ? { ...s, actions: names.length ? names : ['execute'] } : s,
+  );
+}
+
+/** A `$rpc` entry's function names, typed as a list; `execute` stays as ticked. */
+function setFunctions(scopeIdx: number, text: string) {
+  const names = text.split(/[\s,]+/).filter(Boolean);
+  const scope = form.scopes[scopeIdx];
+  const actions = [...(scope.actions.includes('execute') ? ['execute'] : []), ...names];
+  form.scopes = form.scopes.map((s, i) => (i === scopeIdx ? { ...s, actions } : s));
 }
 
 function toggleAction(scopeIdx: number, action: string) {
@@ -279,6 +300,7 @@ function formatRelative(dateStr: string): string {
           <datalist id="api-key-scope-surfaces">
             <option value="$storage"></option>
             <option value="$schema"></option>
+            <option value="$rpc"></option>
           </datalist>
           <div class="space-y-2">
             {#each form.scopes as scope, i}
@@ -289,9 +311,10 @@ function formatRelative(dateStr: string): string {
                   placeholder={m['apiKeys.scopePlaceholder']()}
                   list="api-key-scope-surfaces"
                   bind:value={scope.collection}
+                  onchange={() => switchedToRpc(i)}
                 />
                 <div class="flex gap-1">
-                  {#each ALL_ACTIONS as action}
+                  {#each actionsFor(scope.collection) as action}
                     <label class="flex items-center gap-1 cursor-pointer">
                       <input
                         type="checkbox"
@@ -302,6 +325,15 @@ function formatRelative(dateStr: string): string {
                       <span class="text-xs">{action}</span>
                     </label>
                   {/each}
+                  {#if scope.collection === '$rpc'}
+                    <input
+                      class="input input-xs w-40"
+                      type="text"
+                      placeholder="fn_a, fn_b"
+                      value={scope.actions.filter((a) => a !== 'execute').join(', ')}
+                      onchange={(e) => setFunctions(i, e.currentTarget.value)}
+                    />
+                  {/if}
                 </div>
                 {#if form.scopes.length > 1}
                   <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeScope(i)}>✕</button>

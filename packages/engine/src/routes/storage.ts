@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { guardSessionOrKey } from '../lib/admin-guard.js';
-import { type RequestUser, rowAuthorId, STORAGE_SCOPE } from '../lib/data/index.js';
+import {
+  isApiKeyPrincipal,
+  type RequestUser,
+  rowAuthorId,
+  STORAGE_SCOPE,
+} from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
@@ -253,7 +258,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // admin — Casbin is not asked for one; its exemption is `rls_bypass`, the
   // data path's rule (see `guardSessionOrKey`).
   const seesAllFiles = (user: RequestUser): Promise<boolean> =>
-    user.role === 'api_key' ? Promise.resolve(user.rlsBypass === true) : isTenantAdmin(user.id);
+    isApiKeyPrincipal(user) ? Promise.resolve(user.rlsBypass === true) : isTenantAdmin(user.id);
 
   // GET / — List files
   app.get('/', async (c) => {

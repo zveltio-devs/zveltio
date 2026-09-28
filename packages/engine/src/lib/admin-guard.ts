@@ -65,7 +65,8 @@ export async function refuseWithoutSession(
  * - Who: `authenticate` → `validateApiKey`: active, unexpired, issuer not
  *   banned, and `apiKeyActsIn` the request's tenant (a root key acts in any).
  * - Principal: `{ id: 'apikey:<uuid>', role: 'api_key', scopes, rlsBypass,
- *   authorUserId }`.
+ *   authorUserId }`, told from a session by its id (`isApiKeyPrincipal`), never
+ *   by `role`.
  * - RLS: `publishApiKeyActor` sets `zveltio.user_id` = that id, role(s)
  *   `api_key`, email `''`, `zveltio.rls_bypass` = the key's flag. The tenant
  *   (`zveltio.current_tenant`) is the request's; the key changes nothing there.

@@ -22,6 +22,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 
 /** `stream` opens an SSE response for a session, so the cookie check skips it. */
 const ROUTES: Array<[method: string, path: string, stream?: true]> = [
+  // Takes a key holding `$rpc` now; this key does not — rpc-api-key.test.ts.
   ['POST', '/api/rpc/no_such_fn'],
   ['GET', '/api/rpc'],
   ['GET', '/api/realtime/stream', true],

@@ -105,7 +105,16 @@ export async function authenticate(
  * it, and to NULL when that is unknown, which the column allows.
  */
 export function rowAuthorId(user: { id: string; authorUserId?: string | null }): string | null {
-  return user.id.startsWith('apikey:') ? (user.authorUserId ?? null) : user.id;
+  return isApiKeyPrincipal(user) ? (user.authorUserId ?? null) : user.id;
+}
+
+/**
+ * Is this principal an API key? By its id, which only `authenticate` mints —
+ * never by `role`: that is a column on `"user"`, and a session carrying
+ * `role: 'api_key'` must not be read as a key (nor skip what a key skips).
+ */
+export function isApiKeyPrincipal(user: { id: string }): boolean {
+  return user.id.startsWith('apikey:');
 }
 
 /** The request's `zvk_` key, from `X-API-Key` or a bearer header; null when none. */
@@ -331,6 +340,14 @@ const SCHEMA_SCOPE = '$schema';
 export const STORAGE_SCOPE = '$storage';
 
 /**
+ * The scope that lets an API key call `/api/rpc/:fn`: `execute` (or `*`) on
+ * every enabled whitelisted function, or the functions it names — see
+ * `grantsCall`. The whitelist's `required_role` ranks a session's roles; a key
+ * has none, so the scope stands where the rank does.
+ */
+export const RPC_SCOPE = '$rpc';
+
+/**
  * May a key with `scopes`, acting in `tenantId`, watch the schema?
  *
  * Only by naming `SCHEMA_SCOPE` with `read` (or `*`) — see `apiKeyHoldsScope`.
@@ -364,9 +381,21 @@ export function apiKeyHoldsScope(scopes: unknown, scope: string, action: string)
     Array.isArray(list) &&
     list.some(
       (s: { collection?: unknown; actions?: unknown } | null) =>
-        s?.collection === scope && Array.isArray(s.actions) && grantsAction(s.actions, action),
+        s?.collection === scope &&
+        Array.isArray(s.actions) &&
+        (scope === RPC_SCOPE ? grantsCall(s.actions, action) : grantsAction(s.actions, action)),
     )
   );
+}
+
+/**
+ * Whether a `$rpc` entry lets a key call function `fn`: `execute` or `*` for
+ * every one, otherwise only a function the entry names exactly. No `write`
+ * alias here — a function called `create` is granted by naming it, not by
+ * `write`. `execute` and `*` are reserved: they always mean every function.
+ */
+function grantsCall(actions: unknown[], fn: string): boolean {
+  return actions.includes('execute') || actions.includes('*') || actions.includes(fn);
 }
 
 /**
@@ -388,7 +417,7 @@ function grantsAction(actions: unknown[], action: string): boolean {
  * whole `RequestUser`. It never looks at `name`, and demanding one obliged
  * every caller outside the data path — `content/pages` renders collections
  * through `ctx.internals.checkAccess` — to invent a value that is discarded.
- * An absent `role` is simply not `'api_key'`, which is the session branch.
+ * Which branch is decided by the id (`isApiKeyPrincipal`), not by `role`.
  */
 export async function checkAccess(
   db: Database,
@@ -401,7 +430,7 @@ export async function checkAccess(
   // every check through checkPermission() — it handles god bypass (DB + HMAC
   // cache) first, then Casbin, so admins with proper policies still get
   // access without depending on a session field that may be missing.
-  if (user.role === 'api_key') {
+  if (isApiKeyPrincipal(user)) {
     // API keys cannot access system tables
     const tableName = DDLManager.getTableName(collection);
     if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
