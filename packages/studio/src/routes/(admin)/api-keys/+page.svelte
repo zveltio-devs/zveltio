@@ -6,6 +6,7 @@ import { replaceState } from '$app/navigation';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
+import { extensions } from '$lib/extensions.svelte.js';
 import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import Modal from '$lib/components/common/Modal.svelte';
@@ -301,6 +302,10 @@ function formatRelative(dateStr: string): string {
             <option value="$storage"></option>
             <option value="$schema"></option>
             <option value="$rpc"></option>
+            <!-- `$ext:<name>` reaches only the routes that extension declares in `apiKeyRoutes`. -->
+            {#each extensions.active as name}
+              <option value={`$ext:${name}`}></option>
+            {/each}
           </datalist>
           <div class="space-y-2">
             {#each form.scopes as scope, i}

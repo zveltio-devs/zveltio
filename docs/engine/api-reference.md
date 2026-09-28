@@ -771,6 +771,17 @@ action word stands for a function — `write` does not grant a function called
 does. It too must be named. The function sees the key as `apikey:<uuid>`, never
 as the person who issued it.
 
+`{ "collection": "$ext:finance/invoicing", "actions": ["read", "create"] }`
+lets a key call the routes that extension declares in its manifest
+`apiKeyRoutes` — nothing else under `/ext/finance/invoicing`, which still
+answers a key 403 `EXT_SESSION_REQUIRED`. Each route needs the action its
+method maps to: GET `read`, POST `create`, PUT/PATCH `update`, DELETE `delete`.
+The extension's own permission checks for the key are answered from the same
+entry (an action it asks by name, such as `settle`, must be named there too);
+Casbin is not asked. It too must be named. A 401 means no key, or one that is
+unknown, revoked, expired or of another tenant; a 403, a valid key without the
+scope or a route not declared for keys.
+
 ### PUT /api/api-keys/:id/rate-limit
 
 Set a custom rate limit for a specific API key, overriding the tier defaults.

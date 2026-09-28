@@ -153,6 +153,21 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     );
   }
 
+  // The engine's manifest schema refuses the whole extension (422) on a bad entry.
+  if (obj.apiKeyRoutes !== undefined) {
+    const routes = Array.isArray(obj.apiKeyRoutes) ? obj.apiKeyRoutes : [obj.apiKeyRoutes];
+    for (const r of routes) {
+      if (typeof r !== 'string' || !/^(GET|POST|PUT|PATCH|DELETE) \S+$/.test(r)) {
+        out.push(
+          err(
+            'MANIFEST_BAD_API_KEY_ROUTE',
+            `apiKeyRoutes entry ${JSON.stringify(r)} must be "<GET|POST|PUT|PATCH|DELETE> <pattern>"`,
+          ),
+        );
+      }
+    }
+  }
+
   if (typeof obj.category === 'string' && !KNOWN_CATEGORIES.has(obj.category)) {
     // A true warning — categories are open-ended in practice (e.g. the RO
     // compliance set uses "compliance/ro"). Surfaced so authors notice typos

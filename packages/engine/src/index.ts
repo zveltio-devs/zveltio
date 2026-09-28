@@ -743,7 +743,7 @@ async function buildHonoApp(): Promise<Hono> {
   // `publicRoutes`. Registered BEFORE the extension subapps below so it wraps
   // them. Inverts the old fail-open model where a forgotten in-extension guard
   // meant silent anonymous exposure. See middleware/extension-auth-gate.ts.
-  app.use('/ext/*', extensionAuthGate(auth));
+  app.use('/ext/*', extensionAuthGate(auth, db));
   // Throttle extension traffic (per user / per IP) so a compromised or abusive
   // client can't hammer extension routes. Generous cap — SDUI bursts are fine.
   app.use('/ext/*', extRateLimit);

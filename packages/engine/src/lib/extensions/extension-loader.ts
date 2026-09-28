@@ -235,6 +235,8 @@ interface LoadedExtension {
   /** Manifest `publicRoutes` — re-registered with the `/ext/*` auth gate on a
    * hot-reload so fail-closed enforcement survives a rebuild. */
   publicRoutes?: string[];
+  /** Manifest `apiKeyRoutes` — re-registered with the gate alongside `publicRoutes`. */
+  apiKeyRoutes?: string[];
   /**
    * Set when the manifest requires worker isolation. Persisted for the same
    * reason as `permissions` above: hot-reload used to pass `manifest = null`, so

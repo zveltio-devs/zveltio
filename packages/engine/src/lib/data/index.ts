@@ -52,6 +52,7 @@ export { checkAccess } from './auth.js';
 export {
   apiKeyHoldsScope,
   apiKeyMayWatchSchema,
+  extScope,
   isApiKeyPrincipal,
   RPC_SCOPE,
   STORAGE_SCOPE,

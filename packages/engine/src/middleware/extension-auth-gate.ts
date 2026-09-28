@@ -13,6 +13,14 @@
  * exposure. Authorization stays the extension's job — this only enforces
  * AUTHENTICATION; `permissionGate(ctx, name)` still does per-resource RBAC.
  *
+ * API keys: a route the manifest declares in `apiKeyRoutes` (`"POST /invoices"`)
+ * also admits a key holding `$ext:<name>` for the method's action — GET read,
+ * POST create, PUT/PATCH update, DELETE delete, as `permissionGate` derives it.
+ * The key principal is set as `user` and, for the rest of the request,
+ * `admittedApiKey()` answers the extension's `ctx.checkPermission` from that
+ * scope instead of Casbin (lib/extensions/register.ts). Every other route
+ * refuses a key exactly as before: 403 EXT_SESSION_REQUIRED.
+ *
  * Escape hatch: `ZVELTIO_EXT_AUTH_GATE=0` disables it (operational safety valve
  * for an install whose extension manifests predate their publicRoutes
  * declarations). Default is on.
@@ -22,8 +30,11 @@
  * by construction; the extensions-repo CI guard flags any that shouldn't be.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Context, MiddlewareHandler } from 'hono';
-import { presentsUsableKey } from '../lib/admin-guard.js';
+import type { Database } from '../db/index.js';
+import { guardSessionOrKey, presentsUsableKey } from '../lib/admin-guard.js';
+import { apiKeyHoldsScope, extScope, isApiKeyPrincipal, requestApiKey } from '../lib/data/index.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -42,8 +53,64 @@ interface SessionResolver {
   };
 }
 
-/** Registered extension → its compiled public-route matchers. */
-const registry = new Map<string, RegExp[]>();
+interface KeyRoute {
+  method: string;
+  path: RegExp;
+  action: string;
+}
+
+/** Registered extension → its compiled public-route and API-key-route matchers. */
+const registry = new Map<string, { publicRoutes: RegExp[]; apiKeyRoutes: KeyRoute[] }>();
+
+/** The action `permissionGate` derives from a method — the one a key's scope must carry. */
+const METHOD_ACTION: Record<string, string> = {
+  GET: 'read',
+  POST: 'create',
+  PUT: 'update',
+  PATCH: 'update',
+  DELETE: 'delete',
+};
+
+/** A manifest `apiKeyRoutes` entry, `"<METHOD> <pattern>"` (validated by the manifest schema). */
+function compileKeyRoute(entry: string): KeyRoute {
+  const [method = '', pattern = '', extra] = entry.split(' ');
+  const action = METHOD_ACTION[method];
+  // The schema refuses a malformed entry; one that got here anyway opens nothing.
+  if (!action || !pattern || extra !== undefined) return { method: '', path: /$^/, action: '' };
+  return { method, path: compilePattern(pattern), action };
+}
+
+/**
+ * The key principal the gate admitted for this request, if any. An extension's
+ * `ctx.checkPermission` answers an `apikey:` id from this and never from Casbin,
+ * which holds no policy for a key and would refuse it on every call.
+ */
+const admitted = new AsyncLocalStorage<{ id: string; scopes: unknown }>();
+
+export function admittedApiKey(): { id: string; scopes: unknown } | undefined {
+  return admitted.getStore();
+}
+
+/**
+ * An extension's `ctx.checkPermission`, answering an API key from its scope.
+ *
+ * Casbin holds no policy for `apikey:<uuid>`, so asking it refused every key
+ * the gate had just admitted — `permissionGate` would 403 each `apiKeyRoutes`
+ * route. A key is answered by `$ext:<extName>` for the asked action, and only
+ * while it is the key this gate admitted for this request; the resource
+ * is not consulted — the scope is per extension. Outside such a request (a job,
+ * a listener after the response) a key id is refused. Sessions: unchanged.
+ */
+export function keyAwareCheckPermission(
+  extName: string,
+  base: (userId: string, resource: string, action: string) => Promise<boolean>,
+): (userId: string, resource: string, action: string) => Promise<boolean> {
+  return async (userId, resource, action) => {
+    if (!isApiKeyPrincipal({ id: userId })) return base(userId, resource, action);
+    const key = admittedApiKey();
+    return key?.id === userId && apiKeyHoldsScope(key.scopes, extScope(extName), action);
+  };
+}
 
 /**
  * Compile a manifest publicRoutes pattern into an anchored RegExp.
@@ -65,15 +132,19 @@ function compilePattern(pattern: string): RegExp {
 }
 
 /**
- * Record an extension's declared public routes. Called by the loader on each
- * (re)load. Idempotent — a reload replaces the previous set. An empty/omitted
- * list means "every route under this extension requires a session".
+ * Record an extension's declared public and API-key routes. Called by the
+ * loader on each (re)load. Idempotent — a reload replaces the previous set. An
+ * empty/omitted list means "every route under this extension requires a session".
  */
 export function registerExtensionPublicRoutes(
   extName: string,
   publicRoutes: readonly string[],
+  apiKeyRoutes: readonly string[] = [],
 ): void {
-  registry.set(extName, publicRoutes.map(compilePattern));
+  registry.set(extName, {
+    publicRoutes: publicRoutes.map(compilePattern),
+    apiKeyRoutes: apiKeyRoutes.map(compileKeyRoute),
+  });
 }
 
 /** Drop an extension's entry (on unload). Safe to call for an unknown name. */
@@ -108,16 +179,24 @@ function resolveOwner(rest: string): { name: string; sub: string } | null {
 
 /** True if `sub` matches any of the extension's declared public patterns. */
 function isDeclaredPublic(extName: string, sub: string): boolean {
-  const matchers = registry.get(extName);
+  const matchers = registry.get(extName)?.publicRoutes;
   if (!matchers) return false;
   return matchers.some((re) => re.test(sub));
+}
+
+/** The action a key needs for `method sub`, or null when the route is not declared for keys. */
+function keyRouteAction(extName: string, method: string, sub: string): string | null {
+  const route = registry
+    .get(extName)
+    ?.apiKeyRoutes.find((r) => r.method === method && r.path.test(sub));
+  return route?.action ?? null;
 }
 
 /**
  * Build the `/ext/*` gate. Mount AFTER tenant middleware and BEFORE the
  * extension subapps so it wraps every extension route.
  */
-export function extensionAuthGate(auth: SessionResolver): MiddlewareHandler {
+export function extensionAuthGate(auth: SessionResolver, db: Database): MiddlewareHandler {
   return async (c: Context, next) => {
     if (process.env.ZVELTIO_EXT_AUTH_GATE === '0') return next();
     // CORS preflight carries no credentials — never gate it.
@@ -131,6 +210,18 @@ export function extensionAuthGate(auth: SessionResolver): MiddlewareHandler {
     if (owner && isDeclaredPublic(owner.name, owner.sub)) {
       // Explicitly declared public — anonymous access allowed.
       return next();
+    }
+
+    // A route declared for keys, and a key presented: the key model of every
+    // other surface (`guardSessionOrKey`) — 401 invalid/foreign, 403 no scope.
+    const action = owner && keyRouteAction(owner.name, c.req.method, owner.sub);
+    if (owner && action && requestApiKey(c)) {
+      const user = await guardSessionOrKey(c, auth, db, extScope(owner.name), action);
+      if (user instanceof Response) return user;
+      c.set('user', user);
+      // A session sent alongside the key wins, as it does in `authenticate`.
+      if (!isApiKeyPrincipal(user)) return next();
+      return admitted.run({ id: user.id, scopes: user.scopes }, () => next());
     }
 
     // Fail-closed: require an authenticated session.
