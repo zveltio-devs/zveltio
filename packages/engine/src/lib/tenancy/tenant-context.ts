@@ -56,6 +56,8 @@ interface TenantStore {
    * it.
    */
   afterCommit?: AfterCommitQueue;
+  /** Set by `runAsTenantWithoutTransaction`; read by `poolOrRefusal`. */
+  refuseUnscoped?: boolean;
 }
 
 /**
@@ -209,6 +211,45 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
   const s = store.getStore();
   if (!s?.trx) return fn();
   return store.run({ ...s, trx: undefined }, fn);
+}
+
+/**
+ * Stands in for the pool where an unscoped query must not run. Every use throws,
+ * so an extension's `ctx.db` cannot fall through to the pool — which answers for
+ * the default firm, or for every firm on a superuser. `then` stays undefined so
+ * the handle is not mistaken for a promise.
+ */
+const UNSCOPED_REFUSED = new Proxy({} as Database, {
+  get(_target, prop) {
+    if (prop === 'then' || typeof prop === 'symbol') return undefined;
+    throw new Error(
+      'no tenant transaction is open here: wrap this database work in ' +
+        'withTenantIsolation (ctx.internals.withTenantIsolation in an extension)',
+    );
+  },
+});
+
+/**
+ * Run `fn` as `tenantId` with NO transaction open, for work that waits on
+ * something slow between its database calls — an AI task waiting on the model.
+ *
+ * A transaction held across that wait sits `idle in transaction` and is killed
+ * at `idle_in_transaction_session_timeout`, so such work opens a short
+ * `withTenantIsolation` around each stretch of database work instead. The
+ * domain stays `tenantId`, so permission checks resolve that firm, and an
+ * extension's `ctx.db` outside those stretches is refused (`poolOrRefusal`)
+ * rather than quietly unscoped.
+ *
+ * Not a stand-in in `trx`: "is a transaction open" is what `onAfterCommit`,
+ * the event bus and the webhook trigger ask of that field, and here none is.
+ */
+export function runAsTenantWithoutTransaction<T>(tenantId: string, fn: () => T): T {
+  return store.run({ domain: tenantId, refuseUnscoped: true }, fn);
+}
+
+/** `pool`, unless this context refuses unscoped queries. See above. */
+export function poolOrRefusal(pool: Database): Database {
+  return store.getStore()?.refuseUnscoped ? UNSCOPED_REFUSED : pool;
 }
 
 /**

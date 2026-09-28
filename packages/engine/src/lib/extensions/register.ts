@@ -27,6 +27,7 @@ import {
   checkPermission,
   getUserRoles,
   getCurrentTenantTrx,
+  poolOrRefusal,
   materializeDefaultGrants,
   registerSensitiveResources,
   describeDenial,
@@ -410,7 +411,14 @@ export function buildRestrictedContext(
     // falling back to the global pool only outside any tenant context
     // (boot/CLI). So an extension can no longer read or write across tenants by
     // reaching for `ctx.db` instead of `reqDb(c)` — the last multi-tenant hole.
-    db: createRestrictedDb(() => getCurrentTenantTrx() ?? ctx.db, extName, allowedTables),
+    // Refused instead of the pool where the host opened no transaction on
+    // purpose (`runAsTenantWithoutTransaction`, e.g. an AI task waiting on the
+    // model).
+    db: createRestrictedDb(
+      () => getCurrentTenantTrx() ?? poolOrRefusal(ctx.db),
+      extName,
+      allowedTables,
+    ),
     // Configuration resolved host-side, so extensions stop reading the engine's
     // whole environment (and stop missing the admin's Studio storage settings).
     config: buildExtensionConfig(capabilities, extName),
