@@ -129,7 +129,9 @@ d('SSE stream with an API key', () => {
     const { key } = await createKey();
     const none = await stream(`collection=${UNSCOPED}`, { 'X-API-Key': key });
     expect(none.status).toBe(403);
-    expect(((await none.json()) as { detail: string }).detail).toContain('No read permission');
+    const body = (await none.json()) as { detail: string; errors: { denied: string[] } };
+    expect(body.detail).toContain('No read permission');
+    expect(body.errors.denied).toEqual([UNSCOPED]);
     // The wildcard stream and non-data channels are tenant admin only; a key is none.
     expect((await stream('', { 'X-API-Key': key })).status).toBe(403);
     const presence = await stream(`collection=${SCOPED}&channel=presence:room`, {

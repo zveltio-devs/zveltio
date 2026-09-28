@@ -521,7 +521,8 @@ exactly what the WebSocket gives it: a collection its scopes grant `read` on (th
 `denied`), rows filtered by row rules unless the key has `rls_bypass`, hidden columns stripped. It
 cannot open the wildcard stream (no `collection`) or a non-data `channel` — those are tenant-admin
 only, and presence and broadcast stay with signed-in users. 401: no credentials, or a key that is
-unknown, revoked, expired or of another tenant; 403: it may read none of the collections asked for.
+unknown, revoked, expired or of another tenant; 403: it may read none of the collections asked for
+(the problem body lists them in `errors.denied`).
 A stream ends when its session or key stops authenticating (sign-out, revoke, expiry, the issuer
 deactivated) or when a change to its permissions — or to the key's scopes — takes away a read it
 uses; reconnect to get the collections it still may read.

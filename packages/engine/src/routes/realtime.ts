@@ -628,7 +628,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       return c.json(
         {
           error: 'No read permission on any of the requested collections',
-          denied,
+          // Under `errors`: the problem+json normalizer keeps that member and
+          // drops any other, so a bare `denied` never reached the client.
+          errors: { denied },
         },
         403,
       );
