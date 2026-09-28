@@ -17,7 +17,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
-import { setTenantScopedTables } from './lib/tenancy/index.js';
+import { setTenantScopedTables, withEveryTenant } from './lib/tenancy/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
@@ -1025,12 +1025,16 @@ rm studio.tar.gz</pre>
     try {
       const db = _bootstrapCtx?.db;
       if (db) {
-        const pending = await sql<{ n: string }>`
-          SELECT count(*)::text AS n FROM zvd_webhook_deliveries WHERE delivered_at IS NULL
-        `.execute(db);
-        const subs = await sql<{ n: string }>`
-          SELECT count(*)::text AS n FROM zvd_webhooks WHERE active = true
-        `.execute(db);
+        // Every firm: both tables are under the tenant policy (migration 028),
+        // and on the bare pool a non-superuser database counts the default only.
+        const [pending, subs] = await withEveryTenant(db, async (trx) => [
+          await sql<{ n: string }>`
+            SELECT count(*)::text AS n FROM zvd_webhook_deliveries WHERE delivered_at IS NULL
+          `.execute(trx),
+          await sql<{ n: string }>`
+            SELECT count(*)::text AS n FROM zvd_webhooks WHERE active = true
+          `.execute(trx),
+        ]);
         lines.push(
           ...gaugeLine(
             'webhook_queue_pending',

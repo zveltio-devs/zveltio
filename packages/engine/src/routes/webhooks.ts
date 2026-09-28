@@ -178,8 +178,13 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       }
       // `attempt: 0` so the replay gets the full retry budget again rather
       // than one last try — the endpoint being back is a new situation.
+      // `tenantId` because an entry abandoned before migration 028 has none, and
+      // the outcome is written as the delivery's firm — which is this one.
       const { failedAt: _failedAt, secret: _stale, ...payload } = parsed as Record<string, unknown>;
-      await cache.rpush('webhook:queue', JSON.stringify({ ...payload, secret, attempt: 0 }));
+      await cache.rpush(
+        'webhook:queue',
+        JSON.stringify({ ...payload, secret, attempt: 0, tenantId: tenantId(c) }),
+      );
       await cache.lrem(WEBHOOK_DLQ_KEY, 1, item);
       replayed++;
     }

@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -77,6 +78,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   WebhookManager.init(null as unknown as Database); // reset module _db
+  initTenantManager(null as unknown as Database);
 });
 
 describe('WebhookManager.deliver', () => {
@@ -169,6 +171,7 @@ describe('WebhookManager.deliver', () => {
     const db = new CannedDb();
     db.when(/update "zvd_webhook_deliveries"/i, []);
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     await WebhookManager.deliver({ ...basePayload, deliveryId: 'del-1' });
     // The update is fire-and-forget (.catch) — let it flush.
@@ -180,6 +183,7 @@ describe('WebhookManager.deliver', () => {
 describe('WebhookManager.trigger', () => {
   it('is a no-op when not initialized with a db', async () => {
     WebhookManager.init(null as unknown as Database);
+    initTenantManager(null as unknown as Database);
     await expect(
       WebhookManager.trigger('record.created', 'c', { id: '1' }),
     ).resolves.toBeUndefined();
@@ -200,6 +204,7 @@ describe('WebhookManager.trigger', () => {
     ]);
     db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-9' }]);
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     await WebhookManager.trigger('record.created', 'contacts', { id: 'r1' });
     // No Valkey → deliver() is fire-and-forget; let it flush.
