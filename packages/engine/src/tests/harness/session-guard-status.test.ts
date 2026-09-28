@@ -25,6 +25,8 @@ const ROUTES: Array<[method: string, path: string, stream?: true]> = [
   // Takes a key holding `$rpc` now; this key does not — rpc-api-key.test.ts.
   ['POST', '/api/rpc/no_such_fn'],
   ['GET', '/api/rpc'],
+  // Takes a key now; with no `?collection=` it asks for the wildcard stream,
+  // tenant admin only, which a key never is — realtime-sse-api-key.test.ts.
   ['GET', '/api/realtime/stream', true],
   ['GET', '/api/realtime/presence/room'],
   ['POST', '/api/realtime/presence/room'],

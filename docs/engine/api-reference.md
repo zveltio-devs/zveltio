@@ -515,7 +515,17 @@ Generate a collection schema from a natural language description.
 
 Server-Sent Events (SSE) stream for real-time data updates.
 
-**Authentication:** Session cookie (SSE clients can't send custom headers, so API keys are not supported on this endpoint).
+**Authentication:** Session cookie, or an API key in `X-API-Key` / `Authorization: Bearer` (a
+browser `EventSource` cannot send either header — a key is for server-side clients). A key streams
+exactly what the WebSocket gives it: a collection its scopes grant `read` on (the rest are listed in
+`denied`), rows filtered by row rules unless the key has `rls_bypass`, hidden columns stripped. It
+cannot open the wildcard stream (no `collection`) or a non-data `channel` — those are tenant-admin
+only, and presence and broadcast stay with signed-in users. 401: no credentials, or a key that is
+unknown, revoked, expired or of another tenant; 403: it may read none of the collections asked for
+(the problem body lists them in `errors.denied`).
+A stream ends when its session or key stops authenticating (sign-out, revoke, expiry, the issuer
+deactivated) or when a change to its permissions — or to the key's scopes — takes away a read it
+uses; reconnect to get the collections it still may read.
 
 **Query parameters:**
 
@@ -781,6 +791,26 @@ entry (an action it asks by name, such as `settle`, must be named there too);
 Casbin is not asked. It too must be named. A 401 means no key, or one that is
 unknown, revoked, expired or of another tenant; a 403, a valid key without the
 scope or a route not declared for keys.
+
+### GET /api/api-keys/self
+
+The presenting API key's own record, so a program can learn what it holds (`GET /api/me` is a
+signed-in user's profile). Never the hash. SDK: `client.auth.apiKey()`.
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Mobile App",
+  "key_prefix": "zvk_a1b2c3",
+  "scopes": [{ "collection": "products", "actions": ["read"] }],
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "expires_at": null,
+  "rls_bypass": false
+}
+```
+
+401: no credentials, or a key that is unknown, revoked, expired or of another tenant. 403: a
+session (only a key has a key record).
 
 ### PUT /api/api-keys/:id/rate-limit
 
