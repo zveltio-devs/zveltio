@@ -38,8 +38,10 @@ import {
 declare module 'hono' {
   interface ContextVariableMap {
     tenant: Tenant | null;
-    tenantSchema: string;
-    environment: Environment | null;
+    // Both `undefined` on a TXN_SKIP_PREFIXES path under a tenant: nothing
+    // served there reads them, so they are not looked up (see below).
+    tenantSchema: string | undefined;
+    environment: Environment | null | undefined;
     // Transactional DB connection with SET LOCAL tenant GUC active.
     // Route handlers MUST use this (via c.get('tenantTrx') || db) for RLS to work.
     tenantTrx: Database | null;
@@ -136,15 +138,6 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         return c.json({ error: 'Tenant account is suspended' }, 403);
       }
 
-      // `zv_environments` is policed (migration 029), so the lookup runs as the
-      // tenant: in the request transaction, or — on a path that opens none — a
-      // short one of its own, closed before the handler reaches for the pool.
-      const setEnvironment = async (trx: Database) => {
-        const env = await resolveEnvironment(trx, tenant, c.req.raw.headers);
-        c.set('environment', env);
-        c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
-      };
-
       // Carry the tenant as the authorization DOMAIN for the whole request so
       // checkPermission()/getUserRoles() resolve per-tenant Casbin policies
       // without threading an argument through every call site.
@@ -154,7 +147,10 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         // query that must see tenant data has to run on this `tenantTrx`.
         const path = c.req.path;
         if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
-          await withTenantIsolation(tenant.id, setEnvironment);
+          // No environment lookup either. `zv_environments` is policed
+          // (migration 029), so asking here would open a transaction per
+          // request — on health checks and auth — for a value no handler on
+          // these paths reads.
           await next();
         } else {
           // The acting user, so the transaction can resolve their reach into
@@ -215,7 +211,11 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
-              await setEnvironment(trx);
+              // `zv_environments` is policed (migration 029): read as the
+              // tenant, in the transaction the request already holds.
+              const env = await resolveEnvironment(trx, tenant, c.req.raw.headers);
+              c.set('environment', env);
+              c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
               // Traced only when ZVELTIO_TRACE_CONNECTIONS=1; a no-op otherwise.
               beginTracedTransaction();
               c.set('tenantTrx', trx);
