@@ -10,8 +10,8 @@
 -- A failed CONCURRENTLY build leaves an INVALID index that `IF NOT EXISTS`
 -- would then skip, so a retry drops it first.
 --
--- The DOWN is plain: `zveltio rollback` runs every DOWN inside a transaction,
--- where DROP INDEX CONCURRENTLY is refused.
+-- The DOWN is plain DROP INDEX, which runs with or without a transaction:
+-- `zveltio rollback` wrapped every DOWN in one until #700.
 
 DROP INDEX CONCURRENTLY IF EXISTS idx_zv_media_files_created_by_api_key;
 
