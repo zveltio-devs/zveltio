@@ -1432,6 +1432,8 @@ table zv_environments
   pk  zv_environments_pkey PRIMARY KEY (id)
   fk  zv_environments_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE
   uq  zv_environments_tenant_id_slug_key UNIQUE (tenant_id, slug)
+  rls enabled forced
+  pol tenant_isolation_zv_environments FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_erd_layouts
   col collection_name                text NOT NULL

@@ -136,9 +136,14 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         return c.json({ error: 'Tenant account is suspended' }, 403);
       }
 
-      const env = await resolveEnvironment(tenant, c.req.raw.headers);
-      c.set('environment', env);
-      c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
+      // `zv_environments` is policed (migration 029), so the lookup runs as the
+      // tenant: in the request transaction, or — on a path that opens none — a
+      // short one of its own, closed before the handler reaches for the pool.
+      const setEnvironment = async (trx: Database) => {
+        const env = await resolveEnvironment(trx, tenant, c.req.raw.headers);
+        c.set('environment', env);
+        c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
+      };
 
       // Carry the tenant as the authorization DOMAIN for the whole request so
       // checkPermission()/getUserRoles() resolve per-tenant Casbin policies
@@ -149,6 +154,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         // query that must see tenant data has to run on this `tenantTrx`.
         const path = c.req.path;
         if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
+          await withTenantIsolation(tenant.id, setEnvironment);
           await next();
         } else {
           // The acting user, so the transaction can resolve their reach into
@@ -209,6 +215,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
+              await setEnvironment(trx);
               // Traced only when ZVELTIO_TRACE_CONNECTIONS=1; a no-op otherwise.
               beginTracedTransaction();
               c.set('tenantTrx', trx);
