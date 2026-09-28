@@ -210,6 +210,30 @@ d('extension offboarding through ctx.internals', () => {
     expect(await call()).not.toBe(401);
   });
 
+  it('an API key its creator made is revoked when they are deleted', async () => {
+    const god = await createGodSession(app, db);
+    const { userId } = await createMemberSession(app, db);
+    const keyRes = await app.request('/api/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: god },
+      body: JSON.stringify({ name: `offboard-del ${Date.now()}`, scopes: [] }),
+    });
+    const { id: keyId, key } = (await keyRes.json()) as { id: string; key: string };
+    await sql`UPDATE zv_api_keys SET created_by = ${userId} WHERE id = ${keyId}`.execute(db);
+    const call = async () =>
+      (await app.request('/api/data/zv_no_such_collection', { headers: { 'X-API-Key': key } }))
+        .status;
+    expect(await call()).not.toBe(401);
+
+    await asRequest((trx) => internals.deleteUser(trx, userId, { reason: 'test' }));
+    // Harsher than deactivation, so at least as final: the key is refused, and
+    // kept (revoked) rather than deleted, with its access log.
+    expect(await call()).toBe(401);
+    const row = await sql<{ is_active: boolean }>`
+      SELECT is_active FROM zv_api_keys WHERE id = ${keyId}`.execute(db);
+    expect(row.rows[0]?.is_active).toBe(false);
+  });
+
   it('refuses to deactivate or delete the instance owner, and changes nothing', async () => {
     const cookie = await createGodSession(app, db);
     const god = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
