@@ -83,10 +83,18 @@ END $$;
 
 -- DOWN
 
+-- The four policies stay when `content/media` is installed: its 002 policed
+-- these tables under the same names before this migration, and dropping them
+-- here would leave every firm's media readable by every other (as 024 keeps
+-- `zv_import_logs` for `data/import`). Nothing re-polices them on boot: the
+-- reconciler only visits tables that still carry a `tenant_isolation_*` policy.
 DO $$
 DECLARE
   t text;
 BEGIN
+  IF EXISTS (SELECT 1 FROM zv_migrations WHERE name = 'ext:content/media:002_tenant_rls') THEN
+    RETURN;
+  END IF;
   FOREACH t IN ARRAY ARRAY[
     'zv_media_files',
     'zv_media_folders',
