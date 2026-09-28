@@ -1,6 +1,7 @@
 // packages/engine/src/middleware/tenant.ts
 // Resolves tenant and environment from each request and attaches to context
 
+import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import { beginTracedTransaction, endTracedTransaction } from '../db/connection-trace.js';
@@ -31,9 +32,12 @@ import {
   getUserRoles,
   resolveUserRole,
   type RlsIdentity,
+  runAfterCommitJob,
   runWithDomain,
   setCurrentTenantTrx,
 } from '../lib/tenancy/index.js';
+
+type SettleJob = () => void | Promise<void>;
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -45,7 +49,30 @@ declare module 'hono' {
     // Transactional DB connection with SET LOCAL tenant GUC active.
     // Route handlers MUST use this (via c.get('tenantTrx') || db) for RLS to work.
     tenantTrx: Database | null;
+    // Work that waits for this request's final answer — set only while the
+    // middleware holds a transaction for it. See `afterRequestSettles`.
+    afterRequestSettles: SettleJob[] | undefined;
   }
+}
+
+/**
+ * Run `fn` once this request has its final answer, whether its transaction
+ * committed or rolled back — for the writers that RECORD a request (request log,
+ * slow query, god audit), which must see failures most of all.
+ *
+ * Not `onAfterCommit`: a rollback drops that queue, and a handler that throws
+ * rolls back. Not now either: the recorders write through the pool, and a
+ * second connection taken while this request holds one is how the engine
+ * deadlocks at `c = DB_POOL_MAX`. So they wait for the tenant middleware to let
+ * go of its connection and settle the response — including the 500 that
+ * replaces an answer whose COMMIT failed — and run then.
+ *
+ * With no transaction open for the request there is nothing to wait for.
+ */
+export function afterRequestSettles(c: Context, fn: SettleJob): void {
+  const queue = c.get('afterRequestSettles');
+  if (queue) queue.push(fn);
+  else void runAfterCommitJob(fn);
 }
 
 // Paths that never read tenant-scoped collection data — skip the per-request
@@ -130,6 +157,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
   // What the outer middleware (CORS) put on the response before the handler
   // ran — kept when a failed COMMIT replaces the handler's answer, below.
   const outerHeaders = new Headers(c.res.headers);
+  const settleJobs: SettleJob[] = [];
 
   try {
     const tenant = await resolveTenantFromRequest(c.req.raw.headers, hostname);
@@ -211,6 +239,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
             };
           }
 
+          c.set('afterRequestSettles', settleJobs);
           await withTenantIsolation(
             tenant.id,
             async (trx) => {
@@ -244,6 +273,17 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               // it is holding. Anything above zero is a route that cannot be
               // served at `c = DB_POOL_MAX`. Reported as a header so a probe can
               // read the property directly instead of inferring it from a hang.
+
+              // The handler THREW, and `onError` has already answered for it.
+              //
+              // Hono catches a handler's throw inside `next()` and renders it,
+              // so `next()` resolves and this callback returned normally — the
+              // transaction COMMITTED. The client was told 500 and every row
+              // written before the throw was kept, with its webhooks and flows
+              // run for it. Rethrowing rolls it back and drops that after-commit
+              // work; the catch below recognises this error and keeps onError's
+              // response, status and body.
+              if (c.error) throw c.error;
             },
             { userId: actingUserId, identity },
           );
@@ -284,6 +324,9 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
       await next();
     }
   } catch (err) {
+    // The handler's own error, rethrown above to roll the transaction back.
+    // `onError` rendered it already; that answer stands.
+    if (c.error && err === c.error) return c.res;
     // Saturation is not a server fault, and answering 500 tells the caller to
     // give up when it should retry. Before this branch existed the request did
     // not even get that far: `pool.reserve()` had no deadline, so a saturated
@@ -331,5 +374,9 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
       { error: 'Could not establish tenant context. Request rejected for security.' },
       500,
     );
+  } finally {
+    // The transaction is over and `c.res` is final: what was recorded is what
+    // the client was told.
+    for (const job of settleJobs) await runAfterCommitJob(job);
   }
 });

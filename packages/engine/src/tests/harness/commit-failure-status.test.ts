@@ -85,7 +85,8 @@ d('a failed COMMIT reaches the client', () => {
     const ok = await write('kept');
     expect(ok.status).toBe(201);
     for (let i = 0; i < 40 && !(await logged()).includes(201); i++) await Bun.sleep(50);
-    // Exactly one 201: the refused write's after-commit log job was dropped.
+    // Exactly one 201, and the refused write logged as what the client was told.
     expect((await logged()).filter((s) => s === 201)).toEqual([201]);
+    expect(await logged()).toContain(500);
   }, 30_000);
 });
