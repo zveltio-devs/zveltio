@@ -406,7 +406,9 @@ export async function assertChainCompatible(db: Database): Promise<void> {
     const versions = shipped.map((m) => m.version);
     const res = await sql<{ version: number; filename: string; checksum: string }>`
       SELECT version, filename, checksum FROM zv_schema_versions
-      WHERE version = ANY(${versions})`.execute(db);
+      WHERE version = ANY(${versions}) AND rolled_back_at IS NULL`.execute(db);
+    // A rolled-back row is pending again: its checksum is from a file that may
+    // since have been edited, which is the point of rolling back.
     recorded = res.rows;
   } catch (err) {
     // 42P01: the tracking table does not exist yet, so this is a fresh database
@@ -482,6 +484,8 @@ async function applyMigration(
       .selectFrom('zv_schema_versions')
       .select(['version', 'checksum', 'filename'])
       .where('version', '=', migrationNumber)
+      // A rolled-back version is pending again; its row is reused on insert.
+      .where('rolled_back_at', 'is', null)
       .executeTakeFirst();
   } catch (err) {
     const code =
@@ -584,17 +588,31 @@ async function applyMigration(
   const name = filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
 
   // Record in zv_schema_versions
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await (db as any)
+  await db
     .insertInto('zv_schema_versions')
     .values({
-      version: migrationNumber,
+      // INTEGER in the database; the Kysely type says string.
+      version: String(migrationNumber),
       name,
       filename,
       checksum,
       engine_version: process.env.ZVELTIO_VERSION ?? ENGINE_VERSION,
       execution_ms: executionMs,
     })
+    // `version` is UNIQUE and `rollbackMigration` keeps the row, marked. A
+    // plain insert hit the conflict, the catch below swallowed it, and the row
+    // stayed marked rolled back — so every boot re-applied the migration.
+    .onConflict((oc) =>
+      oc.column('version').doUpdateSet({
+        name,
+        filename,
+        checksum,
+        engine_version: process.env.ZVELTIO_VERSION ?? ENGINE_VERSION,
+        execution_ms: executionMs,
+        applied_at: new Date(),
+        rolled_back_at: null,
+      }),
+    )
     .execute()
     .catch((err: Error) => {
       // Tracking failure is non-fatal because the migration itself
@@ -608,6 +626,10 @@ async function applyMigration(
   await (db as any)
     .insertInto('zv_migrations')
     .values({ name: filename.replace('.sql', '') })
+    // A re-applied (rolled-back) migration already has its row.
+    .onConflict((oc: { column: (c: string) => { doNothing: () => unknown } }) =>
+      oc.column('name').doNothing(),
+    )
     .execute()
     .catch((err: Error) => {
       console.warn(
@@ -720,11 +742,23 @@ export async function rollbackMigration(
       .filter((f) => f.version > targetVersion)
       .sort((a, b) => b.version - a.version); // Descending for rollback
 
-    if (allFiles.length === 0) {
+    // Only what is applied now: a DOWN run against a migration that never ran,
+    // or already ran its DOWN, undoes nothing it did.
+    // Not `getAppliedMigrations`: it answers [] on any error, which would
+    // report an unreachable database as "Nothing to rollback".
+    const applied = new Set(
+      (
+        await sql<{ version: number }>`
+          SELECT version FROM zv_schema_versions WHERE rolled_back_at IS NULL`.execute(db)
+      ).rows.map((r) => Number(r.version)),
+    );
+    const toRollBack = allFiles.filter((f) => applied.has(f.version));
+
+    if (toRollBack.length === 0) {
       return { success: false, error: 'Nothing to rollback' };
     }
 
-    for (const file of allFiles) {
+    for (const file of toRollBack) {
       const content = await readMigration(file.filename);
       const { down } = parseMigrationFile(content);
 
@@ -738,20 +772,29 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await (db as any).transaction().execute(async (trx: any) => {
+      const markRolledBack = (exec: Database) =>
+        exec
+          .updateTable('zv_schema_versions')
+          .set({ rolled_back_at: new Date() })
+          .where('version', '=', String(file.version))
+          .execute();
+      if (isNonTransactional(content)) {
+        // Same rule as the UP path: a `-- NO TRANSACTION` file's DOWN may hold
+        // `DROP INDEX CONCURRENTLY`, which a transaction refuses outright.
         for (const stmt of splitSqlStatements(down)) {
-          await trx.executeQuery({ sql: stmt, parameters: [] });
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          await (db as any).executeQuery({ sql: stmt, parameters: [] });
         }
-      });
-
-      // Mark as rolled back
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await (db as any)
-        .updateTable('zv_schema_versions')
-        .set({ rolled_back_at: new Date() })
-        .where('version', '=', file.version)
-        .execute();
+        await markRolledBack(db);
+      } else {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        await (db as any).transaction().execute(async (trx: any) => {
+          for (const stmt of splitSqlStatements(down)) {
+            await trx.executeQuery({ sql: stmt, parameters: [] });
+          }
+          await markRolledBack(trx as Database);
+        });
+      }
 
       console.log(`   ✅ Migration ${file.version} rolled back`);
     }
