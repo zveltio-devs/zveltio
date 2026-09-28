@@ -85,28 +85,27 @@ async function loadFlowWithSteps(db: Database, flowId: string, tenantId: string)
   return { ...flow, steps };
 }
 
-// Replaces the steps for a flow in a single transaction (delete all,
-// insert in order). Used by POST / and PATCH /:id when the caller sends
-// a full steps array.
-async function replaceSteps(db: Database, flowId: string, steps: StepInput[]): Promise<void> {
-  await db.transaction().execute(async (trx) => {
-    await trx.deleteFrom('zv_flow_steps').where('flow_id', '=', flowId).execute();
-    if (steps.length === 0) return;
-    await trx
-      .insertInto('zv_flow_steps')
-      .values(
-        steps.map((s, i) => ({
-          flow_id: flowId,
-          step_order: i,
-          name: s.name ?? s.type,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          type: s.type as any, // CHECK constraint validates at the DB layer
-          config: toJsonb(s.config),
-          on_error: s.on_error,
-        })),
-      )
-      .execute();
-  });
+// Replaces the steps for a flow (delete all, insert in order). Used by POST / and
+// PATCH /:id when the caller sends a full steps array — on the SAME transaction as
+// the flow row: on a second one, refused steps left the flow written, and a
+// created flow active with no steps at all.
+async function replaceSteps(trx: Database, flowId: string, steps: StepInput[]): Promise<void> {
+  await trx.deleteFrom('zv_flow_steps').where('flow_id', '=', flowId).execute();
+  if (steps.length === 0) return;
+  await trx
+    .insertInto('zv_flow_steps')
+    .values(
+      steps.map((s, i) => ({
+        flow_id: flowId,
+        step_order: i,
+        name: s.name ?? s.type,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        type: s.type as any, // CHECK constraint validates at the DB layer
+        config: toJsonb(s.config),
+        on_error: s.on_error,
+      })),
+    )
+    .execute();
 }
 
 /**
@@ -275,8 +274,8 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         }
       }
 
-      const flow = await inTenant(c, (t) =>
-        t
+      const flow = await inTenant(c, async (t) => {
+        const row = await t
           .insertInto('zv_flows')
           .values({
             tenant_id: tenantOf(c),
@@ -288,14 +287,12 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
             created_by: user.id,
           })
           .returningAll()
-          .executeTakeFirst(),
-      );
+          .executeTakeFirst();
+        if (row && body.steps.length > 0) await replaceSteps(t, row.id, body.steps);
+        return row;
+      });
 
       if (!flow) return c.json({ error: 'Failed to create flow' }, 500);
-
-      if (body.steps.length > 0) {
-        await replaceSteps(poolDb, flow.id, body.steps);
-      }
 
       await auditLog(poolDb, {
         type: 'settings.changed',
@@ -358,21 +355,19 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         }
       }
 
-      const flow = await inTenant(c, (t) =>
-        t
+      const flow = await inTenant(c, async (t) => {
+        const row = await t
           .updateTable('zv_flows')
           .set(updates)
           .where('id', '=', flowId)
           .where('tenant_id', '=', tenantOf(c))
           .returningAll()
-          .executeTakeFirst(),
-      );
+          .executeTakeFirst();
+        if (row && body.steps !== undefined) await replaceSteps(t, flowId, body.steps);
+        return row;
+      });
 
       if (!flow) return c.json({ error: 'Flow not found' }, 404);
-
-      if (body.steps !== undefined) {
-        await replaceSteps(poolDb, flowId, body.steps);
-      }
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;

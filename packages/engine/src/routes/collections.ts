@@ -458,6 +458,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     try {
       const tableName = DDLManager.getTableName(name);
+      // A plain column is added in the metadata transaction below. The relation
+      // branches cannot join it (CREATE INDEX CONCURRENTLY); their DDL is idempotent.
+      let colDDL: string | null = null;
 
       if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
         // m2o / reference: FK column lives in the SOURCE table. Both
@@ -522,11 +525,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         });
       } else {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
-        if (colDDL) {
-          // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
-          await dynamicAddColumn(db, tableName, colDDL);
-        }
+        colDDL = fieldTypeRegistry.getColumnDDL(field as any);
       }
 
       // Row-lock the collection (FOR UPDATE) inside a transaction so
@@ -534,6 +533,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // pre-mutation fields[] and overwrite each other's writes.
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await db.transaction().execute(async (trx: any) => {
+        // Table before metadata row — the order PATCH /:name/fields/:field locks in.
+        // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
+        if (colDDL) await dynamicAddColumn(trx, tableName, colDDL);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const locked = await (trx as any)
           .selectFrom('zvd_collections')
@@ -849,47 +851,49 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const fieldDef = existingFields.find((f: any) => f.name === fieldName);
 
-      if (fieldDef?.type === 'o2m') {
-        // o2m: FK column lives in TARGET table — look up and drop it there
-        const relation = await db
-          .selectFrom('zvd_relations')
-          .select(['target_collection', 'target_field'])
-          .where('source_collection', '=', name)
-          .where('source_field', '=', fieldName)
-          .executeTakeFirst();
-        if (relation?.target_collection && relation?.target_field) {
-          const targetTable = DDLManager.getTableName(relation.target_collection);
-          await dynamicDropColumn(db, targetTable, relation.target_field);
+      // DROP and metadata in one transaction: separately, a failed metadata write
+      // left the collection describing a column the table no longer has.
+      await db.transaction().execute(async (trx) => {
+        if (fieldDef?.type === 'o2m') {
+          // o2m: FK column lives in TARGET table — look up and drop it there
+          const relation = await trx
+            .selectFrom('zvd_relations')
+            .select(['target_collection', 'target_field'])
+            .where('source_collection', '=', name)
+            .where('source_field', '=', fieldName)
+            .executeTakeFirst();
+          if (relation?.target_collection && relation?.target_field) {
+            const targetTable = DDLManager.getTableName(relation.target_collection);
+            await dynamicDropColumn(trx, targetTable, relation.target_field);
+          }
+        } else if (fieldDef?.type === 'm2m') {
+          // m2m: drop the junction table (no column in source table)
+          const relation = await trx
+            .selectFrom('zvd_relations')
+            .select(['junction_table'])
+            .where('source_collection', '=', name)
+            .where('source_field', '=', fieldName)
+            .executeTakeFirst();
+          if (relation?.junction_table) {
+            await DDLManager.dropJunctionTable(trx, relation.junction_table);
+          }
+        } else {
+          await dynamicDropColumn(trx, tableName, fieldName);
         }
-      } else if (fieldDef?.type === 'm2m') {
-        // m2m: drop the junction table (no column in source table)
-        const relation = await db
-          .selectFrom('zvd_relations')
-          .select(['junction_table'])
-          .where('source_collection', '=', name)
-          .where('source_field', '=', fieldName)
-          .executeTakeFirst();
-        if (relation?.junction_table) {
-          await DDLManager.dropJunctionTable(db, relation.junction_table);
-        }
-      } else {
-        await dynamicDropColumn(db, tableName, fieldName);
-      }
 
-      // Drop the relation row (dangling metadata causes re-add to hit UNIQUE constraint)
-      await db
-        .deleteFrom('zvd_relations')
-        .where('source_collection', '=', name)
-        .where('source_field', '=', fieldName)
-        .execute()
+        // Drop the relation row (dangling metadata causes re-add to hit UNIQUE
+        // constraint). No `.catch`: inside the transaction a failure aborts it anyway.
+        await trx
+          .deleteFrom('zvd_relations')
+          .where('source_collection', '=', name)
+          .where('source_field', '=', fieldName)
+          .execute();
+
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        .catch((err: any) =>
-          console.warn(`[remove-field] zvd_relations cleanup:`, err?.message ?? err),
-        );
-
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
-      await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+        const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
+        await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields });
+      });
+      DDLManager.invalidateCache(name);
       announceSchemaChange(name, 'alter');
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

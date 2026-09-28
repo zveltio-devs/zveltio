@@ -704,6 +704,14 @@ export class DDLManager {
     name: string,
     opts: { force?: boolean } = {},
   ): Promise<void> {
+    // One transaction for the DROPs and the metadata deletes: separately, a failed
+    // `zvd_collections` delete left a listed collection with no table, which every
+    // retry then refused as "not found". The DDL queue already passes a trx.
+    if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
+      await db.transaction().execute((trx) => DDLManager.dropCollection(trx, name, opts));
+      DDLManager.invalidateCache(name);
+      return;
+    }
     const tableName = this.getTableName(name);
 
     if (!(await this.tableExists(db, name))) {
