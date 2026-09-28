@@ -99,13 +99,19 @@ jobs:
         run: |
           DIR=packages/engine/src/db/migrations/sql
           REL_FILES=$(git ls-tree -r --name-only "$LATEST_TAG" -- "$DIR" | grep '\.sql$' || true)
+          # Compare the UP section only, as the runner does (its checksum in
+          # db/migrations/index.ts hashes UP). Rollback executes the DOWN
+          # embedded in the running binary, so correcting a released DOWN is
+          # the only way the correction reaches an install. An edited UP never
+          # reaches an install that already applied it, so UP stays frozen.
+          up() { awk 'tolower($0) ~ /^--[ \t]*down[ \t]*\r?$/ {exit} {print}'; }
           fail=0
           for f in $REL_FILES; do
             if [ ! -f "$f" ]; then
               echo "::error::migration removed/renamed since $LATEST_TAG: $f"; fail=1; continue
             fi
-            rel=$(git show "$LATEST_TAG:$f" | sha256sum | cut -d' ' -f1)
-            head=$(sha256sum "$f" | cut -d' ' -f1)
+            rel=$(git show "$LATEST_TAG:$f" | up | sha256sum | cut -d' ' -f1)
+            head=$(up < "$f" | sha256sum | cut -d' ' -f1)
             if [ "$rel" != "$head" ]; then
               echo "::error::already-released migration edited since $LATEST_TAG: $f"; fail=1
             fi
