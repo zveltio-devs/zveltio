@@ -127,6 +127,9 @@ const TXN_SKIP_PREFIXES = [
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {
   const hostname = c.req.header('host')?.split(':')[0];
+  // What the outer middleware (CORS) put on the response before the handler
+  // ran — kept when a failed COMMIT replaces the handler's answer, below.
+  const outerHeaders = new Headers(c.res.headers);
 
   try {
     const tenant = await resolveTenantFromRequest(c.req.raw.headers, hostname);
@@ -298,6 +301,30 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         },
         503,
       );
+    }
+    // The handler already answered, and the COMMIT after it failed.
+    //
+    // Returning a response does nothing here: Hono uses a middleware's return
+    // value only while the context is not finalized, and the handler's response
+    // finalized it. So a COMMIT refused by a deferred constraint or a
+    // serialization failure was logged, its 500 discarded, and the client told
+    // 201 Created for a row that had rolled back. The response is REPLACED.
+    //
+    // The handler's own headers go with its body — a Content-Length, an ETag or
+    // a Set-Cookie describe an answer that no longer stands — and the outer ones
+    // stay, so a cross-origin caller can still read the error.
+    if (c.finalized) {
+      console.error('[Tenant Middleware] request transaction failed to commit:', err);
+      // A streamed (SSE) body that will never be sent: cancelling it fires its
+      // abort handlers instead of leaving the producer writing into nothing.
+      c.res.body?.cancel().catch(() => {});
+      outerHeaders.set('content-type', 'application/json');
+      c.res = undefined; // otherwise the setter copies the handler's headers over
+      c.res = new Response(
+        JSON.stringify({ error: 'The request could not be committed; nothing it wrote was kept.' }),
+        { status: 500, headers: outerHeaders },
+      );
+      return c.res;
     }
     console.error('[Tenant Middleware] Critical: failed to establish tenant context:', err);
     return c.json(
