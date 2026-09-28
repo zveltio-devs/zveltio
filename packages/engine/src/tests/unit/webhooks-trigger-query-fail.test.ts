@@ -4,15 +4,18 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 beforeEach(() => {
   WebhookManager.init(null as unknown as Database);
+  initTenantManager(null as unknown as Database);
 });
 
 afterEach(() => {
   WebhookManager.init(null as unknown as Database);
+  initTenantManager(null as unknown as Database);
 });
 
 describe('WebhookManager.trigger — query failure', () => {
@@ -20,6 +23,7 @@ describe('WebhookManager.trigger — query failure', () => {
     const db = new CannedDb();
     db.fail(/from zvd_webhooks/i, new Error('connection reset'));
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     await expect(
       WebhookManager.trigger('record.created', 'contacts', { id: 'r1' }),
