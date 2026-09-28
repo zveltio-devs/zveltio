@@ -136,13 +136,39 @@ d('zv_environments under tenant RLS', () => {
     probe.get('*', (c) =>
       c.json({ env: c.get('environment')?.slug ?? null, schema: c.get('tenantSchema') }),
     );
-    // One path in the request transaction, one in TXN_SKIP_PREFIXES.
-    for (const path of ['/api/probe', '/api/tenants/probe']) {
-      const res = await onPlainPool(async () =>
-        probe.request(path, { headers: headers(OTHER, { 'X-Environment': STAMP }) }),
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ env: STAMP, schema: `${STAMP}_${OTHER.slice(0, 8)}` });
+    // Counts the transactions the middleware opens. Methods are bound to the
+    // real instance: Kysely keeps its state in private fields a proxy cannot reach.
+    let txns = 0;
+    const counted = new Proxy(plain, {
+      get(target, prop) {
+        if (prop === 'transaction') txns++;
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const request = async (path: string) => {
+      txns = 0;
+      initTenantManager(counted);
+      try {
+        const res = await probe.request(path, {
+          headers: headers(OTHER, { 'X-Environment': STAMP }),
+        });
+        expect(res.status).toBe(200);
+        return { body: await res.json(), txns };
+      } finally {
+        initTenantManager(db);
+      }
+    };
+
+    // In the request transaction: resolved as the tenant, in that one transaction.
+    expect(await request('/api/probe')).toEqual({
+      body: { env: STAMP, schema: `${STAMP}_${OTHER.slice(0, 8)}` },
+      txns: 1,
+    });
+    // On a TXN_SKIP_PREFIXES path nothing reads it, so it is not looked up at
+    // all: no transaction opened just to answer a question nobody asks.
+    for (const path of ['/api/health', '/api/tenants/probe']) {
+      expect(await request(path)).toEqual({ body: { env: null }, txns: 0 });
     }
   });
 
