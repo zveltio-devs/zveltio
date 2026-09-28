@@ -325,10 +325,27 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       // and without one every tenant-scoped read of the table is a full scan.
       // Extensions that ship their own index are unaffected — 6 of 201
       // policy-bearing tables in a real install had none.
-      await sql`
-        CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_id`)}
-        ON ${sql.id(tablename)}(tenant_id)
+      //
+      // Decided by shape, not by name: `IF NOT EXISTS` only compares names, so
+      // a table that already led an index with `tenant_id` under any other name
+      // (every engine table 023-029 policed, `idx_<t>_tenant`) got a byte-for-
+      // byte duplicate, built at boot with writes blocked, and paid for it on
+      // every write after.
+      const leading = await sql<{ n: number }>`
+        SELECT COUNT(*)::int AS n
+          FROM pg_index x
+          JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = x.indkey[0]
+         WHERE x.indrelid = ${`public.${tablename}`}::regclass
+           AND a.attname = 'tenant_id'
+           AND x.indisvalid
+           AND x.indpred IS NULL
       `.execute(db);
+      if (!(leading.rows[0]?.n ?? 0)) {
+        await sql`
+          CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_id`)}
+          ON ${sql.id(tablename)}(tenant_id)
+        `.execute(db);
+      }
       // And the composite, for the same reason `applyTenantRLS` creates one:
       // the single-column index above satisfies the policy predicate and does
       // nothing for `ORDER BY created_at DESC LIMIT n`, which is what a listing
