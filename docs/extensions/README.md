@@ -61,7 +61,7 @@ work", and a finding reported against source that never executes.
 Every manifest carries `name`, `displayName`, `category`, `description`,
 `version`, `zveltioMinVersion`, `zveltioMaxVersion`, `package`, `permissions`,
 `contributes`, and `studio`. 55 of 56 also carry `engine` and `integrity`.
-Optional: `resources`, `publicRoutes`, `dependencies`, `peerDependencies`,
+Optional: `resources`, `publicRoutes`, `apiKeyRoutes`, `dependencies`, `peerDependencies`,
 `sensitiveResources`, `globalRoutes`, `requires`.
 
 JSON Schema: [`../manifest-v2.schema.json`](../manifest-v2.schema.json).
@@ -93,6 +93,8 @@ move.
 `middleware/extension-auth-gate.ts` requires a valid session for anything under
 `/ext/<name>/*` unless the manifest lists that sub-path in `publicRoutes`. An
 extension author who forgets an inline check gets **401, not exposure**.
+An API key is admitted only on a route the manifest lists in `apiKeyRoutes`,
+and only holding the `$ext:<name>` scope for that route's action.
 
 The opt-out list in the manifest is the authoritative statement of what is
 public — not inline comments, some of which still describe an older design.

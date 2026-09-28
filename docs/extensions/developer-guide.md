@@ -251,6 +251,7 @@ computes the SHA-256, and patches these blocks in place.
 | `homepage` | string | no | URL. |
 | `permissions` | string[] | no | **Enforced capabilities.** See §Capabilities below. Validated at load — an unknown value fails the manifest. |
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
+| `apiKeyRoutes` | string[] | no | Routes an API key may call as well as a session: `"<GET\|POST\|PUT\|PATCH\|DELETE> <pattern>"`, patterns as in `publicRoutes` (e.g. `["GET /invoices", "POST /invoices"]`). The key needs the scope `$ext:<name>` with the method's action. Undeclared routes stay session-only. See §5 "Authentication". |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. |
 | `contributes.engine` | bool | no | `false` for UI-only extensions. |
@@ -488,6 +489,40 @@ authorization. Keep your HMAC / token check in the handler.
 > path. A hand-rolled `if (c.req.path.startsWith('/public/'))` exemption will
 > never fire. Prefer declaring `publicRoutes` in the manifest; if you must check
 > in code, match the `/public/` segment anywhere (`c.req.path.includes('/public/')`).
+
+**To let a program call a route with an API key**, declare it in
+`apiKeyRoutes` as `"<METHOD> <pattern>"`:
+
+```jsonc
+{
+  "name": "finance/invoicing",
+  "apiKeyRoutes": ["GET /invoices", "GET /invoices/*", "POST /invoices"]
+}
+```
+
+The key must hold `{ "collection": "$ext:<name>", "actions": [...] }` with the
+action the method maps to — GET `read`, POST `create`, PUT/PATCH `update`,
+DELETE `delete`, the same mapping `permissionGate` uses. A `*` collection does
+not reach it. Every route you do not declare answers a key `403
+EXT_SESSION_REQUIRED`, as before. On a declared route:
+
+- **Read the caller from `c.get('user')`.** The gate sets the key principal
+  there: `{ id: 'apikey:<uuid>', role: 'api_key', scopes, authorUserId }`.
+  `auth.api.getSession` is `null` for a key, so a middleware of your own that
+  requires a session must accept `c.get('user')` first:
+  `if (c.get('user')) return next();`.
+- **`ctx.checkPermission` answers the key from its scope**, not from Casbin:
+  the action you ask must be in the `$ext:<name>` entry (or `*`); the resource
+  is not consulted. `permissionGate` therefore asks the same action the gate
+  already required. An action you ask by name (`settle`) must be named in the
+  scope. Outside the request the gate admitted, a key id is refused.
+- **Authorship:** the key's id is not a `user` row. Record `user.authorUserId
+  ?? user.id` — the person who issued the key — in a `created_by` column.
+- The request runs in its tenant's transaction with the key as the RLS actor
+  (`zveltio.user_id = apikey:<uuid>`), as on the data API.
+
+A declaration changes the published package, so raise the manifest version;
+a handler change also needs a repack.
 
 **Authorization** (who may do what) is still yours. Use
 [`permissionGate(ctx, '<name>')`](#) for route-level RBAC, and

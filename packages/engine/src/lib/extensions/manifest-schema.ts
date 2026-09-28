@@ -98,6 +98,16 @@ export const ManifestSchema = z
      */
     publicRoutes: z.array(z.string()).default([]),
     /**
+     * Routes an API key may call, besides a session: `"<METHOD> <pattern>"`,
+     * patterns as in `publicRoutes` (`"POST /invoices"`, `"GET /invoices/*"`).
+     * The key must hold `{ collection: '$ext:<name>', actions: [...] }` with the
+     * method's action — GET read, POST create, PUT/PATCH update, DELETE delete.
+     * Undeclared routes answer a key 403 EXT_SESSION_REQUIRED. A handler on a
+     * declared route reads the caller from `c.get('user')`: `auth.api.getSession`
+     * is null for a key.
+     */
+    apiKeyRoutes: z.array(z.string().regex(/^(GET|POST|PUT|PATCH|DELETE) \S+$/)).default([]),
+    /**
      * Routes this extension mounts on the GLOBAL app via
      * `ctx.registerPublicRoute`, outside `/ext/<name>` and therefore outside
      * the auth gate.

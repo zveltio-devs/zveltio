@@ -68,6 +68,8 @@ Intentional in that shape. Enforcement lives in `withTenantIsolation`:
 `middleware/extension-auth-gate.ts` requires a valid session for anything under
 `/ext/<name>/*` unless the manifest declares that sub-path in `publicRoutes`. An
 extension author who forgets an inline check gets 401, not exposure.
+An API key is admitted only on a route the manifest lists in `apiKeyRoutes`,
+and only holding the `$ext:<name>` scope for that route's action.
 
 **2.3 — Localhost calls in the AI and storage extensions are by design.**
 Ollama and SeaweedFS are meant to be reached on loopback.

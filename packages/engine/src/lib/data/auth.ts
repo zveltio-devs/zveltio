@@ -348,6 +348,16 @@ export const STORAGE_SCOPE = '$storage';
 export const RPC_SCOPE = '$rpc';
 
 /**
+ * The scope that lets an API key use extension `name`'s routes declared in its
+ * manifest `apiKeyRoutes`: `$ext:<name>`, e.g. `$ext:finance/invoicing`. Its
+ * actions are what the `/ext/*` gate asks per route (method-derived) and what
+ * the extension's own `ctx.checkPermission` asks — see extension-auth-gate.ts.
+ */
+export function extScope(name: string): string {
+  return `$ext:${name}`;
+}
+
+/**
  * May a key with `scopes`, acting in `tenantId`, watch the schema?
  *
  * Only by naming `SCHEMA_SCOPE` with `read` (or `*`) — see `apiKeyHoldsScope`.

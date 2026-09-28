@@ -45,7 +45,10 @@ import { clearExtensionHealthChecks, registerHealthCheck } from '../health-regis
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
-import { registerExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
+import {
+  keyAwareCheckPermission,
+  registerExtensionPublicRoutes,
+} from '../../middleware/extension-auth-gate.js';
 import { problemOnError } from '../problem.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
@@ -425,7 +428,7 @@ export function buildRestrictedContext(
         extName,
         allowedTables,
       ),
-    checkPermission: ctx.checkPermission ?? checkPermission,
+    checkPermission: keyAwareCheckPermission(extName, ctx.checkPermission ?? checkPermission),
     // So `permissionGate` can tell the person who to ask, instead of naming an
     // internal permission at them. Handed to every extension rather than left
     // for each to reinvent — the refusal is the host's contract with the user,
@@ -791,7 +794,8 @@ export async function finalizeExtensionLoad(
   // Anything NOT listed here is fail-closed (401 for anonymous callers) — see
   // middleware/extension-auth-gate.ts.
   const publicRoutes = (manifest as { publicRoutes?: string[] } | null)?.publicRoutes ?? [];
-  registerExtensionPublicRoutes(extName, publicRoutes);
+  const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
+  registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes);
 
   loader.loaded.set(extName, {
     name: extName,
@@ -806,6 +810,7 @@ export async function finalizeExtensionLoad(
     pendingCapabilities: pending,
     capabilitiesGrandfathered: grandfathered,
     publicRoutes,
+    apiKeyRoutes,
     workerIsolation:
       manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
         ? { entry: manifest.engine.entry, extDir }
@@ -842,7 +847,7 @@ export async function reRegisterExtension(
   const loaded = loader.loaded.get(name);
   // Re-assert the public-route allowlist on hot-reload (the registry is process
   // -global, but this keeps it correct if the module map was rebuilt).
-  registerExtensionPublicRoutes(name, loaded?.publicRoutes ?? []);
+  registerExtensionPublicRoutes(name, loaded?.publicRoutes ?? [], loaded?.apiKeyRoutes ?? []);
   const restrictedCtx = buildRestrictedContext(
     loader.ctx,
     name,

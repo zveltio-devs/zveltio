@@ -96,3 +96,16 @@ describe('ManifestSchema — integrity + quotas', () => {
     expect(m.dependencies[0]?.name).toBe('crm');
   });
 });
+
+describe('ManifestSchema — apiKeyRoutes', () => {
+  it('takes "<METHOD> <pattern>" and defaults to none', () => {
+    expect(ManifestSchema.parse({ name: 'x' }).apiKeyRoutes).toEqual([]);
+    const m = ManifestSchema.parse({ name: 'x', apiKeyRoutes: ['GET /a/*', 'POST /a'] });
+    expect(m.apiKeyRoutes).toEqual(['GET /a/*', 'POST /a']);
+  });
+
+  it('refuses an entry without a method, with an unknown one, or with extra words', () => {
+    for (const bad of ['/a', 'get /a', 'HEAD /a', 'POST /a settle', 'POST  /a'])
+      expect(ManifestSchema.safeParse({ name: 'x', apiKeyRoutes: [bad] }).success).toBe(false);
+  });
+});
