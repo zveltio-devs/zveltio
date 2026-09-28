@@ -5,9 +5,10 @@ import {
   apiKeyMayWatchSchema,
   authenticate,
   checkAccess,
+  realtimeIdentity,
   stillAuthenticated,
   type RealtimePrincipal,
-  type RequestUser,
+  type RealtimeUser,
 } from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
@@ -56,7 +57,7 @@ interface WSConnection {
    * `rlsBypass`, which the subscribe check and the row policies must see —
    * the same fields the REST path hands to `checkAccess` and `getRlsFilters`.
    */
-  user: Pick<RequestUser, 'id' | 'email' | 'scopes' | 'rlsBypass'> & { role?: string };
+  user: RealtimeUser;
   /**
    * Tenant id resolved at upgrade time from the request's tenant
    * context. Used to scope `broadcastEvent` so a write in tenant A
@@ -157,29 +158,12 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // when it ran, since `authenticate` trusts the lookup the prefetch made.
     const sweepGen = c.get('prefetchSweepGen') ?? sweepGeneration();
     const principal = wsDb ? await authenticate(c, auth, wsDb) : null;
-    if (!principal) return c.json({ error: 'Unauthorized' }, 401);
-    const authType: 'session' | 'api_key' =
-      principal.authType === 'api_key' ? 'api_key' : 'session';
-    // What the sweep re-asks for as long as the socket stays open. A session
-    // without its token could never be re-asked, so it is refused here.
-    const live: RealtimePrincipal | null =
-      authType === 'api_key'
-        ? { kind: 'api_key', keyId: principal.user.id.replace(/^apikey:/, '') }
-        : principal.sessionToken
-          ? { kind: 'session', token: principal.sessionToken, userId: principal.user.id }
-          : null;
-    if (!live) return c.json({ error: 'Unauthorized' }, 401);
-    const user =
-      authType === 'api_key'
-        ? {
-            id: principal.user.id,
-            role: 'api_key',
-            scopes: principal.user.scopes,
-            rlsBypass: principal.user.rlsBypass,
-          }
-        : // The email rides along because a `user_email` row rule resolves
-          // from it; without it the rule matches nothing for this socket.
-          { id: principal.user.id, email: principal.user.email };
+    // What the sweep re-asks for as long as the socket stays open, and who its
+    // subscriptions read as — see `realtimeIdentity`. A session without its
+    // token could never be re-asked, so it is refused here.
+    const identity = principal && realtimeIdentity(principal);
+    if (!identity) return c.json({ error: 'Unauthorized' }, 401);
+    const { authType, principal: live, user } = identity;
 
     const id = `ws_${++wsCounter}_${Date.now()}`;
     // Lock the tenant id at upgrade time. The WS connection persists

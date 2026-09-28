@@ -112,6 +112,10 @@ await client.auth.logout();
 // Get current session
 const session = await client.auth.session();
 // { user: { id, email, name, role }, session: { ... } }
+
+// A client made with `apiKey`: the key it authenticates with (never the hash)
+const key = await client.auth.apiKey();
+// { id, name, key_prefix, scopes, tenant_id, expires_at, rls_bypass }
 ```
 
 ### Storage
@@ -587,6 +591,8 @@ and `watchSchema({ apiKey })` does the same.
 A key whose scopes are narrowed while its socket is open loses the collections
 it no longer covers: the socket stays open and receives
 `{ "type": "unsubscribed", "collections": [...], "reason": "forbidden" }`.
+An SSE stream opened with the key ends instead — its collections are its URL —
+and a reconnect is answered with the collections the key still reads.
 
 Schema changes arrive on the `$schema` channel
 (`{ "type": "subscribe", "channel": "$schema" }`) as

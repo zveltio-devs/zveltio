@@ -7,7 +7,7 @@ import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenan
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
-import { fieldTypeRegistry } from '../lib/data/index.js';
+import { authenticate, fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -48,6 +48,25 @@ export function adminRoutes(db: Database, auth: any): Hono {
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function apiKeysRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
+
+  // GET /self — the presenting key's own record, so a program can learn what it
+  // holds; `GET /api/me` is the person's profile. Registered before the admin
+  // guard below, which refuses every key. Never the hash. A session is refused
+  // with 403, not 401 — the SDK signs a session out on a 401 (see
+  // `refuseWithoutSession`); nobody, or a key `authenticate` refuses, gets 401.
+  app.get('/self', async (c) => {
+    const principal = await authenticate(c, auth, db);
+    if (!principal) return c.json({ error: 'Unauthorized' }, 401);
+    if (principal.authType !== 'api_key') return c.json({ error: 'API key required' }, 403);
+    const key = await db
+      .selectFrom('zv_api_keys')
+      .select(['id', 'name', 'key_prefix', 'scopes', 'tenant_id', 'expires_at', 'rls_bypass'])
+      .where('id', '=', principal.user.id.replace(/^apikey:/, ''))
+      .executeTakeFirst();
+    // Revoked between `authenticate` and here.
+    if (!key) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ ...key, scopes: parseScopes(key.scopes) });
+  });
 
   app.use('*', async (c, next) => {
     const user = await guardAdmin(c, auth, requireInstanceAdmin);

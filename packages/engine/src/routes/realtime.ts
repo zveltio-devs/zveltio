@@ -13,7 +13,15 @@ import {
   runWithDomain,
   sweepGeneration,
 } from '../lib/tenancy/index.js';
-import { stillAuthenticated, type RealtimePrincipal } from '../lib/data/index.js';
+import {
+  authenticate,
+  checkAccess,
+  isApiKeyPrincipal,
+  realtimeIdentity,
+  stillAuthenticated,
+  type RealtimePrincipal,
+  type RealtimeUser,
+} from '../lib/data/index.js';
 import { getRlsFilters, matchesRlsFilters } from '../lib/tenancy/index.js';
 import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
 import type { ColumnAccess } from '../lib/tenancy/index.js';
@@ -75,10 +83,26 @@ interface StreamSub {
    * in `revalidateSseStreams`, which ends the stream when the answer moved.
    */
   access: StreamAccess;
-  /** How `access` was resolved, for the sweep to ask again. */
-  resolveAccess: () => Promise<StreamAccess>;
-  /** The session the stream opened with — `closeUnauthenticatedSse` re-asks it. */
+  /** How `access` was resolved for `user`, for the sweep to ask again. */
+  resolveAccess: (user: RealtimeUser) => Promise<StreamAccess>;
+  /** The session or API key the stream opened with — `closeUnauthenticatedSse` re-asks it. */
   principal: RealtimePrincipal;
+  /**
+   * Who the stream reads as — the user `checkAccess` and the row rules see, as
+   * on the WebSocket (`realtimeIdentity`). A key's `scopes` and `rlsBypass` are
+   * replaced by `closeUnauthenticatedSse` when the key's row changes.
+   */
+  user: RealtimeUser;
+}
+
+/**
+ * May `user` hear the wildcard stream or a non-data channel? A tenant admin
+ * only — never an API key: its scopes are its whole grant and none names a
+ * channel. So presence and broadcast channels stay with people; a program has
+ * no presence.
+ */
+function mayHearEverything(user: RealtimeUser): Promise<boolean> {
+  return isApiKeyPrincipal(user) ? Promise.resolve(false) : isTenantAdmin(user.id);
 }
 
 type StreamAccess = Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
@@ -364,7 +388,7 @@ const DATA_CHANNEL = /^zveltio:data:([a-zA-Z0-9_]+)(?::[a-zA-Z0-9_]+)?$/;
  * stream only when its client reconnected. A change ends the stream rather than
  * swapping the snapshot, for the reason `revalidateSseStreams` gives.
  */
-function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
+function streamStillAllowed(sub: StreamSub): Promise<boolean> {
   const reads = new Set(sub.collections.map((col) => col.split(':')[0]!));
   let needsAdmin = sub.collections.length === 0; // the wildcard stream
   for (const ch of sub.channels) {
@@ -375,9 +399,10 @@ function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
   // The stream captured its tenant when it opened; the request that held the
   // domain is long gone.
   return runWithDomain(sub.tenantId ?? DEFAULT_TENANT_ID, async () => {
-    if (needsAdmin && !(await isTenantAdmin(userId))) return false;
-    for (const col of reads) if (!(await checkPermission(userId, col, 'read'))) return false;
-    return accessKey(await sub.resolveAccess()) === accessKey(sub.access);
+    if (needsAdmin && !(await mayHearEverything(sub.user))) return false;
+    // `checkAccess`: Casbin for a session, the scopes for a key.
+    for (const col of reads) if (!(await checkAccess(sseDb!, sub.user, col, 'read'))) return false;
+    return accessKey(await sub.resolveAccess(sub.user)) === accessKey(sub.access);
   });
 }
 
@@ -398,11 +423,11 @@ function streamStillAllowed(userId: string, sub: StreamSub): Promise<boolean> {
  */
 export async function revalidateSseStreams(): Promise<boolean> {
   let failed = false;
-  for (const [userId, subs] of [...connections]) {
+  for (const [, subs] of [...connections]) {
     for (const sub of [...subs]) {
       let allowed: boolean;
       try {
-        allowed = await streamStillAllowed(userId, sub);
+        allowed = await streamStillAllowed(sub);
       } catch (err) {
         console.error('[realtime] SSE permission recheck failed; retrying:', err);
         failed = true;
@@ -417,26 +442,50 @@ export async function revalidateSseStreams(): Promise<boolean> {
 }
 
 /**
- * End every stream whose session no longer authenticates — signed out, revoked,
- * expired, its user barred or deleted. The whole stream: its reconnect meets
- * `/stream`'s 401. One batched lookup; a failed one ends nothing and answers
- * `true`, as `revalidateSseStreams` does.
+ * End every stream whose session or API key no longer authenticates — signed
+ * out, revoked, expired, its user barred or deleted, its key revoked or its
+ * creator barred. The whole stream: its reconnect meets `/stream`'s 401. One
+ * batched lookup; a failed one ends nothing and answers `true`, as
+ * `revalidateSseStreams` does.
  */
 export async function closeUnauthenticatedSse(): Promise<boolean> {
   const subs = [...connections.values()].flatMap((set) => [...set]);
   if (subs.length === 0 || !sseDb) return false;
-  let live: Set<RealtimePrincipal>;
+  let found: Awaited<ReturnType<typeof stillAuthenticated<RealtimePrincipal>>>;
   try {
-    ({ live } = await stillAuthenticated(
+    found = await stillAuthenticated(
       sseDb,
       subs.flatMap((s) => (s.principal ? [s.principal] : [])),
-    ));
+    );
   } catch (err) {
     console.error('[realtime] SSE principal recheck failed; retrying:', err);
     return true;
   }
-  for (const sub of subs) if (!sub.principal || !live.has(sub.principal)) sub.stream.abort();
-  return false;
+  let failed = false;
+  for (const sub of subs) {
+    if (!sub.principal || !found.live.has(sub.principal)) {
+      sub.stream.abort();
+      continue;
+    }
+    // A key whose scopes or RLS exemption changed since the stream opened: take
+    // the grants as they are now and re-check the stream against them, as
+    // `closeUnauthenticatedWs` does — ended, not trimmed, if it lost a read.
+    const grants = sub.principal.kind === 'api_key' && found.keys.get(sub.principal.keyId);
+    if (
+      grants &&
+      (JSON.stringify(grants.scopes) !== JSON.stringify(sub.user.scopes) ||
+        grants.rlsBypass !== (sub.user.rlsBypass === true))
+    ) {
+      sub.user = { ...sub.user, scopes: grants.scopes, rlsBypass: grants.rlsBypass };
+      try {
+        if (!(await streamStillAllowed(sub))) sub.stream.abort();
+      } catch (err) {
+        console.error('[realtime] SSE key recheck failed; retrying:', err);
+        failed = true;
+      }
+    }
+  }
+  return failed;
 }
 
 /**
@@ -516,13 +565,18 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // generation predates the prefetch's lookup, the session trusted here.
     const gen = permissionGeneration();
     const sweep = c.get('prefetchSweepGen') ?? sweepGeneration();
-    const session = await guardSession(c, auth);
-    if (session instanceof Response) return session;
-    // A session without its token could never be re-asked by the sweep.
-    const token = session.session?.token;
-    if (!token) return c.json({ error: 'Unauthorized' }, 401);
+    // A session, or an API key — validated, principal and user exactly as the
+    // WebSocket upgrade takes them (`realtimeIdentity`), so the collection gate
+    // below is `checkAccess` (the key's scopes), row rules apply unless the key
+    // is exempt, and the sweep re-asks the key as it re-asks the key's sockets.
+    // Nobody, or an unknown, revoked, expired or another tenant's key → 401; a
+    // session without its token could never be re-asked → 401.
+    const authenticated = await authenticate(c, auth, _db);
+    const identity = authenticated && realtimeIdentity(authenticated);
+    if (!identity) return c.json({ error: 'Unauthorized' }, 401);
+    const { principal, user, authType } = identity;
 
-    const userId = session.user.id;
+    const userId = user.id;
     const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
     const extraChannels =
       c.req
@@ -543,7 +597,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // allowed for admins, since otherwise it would expose data from every
     // collection in the system to any authenticated user.
     if (rawCollections.length === 0) {
-      const isAdmin = await isTenantAdmin(userId).catch(() => false);
+      const isAdmin = await mayHearEverything(user).catch(() => false);
       if (!isAdmin) {
         return c.json(
           {
@@ -563,7 +617,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         denied.push(col);
         continue;
       }
-      const canRead = await checkPermission(userId, base, 'read').catch(() => false);
+      const canRead = await checkAccess(_db, user, base, 'read').catch(() => false);
       if (canRead) {
         collections.push(col);
       } else {
@@ -574,7 +628,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       return c.json(
         {
           error: 'No read permission on any of the requested collections',
-          denied,
+          // Under `errors`: the problem+json normalizer keeps that member and
+          // drops any other, so a bare `denied` never reached the client.
+          errors: { denied },
         },
         403,
       );
@@ -595,14 +651,14 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     for (const ch of extraChannels) {
       const dataMatch = DATA_CHANNEL.exec(ch);
       if (dataMatch) {
-        if (await checkPermission(userId, dataMatch[1], 'read').catch(() => false)) {
+        if (await checkAccess(_db, user, dataMatch[1]!, 'read').catch(() => false)) {
           allowedExtraChannels.push(ch);
         } else {
           denied.push(ch);
         }
         continue;
       }
-      if (await isTenantAdmin(userId).catch(() => false)) {
+      if (await mayHearEverything(user).catch(() => false)) {
         allowedExtraChannels.push(ch);
       } else {
         denied.push(ch);
@@ -622,28 +678,27 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // used to be `session.user.role ?? 'user'` — and `session.user.role` is
     // never populated, so every stream ran as `'user'`, a role nothing is
     // granted as: a `member` column or row rule never applied here even while
-    // the database was healthy. `email` for a `user_email` row rule.
-    const authType = c.get('authType');
+    // the database was healthy. A key resolves to `api_key`. `email` for a
+    // `user_email` row rule.
+    //
     // Not caught, the role lookup included: `[]` / `null` mean "nothing to
     // filter" and a fallback role escapes the real role's rules, so a failed
     // lookup is refused (500), as the REST list path refuses on the same error.
-    // The sweep calls it again outside this request, under the stream's tenant.
-    const resolveAccess = async (): Promise<StreamAccess> => {
-      const role = await resolveUserRole({
-        id: userId,
-        role: (session.user as { role?: string }).role,
-      });
-      const user = { id: userId, email: session.user.email, role };
+    // The sweep calls it again outside this request, under the stream's tenant,
+    // with the key's grants as they are then.
+    const resolveAccess = async (who: RealtimeUser): Promise<StreamAccess> => {
+      const role = await resolveUserRole(who);
+      const withRole = { ...who, role };
       const access: StreamAccess = new Map();
       for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
         access.set(col, {
-          rls: await getRlsFilters(col, user, authType),
-          columns: await getColumnAccess(_db, col, role, user.id),
+          rls: await getRlsFilters(col, withRole, authType),
+          columns: await getColumnAccess(_db, col, role, withRole.id),
         });
       }
       return access;
     };
-    const access = await resolveAccess();
+    const access = await resolveAccess(user);
 
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = {
@@ -655,7 +710,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         channels: allowedExtraChannels,
         access,
         resolveAccess,
-        principal: { kind: 'session', token, userId },
+        principal,
+        user,
       };
 
       if (!connections.has(userId)) connections.set(userId, new Set());

@@ -6,6 +6,17 @@ export interface ZveltioClientConfig {
   headers?: Record<string, string>;
 }
 
+/** `GET /api/api-keys/self` — the key a client authenticates with, as the engine holds it. */
+export interface ApiKeySelf {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scopes: Array<{ collection: string; actions: string[] }>;
+  tenant_id: string | null;
+  expires_at: string | null;
+  rls_bypass: boolean;
+}
+
 export interface ListParams {
   page?: number;
   limit?: number;
@@ -172,6 +183,12 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       this.request('POST', '/api/auth/sign-up/email', { email, password, name }),
     logout: () => this.request('POST', '/api/auth/sign-out'),
     session: () => this.request('GET', '/api/auth/get-session'),
+    /**
+     * The API key this client was made with: its scopes, tenant, expiry and RLS
+     * exemption — never the hash. 403 for a session, 401 for a key that no
+     * longer authenticates.
+     */
+    apiKey: () => this.request<ApiKeySelf>('GET', '/api/api-keys/self'),
   } as const;
 
   /**
