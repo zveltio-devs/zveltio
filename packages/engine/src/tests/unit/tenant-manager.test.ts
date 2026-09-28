@@ -330,10 +330,11 @@ describe('provisioning', () => {
       q.parameters.includes('staging') ? [{ slug: 'staging' }] : [],
     );
 
-    expect(await resolveEnvironment(TENANT as never, new Headers())).toBeNull();
+    expect(await resolveEnvironment(asDb(db), TENANT as never, new Headers())).toBeNull();
     expect(db.executed(/zv_environments/)[0]!.parameters).toContain('prod');
 
     const env = await resolveEnvironment(
+      asDb(db),
       TENANT as never,
       new Headers({ 'x-environment': 'staging' }),
     );

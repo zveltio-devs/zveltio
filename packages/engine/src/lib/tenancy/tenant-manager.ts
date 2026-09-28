@@ -697,42 +697,57 @@ export async function provisionEnvironment(
     development: '#2563eb',
   };
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await (_db as any)
-    .insertInto('zv_environments')
-    .values({
-      tenant_id: tenantId,
-      name: envName,
-      slug: envSlug,
-      schema_name: schemaName,
-      is_production: isProduction,
-      color: colorMap[envSlug] || '#6b7280',
-    })
+  // As the firm it belongs to: `zv_environments` is policed (migration 029), and
+  // the pool writes nothing a policy's WITH CHECK would accept on a
+  // non-superuser database. The schema DDL above stays on the pool, as owner.
+  await withTenantIsolation(tenantId, (trx) =>
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
-    .execute();
+    (trx as any)
+      .insertInto('zv_environments')
+      .values({
+        tenant_id: tenantId,
+        name: envName,
+        slug: envSlug,
+        schema_name: schemaName,
+        is_production: isProduction,
+        color: colorMap[envSlug] || '#6b7280',
+      })
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+      .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
+      .execute(),
+  );
 
   console.log(`✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`);
 }
 
 export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  return (_db as any)
-    .selectFrom('zv_environments')
-    .selectAll()
-    .where('tenant_id', '=', tenantId)
-    .orderBy('is_production', 'desc')
-    .execute();
+  // Inside the firm, not on the pool: policed since migration 029.
+  return withTenantIsolation(tenantId, (trx) =>
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+    (trx as any)
+      .selectFrom('zv_environments')
+      .selectAll()
+      .where('tenant_id', '=', tenantId)
+      .orderBy('is_production', 'desc')
+      .execute(),
+  );
 }
 
+/**
+ * The request's environment. `db` must be inside `tenant`'s isolation — the
+ * request transaction, or a `withTenantIsolation` of the caller's: the table is
+ * policed (migration 029), and on the pool of a non-superuser database every
+ * firm but the default one would resolve to nothing.
+ */
 export async function resolveEnvironment(
+  db: Database,
   tenant: Tenant,
   headers: Headers,
 ): Promise<Environment | null> {
   const envSlug = headers.get('x-environment') || 'prod';
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  const env = await (_db as any)
+  const env = await (db as any)
     .selectFrom('zv_environments')
     .selectAll()
     .where('tenant_id', '=', tenant.id)
