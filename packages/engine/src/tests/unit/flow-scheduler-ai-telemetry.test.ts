@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { flowScheduler } from '../../lib/flows/flow-scheduler.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const FLOWS_UPDATE = /update "zv_flows"/i;
 
 async function injectDb(db: CannedDb): Promise<void> {
+  initTenantManager(db.kysely as unknown as Database);
   await flowScheduler.start(db.kysely as unknown as Database);
   flowScheduler.stop();
 }
@@ -18,6 +20,7 @@ async function injectDb(db: CannedDb): Promise<void> {
 afterEach(() => {
   flowScheduler.stop();
   serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
+  initTenantManager(null as unknown as Database);
 });
 
 describe('flowScheduler._executeScheduledFlow — ai_task telemetry', () => {
@@ -31,6 +34,7 @@ describe('flowScheduler._executeScheduledFlow — ai_task telemetry', () => {
       id: 'ai-skip',
       name: 'Digest',
       trigger_type: 'ai_task',
+      tenant_id: 'tenant-1',
       trigger_config: { user_id: 'u1', instruction: 'go' },
       created_by: 'u1',
     });
@@ -56,6 +60,7 @@ describe('flowScheduler._executeScheduledFlow — ai_task telemetry', () => {
       id: 'ai-ok',
       name: 'Digest',
       trigger_type: 'ai_task',
+      tenant_id: 'tenant-1',
       trigger_config: { user_id: 'u1', instruction: 'go' },
       created_by: 'u1',
     });

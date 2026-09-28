@@ -22,8 +22,10 @@ import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
 import type { DbSchema } from '../../db/schema.js';
 import { triggerDataFlows } from '../../lib/flows/index.js';
 import { flowScheduler } from '../../lib/flows/flow-scheduler.js';
+import { executeFlow } from '../../lib/flows/flow-executor.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { serviceRegistry } from '../../lib/service-registry.js';
+import { getCurrentTenantTrx, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -239,6 +241,89 @@ d('zv_flows under tenant RLS', () => {
       headers: headers(OTHER, { cookie: god }),
     });
     expect(del.status).toBe(200);
+  }, 30_000);
+
+  it('an ai_task flow hands the AI extension its own firm’s transaction', async () => {
+    // What the `ai` extension's `ctx.db` resolves: the job's tenant transaction,
+    // else the pool — which, with no GUC, answers for the default firm.
+    const seen: { tenant: string | null; flows: number }[] = [];
+    serviceRegistry.registerAs('test', 'ai.runBackgroundTask', async () => {
+      const q = getCurrentTenantTrx() ?? plain;
+      const r = await sql<{ tenant: string | null; flows: number }>`
+        SELECT current_setting('zveltio.current_tenant', true) AS tenant,
+               (SELECT count(*)::int FROM zv_flows WHERE id = ${aiFlow}::uuid) AS flows
+      `.execute(q);
+      seen.push(r.rows[0]!);
+    });
+    // `ai_task` is admitted by the `ai` extension's migration, which widens the
+    // CHECK. Widen it the same way here and put the original back afterwards.
+    const check = await sql<{ def: string }>`
+      SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+       WHERE conname = 'zv_flows_trigger_type_check'`.execute(db);
+    await sql`ALTER TABLE zv_flows DROP CONSTRAINT IF EXISTS zv_flows_trigger_type_check`.execute(
+      db,
+    );
+    const aiFlow = await seedFlow(OTHER, 'ai', 'cron', {});
+    await sql`UPDATE zv_flows SET trigger_type = 'ai_task' WHERE id = ${aiFlow}::uuid`.execute(db);
+    try {
+      await flowScheduler.start(plain);
+      flowScheduler.stop();
+      await flowScheduler._tick();
+    } finally {
+      serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
+      await sql`DELETE FROM zv_flows WHERE id = ${aiFlow}::uuid`.execute(db);
+      if (check.rows[0]) {
+        await sql
+          .raw(
+            `ALTER TABLE zv_flows ADD CONSTRAINT zv_flows_trigger_type_check ${check.rows[0].def}`,
+          )
+          .execute(db);
+      }
+    }
+    expect(seen).toEqual([{ tenant: OTHER, flows: 1 }]);
+  }, 30_000);
+
+  it('a suspended firm’s due flow is neither run nor advanced, and runs once when reactivated', async () => {
+    const SUSP = crypto.randomUUID();
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${SUSP}::uuid, ${`flsusp-${SUSP.slice(0, 8)}`}, 'susp', 'suspended')`.execute(
+      db,
+    );
+    try {
+      const flow = await seedFlow(SUSP, 'suspended', 'cron', { cron: '0 3 * * *' });
+      const nextRun = async () =>
+        (
+          await sql<{ at: string }>`SELECT next_run_at::text AS at FROM zv_flows
+                                     WHERE id = ${flow}::uuid`.execute(db)
+        ).rows[0]!.at;
+      const before = await nextRun();
+
+      await flowScheduler.start(plain);
+      flowScheduler.stop();
+      await flowScheduler._tick();
+      expect(await runsOf(flow)).toEqual([]);
+      expect(await nextRun()).toBe(before);
+
+      await sql`UPDATE zv_tenants SET status = 'active' WHERE id = ${SUSP}::uuid`.execute(db);
+      await flowScheduler._tick();
+      await flowScheduler._tick();
+      expect(await runsOf(flow)).toEqual([{ status: 'success', tenant: SUSP }]);
+    } finally {
+      await sql`DELETE FROM zv_tenants WHERE id = ${SUSP}::uuid`.execute(db);
+    }
+  }, 30_000);
+
+  it('a flow whose firm the executor cannot see fails instead of running as the default firm', async () => {
+    // A firm that is no longer in `zv_tenants` is outside every reach.
+    const flow = await seedFlow(crypto.randomUUID(), 'orphan', 'on_create', {});
+    const result = await executeFlow(plain, flow, {});
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/cannot resolve the tenant/);
+    const runs = await sql<{ status: string; error: string | null; output: unknown }>`
+      SELECT status, error, output FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`.execute(db);
+    expect(runs.rows).toHaveLength(1);
+    expect(runs.rows[0]!.status).toBe('failed');
+    expect(runs.rows[0]!.error).toMatch(/refusing to run it as the default tenant/);
   }, 30_000);
 
   it('a firm cannot write a flow into another firm', async () => {

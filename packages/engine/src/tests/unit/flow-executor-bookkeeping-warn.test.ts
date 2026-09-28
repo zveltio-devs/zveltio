@@ -15,6 +15,7 @@ describe('executeFlow — bookkeeping update failures', () => {
   it('warns when marking a successful run fails but still returns success', async () => {
     const db = new CannedDb();
     db.when(RUN_INSERT, [{ id: 'run-ok' }]);
+    db.when(/tenant_id FROM zv_flows/i, [{ tenant_id: 'tenant-1' }]);
     db.when(STEPS_SELECT, [
       // `query_db` with no query: implemented, returns the previous output.
       // It was `unknown_kind`, which succeeded only via the executor's old
