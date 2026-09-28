@@ -1,7 +1,13 @@
 import type { Context, ContextVariableMap } from 'hono';
-import { getDb } from '../db/index.js';
+import { type Database, getDb } from '../db/index.js';
 import { type RequestSession, requestSession } from '../middleware/session-prefetch.js';
-import { findApiKey, requestApiKey } from './data/index.js';
+import {
+  apiKeyHoldsScope,
+  authenticate,
+  findApiKey,
+  type RequestUser,
+  requestApiKey,
+} from './data/index.js';
 import { tenantId } from './route-db.js';
 import { apiKeyActsIn } from './tenancy/index.js';
 
@@ -45,6 +51,45 @@ export async function refuseWithoutSession(
   return (await presentsUsableKey(c))
     ? c.json({ error: 'Session required' }, 403)
     : c.json({ error: unauthorized }, 401);
+}
+
+/**
+ * Gate for a route a program may use as well as a person: the session user, or
+ * the API-key principal when the key holds `scope` for `action`. No
+ * credentials, an unknown, revoked or expired key, or another tenant's key →
+ * 401; a valid key without the scope → 403 (never 401, see
+ * `refuseWithoutSession`).
+ *
+ * The one model of a key principal — the data API's, which every route that
+ * admits a key follows rather than re-deriving:
+ * - Who: `authenticate` → `validateApiKey`: active, unexpired, issuer not
+ *   banned, and `apiKeyActsIn` the request's tenant (a root key acts in any).
+ * - Principal: `{ id: 'apikey:<uuid>', role: 'api_key', scopes, rlsBypass,
+ *   authorUserId }`.
+ * - RLS: `publishApiKeyActor` sets `zveltio.user_id` = that id, role(s)
+ *   `api_key`, email `''`, `zveltio.rls_bypass` = the key's flag. The tenant
+ *   (`zveltio.current_tenant`) is the request's; the key changes nothing there.
+ * - Casbin is never asked. Scopes are the key's whole grant: collections
+ *   through `checkAccess`, a `$` surface through `apiKeyHoldsScope`, which a
+ *   `*` collection does not reach.
+ * - Ownership: the key owns nothing — owner rules compare `apikey:<uuid>`.
+ *   `rlsBypass` is its one exemption, standing where a session's `data:view_all`
+ *   or tenant admin does.
+ * - Authorship: `created_by`-style FK columns take `rowAuthorId` — the issuer,
+ *   or NULL.
+ */
+export async function guardSessionOrKey(
+  c: Context,
+  auth: SessionSource,
+  db: Database,
+  scope: string,
+  action: string,
+): Promise<RequestUser | Response> {
+  const principal = await authenticate(c, auth, db);
+  if (!principal) return c.json({ error: 'Unauthorized' }, 401);
+  if (principal.authType === 'api_key' && !apiKeyHoldsScope(principal.user.scopes, scope, action))
+    return c.json({ error: `API key lacks the ${scope} scope for ${action}` }, 403);
+  return principal.user;
 }
 
 /**

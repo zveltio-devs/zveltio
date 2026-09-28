@@ -275,6 +275,11 @@ function formatRelative(dateStr: string): string {
             <span class="label-text font-medium">{m['apiKeys.scopes']()}</span>
             <button type="button" class="btn btn-xs btn-ghost gap-1" onclick={addScope}><Plus size={12} /> {m['apiKeys.addScope']()}</button>
           </div>
+          <!-- Engine surfaces a key reaches only by naming them: `*` does not include these. -->
+          <datalist id="api-key-scope-surfaces">
+            <option value="$storage"></option>
+            <option value="$schema"></option>
+          </datalist>
           <div class="space-y-2">
             {#each form.scopes as scope, i}
               <div class="flex items-center gap-2 p-2 bg-base-300 rounded-lg">
@@ -282,6 +287,7 @@ function formatRelative(dateStr: string): string {
                   class="input input-xs flex-1"
                   type="text"
                   placeholder={m['apiKeys.scopePlaceholder']()}
+                  list="api-key-scope-surfaces"
                   bind:value={scope.collection}
                 />
                 <div class="flex gap-1">

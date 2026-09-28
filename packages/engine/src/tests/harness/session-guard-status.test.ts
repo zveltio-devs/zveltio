@@ -32,6 +32,7 @@ const ROUTES: Array<[method: string, path: string, stream?: true]> = [
   ['GET', '/api/realtime/connections'],
   ['POST', '/api/realtime/publish'],
   ['POST', '/api/sync/pull'],
+  // Takes a key holding `$storage` now; this key does not — storage-api-key.test.ts.
   ['GET', '/api/storage'],
   ['GET', '/api/revisions'],
   ['GET', '/api/erd/layout'],
