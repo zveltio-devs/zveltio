@@ -36,6 +36,7 @@ import m019 from './sql/020_user_sign_in_block.sql' with { type: 'text' };
 import m020 from './sql/021_media_files_api_key_owner.sql' with { type: 'text' };
 import m021 from './sql/022_media_files_api_key_owner_index.sql' with { type: 'text' };
 import m022 from './sql/023_media_tables_rls.sql' with { type: 'text' };
+import m023 from './sql/024_revisions_import_logs_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -62,4 +63,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '021_media_files_api_key_owner.sql': m020,
   '022_media_files_api_key_owner_index.sql': m021,
   '023_media_tables_rls.sql': m022,
+  '024_revisions_import_logs_rls.sql': m023,
 };
