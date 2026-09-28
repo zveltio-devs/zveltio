@@ -5,6 +5,8 @@ import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
 import { maybeDecrypt } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
 import { toJsonb } from './jsonb.js';
+import { withSavepoint } from './savepoint.js';
+import { withEveryTenant, withTenantIsolation } from './tenancy/index.js';
 
 let _db: Database | null = null;
 
@@ -33,52 +35,62 @@ let _db: Database | null = null;
  */
 export async function repairUnsignedWebhooksAtBoot(db: Database): Promise<number> {
   try {
-    const { rows } = await sql<{ id: string; name: string | null }>`
-      SELECT id, name FROM zvd_webhooks WHERE secret IS NULL OR secret = ''
-    `.execute(db);
-    if (rows.length === 0) return 0;
-
-    const { maybeEncrypt } = await import('./data/index.js');
-
-    // The secret column is an `encrypted: true` field, and `maybeEncrypt`
-    // refuses to write one without FIELD_ENCRYPTION_KEY. Checked once, up
-    // front, because the alternative — discovering it inside the loop — turns
-    // "this install still delivers unsigned webhooks" into a line that reads
-    // like a transient hiccup and stops the repair for every remaining row.
-    try {
-      await maybeEncrypt('probe', true);
-    } catch (err) {
-      console.warn(
-        `⚠️  [webhooks] ${rows.length} webhook(s) have no signing secret and will keep ` +
-          'delivering unsigned payloads: a secret cannot be stored because ' +
-          `${(err as Error).message}`,
-      );
-      return 0;
-    }
-
-    let repaired = 0;
-    for (const row of rows) {
-      const bytes = new Uint8Array(32);
-      crypto.getRandomValues(bytes);
-      const secret = Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-      const stored = (await maybeEncrypt(secret, true)) as string;
-      await sql`UPDATE zvd_webhooks SET secret = ${stored} WHERE id = ${row.id}`.execute(db);
-      repaired++;
-      console.warn(
-        `⚠️  [webhooks] "${row.name ?? row.id}" had no signing secret and was delivering ` +
-          'unsigned payloads. A secret has been generated — rotate it from the admin UI and ' +
-          'configure the receiver to verify X-Zveltio-Signature.',
-      );
-    }
-    return repaired;
+    // Every firm's rows: `zvd_webhooks` is under the tenant policy (migration
+    // 028), and on the bare pool a non-superuser database shows the default
+    // firm's only — every other firm's unsigned webhook stayed unsigned.
+    return await withEveryTenant(db, (trx) => repairUnsigned(trx));
   } catch (err) {
     // Non-fatal: a webhook that cannot be repaired is no worse off than it was
     // this morning, and refusing to boot over it would be out of proportion.
     console.warn('[webhooks] could not repair unsigned webhooks:', (err as Error).message);
     return 0;
   }
+}
+
+async function repairUnsigned(db: Database): Promise<number> {
+  const { rows } = await sql<{ id: string; name: string | null; tenant_id: string }>`
+    SELECT id, name, tenant_id::text AS tenant_id FROM zvd_webhooks
+     WHERE secret IS NULL OR secret = ''
+  `.execute(db);
+  if (rows.length === 0) return 0;
+
+  const { maybeEncrypt } = await import('./data/index.js');
+
+  // The secret column is an `encrypted: true` field, and `maybeEncrypt`
+  // refuses to write one without FIELD_ENCRYPTION_KEY. Checked once, up
+  // front, because the alternative — discovering it inside the loop — turns
+  // "this install still delivers unsigned webhooks" into a line that reads
+  // like a transient hiccup and stops the repair for every remaining row.
+  try {
+    await maybeEncrypt('probe', true);
+  } catch (err) {
+    console.warn(
+      `⚠️  [webhooks] ${rows.length} webhook(s) have no signing secret and will keep ` +
+        'delivering unsigned payloads: a secret cannot be stored because ' +
+        `${(err as Error).message}`,
+    );
+    return 0;
+  }
+
+  let repaired = 0;
+  for (const row of rows) {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const secret = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const stored = (await maybeEncrypt(secret, true)) as string;
+    // The policy's WITH CHECK admits a write for `zveltio.current_tenant` only.
+    await sql`SELECT set_config('zveltio.current_tenant', ${row.tenant_id}, true)`.execute(db);
+    await sql`UPDATE zvd_webhooks SET secret = ${stored} WHERE id = ${row.id}`.execute(db);
+    repaired++;
+    console.warn(
+      `⚠️  [webhooks] "${row.name ?? row.id}" had no signing secret and was delivering ` +
+        'unsigned payloads. A secret has been generated — rotate it from the admin UI and ' +
+        'configure the receiver to verify X-Zveltio-Signature.',
+    );
+  }
+  return repaired;
 }
 
 /**
@@ -111,6 +123,9 @@ export async function _settleWebhookDeliveries(): Promise<void> {
 export interface DeliveryPayload {
   webhookId?: string;
   deliveryId?: string | null;
+  /** The delivery row's firm — its outcome is written as that firm. Absent on
+   * a payload queued before migration 028, which could only be the default. */
+  tenantId?: string | null;
   url: string;
   method?: string;
   headers?: Record<string, string>;
@@ -123,6 +138,26 @@ export interface DeliveryPayload {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: any;
   timestamp: string;
+}
+
+/**
+ * Write to one delivery row as the row's firm. Under the tenant policy
+ * (migration 028) the bare pool of a non-superuser database skips every other
+ * firm's row without an error, so its outcome and retry count went nowhere.
+ */
+async function recordOutcome(
+  payload: DeliveryPayload,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const id = payload.deliveryId;
+  if (!_db || !id) return;
+  await withTenantIsolation(payload.tenantId ?? DEFAULT_TENANT_ID, (trx) =>
+    trx
+      .updateTable('zvd_webhook_deliveries')
+      .set(values as never)
+      .where('id', '=', id)
+      .execute(),
+  );
 }
 
 export const WebhookManager = {
@@ -145,53 +180,66 @@ export const WebhookManager = {
     if (!_db) return;
     const tenant = tenantId ?? DEFAULT_TENANT_ID;
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const matchResult = await sql<any>`
-        SELECT * FROM zvd_webhooks
-        WHERE active = true
-          AND tenant_id = ${tenant}::uuid
-          AND (events @> ARRAY[${event}]::text[] OR events @> ARRAY['*']::text[])
-          AND (
-            collections IS NULL
-            OR cardinality(collections) = 0
-            OR collections @> ARRAY[${collection}]::text[]
-            OR collections @> ARRAY['*']::text[]
-          )
-      `.execute(_db as Database);
-      const matching = matchResult.rows;
+      // Inside the writing firm: both tables are under the tenant policy
+      // (migration 028), and on the bare pool a non-superuser database shows the
+      // default firm's webhooks only — every other firm's never fired.
+      //
+      // Committed before anything is queued: the outcome is written to the
+      // delivery row by id from another connection, which cannot see it earlier.
+      const matching = await withTenantIsolation(tenant, async (trx) => {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        const matchResult = await sql<any>`
+          SELECT * FROM zvd_webhooks
+          WHERE active = true
+            AND tenant_id = ${tenant}::uuid
+            AND (events @> ARRAY[${event}]::text[] OR events @> ARRAY['*']::text[])
+            AND (
+              collections IS NULL
+              OR cardinality(collections) = 0
+              OR collections @> ARRAY[${collection}]::text[]
+              OR collections @> ARRAY['*']::text[]
+            )
+        `.execute(trx);
+        const out = [];
+        for (const wh of matchResult.rows) {
+          // Create a delivery record immediately so the entry exists regardless of
+          // HTTP delivery timing. Updated with status/error/delivered_at after
+          // delivery. Non-fatal — a missing record won't block the webhook queue —
+          // and in a savepoint, or one refused insert aborts every later one.
+          const deliveryId = await withSavepoint(
+            trx,
+            'webhook_delivery',
+            async () => {
+              const row = await trx
+                .insertInto('zvd_webhook_deliveries')
+                .values({
+                  webhook_id: wh.id,
+                  payload: toJsonb({
+                    event,
+                    collection,
+                    data,
+                    timestamp: new Date().toISOString(),
+                  }),
+                  url: wh.url,
+                  method: wh.method || 'POST',
+                  headers: toJsonb((wh.headers as Record<string, string>) || {}),
+                  attempt: 1,
+                  max_attempts: wh.retry_attempts ?? 3,
+                  tenant_id: wh.tenant_id ?? tenant,
+                } as never)
+                .returning('id')
+                .executeTakeFirst();
+              return (row?.id as string | undefined) ?? null;
+            },
+            () => null,
+          );
+          out.push({ wh, deliveryId });
+        }
+        return out;
+      });
 
       const cache = getCache();
-      for (const wh of matching) {
-        // Create a delivery record immediately so the entry exists regardless of
-        // HTTP delivery timing. Updated with status/error/delivered_at after delivery.
-        let deliveryId: string | null = null;
-        try {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          const deliveryRow = await (_db as any)
-            .insertInto('zvd_webhook_deliveries')
-            .values({
-              webhook_id: wh.id,
-              payload: toJsonb({
-                event,
-                collection,
-                data,
-                timestamp: new Date().toISOString(),
-              }),
-              url: wh.url,
-              method: wh.method || 'POST',
-              headers: toJsonb((wh.headers as Record<string, string>) || {}),
-              attempt: 1,
-              max_attempts: wh.retry_attempts ?? 3,
-              tenant_id: wh.tenant_id ?? tenant,
-            })
-            .returning('id')
-            .executeTakeFirst();
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          deliveryId = (deliveryRow as any)?.id ?? null;
-        } catch {
-          /* non-fatal — delivery record missing won't block the webhook queue */
-        }
-
+      for (const { wh, deliveryId } of matching) {
         // Decrypt the signing secret in memory before queueing. The DB
         // column stores the AES-256-GCM ciphertext (enc:v1:...) — if
         // it were plaintext, anyone with read access to zvd_webhooks
@@ -216,6 +264,7 @@ export const WebhookManager = {
         const payload = {
           webhookId: wh.id,
           deliveryId,
+          tenantId: (wh.tenant_id as string | null) ?? tenant,
           url: wh.url,
           method: wh.method || 'POST',
           headers: (wh.headers as Record<string, string>) || {},
@@ -276,14 +325,7 @@ export const WebhookManager = {
             `${attempt + 1} attempt(s); no cache is configured, so there is no dead-letter ` +
             'queue to replay it from — the delivery row carries the final error',
         );
-        if (_db && payload.deliveryId) {
-          await (_db as Database)
-            .updateTable('zvd_webhook_deliveries')
-            .set({ attempt: attempt + 1 })
-            .where('id', '=', payload.deliveryId)
-            .execute()
-            .catch(() => {});
-        }
+        await recordOutcome(payload, { attempt: attempt + 1 }).catch(() => {});
         return false;
       }
       await sleep(2 ** attempt * 1000);
@@ -373,20 +415,12 @@ export const WebhookManager = {
     }
 
     // Update delivery record with outcome (non-fatal)
-    if (_db && payload.deliveryId) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      (_db as any)
-        .updateTable('zvd_webhook_deliveries')
-        .set({
-          status: httpStatus,
-          response_body: responseBody,
-          error: errorMessage,
-          delivered_at: ok ? new Date() : null,
-        })
-        .where('id', '=', payload.deliveryId)
-        .execute()
-        .catch(() => {});
-    }
+    void recordOutcome(payload, {
+      status: httpStatus,
+      response_body: responseBody,
+      error: errorMessage,
+      delivered_at: ok ? new Date() : null,
+    }).catch(() => {});
 
     return ok;
   },

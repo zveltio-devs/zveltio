@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import * as fieldCrypto from '../../lib/data/field-crypto.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -16,6 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   _setCacheForTests(null);
   WebhookManager.init(null as unknown as Database);
+  initTenantManager(null as unknown as Database);
 });
 
 describe('WebhookManager.trigger — delivery insert + secrets', () => {
@@ -41,6 +43,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     ]);
     db.fail(/insert into "zvd_webhook_deliveries"/i, new Error('insert denied'));
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     await WebhookManager.trigger('record.created', 'contacts', { id: 'r0' });
     expect(queued).toHaveLength(1);
@@ -71,6 +74,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     ]);
     db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-plain' }]);
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     try {
       await WebhookManager.trigger('record.updated', 'contacts', { id: 'r3' });
@@ -99,6 +103,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     ]);
     db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-direct' }]);
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     let authHeader: string | undefined;
     const originalFetch = globalThis.fetch;

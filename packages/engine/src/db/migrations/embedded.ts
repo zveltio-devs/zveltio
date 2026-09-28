@@ -40,6 +40,7 @@ import m023 from './sql/024_revisions_import_logs_rls.sql' with { type: 'text' }
 import m024 from './sql/025_revoke_orphaned_api_keys.sql' with { type: 'text' };
 import m025 from './sql/026_dashboards_rls.sql' with { type: 'text' };
 import m026 from './sql/027_flows_rls.sql' with { type: 'text' };
+import m027 from './sql/028_webhooks_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -70,4 +71,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '025_revoke_orphaned_api_keys.sql': m024,
   '026_dashboards_rls.sql': m025,
   '027_flows_rls.sql': m026,
+  '028_webhooks_rls.sql': m027,
 };

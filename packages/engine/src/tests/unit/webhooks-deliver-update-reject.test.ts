@@ -4,6 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -26,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   WebhookManager.init(null as unknown as Database);
+  initTenantManager(null as unknown as Database);
 });
 
 describe('WebhookManager.deliver — delivery update rejection', () => {
@@ -33,6 +35,7 @@ describe('WebhookManager.deliver — delivery update rejection', () => {
     const db = new CannedDb();
     db.fail(/update "zvd_webhook_deliveries"/i, new Error('db write denied'));
     WebhookManager.init(db.kysely as unknown as Database);
+    initTenantManager(db.kysely as unknown as Database);
 
     const ok = await WebhookManager.deliver({ ...basePayload, deliveryId: 'del-fail' });
     expect(ok).toBe(true);
