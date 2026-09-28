@@ -138,11 +138,14 @@ async function changedMigrations(): Promise<string[]> {
  */
 function lockWaitsWithoutTimeout(file: string, up: string): Finding[] {
   // Self-contained, like the rest of this gate (its tests run it from a bare
-  // temp root): comments out, dollar-quoted bodies folded so their inner `;`
-  // does not split a DO block, then one entry per statement.
+  // temp root): comments, strings and dollar-quoted bodies folded so an inner `;`
+  // does not split a statement, then one entry per statement.
   const statements = up
-    .replace(/--.*$/gm, '')
-    .replace(/\$(\w*)\$[\s\S]*?\$\1\$/g, '$$$$')
+    // One left-to-right pass, so a `--` inside a string or a `;` inside a
+    // comment is read as what encloses it.
+    .replace(/\$(\w*)\$[\s\S]*?\$\1\$|'(?:[^']|'')*'|\/\*[\s\S]*?\*\/|--[^\n]*/g, (m) =>
+      m[0] === '$' ? '$$' : m[0] === "'" ? "''" : ' ',
+    )
     .split(';')
     .map((stmt) => stmt.trim())
     .filter(Boolean);

@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import {
+  assertChainCompatible,
   getAppliedMigrations,
   getLastAppliedMigration,
   rollbackMigration,
@@ -31,7 +32,14 @@ d('migration rollback', () => {
     // Already rolled back: nothing left above the target to undo.
     expect((await rollbackMigration(db, latest - 1)).success).toBe(false);
 
+    // Editing a rolled-back migration is the point of rolling back: the boot
+    // guard must not read the stale row's checksum as a divergence.
+    await sql`UPDATE zv_schema_versions SET checksum = 'edited-since'
+               WHERE version = ${latest}`.execute(db);
+    await assertChainCompatible(db);
+
     await runPending(db);
+    await assertChainCompatible(db);
     expect(await getLastAppliedMigration(db)).toBe(latest);
     const row = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_schema_versions

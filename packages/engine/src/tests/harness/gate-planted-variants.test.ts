@@ -183,6 +183,26 @@ describe('check-migration-safety refuses a verdict its linter never gave', () =>
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('reads CONCURRENTLY, `;` and `--` inside strings and comments as what encloses them', async () => {
+    const root = await rootWithLinter("console.log('[]');\n");
+    try {
+      write(
+        root,
+        'm.sql',
+        '-- NO TRANSACTION\n/* build; then adopt */\n' +
+          "CREATE INDEX CONCURRENTLY IF NOT EXISTS zz_c ON zz (c) WHERE c <> '--'; ALTER TABLE zz DROP COLUMN x;\n" +
+          "/* CONCURRENTLY */ ALTER TABLE zz ALTER COLUMN y SET DEFAULT 'CONCURRENTLY;';\n",
+      );
+      const { code, out } = await run(root, GATE, [join(root, 'm.sql')]);
+      expect(out.match(/\[no-transaction-lock-timeout\]/g)?.length).toBe(2);
+      expect(out).toContain('DROP COLUMN x');
+      expect(out).toContain('SET DEFAULT');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── check-pooldb-txn-skip ───────────────────────────────────────────────────

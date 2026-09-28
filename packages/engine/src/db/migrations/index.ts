@@ -406,7 +406,9 @@ export async function assertChainCompatible(db: Database): Promise<void> {
     const versions = shipped.map((m) => m.version);
     const res = await sql<{ version: number; filename: string; checksum: string }>`
       SELECT version, filename, checksum FROM zv_schema_versions
-      WHERE version = ANY(${versions})`.execute(db);
+      WHERE version = ANY(${versions}) AND rolled_back_at IS NULL`.execute(db);
+    // A rolled-back row is pending again: its checksum is from a file that may
+    // since have been edited, which is the point of rolling back.
     recorded = res.rows;
   } catch (err) {
     // 42P01: the tracking table does not exist yet, so this is a fresh database
@@ -624,6 +626,10 @@ async function applyMigration(
   await (db as any)
     .insertInto('zv_migrations')
     .values({ name: filename.replace('.sql', '') })
+    // A re-applied (rolled-back) migration already has its row.
+    .onConflict((oc: { column: (c: string) => { doNothing: () => unknown } }) =>
+      oc.column('name').doNothing(),
+    )
     .execute()
     .catch((err: Error) => {
       console.warn(
@@ -738,7 +744,14 @@ export async function rollbackMigration(
 
     // Only what is applied now: a DOWN run against a migration that never ran,
     // or already ran its DOWN, undoes nothing it did.
-    const applied = new Set((await getAppliedMigrations(db)).map((m) => m.version));
+    // Not `getAppliedMigrations`: it answers [] on any error, which would
+    // report an unreachable database as "Nothing to rollback".
+    const applied = new Set(
+      (
+        await sql<{ version: number }>`
+          SELECT version FROM zv_schema_versions WHERE rolled_back_at IS NULL`.execute(db)
+      ).rows.map((r) => Number(r.version)),
+    );
     const toRollBack = allFiles.filter((f) => applied.has(f.version));
 
     if (toRollBack.length === 0) {
