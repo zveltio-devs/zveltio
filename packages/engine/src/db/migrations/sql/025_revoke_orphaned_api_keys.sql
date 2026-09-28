@@ -12,3 +12,10 @@
 -- Revoked, not deleted: the access log cascades with the key row.
 
 UPDATE zv_api_keys SET is_active = false WHERE created_by IS NULL AND is_active;
+
+-- DOWN
+
+-- Deliberately a no-op: which of these keys were active before is not
+-- recorded, and re-activating every revoked orphan would also revive keys
+-- revoked on purpose. Rolling back leaves them revoked.
+SELECT 1;
