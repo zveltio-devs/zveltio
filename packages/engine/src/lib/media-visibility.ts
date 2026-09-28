@@ -32,7 +32,19 @@ interface Filterable<Q> {
 }
 
 /**
- * Narrow a `zv_media_files` query to the files `userId` may read.
+ * The owner column a principal is compared against. A session owns what it
+ * uploaded (`created_by`). An API key's uploads record its issuer in
+ * `created_by` — a foreign key into "user", which `apikey:<uuid>` is not — so
+ * the key owns them through `created_by_api_key` (migration 021).
+ */
+function ownerColumn(principalId: string): ['created_by' | 'created_by_api_key', string] {
+  return principalId.startsWith('apikey:')
+    ? ['created_by_api_key', principalId.slice('apikey:'.length)]
+    : ['created_by', principalId];
+}
+
+/**
+ * Narrow a `zv_media_files` query to the files `principalId` may read.
  *
  * Tenant admins are exempt: they can already delete any file in the tenant
  * (`mayDeleteFile`), so hiding one from a listing would be a lock on a door
@@ -41,23 +53,35 @@ interface Filterable<Q> {
  */
 export function applyFileVisibility<Q extends Filterable<Q>>(
   query: Q,
-  userId: string,
+  principalId: string,
   isAdmin: boolean,
 ): Q {
   if (isAdmin) return query;
-  return query.where((eb) =>
-    eb.or([eb('visibility', '=', 'tenant'), eb('created_by', '=', userId)]),
-  );
+  const [column, owner] = ownerColumn(principalId);
+  return query.where((eb) => eb.or([eb('visibility', '=', 'tenant'), eb(column, '=', owner)]));
 }
 
-/** Whether a single already-loaded row is readable by `userId`. */
+/** Whether `principalId` uploaded this already-loaded row. */
+export function ownsFile(
+  file: { created_by?: string | null; created_by_api_key?: string | null },
+  principalId: string,
+): boolean {
+  const [column, owner] = ownerColumn(principalId);
+  return file[column] === owner;
+}
+
+/** Whether a single already-loaded row is readable by `principalId`. */
 export function mayReadFile(
-  file: { visibility?: string | null; created_by?: string | null },
-  userId: string,
+  file: {
+    visibility?: string | null;
+    created_by?: string | null;
+    created_by_api_key?: string | null;
+  },
+  principalId: string,
   isAdmin: boolean,
 ): boolean {
   if (isAdmin) return true;
   // A row written before migration 028 has no value only if something wrote it
   // outside the schema; treat the unknown as personal, which fails closed.
-  return (file.visibility ?? 'personal') === 'tenant' || file.created_by === userId;
+  return (file.visibility ?? 'personal') === 'tenant' || ownsFile(file, principalId);
 }

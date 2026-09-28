@@ -1509,6 +1509,7 @@ export interface ZvMediaFilesTable {
   restore_folder_id: string | null;
   tenant_id: string | null;
   visibility: Generated<'tenant' | 'personal'>;
+  created_by_api_key: string | null;
 }
 
 export interface ZvMediaFoldersTable {

@@ -8,7 +8,7 @@ import {
 } from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
-import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
+import { applyFileVisibility, mayReadFile, ownsFile } from '../lib/media-visibility.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -447,6 +447,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
         width,
         height,
         created_by: author,
+        // The key itself, so it can find its private uploads again.
+        created_by_api_key: isApiKeyPrincipal(user) ? user.id.slice('apikey:'.length) : null,
         tenant_id: tenantId(c),
         // A public upload is served from a bare URL with no authentication at
         // all, so hiding it from a listing would be theatre — and it is what a
@@ -658,8 +660,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
     const isAdmin = await seesAllFiles(user);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    if ((file as any).created_by !== user.id && !isAdmin) {
+    if (!ownsFile(file, user.id) && !isAdmin) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 

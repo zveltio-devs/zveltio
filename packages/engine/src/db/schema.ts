@@ -442,6 +442,8 @@ export interface ZvMediaFilesTable {
   height: number | null;
   metadata: unknown; // JSONB
   created_by: string | null;
+  /** The API key that uploaded it, when one did (migration 021). */
+  created_by_api_key: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   /**
