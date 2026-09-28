@@ -163,15 +163,16 @@ if (findings.length > 0) {
 // receive the raw pool under the parameter name `db` — `insightsRoutes(poolDb,
 // auth)` is `function insightsRoutes(db: Database)` inside, and its queries are
 // spelled `db.selectFrom('zv_dashboards')`. So this gate has never judged a
-// single one of the sites it exists for. Saying so out loud is the smallest
-// honest change; teaching it to resolve the alias would make it start failing on
-// production code and is a decision for the owner, not a repair. See the note in
-// the ledger for E01.
+// single one of the sites it exists for. See the note in the ledger for E01.
+//
+// Closed for `insights` (migration 026): its parameter is spelled `poolDb` now,
+// and its policed tables go through `withTenantIsolation`. `flows`, `backup` and
+// `sql-editor` still take the raw pool as `db` and stay unjudged here.
 console.log(
   `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known; ` +
     `${sitesSeen} \`poolDb.\` query site(s) under routes/, none of them on a tenant table.` +
     (sitesSeen === 0
-      ? '\n  NOTE: zero sites matched. The four pool-backed routers take the raw pool as `db`,' +
-        '\n  so nothing under routes/ spells `poolDb.` and this gate is judging an empty set.'
+      ? '\n  NOTE: zero sites matched — `insights` spells its pool `poolDb`; if it stopped,' +
+        '\n  this gate is judging an empty set again.'
       : ''),
 );
