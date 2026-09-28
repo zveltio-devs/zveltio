@@ -238,9 +238,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
+      // `scopes` is JSONB: a raw array reaches the driver as a Postgres array
+      // literal and was stored as the string `{"[object Object]"}`, which the
+      // auth path reads as unparseable — every patched key became deny-all.
+      const { scopes, ...rest } = data;
       await db
         .updateTable('zv_api_keys')
-        .set(data)
+        .set(scopes === undefined ? rest : { ...rest, scopes: toJsonb(scopes) })
         .where('id', '=', id)
         .where('tenant_id', '=', tenantId(c))
         .execute();
