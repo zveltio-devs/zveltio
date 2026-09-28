@@ -35,6 +35,7 @@ import m018 from './sql/019_seed_untuned_rate_limit_tiers.sql' with { type: 'tex
 import m019 from './sql/020_user_sign_in_block.sql' with { type: 'text' };
 import m020 from './sql/021_media_files_api_key_owner.sql' with { type: 'text' };
 import m021 from './sql/022_media_files_api_key_owner_index.sql' with { type: 'text' };
+import m022 from './sql/023_media_tables_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -60,4 +61,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '020_user_sign_in_block.sql': m019,
   '021_media_files_api_key_owner.sql': m020,
   '022_media_files_api_key_owner_index.sql': m021,
+  '023_media_tables_rls.sql': m022,
 };

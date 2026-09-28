@@ -1538,6 +1538,7 @@ export interface ZvMediaSharesTable {
   created_by: string;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvMediaTagsTable {
