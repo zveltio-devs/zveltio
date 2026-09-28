@@ -7,12 +7,14 @@ import type { Database } from '../../db/index.js';
 import { extensionRegistry } from '../../lib/extensions/index.js';
 import { flowScheduler, _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const FLOWS_SELECT = /select[\s\S]*from "zv_flows"/i;
 const FLOWS_UPDATE = /update "zv_flows"/i;
 
 async function injectDb(db: CannedDb): Promise<void> {
+  initTenantManager(db.kysely as unknown as Database);
   await flowScheduler.start(db.kysely as unknown as Database);
   flowScheduler.stop();
 }
@@ -28,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   flowScheduler.stop();
   serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
+  initTenantManager(null as unknown as Database);
   _internalForTests.setExecuteFlowForTests(null);
   extensionRegistry.registerTrashPurgeHandler(async () => {});
 });
@@ -65,6 +68,7 @@ describe('flowScheduler error paths', () => {
       id: 'ai-fail-advance',
       name: 'AI',
       trigger_type: 'ai_task',
+      tenant_id: 'tenant-1',
       trigger_config: { user_id: 'u1', instruction: 'go' },
       created_by: 'u1',
     });
