@@ -2645,6 +2645,8 @@ table zv_revisions
   ck  zv_revisions_action_check CHECK ((action = ANY (ARRAY['create'::text, 'update'::text, 'delete'::text])))
   pk  zv_revisions_pkey PRIMARY KEY (id)
   fk  zv_revisions_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation_zv_revisions FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_ro_budget_lines
   col allocated                      numeric NOT NULL DEFAULT 0

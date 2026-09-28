@@ -485,8 +485,10 @@ export async function afterWrite(
           ...(delta ? { delta } : {}),
           user_id: author,
           // Tag history with the writing tenant so the audit trail + time-travel
-          // (?as_of=) can't be read across tenants. afterWrite runs on the pool, not
-          // the request transaction, so it can't rely on the RLS GUC.
+          // (?as_of=) can't be read across tenants. It must be the request's own
+          // tenant: `zv_revisions` is under the tenant policy (migration 024), whose
+          // WITH CHECK refuses any other — and the savepoint above would swallow
+          // that refusal, dropping the revision silently.
           tenant_id: tenantId ?? DEFAULT_TENANT_ID,
         })
         .execute(),
