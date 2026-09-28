@@ -5,8 +5,9 @@
  * endpoint, so a program could not upload or fetch a file at all. The key is
  * held to the data path's model (`guardSessionOrKey` in lib/admin-guard.ts):
  * the scope must be named — a `*` data key does not reach storage — and a key
- * owns nothing, so another person's private file stays hidden unless the key
- * carries `rls_bypass`, which stands where a tenant admin does for a session.
+ * owns only what it uploaded (`created_by_api_key`, migration 021), so another
+ * person's private file stays hidden unless the key carries `rls_bypass`, which
+ * stands where a tenant admin does for a session.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -33,10 +34,12 @@ const KEYS: Record<string, { scopes: Scope[]; tenant: string; active?: false; by
   read: { scopes: [{ collection: '$storage', actions: ['read'] }], tenant: ROOT },
   write: { scopes: STORAGE_ALL, tenant: ROOT },
   bypass: { scopes: STORAGE_ALL, tenant: ROOT, bypass: true },
+  doomed: { scopes: STORAGE_ALL, tenant: ROOT },
   revoked: { scopes: STORAGE_ALL, tenant: ROOT, active: false },
   tenant: { scopes: STORAGE_ALL, tenant: TENANT },
 };
 const raw: Record<string, string> = {};
+const keyIds: Record<string, string> = {};
 
 d('storage with an API key', () => {
   let app: Hono;
@@ -103,6 +106,13 @@ d('storage with an API key', () => {
                 ${JSON.stringify(k.scopes)}::jsonb, ${k.active ?? true}, ${k.bypass ?? false},
                 ${k.tenant}::uuid, ${issuer})
       `.execute(db);
+      keyIds[name] = (
+        await db
+          .selectFrom('zv_api_keys')
+          .select('id')
+          .where('name', '=', `${STAMP}-${name}`)
+          .executeTakeFirstOrThrow()
+      ).id;
     }
     files.shared = await seed(ROOT, 'tenant', colleague);
     files.private = await seed(ROOT, 'personal', colleague);
@@ -145,22 +155,46 @@ d('storage with an API key', () => {
     );
   });
 
-  it('lets a write key upload, recorded as its issuer', async () => {
+  it('lets a write key upload, recorded as its issuer and owned by the key', async () => {
     const res = await upload('write');
     expect(res.status).toBe(201);
     const { file } = (await res.json()) as {
-      file: { id: string; created_by: string; tenant_id: string };
+      file: { id: string; created_by: string; created_by_api_key: string; tenant_id: string };
     };
     expect(file.created_by).toBe(issuer);
+    expect(file.created_by_api_key).toBe(keyIds.write);
     expect(file.tenant_id).toBe(ROOT);
-    // Owner rules compare the key's own id, as the data path's row rules do,
-    // so its private upload is not the key's to list or delete.
-    expect(await listed('write')).not.toContain(file.id);
-    expect((await as('write', `/api/storage/${file.id}`, { method: 'DELETE' })).status).toBe(403);
+    // The key finds its private upload again; another key of the same issuer
+    // does not, and the issuer's own session still does.
+    expect(await listed('write')).toContain(file.id);
+    expect((await as('write', `/api/storage/${file.id}`)).status).toBe(200);
+    expect(await listed('read')).not.toContain(file.id);
+    expect((await as('read', `/api/storage/${file.id}`)).status).toBe(404);
+    const session = await app.request('/api/storage', { headers: { cookie } });
+    const sessionIds = ((await session.json()) as { files: { id: string }[] }).files.map(
+      (f) => f.id,
+    );
+    expect(sessionIds).toContain(file.id);
+    expect((await as('write', `/api/storage/${file.id}`, { method: 'DELETE' })).status).toBe(200);
+  });
+
+  it('lets a bypass key see and delete what other keys uploaded', async () => {
+    const { file } = (await (await upload('write')).json()) as { file: { id: string } };
     // `rls_bypass` is the key's exemption, where a tenant admin's session has one.
     expect(await listed('bypass')).toContain(file.id);
     expect(await listed('bypass')).toContain(files.private);
     expect((await as('bypass', `/api/storage/${file.id}`, { method: 'DELETE' })).status).toBe(200);
+  });
+
+  it('keeps the file, owned by its issuer alone, when the key row is deleted', async () => {
+    const { file } = (await (await upload('doomed')).json()) as { file: { id: string } };
+    await sql`DELETE FROM zv_api_keys WHERE id = ${keyIds.doomed}::uuid`.execute(db);
+    const row = await db
+      .selectFrom('zv_media_files')
+      .select(['created_by', 'created_by_api_key'])
+      .where('id', '=', file.id)
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({ created_by: issuer, created_by_api_key: null });
   });
 
   it('records a folder a key creates against its issuer', async () => {
@@ -180,6 +214,16 @@ d('storage with an API key', () => {
     expect(ids).toContain(files.foreign);
     expect(ids).not.toContain(files.shared);
     expect((await as('tenant', `/api/storage/${files.shared}`, {}, SLUG)).status).toBe(404);
+  });
+
+  it('keeps a root key’s own upload inside the tenant it was made in', async () => {
+    // A root key acts in every tenant; owning the file must not carry it across.
+    const { file } = (await (await upload('write')).json()) as { file: { id: string } };
+    expect(await listed('write', SLUG)).not.toContain(file.id);
+    expect((await as('write', `/api/storage/${file.id}`, {}, SLUG)).status).toBe(404);
+    const del = await as('write', `/api/storage/${file.id}`, { method: 'DELETE' }, SLUG);
+    expect(del.status).toBe(404);
+    expect((await as('write', `/api/storage/${file.id}`)).status).toBe(200);
   });
 
   it('leaves a session as it was', async () => {

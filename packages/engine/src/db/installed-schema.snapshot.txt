@@ -2085,6 +2085,7 @@ table zv_media_files
   col alt_text                       text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
+  col created_by_api_key             uuid
   col deleted_at                     timestamp with time zone
   col deleted_by                     text
   col description                    text
@@ -2106,6 +2107,7 @@ table zv_media_files
   col url                            text
   col visibility                     text NOT NULL DEFAULT 'personal'::text
   col width                          integer
+  fk  zv_media_files_created_by_api_key_fkey FOREIGN KEY (created_by_api_key) REFERENCES zv_api_keys(id) ON DELETE SET NULL
   fk  zv_media_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zv_media_files_deleted_by_fkey FOREIGN KEY (deleted_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zv_media_files_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES zv_media_folders(id) ON DELETE SET NULL

@@ -74,6 +74,8 @@ export async function refuseWithoutSession(
  *   through `checkAccess`, a `$` surface through `apiKeyHoldsScope`, which a
  *   `*` collection does not reach.
  * - Ownership: the key owns nothing — owner rules compare `apikey:<uuid>`.
+ *   Storage is the one exception: a key owns its own uploads through
+ *   `zv_media_files.created_by_api_key` (lib/media-visibility.ts).
  *   `rlsBypass` is its one exemption, standing where a session's `data:view_all`
  *   or tenant admin does.
  * - Authorship: `created_by`-style FK columns take `rowAuthorId` — the issuer,
