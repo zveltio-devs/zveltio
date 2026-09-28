@@ -503,6 +503,7 @@ export interface ZvMediaSharesTable {
   created_by: string | null;
   is_active: boolean;
   created_at: Generated<Date>;
+  tenant_id: Generated<string | null>; // 023_media_tables_rls
 }
 
 export interface ZvStorageQuotasTable {

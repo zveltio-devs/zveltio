@@ -42,8 +42,8 @@ export function reqDb(c: Context, fallback: Database): Database {
 /**
  * The current request's tenant id. `tenantMiddleware` always resolves a tenant
  * (the default tenant in single-tenant installs), so this is always defined.
- * Use it to explicitly scope tables that are NOT yet under RLS (e.g.
- * `zv_media_files`) so one tenant can't reach another's rows by id.
+ * Use it to scope a query explicitly: the index-friendly belt over the RLS
+ * policy, and the only boundary on a table that has none.
  */
 export function tenantId(c: Context): string {
   return (c.get('tenant') as { id?: string } | null | undefined)?.id ?? DEFAULT_TENANT_ID;

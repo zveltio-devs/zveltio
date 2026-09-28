@@ -2145,6 +2145,7 @@ table zv_media_shares
   col max_downloads                  integer
   col password_hash                  text
   col share_type                     text NOT NULL DEFAULT 'view'::text
+  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col token                          text NOT NULL
   ck  zv_media_shares_check CHECK (((file_id IS NOT NULL) OR (folder_id IS NOT NULL)))
   fk  zv_media_shares_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE CASCADE

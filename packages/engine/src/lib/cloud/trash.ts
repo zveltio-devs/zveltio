@@ -5,8 +5,9 @@ import type { Database } from '../../db/index.js';
  * Throws if the file is not found or already deleted.
  *
  * `tenantId` scopes the update so a caller can't trash another tenant's file by
- * id (zv_media_files has no RLS). Optional so the extension passthrough keeps its
- * signature; route handlers MUST pass it.
+ * id — a belt over the tenant policy (migration 023), which binds only inside a
+ * tenant transaction. Optional so the extension passthrough keeps its signature;
+ * route handlers MUST pass it.
  */
 export async function moveToTrash(
   db: Database,
