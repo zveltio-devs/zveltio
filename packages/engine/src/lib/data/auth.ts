@@ -175,6 +175,40 @@ export type RealtimePrincipal =
   | { kind: 'api_key'; keyId: string };
 
 /**
+ * Who a realtime connection reads as: the fields `checkAccess` and
+ * `getRlsFilters` look at — a key's `scopes` and `rlsBypass`, a session's email
+ * (a `user_email` row rule resolves from it).
+ */
+export type RealtimeUser = Pick<RequestUser, 'id' | 'email' | 'scopes' | 'rlsBypass'> & {
+  role?: string;
+};
+
+/**
+ * What a realtime door — `/api/ws` and `/api/realtime/stream` — keeps from
+ * `authenticate` for as long as its connection is open: the principal the sweep
+ * re-asks (`stillAuthenticated`) and the user its read checks see. Null for a
+ * session without its token, which the sweep could never re-ask; the door
+ * refuses it.
+ */
+export function realtimeIdentity(
+  p: NonNullable<Awaited<ReturnType<typeof authenticate>>>,
+): { principal: RealtimePrincipal; user: RealtimeUser; authType: 'session' | 'api_key' } | null {
+  if (p.authType === 'api_key') {
+    return {
+      authType: 'api_key',
+      principal: { kind: 'api_key', keyId: p.user.id.replace(/^apikey:/, '') },
+      user: { id: p.user.id, role: 'api_key', scopes: p.user.scopes, rlsBypass: p.user.rlsBypass },
+    };
+  }
+  if (!p.sessionToken) return null;
+  return {
+    authType: 'session',
+    principal: { kind: 'session', token: p.sessionToken, userId: p.user.id },
+    user: { id: p.user.id, email: p.user.email },
+  };
+}
+
+/**
  * Which of `principals` would still authenticate now. A socket or stream is
  * authenticated once, at open, so without this a revoked session, a barred or
  * deleted user and a revoked or expired key kept receiving data for as long as

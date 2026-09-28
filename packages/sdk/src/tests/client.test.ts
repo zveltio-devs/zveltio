@@ -31,6 +31,13 @@ describe('ZveltioClient URL building', () => {
     ]);
   });
 
+  it('asks the engine who its key is at the route that answers it', async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test', apiKey: 'zvk_x' });
+    await client.auth.apiKey();
+    expect(urls).toEqual(['https://engine.test/api/api-keys/self']);
+  });
+
   it('encodes the storage folder into the query string', async () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test' });
