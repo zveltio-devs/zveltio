@@ -33,86 +33,84 @@ const RelationSchema = z.object({
   metadata: z.record(z.string(), z.any()).default({}),
 });
 
-/** Atomically add a field to collection.fields JSON. */
+// The field helpers run on the CALLER's transaction, so a collection's fields and
+// the `zvd_relations` row describing them commit or roll back together. Each on
+// its own transaction, a failure between them left one without the other.
+
+/** Add a field to collection.fields JSON (row-locked). */
 async function addFieldToCollection(
-  db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  trx: any,
   collectionName: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   field: { name: string; type: string; options?: Record<string, any> },
 ): Promise<void> {
+  const locked = await trx
+    .selectFrom('zvd_collections')
+    .select(['fields'])
+    .where('name', '=', collectionName)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!locked) throw new Error(`Collection '${collectionName}' not found`);
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await db.transaction().execute(async (trx: any) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const locked = await (trx as any)
-      .selectFrom('zvd_collections')
-      .select(['fields'])
-      .where('name', '=', collectionName)
-      .forUpdate()
-      .executeTakeFirst();
-    if (!locked) throw new Error(`Collection '${collectionName}' not found`);
+  let current: any[];
+  try {
+    current = typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+  } catch {
+    current = [];
+  }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    let current: any[];
-    try {
-      current =
-        typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
-    } catch {
-      current = [];
-    }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  if (current.some((f: any) => f.name === field.name)) return; // already present
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    if (current.some((f: any) => f.name === field.name)) return; // already present
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await (trx as any)
-      .updateTable('zvd_collections')
-      .set({ fields: toJsonb([...current, field]), updated_at: new Date() })
-      .where('name', '=', collectionName)
-      .execute();
-  });
-  DDLManager.invalidateCache(collectionName);
-  announceSchemaChange(collectionName, 'alter');
+  await trx
+    .updateTable('zvd_collections')
+    .set({ fields: toJsonb([...current, field]), updated_at: new Date() })
+    .where('name', '=', collectionName)
+    .execute();
 }
 
-/** Atomically remove a field from collection.fields JSON. */
+/** Remove a field from collection.fields JSON (row-locked). */
 async function removeFieldFromCollection(
-  db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  trx: any,
   collectionName: string,
   fieldName: string,
 ): Promise<void> {
+  const locked = await trx
+    .selectFrom('zvd_collections')
+    .select(['fields'])
+    .where('name', '=', collectionName)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!locked) return;
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await db.transaction().execute(async (trx: any) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const locked = await (trx as any)
-      .selectFrom('zvd_collections')
-      .select(['fields'])
-      .where('name', '=', collectionName)
-      .forUpdate()
-      .executeTakeFirst();
-    if (!locked) return;
+  let current: any[];
+  try {
+    current = typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+  } catch {
+    current = [];
+  }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    let current: any[];
-    try {
-      current =
-        typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
-    } catch {
-      current = [];
-    }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  const updated = current.filter((f: any) => f.name !== fieldName);
+  if (updated.length === current.length) return; // nothing to remove
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const updated = current.filter((f: any) => f.name !== fieldName);
-    if (updated.length === current.length) return; // nothing to remove
+  await trx
+    .updateTable('zvd_collections')
+    .set({ fields: toJsonb(updated), updated_at: new Date() })
+    .where('name', '=', collectionName)
+    .execute();
+}
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await (trx as any)
-      .updateTable('zvd_collections')
-      .set({ fields: toJsonb(updated), updated_at: new Date() })
-      .where('name', '=', collectionName)
-      .execute();
-  });
-  DDLManager.invalidateCache(collectionName);
-  announceSchemaChange(collectionName, 'alter');
+/** After the commit, not inside it — a reader in between would re-cache the old row. */
+function fieldsChanged(...collections: string[]): void {
+  for (const name of new Set(collections)) {
+    DDLManager.invalidateCache(name);
+    announceSchemaChange(name, 'alter');
+  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -210,6 +208,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       const targetTable = DDLManager.getTableName(data.target_collection);
       let junctionTable: string | undefined;
       let resolvedTargetField = data.target_field ?? 'id';
+      const fieldsToAdd: Array<[string, Parameters<typeof addFieldToCollection>[2]]> = [];
 
       if (data.type === 'm2o') {
         // FK column in source table → target(id)
@@ -221,11 +220,14 @@ export function relationsRoutes(db: Database, auth: any): Hono {
           data.on_delete,
           data.on_update,
         );
-        await addFieldToCollection(db, data.source_collection, {
-          name: data.source_field,
-          type: 'm2o',
-          options: { related_collection: data.target_collection },
-        });
+        fieldsToAdd.push([
+          data.source_collection,
+          {
+            name: data.source_field,
+            type: 'm2o',
+            options: { related_collection: data.target_collection },
+          },
+        ]);
       } else if (data.type === 'o2m') {
         // FK column lives in TARGET table referencing source(id).
         // source_field = virtual alias on source ("orders").
@@ -252,49 +254,66 @@ export function relationsRoutes(db: Database, auth: any): Hono {
           data.on_update,
         );
         // Virtual alias on the source collection (no physical column on source)
-        await addFieldToCollection(db, data.source_collection, {
-          name: data.source_field,
-          type: 'o2m',
-          options: { related_collection: data.target_collection, related_field: fkInTarget },
-        });
+        fieldsToAdd.push([
+          data.source_collection,
+          {
+            name: data.source_field,
+            type: 'o2m',
+            options: { related_collection: data.target_collection, related_field: fkInTarget },
+          },
+        ]);
         // Physical FK column on the target collection — without this, processInput
         // in data.ts silently drops the field on insert/update because it isn't
         // in the target's `fields` array, leaving the column NULL.
-        await addFieldToCollection(db, data.target_collection, {
-          name: fkInTarget,
-          type: 'm2o',
-          options: { related_collection: data.source_collection },
-        });
+        fieldsToAdd.push([
+          data.target_collection,
+          {
+            name: fkInTarget,
+            type: 'm2o',
+            options: { related_collection: data.source_collection },
+          },
+        ]);
       } else if (data.type === 'm2m') {
         junctionTable = await DDLManager.createJunctionTable(
           db,
           data.source_collection,
           data.target_collection,
         );
-        await addFieldToCollection(db, data.source_collection, {
-          name: data.source_field,
-          type: 'm2m',
-          options: { related_collection: data.target_collection },
-        });
+        fieldsToAdd.push([
+          data.source_collection,
+          {
+            name: data.source_field,
+            type: 'm2m',
+            options: { related_collection: data.target_collection },
+          },
+        ]);
       }
       // m2a: virtual — no DDL needed, just metadata
 
-      const relRow = await db
-        .insertInto('zvd_relations')
-        .values({
-          name: data.name,
-          type: data.type,
-          source_collection: data.source_collection,
-          source_field: data.source_field,
-          target_collection: data.target_collection,
-          target_field: resolvedTargetField,
-          junction_table: junctionTable ?? data.junction_table ?? null,
-          on_delete: data.on_delete,
-          on_update: data.on_update,
-          metadata: data.metadata,
-        })
-        .returningAll()
-        .executeTakeFirst();
+      // The DDL above cannot join this transaction (CREATE INDEX CONCURRENTLY) and
+      // is idempotent on retry; the metadata it is described by can, and does.
+      const relRow = await db.transaction().execute(async (trx) => {
+        for (const [collection, field] of fieldsToAdd) {
+          await addFieldToCollection(trx, collection, field);
+        }
+        return trx
+          .insertInto('zvd_relations')
+          .values({
+            name: data.name,
+            type: data.type,
+            source_collection: data.source_collection,
+            source_field: data.source_field,
+            target_collection: data.target_collection,
+            target_field: resolvedTargetField,
+            junction_table: junctionTable ?? data.junction_table ?? null,
+            on_delete: data.on_delete,
+            on_update: data.on_update,
+            metadata: data.metadata,
+          })
+          .returningAll()
+          .executeTakeFirst();
+      });
+      fieldsChanged(...fieldsToAdd.map(([collection]) => collection));
 
       return c.json({ relation: normalize(relRow) }, 201);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -362,21 +381,26 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       const sourceTable = DDLManager.getTableName(relation.source_collection);
       const targetTable = DDLManager.getTableName(relation.target_collection);
 
-      if (relation.type === 'm2o') {
-        await dynamicDropColumn(db, sourceTable, relation.source_field);
-        await removeFieldFromCollection(db, relation.source_collection, relation.source_field);
-      } else if (relation.type === 'o2m') {
-        const fkInTarget = relation.target_field || `${relation.source_collection}_id`;
-        await dynamicDropColumn(db, targetTable, fkInTarget);
-        await removeFieldFromCollection(db, relation.source_collection, relation.source_field);
-        await removeFieldFromCollection(db, relation.target_collection, fkInTarget);
-      } else if (relation.type === 'm2m' && relation.junction_table) {
-        await DDLManager.dropJunctionTable(db, relation.junction_table);
-        await removeFieldFromCollection(db, relation.source_collection, relation.source_field);
-      }
-      // m2a: no DDL to undo
+      // DROP, fields and relation row in one transaction (all transactional DDL):
+      // separately, a failure left a relation row naming a column already gone.
+      await db.transaction().execute(async (trx) => {
+        if (relation.type === 'm2o') {
+          await dynamicDropColumn(trx, sourceTable, relation.source_field);
+          await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
+        } else if (relation.type === 'o2m') {
+          const fkInTarget = relation.target_field || `${relation.source_collection}_id`;
+          await dynamicDropColumn(trx, targetTable, fkInTarget);
+          await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
+          await removeFieldFromCollection(trx, relation.target_collection, fkInTarget);
+        } else if (relation.type === 'm2m' && relation.junction_table) {
+          await DDLManager.dropJunctionTable(trx, relation.junction_table);
+          await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
+        }
+        // m2a: no DDL to undo
 
-      await db.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
+        await trx.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
+      });
+      fieldsChanged(relation.source_collection, relation.target_collection);
 
       return c.json({ success: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
