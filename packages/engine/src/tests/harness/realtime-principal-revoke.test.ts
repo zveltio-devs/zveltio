@@ -217,6 +217,14 @@ d('an open realtime connection after its principal is revoked', () => {
       }),
     });
     expect(res.status).toBe(200);
+    // Stored as the array sent, not a string: a corrupt value also trims (as
+    // deny-all), so the socket assertions below cannot tell the two apart.
+    const stored = await sql<{ t: string; scopes: unknown }>`
+      SELECT jsonb_typeof(scopes) AS t, scopes FROM zv_api_keys WHERE id = ${id}`.execute(db);
+    expect(stored.rows[0]).toEqual({
+      t: 'array',
+      scopes: [{ collection: 'some_other_collection', actions: ['read'] }],
+    });
     await settle(() => socket.sent.some((m) => m.includes('"unsubscribed"')));
 
     // Trimmed like any other lost read, not closed: the key still authenticates.
