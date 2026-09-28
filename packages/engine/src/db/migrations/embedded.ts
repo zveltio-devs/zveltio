@@ -38,6 +38,7 @@ import m021 from './sql/022_media_files_api_key_owner_index.sql' with { type: 't
 import m022 from './sql/023_media_tables_rls.sql' with { type: 'text' };
 import m023 from './sql/024_revisions_import_logs_rls.sql' with { type: 'text' };
 import m024 from './sql/025_revoke_orphaned_api_keys.sql' with { type: 'text' };
+import m025 from './sql/026_dashboards_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -66,4 +67,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '023_media_tables_rls.sql': m022,
   '024_revisions_import_logs_rls.sql': m023,
   '025_revoke_orphaned_api_keys.sql': m024,
+  '026_dashboards_rls.sql': m025,
 };

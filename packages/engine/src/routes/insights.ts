@@ -21,6 +21,7 @@ import {
   getUserRoles,
   listAllRoles,
   requireInstanceAdmin,
+  withTenantIsolation,
 } from '../lib/tenancy/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { tenantId } from '../lib/route-db.js';
@@ -156,7 +157,7 @@ function rejectIfDangerous(query: string): string | null {
 type InsightsEnv = { Variables: { user: { id: string } } };
 
 // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in hardening plan item H-05
-export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
+export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
   const app = new Hono<InsightsEnv>();
 
   // Auth middleware — all routes require a session
@@ -168,10 +169,43 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   });
 
   // Tenant of the request (always resolved — default tenant in single-tenant).
-  // Dashboards have no RLS and are queried on the raw pool db, so every dashboard
-  // query is scoped by this — otherwise a PUBLIC dashboard leaks to every tenant.
+  // Every dashboard and saved-query query still names it: the index-friendly belt
+  // over the policy, and what keeps a god's wider reach to the request's tenant.
   // Uses tenantId() from route-db.ts so the default sentinel stays in one place.
   const tenantOf = tenantId;
+
+  // `zv_dashboards` (migration 026) and `zvd_insight_saved_queries` are under the
+  // tenant policy, and this router runs on the pool (`TXN_SKIP_PREFIXES`), where
+  // no tenant is set: on a non-superuser database a policed table answers there
+  // for the default tenant only, and refuses any other tenant's INSERT. So each
+  // query on them runs in a short tenant transaction of its own.
+  //
+  // Nothing inside `fn` may reach for `poolDb` (Casbin lookups included): holding
+  // this connection while waiting for a second one is the pool-size deadlock
+  // `TXN_SKIP_PREFIXES` exists to avoid. A failure inside aborts only this
+  // transaction, so a `.catch` on the returned promise does contain it.
+  const inTenant = <T>(c: Context<InsightsEnv>, fn: (trx: Database) => Promise<T>): Promise<T> =>
+    withTenantIsolation(tenantOf(c), fn, { userId: c.get('user').id });
+
+  const findDashboard = (c: Context<InsightsEnv>, id: string) =>
+    inTenant(c, (t) =>
+      t
+        .selectFrom('zv_dashboards')
+        .selectAll()
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
+
+  const findSavedQuery = (c: Context<InsightsEnv>, id: string) =>
+    inTenant(c, (t) =>
+      t
+        .selectFrom('zvd_insight_saved_queries')
+        .selectAll()
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
 
   // ── GET /stats ───────────────────────────────────────────────────────────────
   app.get('/stats', async (c) => {
@@ -180,18 +214,21 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
     const [dashRow, panelRow, topPanels, avgRow] = await Promise.all([
-      sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_dashboards`.execute(db),
-      sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_panels`.execute(db),
+      // Across the caller's reach, which for god is every firm.
+      inTenant(c, (t) =>
+        sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_dashboards`.execute(t),
+      ),
+      sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_panels`.execute(poolDb),
       sql<{ id: string; title: string; avg_execution_ms: number | null }>`
         SELECT id, title, avg_execution_ms
         FROM zv_panels
         WHERE last_executed_at IS NOT NULL
         ORDER BY avg_execution_ms DESC NULLS LAST
         LIMIT 5
-      `.execute(db),
+      `.execute(poolDb),
       sql<{ avg: string | null }>`
         SELECT AVG(avg_execution_ms) AS avg FROM zv_panels WHERE avg_execution_ms IS NOT NULL
-      `.execute(db),
+      `.execute(poolDb),
     ]);
 
     return c.json({
@@ -217,7 +254,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     //
     // Same roles source as canReadDashboard, so the two cannot drift again.
     const roles = await getUserRoles(user.id).catch(() => [] as string[]);
-    const result = await sql<Record<string, unknown>>`
+    const result = await inTenant(c, (t) =>
+      sql<Record<string, unknown>>`
       SELECT DISTINCT d.*, COUNT(p.id) AS panel_count
       FROM zv_dashboards d
       LEFT JOIN zv_panels p ON p.dashboard_id = d.id
@@ -231,7 +269,8 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         )
       GROUP BY d.id
       ORDER BY d.updated_at DESC
-    `.execute(db);
+    `.execute(t),
+    );
 
     return c.json({ dashboards: result.rows });
   });
@@ -253,19 +292,21 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const user = c.get('user');
       const body = c.req.valid('json');
 
-      const dashboard = await db
-        .insertInto('zv_dashboards')
-        .values({
-          name: body.name,
-          description: body.description ?? null,
-          layout: toJsonb(body.layout),
-          is_public: body.is_public,
-          tags: body.tags,
-          created_by: user.id,
-          tenant_id: tenantOf(c),
-        })
-        .returningAll()
-        .executeTakeFirst();
+      const dashboard = await inTenant(c, (t) =>
+        t
+          .insertInto('zv_dashboards')
+          .values({
+            name: body.name,
+            description: body.description ?? null,
+            layout: toJsonb(body.layout),
+            is_public: body.is_public,
+            tags: body.tags,
+            created_by: user.id,
+            tenant_id: tenantOf(c),
+          })
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       return c.json({ dashboard }, 201);
     },
@@ -276,20 +317,15 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .selectAll()
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const dash = await findDashboard(c, id);
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
-    if (!(await canReadDashboard(db, dash, user.id))) {
+    if (!(await canReadDashboard(poolDb, dash, user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const panels = await db
+    const panels = await poolDb
       .selectFrom('zv_panels')
       .selectAll()
       .where('dashboard_id', '=', id)
@@ -297,20 +333,21 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .execute();
 
     // Update last_viewed_at + view_count
-    await db
-      .updateTable('zv_dashboards')
-      .set({
-        last_viewed_at: new Date(),
-        view_count: sql`view_count + 1`,
-      })
-      .where('id', '=', id)
-      .execute()
-      .catch((err: Error) => {
-        // View tracking failure is non-fatal but worth surfacing —
-        // a persistent failure here usually indicates a connection
-        // pool or RLS misconfiguration that hides bigger problems.
-        console.warn(`[insights] view_count update failed for dashboard ${id}:`, err.message);
-      });
+    await inTenant(c, (t) =>
+      t
+        .updateTable('zv_dashboards')
+        .set({
+          last_viewed_at: new Date(),
+          view_count: sql`view_count + 1`,
+        })
+        .where('id', '=', id)
+        .execute(),
+    ).catch((err: Error) => {
+      // View tracking failure is non-fatal but worth surfacing —
+      // a persistent failure here usually indicates a connection
+      // pool or RLS misconfiguration that hides bigger problems.
+      console.warn(`[insights] view_count update failed for dashboard ${id}:`, err.message);
+    });
 
     return c.json({ dashboard: dash, panels });
   });
@@ -320,12 +357,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .select(['id', 'created_by'])
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const dash = await findDashboard(c, id);
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
@@ -334,7 +366,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    await db.deleteFrom('zv_dashboards').where('id', '=', id).execute();
+    await inTenant(c, (t) => t.deleteFrom('zv_dashboards').where('id', '=', id).execute());
     return c.json({ success: true });
   });
 
@@ -343,12 +375,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .select(['id', 'created_by'])
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const dash = await findDashboard(c, id);
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
@@ -357,7 +384,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const shares = await db
+    const shares = await poolDb
       .selectFrom('zvd_dashboard_shares')
       .selectAll()
       .where('dashboard_id', '=', id)
@@ -386,12 +413,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const dash = await db
-        .selectFrom('zv_dashboards')
-        .select(['id', 'created_by'])
-        .where('id', '=', id)
-        .where('tenant_id', '=', tenantOf(c))
-        .executeTakeFirst();
+      const dash = await findDashboard(c, id);
 
       if (!dash) return c.json({ error: 'Not found' }, 404);
 
@@ -422,7 +444,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         }
       }
 
-      const share = await db
+      const share = await poolDb
         .insertInto('zvd_dashboard_shares')
         .values({
           dashboard_id: id,
@@ -456,12 +478,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const { id, shareId } = c.req.param();
 
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .select(['id', 'created_by'])
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const dash = await findDashboard(c, id);
 
     if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
@@ -470,7 +487,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const deleted = await db
+    const deleted = await poolDb
       .deleteFrom('zvd_dashboard_shares')
       .where('id', '=', shareId)
       .where('dashboard_id', '=', id)
@@ -507,16 +524,11 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const dashboardId = c.req.param('id');
       const body = c.req.valid('json');
 
-      const dash = await db
-        .selectFrom('zv_dashboards')
-        .select(['id'])
-        .where('id', '=', dashboardId)
-        .where('tenant_id', '=', tenantOf(c))
-        .executeTakeFirst();
+      const dash = await findDashboard(c, dashboardId);
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
-      const panel = await db
+      const panel = await poolDb
         .insertInto('zv_panels')
         .values({
           dashboard_id: dashboardId,
@@ -564,7 +576,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (body.position !== undefined) updates.position = toJsonb(body.position);
       if (body.refresh_interval !== undefined) updates.refresh_interval = body.refresh_interval;
 
-      const panel = await db
+      const panel = await poolDb
         .updateTable('zv_panels')
         .set(updates)
         .where('id', '=', id)
@@ -582,7 +594,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
-    const deleted = await db
+    const deleted = await poolDb
       .deleteFrom('zv_panels')
       .where('id', '=', c.req.param('id'))
       .returningAll()
@@ -597,7 +609,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const panel = await db
+    const panel = await poolDb
       .selectFrom('zv_panels')
       .selectAll()
       .where('id', '=', id)
@@ -610,20 +622,15 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     // is enough to execute its raw SQL — a privilege escalation since
     // any admin can attach a `SELECT * FROM account` panel and the link
     // would then leak password hashes to everyone who happens to GET it.
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .select(['id', 'created_by', 'is_public'])
-      .where('id', '=', panel.dashboard_id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const dash = await findDashboard(c, panel.dashboard_id);
     if (!dash) return c.json({ error: 'Panel not found' }, 404);
 
-    if (!(await canReadDashboard(db, dash, user.id))) {
+    if (!(await canReadDashboard(poolDb, dash, user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     // Check cache first
-    const cached = await db
+    const cached = await poolDb
       .selectFrom('zvd_panel_cache')
       .selectAll()
       .where('panel_id', '=', id)
@@ -654,12 +661,12 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     try {
       // The dashboard's tenant, not the viewer's: a dashboard belongs to one
       // organisation and its panels show that organisation's data.
-      const result = await runReadOnlySql(db, panelQuery, 10, tenantOf(c));
+      const result = await runReadOnlySql(poolDb, panelQuery, 10, tenantOf(c));
       const executionMs = Date.now() - start;
       const rows = result.rows ?? [];
 
       // Update/insert cache
-      await db
+      await poolDb
         .insertInto('zvd_panel_cache')
         .values({
           panel_id: id,
@@ -693,7 +700,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       // permanently marks the panel as "broken".
       const currentAvg = panel.avg_execution_ms ?? executionMs;
       const newAvg = Math.round((currentAvg + executionMs) / 2);
-      await db
+      await poolDb
         .updateTable('zv_panels')
         .set({
           last_executed_at: new Date(),
@@ -715,7 +722,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       });
     } catch (err: unknown) {
       // Increment error count
-      await db
+      await poolDb
         .updateTable('zv_panels')
         .set({ error_count: sql`error_count + 1` })
         .where('id', '=', id)
@@ -753,7 +760,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       try {
         // No tenant argument: this endpoint is instance-admin only and exists
         // to query across the whole instance. Every other call site scopes.
-        const result = await runReadOnlySql(db, query, 10);
+        const result = await runReadOnlySql(poolDb, query, 10);
         return c.json({
           data: result.rows,
           columns: Object.keys(result.rows[0] || {}),
@@ -771,14 +778,16 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     // Tenant first, THEN public-or-mine. `is_public` means "shared with my
     // organisation", not "shared with the instance" — without the tenant
     // predicate this listed every other customer's saved SQL.
-    const queries = await db
-      .selectFrom('zvd_insight_saved_queries')
-      .selectAll()
-      .where('tenant_id', '=', tenantOf(c))
-      .where((eb) => eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]))
-      .orderBy('use_count', 'desc')
-      .orderBy('created_at', 'desc')
-      .execute();
+    const queries = await inTenant(c, (t) =>
+      t
+        .selectFrom('zvd_insight_saved_queries')
+        .selectAll()
+        .where('tenant_id', '=', tenantOf(c))
+        .where((eb) => eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]))
+        .orderBy('use_count', 'desc')
+        .orderBy('created_at', 'desc')
+        .execute(),
+    );
 
     return c.json({ queries });
   });
@@ -805,22 +814,21 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
 
       const body = c.req.valid('json');
 
-      const savedQuery = await db
-        .insertInto('zvd_insight_saved_queries')
-        .values({
-          name: body.name,
-          description: body.description ?? null,
-          query: body.query,
-          tags: body.tags,
-          is_public: body.is_public,
-          created_by: user.id,
-          // Explicit rather than leaning on the column DEFAULT: this insert runs
-          // on the raw pool, where the tenant GUC the DEFAULT reads is not set,
-          // so every saved query would land on the default tenant.
-          tenant_id: tenantOf(c),
-        })
-        .returningAll()
-        .executeTakeFirst();
+      const savedQuery = await inTenant(c, (t) =>
+        t
+          .insertInto('zvd_insight_saved_queries')
+          .values({
+            name: body.name,
+            description: body.description ?? null,
+            query: body.query,
+            tags: body.tags,
+            is_public: body.is_public,
+            created_by: user.id,
+            tenant_id: tenantOf(c),
+          })
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       return c.json({ query: savedQuery }, 201);
     },
@@ -844,12 +852,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const existing = await db
-        .selectFrom('zvd_insight_saved_queries')
-        .select(['id', 'created_by'])
-        .where('id', '=', id)
-        .where('tenant_id', '=', tenantOf(c))
-        .executeTakeFirst();
+      const existing = await findSavedQuery(c, id);
 
       if (!existing) return c.json({ error: 'Saved query not found' }, 404);
 
@@ -878,12 +881,14 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (body.tags !== undefined) updates.tags = body.tags;
       if (body.is_public !== undefined) updates.is_public = body.is_public;
 
-      const savedQuery = await db
-        .updateTable('zvd_insight_saved_queries')
-        .set(updates)
-        .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirst();
+      const savedQuery = await inTenant(c, (t) =>
+        t
+          .updateTable('zvd_insight_saved_queries')
+          .set(updates)
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       return c.json({ query: savedQuery });
     },
@@ -894,12 +899,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const existing = await db
-      .selectFrom('zvd_insight_saved_queries')
-      .select(['id', 'created_by'])
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const existing = await findSavedQuery(c, id);
 
     if (!existing) return c.json({ error: 'Saved query not found' }, 404);
 
@@ -908,11 +908,13 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    await db
-      .deleteFrom('zvd_insight_saved_queries')
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .execute();
+    await inTenant(c, (t) =>
+      t
+        .deleteFrom('zvd_insight_saved_queries')
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantOf(c))
+        .execute(),
+    );
     return c.json({ success: true });
   });
 
@@ -924,12 +926,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     // Scoped by tenant: `is_public` below admits any authenticated caller, so
     // without this an id from another organisation was enough to run their
     // saved SQL — and the SQL itself then ran with no tenant context either.
-    const savedQuery = await db
-      .selectFrom('zvd_insight_saved_queries')
-      .selectAll()
-      .where('id', '=', id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const savedQuery = await findSavedQuery(c, id);
 
     if (!savedQuery) return c.json({ error: 'Saved query not found' }, 404);
 
@@ -950,17 +947,18 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (blocked) return c.json({ error: blocked }, 400);
 
     try {
-      const result = await runReadOnlySql(db, queryText, 10, tenantOf(c));
+      const result = await runReadOnlySql(poolDb, queryText, 10, tenantOf(c));
 
       // Increment use_count
-      await db
-        .updateTable('zvd_insight_saved_queries')
-        .set({ use_count: sql`use_count + 1` })
-        .where('id', '=', id)
-        .execute()
-        .catch((err: Error) => {
-          console.warn(`[insights] use_count bump failed for saved-query ${id}:`, err.message);
-        });
+      await inTenant(c, (t) =>
+        t
+          .updateTable('zvd_insight_saved_queries')
+          .set({ use_count: sql`use_count + 1` })
+          .where('id', '=', id)
+          .execute(),
+      ).catch((err: Error) => {
+        console.warn(`[insights] use_count bump failed for saved-query ${id}:`, err.message);
+      });
 
       return c.json({ data: result.rows, columns: Object.keys(result.rows[0] || {}) });
     } catch (err) {
@@ -972,7 +970,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   app.get('/subscriptions', async (c) => {
     const user = c.get('user');
 
-    const subscriptions = await db
+    const subscriptions = await poolDb
       .selectFrom('zvd_dashboard_subscriptions')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -999,16 +997,11 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const user = c.get('user');
       const body = c.req.valid('json');
 
-      const dash = await db
-        .selectFrom('zv_dashboards')
-        .select(['id'])
-        .where('id', '=', body.dashboard_id)
-        .where('tenant_id', '=', tenantOf(c))
-        .executeTakeFirst();
+      const dash = await findDashboard(c, body.dashboard_id);
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
-      const subscription = await db
+      const subscription = await poolDb
         .insertInto('zvd_dashboard_subscriptions')
         .values({
           dashboard_id: body.dashboard_id,
@@ -1040,7 +1033,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     const user = c.get('user');
     const id = c.req.param('id');
 
-    const deleted = await db
+    const deleted = await poolDb
       .deleteFrom('zvd_dashboard_subscriptions')
       .where('id', '=', id)
       .where('user_id', '=', user.id)
