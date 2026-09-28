@@ -17,7 +17,7 @@
 import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
-import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
+import { DEFAULT_TENANT_ID, withEveryTenant } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
 import { recordsToCsv } from '../security/index.js';
@@ -583,11 +583,17 @@ export async function executeFlow(
   // triggerData — closes both the "runs as default tenant" leak and the
   // "caller spoofs trigger.tenantId" escalation. Best-effort: falls back to the
   // default tenant if the lookup fails (a missing flow fails later on the run FK).
+  //
+  // Read across every firm: `zv_flows` is under the tenant policy (migration
+  // 027), and on the bare pool a non-superuser database hides every other firm's
+  // row — the lookup found nothing and a firm's flow ran as the DEFAULT firm.
   let flowTenantId = DEFAULT_TENANT_ID;
   try {
-    const tRow = await sql<{ tenant_id: string }>`
+    const tRow = await withEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string }>`
       SELECT tenant_id::text AS tenant_id FROM zv_flows WHERE id = ${flowId}
-    `.execute(db);
+    `.execute(trx),
+    );
     if (tRow.rows[0]?.tenant_id) flowTenantId = tRow.rows[0].tenant_id;
   } catch {
     // keep default tenant

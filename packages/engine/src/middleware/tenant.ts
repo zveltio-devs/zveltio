@@ -104,10 +104,10 @@ const TXN_SKIP_PREFIXES = [
   // reaching for another connection.
   //
   // Skipping is safe here because none of the four relies on the request's GUC.
-  // `insights` opens a short `withTenantIsolation` of its own around each query
-  // on a policed table (never while holding one and reaching for another);
-  // `flows` filters by `tenant_id` explicitly through `tenantOf(c)`; `backup` and
-  // `sql-editor` are instance-level tools with no tenant scope at all.
+  // `insights` and `flows` open a short `withTenantIsolation` of their own around
+  // each query on a policed table (never while holding one and reaching for
+  // another); `backup` and `sql-editor` are instance-level tools with no tenant
+  // scope at all.
   //
   // `/api/users` is deliberately NOT here. It takes `poolDb` as a THIRD
   // argument, used only to revoke sessions on delete, and runs everything else

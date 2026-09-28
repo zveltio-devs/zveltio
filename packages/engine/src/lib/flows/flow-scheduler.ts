@@ -2,7 +2,7 @@
  * Flow Scheduler — polls for cron-triggered flows that are due and executes them.
  *
  * Uses a simple 60-second interval and compares `next_run_at` against NOW().
- * Rows are claimed with FOR UPDATE SKIP LOCKED and executed INSIDE that
+ * Rows are claimed with FOR NO KEY UPDATE SKIP LOCKED and executed INSIDE that
  * transaction, so a second replica polling the same second skips them.
  * After each execution, `next_run_at` is advanced by trigger_config.interval_seconds
  * (defaults to 60 s). Step execution is delegated to flow-executor.ts so that
@@ -15,7 +15,8 @@ import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
 import { extensionRegistry } from '../extensions/index.js';
 import { serviceRegistry } from '../service-registry.js';
-import { withTenantIsolation } from '../tenancy/index.js';
+import { withEveryTenant, withTenantIsolation } from '../tenancy/index.js';
+import { withSavepoint } from '../savepoint.js';
 import { scheduleBackups } from '../backup/scheduler.js';
 import { resolveDumpTarget } from '../../routes/backup.js';
 import { sql } from 'kysely';
@@ -97,10 +98,13 @@ export const flowScheduler = {
 
     try {
       const now = new Date();
-      // Use a transaction with FOR UPDATE SKIP LOCKED to prevent multiple scheduler
-      // instances from executing the same flow simultaneously.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await (_db as any).transaction().execute(async (trx: any) => {
+      // One transaction claims every firm's due flows with SKIP LOCKED, so a
+      // second replica polling the same second skips them. `zv_flows` is under
+      // the tenant policy (migration 027): on the bare pool a non-superuser
+      // database answered this for the default firm only, and every other
+      // firm's schedule silently never fired. `withEveryTenant` publishes every
+      // firm as the reach.
+      await withEveryTenant(_db, async (trx) => {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const flows: any[] = await trx
           .selectFrom('zv_flows')
@@ -108,9 +112,16 @@ export const flowScheduler = {
           .where('is_active', '=', true)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .where((eb: any) => eb.or([eb('next_run_at', 'is', null), eb('next_run_at', '<=', now)]))
-          .forUpdate()
+          .where((eb) => eb.or([eb('next_run_at', 'is', null), eb('next_run_at', '<=', now)]))
+          // NO KEY, not FOR UPDATE: the executor inserts a `zv_flow_runs` row
+          // for this flow on another connection, and that foreign key takes
+          // FOR KEY SHARE on the row — which FOR UPDATE blocks and FOR NO KEY
+          // UPDATE does not. With FOR UPDATE every run waited on the lock its
+          // own tick held, and the tick waited on the run. Measured on a live
+          // engine: a due flow's run sat at `running` for minutes, later ticks
+          // failed with PoolBusyError, and `next_run_at` never advanced.
+          // Replicas still skip each other: the mode conflicts with itself.
+          .forNoKeyUpdate()
           .skipLocked()
           .execute();
 
@@ -148,12 +159,12 @@ export const flowScheduler = {
   },
 
   /**
-   * `writer` is the transaction that holds this row's FOR UPDATE lock. Every
+   * `writer` is the transaction that holds this row's lock. Every
    * write to `zv_flows` below MUST go through it: issued on a second pooled
    * connection they wait for a lock their own caller holds, and the tick hangs
    * until the statement timeout. Measured — the first version of this repair
    * deadlocked exactly there. Reads and the step execution stay on `_db`; a
-   * plain SELECT does not queue behind FOR UPDATE.
+   * plain SELECT does not queue behind the lock.
    */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   async _executeScheduledFlow(flow: any, writer?: any): Promise<void> {
@@ -202,17 +213,15 @@ export const flowScheduler = {
       const intervalMs =
         ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
         DEFAULT_AI_INTERVAL_MS;
-      await rows
-        .updateTable('zv_flows')
-        .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
-        .where('id', '=', flow.id)
-        .execute()
-        .catch((err: Error) => {
-          console.error('[FlowScheduler] failed to advance ai_task next_run_at', {
-            flow: flow.id,
-            error: err.message,
-          });
+      await advance(rows, flow, {
+        last_run_at: new Date(),
+        next_run_at: new Date(Date.now() + intervalMs),
+      }).catch((err: Error) => {
+        console.error('[FlowScheduler] failed to advance ai_task next_run_at', {
+          flow: flow.id,
+          error: err.message,
         });
+      });
 
       return; // Skip standard flow executor for ai_task
     }
@@ -259,34 +268,71 @@ export const flowScheduler = {
           `[FlowScheduler] flow "${flow.name}" (${flow.id}) has an unusable cron ` +
             `expression "${cronExpr}" — deactivating instead of guessing a schedule.`,
         );
-        await rows
-          .updateTable('zv_flows')
-          .set({ is_active: false, last_run_at: new Date() })
-          .where('id', '=', flow.id)
-          .execute()
-          .catch(() => undefined);
+        await advance(rows, flow, { is_active: false, last_run_at: new Date() }).catch(
+          () => undefined,
+        );
         return;
       }
     }
     const intervalMs =
       ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
       DEFAULT_CRON_INTERVAL_MS;
-    await rows
-      .updateTable('zv_flows')
-      .set({
-        last_run_at: new Date(),
-        next_run_at: nextRunAt ?? new Date(Date.now() + intervalMs),
-      })
-      .where('id', '=', flow.id)
-      .execute()
-      .catch((err: Error) => {
-        console.error('[FlowScheduler] failed to advance next_run_at', {
-          flow: flow.id,
-          error: err.message,
-        });
+    await advance(rows, flow, {
+      last_run_at: new Date(),
+      next_run_at: nextRunAt ?? new Date(Date.now() + intervalMs),
+    }).catch((err: Error) => {
+      console.error('[FlowScheduler] failed to advance next_run_at', {
+        flow: flow.id,
+        error: err.message,
       });
+    });
   },
 };
+
+/**
+ * Writes the scheduler's bookkeeping to one flow row, as that row's firm.
+ *
+ * The claim reads every firm, but the policy's WITH CHECK lets a write through
+ * only for `zveltio.current_tenant`, so the setting goes out in the statement
+ * before each write. The flows of one tick share one connection and run
+ * concurrently, so the pairs take turns — another flow's setting landing between
+ * them would make this write as the wrong firm, and be refused.
+ *
+ * In a savepoint because a refused write aborts the whole claim otherwise, and
+ * every other flow's advance with it: a `.catch` in JavaScript does not undo that.
+ */
+let _writeTurn: Promise<unknown> = Promise.resolve();
+function advance(
+  rows: Database,
+  flow: { id: string; tenant_id?: string | null },
+  values: Record<string, unknown>,
+): Promise<void> {
+  const update = async () => {
+    await rows.updateTable('zv_flows').set(values).where('id', '=', flow.id).execute();
+  };
+  // Called without a claim (a direct call, no transaction): nothing to protect,
+  // and a SAVEPOINT on the bare pool is itself the failure (`savepoint.ts`).
+  if (rows === _db) return update();
+  const write = _writeTurn.then(() =>
+    withSavepoint(
+      rows,
+      'flow_advance',
+      async () => {
+        if (flow.tenant_id) {
+          await sql`SELECT set_config('zveltio.current_tenant', ${flow.tenant_id}, true)`.execute(
+            rows,
+          );
+        }
+        await update();
+      },
+      (err) => {
+        throw err;
+      },
+    ),
+  );
+  _writeTurn = write.catch(() => undefined);
+  return write;
+}
 
 /**
  * Runs a registered background handler once per tenant, inside that tenant's

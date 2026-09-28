@@ -165,14 +165,15 @@ if (findings.length > 0) {
 // spelled `db.selectFrom('zv_dashboards')`. So this gate has never judged a
 // single one of the sites it exists for. See the note in the ledger for E01.
 //
-// Closed for `insights` (migration 026): its parameter is spelled `poolDb` now,
-// and its policed tables go through `withTenantIsolation`. `flows`, `backup` and
-// `sql-editor` still take the raw pool as `db` and stay unjudged here.
+// Closed for `insights` (migration 026) and `flows` (migration 027): their
+// parameter is spelled `poolDb` now, and their policed tables go through
+// `withTenantIsolation`. `backup` and `sql-editor` still take the raw pool as
+// `db` and stay unjudged here.
 console.log(
   `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known; ` +
     `${sitesSeen} \`poolDb.\` query site(s) under routes/, none of them on a tenant table.` +
     (sitesSeen === 0
-      ? '\n  NOTE: zero sites matched — `insights` spells its pool `poolDb`; if it stopped,' +
+      ? '\n  NOTE: zero sites matched — `insights` and `flows` spell their pool `poolDb`; if they stopped,' +
         '\n  this gate is judging an empty set again.'
       : ''),
 );

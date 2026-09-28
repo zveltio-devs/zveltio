@@ -1013,6 +1013,36 @@ export async function withTenantIsolation<T>(
 }
 
 /**
+ * A transaction on `db` that READS every firm's rows, for background work that
+ * has to see across firms by design — the flow scheduler's claim, and the flow
+ * executor's lookup of which firm a flow runs as.
+ *
+ * On a non-superuser database the pool with no GUC answers a policed table for
+ * the default firm only, so a worker that just used the pool quietly did nothing
+ * for every other firm. The reach is published the way god's is in
+ * `withTenantIsolation` — every firm in `zveltio.visible_tenants`, as the plain
+ * role — so the database still decides, on the same predicate as everyone else.
+ *
+ * WRITES are not widened: WITH CHECK is the own node, and none is set here. A
+ * caller that writes a row sets `zveltio.current_tenant` to that row's firm in
+ * the statement before it.
+ */
+export async function withEveryTenant<T>(
+  db: Database,
+  fn: (trx: Database) => Promise<T>,
+): Promise<T> {
+  return db.transaction().execute(async (trx) => {
+    // Read before dropping the role, as `withTenantIsolation` reads god's reach.
+    const all = await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants`.execute(trx);
+    await sql`
+      SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true),
+             set_config('zveltio.visible_tenants', ${encodeTenantSet(all.rows.map((r) => r.id))}, true)
+    `.execute(trx);
+    return fn(trx);
+  });
+}
+
+/**
  * Is the request's READ reach this tenant and nothing else?
  *
  * The answer decides whether a handler may add an explicit `tenant_id = <id>`
