@@ -1,4 +1,4 @@
-import { onAfterCommit } from '../lib/tenancy/index.js';
+import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 import { toJsonb } from '../lib/jsonb.js';
@@ -33,7 +33,9 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       }
 
       // Persist to DB (fire-and-forget, non-fatal)
-      // Deferred until the COMMIT, like the request log and the god audit.
+      // Deferred until the request has settled, like the request log and the
+      // god audit — committed or rolled back, since slow requests are the ones
+      // that go on to fail.
       //
       // This writes to the POOL while the request's tenant transaction is still
       // open — the middleware sits inside it, so "after next()" is still "before
@@ -41,7 +43,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       // issued, awaited or not. That is a second connection on `/api/data/*`,
       // the hottest path there is, and at `c = DB_POOL_MAX` the second one can
       // never arrive.
-      onAfterCommit(() => {
+      afterRequestSettles(c, () => {
         poolDb
           .insertInto('zv_slow_queries')
           .values({
