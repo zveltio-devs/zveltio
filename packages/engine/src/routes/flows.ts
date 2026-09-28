@@ -5,22 +5,32 @@ import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 import { EXECUTABLE_STEP_TYPES, executeFlow } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
-import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { isTenantAdmin, requireInstanceAdmin, withTenantIsolation } from '../lib/tenancy/index.js';
+import { tenantId } from '../lib/route-db.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// zv_flows has no RLS and these routes run on the raw pool `db`, so every query is
-// scoped to the request's tenant explicitly — otherwise one tenant's admin could
-// read/patch/delete/run another tenant's flows by id, or enumerate the whole flow
-// list (cross-tenant IDOR). "always-one-tenant", so this resolves to the default
-// tenant in single-tenant installs. Child rows (steps/runs/dlq) are always reached
-// through a flow, so scoping the flow (or joining the child reads to zv_flows)
-// transitively protects them.
-const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
-const tenantOf = (c: Context): string =>
-  (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
+// Every flow query still names the request's tenant: the index-friendly belt
+// over the policy (migration 027), and what keeps a god's wider reach to the
+// request's firm. "always-one-tenant", so this resolves to the default tenant in
+// single-tenant installs. Child rows (steps/runs/dlq) carry no tenant and are
+// always reached through a flow, so scoping the flow (or joining the child reads
+// to zv_flows) transitively protects them.
+const tenantOf = tenantId;
+
+// `zv_flows` is under the tenant policy, and this router runs on the pool
+// (`TXN_SKIP_PREFIXES`), where no tenant is set: on a non-superuser database a
+// policed table answers there for the default tenant only, and refuses any other
+// tenant's INSERT. So each query on it runs in a short tenant transaction of its
+// own, as `insights` does.
+//
+// Nothing inside `fn` may reach for `poolDb` (Casbin lookups, the executor, the
+// audit log): holding this connection while waiting for a second one is the
+// pool-size deadlock `TXN_SKIP_PREFIXES` exists to avoid.
+const inTenant = <T>(c: Context, fn: (trx: Database) => Promise<T>): Promise<T> =>
+  withTenantIsolation(tenantOf(c), fn, { userId: (c.get('user') as { id: string }).id });
 
 // The wire format for steps in POST/PATCH bodies. Internally each step
 // lives as a row in `zv_flow_steps` with a `step_order` column; the
@@ -144,7 +154,7 @@ async function assertStepTypesAllowed(
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function flowsRoutes(db: Database, auth: any): Hono {
+export function flowsRoutes(poolDb: Database, auth: any): Hono {
   const app = new Hono();
 
   // Admin auth middleware — flows are admin-only resources
@@ -164,21 +174,23 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const { page = '1', limit = '50' } = c.req.query();
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
     const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
-    const [flows, counted] = await Promise.all([
-      db
-        .selectFrom('zv_flows')
-        .selectAll()
-        .where('tenant_id', '=', tenantOf(c))
-        .orderBy('updated_at', 'desc')
-        .limit(parsedLimit)
-        .offset(offset)
-        .execute(),
-      db
-        .selectFrom('zv_flows')
-        .select((eb) => eb.fn.count('id').as('count'))
-        .where('tenant_id', '=', tenantOf(c))
-        .executeTakeFirst(),
-    ]);
+    const [flows, counted] = await inTenant(c, (t) =>
+      Promise.all([
+        t
+          .selectFrom('zv_flows')
+          .selectAll()
+          .where('tenant_id', '=', tenantOf(c))
+          .orderBy('updated_at', 'desc')
+          .limit(parsedLimit)
+          .offset(offset)
+          .execute(),
+        t
+          .selectFrom('zv_flows')
+          .select((eb) => eb.fn.count('id').as('count'))
+          .where('tenant_id', '=', tenantOf(c))
+          .executeTakeFirst(),
+      ]),
+    );
     return c.json({ flows, total: Number(counted?.count ?? 0) });
   });
 
@@ -189,30 +201,32 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const flowId = c.req.query('flow_id');
     // DLQ entries have no tenant_id of their own; scope by joining to the owning
     // flow so one tenant can't read another tenant's failed-flow payloads.
-    let query = db
-      .selectFrom('zv_flow_dlq as dlq')
-      .innerJoin('zv_flows as f', 'f.id', 'dlq.flow_id')
-      .selectAll('dlq')
-      .where('f.tenant_id', '=', tenantOf(c))
-      .orderBy('dlq.created_at', 'desc')
-      .limit(100);
-
-    if (flowId) query = query.where('dlq.flow_id', '=', flowId);
-
-    const entries = await query.execute();
+    const entries = await inTenant(c, (t) => {
+      let query = t
+        .selectFrom('zv_flow_dlq as dlq')
+        .innerJoin('zv_flows as f', 'f.id', 'dlq.flow_id')
+        .selectAll('dlq')
+        .where('f.tenant_id', '=', tenantOf(c))
+        .orderBy('dlq.created_at', 'desc')
+        .limit(100);
+      if (flowId) query = query.where('dlq.flow_id', '=', flowId);
+      return query.execute();
+    });
     return c.json({ entries });
   });
 
   // GET /runs/:runId — run detail. Also a static-prefix route, kept above
   // /:id for the same reason.
   app.get('/runs/:runId', async (c) => {
-    const run = await db
-      .selectFrom('zv_flow_runs as r')
-      .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
-      .selectAll('r')
-      .where('r.id', '=', c.req.param('runId'))
-      .where('f.tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const run = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flow_runs as r')
+        .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
+        .selectAll('r')
+        .where('r.id', '=', c.req.param('runId'))
+        .where('f.tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
 
     if (!run) return c.json({ error: 'Run not found' }, 404);
     return c.json({ run });
@@ -225,7 +239,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     // path that fell through) would make Postgres throw on the cast and
     // surface as a 500. Treat it as not-found instead.
     if (!UUID_RE.test(id)) return c.json({ error: 'Flow not found' }, 404);
-    const flow = await loadFlowWithSteps(db, id, tenantOf(c));
+    const flow = await inTenant(c, (t) => loadFlowWithSteps(t, id, tenantOf(c)));
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
     return c.json({ flow });
   });
@@ -261,27 +275,29 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         }
       }
 
-      const flow = await db
-        .insertInto('zv_flows')
-        .values({
-          tenant_id: tenantOf(c),
-          name: body.name,
-          description: body.description ?? null,
-          is_active: body.is_active,
-          trigger_type: body.trigger.type,
-          trigger_config: toJsonb(toTriggerConfig(body.trigger)),
-          created_by: user.id,
-        })
-        .returningAll()
-        .executeTakeFirst();
+      const flow = await inTenant(c, (t) =>
+        t
+          .insertInto('zv_flows')
+          .values({
+            tenant_id: tenantOf(c),
+            name: body.name,
+            description: body.description ?? null,
+            is_active: body.is_active,
+            trigger_type: body.trigger.type,
+            trigger_config: toJsonb(toTriggerConfig(body.trigger)),
+            created_by: user.id,
+          })
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       if (!flow) return c.json({ error: 'Failed to create flow' }, 500);
 
       if (body.steps.length > 0) {
-        await replaceSteps(db, flow.id, body.steps);
+        await replaceSteps(poolDb, flow.id, body.steps);
       }
 
-      await auditLog(db, {
+      await auditLog(poolDb, {
         type: 'settings.changed',
         userId: user.id,
         resourceId: flow.id,
@@ -294,7 +310,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         },
       });
 
-      const created = await loadFlowWithSteps(db, flow.id, tenantOf(c));
+      const created = await inTenant(c, (t) => loadFlowWithSteps(t, flow.id, tenantOf(c)));
       return c.json({ flow: created }, 201);
     },
   );
@@ -342,23 +358,25 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         }
       }
 
-      const flow = await db
-        .updateTable('zv_flows')
-        .set(updates)
-        .where('id', '=', flowId)
-        .where('tenant_id', '=', tenantOf(c))
-        .returningAll()
-        .executeTakeFirst();
+      const flow = await inTenant(c, (t) =>
+        t
+          .updateTable('zv_flows')
+          .set(updates)
+          .where('id', '=', flowId)
+          .where('tenant_id', '=', tenantOf(c))
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
       if (body.steps !== undefined) {
-        await replaceSteps(db, flowId, body.steps);
+        await replaceSteps(poolDb, flowId, body.steps);
       }
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
-      await auditLog(db, {
+      await auditLog(poolDb, {
         type: 'settings.changed',
         userId: user?.id,
         resourceId: flowId,
@@ -370,7 +388,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         },
       });
 
-      const updated = await loadFlowWithSteps(db, flowId, tenantOf(c));
+      const updated = await inTenant(c, (t) => loadFlowWithSteps(t, flowId, tenantOf(c)));
       return c.json({ flow: updated });
     },
   );
@@ -380,14 +398,16 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const flowId = c.req.param('id');
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
-    const deleted = await db
-      .deleteFrom('zv_flows')
-      .where('id', '=', flowId)
-      .where('tenant_id', '=', tenantOf(c))
-      .returning('id')
-      .executeTakeFirst();
+    const deleted = await inTenant(c, (t) =>
+      t
+        .deleteFrom('zv_flows')
+        .where('id', '=', flowId)
+        .where('tenant_id', '=', tenantOf(c))
+        .returning('id')
+        .executeTakeFirst(),
+    );
     if (!deleted) return c.json({ error: 'Flow not found' }, 404);
-    await auditLog(db, {
+    await auditLog(poolDb, {
       type: 'settings.changed',
       userId: user?.id,
       resourceId: flowId,
@@ -399,21 +419,23 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/run — manual trigger
   app.post('/:id/run', async (c) => {
-    const flow = await db
-      .selectFrom('zv_flows')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const flow = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flows')
+        .selectAll()
+        .where('id', '=', c.req.param('id'))
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
     const body = await c.req.json().catch(() => ({}));
-    executeFlow(db, flow.id, { trigger: 'manual', ...body }).catch(console.error);
+    executeFlow(poolDb, flow.id, { trigger: 'manual', ...body }).catch(console.error);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
-    await auditLog(db, {
+    await auditLog(poolDb, {
       type: 'settings.changed',
       userId: user?.id,
       resourceId: flow.id,
@@ -426,22 +448,24 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/runs — run history
   app.get('/:id/runs', async (c) => {
-    const runs = await db
-      .selectFrom('zv_flow_runs as r')
-      .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
-      .select(['r.id', 'r.status', 'r.error', 'r.started_at', 'r.finished_at'])
-      .where('r.flow_id', '=', c.req.param('id'))
-      .where('f.tenant_id', '=', tenantOf(c))
-      .orderBy('r.started_at', 'desc')
-      .limit(50)
-      .execute();
+    const runs = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flow_runs as r')
+        .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
+        .select(['r.id', 'r.status', 'r.error', 'r.started_at', 'r.finished_at'])
+        .where('r.flow_id', '=', c.req.param('id'))
+        .where('f.tenant_id', '=', tenantOf(c))
+        .orderBy('r.started_at', 'desc')
+        .limit(50)
+        .execute(),
+    );
 
     return c.json({ runs });
   });
 
   // POST /dlq/:id/retry — requeue a DLQ entry
   app.post('/dlq/:id/retry', async (c) => {
-    const entry = await db
+    const entry = await poolDb
       .selectFrom('zv_flow_dlq')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -449,12 +473,14 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
     if (!entry) return c.json({ error: 'DLQ entry not found' }, 404);
 
-    const flow = await db
-      .selectFrom('zv_flows')
-      .selectAll()
-      .where('id', '=', entry.flow_id)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const flow = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flows')
+        .selectAll()
+        .where('id', '=', entry.flow_id)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
@@ -467,8 +493,8 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       payload = {};
     }
 
-    await db.deleteFrom('zv_flow_dlq').where('id', '=', entry.id).execute();
-    executeFlow(db, flow.id, payload.trigger_data ?? {}).catch(console.error);
+    await poolDb.deleteFrom('zv_flow_dlq').where('id', '=', entry.id).execute();
+    executeFlow(poolDb, flow.id, payload.trigger_data ?? {}).catch(console.error);
 
     return c.json({ message: 'DLQ entry requeued', flow_id: entry.flow_id }, 202);
   });
@@ -492,23 +518,25 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Invalid step configuration', errors: validation.errors }, 400);
     }
 
-    const flow = await db
-      .selectFrom('zv_flows')
-      .select(['id'])
-      .where('id', '=', flowId)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const flow = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flows')
+        .select(['id'])
+        .where('id', '=', flowId)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
     // Append at the end — fetch current max step_order first.
-    const last = await db
+    const last = await poolDb
       .selectFrom('zv_flow_steps')
       .select((eb) => eb.fn.max('step_order').as('max_order'))
       .where('flow_id', '=', flowId)
       .executeTakeFirst();
     const nextOrder = (last?.max_order ?? -1) + 1;
 
-    const step = await db
+    const step = await poolDb
       .insertInto('zv_flow_steps')
       .values({
         flow_id: flowId,
@@ -532,15 +560,17 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const stepId = c.req.param('stepId');
 
     // Confirm the flow belongs to this tenant before touching its steps.
-    const owner = await db
-      .selectFrom('zv_flows')
-      .select(['id'])
-      .where('id', '=', flowId)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const owner = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flows')
+        .select(['id'])
+        .where('id', '=', flowId)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
     if (!owner) return c.json({ error: 'Step not found' }, 404);
 
-    const existing = await db
+    const existing = await poolDb
       .selectFrom('zv_flow_steps')
       .selectAll()
       .where('id', '=', stepId)
@@ -572,7 +602,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     if (body.on_error !== undefined) updates.on_error = body.on_error;
     if (body.config !== undefined) updates.config = toJsonb(validation.config ?? body.config);
 
-    const updated = await db
+    const updated = await poolDb
       .updateTable('zv_flow_steps')
       .set(updates)
       .where('id', '=', stepId)
@@ -589,15 +619,17 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const stepId = c.req.param('stepId');
 
     // Confirm the flow belongs to this tenant before touching its steps.
-    const owner = await db
-      .selectFrom('zv_flows')
-      .select(['id'])
-      .where('id', '=', flowId)
-      .where('tenant_id', '=', tenantOf(c))
-      .executeTakeFirst();
+    const owner = await inTenant(c, (t) =>
+      t
+        .selectFrom('zv_flows')
+        .select(['id'])
+        .where('id', '=', flowId)
+        .where('tenant_id', '=', tenantOf(c))
+        .executeTakeFirst(),
+    );
     if (!owner) return c.json({ error: 'Step not found' }, 404);
 
-    await db.transaction().execute(async (trx) => {
+    await poolDb.transaction().execute(async (trx) => {
       const removed = await trx
         .deleteFrom('zv_flow_steps')
         .where('id', '=', stepId)
@@ -624,7 +656,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       }
     });
 
-    const remaining = await db
+    const remaining = await poolDb
       .selectFrom('zv_flow_steps')
       .select((eb) => eb.fn.count('id').as('count'))
       .where('flow_id', '=', flowId)

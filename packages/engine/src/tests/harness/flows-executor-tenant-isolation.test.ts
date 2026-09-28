@@ -57,6 +57,11 @@ d('flow executor tenant isolation (in-process)', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // A real firm: `zv_flows` is under the tenant policy (migration 027), and the
+    // executor finds a flow's firm through a reach made of the firms that exist.
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER_TENANT}::uuid, ${`exec-iso-${STAMP}`}, 'exec-iso', 'active')
+              ON CONFLICT (id) DO NOTHING`.execute(db);
   });
 
   afterAll(async () => {
@@ -66,6 +71,7 @@ d('flow executor tenant isolation (in-process)', () => {
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
     }
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });
 
   it('runs a flow with ITS OWN tenant, not the default tenant', async () => {

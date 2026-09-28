@@ -1,5 +1,10 @@
 import { getDb, type Database } from '../../db/index.js';
-import { DEFAULT_TENANT_ID, getCurrentTenantTrx, onAfterCommit } from '../tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  getCurrentTenantTrx,
+  onAfterCommit,
+  withTenantIsolation,
+} from '../tenancy/index.js';
 import { executeFlow } from './flow-executor.js';
 
 /**
@@ -57,13 +62,19 @@ async function fireDataFlows(
     const triggerType =
       event === 'insert' ? 'on_create' : event === 'update' ? 'on_update' : 'on_delete';
 
-    const flows = await db
-      .selectFrom('zv_flows')
-      .selectAll()
-      .where('is_active', '=', true)
-      .where('trigger_type', '=', triggerType)
-      .where('tenant_id', '=', tenantId || DEFAULT_TENANT_ID)
-      .execute();
+    // Inside the writing firm: `zv_flows` is under the tenant policy (migration
+    // 027), and on the bare pool a non-superuser database shows the default
+    // firm's flows only — every other firm's record hooks silently never fired.
+    const tenant = tenantId || DEFAULT_TENANT_ID;
+    const flows = await withTenantIsolation(tenant, (trx) =>
+      trx
+        .selectFrom('zv_flows')
+        .selectAll()
+        .where('is_active', '=', true)
+        .where('trigger_type', '=', triggerType)
+        .where('tenant_id', '=', tenant)
+        .execute(),
+    );
 
     for (const flow of flows) {
       const cfg = (
