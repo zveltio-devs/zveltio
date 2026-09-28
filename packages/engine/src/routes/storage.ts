@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { guardSession } from '../lib/admin-guard.js';
+import { guardSessionOrKey } from '../lib/admin-guard.js';
+import { type RequestUser, rowAuthorId, STORAGE_SCOPE } from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { applyFileVisibility, mayReadFile } from '../lib/media-visibility.js';
@@ -238,13 +239,21 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
 
-  // Auth middleware
+  // A session, or an API key holding `$storage` for what the method does.
   app.use('*', async (c, next) => {
-    const session = await guardSession(c, auth);
-    if (session instanceof Response) return session;
-    c.set('user', session.user);
+    const m = c.req.method;
+    const action = m === 'GET' || m === 'HEAD' ? 'read' : m === 'DELETE' ? 'delete' : 'create';
+    const user = await guardSessionOrKey(c, auth, db, STORAGE_SCOPE, action);
+    if (user instanceof Response) return user;
+    c.set('user', user);
     await next();
   });
+
+  // Who sees and deletes every file in the tenant. A key is never a tenant
+  // admin — Casbin is not asked for one; its exemption is `rls_bypass`, the
+  // data path's rule (see `guardSessionOrKey`).
+  const seesAllFiles = (user: RequestUser): Promise<boolean> =>
+    user.role === 'api_key' ? Promise.resolve(user.rlsBypass === true) : isTenantAdmin(user.id);
 
   // GET / — List files
   app.get('/', async (c) => {
@@ -254,7 +263,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const offset = (parseInt(page) - 1) * parsedLimit;
 
     // Only what this user may read — see lib/media-visibility.ts.
-    const listUser = c.get('user') as { id: string };
+    const listUser = c.get('user') as RequestUser;
     let query = applyFileVisibility(
       effectiveDb
         .selectFrom('zv_media_files')
@@ -262,7 +271,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
         .where('tenant_id', '=', tenantId(c))
         .orderBy('created_at', 'desc'),
       listUser.id,
-      await isTenantAdmin(listUser.id).catch(() => false),
+      await seesAllFiles(listUser).catch(() => false),
     );
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
@@ -276,8 +285,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // F1 FIX: Rate-limit uploads to 60/min per user (same as writeRateLimit) to prevent
   // disk/storage quota exhaustion from rapid automated uploads.
   app.post('/upload', writeRateLimit, async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
+    // Files are recorded, and counted against a quota, as the key's issuer.
+    const author = rowAuthorId(user);
     const storage = getStorage();
 
     const formData = await c.req.formData();
@@ -301,7 +311,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // upload and counts against the same allowance, but checked only the line
     // above — so a user at their limit could keep uploading indefinitely by
     // coming through here instead, as long as each file was small enough.
-    const quota = await checkStorageQuota(reqDb(c, db), tenantId(c), user.id, file.size);
+    const quota = await checkStorageQuota(reqDb(c, db), tenantId(c), author, file.size);
     if (!quota.ok) {
       return c.json(
         {
@@ -431,7 +441,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
         url,
         width,
         height,
-        created_by: user.id,
+        created_by: author,
         tenant_id: tenantId(c),
         // A public upload is served from a bare URL with no authentication at
         // all, so hiding it from a listing would be theatre — and it is what a
@@ -459,8 +469,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // POST /folders — Create folder (must be before GET /:id to prevent route conflict)
   app.post('/folders', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
     const foldersWriteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const { name, parent_id } = await c.req.json();
 
@@ -469,7 +478,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
     try {
       const folder = await foldersWriteDb
         .insertInto('zv_media_folders')
-        .values({ name, parent_id: parent_id || null, created_by: user.id, tenant_id: tenantId(c) })
+        .values({
+          name,
+          parent_id: parent_id || null,
+          created_by: rowAuthorId(user),
+          tenant_id: tenantId(c),
+        })
         .returningAll()
         .executeTakeFirst();
 
@@ -495,8 +509,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
-    const readUser = c.get('user') as { id: string };
-    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+    const readUser = c.get('user') as RequestUser;
+    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
       return c.json({ error: 'File not found' }, 404);
     }
     return c.json({ file });
@@ -520,8 +534,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
-    const readUser = c.get('user') as { id: string };
-    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+    const readUser = c.get('user') as RequestUser;
+    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
       return c.json({ error: 'File not found' }, 404);
     }
 
@@ -548,8 +562,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
-    const readUser = c.get('user') as { id: string };
-    if (!mayReadFile(file, readUser.id, await isTenantAdmin(readUser.id).catch(() => false))) {
+    const readUser = c.get('user') as RequestUser;
+    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
       return c.json({ error: 'File not found' }, 404);
     }
 
@@ -625,8 +639,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const storage = getStorage();
     const file = await deleteDb
@@ -639,7 +652,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'File not found' }, 404);
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
-    const isAdmin = await isTenantAdmin(user.id);
+    const isAdmin = await seesAllFiles(user);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     if ((file as any).created_by !== user.id && !isAdmin) {
       return c.json({ error: 'Forbidden' }, 403);
