@@ -14,18 +14,11 @@ import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../ddl-manager.js';
-import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../query-alter.js';
+import { TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import {
-  applyRlsFilters,
-  getRlsFilters,
-  getSingleTenantId,
-  matchesRlsFilters,
-  rlsJsonConditions,
-} from '../../tenancy/index.js';
-import { entityAccessRegistry } from '../../tenancy/index.js';
-import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
+import { getSingleTenantId, resolveUserRole, rlsJsonConditions } from '../../tenancy/index.js';
+import { readScope } from '../read-scope.js';
 import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
 import {
@@ -80,11 +73,15 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     }
   }
 
+  // Every row, column and extension rule this caller reads under — below the
+  // cache, whose entries were already filtered by it.
+  const scope = await readScope(getDb(c, db), collection, user, c.get('authType'));
+
   // ── Time Travel: reconstruct state at a given point in time ────
   if (query.as_of) {
     const asOf = new Date(query.as_of);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
-    if (queryAlterRegistry.restricts(dynamicDb(db), DDLManager.getTableName(collection), user)) {
+    if (scope.altersRestrict) {
       return c.json({ error: TIME_TRAVEL_ALTERED }, 403);
     }
 
@@ -104,7 +101,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     // that all four appliers read — see it for why the comparison is textual and
     // why a missing key drops the row on the negative operators too.
     const effectiveDbTT = getDb(c, db);
-    const rlsTT = await getRlsFilters(collection, user, c.get('authType'));
+    const rlsTT = scope.rls;
     const conds = rlsJsonConditions(rlsTT);
     const where =
       conds.length === 0
@@ -200,12 +197,6 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
 
     // Time travel MUST hide columns the role can't read, same as the live list
     // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
-    const colAccessTT = await getColumnAccess(
-      getDb(c, db),
-      collection,
-      await resolveUserRole(user),
-      user.id,
-    );
     // Entity access before column access, as on the live path below: a check
     // reads the whole record, so it must see the columns the role cannot. The
     // single-record `?as_of=` read ran it; this list did not, so an ownership
@@ -214,9 +205,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     const snapshots = pageRows.rows.map(
       (r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) as Record<string, unknown>,
     );
-    const page = (await keepViewable(DDLManager.getTableName(collection), snapshots, user)).map(
-      (r) => applyColumnAccess(r, colAccessTT),
-    );
+    const page = (await scope.keep(snapshots)).map(scope.shape);
 
     return c.json({
       records: page,
@@ -260,14 +249,8 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         search: query.search,
       });
       // Column permissions apply to virtual collections too.
-      const vColAccess = await getColumnAccess(
-        getDb(c, db),
-        collection,
-        await resolveUserRole(user),
-        user.id,
-      );
       return c.json({
-        records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
+        records: data.map((r: Record<string, unknown>) => scope.shape(r)),
         pagination: {
           total,
           page: query.page,
@@ -307,9 +290,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // holds one condition per field: a second rule on the same field replaced the
   // first (whose rows were then listed), and a rule on a field the client
   // filtered on replaced the client's condition.
-  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
-  const applyAlters = <Q>(qb: Q): Q =>
-    applyRlsFilters(queryAlterRegistry.applyAll(qb, tableName, user), rlsFilters);
+  const applyAlters = scope.query;
 
   const effectiveDb = getDb(c, db);
   const sortField = query.sort ?? 'created_at';
@@ -409,17 +390,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // filter, so a caller can still infer how many records exist that they may not
   // see. A count is not the rows, and counting through the callback is a query
   // per row.
-  result.records = await keepViewable(tableName, result.records, user);
+  result.records = await scope.keep(result.records);
 
-  const colAccess = await getColumnAccess(
-    getDb(c, db),
-    collection,
-    await resolveUserRole(user),
-    user.id,
-  );
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
-  ).map((r) => applyColumnAccess(r, colAccess));
+  ).map(scope.shape);
 
   // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
   const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
@@ -485,13 +460,4 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   return c.json(listResponse);
-}
-
-/** The records the viewer may `view` under the extensions' entity-access checks. */
-async function keepViewable<R, U>(tableName: string, records: R[], user: U): Promise<R[]> {
-  if (!entityAccessRegistry.hasChecksFor(tableName)) return records;
-  const decisions = await Promise.all(
-    records.map((r) => entityAccessRegistry.isAllowed(tableName, r, user, 'view')),
-  );
-  return records.filter((_, i) => decisions[i] === true);
 }

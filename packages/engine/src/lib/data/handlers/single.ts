@@ -20,12 +20,7 @@ import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import {
-  getRlsFilters,
-  applyRlsFilters,
-  matchesRlsFilters,
-  resolveUserRole,
-} from '../../tenancy/index.js';
+import { getRlsFilters, applyRlsFilters, resolveUserRole } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
@@ -46,6 +41,7 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
+import { readScope } from '../read-scope.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 
 export async function getRecord(c: Context, db: Database): Promise<Response> {
@@ -60,14 +56,16 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
+  // Every row, column and extension rule this caller reads under.
+  const scope = await readScope(db, collection, user, c.get('authType'));
+
   // ── Time Travel: single record at a given point in time ────────
   if (asOfRaw) {
     const asOf = new Date(asOfRaw);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
     // Before the revision is read, so the refusal says nothing about the record.
-    const ttTable = DDLManager.getTableName(collection);
-    if (queryAlterRegistry.restricts(dynamicDb(db), ttTable, user)) {
+    if (scope.altersRestrict) {
       return c.json({ error: TIME_TRAVEL_ALTERED }, 403);
     }
 
@@ -94,22 +92,15 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
 
     // Time travel MUST honour the same read authorization as the live read path
     // below — otherwise `?as_of=` is a bypass: a user denied entity-access to a
-    // record, or denied read on a column, could read it from history.
-    if (!(await entityAccessRegistry.isAllowed(ttTable, data, user, 'view'))) {
-      return c.json({ error: 'Record not found' }, 404);
-    }
-    // Row policies too, evaluated in memory — the snapshot is JSON from
-    // `zv_revisions`, so there is no query to attach a WHERE to. The list
-    // time-travel path got this; its single-record sibling did not, which made
-    // `GET /:id?as_of=` the one read that skipped row policies entirely.
-    const ttRls = await getRlsFilters(collection, user, c.get('authType'));
-    if (ttRls.length > 0 && !matchesRlsFilters(data as Record<string, unknown>, ttRls)) {
+    // record, a row by policy, or read on a column, could read it from history.
+    // In memory: the snapshot is JSON from `zv_revisions`, so there is no query
+    // to attach a WHERE to.
+    if (!(await scope.admits(data as Record<string, unknown>))) {
       return c.json({ error: 'Record not found' }, 404);
     }
 
-    const ttColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
     return c.json({
-      record: applyColumnAccess(data as Record<string, unknown>, ttColAccess),
+      record: scope.shape(data as Record<string, unknown>),
       time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
     });
   }
@@ -122,13 +113,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       if (!record) return c.json({ error: 'Record not found' }, 404);
       // Column permissions apply to virtual collections too — hide columns the
       // role can't read instead of proxying them through verbatim.
-      const vColAccess = await getColumnAccess(
-        db,
-        collection,
-        await resolveUserRole(user),
-        user.id,
-      );
-      return c.json({ record: applyColumnAccess(record, vColAccess) });
+      return c.json({ record: scope.shape(record) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -140,40 +125,20 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
 
-  // Build query with RLS conditions so a user cannot fetch a record
-  // they're not allowed to see by guessing its ID.
-  const rlsSingle = await getRlsFilters(collection, user, c.get('authType'));
+  // Row policies and extension alters in the WHERE, so a user cannot fetch a
+  // record they're not allowed to see by guessing its ID.
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-  let recordQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
-
-  // Through `applyRlsFilters`, like PATCH and DELETE a few hundred lines below.
-  //
-  // This was the third hand-written copy of that loop, and like the other two
-  // it covered `eq` and `neq` and dropped `in` and `not_in` — which are half of
-  // what `routes/rls.ts` lets an administrator save. So a policy written with
-  // `in` held for the listing and evaporated for `GET /:id`: guess the id and
-  // the row came back. The shared helper also fails closed on an operator it
-  // does not know, where this silently applied nothing.
-  recordQuery = applyRlsFilters(recordQuery, rlsSingle);
-
-  // Apply extension query alters (tenant isolation, soft-delete, etc.)
-  recordQuery = queryAlterRegistry.applyAll(recordQuery, tableName, user);
-
-  const record = await recordQuery.executeTakeFirst();
-
-  if (!record) return c.json({ error: 'Record not found' }, 404);
+  const record = await scope
+    .query(dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id))
+    .executeTakeFirst();
 
   // Per-record entity-access check. A 404 (not 403) hides whether the
   // record exists at all from a viewer without permission.
-  if (!(await entityAccessRegistry.isAllowed(tableName, record, user, 'view'))) {
+  if (!record || (await scope.keep([record])).length === 0) {
     return c.json({ error: 'Record not found' }, 404);
   }
 
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
-  const serializedRecord = applyColumnAccess(
-    await serializeRecord(record, collectionDef),
-    colAccess,
-  );
+  const serializedRecord = scope.shape(await serializeRecord(record, collectionDef));
 
   // Expand m2o relations on demand
   const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
