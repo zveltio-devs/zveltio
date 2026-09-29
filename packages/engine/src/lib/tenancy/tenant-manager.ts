@@ -289,6 +289,42 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
     return 0;
   }
 
+  // Before #718 the build below compared names only, so every policed table
+  // that already had its own `(tenant_id)` index got an identical
+  // `idx_<t>_tenant_id` beside it — 289 of 329 on a full first-party install — and
+  // every write paid for both. Dropped only where another valid, non-partial
+  // index of the same kind has exactly that key, so a sole tenant index is never
+  // touched. Here and not in a migration: which tables is only known at run
+  // time, and CONCURRENTLY cannot run from a DO block. After the first boot this
+  // finds nothing.
+  try {
+    const dups = await sql<{ index: string }>`
+      SELECT i.relname AS index
+        FROM pg_index x
+        JOIN pg_class i ON i.oid = x.indexrelid
+        JOIN pg_class t ON t.oid = x.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace AND n.nspname = 'public'
+        JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = x.indkey[0]
+       WHERE t.relname = ANY (${targets.map((r) => r.tablename)})
+         AND i.relname = left('idx_' || t.relname || '_tenant_id', 63)
+         AND a.attname = 'tenant_id'
+         AND x.indnatts = 1 AND x.indexprs IS NULL AND x.indpred IS NULL
+         AND EXISTS (
+           SELECT 1 FROM pg_index y JOIN pg_class yi ON yi.oid = y.indexrelid
+            WHERE y.indrelid = x.indrelid AND y.indexrelid <> x.indexrelid
+              AND y.indisvalid AND y.indpred IS NULL AND y.indexprs IS NULL
+              AND y.indnkeyatts = 1 AND y.indkey[0] = x.indkey[0]
+              AND y.indclass[0] = x.indclass[0] AND yi.relam = i.relam)
+    `.execute(db);
+    for (const { index } of dups.rows) {
+      await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id('public', index)}`
+        .execute(db)
+        .catch((err: Error) => console.warn(`[tenant-rls] could not drop ${index}:`, err.message));
+    }
+  } catch (err) {
+    console.warn('[tenant-rls] duplicate tenant index sweep failed:', (err as Error).message);
+  }
+
   let applied = 0;
   for (const { tablename, policyname } of targets) {
     // Extension tables are `zv_*` (their own namespace) or `zvd_*` (collection

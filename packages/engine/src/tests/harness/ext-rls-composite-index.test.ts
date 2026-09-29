@@ -123,4 +123,23 @@ d('extension tables get the composite index too', () => {
     `.execute(db);
     expect(dup.rows.map((r) => r.table)).toEqual([]);
   }, 60_000);
+
+  it('drops the duplicate an earlier boot built, and never a sole tenant index', async () => {
+    // What a boot before #718 left: `idx_<t>_tenant_id` beside the table's own.
+    await sql
+      .raw(`CREATE INDEX IF NOT EXISTS "idx_${OWN_IDX}_tenant_id" ON "${OWN_IDX}" (tenant_id)`)
+      .execute(db);
+    await sql`CREATE INDEX IF NOT EXISTS idx_zv_media_files_tenant_id ON zv_media_files (tenant_id)`.execute(
+      db,
+    );
+    await reconcileExtensionTenantRLS(db);
+    expect(await indexesOn(db, OWN_IDX)).toEqual([`${OWN_IDX}_pkey`, `${OWN_IDX}_t`]);
+    const media = await indexesOn(db, 'zv_media_files');
+    expect(media).not.toContain('idx_zv_media_files_tenant_id');
+    expect(media).toContain('idx_zv_media_files_tenant');
+    // 004 created one beside 001's on a fresh install.
+    expect(await indexesOn(db, 'zv_saved_queries')).not.toContain('idx_zv_saved_queries_tenant_id');
+    // The only tenant index a table has stays.
+    expect(await indexesOn(db, NO_TS)).toContain(`idx_${NO_TS}_tenant_id`);
+  }, 60_000);
 });
