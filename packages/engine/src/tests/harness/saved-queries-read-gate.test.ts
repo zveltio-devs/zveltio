@@ -13,7 +13,13 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, queryAlterRegistry } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hsqgate_${Date.now()}`;
@@ -25,17 +31,17 @@ d('saved-query execute honours the read gate (in-process)', () => {
   let db: Database;
   let cookie = '';
 
-  const execute = async () => {
+  const execute = async (as = cookie, columns = ['title']) => {
     const res = await app.request('/api/saved-queries/execute', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
+      headers: { 'Content-Type': 'application/json', cookie: as },
       body: JSON.stringify({
         collection: COLLECTION,
         config: {
           filters: [],
           filter_mode: 'AND',
           filter_groups: [],
-          columns: ['title'],
+          columns,
           sorts: [{ field: 'title', direction: 'asc' }],
           limit: 20,
           page: 1,
@@ -43,7 +49,11 @@ d('saved-query execute honours the read gate (in-process)', () => {
       }),
     });
     expect(res.status).toBe(200);
-    return ((await res.json()) as { records: Array<Record<string, unknown>> }).records;
+    const body = (await res.json()) as {
+      records: Array<Record<string, unknown>>;
+      pagination: { total: number };
+    };
+    return Object.assign(body.records, { total: body.pagination.total });
   };
 
   beforeAll(async () => {
@@ -78,6 +88,10 @@ d('saved-query execute honours the read gate (in-process)', () => {
     queryAlterRegistry.unregisterAll(OWNER);
     entityAccessRegistry.unregisterAll(OWNER);
     if (!db) return;
+    await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION}`
+      .execute(db)
+      .catch(() => {});
+    await invalidateRlsCache(COLLECTION).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`)
       .execute(db)
@@ -107,5 +121,36 @@ d('saved-query execute honours the read gate (in-process)', () => {
     const records = await execute();
     expect(records.map((r) => r.title)).toEqual(['alpha']);
     expect(records[0]).not.toHaveProperty('owner_tag');
+  });
+
+  it('does not list rows a row policy hides from a member, and counts only what it lists', async () => {
+    // Checked last: the policy stays until afterAll. A god reads past row
+    // policies (`data:view_all`), so the reader is a member.
+    const member = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
+    });
+    const res = await app.request('/api/admin/rls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        collection: COLLECTION,
+        role: '*',
+        filter_field: 'owner_tag',
+        filter_op: 'eq',
+        filter_value_source: 'static:mine',
+        description: 'saved-query read gate',
+      }),
+    });
+    expect(res.status).toBeLessThan(300);
+    await invalidateRlsCache(COLLECTION);
+
+    // No columns asked: every allowed column, and still only the admitted row.
+    const records = await execute(member.cookie, []);
+    expect(records.map((r) => r.title)).toEqual(['alpha']);
+    expect(records.total).toBe(1);
+    expect(records[0]).not.toHaveProperty('search_text');
+    expect(records[0]).not.toHaveProperty('search_vector');
+    // The god, past the policy, still reads both: the policy is what hid `beta`.
+    expect((await execute()).map((r) => r.title)).toEqual(['alpha', 'beta']);
   });
 });

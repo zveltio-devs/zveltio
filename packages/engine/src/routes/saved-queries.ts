@@ -18,8 +18,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
-import { DDLManager } from '../lib/data/index.js';
-import { readScope } from '../lib/data/read-scope.js';
+import { DDLManager, readScope } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
