@@ -4,6 +4,38 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.71] - 2026-09-29
+
+**Upgrade with ai 1.0.19 or later.** A scheduled ai_task no longer holds a
+database transaction open while it waits on the model (#717). Before, a run
+longer than `idle_in_transaction_session_timeout` (60 s) lost its connections.
+An older ai extension's unscoped database calls are refused during the run:
+the run is logged as failed, never executed cross-tenant. A failed ai_task is
+now logged as failed; before, the scheduler logged "ai_task completed" anyway.
+
+**Multi-write handlers on routes without a request transaction are atomic
+(#716).** A failure partway through deleting a collection, adding or deleting a
+field, creating or deleting a relation, or creating or updating a flow used to
+leave half the change in place (for example a dropped table whose metadata row
+made every retry answer "Collection not found"). Each is now one transaction.
+
+**Rolling back past migration 023 keeps content/media's tenant policies
+(#718).** Before, `zveltio rollback` on an install with content/media left
+every firm's media readable by every other.
+
+**Tenant indexes (#718, #719).**
+- Boot no longer builds a second, identical tenant index on tables that
+  already have one, and drops the duplicates earlier boots built (289 of 329
+  policed tables on a full install). Every write had been maintaining both.
+- Migration 030 builds the `(tenant_id, created_at DESC)` indexes of the tables
+  023-029 put under policy `CONCURRENTLY`. Before, the first boot after upgrade
+  built them with writes blocked, on `zv_revisions` and
+  `zvd_webhook_deliveries` among others.
+
+**Share links (#719).** Migration 031 gives a tenant to share links of files
+that had none before 023. Those links answered "File has been deleted" wherever
+`zveltio.fail_closed_tenant` is on.
+
 ## [3.0.0-beta.70] - 2026-09-28
 
 **Breaking: tenant plans, quotas and usage metering are gone from the engine
