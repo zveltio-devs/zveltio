@@ -22,11 +22,8 @@ import {
   type RealtimePrincipal,
   type RealtimeUser,
 } from '../lib/data/index.js';
-import { getRlsFilters, matchesRlsFilters } from '../lib/tenancy/index.js';
-import { applyColumnAccess, getColumnAccess, resolveUserRole } from '../lib/tenancy/index.js';
-import type { ColumnAccess } from '../lib/tenancy/index.js';
-/** What `getRlsFilters` returns — no exported alias for it. */
-type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
+import { resolveUserRole } from '../lib/tenancy/index.js';
+import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
 import { getCache, ORIGIN_ID } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
@@ -85,6 +82,17 @@ interface StreamSub {
   access: StreamAccess;
   /** How `access` was resolved for `user`, for the sweep to ask again. */
   resolveAccess: (user: RealtimeUser) => Promise<StreamAccess>;
+  /**
+   * The wildcard stream names no collection up front, so its gate is resolved
+   * on the first event for each collection and kept until the next sweep. It
+   * used to have none: `access` was empty and the fan-out delivered every row
+   * and column of every collection.
+   */
+  lazyAccess: Map<string, Promise<ReadScope>>;
+  /** The gate for one collection, for `user` as it is now. */
+  resolveOne: (collection: string) => Promise<ReadScope>;
+  /** Delivery queue while an async verdict is pending (`inOrder`). */
+  pending?: Promise<void>;
   /** The session or API key the stream opened with — `closeUnauthenticatedSse` re-asks it. */
   principal: RealtimePrincipal;
   /**
@@ -105,7 +113,8 @@ function mayHearEverything(user: RealtimeUser): Promise<boolean> {
   return isApiKeyPrincipal(user) ? Promise.resolve(false) : isTenantAdmin(user.id);
 }
 
-type StreamAccess = Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
+/** The read gate per collection the stream delivers. */
+type StreamAccess = Map<string, ReadScope>;
 
 /**
  * What a stream's access means for delivery, comparable across two lookups.
@@ -116,7 +125,8 @@ function accessKey(access: StreamAccess): string {
     [...access].map(([col, a]) => [
       col,
       a.rls.map((f) => JSON.stringify(f)).sort(),
-      a.columns ? [...a.columns.hidden].sort() : null,
+      [...a.columns.hidden].sort(),
+      a.altersRestrict,
     ]),
   );
 }
@@ -349,30 +359,47 @@ export function broadcastDataEvent(
       if ((sub.tenantId ?? null) !== (tenantId ?? null)) continue;
       if (!matchesSub(sub, collection, record)) continue;
 
-      // The subscriber's own row policies, applied by the same helper the REST
-      // list path uses. Without this the stream delivered rows the API would
-      // have filtered out.
-      const access = sub.access.get(collection);
-      if (access && access.rls.length > 0 && !matchesRlsFilters(record, access.rls)) continue;
-
-      // Column permissions too — a masked field must not arrive over SSE
-      // just because it arrived as an event rather than as a response.
-      const visible = access?.columns ? applyColumnAccess(record, access.columns) : record;
-      const body =
-        visible === record
-          ? payload
-          : JSON.stringify({
-              channel: `zveltio:data:${collection}`,
-              event,
-              collection,
-              data: visible,
-              timestamp: new Date().toISOString(),
-            });
-      try {
-        sub.stream.writeSSE({ data: body, event: 'data' });
-      } catch {
-        /* client disconnected */
+      // The subscriber's read gate — row policies, extension alters, entity
+      // access and column permissions, as on the REST list path. Without it the
+      // stream delivered rows and columns the API would have withheld.
+      const write = (scope: ReadScope) => {
+        const visible = scope.shape(record);
+        const body =
+          visible === record
+            ? payload
+            : JSON.stringify({
+                channel: `zveltio:data:${collection}`,
+                event,
+                collection,
+                data: visible,
+                timestamp: new Date().toISOString(),
+              });
+        try {
+          sub.stream.writeSSE({ data: body, event: 'data' });
+        } catch {
+          /* client disconnected */
+        }
+      };
+      const scope = sub.access.get(collection);
+      if (scope) {
+        inOrder(sub, scope.admits(record), () => write(scope));
+      } else if (sub.collections.length === 0) {
+        // The wildcard stream: resolved on first use, under the stream's tenant.
+        // A lookup that fails drops the event and is retried on the next one.
+        let lazy = sub.lazyAccess.get(collection);
+        if (!lazy) {
+          lazy = runWithDomain(sub.tenantId ?? DEFAULT_TENANT_ID, () => sub.resolveOne(collection));
+          lazy.catch(() => sub.lazyAccess.delete(collection));
+          sub.lazyAccess.set(collection, lazy);
+        }
+        let resolved: ReadScope | undefined;
+        const verdict = lazy.then((s) => {
+          resolved = s;
+          return s.admits(record);
+        });
+        inOrder(sub, verdict, () => write(resolved!));
       }
+      // Otherwise nothing resolved what this stream may see: it gets nothing.
     }
   }
 }
@@ -436,6 +463,8 @@ export async function revalidateSseStreams(): Promise<boolean> {
       // The stream's abort listener leaves the registry synchronously, before
       // any further write can reach it.
       if (!allowed) sub.stream.abort();
+      // The wildcard stream's per-collection gates re-resolve on next use.
+      else sub.lazyAccess.clear();
     }
   }
   return failed;
@@ -686,19 +715,33 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // lookup is refused (500), as the REST list path refuses on the same error.
     // The sweep calls it again outside this request, under the stream's tenant,
     // with the key's grants as they are then.
+    const scopeFor = async (who: RealtimeUser, col: string): Promise<ReadScope> =>
+      readScope(_db, col, { ...who, role: await resolveUserRole(who) }, authType);
     const resolveAccess = async (who: RealtimeUser): Promise<StreamAccess> => {
-      const role = await resolveUserRole(who);
-      const withRole = { ...who, role };
       const access: StreamAccess = new Map();
       for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {
-        access.set(col, {
-          rls: await getRlsFilters(col, withRole, authType),
-          columns: await getColumnAccess(_db, col, role, withRole.id),
-        });
+        access.set(col, await scopeFor(who, col));
       }
       return access;
     };
     const access = await resolveAccess(user);
+
+    // An alter restricts which rows this reader sees, and an event is a row
+    // with no query to apply it to: such a collection is denied, as one the
+    // caller may not read is, rather than streamed unfiltered or not at all.
+    for (const [col, scope] of access) {
+      if (!scope.altersRestrict) continue;
+      access.delete(col);
+      for (let i = collections.length - 1; i >= 0; i--) {
+        if (collections[i]!.split(':')[0] === col) denied.push(...collections.splice(i, 1));
+      }
+    }
+    if (collections.length === 0 && rawCollections.length > 0) {
+      return c.json(
+        { error: 'No read permission on any of the requested collections', errors: { denied } },
+        403,
+      );
+    }
 
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = {
@@ -710,6 +753,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         channels: allowedExtraChannels,
         access,
         resolveAccess,
+        lazyAccess: new Map(),
+        resolveOne: (col) => scopeFor(sub.user, col),
         principal,
         user,
       };

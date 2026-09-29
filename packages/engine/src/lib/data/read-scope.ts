@@ -48,8 +48,12 @@ export interface ReadScope {
   query<Q>(qb: Q): Q;
   /** The fetched rows entity access lets the caller `view`. */
   keep<R>(rows: R[]): Promise<R[]>;
-  /** One row that did not come through `query`: all three row gates in memory. */
-  admits(row: Record<string, unknown>): Promise<boolean>;
+  /**
+   * One row that did not come through `query`: all three row gates in memory.
+   * Synchronous unless an entity-access check has to run, so a fan-out with no
+   * checks registered delivers in the same tick.
+   */
+  admits(row: Record<string, unknown>): boolean | Promise<boolean>;
   /** Column permissions onto one row: the same row, minus the hidden columns. */
   shape<R extends Record<string, unknown>>(row: R): R;
 }
@@ -91,11 +95,46 @@ export async function readScope(
       const decisions = await Promise.all(rows.map(viewable));
       return rows.filter((_, i) => decisions[i] === true);
     },
-    admits: async (row) => {
+    admits: (row) => {
       if (altersRestrict()) return false;
       if (rls.length > 0 && !matchesRlsFilters(row, rls)) return false;
-      return viewable(row);
+      return entityAccessRegistry.hasChecksFor(table) ? viewable(row) : true;
     },
     shape: (row) => applyColumnAccess(row, columns) as typeof row,
   };
+}
+
+/**
+ * Deliver in the order events arrived, even when some verdicts are async.
+ *
+ * A realtime fan-out is synchronous and per subscriber; an entity-access check
+ * is async. Sending each event when its own check settles would let a later
+ * write overtake an earlier one on the same socket. So once one verdict is
+ * pending, every later event for that subscriber queues behind it. A verdict
+ * that rejects drops the event: a check that cannot answer does not admit.
+ */
+export function inOrder(
+  queue: { pending?: Promise<void> },
+  verdict: boolean | Promise<boolean>,
+  send: () => void,
+): void {
+  if (verdict === false) return;
+  if (verdict === true && !queue.pending) {
+    send();
+    return;
+  }
+  // Handled now, not when the queue reaches it: a verdict that rejects while an
+  // earlier one is pending was an unhandled rejection, and the engine exits on
+  // those.
+  const admitted = Promise.resolve(verdict).catch(() => false);
+  const next = (queue.pending ?? Promise.resolve())
+    .then(() => admitted)
+    .then((ok) => {
+      if (ok) send();
+    })
+    .catch(() => {});
+  queue.pending = next;
+  void next.then(() => {
+    if (queue.pending === next) queue.pending = undefined;
+  });
 }

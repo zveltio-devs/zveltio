@@ -5,6 +5,19 @@
 import { describe, expect, it } from 'bun:test';
 import { clearLocalPermissionCache, permissionGeneration } from '../../lib/tenancy/index.js';
 import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
+import type { ReadScope } from '../../lib/data/read-scope.js';
+
+/** A read gate that admits every row and hides no column. */
+const openScope = (table: string): ReadScope => ({
+  table,
+  rls: [],
+  columns: { hidden: new Set(), readOnly: new Set() },
+  altersRestrict: false,
+  query: (qb) => qb,
+  keep: async (rows) => rows,
+  admits: () => true,
+  shape: (row) => row,
+});
 
 describe('WS subscribe decisions', () => {
   // It used to be cleared only for the subject of a role-link change on a
@@ -23,7 +36,7 @@ describe('WS subscribe decisions', () => {
       connectedAt: Date.now(),
       authType: 'session' as const,
       principal: { kind: 'session' as const, token: 't', userId: 'user-a' },
-      access: new Map([['contacts', { rls: [], columns: null }]]),
+      access: new Map([['contacts', openScope('contacts')]]),
     });
     try {
       wsPermCache.set(
@@ -82,7 +95,7 @@ describe('broadcastEvent', () => {
   });
 
   it('delivers to a subscription whose access was resolved', () => {
-    const access = new Map([['contacts', { rls: [], columns: null }]]);
+    const access = new Map([['contacts', openScope('contacts')]]);
     expect(deliveredTo(access).join('')).toContain('"c-1"');
   });
 });
