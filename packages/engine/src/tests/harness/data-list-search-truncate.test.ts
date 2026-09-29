@@ -65,17 +65,24 @@ d('data list search truncation (in-process)', () => {
     expect(body.records.some((r) => r.subtitle === NEEDLE)).toBe(true);
   });
 
-  it('accepts search padded beyond 500 characters (truncated before FTS)', async () => {
-    // list.ts trims to 500 chars. With has_trgm, ILIKE uses the full trimmed
-    // query — padding after the token won't appear in stored search_text, so
-    // zero rows is fine; we only need the handler to run without error.
-    const pad = 'x'.repeat(520);
+  it('matches on the first 500 characters of an over-long search', async () => {
+    // list.ts trims the term to 500 characters before searching. A row holding
+    // exactly those 500 is found only if the tail past them was dropped: the
+    // whole 520-character term appears in no row.
+    const head = `${NEEDLE}${'x'.repeat(500 - NEEDLE.length)}`;
+    const create = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'long', subtitle: head }),
+    });
+    expect(create.status).toBe(201);
+
     const res = await app.request(
-      `/api/data/${COLLECTION}?search=${encodeURIComponent(`${NEEDLE}${pad}`)}`,
+      `/api/data/${COLLECTION}?search=${encodeURIComponent(`${head}${'y'.repeat(20)}`)}`,
       { headers: { cookie } },
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { records: unknown[] };
-    expect(Array.isArray(body.records)).toBe(true);
+    const body = (await res.json()) as { records: Array<{ subtitle?: string }> };
+    expect(body.records.map((r) => r.subtitle)).toEqual([head]);
   });
 });

@@ -203,9 +203,17 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       await resolveUserRole(user),
       user.id,
     );
-    const page = pageRows.rows
-      .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data))
-      .map((r) => applyColumnAccess(r as Record<string, unknown>, colAccessTT));
+    // Entity access before column access, as on the live path below: a check
+    // reads the whole record, so it must see the columns the role cannot. The
+    // single-record `?as_of=` read ran it; this list did not, so an ownership
+    // rule was bypassed by adding `?as_of=<now>` to the URL. `total` counts
+    // before this filter here too — see the live path for why.
+    const snapshots = pageRows.rows.map(
+      (r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) as Record<string, unknown>,
+    );
+    const page = (await keepViewable(DDLManager.getTableName(collection), snapshots, user)).map(
+      (r) => applyColumnAccess(r, colAccessTT),
+    );
 
     return c.json({
       records: page,
@@ -398,12 +406,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // filter, so a caller can still infer how many records exist that they may not
   // see. A count is not the rows, and counting through the callback is a query
   // per row.
-  if (entityAccessRegistry.hasChecksFor(tableName)) {
-    const decisions = await Promise.all(
-      result.records.map((r) => entityAccessRegistry.isAllowed(tableName, r, user, 'view')),
-    );
-    result.records = result.records.filter((_, i) => decisions[i] === true);
-  }
+  result.records = await keepViewable(tableName, result.records, user);
 
   const colAccess = await getColumnAccess(
     getDb(c, db),
@@ -479,4 +482,13 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   return c.json(listResponse);
+}
+
+/** The records the viewer may `view` under the extensions' entity-access checks. */
+async function keepViewable<R, U>(tableName: string, records: R[], user: U): Promise<R[]> {
+  if (!entityAccessRegistry.hasChecksFor(tableName)) return records;
+  const decisions = await Promise.all(
+    records.map((r) => entityAccessRegistry.isAllowed(tableName, r, user, 'view')),
+  );
+  return records.filter((_, i) => decisions[i] === true);
 }

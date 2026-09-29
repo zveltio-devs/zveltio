@@ -323,6 +323,32 @@ d('time travel pages in SQL (in-process)', () => {
     });
   });
 
+  describe('a snapshot stored as a jsonb STRING', () => {
+    // The handler unwraps `"{\"label\": …}"` into the object before the row
+    // policies look inside it. Without that, `->> 'bucket'` on a string is NULL
+    // and the row vanishes from every policy — silently, and only on `?as_of=`.
+    const STRINGY = `stringy-${STAMP}`;
+
+    beforeAll(async () => {
+      const tenant = (await sql<{ id: string }>`SELECT id FROM zv_tenants LIMIT 1`.execute(db))
+        .rows[0]!.id;
+      const doc = JSON.stringify({ label: 'str', bucket: 'alpha', code: '5' });
+      await sql`
+        INSERT INTO zv_revisions (collection, record_id, action, data, created_at, tenant_id)
+        VALUES (${COLLECTION}, ${STRINGY}, 'create', to_jsonb(${doc}::text), now(), ${tenant}::uuid)
+      `.execute(db);
+    });
+
+    afterAll(async () => {
+      await sql`DELETE FROM zv_revisions WHERE record_id = ${STRINGY}`.execute(db).catch(() => {});
+    });
+
+    it('is seen by a policy that matches what it holds', async () => {
+      await setPolicy('bucket', 'eq', 'static:alpha');
+      expect((await seen(memberCookie, true)).labels).toEqual(['a1', 'a2', 'str']);
+    });
+  });
+
   describe('the translation itself', () => {
     it('refuses an operator it cannot express, like both older appliers', async () => {
       expect(() =>

@@ -37,6 +37,14 @@ d('data list cursor deep paths (in-process)', () => {
         body: JSON.stringify({ rank: i * 10, label: `row-${i}` }),
       });
     }
+    // Three more at rank 30, so the keyset has ties to break by id.
+    for (let i = 1; i <= 3; i++) {
+      await app.request(`/api/data/${COLLECTION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ rank: 30, label: `tie-${i}` }),
+      });
+    }
   });
 
   afterAll(async () => {
@@ -89,6 +97,28 @@ d('data list cursor deep paths (in-process)', () => {
     expect(page2.records[0]!.id).not.toBe(first.records[0]!.id);
     expect(page2.records.every((r) => r.rank >= first.records[1]!.rank)).toBe(true);
   });
+
+  for (const order of ['asc', 'desc'] as const) {
+    it(`walks every row exactly once by ${order} cursor, across ties`, async () => {
+      // Two per page over nine rows, four of them sharing rank 30: a page
+      // boundary lands inside the tie, where only the id tiebreak decides.
+      const seen: string[] = [];
+      let qs = `?limit=2&sort=rank&order=${order}`;
+      for (let pages = 0; pages < 10; pages++) {
+        const body = (await (await list(qs)).json()) as ListBody;
+        seen.push(...body.records.map((r) => r.id));
+        if (!body.next_cursor) break;
+        // A keyset page with more behind it knows no total — it must not
+        // report the length of what it fetched as one.
+        if (qs.includes('cursor=')) expect(body.pagination.total).toBeUndefined();
+        qs = `?limit=2&sort=rank&order=${order}&cursor=${encodeURIComponent(body.next_cursor)}`;
+      }
+      const all = (await (await list('?limit=100')).json()) as ListBody;
+      expect(seen).toHaveLength(9);
+      expect(new Set(seen).size).toBe(9);
+      expect([...seen].sort()).toEqual(all.records.map((r) => r.id).sort());
+    });
+  }
 
   it('emits next_cursor on offset pagination when more pages exist', async () => {
     const body = (await (await list('?limit=2&page=1&sort=rank&order=asc')).json()) as ListBody;

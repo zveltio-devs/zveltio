@@ -77,6 +77,28 @@ d('data single entity access (in-process)', () => {
     ).toBe(404);
   });
 
+  it('leaves a record denied view out of the list, live and ?as_of=', async () => {
+    entityAccessRegistry.scope(OWNER).register({
+      table: tableName,
+      check: (record, _user, op) =>
+        op === 'view' && (record as { title: string }).title === 'locked' ? 'deny' : 'allow',
+    });
+
+    const ids = async (qs: string) => {
+      const res = await app.request(`/api/data/${COLLECTION}${qs}`, { headers: { cookie } });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { records: Array<{ id: string }> }).records.map((r) => r.id);
+    };
+
+    const live = await ids('');
+    expect(live).toContain(openId);
+    expect(live).not.toContain(lockedId);
+
+    const past = await ids(`?as_of=${encodeURIComponent(new Date().toISOString())}`);
+    expect(past).toContain(openId);
+    expect(past).not.toContain(lockedId);
+  });
+
   it('returns 403 on PATCH when entity-access denies update', async () => {
     entityAccessRegistry.scope(OWNER).register({
       table: tableName,
