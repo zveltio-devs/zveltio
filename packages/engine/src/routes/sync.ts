@@ -26,6 +26,7 @@ import {
   rowAuthorId,
   serializeRecord,
 } from '../lib/data/index.js';
+import { readScope } from '../lib/data/read-scope.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
 
@@ -523,20 +524,19 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       if (!canRead) continue; // silently skip collections the user has no access to
 
       try {
-        // Row-level security. The push path applies it (see syncRlsFilters
-        // above); pull selected every changed row with none, so an offline
-        // client synced exactly the rows a policy hides — and kept them on the
-        // device. `checkPermission` above is collection-level and cannot see
-        // rows.
-        const pullRls = await getRlsFilters(
-          // The SHORT name: policies are stored against the logical collection,
-          // not the physical `zvd_` table.
+        // The read gate: row policies, extension alters, entity access and
+        // column permissions, as `GET /api/data` applies them. `checkPermission`
+        // above is collection-level and cannot see rows. Pull once applied row
+        // policies and columns only, so an offline client synced — and kept on
+        // the device — the rows an extension's alter or ownership rule hides.
+        // The SHORT name: policies are stored against the logical collection,
+        // not the physical `zvd_` table.
+        const scope = await readScope(
+          db,
           collectionShortName,
           c.get('user') as { id: string; email?: string; role: string },
           c.get('authType') ?? 'session',
         );
-        // Column permissions likewise: `selectAll()` shipped forbidden columns.
-        const pullColAccess = await getColumnAccess(db, collectionShortName, user.role, user.id);
         const pullQuery = pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .selectFrom(collection as any)
@@ -546,7 +546,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
           .limit(PULL_LIMIT_PER_COLLECTION);
-        const updated = await applyRlsFilters(pullQuery, pullRls).execute();
+        const updated = await scope.keep(await scope.query(pullQuery).execute());
 
         // Shape the rows the way every other read path does.
         //
@@ -559,9 +559,8 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         // `applyColumnAccess` covers both.
         const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
         for (const record of updated) {
-          const shaped = applyColumnAccess(
+          const shaped = scope.shape(
             await serializeRecord(record as Record<string, unknown>, pullDef),
-            pullColAccess,
           );
           changes.push({
             collection,
