@@ -218,6 +218,8 @@ Create a new record.
 ### GET /api/data/:collection/:id
 
 Get a single record by ID. Supports `?as_of=<ISO8601>` for historical data.
+`?as_of=` (here and on the list) answers 403 when an extension's query alter
+restricts which rows of the collection you can read.
 
 ### PATCH /api/data/:collection/:id
 

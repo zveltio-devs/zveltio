@@ -14,7 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../ddl-manager.js';
-import { queryAlterRegistry } from '../query-alter.js';
+import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import {
@@ -84,6 +84,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   if (query.as_of) {
     const asOf = new Date(query.as_of);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+    if (queryAlterRegistry.restricts(dynamicDb(db), DDLManager.getTableName(collection), user)) {
+      return c.json({ error: TIME_TRAVEL_ALTERED }, 403);
+    }
 
     // One page, from the database.
     //

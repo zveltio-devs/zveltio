@@ -20,6 +20,12 @@
  * to chain `.where()` from) and need a dedicated wrapper.
  */
 
+import type { DynamicDB } from '../../db/dynamic-types.js';
+
+/** The 403 body `?as_of=` gets when `restricts()` says yes. */
+export const TIME_TRAVEL_ALTERED =
+  'Time travel is unavailable on this collection: an extension restricts which rows you can read';
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export type QueryAlterFn<QB = any, U = any> = (qb: QB, user: U) => QB;
 
@@ -86,6 +92,30 @@ export class QueryAlterRegistryImpl {
    */
   count(table?: string): number {
     return table ? this.entries.filter((e) => e.table === table).length : this.entries.length;
+  }
+
+  /**
+   * Whether the alters on `table` change what `user` reads — the question time
+   * travel has to ask. A `?as_of=` snapshot is JSON from `zv_revisions`, not a
+   * query, so an arbitrary alter cannot be applied to it; the caller refuses
+   * instead of serving rows the live read hides. Decided by compiling the bare
+   * `SELECT *` with and without the alters, so one that hands the builder back
+   * untouched for this user (an admin exemption) does not refuse. An alter that
+   * throws counts as restricting: fail closed.
+   */
+  restricts(db: DynamicDB, table: string, user: unknown): boolean {
+    if (this.count(table) === 0) return false;
+    try {
+      const base = db.selectFrom(table).selectAll();
+      const bare = base.compile();
+      const altered = this.applyAll(base, table, user).compile();
+      return (
+        altered.sql !== bare.sql ||
+        JSON.stringify(altered.parameters) !== JSON.stringify(bare.parameters)
+      );
+    } catch {
+      return true;
+    }
   }
 
   /** List registered (table, owner) pairs. Useful for introspection. */

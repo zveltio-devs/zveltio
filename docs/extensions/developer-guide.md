@@ -886,11 +886,13 @@ Ownership + lifecycle:
 - Applied to: single-record `GET /:collection/:id`, and the before-row reads
   inside PUT/PATCH/DELETE single-record handlers. This means a row hidden by
   your alter cannot be updated or deleted by guessing its ID.
-- **NOT yet applied to** the main list endpoint `GET /:collection`
-  (`dynamicSelect` uses raw SQL — full migration is a follow-up). Plan
-  accordingly if your alter is the sole tenant-isolation mechanism: until
-  the list endpoint is wired, also enforce isolation via RLS / Casbin /
-  `getRlsFilters` for list responses.
+- Also applied to the list endpoint `GET /:collection` (offset and cursor
+  pages).
+- Time travel (`?as_of=`, list and single) reads JSON snapshots from
+  `zv_revisions`, where an alter cannot run. If your alter changes the query
+  for the requesting user (or throws), `?as_of=` on that collection answers
+  **403** instead; return `qb` untouched for users you exempt and they keep
+  time travel.
 - UPDATE / DELETE Kysely calls (the actual mutation step) don't yet receive
   the alter — they trust the `id` lookup which IS alter-filtered, so the
   net effect is the same in practice.
