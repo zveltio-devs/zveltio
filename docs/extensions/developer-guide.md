@@ -882,24 +882,29 @@ Ownership + lifecycle:
 - Multiple extensions can register alters for the same table; they chain
   in registration order.
 
-**Scope today**:
-- Applied to: single-record `GET /:collection/:id`, and the before-row reads
-  inside PUT/PATCH/DELETE single-record handlers. This means a row hidden by
-  your alter cannot be updated or deleted by guessing its ID.
-- Also applied to the list endpoint `GET /:collection` (offset and cursor
-  pages).
-- Time travel (`?as_of=`, list and single) reads JSON snapshots from
-  `zv_revisions`, where an alter cannot run. If your alter changes the query
-  for the requesting user (or throws), `?as_of=` on that collection answers
-  **403** instead; return `qb` untouched for users you exempt and they keep
-  time travel.
-- UPDATE / DELETE Kysely calls (the actual mutation step) don't yet receive
-  the alter — they trust the `id` lookup which IS alter-filtered, so the
-  net effect is the same in practice.
-- **Not applied** to offline sync (`/api/sync` push/pull), relations
-  expanded with `?expand=`, or realtime events (WebSocket/SSE). Those paths
-  enforce row policies (RLS) but not alters. If a restriction must hold
-  there too, express it as an RLS policy.
+**Scope**: every read goes through the engine's one read gate
+(`readScope`), which applies row policies, your alters, entity access and
+column permissions together.
+- Applied in SQL to: the list endpoint `GET /:collection` (offset and cursor
+  pages), single-record `GET /:collection/:id`, relations expanded with
+  `?expand=`, offline sync pull (`/api/sync/pull`), and saved-query execution
+  (`/api/saved-queries/execute` and `/:id/run`). The before-row reads in
+  PUT/PATCH/DELETE and the bulk handlers also apply it, so a row that your
+  alter hides cannot be updated or deleted by guessing its ID.
+- Rows without a query cannot take an alter. This covers time-travel
+  snapshots (`?as_of=`, list and single) and realtime events (WebSocket and
+  SSE). If your alter changes the query for the requesting user, or throws,
+  the engine refuses rather than serving rows that the live read would hide:
+  - `?as_of=` answers **403**.
+  - A WebSocket subscription is **denied**.
+  - An SSE stream drops that collection. It answers **403** when no other
+    collection is left.
+  A subscription that is already open ends at the next permission sweep.
+  To let users you exempt keep time travel and realtime, return `qb`
+  untouched for them.
+- UPDATE / DELETE Kysely calls (the actual mutation step) don't receive the
+  alter. They trust the `id` lookup, which IS alter-filtered, so the net
+  effect is the same in practice. The same holds for offline sync push.
 
 ### Entity access
 
@@ -931,12 +936,19 @@ HTTP behavior in single-record routes:
 - `PUT/PATCH/DELETE /:collection/:id` returns **403** on deny (the
   client already knows the row exists from prior context).
 
-**Scope today**:
-- Enforced at single-record `GET`, `PUT`, `PATCH`, `DELETE`, and on the
-  list endpoint `GET /:collection` (live and `?as_of=`): denied rows are
-  dropped from the page. The check runs after the query, so `total` still
-  counts them — for filtering large lists, prefer `queryAlter` (cheaper,
-  runs in SQL, and the count agrees).
+**Scope**: every read goes through the engine's read gate.
+- `view` is checked on every read path: single-record `GET`, the list
+  endpoint (live and `?as_of=`), `?expand=`, offline sync pull, saved-query
+  execution, and realtime events (WebSocket and SSE). Denied rows are
+  dropped.
+- The check runs after the query, so a list's `total` still counts denied
+  rows. For filtering large lists, prefer `queryAlter`: it is cheaper, runs
+  in SQL, and the count agrees with the rows.
+- On realtime, events wait for their check in write order, so a slow check
+  delays later events on that subscription. A check that throws drops the
+  event. On a request, a check that throws fails the request.
+- `update` / `delete` are checked on `PUT`, `PATCH`, `DELETE` and the bulk
+  handlers.
 
 ---
 
