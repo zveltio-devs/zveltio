@@ -53,6 +53,22 @@ d('resolved permission set matches enforce()', () => {
         action: 'read',
       });
     }
+    // Shapes that SHOULD be allowed: a subject's role joined to a policy of that
+    // role. The pairs above cross unrelated grants and objects, so whether any of
+    // them is allowed depended on which rows `LIMIT` happened to return — and
+    // `allowed > 0` below failed on a docs-only change. `enforce()` still decides;
+    // this only makes sure the sample holds something for it to allow. First in
+    // the list, because the budget below keeps a prefix.
+    const held = await sql<Case>`
+      SELECT DISTINCT g.v0 AS subject, g.v2 AS domain, p.v2 AS resource, p.v3 AS action
+        FROM zvd_permissions g
+        JOIN zvd_permissions p
+          ON p.ptype = 'p' AND p.v0 = g.v1 AND (p.v1 = '*' OR p.v1 = g.v2)
+       WHERE g.ptype = 'g'
+       LIMIT 4
+    `.execute(db);
+    cases.unshift(...held.rows);
+
     // A subject with no grants at all — the expensive denial, and the common one.
     cases.push({
       subject: 'zz-subject-that-does-not-exist',

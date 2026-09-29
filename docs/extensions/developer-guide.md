@@ -896,6 +896,10 @@ Ownership + lifecycle:
 - UPDATE / DELETE Kysely calls (the actual mutation step) don't yet receive
   the alter — they trust the `id` lookup which IS alter-filtered, so the
   net effect is the same in practice.
+- **Not applied** to offline sync (`/api/sync` push/pull), relations
+  expanded with `?expand=`, or realtime events (WebSocket/SSE). Those paths
+  enforce row policies (RLS) but not alters. If a restriction must hold
+  there too, express it as an RLS policy.
 
 ### Entity access
 
@@ -928,10 +932,11 @@ HTTP behavior in single-record routes:
   client already knows the row exists from prior context).
 
 **Scope today**:
-- Enforced at single-record `GET`, `PUT`, `PATCH`, `DELETE`. Not yet at
-  list endpoints — for filtering large lists, prefer `queryAlter`
-  (cheaper, runs in SQL). Use `entityAccess` for the precise per-row
-  gate on single-record operations.
+- Enforced at single-record `GET`, `PUT`, `PATCH`, `DELETE`, and on the
+  list endpoint `GET /:collection` (live and `?as_of=`): denied rows are
+  dropped from the page. The check runs after the query, so `total` still
+  counts them — for filtering large lists, prefer `queryAlter` (cheaper,
+  runs in SQL, and the count agrees).
 
 ---
 
