@@ -16,7 +16,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import { DDLManager } from '../ddl-manager.js';
 import { engineEvents, AbortHookError } from '../../runtime/index.js';
-import { queryAlterRegistry } from '../query-alter.js';
+import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
@@ -65,6 +65,12 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     const asOf = new Date(asOfRaw);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
+    // Before the revision is read, so the refusal says nothing about the record.
+    const ttTable = DDLManager.getTableName(collection);
+    if (queryAlterRegistry.restricts(dynamicDb(db), ttTable, user)) {
+      return c.json({ error: TIME_TRAVEL_ALTERED }, 403);
+    }
+
     // P0: use effectiveDb for tenant isolation in time-travel queries
     const effectiveDbTTSingle = getDb(c, db);
     const rev = await sql<{ action: string; data: JsonValue; created_at: string }>`
@@ -89,7 +95,6 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     // Time travel MUST honour the same read authorization as the live read path
     // below — otherwise `?as_of=` is a bypass: a user denied entity-access to a
     // record, or denied read on a column, could read it from history.
-    const ttTable = DDLManager.getTableName(collection);
     if (!(await entityAccessRegistry.isAllowed(ttTable, data, user, 'view'))) {
       return c.json({ error: 'Record not found' }, 404);
     }
