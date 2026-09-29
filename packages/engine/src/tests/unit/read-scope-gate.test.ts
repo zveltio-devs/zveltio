@@ -25,8 +25,9 @@ const ALLOWED: Record<string, number> = {
   'lib/extensions/internals.ts': 2,
   // Push (writes): 2. Pull (read): 2 — TODO move onto the gate.
   'routes/sync.ts': 4,
-  // TODO move onto the gate: `?expand=`, realtime WS + SSE, saved-query execute.
-  'lib/data/shape.ts': 2,
+  // TODO move onto the gate: realtime WS + SSE, saved-query execute.
+  // `?expand=` with no request identity (internal callers): columns by role.
+  'lib/data/shape.ts': 1,
   'routes/ws.ts': 2,
   'routes/realtime.ts': 2,
   'routes/saved-queries.ts': 1,

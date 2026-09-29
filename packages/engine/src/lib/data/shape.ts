@@ -10,15 +10,10 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
+import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { maybeDecrypt } from './field-crypto.js';
-import {
-  getColumnAccess,
-  applyColumnAccess,
-  checkPermission,
-  getRlsFilters,
-  applyRlsFilters,
-} from '../tenancy/index.js';
+import { getColumnAccess, applyColumnAccess, checkPermission } from '../tenancy/index.js';
 import type {
   CollectionDef,
   CollectionField,
@@ -31,7 +26,7 @@ import type {
 /**
  * Kysely's typed builder cannot name a table resolved at runtime, and the
  * expand target is one. This is the narrow slice used below — enough to build
- * the query and hand it to `applyRlsFilters`, and no wider.
+ * the query and hand it to the read gate, and no wider.
  */
 interface RuntimeQuery {
   where(lhs: string, op: string, rhs: unknown): RuntimeQuery;
@@ -185,38 +180,37 @@ export async function applyExpand(
       continue;
     }
 
-    // Row-level policies of the target collection. Not caught: `[]` means "no
-    // policy restricts this caller", so reading a failed lookup as `[]` expanded
-    // every row the policies hide. The request fails instead, as the REST list
-    // path does on the same error.
-    const rlsConditions = user
-      ? await getRlsFilters(exp.targetCollection, user, authType ?? 'session')
-      : [];
-
-    let rows: { rows: DynamicRow[] };
-    if (rlsConditions.length === 0) {
-      rows = await sql<DynamicRow>`
-        SELECT * FROM ${sql.id(exp.targetTable)}
-        WHERE id = ANY(${ids})
-      `.execute(db);
-    } else {
-      // Through the query builder so the conditions go via `applyRlsFilters`,
-      // which is where unknown operators fail closed, rather than being pasted
-      // into SQL here.
+    // The target's read gate: row policies, extension alters, entity access and
+    // column permissions, as a direct read of the target applies them. Expand
+    // once applied row policies and columns only, so a row an extension's alter
+    // or ownership rule hides came back nested in its referrer. Not caught: a
+    // failed lookup read as "nothing to filter" expanded every hidden row.
+    let rows: DynamicRow[];
+    let shape: (r: DynamicRow) => DynamicRow;
+    if (user) {
+      const scope = await readScope(db, exp.targetCollection, user, authType ?? 'session');
       const base = (db as unknown as RuntimeDb)
         .selectFrom(exp.targetTable)
         .selectAll()
         .where('id', 'in', ids);
-      rows = { rows: await applyRlsFilters(base, rlsConditions).execute() };
+      rows = await scope.keep(await scope.query(base).execute());
+      shape = scope.shape;
+    } else {
+      // An internal caller with no request identity: columns by role only.
+      rows = (
+        await sql<DynamicRow>`
+          SELECT * FROM ${sql.id(exp.targetTable)}
+          WHERE id = ANY(${ids})
+        `.execute(db)
+      ).rows;
+      const colAccess = await getColumnAccess(db, exp.targetCollection, role);
+      shape = (r) => applyColumnAccess(r, colAccess);
     }
 
     const targetDef = (await DDLManager.getCollection(db, exp.targetCollection)) as CollectionDef;
-    // Column permissions of the RELATED collection apply to expanded rows too —
-    // otherwise `?expand=` leaks columns the role can't read on the target.
-    const colAccess = await getColumnAccess(db, exp.targetCollection, role, user?.id);
     const byId = new Map<string, DynamicRow>();
-    for (const r of rows.rows) {
-      const visible = applyColumnAccess(await serializeRecord(r, targetDef), colAccess);
+    for (const r of rows) {
+      const visible = shape(await serializeRecord(r, targetDef));
       // Add a default `_label` (best-effort: name → title → email → id slice),
       // derived only from VISIBLE fields so a hidden column can't leak via _label.
       const idVal = visible.id;
