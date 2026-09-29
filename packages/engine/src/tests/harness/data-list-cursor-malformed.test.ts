@@ -79,4 +79,13 @@ d('data list — malformed cursor falls back to offset (in-process)', () => {
       expect(body.records.length).toBeGreaterThan(0);
     });
   }
+
+  it('keeps the client filter on the fallback', async () => {
+    const cursor = Buffer.from('null').toString('base64url');
+    const filter = encodeURIComponent(JSON.stringify({ label: 'b' }));
+    const res = await list(`?cursor=${cursor}&filter=${filter}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<{ label: string }> };
+    expect(body.records.map((r) => r.label)).toEqual(['b']);
+  });
 });

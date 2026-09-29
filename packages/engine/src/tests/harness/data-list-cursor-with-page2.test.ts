@@ -63,12 +63,13 @@ d('data list cursor with page>1 uses offset path (in-process)', () => {
     expect(page1.next_cursor).toBeTruthy();
 
     const second = await app.request(
-      `/api/data/${COLLECTION}?limit=2&page=2&sort=seq&order=asc&cursor=${encodeURIComponent(page1.next_cursor!)}`,
+      `/api/data/${COLLECTION}?limit=2&page=3&sort=seq&order=asc&cursor=${encodeURIComponent(page1.next_cursor!)}`,
       { headers: { cookie } },
     );
     expect(second.status).toBe(200);
-    const page2 = (await second.json()) as { records: Array<{ label: string }> };
-    expect(page2.records).toHaveLength(2);
-    expect(page2.records[0]!.label).not.toBe(page1.records[0]!.label);
+    // Page 3 by offset is row-5 alone. Following the cursor would answer the
+    // rows after row-2 instead — page 2 cannot tell the two apart, page 3 can.
+    const page3 = (await second.json()) as { records: Array<{ label: string }> };
+    expect(page3.records.map((r) => r.label)).toEqual(['row-5']);
   });
 });

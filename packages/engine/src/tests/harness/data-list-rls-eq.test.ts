@@ -139,4 +139,16 @@ d('data list RLS eq (in-process)', () => {
     expect(body.records.every((r) => r.bucket === 'open')).toBe(true);
     expect(body.pagination.total).toBe(1);
   });
+
+  it('keeps the RLS filter when a malformed cursor falls back to offset paging', async () => {
+    // The fallback is a second call site of the offset query; it has to carry
+    // the row rules too, or a garbage cursor lists every row.
+    const cursor = Buffer.from('null').toString('base64url');
+    const res = await app.request(`/api/data/${COLLECTION}?cursor=${cursor}`, {
+      headers: { cookie: memberCookie },
+    });
+    expect(res.status).toBe(200);
+    const ids = ((await res.json()) as { records: Array<{ id: string }> }).records.map((r) => r.id);
+    expect(ids).toEqual([openId]);
+  });
 });

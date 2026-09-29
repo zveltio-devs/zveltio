@@ -68,4 +68,19 @@ d('data list query-cache hit (in-process)', () => {
     });
     expect([304, 200]).toContain(third.status);
   });
+
+  it('answers a repeat GET from the cache, not the table', async () => {
+    const url = `/api/data/${COLLECTION}?limit=50`;
+    const warm = (await (await app.request(url, { headers: { cookie } })).json()) as {
+      records: unknown[];
+    };
+    // Behind the API's back: nothing invalidates the cached page.
+    await sql
+      .raw(`INSERT INTO "zvd_${COLLECTION}" (label, score) VALUES ('behind-the-cache', 2)`)
+      .execute(db);
+    const again = (await (await app.request(url, { headers: { cookie } })).json()) as {
+      records: unknown[];
+    };
+    expect(again.records).toHaveLength(warm.records.length);
+  });
 });
