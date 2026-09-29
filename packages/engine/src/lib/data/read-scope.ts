@@ -123,14 +123,16 @@ export function inOrder(
     send();
     return;
   }
+  // Handled now, not when the queue reaches it: a verdict that rejects while an
+  // earlier one is pending was an unhandled rejection, and the engine exits on
+  // those.
+  const admitted = Promise.resolve(verdict).catch(() => false);
   const next = (queue.pending ?? Promise.resolve())
-    .then(() => verdict)
-    .then(
-      (ok) => {
-        if (ok) send();
-      },
-      () => {},
-    );
+    .then(() => admitted)
+    .then((ok) => {
+      if (ok) send();
+    })
+    .catch(() => {});
   queue.pending = next;
   void next.then(() => {
     if (queue.pending === next) queue.pending = undefined;

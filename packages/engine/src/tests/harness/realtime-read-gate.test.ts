@@ -130,6 +130,38 @@ d('realtime doors honour the read gate (in-process)', () => {
     ]);
   });
 
+  it('WS: a refusal is not cached — once the alter is gone, a resubscribe succeeds', async () => {
+    queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
+    const sent = await subscribe('rtgate_ws_refusal');
+    expect(sent.join('\n')).toContain(`"denied":["${COLLECTION}"]`);
+    queryAlterRegistry.unregisterAll(OWNER);
+    sent.length = 0;
+    const ws = sockets.at(-1)!;
+    await websocketHandler.message(
+      ws as never,
+      JSON.stringify({ type: 'subscribe', collections: [COLLECTION] }),
+    );
+    expect(sent.join('\n')).toContain(`"collections":["${COLLECTION}"]`);
+  });
+
+  it('WS: a resubscribe applies the gate as it is now, not as it was before the unsubscribe', async () => {
+    const sent = await subscribe('rtgate_ws_resub');
+    const ws = sockets.at(-1)!;
+    const msg = (type: string) =>
+      websocketHandler.message(ws as never, JSON.stringify({ type, collections: [COLLECTION] }));
+    await msg('unsubscribe');
+    // Unsubscribed, so no sweep re-resolves this collection for the socket: the
+    // gate it resolved at the first subscribe (no alter, no row rule written
+    // since) must not be the one the resubscribe gets.
+    queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
+    sent.length = 0;
+    await msg('subscribe');
+    broadcastEvent(COLLECTION, 'insert', { id: 'hidden', title: 'hidden' }, null);
+    await Bun.sleep(20);
+    expect(sent.join('\n')).not.toContain('"title":"hidden"');
+    expect(sent.join('\n')).toContain(`"denied":["${COLLECTION}"]`);
+  });
+
   it('SSE: a stream on only an alter-restricted collection is refused', async () => {
     queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
     const res = await stream(member.cookie, member.userId, `collection=${COLLECTION}`);

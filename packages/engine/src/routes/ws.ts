@@ -251,16 +251,16 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
 }
 
 /**
- * Resolve — once per socket per collection — the row policies and column
- * permissions the fan-out must apply, with the same helpers the SSE stream and
- * the REST list path use.
+ * Resolve — on every subscribe and every sweep — the read gate the fan-out
+ * must apply, as the SSE stream and the REST list path resolve it.
  */
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
-  let scope = conn.access.get(collection);
-  if (!scope) {
-    scope = await lookupSocketAccess(conn, collection);
-    conn.access.set(collection, scope);
-  }
+  // Resolved on every subscribe, never reused: the sweep re-resolves only the
+  // collections a socket is subscribed to, so a gate kept from before an
+  // unsubscribe — or from a refused subscribe — missed every rule and alter
+  // change since, and the resubscribe delivered (or refused) by it.
+  const scope = await lookupSocketAccess(conn, collection);
+  conn.access.set(collection, scope);
   // An alter restricts which rows this reader sees, and an event is a row with
   // no query to apply it to: refuse the subscription rather than deliver what
   // the API would hide, or silently deliver nothing.
@@ -370,17 +370,12 @@ async function recheckSubscriptions(connId: string, conn: WSConnection): Promise
   for (const collection of collections) {
     let allowed: boolean;
     try {
+      // Row rules, column permissions and alters too: `resolveSocketAccess`
+      // re-resolves the gate, so a rule written since the subscribe reaches the
+      // socket without its client resubscribing, and an alter registered since
+      // ends the subscription as at subscribe. Replaced only on success — a
+      // lookup that throws leaves the rules it had in force.
       allowed = await socketMayHear(conn.ws, conn, collection);
-      // Row rules and column permissions too: `resolveSocketAccess` keeps the
-      // snapshot it took at subscribe, so a rule written since reached the
-      // socket only when its client resubscribed. Replaced only on success —
-      // a lookup that throws leaves the rules it had in force.
-      if (allowed && collection !== SCHEMA_CHANNEL) {
-        const scope = await lookupSocketAccess(conn, collection);
-        conn.access.set(collection, scope);
-        // An alter registered since the subscription ends it, as at subscribe.
-        allowed = !scope.altersRestrict;
-      }
     } catch (err) {
       console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
       failed = true;
