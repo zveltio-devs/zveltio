@@ -41,7 +41,7 @@ d('realtime doors honour the read gate (in-process)', () => {
   let db: Database;
   let god = '';
   let member: { cookie: string; userId: string };
-  let memberWs: Record<string, unknown> = {};
+  let memberWs: Record<string, unknown> | undefined;
   const sockets: unknown[] = [];
   const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
 
