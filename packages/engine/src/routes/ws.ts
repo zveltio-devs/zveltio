@@ -12,12 +12,8 @@ import {
 } from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
-  applyColumnAccess,
   DEFAULT_TENANT_ID,
-  getColumnAccess,
-  getRlsFilters,
   isTenantAdmin,
-  matchesRlsFilters,
   permissionGeneration,
   requireInstanceAdmin,
   resolveUserRole,
@@ -25,11 +21,8 @@ import {
   runWithDomain,
   sweepGeneration,
 } from '../lib/tenancy/index.js';
-import type { ColumnAccess } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
-
-/** What `getRlsFilters` returns — no exported alias for it. */
-type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
+import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
 
 /**
  * The database handle `wsRoutes` was given.
@@ -92,8 +85,16 @@ interface WSConnection {
    * `routes/realtime.ts` does it: the delivery loop is synchronous and runs per
    * subscriber per write, so it cannot go to the database. A policy change
    * re-resolves it in `revalidateWsSubscriptions`.
+   *
+   * It is the read gate (`readScope`), so extension query alters and
+   * entity-access checks apply here as on `GET /api/data`. An alter cannot run
+   * on an event, so a collection whose alters restrict this reader refuses the
+   * subscription; an entity check is async, so `pending` keeps delivery in
+   * write order while one runs.
    */
-  access: Map<string, { rls: RlsFilter[]; columns: ColumnAccess | null }>;
+  access: Map<string, ReadScope>;
+  /** Delivery queue while an async entity-access verdict is pending. */
+  pending?: Promise<void>;
 }
 
 // Connection registry: connectionId -> WSConnection
@@ -255,27 +256,32 @@ async function socketMayRead(conn: WSConnection, collection: string): Promise<bo
  * the REST list path use.
  */
 async function resolveSocketAccess(conn: WSConnection, collection: string): Promise<boolean> {
-  if (!conn.access.has(collection))
-    conn.access.set(collection, await lookupSocketAccess(conn, collection));
-  return true;
+  let scope = conn.access.get(collection);
+  if (!scope) {
+    scope = await lookupSocketAccess(conn, collection);
+    conn.access.set(collection, scope);
+  }
+  // An alter restricts which rows this reader sees, and an event is a row with
+  // no query to apply it to: refuse the subscription rather than deliver what
+  // the API would hide, or silently deliver nothing.
+  return !scope.altersRestrict;
 }
 
-async function lookupSocketAccess(conn: WSConnection, collection: string) {
+function lookupSocketAccess(conn: WSConnection, collection: string): Promise<ReadScope> {
   // A failed lookup throws; it is never caught here as `[]` / `null`. That
   // used to read as "nothing to filter", so the socket then received every row
   // and column the caller's rules hide. The role lookup too: it was caught as
   // `'user'`, a role no rule names, so a `member` rule stopped applying.
-  const user = { ...conn.user, role: await resolveUserRole(conn.user) };
-  return {
-    rls: await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-      getRlsFilters(collection, user, conn.authType),
+  const db = wsDb;
+  if (!db) throw new Error('[ws] no database handle');
+  return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, async () =>
+    readScope(
+      db,
+      collection,
+      { ...conn.user, role: await resolveUserRole(conn.user) },
+      conn.authType,
     ),
-    columns: wsDb
-      ? await runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-          getColumnAccess(wsDb as Database, collection, user.role, user.id),
-        )
-      : null,
-  };
+  );
 }
 
 async function socketMayReadCached(
@@ -369,8 +375,12 @@ async function recheckSubscriptions(connId: string, conn: WSConnection): Promise
       // snapshot it took at subscribe, so a rule written since reached the
       // socket only when its client resubscribed. Replaced only on success —
       // a lookup that throws leaves the rules it had in force.
-      if (allowed && collection !== SCHEMA_CHANNEL)
-        conn.access.set(collection, await lookupSocketAccess(conn, collection));
+      if (allowed && collection !== SCHEMA_CHANNEL) {
+        const scope = await lookupSocketAccess(conn, collection);
+        conn.access.set(collection, scope);
+        // An alter registered since the subscription ends it, as at subscribe.
+        allowed = !scope.altersRestrict;
+      }
     } catch (err) {
       console.error(`[ws] permission recheck of "${collection}" failed; retrying:`, err);
       failed = true;
@@ -684,27 +694,28 @@ export function broadcastEvent(
       // No entry means nothing resolved what this socket may see, so it gets
       // nothing — not everything. Subscribing always resolves one; this is the
       // backstop for a path that someday does not.
-      const access = conn.access.get(collection);
-      if (!access) continue;
-      if (access.rls.length > 0 && !matchesRlsFilters(data, access.rls)) continue;
-      const visible = access.columns ? applyColumnAccess(data, access.columns) : data;
-      const body =
-        visible === data
-          ? payload
-          : JSON.stringify({
-              type: 'event',
-              collection,
-              event,
-              data: visible,
-              timestamp: Date.now(),
-            });
-      try {
-        conn.ws.send(body);
-      } catch {
-        // Connection dead — close/error will fire eventually and call
-        // cleanupSocket. Until then, the next broadcast won't loop
-        // forever because `connections.get` returns undefined above.
-      }
+      const scope = conn.access.get(collection);
+      if (!scope) continue;
+      inOrder(conn, scope.admits(data), () => {
+        const visible = scope.shape(data);
+        const body =
+          visible === data
+            ? payload
+            : JSON.stringify({
+                type: 'event',
+                collection,
+                event,
+                data: visible,
+                timestamp: Date.now(),
+              });
+        try {
+          conn.ws.send(body);
+        } catch {
+          // Connection dead — close/error will fire eventually and call
+          // cleanupSocket. Until then, the next broadcast won't loop
+          // forever because `connections.get` returns undefined above.
+        }
+      });
     }
   }
   for (const { channel, connId } of stale) unindexSubscription(channel, connId);

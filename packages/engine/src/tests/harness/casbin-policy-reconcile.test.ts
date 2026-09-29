@@ -32,6 +32,19 @@ import {
   harnessAvailable,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
+import type { ReadScope } from '../../lib/data/read-scope.js';
+
+/** A read gate that admits every row and hides no column. */
+const openScope = (table: string): ReadScope => ({
+  table,
+  rls: [],
+  columns: { hidden: new Set(), readOnly: new Set() },
+  altersRestrict: false,
+  query: (qb) => qb,
+  keep: async (rows) => rows,
+  admits: () => true,
+  shape: (row) => row,
+});
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -239,8 +252,8 @@ d('policy reconcile', () => {
       authType: 'session',
       principal: principal as never,
       access: new Map([
-        [res, { rls: [], columns: null }],
-        [kept, { rls: [], columns: null }],
+        [res, openScope(res)],
+        [kept, openScope(kept)],
       ]),
     });
     for (const ch of [res, `${res}:insert`, kept]) indexSubscription(ch, connId);
@@ -286,7 +299,7 @@ d('policy reconcile', () => {
       connectedAt: Date.now(),
       authType: 'session',
       principal: principal as never,
-      access: new Map([[res, { rls: [], columns: null }]]),
+      access: new Map([[res, openScope(res)]]),
     });
     indexSubscription(res, connId);
     const subs = () => [...connections.get(connId)!.subscriptions];
