@@ -17,14 +17,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import {
-  applyColumnAccess,
-  checkPermission,
-  getColumnAccess,
-  isTenantAdmin,
-  resolveUserRole,
-} from '../lib/tenancy/index.js';
-import { DDLManager } from '../lib/data/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
+import { DDLManager, readScope } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
@@ -291,7 +285,8 @@ async function executeQueryConfig(
   db: Database,
   collection: string,
   config: QueryConfig,
-  user: { id: string; role?: string },
+  user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
+  authType: 'session' | 'api_key',
 ): Promise<{
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   records: any[];
@@ -313,20 +308,24 @@ async function executeQueryConfig(
     throw new Error('Forbidden');
   }
 
-  // Column permissions, the same way every other read path applies them.
+  // The read gate: row policies, extension alters, entity access and column
+  // permissions, as `GET /api/data` applies them. This route once applied the
+  // column permissions and nothing else, so a saved query listed the rows a
+  // row policy, an alter or an ownership rule hides.
   //
-  // This was the ONLY read path over a collection table that did not. `/api/data`
-  // list, single and bulk, `/api/sync` pull, the realtime fan-out and the
-  // relation expander all call getColumnAccess; the query builder went straight
-  // to the table. Measured against a `member` with can_read=false on one column:
-  // GET /api/data omitted it and POST /api/saved-queries/execute returned its
-  // value. Resolved BEFORE the SELECT so a hidden column is never read, rather
-  // than read and then stripped.
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  // The column half has its own history: this was the ONLY read path over a
+  // collection table that did not apply them. Measured against a `member` with
+  // can_read=false on one column: GET /api/data omitted it and
+  // POST /api/saved-queries/execute returned its value. Resolved before the
+  // query is built, so a hidden column can be neither returned, filtered on nor
+  // sorted by.
+  const scope = await readScope(db, collection, user, authType);
+  const colAccess = scope.columns;
 
   const offset = (config.page - 1) * config.limit;
+  // Row policies and alters in the WHERE, so the count and the page agree.
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let baseQuery: any = (db as any).selectFrom(tableName);
+  let baseQuery: any = scope.query((db as any).selectFrom(tableName));
 
   // An ALLOWLIST of the collection's own columns, not a denylist of bad ones.
   //
@@ -367,14 +366,15 @@ async function executeQueryConfig(
   // metadata columns, which are the same on every collection.
   const visible = (name: string) => allowed.has(name);
 
+  // The columns the result carries. Never the whole row: name the allowed
+  // columns, so a column added to the table later is outside the result until
+  // somebody decides it belongs.
+  let selectFields: string[];
   if (config.columns?.length > 0) {
     const asked = config.columns.filter(visible);
-    const selectFields = asked.includes('id') ? asked : ['id', ...asked];
-    baseQuery = baseQuery.select(selectFields);
+    selectFields = asked.includes('id') ? asked : ['id', ...asked];
   } else {
-    // Never `selectAll()`: name the allowed columns, so a column added to the
-    // table later is outside the result until somebody decides it belongs.
-    baseQuery = baseQuery.select([...allowed]);
+    selectFields = [...allowed];
   }
 
   // A filter or a sort on a hidden column reads it just as surely as selecting
@@ -423,7 +423,6 @@ async function executeQueryConfig(
   }
 
   const countResult = await baseQuery
-    .clearSelect()
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .select((eb: any) => eb.fn.countAll().as('count'))
     .execute();
@@ -436,10 +435,21 @@ async function executeQueryConfig(
     baseQuery = baseQuery.orderBy('created_at', 'desc');
   }
 
-  const rawRecords = await baseQuery.limit(config.limit).offset(offset).execute();
-  // Belt and braces: the select above already names only allowed columns, and
-  // this strips anything hidden that reaches here by another route.
-  const records = rawRecords.map((r: Record<string, unknown>) => applyColumnAccess(r, colAccess));
+  // The whole row is read because an entity-access check judges the whole
+  // record — an ownership rule reads `created_by` whether or not the query asked
+  // for it. The result is then cut down to `selectFields`, so nothing else
+  // leaves this function. `total` counts before the entity filter, as the list
+  // path does.
+  const rawRecords: Record<string, unknown>[] = await baseQuery
+    .selectAll()
+    .limit(config.limit)
+    .offset(offset)
+    .execute();
+  const records = (await scope.keep(rawRecords)).map((r) =>
+    // Belt and braces: `selectFields` names only allowed columns, and the shape
+    // strips anything hidden that reaches here by another route.
+    scope.shape(Object.fromEntries(selectFields.filter((f) => f in r).map((f) => [f, r[f]]))),
+  );
   return {
     records,
     pagination: {
@@ -513,7 +523,13 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
           page: data.config.page,
         };
 
-        const result = await executeQueryConfig(tdb, data.collection, config, user);
+        const result = await executeQueryConfig(
+          tdb,
+          data.collection,
+          config,
+          user,
+          c.get('authType') ?? 'session',
+        );
         const apiUrl = generateApiUrl(data.collection, config);
         return c.json({ collection: data.collection, api_url: apiUrl, ...result });
       } catch (err) {
@@ -751,7 +767,13 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         limit: override.limit ?? saved.config.limit ?? 50,
       };
 
-      const queryResult = await executeQueryConfig(reqDb(c, db), saved.collection, config, user);
+      const queryResult = await executeQueryConfig(
+        reqDb(c, db),
+        saved.collection,
+        config,
+        user,
+        c.get('authType') ?? 'session',
+      );
       return c.json({ collection: saved.collection, ...queryResult });
     } catch (err) {
       return c.json({ error: message(err) }, statusFor(err));

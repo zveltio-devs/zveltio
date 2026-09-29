@@ -27,10 +27,9 @@ const ALLOWED: Record<string, number> = {
   'routes/sync.ts': 2,
   // `?expand=` with no request identity (internal callers): columns by role.
   'lib/data/shape.ts': 1,
-  // TODO move onto the gate: realtime WS + SSE, saved-query execute.
+  // TODO move onto the gate: realtime WS + SSE.
   'routes/ws.ts': 2,
   'routes/realtime.ts': 2,
-  'routes/saved-queries.ts': 1,
 };
 
 describe('read gate', () => {
