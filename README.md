@@ -16,6 +16,7 @@
 [![Bun](https://img.shields.io/badge/Bun-1.3+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-17+-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-D97757)](https://claude.com/claude-code)
 
 The engine is headless and stays that way: collections with a dynamic schema, auth, row-level multi-tenancy, permissions, a REST/RPC API over your data, automation, realtime, storage, and an admin Studio to run it all. No opinion about how anything is presented — that is what extensions are for.
 
@@ -383,5 +384,7 @@ If you build something on Zveltio that helps your business, the only thing we as
 ## The platform behind your business. Build it. Plug it in. Own it forever.
 
 Zveltio is a product of [DaRe IT Systems S.R.L.](https://dareit.ro) — based in Romania, open to the world.
+
+Built with [Claude](https://claude.com/claude-code).
 
 **[Read the docs →](https://zveltio.com/intro)** · **[Join the community →](https://github.com/zveltio-devs/zveltio/discussions)** · **[Report an issue →](https://github.com/zveltio-devs/zveltio/issues)**
