@@ -58,7 +58,10 @@ d('data bulk update validation 207 (in-process)', () => {
       body: JSON.stringify({
         records: [
           { id: goodId, contact: 'still-valid@example.com' },
-          { id: '00000000-0000-4000-8000-000000000099', contact: 'not-an-email' },
+          // An existing row, so validation is the only thing that can refuse it.
+          // Aimed at an absent id, "Record not found" answered for it and the
+          // test passed with the validation check removed.
+          { id: goodId, contact: 'not-an-email' },
         ],
       }),
     });
@@ -67,8 +70,14 @@ d('data bulk update validation 207 (in-process)', () => {
       updated: number;
       errors: Array<{ index: number; errors: string[] }>;
     };
-    expect(body.updated).toBeGreaterThanOrEqual(1);
-    expect(body.errors.length).toBeGreaterThan(0);
-    expect(body.errors.some((e) => e.errors.length > 0)).toBe(true);
+    expect(body.updated).toBe(1);
+    expect(body.errors).toHaveLength(1);
+    expect(body.errors[0]!.index).toBe(1);
+    expect(body.errors[0]!.errors.join(' ')).not.toContain('not found');
+
+    const row = await sql<{ contact: string }>`
+      SELECT contact FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}
+    `.execute(db);
+    expect(row.rows[0]?.contact).toBe('still-valid@example.com');
   });
 });
