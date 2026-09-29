@@ -38,6 +38,10 @@ export { normalizeFields } from './shape.js';
 //     read does — it was shipping `enc:v1:…` to offline clients that have no
 //     key to read it with.
 export { serializeRecord } from './shape.js';
+//   - `readScope` so every read path outside the data handlers (sync pull,
+//     `?expand=`, the realtime doors) asks the one read gate instead of picking
+//     a subset of row policies, alters, entity access and column permissions.
+export { readScope, type ReadScope } from './read-scope.js';
 export { validateApiKey } from './auth.js';
 //   - `findApiKey`/`requestApiKey` so `sessionPrefetch` resolves the key once,
 //     before the rate limiters, and `authenticate` reuses that row.

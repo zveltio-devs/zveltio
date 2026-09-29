@@ -11,7 +11,6 @@ import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
 import {
-  applyColumnAccess,
   applyRlsFilters,
   checkPermission,
   filterWritableFields,
@@ -23,10 +22,10 @@ import {
   DDLManager,
   afterWrite,
   processInput,
+  readScope,
   rowAuthorId,
   serializeRecord,
 } from '../lib/data/index.js';
-import { readScope } from '../lib/data/read-scope.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
 
@@ -523,21 +522,27 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       const canRead = await checkPermission(user.id, `data:${collectionShortName}`, 'read');
       if (!canRead) continue; // silently skip collections the user has no access to
 
-      try {
-        // The read gate: row policies, extension alters, entity access and
-        // column permissions, as `GET /api/data` applies them. `checkPermission`
-        // above is collection-level and cannot see rows. Pull once applied row
-        // policies and columns only, so an offline client synced — and kept on
-        // the device — the rows an extension's alter or ownership rule hides.
-        // The SHORT name: policies are stored against the logical collection,
-        // not the physical `zvd_` table.
-        const scope = await readScope(
-          db,
-          collectionShortName,
-          c.get('user') as { id: string; email?: string; role: string },
-          c.get('authType') ?? 'session',
-        );
-        const pullQuery = pullDb
+      // The read gate: row policies, extension alters, entity access and
+      // column permissions, as `GET /api/data` applies them. `checkPermission`
+      // above is collection-level and cannot see rows. Pull once applied row
+      // policies and columns only, so an offline client synced — and kept on
+      // the device — the rows an extension's alter or ownership rule hides.
+      // The SHORT name: policies are stored against the logical collection,
+      // not the physical `zvd_` table.
+      //
+      // Resolved and applied OUTSIDE the catch below, so a gate that fails
+      // fails the pull (500, as `GET /api/data` answers). Inside it, a failed
+      // policy lookup or a throwing entity check answered 200 with the
+      // collection empty and a fresh `serverTimestamp`: a client pulling
+      // `since` that cursor never received those rows again.
+      const scope = await readScope(
+        db,
+        collectionShortName,
+        c.get('user') as { id: string; email?: string; role: string },
+        c.get('authType') ?? 'session',
+      );
+      const pullQuery = scope.query(
+        pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .selectFrom(collection as any)
           .selectAll()
@@ -545,34 +550,38 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           .where('updated_at' as any, '>', sinceDate)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
-          .limit(PULL_LIMIT_PER_COLLECTION);
-        const updated = await scope.keep(await scope.query(pullQuery).execute());
-
-        // Shape the rows the way every other read path does.
-        //
-        // Pull applied row policies and deleted hidden columns and stopped
-        // there, which left two divergences from `GET /api/data`. Fields marked
-        // `encrypted: true` went out as `enc:v1:…` — the offline client has no
-        // key, so the column was simply unreadable on the device while the API
-        // returned it in the clear. And the column mask was a hand-written
-        // `delete` loop covering `hidden` but not `readOnly`, where
-        // `applyColumnAccess` covers both.
-        const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
-        for (const record of updated) {
-          const shaped = scope.shape(
-            await serializeRecord(record as Record<string, unknown>, pullDef),
-          );
-          changes.push({
-            collection,
-            id: shaped.id as string,
-            data: shaped,
-            operation: 'upsert',
-            timestamp: new Date((record as { updated_at: string }).updated_at).getTime(),
-          });
-        }
+          .limit(PULL_LIMIT_PER_COLLECTION),
+      );
+      let fetched: unknown[];
+      try {
+        fetched = await pullQuery.execute();
       } catch {
         // Collection may not have updated_at column or may not exist — ignore
         continue;
+      }
+      const updated = await scope.keep(fetched);
+
+      // Shape the rows the way every other read path does.
+      //
+      // Pull applied row policies and deleted hidden columns and stopped
+      // there, which left two divergences from `GET /api/data`. Fields marked
+      // `encrypted: true` went out as `enc:v1:…` — the offline client has no
+      // key, so the column was simply unreadable on the device while the API
+      // returned it in the clear. And the column mask was a hand-written
+      // `delete` loop covering `hidden` but not `readOnly`, where
+      // `applyColumnAccess` covers both.
+      const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
+      for (const record of updated) {
+        const shaped = scope.shape(
+          await serializeRecord(record as Record<string, unknown>, pullDef),
+        );
+        changes.push({
+          collection,
+          id: shaped.id as string,
+          data: shaped,
+          operation: 'upsert',
+          timestamp: new Date((record as { updated_at: string }).updated_at).getTime(),
+        });
       }
     }
 

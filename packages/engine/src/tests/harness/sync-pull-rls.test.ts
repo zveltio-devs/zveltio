@@ -92,6 +92,10 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
       });
     await post({ title: 'visible', bucket: 'open', salary: '100' });
     await post({ title: 'hidden', bucket: 'restricted', salary: '200' });
+    // Visible to the member and hidden by none of the extension rules below:
+    // the control that tells "the rule hid the row" from "the pull returned
+    // nothing".
+    await post({ title: 'kept', bucket: 'open', salary: '300' });
 
     await app.request('/api/admin/rls', {
       method: 'POST',
@@ -179,13 +183,33 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     queryAlterRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, (qb: any) =>
       qb.where('title', '<>', 'visible'),
     );
-    expect(await titles()).not.toContain('visible');
+    const got = await titles();
+    expect(got).not.toContain('visible');
+    expect(got).toContain('kept');
   });
 
   it('does not pull rows an entity-access rule denies', async () => {
     entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, (r: { title?: string }) =>
       r.title === 'visible' ? 'deny' : 'allow',
     );
-    expect(await titles()).not.toContain('visible');
+    const got = await titles();
+    expect(got).not.toContain('visible');
+    expect(got).toContain('kept');
+  });
+
+  // A gate that fails must fail the pull, as it fails `GET /api/data`. The
+  // pull's catch-all is for a table without `updated_at`; a gate failure landing
+  // there answered 200 with the collection empty and a fresh `serverTimestamp`,
+  // so a client pulling `since` that cursor never received those rows again.
+  it('fails the pull when an entity-access check throws, instead of skipping the rows', async () => {
+    entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, () => {
+      throw new Error('entity check unavailable');
+    });
+    const res = await app.request('/api/sync/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
+      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`], since: 0 }),
+    });
+    expect(res.status).toBe(500);
   });
 });
