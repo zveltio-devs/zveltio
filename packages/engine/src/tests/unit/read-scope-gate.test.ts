@@ -27,10 +27,6 @@ const ALLOWED: Record<string, number> = {
   'routes/sync.ts': 2,
   // `?expand=` with no request identity (internal callers): columns by role.
   'lib/data/shape.ts': 1,
-  // Push: writes. Pull goes through the gate.
-  'routes/sync.ts': 2,
-  // `?expand=` with no request identity (internal callers): columns by role.
-  'lib/data/shape.ts': 1,
 };
 
 describe('read gate', () => {
