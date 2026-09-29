@@ -1,5 +1,5 @@
 /**
- * Sync pull honours RLS and column permissions.
+ * Sync pull honours RLS, extension alters, entity access and column permissions.
  *
  * The push path applies RLS (it caches filters per collection and runs them on
  * every write). Pull selected every changed row with `selectAll()` and no
@@ -12,17 +12,19 @@
  * export route: the main data path is defended, the secondary one is not.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, queryAlterRegistry } from '../../lib/data/index.js';
+import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hsyncrls_${Date.now()}`;
+const OWNER = 'harness-sync-pull-gate';
 
 async function memberSession(app: Hono, db: Database): Promise<{ cookie: string; userId: string }> {
   const email = `harness-sync-${Date.now()}@test.local`;
@@ -90,6 +92,10 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
       });
     await post({ title: 'visible', bucket: 'open', salary: '100' });
     await post({ title: 'hidden', bucket: 'restricted', salary: '200' });
+    // Visible to the member and hidden by none of the extension rules below:
+    // the control that tells "the rule hid the row" from "the pull returned
+    // nothing".
+    await post({ title: 'kept', bucket: 'open', salary: '300' });
 
     await app.request('/api/admin/rls', {
       method: 'POST',
@@ -116,6 +122,11 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
         can_write: false,
       }),
     });
+  });
+
+  afterEach(() => {
+    queryAlterRegistry.unregisterAll(OWNER);
+    entityAccessRegistry.unregisterAll(OWNER);
   });
 
   afterAll(async () => {
@@ -161,5 +172,44 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     const body = await pull(memberCookie);
     const titles = body.changes.map((ch) => ch.data?.title).filter(Boolean);
     expect(titles).toContain('visible');
+  });
+
+  // Pull once applied row policies and columns only: an extension's alter or
+  // ownership rule hid a row from `GET /api/data` and synced it to the device.
+  const titles = async () =>
+    (await pull(memberCookie)).changes.map((ch) => ch.data?.title).filter(Boolean);
+
+  it('does not pull rows an extension query alter hides', async () => {
+    queryAlterRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, (qb: any) =>
+      qb.where('title', '<>', 'visible'),
+    );
+    const got = await titles();
+    expect(got).not.toContain('visible');
+    expect(got).toContain('kept');
+  });
+
+  it('does not pull rows an entity-access rule denies', async () => {
+    entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, (r: { title?: string }) =>
+      r.title === 'visible' ? 'deny' : 'allow',
+    );
+    const got = await titles();
+    expect(got).not.toContain('visible');
+    expect(got).toContain('kept');
+  });
+
+  // A gate that fails must fail the pull, as it fails `GET /api/data`. The
+  // pull's catch-all is for a table without `updated_at`; a gate failure landing
+  // there answered 200 with the collection empty and a fresh `serverTimestamp`,
+  // so a client pulling `since` that cursor never received those rows again.
+  it('fails the pull when an entity-access check throws, instead of skipping the rows', async () => {
+    entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, () => {
+      throw new Error('entity check unavailable');
+    });
+    const res = await app.request('/api/sync/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
+      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`], since: 0 }),
+    });
+    expect(res.status).toBe(500);
   });
 });

@@ -23,11 +23,11 @@ const ALLOWED: Record<string, number> = {
   'lib/data/handlers/bulk.ts': 8,
   // Handed to extensions as `ctx.internals`, which make their own reads.
   'lib/extensions/internals.ts': 2,
-  // Push (writes): 2. Pull (read): 2 — TODO move onto the gate.
-  'routes/sync.ts': 4,
-  // TODO move onto the gate: realtime WS + SSE, saved-query execute.
+  // Push: writes. Pull goes through the gate.
+  'routes/sync.ts': 2,
   // `?expand=` with no request identity (internal callers): columns by role.
   'lib/data/shape.ts': 1,
+  // TODO move onto the gate: realtime WS + SSE, saved-query execute.
   'routes/ws.ts': 2,
   'routes/realtime.ts': 2,
   'routes/saved-queries.ts': 1,
