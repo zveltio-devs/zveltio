@@ -162,6 +162,27 @@ d('realtime doors honour the read gate (in-process)', () => {
     expect(sent.join('\n')).toContain(`"denied":["${COLLECTION}"]`);
   });
 
+  it('WS: an alter registered while subscribed ends the subscription', async () => {
+    const sent = await subscribe('rtgate_ws_alter_later');
+    expect(sent.join('\n')).toContain('"type":"subscribed"');
+    sent.length = 0;
+    queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
+    await settle(() => sent.some((p) => p.includes('"type":"unsubscribed"')));
+    expect(sent.join('\n')).toContain('"reason":"forbidden"');
+  });
+
+  it('SSE: an alter registered while open ends the stream', async () => {
+    const s = await stream(member.cookie, member.userId, `collection=${COLLECTION}`);
+    expect(s.status).toBe(200);
+    const open = () =>
+      [...(_sseConnectionsForTests().get(member.userId) ?? [])].some(
+        (x) => x.tenantId === s.tenantId,
+      );
+    queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
+    await settle(() => !open());
+    expect(open()).toBe(false);
+  });
+
   it('SSE: a stream on only an alter-restricted collection is refused', async () => {
     queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
     const res = await stream(member.cookie, member.userId, `collection=${COLLECTION}`);

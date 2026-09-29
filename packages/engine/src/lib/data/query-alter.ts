@@ -21,6 +21,7 @@
  */
 
 import type { DynamicDB } from '../../db/dynamic-types.js';
+import { revalidateSockets } from '../tenancy/index.js';
 
 /** The 403 body `?as_of=` gets when `restricts()` says yes. */
 export const TIME_TRAVEL_ALTERED =
@@ -55,6 +56,10 @@ export class QueryAlterRegistryImpl {
   /** Internal — register on behalf of an owning extension. */
   registerAs(owner: string, table: string, alter: QueryAlterFn): void {
     this.entries.push({ owner, table, alter });
+    // An open realtime subscription decided at subscribe whether alters
+    // restrict it (they cannot run on an event). Re-decide it now, not at
+    // the next unrelated rule change.
+    revalidateSockets();
   }
 
   /**
@@ -78,7 +83,9 @@ export class QueryAlterRegistryImpl {
   unregisterAll(owner: string): number {
     const before = this.entries.length;
     this.entries = this.entries.filter((e) => e.owner !== owner);
-    return before - this.entries.length;
+    const removed = before - this.entries.length;
+    if (removed > 0) revalidateSockets();
+    return removed;
   }
 
   /** Test helper — wipe everything. */
