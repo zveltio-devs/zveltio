@@ -11,6 +11,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../../lib/data/query-alter.js';
+import { readScope } from '../../lib/data/read-scope.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -119,5 +120,31 @@ d('data list query-alter registry (in-process)', () => {
     const single = await get(`/${dropId}?as_of=${FUTURE}`);
     expect(single.status).toBe(200);
     expect(((await single.json()) as { record: { label: string } }).record.label).toBe('drop-me');
+  });
+
+  // A row that did not come through a query (a snapshot, a realtime event)
+  // cannot have an alter applied, so the gate refuses it — even one the alter
+  // would have kept.
+  it('the read gate admits no in-memory row while an alter restricts the reader', async () => {
+    const row = { label: 'keep-me' };
+    expect(await (await readScope(db, COLLECTION, { id: godId }, 'session')).admits(row)).toBe(
+      true,
+    );
+    queryAlterRegistry.registerAs(ALTER_OWNER, TABLE, keepOnly);
+    expect(await (await readScope(db, COLLECTION, { id: godId }, 'session')).admits(row)).toBe(
+      false,
+    );
+  });
+
+  // The `?as_of=` probe runs every alter; a live read, which applies them to its
+  // query, must not pay for it. Extensions see each call.
+  it('a live single read calls each alter once', async () => {
+    let calls = 0;
+    queryAlterRegistry.registerAs(ALTER_OWNER, TABLE, (qb) => {
+      calls++;
+      return qb;
+    });
+    expect((await get(`/${dropId}`)).status).toBe(200);
+    expect(calls).toBe(1);
   });
 });
