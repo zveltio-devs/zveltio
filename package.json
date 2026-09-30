@@ -84,6 +84,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
+    "@grpc/grpc-js": "1.14.5",
     "@opentelemetry/core": "2.10.0",
     "@opentelemetry/propagator-jaeger": "2.10.0",
     "@opentelemetry/sdk-trace-base": "2.10.0",

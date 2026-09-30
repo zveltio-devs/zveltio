@@ -29,7 +29,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
@@ -76,7 +76,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.7.5",
         "@better-auth/passkey": "^1.7.5",
@@ -110,7 +110,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "idb": "^8.0.3",
       },
@@ -134,7 +134,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -150,7 +150,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -164,7 +164,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.71",
+      "version": "3.0.0-beta.72",
       "dependencies": {
         "@inlang/paraglide-js": "^2.25.0",
         "@lucide/svelte": "^0.577.0",
@@ -197,6 +197,7 @@
     },
   },
   "overrides": {
+    "@grpc/grpc-js": "1.14.5",
     "@opentelemetry/core": "2.10.0",
     "@opentelemetry/propagator-jaeger": "2.10.0",
     "@opentelemetry/sdk-trace-base": "2.10.0",
@@ -367,7 +368,7 @@
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
 
-    "@grpc/grpc-js": ["@grpc/grpc-js@1.14.4", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ=="],
+    "@grpc/grpc-js": ["@grpc/grpc-js@1.14.5", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-7VZM+SVdEcUUqSQeNI3zM8Qs/BhQKZndPo2h5VkYkAM8Iz0wJIa8mKV5ekQGqG8UUsnkQ0NMxIxwkIHYvj0qOw=="],
 
     "@grpc/proto-loader": ["@grpc/proto-loader@0.8.1", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.5.5", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg=="],
 
