@@ -37,7 +37,7 @@ const c = {
 // assert it stays in sync with the engine's canonical list — see
 // `publisher-tier`-adjacent `peer-deps-allowlist.drift.test.ts`.
 export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
-  'node-saml',
+  '@node-saml/node-saml',
   'ldapts',
   'imapflow',
   'mailparser',

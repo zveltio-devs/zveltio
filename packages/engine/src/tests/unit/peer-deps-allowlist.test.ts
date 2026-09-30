@@ -4,7 +4,7 @@ import { isPackageAllowed, PEER_DEPS_ALLOWLIST } from '../../lib/peer-deps-allow
 describe('peer-deps-allowlist', () => {
   it('allows known platform packages', () => {
     // A representative sample — the full list is in peer-deps-allowlist.ts
-    expect(isPackageAllowed('node-saml')).toBe(true);
+    expect(isPackageAllowed('@node-saml/node-saml')).toBe(true);
     expect(isPackageAllowed('ldapts')).toBe(true);
     expect(isPackageAllowed('imapflow')).toBe(true);
     expect(isPackageAllowed('nodemailer')).toBe(true);
