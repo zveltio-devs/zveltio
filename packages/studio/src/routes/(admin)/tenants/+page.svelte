@@ -13,6 +13,7 @@ import {
   X,
   Check,
   Plus,
+  Trash2,
 } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
@@ -45,6 +46,16 @@ let creatingEnvForTenant = $state<any>(null);
 let envForm = $state({ slug: '', name: '' });
 let creatingEnv = $state(false);
 let createEnvError = $state('');
+
+// Delete tenant modal: archive (keeps the data) or, once archived, purge.
+const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+let deletingTenant = $state<{ id: string; name: string; slug: string; status: string } | null>(
+  null,
+);
+let deleteMode = $state<'archive' | 'purge'>('archive');
+let deleteConfirm = $state('');
+let deleteBusy = $state(false);
+let deleteError = $state('');
 
 let confirmState = $state<{
   open: boolean;
@@ -114,6 +125,42 @@ async function suspendTenant(tenant: any) {
       }
     },
   };
+}
+
+function openDelete(tenant: { id: string; name: string; slug: string; status: string }) {
+  deletingTenant = tenant;
+  deleteMode = tenant.status === 'deleted' ? 'purge' : 'archive';
+  deleteConfirm = '';
+  deleteError = '';
+}
+
+async function deleteTenant() {
+  const tenant = deletingTenant;
+  if (!tenant) return;
+  deleteBusy = true;
+  deleteError = '';
+  try {
+    const query =
+      deleteMode === 'purge'
+        ? `mode=purge&confirm=${encodeURIComponent(deleteConfirm)}`
+        : 'mode=archive';
+    const res = await api.delete<{
+      deleted?: Record<string, number>;
+      files?: { deleted: number };
+    }>(`/api/tenants/${tenant.id}?${query}`);
+    if (deleteMode === 'purge') {
+      const rows = Object.values(res?.deleted ?? {}).reduce((a, n) => a + n, 0);
+      toast.success(m['tenants.deletePurged']({ rows, files: res?.files?.deleted ?? 0 }));
+    } else {
+      toast.success(m['tenants.deleteArchived']());
+    }
+    deletingTenant = null;
+    await loadTenants();
+  } catch (e) {
+    deleteError = (e as Error).message;
+  } finally {
+    deleteBusy = false;
+  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -299,8 +346,7 @@ async function createEnvironment() {
  {/if}
  </button>
 
- <!-- Suspend / Reactivate -->
- {#if tenant.status !== 'deleted'}
+ <!-- Suspend / Reactivate (an archived tenant is reactivated the same way) -->
  <button
  class="btn btn-ghost btn-xs tooltip"
  data-tip={tenant.status === 'active' ? m['tenants.suspend']() : m['tenants.reactivate']()}
@@ -311,6 +357,15 @@ async function createEnvironment() {
  {:else}
  <PlayCircle size={14} class="text-success" />
  {/if}
+ </button>
+ {#if tenant.id !== DEFAULT_TENANT_ID}
+ <button
+ class="btn btn-ghost btn-xs tooltip"
+ data-tip={m['tenants.delete']()}
+ aria-label={m['tenants.delete']()}
+ onclick={() => openDelete(tenant)}
+ >
+ <Trash2 size={14} class="text-error" />
  </button>
  {/if}
  </div>
@@ -598,6 +653,101 @@ async function createEnvironment() {
  aria-label={m['common.close']()}
  onclick={() => (creatingEnvForTenant = null)}
  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') creatingEnvForTenant = null; }}
+ ></div>
+ </div>
+{/if}
+
+<!-- ── Delete Tenant Modal ─────────────────────────────────────────────────── -->
+{#if deletingTenant}
+ <div class="modal modal-open">
+ <div class="modal-box max-w-lg">
+ <div class="flex items-center justify-between mb-4">
+ <h3 class="font-bold text-lg">{m['tenants.deleteTitle']({ name: deletingTenant.name })}</h3>
+ <button class="btn btn-ghost btn-sm btn-circle" onclick={() => (deletingTenant = null)}>
+ <X size={16} />
+ </button>
+ </div>
+
+ {#if deleteError}
+ <div class="alert alert-error mb-3 text-sm">{deleteError}</div>
+ {/if}
+
+ <div class="space-y-3">
+ <label class="flex gap-3 items-start cursor-pointer">
+ <input
+ type="radio"
+ class="radio radio-sm mt-1"
+ name="delete-mode"
+ value="archive"
+ bind:group={deleteMode}
+ disabled={deletingTenant.status === 'deleted'}
+ />
+ <span>
+ <span class="font-medium">{m['tenants.deleteArchive']()}</span>
+ <span class="block text-sm opacity-60">{m['tenants.deleteArchiveHint']()}</span>
+ </span>
+ </label>
+
+ <label class="flex gap-3 items-start cursor-pointer">
+ <input
+ type="radio"
+ class="radio radio-sm radio-error mt-1"
+ name="delete-mode"
+ value="purge"
+ bind:group={deleteMode}
+ disabled={deletingTenant.status !== 'deleted'}
+ />
+ <span>
+ <span class="font-medium text-error">{m['tenants.deletePurge']()}</span>
+ <span class="block text-sm opacity-60">
+ {deletingTenant.status === 'deleted'
+ ? m['tenants.deletePurgeHint']()
+ : m['tenants.deletePurgeNeedsArchive']()}
+ </span>
+ </span>
+ </label>
+
+ {#if deleteMode === 'purge'}
+ <div class="form-control">
+ <label class="label" for="delete-confirm">
+ <span class="label-text">{m['tenants.deleteConfirmSlug']({ slug: deletingTenant.slug })}</span>
+ </label>
+ <input
+ id="delete-confirm"
+ type="text"
+ class="input"
+ autocomplete="off"
+ bind:value={deleteConfirm}
+ />
+ </div>
+ {/if}
+ </div>
+
+ <div class="modal-action">
+ <button class="btn btn-ghost" onclick={() => (deletingTenant = null)}>{m['common.cancel']()}</button>
+ <button
+ class="btn gap-2 {deleteMode === 'purge' ? 'btn-error' : 'btn-warning'}"
+ onclick={deleteTenant}
+ disabled={deleteBusy ||
+ (deleteMode === 'archive' && deletingTenant.status === 'deleted') ||
+ (deleteMode === 'purge' && deleteConfirm !== deletingTenant.slug)}
+ >
+ {#if deleteBusy}
+ <span class="loading loading-spinner loading-sm"></span>
+ {:else}
+ <Trash2 size={16} />
+ {/if}
+ {deleteMode === 'purge' ? m['tenants.deletePurge']() : m['tenants.deleteArchive']()}
+ </button>
+ </div>
+ </div>
+ <div
+ class="modal-backdrop"
+ role="button"
+ tabindex="0"
+ aria-label={m['common.close']()}
+ onclick={() => (deletingTenant = null)}
+ onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') deletingTenant = null; }}
  ></div>
  </div>
 {/if}

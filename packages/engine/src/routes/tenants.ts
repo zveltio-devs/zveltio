@@ -12,10 +12,16 @@ import { auditLog } from '../lib/audit.js';
 // routes take the tenant id from the URL without checking it is the caller's,
 // so a tenant admin could make themselves owner of any other tenant.
 import {
+  DEFAULT_TENANT_ID,
   getEnforcer,
   invalidateUserPermCache,
+  isGodUser,
+  purgeTenant,
   requireInstanceAdmin,
+  TenantPurgeRefused,
+  type TenantPurgeResult,
 } from '../lib/tenancy/index.js';
+import { getStorage } from '../lib/storage/index.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,
@@ -54,6 +60,11 @@ const CreateEnvironmentSchema = z.object({
     .max(30)
     .regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(100),
+});
+
+const DeleteTenantSchema = z.object({
+  mode: z.enum(['archive', 'purge']),
+  confirm: z.string().optional(),
 });
 
 /** Thrown inside the create transaction so the tenant insert rolls back. */
@@ -275,6 +286,121 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     });
 
     return c.json({ tenant: updated });
+  });
+
+  // DELETE /api/tenants/:id — archive or purge a tenant. God only: a purge is
+  // irreversible and crosses every tenant's tables, which no delegated admin
+  // role should reach. `mode` and `confirm` come from the query or a JSON body.
+  //
+  // archive: status 'deleted' (idempotent), data untouched, access refused by
+  //   the tenant middleware; PATCH status 'active' undoes it. It does NOT
+  //   cascade: child tenants keep their status and are listed in the answer.
+  // purge: only an archived tenant with no child tenants, `confirm` equal to its
+  //   slug. Every row it owns and the tenant row go in one transaction
+  //   (lib/tenancy/tenant-purge.ts); its media objects after the commit, where a
+  //   failure is reported and not fatal — the rows naming them are already gone.
+  router.delete('/:id', async (c) => {
+    const user = c.get('user' as never) as { id: string };
+    if (!(await isGodUser(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = DeleteTenantSchema.safeParse({
+      mode: c.req.query('mode') ?? body.mode,
+      confirm: c.req.query('confirm') ?? body.confirm,
+    });
+    if (!parsed.success) {
+      return c.json({ error: "mode must be 'archive' or 'purge'" }, 400);
+    }
+    if (id === DEFAULT_TENANT_ID) {
+      return c.json({ error: 'The default tenant cannot be archived or purged.' }, 409);
+    }
+
+    if (parsed.data.mode === 'archive') {
+      const tenant = await db
+        .updateTable('zv_tenants')
+        .set({ status: 'deleted', updated_at: new Date() })
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirst();
+      if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
+      await invalidateTenantCache(tenant.slug, tenant.id);
+      const children = await db
+        .selectFrom('zv_tenants')
+        .select(['id', 'slug', 'status'])
+        .where('parent_id', '=', id)
+        .execute();
+      await auditLog(db, {
+        type: 'tenant.archived',
+        userId: user.id,
+        resourceId: id,
+        resourceType: 'tenant',
+        metadata: { slug: tenant.slug, child_tenants_unaffected: children.map((t) => t.slug) },
+      });
+      return c.json({ mode: 'archive', tenant, child_tenants: children });
+    }
+
+    let result: TenantPurgeResult;
+    try {
+      result = await purgeTenant(db, id, parsed.data.confirm);
+    } catch (e) {
+      if (e instanceof TenantPurgeRefused) return c.json({ error: e.message }, e.status);
+      throw e;
+    }
+    const { slug } = result.tenant;
+
+    const storage = getStorage();
+    const files = { deleted: 0, failed: [] as string[] };
+    for (const path of result.storagePaths) {
+      try {
+        if (!storage.isConfigured()) throw new Error('storage is not configured');
+        await storage.delete(path);
+        files.deleted++;
+      } catch (err) {
+        console.error(`[tenants] purge ${slug}: could not delete object ${path}:`, err);
+        files.failed.push(path);
+      }
+    }
+
+    // Grants in the tenant's domain, and every cache that still maps its slug,
+    // id or members to it — a slug re-used by a new tenant must not resolve here.
+    const warnings: string[] = [];
+    try {
+      const e = await getEnforcer();
+      await e.removeFilteredGroupingPolicy(2, id);
+      await e.removeFilteredPolicy(1, id);
+    } catch (err) {
+      warnings.push(
+        `Casbin rules in the tenant's domain were not removed: ${(err as Error).message}`,
+      );
+    }
+    await invalidateTenantCache(slug, id);
+    for (const memberId of result.memberIds) {
+      await invalidateUserPermCache(memberId);
+      await invalidateTenantCache(slug, id, memberId);
+    }
+
+    await auditLog(db, {
+      type: 'tenant.purged',
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'tenant',
+      metadata: {
+        slug,
+        deleted: result.deleted,
+        dropped_schemas: result.droppedSchemas,
+        files_deleted: files.deleted,
+        files_failed: files.failed.length,
+      },
+    });
+
+    return c.json({
+      mode: 'purge',
+      tenant: result.tenant,
+      deleted: result.deleted,
+      dropped_schemas: result.droppedSchemas,
+      files,
+      warnings,
+    });
   });
 
   // GET /api/tenants/:id/environments — list environments
