@@ -325,7 +325,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   const applyAlters = scope.query;
 
   const effectiveDb = getDb(c, db);
-  const sortField = query.sort ?? 'created_at';
+  // The default order ranks rows by `created_at`, which a role that cannot see
+  // the column must not learn. `id` is a random uuid and ranks nothing.
+  const sortField = query.sort ?? (scope.readable('created_at') ? 'created_at' : 'id');
 
   // ── Cursor-based pagination ────────────────────────────────────
   // Used when `cursor` is provided and page is still default (1).
@@ -382,7 +384,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       result = await tracedQuery(`${tableName}.list`, () =>
         dynamicSelect(effectiveDb, tableName, {
           filters,
-          sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
+          sort: { field: sortField, direction: query.order },
           limit: query.limit,
           offset,
           fts: query.search ? query.search.trim().substring(0, 500) : undefined,
@@ -400,7 +402,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     // search_vector @@ websearch_to_tsquery() alongside any other WHERE conditions)
     result = await dynamicSelect(effectiveDb, tableName, {
       filters,
-      sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
+      sort: { field: sortField, direction: query.order },
       limit: query.limit,
       offset,
       fts: query.search ? query.search.trim().substring(0, 500) : undefined,

@@ -194,11 +194,67 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
         Buffer.from(JSON.stringify({ id: crypto.randomUUID(), val })).toString('base64url');
       const future = await list(COLLECTION, `cursor=${at('2100-01-01')}`);
       const past = await list(COLLECTION, `cursor=${at('2000-01-01')}`);
-      expect(future.status).toBe(200);
+      // Sorted by `id` now, so a date is not even a valid cursor value — and the
+      // two answers are still the same.
+      expect(past.status).toBe(future.status);
       expect(past.count).toBe(future.count);
     } finally {
       await db.deleteFrom('zvd_column_permissions').where('id', '=', perm.id).execute();
       await invalidateColumnPermCache(COLLECTION);
+    }
+  });
+
+  it('the default order does not rank rows by a hidden created_at', async () => {
+    const table = DDLManager.getTableName(COLLECTION);
+    const god = await createGodSession(app, db);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await app.request(`/api/data/${COLLECTION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: god },
+        body: JSON.stringify({ title: `order-${i}` }),
+      });
+      expect(res.status).toBe(201);
+      ids.push(((await res.json()) as { id: string }).id);
+    }
+    // The smallest id is the newest row, so creation order and id order disagree.
+    ids.sort();
+    for (const [i, id] of ids.entries()) {
+      await db
+        .updateTable(table as never)
+        .set({ created_at: new Date(Date.UTC(2003 - i, 0, 1)) } as never)
+        .where('id' as never, '=', id as never)
+        .execute();
+    }
+    const order = async () => {
+      const res = await app.request(
+        `/api/data/${COLLECTION}?${json({ title: { like: 'order-%' } })}`,
+        { headers: { cookie: member.cookie } },
+      );
+      return ((await res.json()) as { records: { id: string }[] }).records.map((r) => r.id);
+    };
+    expect(await order()).toEqual(ids); // newest first while created_at is readable
+    const perm = await db
+      .insertInto('zvd_column_permissions')
+      .values({
+        collection_name: COLLECTION,
+        column_name: 'created_at',
+        role: '*',
+        can_read: false,
+        can_write: false,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await invalidateColumnPermCache(COLLECTION);
+    try {
+      expect(await order()).toEqual([...ids].reverse()); // by id once it is hidden
+    } finally {
+      await db.deleteFrom('zvd_column_permissions').where('id', '=', perm.id).execute();
+      await invalidateColumnPermCache(COLLECTION);
+      await db
+        .deleteFrom(table as never)
+        .where('id' as never, 'in', ids as never)
+        .execute();
     }
   });
 
