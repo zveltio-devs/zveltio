@@ -449,13 +449,13 @@ export class GhostDDL {
         const columns = migration.columns.filter((c) => Object.hasOwn(data, c.original));
         if (columns.length === 0) continue;
 
-        // Build parameterized upsert with sql template (no string concatenation)
         const updateCols = columns.filter((c) => c.ghost !== 'id');
-
-        // Use INSERT ... ON CONFLICT DO UPDATE with individual values
-        // to avoid SQL concatenation (security + correctness)
         const colsSql = sql.join(columns.map((c) => sql.id(c.ghost)));
-        const valsSql = sql.join(columns.map((c) => sql`${data[c.original]}`));
+        // Postgres turns the snapshot back into the original's row type, the
+        // inverse of the trigger's to_jsonb. Binding the parsed JSON values from
+        // here instead sent a jsonb array as a Postgres array, and the swapped-in
+        // table held the string '{"1","2"}' where the row had held [1,2].
+        const valsSql = sql.join(columns.map((c) => sql`r.${sql.id(c.original)}`));
         const updateSql =
           updateCols.length > 0
             ? sql.join(updateCols.map((c) => sql`${sql.id(c.ghost)} = EXCLUDED.${sql.id(c.ghost)}`))
@@ -463,7 +463,10 @@ export class GhostDDL {
 
         await sql`
           INSERT INTO ${sql.id(migration.ghostTable)} (${colsSql})
-          VALUES (${valsSql})
+          SELECT ${valsSql}
+          FROM ${sql.id(migration.changelogTable)} c,
+               jsonb_populate_record(NULL::${sql.id(migration.originalTable)}, c.row_data) r
+          WHERE c.id = ${change.id}
           ON CONFLICT (id) DO UPDATE SET ${updateSql}
         `.execute(db);
       }
