@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **do not** report security vulnerabilities through public GitHub
-issues, Discussions or Discord.
+issues or Discussions.
 
 Email **security@zveltio.com** instead. Include:
 
