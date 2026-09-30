@@ -12,6 +12,7 @@ const MIGRATION = {
   ghostTable: '_zv_ghost_zvd_products',
   changelogTable: '_zv_changelog_zvd_products',
   triggerName: '_zv_trg_ghost_zvd_products',
+  columns: [],
 };
 
 function asDb(db: CannedDb): Database {
@@ -25,6 +26,8 @@ afterEach(() => {
 describe('GhostDDL.atomicSwap', () => {
   it('renames ghost to original inside a transaction lock', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/FROM "_zv_changelog_zvd_products"/, []);
 
     await GhostDDL.atomicSwap(asDb(db), MIGRATION);

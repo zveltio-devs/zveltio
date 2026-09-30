@@ -1100,14 +1100,26 @@ export async function withEveryTenant<T>(
   fn: (trx: Database) => Promise<T>,
 ): Promise<T> {
   return db.transaction().execute(async (trx) => {
-    // Read before dropping the role, as `withTenantIsolation` reads god's reach.
-    const all = await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants`.execute(trx);
-    await sql`
-      SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true),
-             set_config('zveltio.visible_tenants', ${encodeTenantSet(all.rows.map((r) => r.id))}, true)
-    `.execute(trx);
+    // Before dropping the role, as `withTenantIsolation` reads god's reach.
+    await publishEveryTenant(trx);
+    await sql`SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true)`.execute(
+      trx,
+    );
     return fn(trx);
   });
+}
+
+/**
+ * `withEveryTenant`'s read reach, on a transaction the caller already holds and
+ * without leaving the caller's role — for work that must stay the table owner,
+ * such as a Ghost DDL copy. Rows whose `tenant_id` names no `zv_tenants` row
+ * stay invisible, exactly as they are to `withEveryTenant`.
+ */
+export async function publishEveryTenant(trx: Database): Promise<void> {
+  const all = await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants`.execute(trx);
+  await sql`
+    SELECT set_config('zveltio.visible_tenants', ${encodeTenantSet(all.rows.map((r) => r.id))}, true)
+  `.execute(trx);
 }
 
 /**

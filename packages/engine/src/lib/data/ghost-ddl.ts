@@ -14,6 +14,7 @@
 
 import type { Database } from '../../db/index.js';
 import { sql } from 'kysely';
+import { publishEveryTenant } from '../tenancy/index.js';
 
 const BATCH_SIZE = 10_000;
 
@@ -36,6 +37,41 @@ export interface GhostMigration {
    * swap: `add` runs inside the swap transaction, `validate` after it commits.
    */
   foreignKeys?: { add: string; validate: string }[];
+  /**
+   * Which original column fills each ghost column, by name. The copy and the
+   * changelog replay both go through it: positions shift under a DROP COLUMN and
+   * names change under a RENAME, and a column the DDL added has no source here.
+   */
+  columns: { ghost: string; original: string }[];
+}
+
+/** Non-dropped, non-generated columns of `table`, by attnum. */
+async function liveColumns(
+  db: Database,
+  table: string,
+): Promise<{ attnum: number; attname: string }[]> {
+  const r = await sql<{ attnum: number; attname: string }>`
+    SELECT attnum::int AS attnum, attname::text AS attname FROM pg_attribute
+    WHERE attrelid = to_regclass(quote_ident(${table}))
+      AND attnum > 0 AND NOT attisdropped AND attgenerated = ''
+    ORDER BY attnum
+  `.execute(db);
+  return r.rows;
+}
+
+/**
+ * A transaction that reads every tenant's rows while staying the table owner.
+ *
+ * In production the engine owns the collection tables and FORCE RLS binds it,
+ * so the bare pool reads a policed table as the default tenant only. A copy made
+ * that way held one tenant's rows, the swap committed it, and the post-swap DROP
+ * of the old copy made every other tenant's rows unrecoverable.
+ */
+function inEveryTenant<T>(db: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
+  return db.transaction().execute(async (trx) => {
+    await publishEveryTenant(trx);
+    return fn(trx);
+  });
 }
 
 /**
@@ -189,9 +225,6 @@ export class GhostDDL {
     // derived from this one string and every one is interpolated into a
     // `sql.raw` template below, so a name carrying a double quote would escape
     // the identifier and land arbitrary SQL inside a DDL statement.
-    //
-    // Nothing in the product calls this yet — only tests do — which is exactly
-    // when an entry point is cheapest to close.
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
       throw new Error(`Unsafe table name for ghost migration: "${tableName}"`);
     }
@@ -203,6 +236,9 @@ export class GhostDDL {
 
     // 1. Create ghost table with same structure (including indexes, constraints)
     await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
+    // Named as the original's columns until the DDL runs; an attnum survives a
+    // RENAME or a type change, so this is what maps the two afterwards.
+    const born = new Map((await liveColumns(db, ghost)).map((c) => [c.attnum, c.attname]));
 
     // LIKE copies no foreign keys. Attached BEFORE the DDL (NOT VALID, on an
     // empty table: instant) so a DROP or RENAME COLUMN removes or follows them
@@ -240,6 +276,11 @@ export class GhostDDL {
     for (const { name } of fks.rows) {
       await sql`ALTER TABLE ${sql.id(ghost)} DROP CONSTRAINT ${sql.id(name)}`.execute(db);
     }
+
+    const columns = (await liveColumns(db, ghost)).flatMap((c) => {
+      const original = born.get(c.attnum);
+      return original === undefined ? [] : [{ ghost: c.attname, original }];
+    });
 
     // 3. Changelog table — captures all mutations during batch copy
     await sql`
@@ -289,6 +330,7 @@ export class GhostDDL {
       changelogTable: changelog,
       triggerName: trigger,
       foreignKeys: fks.rows.map(({ add, validate }) => ({ add, validate })),
+      columns,
     };
   }
 
@@ -303,10 +345,13 @@ export class GhostDDL {
     migration: GhostMigration,
     onProgress?: (copied: number, total: number) => void,
   ): Promise<number> {
-    // Count total rows to copy
-    const countResult = await sql<{ cnt: string }>`
-      SELECT count(*) AS cnt FROM ${sql.id(migration.originalTable)}
-    `.execute(db);
+    // Every read of the original goes through `inEveryTenant`; the ghost has no
+    // RLS until the swap, so its side needs none.
+    const countResult = await inEveryTenant(db, (trx) =>
+      sql<{ cnt: string }>`SELECT count(*) AS cnt FROM ${sql.id(migration.originalTable)}`.execute(
+        trx,
+      ),
+    );
     const total = Number(countResult.rows[0]?.cnt ?? 0);
 
     if (total === 0) {
@@ -314,13 +359,16 @@ export class GhostDDL {
       return 0;
     }
 
+    // Named on both sides — `SELECT *` matched by position, which a DROP COLUMN
+    // shifts and a RENAME does not follow.
+    const target = sql.join(migration.columns.map((c) => sql.id(c.ghost)));
+    const source = sql.join(migration.columns.map((c) => sql.id(c.original)));
+
     let copied = 0;
     let lastId: string | null = null;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      let batchRows: number;
-
       // Count from RETURNING, never from `numAffectedRows`. The Bun SQL
       // dialect does not populate it for raw `sql` executes at all, so the
       // first branch fell back to `?? BATCH_SIZE` (kept looping) and the second
@@ -328,30 +376,19 @@ export class GhostDDL {
       // TWO batches and reported success — on a table larger than 20,000 rows
       // the ghost table was swapped in incomplete, losing every row beyond
       // that. Data loss with a green log line.
-      if (lastId === null) {
-        // First iteration — without cursor
-        const result = await sql<{ id: string }>`
-          INSERT INTO ${sql.id(migration.ghostTable)}
-          SELECT * FROM ${sql.id(migration.originalTable)}
+      const after = lastId;
+      const result = await inEveryTenant(db, (trx) =>
+        sql<{ id: string }>`
+          INSERT INTO ${sql.id(migration.ghostTable)} (${target})
+          SELECT ${source} FROM ${sql.id(migration.originalTable)}
+          ${after === null ? sql`` : sql`WHERE id > ${after}`}
           ORDER BY id
           LIMIT ${BATCH_SIZE}
           ON CONFLICT (id) DO NOTHING
           RETURNING id
-        `.execute(db);
-        batchRows = result.rows.length;
-      } else {
-        // Subsequent iterations — cursor-based
-        const result = await sql<{ id: string }>`
-          INSERT INTO ${sql.id(migration.ghostTable)}
-          SELECT * FROM ${sql.id(migration.originalTable)}
-          WHERE id > ${lastId}
-          ORDER BY id
-          LIMIT ${BATCH_SIZE}
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id
-        `.execute(db);
-        batchRows = result.rows.length;
-      }
+        `.execute(trx),
+      );
+      const batchRows = result.rows.length;
 
       copied += batchRows;
 
@@ -407,19 +444,21 @@ export class GhostDDL {
         const data = change.row_data as Record<string, any>;
         if (!data) continue;
 
-        const columns = Object.keys(data);
+        // The snapshot is keyed by the ORIGINAL's column names; a dropped column
+        // has no ghost column, a renamed one lands under its new name.
+        const columns = migration.columns.filter((c) => Object.hasOwn(data, c.original));
         if (columns.length === 0) continue;
 
         // Build parameterized upsert with sql template (no string concatenation)
-        const updateCols = columns.filter((c) => c !== 'id');
+        const updateCols = columns.filter((c) => c.ghost !== 'id');
 
         // Use INSERT ... ON CONFLICT DO UPDATE with individual values
         // to avoid SQL concatenation (security + correctness)
-        const colsSql = sql.join(columns.map((c) => sql.id(c)));
-        const valsSql = sql.join(columns.map((c) => sql`${data[c]}`));
+        const colsSql = sql.join(columns.map((c) => sql.id(c.ghost)));
+        const valsSql = sql.join(columns.map((c) => sql`${data[c.original]}`));
         const updateSql =
           updateCols.length > 0
-            ? sql.join(updateCols.map((c) => sql`${sql.id(c)} = EXCLUDED.${sql.id(c)}`))
+            ? sql.join(updateCols.map((c) => sql`${sql.id(c.ghost)} = EXCLUDED.${sql.id(c.ghost)}`))
             : sql`${sql.id('id')} = EXCLUDED.${sql.id('id')}`; // no-op update to avoid syntax errors
 
         await sql`
@@ -468,6 +507,23 @@ export class GhostDDL {
       // the last applyChangelog above and the LOCK moment
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await GhostDDL.applyChangelog(trx as any, migration);
+
+      // Nothing writes the original now, so the ghost must hold exactly its
+      // rows. A copy that lost some — for any reason, the tenant blindness this
+      // once had included — stops here, before the rename makes it permanent.
+      // ponytail: a count, not a per-row diff; enough to catch a lossy copy.
+      await publishEveryTenant(trx);
+      const counted = await sql<{ original_rows: string; ghost_rows: string }>`
+        SELECT (SELECT count(*) FROM ${sql.id(migration.originalTable)}) AS original_rows,
+               (SELECT count(*) FROM ${sql.id(migration.ghostTable)}) AS ghost_rows
+      `.execute(trx);
+      const { original_rows, ghost_rows } = counted.rows[0] ?? {};
+      if (original_rows === undefined || Number(original_rows) !== Number(ghost_rows)) {
+        throw new Error(
+          `[ghost-ddl] refusing to swap ${migration.originalTable}: row count ` +
+            `${original_rows} in the original, ${ghost_rows} in the ghost`,
+        );
+      }
 
       // Read before the rename, run after it — see carriedOverDdl.
       carried = await carriedOverDdl(
@@ -665,8 +721,9 @@ const CHANGELOG_PREFIX = '_zv_changelog_';
  * that exits first leaves `_zv_old_<table>` and its changelog on disk for good —
  * and that is not the rare case: `cancelPendingCleanups()` runs on graceful
  * shutdown, so an ordinary deploy inside the window cancels the DROP outright.
- * What stays behind is a full copy of the original rows which, unlike the live
- * table, carries no tenant policies, and nothing ever came back for it.
+ * What stays behind is the pre-migration table itself — every row, still under
+ * its own policies, but read by nothing and stale from the swap on — and
+ * nothing ever came back for it.
  *
  * `_zv_old_` is created only inside the swap transaction, after the ghost has
  * already taken the original's name. A table with that prefix is therefore dead

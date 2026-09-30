@@ -23,6 +23,10 @@ const MIGRATION = {
   ghostTable: '_zv_ghost_zvd_orders',
   changelogTable: '_zv_changelog_zvd_orders',
   triggerName: '_zv_trg_ghost_zvd_orders',
+  columns: [
+    { ghost: 'id', original: 'id' },
+    { ghost: 'total', original: 'total' },
+  ],
 };
 
 afterEach(() => {
@@ -37,7 +41,7 @@ describe('createGhost', () => {
       'DROP COLUMN fax',
     ]);
 
-    expect(m).toEqual({ ...MIGRATION, foreignKeys: [] });
+    expect(m).toEqual({ ...MIGRATION, foreignKeys: [], columns: [] });
     expect(
       db.executed(/CREATE TABLE "_zv_ghost_zvd_orders" \(LIKE "zvd_orders" INCLUDING ALL\)/),
     ).toHaveLength(1);
@@ -153,6 +157,8 @@ describe('applyChangelog', () => {
 describe('atomicSwap', () => {
   it('locks, renames both tables, and drops the trigger machinery in order', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     await GhostDDL.atomicSwap(asDb(db), MIGRATION);
 
     const swapSqls = db.log.map((q) => q.sql).filter((s) => !s.includes('_zv_changelog_'));
@@ -180,6 +186,8 @@ describe('atomicSwap', () => {
 
   it('schedules async cleanup that cancelPendingCleanups cancels', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     const timers: Array<ReturnType<typeof setTimeout>> = [];
     const origSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = ((fn: () => void, ms?: number) => {
@@ -213,6 +221,8 @@ describe('execute (orchestration)', () => {
 
   it('runs create → copy → changelog → swap and reports phases', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/select "is_managed" from "zvd_collections"/, [{ is_managed: true }]);
     db.when(/SELECT count\(\*\) AS cnt/i, [{ cnt: '2' }]);
     db.whenAffected(/INSERT INTO "_zv_ghost_zvd_orders"[\s\S]*DO NOTHING/, 2);
