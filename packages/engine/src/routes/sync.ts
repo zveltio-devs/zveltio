@@ -29,6 +29,7 @@ import {
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
+import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
 
 /**
  * The newest `updated_at` a pull may hand out, in epoch microseconds, as text.
@@ -516,7 +517,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
    * Client requests changes from a given timestamp.
    * Body: { collections: ['users', 'posts'], since: 1709000000000, cursors?: { zvd_posts: '…' } }
    * Response: { changes: [{ collection, id, data, operation, timestamp }],
-   *             serverTimestamp, hasMore, cursors }
+   *             serverTimestamp, hasMore, cursors, resync }
    *
    * A collection returns at most 1000 rows per pull. `hasMore` says one
    * stopped there; `cursors` holds, per collection (keyed as `changes[].
@@ -535,6 +536,19 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
    * Only rows older than `syncWatermarkUs` go out, and neither the cursors nor
    * `serverTimestamp` pass it: a transaction still open commits rows dated at
    * its start, which a position already past them would never reach.
+   *
+   * A deleted row comes back as `operation: 'delete'` (`data: null`), from the
+   * tombstone migration 032 has every collection table write, on the same
+   * keyset and under the same watermark — a tombstone is dated at its
+   * transaction's start too. They are kept `SYNC_TOMBSTONE_RETENTION_DAYS`: a
+   * position older than that may have missed a purged one, so the collection
+   * restarts from nothing and `resync[collection]` is true — the client drops
+   * its copy before applying the page. A first pull (no cursor, `since` 0) has
+   * nothing to delete and gets no tombstones.
+   *
+   * Known and accepted: a tombstone carries only the id, and no row rule can
+   * judge a row that is gone, so a reader of the collection learns the ids of
+   * deleted rows it could not see.
    */
   app.post('/pull', async (c) => {
     const body = await c.req.json().catch(() => null);
@@ -587,7 +601,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       id: string;
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       data: any;
-      operation: 'upsert';
+      operation: 'upsert' | 'delete';
       timestamp: number;
     }> = [];
 
@@ -596,10 +610,18 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     const pullDb = (c.get('tenantTrx') as Database | null) ?? db;
     // Read BEFORE the row queries: each takes its snapshot after this, so a
     // transaction that has ended by now is visible to them.
-    const { rows: own } = await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`.execute(
-      pullDb,
-    );
+    // `horizon`: the oldest position whose deletes are all still kept, on the
+    // clock the collector purges by.
+    const { rows: own } = await sql<{ pid: number; horizon: string }>`
+      SELECT pg_backend_pid() AS pid,
+        (extract(epoch FROM now() - make_interval(days => ${SYNC_TOMBSTONE_RETENTION_DAYS}::int))
+          * 1000000)::bigint::text AS horizon
+    `.execute(pullDb);
     const watermarkUs = await syncWatermarkUs(poolDb, own[0]!.pid);
+    const horizonUs = BigInt(own[0]!.horizon);
+    const resync: Record<string, true> = {};
+    const usToTs = (us: string) =>
+      sql`('epoch'::timestamptz + ${us}::bigint * interval '1 microsecond')`;
 
     for (const rawName of collections) {
       const collection: string =
@@ -633,7 +655,18 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         c.get('user') as { id: string; email?: string; role: string },
         c.get('authType') ?? 'session',
       );
-      const cursor = cursorIn.get(collection);
+      let cursor = cursorIn.get(collection);
+      let collSince = sinceDate;
+      const position = cursor
+        ? BigInt(cursor.us)
+        : since > 0
+          ? BigInt(Math.floor(since)) * 1000n
+          : null;
+      if (position !== null && position < horizonUs) {
+        resync[collection] = true;
+        cursor = undefined;
+        collSince = new Date(0);
+      }
       const pullQuery = scope.query(
         pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -646,7 +679,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
           .where(
             cursor
               ? sql<boolean>`(${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
-              : sql<boolean>`updated_at > ${sinceDate}`,
+              : sql<boolean>`updated_at > ${collSince}`,
           )
           .where(sql<boolean>`${updatedUs} < ${watermarkUs}::bigint`)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -672,24 +705,62 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         },
       );
       if (!fetched) continue;
-      const full = fetched.length > PULL_LIMIT_PER_COLLECTION;
-      const page = (full ? fetched.slice(0, PULL_LIMIT_PER_COLLECTION) : fetched) as Array<
-        Record<string, unknown> & { __zv_pull_us: string; __zv_pull_id: string }
-      >;
+      type Row = Record<string, unknown> & { __zv_pull_us: string; __zv_pull_id: string };
+      const rows = (fetched as Row[]).map((row) => ({
+        us: row.__zv_pull_us,
+        id: row.__zv_pull_id,
+        row,
+      }));
+      // Deletes after the same position. `deleted_at >=` lets the index bound
+      // the scan; the row comparison is the keyset (uuid order = its text's).
+      const stones =
+        !cursor && (since <= 0 || resync[collection])
+          ? []
+          : (
+              await sql<{ us: string; id: string }>`
+                SELECT (extract(epoch FROM deleted_at) * 1000000)::bigint::text AS us,
+                       row_id::text AS id
+                  FROM zv_sync_tombstones
+                 WHERE collection = ${collection}
+                   AND ${
+                     cursor
+                       ? sql`deleted_at >= ${usToTs(cursor.us)}
+                          AND (deleted_at, row_id::text COLLATE "C") > (${usToTs(cursor.us)}, ${cursor.id})`
+                       : sql`deleted_at > ${collSince}`
+                   }
+                   AND deleted_at < ${usToTs(watermarkUs)}
+                 ORDER BY deleted_at, row_id
+                 LIMIT ${PULL_LIMIT_PER_COLLECTION + 1}
+              `.execute(pullDb)
+            ).rows;
+      // One key in both: deleted and re-inserted in one transaction. The row
+      // is what exists.
+      const rowKeys = new Set(rows.map((r) => `${r.us}:${r.id}`));
+      const merged = [
+        ...rows,
+        ...stones.filter((t) => !rowKeys.has(`${t.us}:${t.id}`)).map((t) => ({ ...t, row: null })),
+      ].sort((a, b) => {
+        const d = BigInt(a.us) - BigInt(b.us);
+        return d !== 0n ? (d < 0n ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      const full = merged.length > PULL_LIMIT_PER_COLLECTION;
+      const page = full ? merged.slice(0, PULL_LIMIT_PER_COLLECTION) : merged;
       // The cursor is the last row READ, not the last one kept: a row the
       // entity-access check drops below is still behind the client.
       const last = page.at(-1);
-      if (last) cursorsOut[collection] = `${last.__zv_pull_us}:${last.__zv_pull_id}`;
+      if (last) cursorsOut[collection] = `${last.us}:${last.id}`;
       else if (cursor) cursorsOut[collection] = `${cursor.us}:${cursor.id}`;
       if (full && last) {
         hasMore = true;
         // The largest whole millisecond strictly before the last row sent, so
         // `updated_at > serverTimestamp` still reaches its unsent ties.
-        resumeAt = Math.min(resumeAt, Math.floor((Number(last.__zv_pull_us) - 1) / 1000));
+        resumeAt = Math.min(resumeAt, Math.floor((Number(last.us) - 1) / 1000));
       }
-      const updated = await scope.keep(
-        page.map(({ __zv_pull_us: _us, __zv_pull_id: _id, ...row }) => row),
+      const pageRows = page.flatMap((p) => (p.row ? [p.row] : []));
+      const kept = await scope.keep(
+        pageRows.map(({ __zv_pull_us: _us, __zv_pull_id: _id, ...row }) => row),
       );
+      const keptById = new Map(kept.map((row) => [String(row.id), row]));
 
       // Shape the rows the way every other read path does.
       //
@@ -701,10 +772,17 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // `delete` loop covering `hidden` but not `readOnly`, where
       // `applyColumnAccess` covers both.
       const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
-      for (const record of updated) {
-        const shaped = scope.shape(
-          await serializeRecord(record as Record<string, unknown>, pullDef),
-        );
+      // In keyset order: a delete and a later re-insert of one id must apply
+      // in that order.
+      for (const item of page) {
+        const timestamp = Math.floor(Number(item.us) / 1000);
+        if (!item.row) {
+          changes.push({ collection, id: item.id, data: null, operation: 'delete', timestamp });
+          continue;
+        }
+        const record = keptById.get(item.id);
+        if (!record) continue;
+        const shaped = scope.shape(await serializeRecord(record, pullDef));
         changes.push({
           collection,
           id: shaped.id as string,
@@ -719,11 +797,15 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // strictly before it. Never behind `since` either — every row at or before
     // it was already final when the pull that returned it ran.
     const watermarkMs = Math.floor((Number(watermarkUs) - 1) / 1000);
+    // A restarted collection must be re-read from its start by a client that
+    // only keeps `since` too.
+    const floor = Object.keys(resync).length > 0 ? 0 : since;
     return c.json({
       changes,
-      serverTimestamp: Math.max(since, Math.min(resumeAt, watermarkMs)),
+      serverTimestamp: Math.max(floor, Math.min(resumeAt, watermarkMs)),
       hasMore,
       cursors: cursorsOut,
+      resync,
     });
   });
 

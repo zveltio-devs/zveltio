@@ -10,8 +10,15 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { withEveryTenant } from '../tenancy/index.js';
 
 const ABANDONED_RUN_HOURS = 6;
+
+/**
+ * How long sync pull remembers a deleted row. A client whose position is older
+ * may have missed a purged tombstone, so pull answers it `resync`.
+ */
+export const SYNC_TOMBSTONE_RETENTION_DAYS = 30;
 
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
@@ -125,6 +132,30 @@ export async function runGarbageCollector(db: Database): Promise<void> {
     } catch (err) {
       console.warn('[GC] zv_audit_log purge failed:', (err as Error).message);
     }
+  }
+
+  // Every firm's tombstones: the table is policed, and the pool alone would
+  // purge the default firm's only.
+  try {
+    const n = await withEveryTenant(db, async (trx) => {
+      const r = await sql<{ n: number }>`
+        WITH d AS (
+          DELETE FROM zv_sync_tombstones
+          WHERE deleted_at < NOW() - make_interval(days => ${SYNC_TOMBSTONE_RETENTION_DAYS}::int)
+          RETURNING 1
+        )
+        SELECT COUNT(*)::int AS n FROM d
+      `.execute(trx);
+      return r.rows[0]?.n ?? 0;
+    });
+    if (n > 0) {
+      console.log(
+        `[GC] zv_sync_tombstones: ${n} rows older than ${SYNC_TOMBSTONE_RETENTION_DAYS}d purged`,
+      );
+      totalDeleted += n;
+    }
+  } catch (err) {
+    console.warn('[GC] zv_sync_tombstones purge failed:', (err as Error).message);
   }
 
   // ── Flow runs nobody finished ─────────────────────────────────────

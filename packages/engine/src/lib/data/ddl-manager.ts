@@ -42,6 +42,14 @@ async function withLockTimeout(
   });
 }
 
+/** The trigger that records a collection's deletes for sync pull (migration 032). */
+function syncTombstoneTrigger(tableName: string): string {
+  return (
+    `CREATE TRIGGER zv_sync_tombstone AFTER DELETE ON ${tableName} ` +
+    'REFERENCING OLD TABLE AS zv_old_rows FOR EACH STATEMENT EXECUTE FUNCTION zveltio_sync_tombstone()'
+  );
+}
+
 function toConcurrentIndex(indexSQL: string): string {
   return indexSQL.replace(
     /^(CREATE\s+(?:UNIQUE\s+)?INDEX\s+)(?!CONCURRENTLY\s)/i,
@@ -565,6 +573,8 @@ export class DDLManager {
           EXECUTE FUNCTION ${tableName}_touch_updated_at()
       `)
         .execute(trx);
+      // Sync pull's record of deleted rows (migration 032).
+      await sql.raw(syncTombstoneTrigger(tableName)).execute(trx);
     });
 
     // Register metadata first so relation inserts can reference valid collection names
@@ -1050,6 +1060,7 @@ export class DDLManager {
     statements.push(
       `CREATE TRIGGER update_${tableName}_updated_at BEFORE UPDATE ON ${tableName} FOR EACH ROW EXECUTE FUNCTION ${tableName}_touch_updated_at();`,
     );
+    statements.push(`${syncTombstoneTrigger(tableName)};`);
 
     // Show relation registrations in preview
     const relFields = schema.fields.filter(

@@ -2322,6 +2322,13 @@ export interface ZvStorageQuotasTable {
   tenant_id: string | null;
 }
 
+export interface ZvSyncTombstonesTable {
+  tenant_id: string;
+  collection: string;
+  row_id: string;
+  deleted_at: Generated<Date>;
+}
+
 export interface ZvTenantTransfersTable {
   id: Generated<string>;
   table_name: string;
@@ -5628,6 +5635,7 @@ export interface DbSchema {
   zv_sms_messages: ZvSmsMessagesTable;
   zv_sms_templates: ZvSmsTemplatesTable;
   zv_storage_quotas: ZvStorageQuotasTable;
+  zv_sync_tombstones: ZvSyncTombstonesTable;
   zv_tenant_transfers: ZvTenantTransfersTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenants: ZvTenantsTable;
