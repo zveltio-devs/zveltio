@@ -117,6 +117,27 @@ describe('tenants — delete', () => {
     );
   });
 
+  it('asks for the member accounts only when the box is ticked', async () => {
+    fixture.tenants = [{ id: 't1', name: 'Acme', slug: 'acme', status: 'deleted' }];
+    const { container } = render(Page);
+    await waitFor(() => expect(deleteButton(container)).not.toBeNull());
+    deleteButton(container)!.click();
+    await waitFor(() => expect(document.querySelector('#delete-users')).not.toBeNull());
+
+    const box = document.querySelector('#delete-users') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    await fireEvent.click(box);
+    await fireEvent.input(document.querySelector('#delete-confirm') as HTMLInputElement, {
+      target: { value: 'acme' },
+    });
+    const confirm = actionButton(/Delete permanently/);
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    confirm.click();
+    await waitFor(() =>
+      expect(del).toHaveBeenCalledWith('/api/tenants/t1?mode=purge&confirm=acme&delete_users=true'),
+    );
+  });
+
   it('offers no delete for the default tenant', async () => {
     fixture.tenants = [
       {

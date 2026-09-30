@@ -480,7 +480,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/flows', flowsRoutes(poolDb, auth));
 
   // Multi-tenancy management (core)
-  app.route('/api/tenants', tenantsRoutes(db, auth));
+  // `poolDb`: deleting a purged tenant's users revokes sessions — see `usersRoutes`.
+  app.route('/api/tenants', tenantsRoutes(db, auth, poolDb));
 
   // AI — moved to extensions/ai. Mounts /api/ai*, /api/zveltio-ai, /api/ai-analytics.
 
