@@ -16,11 +16,13 @@ import { DDLManager } from '../../lib/data/index.js';
 import { getStorage } from '../../lib/storage/index.js';
 import {
   applyTenantRLS,
+  createRequestScopedDb,
   DEFAULT_TENANT_ID,
   getTenantSchemaName,
   provisionEnvironment,
   provisionTenantSchema,
   purgeTenant,
+  withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
@@ -327,5 +329,38 @@ d('tenant archive + purge', () => {
     expect(await rowsOf(O.id)).toEqual({});
     expect(await rowsOf(B.id)).toEqual(others.b);
     expect(await rowsOf(DEFAULT_TENANT_ID)).toEqual(others.def);
+  }, 60_000);
+
+  it('refuses to run inside a request transaction, where its settings would outlive it', async () => {
+    // `/api/tenants` opens no request transaction (TXN_SKIP_PREFIXES). Were the
+    // purge joined to one, its set_config(…, true) — every tenant's reach,
+    // rls_bypass=on — would last the rest of the request, and the media objects
+    // the route deletes on return could outlive a rollback of their rows.
+    const R = mk('r');
+    await sql`INSERT INTO zv_tenants (id, slug, name, status) VALUES (${R.id}, ${R.slug}, 'hpt', 'deleted')`.execute(
+      db,
+    );
+    try {
+      const seen = await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+        const outcome = await purgeTenant(createRequestScopedDb(db), R.id, R.slug).then(
+          () => 'purged',
+          (e: Error) => e.message,
+        );
+        const s = await sql<{ bypass: string | null; tenant: string | null }>`
+          SELECT current_setting('zveltio.rls_bypass', true) AS bypass,
+                 current_setting('zveltio.current_tenant', true) AS tenant
+        `.execute(trx);
+        return { outcome, ...s.rows[0] };
+      });
+      expect(seen).toEqual({
+        outcome: 'purgeTenant must not run inside a request transaction',
+        bypass: 'off',
+        tenant: DEFAULT_TENANT_ID,
+      });
+      const kept = await sql`SELECT 1 FROM zv_tenants WHERE id = ${R.id}`.execute(db);
+      expect(kept.rows.length).toBe(1);
+    } finally {
+      await sql`DELETE FROM zv_tenants WHERE id = ${R.id}`.execute(db);
+    }
   }, 60_000);
 });

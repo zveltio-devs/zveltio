@@ -303,11 +303,14 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
   //   cascade: child tenants keep their status and are listed in the answer.
   // purge: only an archived tenant with no child tenants, `confirm` equal to its
   //   slug. Every row it owns and the tenant row go in one transaction
-  //   (lib/tenancy/tenant-purge.ts); its media objects after the commit, where a
-  //   failure is reported and not fatal — the rows naming them are already gone.
-  //   `delete_users=true` also deletes the members left in no tenant and with no
-  //   grant outside it (lib/users.ts `deleteTenantlessUsers`), in the same
-  //   transaction, one savepoint per user.
+  //   (lib/tenancy/tenant-purge.ts) that `purgeTenant` owns and has committed
+  //   when it returns: `/api/tenants` opens no request transaction
+  //   (TXN_SKIP_PREFIXES), and `purgeTenant` refuses to join one. So its media
+  //   objects go after the commit, where a failure is reported and not fatal —
+  //   the rows naming them are already gone. `delete_users=true` also deletes
+  //   the members left in no tenant and with no grant outside it (lib/users.ts
+  //   `deleteTenantlessUsers`), in a transaction of its own after the purge's,
+  //   one savepoint per user.
   router.delete('/:id', async (c) => {
     const user = c.get('user' as never) as { id: string };
     if (!(await isGodUser(user.id))) return c.json({ error: 'Forbidden' }, 403);
