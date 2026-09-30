@@ -30,8 +30,52 @@ import {
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
 
+/**
+ * The newest `updated_at` a pull may hand out, in epoch microseconds, as text.
+ *
+ * A row's `updated_at` is its transaction's `now()`: when the transaction
+ * STARTED (the column default on insert, the touch trigger on update; sync push
+ * and `dynamicInsert` strip a client-supplied value). A transaction still open
+ * can therefore commit rows older than anything a pull has already returned,
+ * and a client whose cursor or `serverTimestamp` had moved past them never
+ * received them. Every row older than the oldest open transaction's start is
+ * final, so a pull delivers only those.
+ *
+ * Read on `pool`, as the engine's own login role: inside the tenant transaction
+ * the role is `zveltio_rls`, which sees `xact_start` of no session but its own.
+ * `ownPid` is the pull's transaction, whose own writes it sees anyway.
+ * `statement_timestamp()` bounds the rest: a transaction starting now is newer.
+ *
+ * `0` — deliver nothing, move nothing — when a session this role may not
+ * inspect (another role, without pg_read_all_stats) is inside a transaction,
+ * or a prepared transaction exists: either may hold rows of any age.
+ *
+ * ponytail: a backend between reading its first statement and reporting its
+ * transaction start is invisible here for microseconds; a transaction that
+ * old at the statement start below is not covered.
+ */
+export async function syncWatermarkUs(pool: Database, ownPid: number): Promise<string> {
+  const { rows } = await sql<{ w: string }>`
+    SELECT CASE
+      WHEN EXISTS (
+        SELECT 1 FROM pg_stat_activity a
+        JOIN pg_locks l ON l.pid = a.pid AND l.locktype = 'virtualxid'
+        WHERE a.datname = current_database() AND a.backend_type IS NULL
+          AND a.pid NOT IN (pg_backend_pid(), ${ownPid})
+      ) OR EXISTS (SELECT 1 FROM pg_prepared_xacts WHERE database = current_database())
+      THEN 0
+      ELSE (extract(epoch FROM least(statement_timestamp(), (
+        SELECT min(xact_start) FROM pg_stat_activity
+        WHERE datname = current_database() AND backend_type = 'client backend'
+          AND pid NOT IN (pg_backend_pid(), ${ownPid})
+      ))) * 1000000)::bigint
+    END::text AS w
+  `.execute(pool);
+  return rows[0]!.w;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function syncRoutes(db: Database, _auth: any): Hono {
+export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
   const app = new Hono();
   const auth = getAuth();
 
@@ -487,6 +531,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    * received row 1001 onward. It now stops short of the first row not sent,
    * for clients that only know `since`; they receive the last millisecond
    * again, and cannot get past more than a page of rows in one millisecond.
+   *
+   * Only rows older than `syncWatermarkUs` go out, and neither the cursors nor
+   * `serverTimestamp` pass it: a transaction still open commits rows dated at
+   * its start, which a position already past them would never reach.
    */
   app.post('/pull', async (c) => {
     const body = await c.req.json().catch(() => null);
@@ -546,6 +594,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
     // Use tenant-isolated transaction when available (RLS enforcement)
     const pullDb = (c.get('tenantTrx') as Database | null) ?? db;
+    // Read BEFORE the row queries: each takes its snapshot after this, so a
+    // transaction that has ended by now is visible to them.
+    const { rows: own } = await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`.execute(
+      pullDb,
+    );
+    const watermarkUs = await syncWatermarkUs(poolDb, own[0]!.pid);
 
     for (const rawName of collections) {
       const collection: string =
@@ -594,6 +648,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               ? sql<boolean>`(${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
               : sql<boolean>`updated_at > ${sinceDate}`,
           )
+          .where(sql<boolean>`${updatedUs} < ${watermarkUs}::bigint`)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
           .orderBy(idText)
@@ -660,9 +715,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
     }
 
+    // Never past the watermark, in the database's clock: the last millisecond
+    // strictly before it. Never behind `since` either — every row at or before
+    // it was already final when the pull that returned it ran.
+    const watermarkMs = Math.floor((Number(watermarkUs) - 1) / 1000);
     return c.json({
       changes,
-      serverTimestamp: hasMore ? resumeAt : Date.now(),
+      serverTimestamp: Math.max(since, Math.min(resumeAt, watermarkMs)),
       hasMore,
       cursors: cursorsOut,
     });
