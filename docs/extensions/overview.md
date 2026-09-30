@@ -5,7 +5,7 @@ system — CRM, invoicing, HR, e-commerce, compliance, mail. They are plugins, n
 forks: an operator installs them, they add tables, routes and admin pages, and
 they can be disabled again.
 
-There are **56 official extensions**. See the [catalog](/extension-catalog) for
+There are **56 official extensions**. See the [catalog](catalog.md) for
 the full list.
 
 ---
@@ -109,7 +109,7 @@ collections, storage, webhooks, realtime, audit, notifications, automation
 flows, backup, insights, saved queries, schema branches, and tenants.
 
 `developer/views` and `content/page-builder` were merged into
-[`content/pages`](/extension-catalog) and no longer exist as separate
+[`content/pages`](catalog.md) and no longer exist as separate
 extensions.
 
 ---
@@ -120,10 +120,10 @@ extensions.
 zveltio extension create <name>
 ```
 
-Then read the [Developer Guide](/extension-developer-guide) — mental model,
+Then read the [Developer Guide](developer-guide.md) — mental model,
 manifest, engine code, migrations, hooks, Studio pages, testing and publishing —
-and the [Cookbook](/extension-cookbook) for worked recipes. Submission rules are
-in the [Marketplace Policy](/marketplace-policy).
+and the [Cookbook](cookbook.md) for worked recipes. Submission rules are
+in the [Marketplace Policy](marketplace-policy.md).
 
 Extension admin pages are preferably **declarative**: you ship a JSON page
 schema and the host renders it with its own trusted components. That means no

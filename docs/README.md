@@ -4,7 +4,7 @@ The single, unified documentation set for Zveltio. Everything here is organised
 into five chapters. Start with the chapter that matches what you are about to
 change; each chapter opens with its own index.
 
-**Version:** `3.0.0-beta.64` — source of truth is `packages/engine/package.json`.
+**Version:** see [`packages/engine/package.json`](../packages/engine/package.json).
 **License:** MIT. **Runtime:** Bun (not Node).
 
 > If you are an AI agent or a new contributor about to touch code, read

@@ -4,7 +4,7 @@ Zveltio is a **self-hosted Business OS**: a headless backend that becomes a
 complete business system through extensions. One binary, one Postgres database,
 installed on hardware the organisation controls.
 
-**Version:** `3.0.0-beta.64`. MIT licensed. Runtime is Bun.
+**Version:** see [`packages/engine/package.json`](../../packages/engine/package.json). MIT licensed. Runtime is Bun.
 
 ---
 
@@ -49,7 +49,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 |---|---|
 | **Zero-downtime DDL** | Alter multi-million-row tables while users are active — no locks, no maintenance window. See [Ghost DDL](../engine/ghost-ddl.md). |
 | **Schema branching** | Branch the database schema like Git: dev → staging → production. |
-| **Bring Your Own Database** | Point it at an existing PostgreSQL database; it introspects and generates admin UI and API. |
+| **Bring Your Own Data** | Import tables from an existing database into Zveltio's PostgreSQL; they become collections with admin UI, REST API and permissions. `integrations/migrators` imports from HubSpot, Notion and Airtable. |
 | **Per-field encryption** | Mark any field `encrypted: true`; AES-256-GCM, transparent at the engine level. |
 | **Live TypeScript types** | `zveltio generate-types` once, and every SDK call is typed from that point on. |
 | **Immutable audit trail** | Every write logged with user, IP, and before/after values. GDPR export and erasure built in. |

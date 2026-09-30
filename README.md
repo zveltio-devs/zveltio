@@ -26,7 +26,7 @@ Install the official extensions and it becomes a business stack: CRM, invoicing,
 
 Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
 
-> 🟢 **Beta (3.0.0-beta.60)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
+> 🟢 **Beta** (current version in [`packages/engine/package.json`](packages/engine/package.json)) — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
 
 ```bash
 curl -fsSL https://get.zveltio.com/install.sh | bash
@@ -82,7 +82,7 @@ Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for
 | Monday / Asana approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
 | Notion / Coda templates | `content/document-templates` — HTML/PDF template engine |
 | Cloudflare Workers / Lambda | `developer/edge-functions` — sandboxed TypeScript serverless |
-| Contentful / Sanity | `content/page-builder` — block-based CMS with headless API |
+| Contentful / Sanity | `content/pages` — block-based pages and sites with headless API |
 | ChatGPT Teams / Copilot | `ai` — multi-provider, native to your data |
 
 A typical SME running 10-15 of these subscriptions saves **€2 000-5 000 / month** — without per-seat fees.
@@ -95,7 +95,7 @@ The engine handles plumbing; you focus on domain logic. A typical vertical SaaS 
 
 ### 3. Custom internal tools
 
-Intranet portals. Employee dashboards. Client area portals — the `content/portals` extension. Document workflows. Internal analytics. Approval chains tied to your specific
+Intranet portals. Employee dashboards. Client area portals — authenticated sites in the `content/pages` extension. Document workflows. Internal analytics. Approval chains tied to your specific org structure.
 
 Self-hosted, owned, modifiable. No SaaS vendor reading your operations data.
 
@@ -127,27 +127,28 @@ Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension 
 
 ## What you can install today
 
-57 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
+56 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install, or read [docs/extensions/catalog.md](docs/extensions/catalog.md).
 
-Some capabilities in the table above are the engine itself rather than an
-extension — flows, collections, permissions, storage, realtime — so they are not
-in that 58 and are not counted twice here.
+Some capabilities are the engine itself rather than an extension — collections,
+storage, webhooks, realtime, audit, notifications, automation flows, backup,
+insights, saved queries, schema branches, tenants — so they are not in that 56.
+See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extension).
 
-**Data & Content** · `collections` (core) · `content/portals` (authenticated portals: list, card, calendar views) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
+**Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `search` · `data/import` · `data/export`
 
-**Customer & Business** · `crm` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking`
+**Customer & Business** · `crm` · `ecommerce/store` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking` · `finance/subscriptions` · `billing`
 
-**Workflow & Automation** · `webhooks` · `notifications` · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk` _(automation `flows` live in engine core, not as a plugin)_
+**Workflow & Automation** · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk` _(automation `flows` live in engine core, not as a plugin)_
 
-**Communications & HR** · `communications/mail` · `hr/employees` · `hr/time-tracking` · `hr/leave`
+**Communications & HR** · `communications/mail` · `sms` · `hr/employees` · `hr/time-tracking` · `hr/leave` · `hr/payroll`
 
-**Developer** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` · `developer/database` · `developer/validation` · `saved-queries` · `schema-branches` · `sql-editor`
+**Developer & Integrations** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/database` · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
 
-**Intelligence** · `ai` (multi-provider) · `insights` (analytics dashboards) · `analytics/quality`
+**Intelligence** · `ai` (multi-provider) · `analytics/dashboard` (per-role home dashboards) · `analytics/quality`
 
-**Auth & Compliance** · `auth/saml` · `auth/ldap` · `compliance/gdpr` · `compliance/ro/efactura` · `compliance/ro/saft` · `compliance/ro/etransport` · `compliance/ro/procurement` · `compliance/ro/documents`
+**Auth & Compliance** · `auth/saml` · `auth/ldap` · `auth/scim` · `compliance/gdpr` · `compliance/ro/efactura` · `compliance/ro/saft` · `compliance/ro/etransport` · `compliance/ro/procurement` · `compliance/ro/documents`
 
-**Infrastructure** · `storage/cloud` · `backup` (PITR + scheduled) · `geospatial/postgis` · `i18n/translations`
+**Infrastructure** · `storage/cloud` · `geospatial/postgis` · `i18n/translations`
 
 Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T, e-Transport ANAF). The architecture supports building equivalents for any market — US Sales Tax, UK MTD, German Elster, Italian SDI, French CFI. PRs welcome.
 
@@ -311,7 +312,7 @@ Building extensions: [docs/extensions/developer-guide.md](docs/extensions/develo
                  └─────────┘ └──────────┘ └─────────┘ └────────────┘
 ```
 
-**Engine** is framework-agnostic. We ship a Svelte 5 Studio for administration; portals for your users are the `content/portals` extension, and you can replace either with a custom Rea
+**Engine** is framework-agnostic. We ship a Svelte 5 Studio for administration; portals for your users are sites in the `content/pages` extension, and you can replace either with a custom React, Vue or HTMX frontend over the REST and WebSocket API.
 
 ---
 
@@ -336,7 +337,7 @@ Do not fix it with a blanket `ALTER ROLE … NOSUPERUSER`; that breaks
 
 ## Beta caveats
 
-Honest about where we are: **3.0.0-beta.60** as of the latest release — `packages/engine/package.json` is the source of truth if this line has drifted again.
+Honest about where we are: still beta. The current version is in [`packages/engine/package.json`](packages/engine/package.json).
 
 > **Why 3.x while still beta?** Early in the project a few npm packages were
 > mis-published at `2.0.x` (those version numbers can never be reused). The
@@ -363,9 +364,9 @@ Honest about where we are: **3.0.0-beta.60** as of the latest release — `packa
 
 **Marketplace controlled launch**: community extension submissions are technically accepted, but every submission lands `pending` and stays there until an admin approves manually via `apps.zveltio.com/admin/marketplace/*` or the `zveltio admin marketplace` CLI. The review team and SLA are documented as operator decisions in [`docs/extensions/marketplace-policy.md`](docs/extensions/marketplace-policy.md) §9.
 
-**Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. We test on every commit (399 unit + 148 integration tests in CI).
+**Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. Unit and integration suites run in CI on every commit.
 
-**Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 3.0.0-beta.60`.
+**Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update` for the latest beta.
 
 **Migration from alpha**: the `1.0.0-alpha.*` track is closed. If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
 
