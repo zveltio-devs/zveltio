@@ -484,8 +484,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // AI — moved to extensions/ai. Mounts /api/ai*, /api/zveltio-ai, /api/ai-analytics.
 
-  // SDK Local-First Sync (push/pull batch operations)
-  app.route('/api/sync', syncRoutes(db, auth));
+  // SDK Local-First Sync (push/pull batch operations). `poolDb` for the pull's
+  // watermark: `zveltio_rls` cannot see other sessions in pg_stat_activity.
+  app.route('/api/sync', syncRoutes(db, auth, poolDb));
 
   // Electric SQL bridge — token mint + config for clients using the
   // `electric` offline-sync provider. 503s when ELECTRIC_URL +
