@@ -70,10 +70,9 @@ d('data foreign key violation (in-process)', () => {
         author: '00000000-0000-0000-0000-000000000099',
       }),
     });
-    expect([400, 422, 409]).toContain(res.status);
-    const body = (await res.json()) as { error?: string; code?: string };
-    if (body.error) {
-      expect(['foreign_key_violation', 'validation_error', 'invalid_value']).toContain(body.error);
-    }
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { detail?: string; errors?: string[] };
+    expect(body.detail).toBe('foreign_key_violation');
+    expect(body.errors?.[0]).toContain('Field "author" references');
   });
 });

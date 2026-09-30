@@ -107,9 +107,10 @@ d('write paths map Postgres errors (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(422);
-    expect((await res.json()) as { detail: string }).toMatchObject({
-      detail: 'foreign_key_violation',
-    });
+    const body = (await res.json()) as { detail: string; errors?: string[] };
+    expect(body.detail).toBe('foreign_key_violation');
+    // The parent exists; a child points at it. Not "no record exists".
+    expect(body.errors?.[0]).toContain('is still referenced by');
   });
 
   it('a duplicate inside a batch is 409, not 500', async () => {

@@ -46,9 +46,7 @@ d('data not-null violation (in-process)', () => {
       body: JSON.stringify({}),
     });
     expect([400, 422]).toContain(res.status);
-    const body = (await res.json()) as { error?: string };
-    if (body.error) {
-      expect(['not_null_violation', 'validation_error']).toContain(body.error);
-    }
+    const body = (await res.json()) as { errors?: unknown[] };
+    expect(body.errors?.length).toBeGreaterThan(0);
   });
 });

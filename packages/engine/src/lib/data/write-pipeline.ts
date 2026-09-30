@@ -262,6 +262,8 @@ export function mapPgError(
     detail || message,
   );
 
+  const referencedBy = /is (?:still )?referenced from table "([^"]+)"/.exec(detail || message)?.[1];
+
   // 42501 — insufficient_privilege: in practice, row-level security rejected
   // the statement (e.g. a write whose tenant context doesn't match the row's
   // tenant). Surfacing the raw 500 hid the real cause of the "insert fails on
@@ -283,11 +285,17 @@ export function mapPgError(
       status: 422,
       body: {
         error: 'foreign_key_violation',
-        message: matchKey
-          ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
-          : 'Referenced record does not exist.',
+        // Two directions share this SQLSTATE (and 23001 for RESTRICT). A write
+        // naming a parent that does not exist, and a delete of a parent a child
+        // still points at -- the second used to be told the record it was
+        // deleting "does not exist".
+        message: referencedBy
+          ? `This record is still referenced by "${referencedBy.replace(/^zvd_/, '')}" and cannot be deleted.`
+          : matchKey
+            ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
+            : 'Referenced record does not exist.',
         code: code || '23503',
-        field: matchKey?.[1] ?? column ?? null,
+        field: referencedBy ? null : (matchKey?.[1] ?? column ?? null),
       },
     };
   }
