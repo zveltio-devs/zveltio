@@ -563,16 +563,34 @@ export class GhostDDL {
       // rows. A copy that lost some — for any reason, the tenant blindness this
       // once had included — stops here, before the rename makes it permanent.
       // ponytail: a count, not a per-row diff; enough to catch a lossy copy.
-      await publishEveryTenant(trx);
+      //
+      // The count has to see every row the old copy's DROP will destroy, not the
+      // rows RLS lets the owner read. Under FORCE even `publishEveryTenant` hides
+      // a row whose tenant_id names no `zv_tenants` row (its firm deleted, data
+      // restored as a superuser): the copy skipped it, a count under the same
+      // reach agreed, and the swap dropped it. Lifting FORCE exempts the owner,
+      // as Postgres does for any owner of an unforced table. It is restored
+      // before anything else runs, and ALTER holds ACCESS EXCLUSIVE — which the
+      // rename below takes anyway, only now from the count on — so no other
+      // session ever reads the table unforced.
+      const force = await sql<{ forced: boolean }>`
+        SELECT relforcerowsecurity AS forced FROM pg_class
+        WHERE oid = to_regclass(quote_ident(${migration.originalTable}))
+      `.execute(trx);
+      const forced = force.rows[0]?.forced === true;
+      const original = sql.id(migration.originalTable);
+      if (forced) await sql`ALTER TABLE ${original} NO FORCE ROW LEVEL SECURITY`.execute(trx);
       const counted = await sql<{ original_rows: string; ghost_rows: string }>`
-        SELECT (SELECT count(*) FROM ${sql.id(migration.originalTable)}) AS original_rows,
+        SELECT (SELECT count(*) FROM ${original}) AS original_rows,
                (SELECT count(*) FROM ${sql.id(migration.ghostTable)}) AS ghost_rows
       `.execute(trx);
+      if (forced) await sql`ALTER TABLE ${original} FORCE ROW LEVEL SECURITY`.execute(trx);
       const { original_rows, ghost_rows } = counted.rows[0] ?? {};
       if (original_rows === undefined || Number(original_rows) !== Number(ghost_rows)) {
         throw new Error(
           `[ghost-ddl] refusing to swap ${migration.originalTable}: row count ` +
-            `${original_rows} in the original, ${ghost_rows} in the ghost`,
+            `${original_rows} in the original, ${ghost_rows} in the ghost. Rows whose ` +
+            `tenant_id names no zv_tenants row are not copied; reassign or delete them first`,
         );
       }
 
