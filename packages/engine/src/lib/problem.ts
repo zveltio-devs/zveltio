@@ -240,7 +240,15 @@ function normalizeBody(status: number, raw: string, c: Context): ProblemDetails 
     detail,
     instance: c.req.path,
     traceId: traceIdFrom(c),
-    errors: zodIssues ?? (parsed?.errors as unknown),
+    // `{ error: slug, message: text }` puts the slug in `detail`, so the text --
+    // the only part that names the field -- went nowhere. It travels in
+    // `errors`, the same string list a 422 from `processInput` carries.
+    errors:
+      zodIssues ??
+      (parsed?.errors as unknown) ??
+      (typeof parsed?.message === 'string' && parsed.message !== detail
+        ? [parsed.message]
+        : undefined),
   };
 }
 

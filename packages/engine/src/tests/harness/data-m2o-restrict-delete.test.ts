@@ -82,7 +82,9 @@ d('data m2o restrict on delete (in-process)', () => {
       method: 'DELETE',
       headers: { cookie },
     });
-    expect([409, 422, 500]).toContain(del.status);
+    expect(del.status).toBe(422);
+    const body = (await del.json()) as { errors?: string[] };
+    expect(body.errors?.[0]).toContain('is still referenced by');
 
     const row = await sql<{ id: string }>`
       SELECT id FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parentId}

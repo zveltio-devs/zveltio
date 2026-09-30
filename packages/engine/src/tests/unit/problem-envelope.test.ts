@@ -117,6 +117,20 @@ describe('H-13 error envelope', () => {
     expect(body.code).toBe('validation_failed');
   });
 
+  it('a slug + message body keeps the message in errors', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/slug-msg', (c) =>
+      c.json({ error: 'unique_violation', message: 'Field "sku" must be unique.' }, 409),
+    );
+    const body = (await (await app.request('http://local/api/slug-msg')).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(body.detail).toBe('unique_violation');
+    expect(body.errors).toEqual(['Field "sku" must be unique.']);
+  });
+
   it('a plain non-JSON 500 body is still rewrapped', async () => {
     const res = await call('/api/plain-500');
     expect(res.status).toBe(500);
