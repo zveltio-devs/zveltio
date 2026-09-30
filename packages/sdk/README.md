@@ -188,4 +188,9 @@ The engine exposes two endpoints for batch sync:
 - `POST /api/sync/push` — send offline operations to server
 - `POST /api/sync/pull` — pull changes since a timestamp
 
-These are used automatically by `SyncManager`. You can also call them directly for custom sync logic.
+`SyncManager` does not call them (its `pull()` pages the collections API); they are for custom sync logic.
+
+A pull returns at most 1000 rows per collection. Send `{ collections, since, cursors }`, merge the
+response's `cursors` into yours, and pull again while `hasMore` is true. Keep `cursors` for the next
+sync — a collection's cursor replaces `since` for it, and is the only position that pages through rows
+sharing one `updated_at` (a bulk import).
