@@ -9,7 +9,7 @@
 
 # Zveltio
 
-> **A headless CMS that becomes a self-hosted SaaS through its extensions.**
+> **The self-hosted Business OS: a headless backend that becomes your business stack through its extensions.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-blue)](https://github.com/zveltio-devs/zveltio/releases)
