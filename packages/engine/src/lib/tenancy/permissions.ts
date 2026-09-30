@@ -1297,10 +1297,11 @@ export function revalidateSocketsEverywhere(userId?: string, scope: SweepScope =
 }
 
 /**
- * A session or API key was revoked, or a user barred or deleted: close what it
- * opened, on every instance. Now, for a revocation already visible (sessions
- * are deleted on the pool), and again after the caller's commit, for one still
- * inside its transaction (a ban, a key's `is_active`).
+ * A session or API key was revoked, a user barred or deleted, or a tenant
+ * archived, suspended or purged: close what it opened, on every instance. Now,
+ * for a revocation already visible (sessions are deleted on the pool), and
+ * again after the caller's commit, for one still inside its transaction (a ban,
+ * a key's `is_active`).
  */
 export function revalidatePrincipalsEverywhere(): void {
   revalidateSocketsEverywhere(undefined, 'principals');

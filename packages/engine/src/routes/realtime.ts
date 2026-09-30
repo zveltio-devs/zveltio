@@ -12,6 +12,7 @@ import {
   revalidateSockets,
   runWithDomain,
   sweepGeneration,
+  tenantsStillActive,
 } from '../lib/tenancy/index.js';
 import {
   authenticate,
@@ -473,18 +474,23 @@ export async function revalidateSseStreams(): Promise<boolean> {
 /**
  * End every stream whose session or API key no longer authenticates — signed
  * out, revoked, expired, its user barred or deleted, its key revoked or its
- * creator barred. The whole stream: its reconnect meets `/stream`'s 401. One
- * batched lookup; a failed one ends nothing and answers `true`, as
- * `revalidateSseStreams` does.
+ * creator barred — or whose tenant is no longer active. The whole stream: its
+ * reconnect meets `/stream`'s 401 (403 for the tenant). One batched lookup; a
+ * failed one ends nothing and answers `true`, as `revalidateSseStreams` does.
  */
 export async function closeUnauthenticatedSse(): Promise<boolean> {
   const subs = [...connections.values()].flatMap((set) => [...set]);
   if (subs.length === 0 || !sseDb) return false;
   let found: Awaited<ReturnType<typeof stillAuthenticated<RealtimePrincipal>>>;
+  let tenantActive: (tenantId: string | null) => boolean;
   try {
     found = await stillAuthenticated(
       sseDb,
       subs.flatMap((s) => (s.principal ? [s.principal] : [])),
+    );
+    tenantActive = await tenantsStillActive(
+      sseDb,
+      subs.map((s) => s.tenantId),
     );
   } catch (err) {
     console.error('[realtime] SSE principal recheck failed; retrying:', err);
@@ -492,7 +498,7 @@ export async function closeUnauthenticatedSse(): Promise<boolean> {
   }
   let failed = false;
   for (const sub of subs) {
-    if (!sub.principal || !found.live.has(sub.principal)) {
+    if (!sub.principal || !found.live.has(sub.principal) || !tenantActive(sub.tenantId)) {
       sub.stream.abort();
       continue;
     }

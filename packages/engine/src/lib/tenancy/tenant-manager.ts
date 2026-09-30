@@ -644,6 +644,34 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
   return tenant || null;
 }
 
+/**
+ * The realtime sweep's tenant rule: is a connection opened in `tenantId` still
+ * allowed to stay open? The tenant middleware refuses every request to a tenant
+ * that is not 'active' (archived, suspended, purged), but a socket or stream
+ * captures its tenant once, at open — so each sweep asks again, for all of them.
+ * `null` (no tenant captured) always holds.
+ *
+ * One query for every id, from the table: the cache copy is what an archive has
+ * just dropped. Throws when the lookup fails — that is not an archive.
+ */
+export async function tenantsStillActive(
+  db: Database,
+  tenantIds: Iterable<string | null>,
+): Promise<(tenantId: string | null) => boolean> {
+  const ids = [...new Set([...tenantIds].filter((id): id is string => id !== null))];
+  const active = new Set<string>();
+  if (ids.length > 0) {
+    const rows = await db
+      .selectFrom('zv_tenants')
+      .select('id')
+      .where('id', 'in', ids)
+      .where('status', '=', 'active')
+      .execute();
+    for (const r of rows) active.add(r.id);
+  }
+  return (tenantId) => tenantId === null || active.has(tenantId);
+}
+
 export async function getUserTenants(userId: string): Promise<(Tenant & { role: string })[]> {
   const cache = getCache();
   const cacheKey = `user:tenants:${userId}`;
