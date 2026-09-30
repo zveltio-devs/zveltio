@@ -37,7 +37,7 @@ d('ghost DDL changelog during copy (in-process)', () => {
     if (!db) return;
     // Including the ghost artefacts: `atomicSwap` renames the original to
     // `_zv_old_<table>` and schedules dropping it and the changelog sixty seconds
-    // later (ghost-ddl.ts:332), long after the suite is gone. See
+    // later, long after the suite is gone. See
     // ghost-ddl-changelog-delete.test.ts, where the leftovers gate caught it.
     for (const t of [`_zv_old_${tableName}`, `_zv_changelog_${tableName}`, tableName]) {
       await sql

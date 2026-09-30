@@ -1,9 +1,9 @@
 /**
  * Phase C — GhostDDL.execute RENAME COLUMN on real Postgres (ghost-ddl.ts).
  *
- * RENAME preserves column count so batchCopy INSERT…SELECT * stays valid
- * (DROP COLUMN migrations are not exercised here — fewer ghost columns than
- * the source breaks SELECT * batch copy).
+ * The copy maps columns by attnum, so the renamed column's data lands under its
+ * new name; the replay of writes made after the copy is covered in
+ * ghost-ddl-changelog-after-copy.test.ts.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';

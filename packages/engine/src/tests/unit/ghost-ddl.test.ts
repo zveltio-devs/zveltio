@@ -141,7 +141,8 @@ describe('applyChangelog', () => {
     expect(upserts).toHaveLength(2);
     expect(upserts[0]!.sql).toContain('ON CONFLICT (id) DO UPDATE SET');
     expect(upserts[0]!.sql).toContain('"total" = EXCLUDED."total"');
-    expect(upserts[1]!.parameters).toContain(20);
+    // The values come from the changelog row itself, by its id — never bound from JS.
+    expect(upserts[1]!.parameters).toEqual(['2']);
 
     const deletes = db.executed(/DELETE FROM "_zv_ghost_zvd_orders"/);
     expect(deletes).toHaveLength(1);

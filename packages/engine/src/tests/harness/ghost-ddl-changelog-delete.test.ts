@@ -45,7 +45,7 @@ d('ghost DDL changelog delete (in-process)', () => {
     // The ghost artefacts too, not just the collection's table.
     //
     // `atomicSwap` renames the original to `_zv_old_<table>` and schedules the
-    // drop of that and the changelog SIXTY SECONDS later (ghost-ddl.ts:332). A
+    // drop of that and the changelog SIXTY SECONDS later. A
     // test suite is long gone by then, so both tables outlive the run — which is
     // exactly what `check:test-leftovers` reports, and it was right to. Whether
     // the gate saw them depended on timing: another test's sweeper sometimes got
