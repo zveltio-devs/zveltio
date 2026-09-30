@@ -24,7 +24,7 @@ Install the official extensions and it becomes a business stack: CRM, invoicing,
 
 **Use it headless. Use the extensions to replace your SaaS stack. Or do both.**
 
-Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
+Modern TypeScript stack (Bun + Hono + Postgres). AI through an extension. Audit trail and GDPR export/erasure built in. MIT-licensed.
 
 > 🟢 **Beta** (current version in [`packages/engine/package.json`](packages/engine/package.json)) — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
 
@@ -48,14 +48,15 @@ The engine ships with everything every business application needs. Activate plug
 | **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. Tenant isolation is enforced in the database (FORCE RLS keyed on a per-transaction GUC); the per-user row rules configured under `/api/admin/rls` are applied by the engine on **read** paths — they do not currently constrain updates or deletes. |
 | **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
 | **File storage** | Local filesystem by default, zero dependencies. Any S3-compatible backend optional (AWS, MinIO, R2, or the bundled SeaweedFS). |
-| **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
-| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. There is no in-process mode: the Worker runner was removed once measurement showed it could not be given a memory ceiling and was slower than a pre-spawned process. |
+| **Edge functions** | The engine runs them; authoring them is the `developer/edge-functions` extension. TypeScript for custom serverless logic, written by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. There is no in-process mode: the Worker runner was removed once measurement showed it could not be given a memory ceiling and was slower than a pre-spawned process. |
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |
-| **Plugin system** | Engine extensions + Studio extensions, signed, capability-policy sandboxed. |
-| **Offline sync** | CRDT-based local-first storage (Electric SQL provider optional). |
+| **Plugin system** | Engine extensions + Studio extensions, Ed25519-signed; community extensions run in a worker restricted to their own tables. |
+| **Offline sync** | CRDT-based local-first storage in the SDK (Electric SQL provider optional). |
+
+AI (OpenAI, Anthropic, Ollama, Azure; semantic search via pgvector, text-to-SQL, schema generation) is the `ai` extension, not the core.
 
 ### The Studio (admin UI)
 
@@ -73,25 +74,25 @@ Three real ways teams use Zveltio today.
 
 Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for anymore.
 
-| SaaS you might replace | Zveltio plugin |
+| What you might be paying for | Zveltio plugin |
 |---|---|
-| HubSpot / Pipedrive | `crm` — contacts, organizations, deals pipeline |
-| Hosted IMAP+SMTP / Front | `communications/mail` — full mail client with AI compose |
-| Zapier / Make / n8n | engine `/api/flows` — visual automation with DLQ + retry (built-in) |
-| Square / Shopify POS | `operations/pos` — point of sale + inventory + procurement |
-| Monday / Asana approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
-| Notion / Coda templates | `content/document-templates` — HTML/PDF template engine |
-| Cloudflare Workers / Lambda | `developer/edge-functions` — sandboxed TypeScript serverless |
-| Contentful / Sanity | `content/pages` — block-based pages and sites with headless API |
-| ChatGPT Teams / Copilot | `ai` — multi-provider, native to your data |
+| Hosted CRM | `crm` — contacts, organizations, deals pipeline |
+| Hosted mail client | `communications/mail` — IMAP/SMTP client with AI compose |
+| Hosted automation / integration platform | engine `/api/flows` — visual automation with DLQ + retry (built-in) |
+| Cloud point of sale | `operations/pos` — point of sale + inventory + procurement |
+| Work-management approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
+| Document template tools | `content/document-templates` — HTML/PDF template engine |
+| Serverless functions | `developer/edge-functions` — admin-authored TypeScript functions |
+| Headless CMS / site builder | `content/pages` — block-based pages and sites with headless API |
+| Hosted AI assistants | `ai` — multi-provider, native to your data |
 
-A typical SME running 10-15 of these subscriptions saves **€2 000-5 000 / month** — without per-seat fees.
+No per-seat fees: what you pay for is the hardware you run it on.
 
 ### 2. Build a vertical product
 
 Build legal-tech, healthcare-CRM, real-estate-management, ag-tech, education-LMS, fintech-back-office. Don't rewrite auth + admin + permissions + audit for the 47th time.
 
-The engine handles plumbing; you focus on domain logic. A typical vertical SaaS skeleton — collections + auth + RLS + admin UI + REST API — is **0 lines of code** in Zveltio.
+The engine handles plumbing; you focus on domain logic. A vertical SaaS skeleton — collections + auth + RLS + admin UI + REST API — is configuration, not code: you write only the domain logic.
 
 ### 3. Custom internal tools
 
@@ -154,48 +155,43 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 
 ---
 
-## Zveltio vs alternatives
+## Strengths and trade-offs
 
-A platform, not a category. Here's where it lands relative to neighbours:
+**Where Zveltio is strong**
 
-| | **Zveltio** | Salesforce / Monday / HubSpot | Odoo | Supabase / Pocketbase | Retool / Tooljet |
-|---|---|---|---|---|---|
-| **Licence** | MIT | proprietary | LGPLv3 (Community) / proprietary (Enterprise) | Apache-2.0 / MIT | Retool proprietary, Tooljet AGPLv3 |
-| **Self-hostable** | ✅ | ❌ | ✅ | ✅ | Retool paid, Tooljet ✅ |
-| **Per-seat fee** | ❌ | ✅ | Enterprise only | ❌ | Retool per builder |
+- **Yours to run.** MIT-licensed, self-hosted, no per-seat fees, no cloud account required.
+- **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
+- **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
+- **Schema changes on live tables.** Ghost DDL copies and swaps, so writes block only for milliseconds at the swap; schema branches get a diff, review, preview and merge first.
+- **Extensions are signed and contained.** Ed25519 signatures verified at install; community code runs in a worker under a database role with no access to auth tables. Admin pages are declarative JSON, so no third-party JavaScript reaches the admin.
+- **Compliance built in.** Audit trail on every write, GDPR export and erasure, per-field encryption, and Romanian fiscal packs (e-Factura, SAF-T, e-Transport).
 
-*Licence and hosting facts as published by each project, checked August 2026. Everything else — "modern stack", "AI-native", "GDPR built-in" — used to be
-scored in this table and has been removed: those are judgements, they were sourced
-from nobody, and an audit found eight of eleven cells wrong with every single error
-running in our favour. Odoo has never had a line of PHP and ships an AI app; Tooljet
-is AGPLv3 and self-hosts free; Supabase publishes Docker Compose for the full stack.
-A table that only ever errs one way is marketing, not a comparison.*
+**Where it is not there yet**
 
-Read the table with the shape of the product in mind. The engine on its own sits
-where **Supabase and Pocketbase** sit — a headless backend with auth, a database
-API and row-level security — and if that is all you install, that is the honest
-comparison to make. With the official extensions it sits where **Odoo** sits: a
-full business platform assembled from modules.
-
-That is the whole positioning. Neither half is a lesser mode of the other, and
-what either is worth against a particular alternative is a judgement for the
-person evaluating it, on their own workload.
+- **Beta.** The extension API and marketplace flow are stable; engine internals and the Studio still move. No SOC 2 or ISO 27001 certification.
+- **You operate it.** There is no managed hosting. PostgreSQL, Valkey (required) and backups are yours to run.
+- **Small ecosystem.** 56 first-party extensions; third-party submissions are reviewed by hand and the community is small.
+- **Country coverage.** Fiscal compliance and payroll exist for Romania only.
+- **Svelte admin.** The engine and SDK are framework-agnostic, but the Studio renders in Svelte; an admin in another framework means building your own over the API.
+- **Limits of the isolation.** The worker boundary for community extensions has not been adversarially tested, the capability policy is enforced for WASM extensions only, and per-user row rules apply to reads, not to updates or deletes.
+- **Not a multi-tenant SaaS host.** Built for organisational units inside one installation, not for thousands of unrelated customers on shared infrastructure.
+- **Runtime.** Bun first; binaries for Linux and macOS, none for Windows.
 
 ---
 
 ## Who's it for
 
-✅ **Software agencies** building custom apps for clients — reduce boilerplate 60-70%, ship in weeks not months.
+✅ **Software agencies** building custom apps for clients — skip the auth, admin, permissions and audit plumbing, and hand clients software they own.
 
-✅ **SMEs and mid-market** consolidating their SaaS stack — replace 8-15 subscriptions with one self-hosted platform.
+✅ **SMEs and mid-market** consolidating their SaaS stack onto one self-hosted platform.
 
 ✅ **Vertical SaaS founders** — legal-tech, real-estate, healthcare, ag-tech, education-LMS. Don't rewrite auth.
 
 ✅ **Enterprises and public sector** with data-sovereignty requirements — data stays on your hardware.
 
-✅ **Startups** that need a full business stack but don't have €3-5K / month for SaaS.
+✅ **Startups** that need a full business stack without a subscription per tool.
 
-❌ **Not for**: bloggers (use WordPress / Ghost), single-purpose CRUD apps (use a boilerplate)
+❌ **Not for**: a blog or brochure site, or a single-purpose CRUD app — both need far less than this.
 
 ---
 
