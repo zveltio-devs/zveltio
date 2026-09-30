@@ -552,13 +552,23 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           .orderBy('updated_at' as any, 'asc')
           .limit(PULL_LIMIT_PER_COLLECTION),
       );
-      let fetched: unknown[];
-      try {
-        fetched = await pullQuery.execute();
-      } catch {
-        // Collection may not have updated_at column or may not exist — ignore
-        continue;
-      }
+      // A collection without `updated_at` (42703) or without a table (42P01)
+      // has nothing to pull — skip it. Under a savepoint, because the failed
+      // statement aborts the tenant transaction: every later collection in the
+      // same pull then failed too, was skipped the same way, and the client got
+      // 200 with those collections empty and a fresh `serverTimestamp` — never
+      // receiving their rows again. Any other failure is a real one: 500.
+      const fetched = await withSavepoint(
+        pullDb,
+        'sync_pull_collection',
+        () => pullQuery.execute() as Promise<unknown[]>,
+        (err) => {
+          const code = (err as { errno?: string; code?: string }).errno ?? '';
+          if (code === '42P01' || code === '42703') return null;
+          throw err;
+        },
+      );
+      if (!fetched) continue;
       const updated = await scope.keep(fetched);
 
       // Shape the rows the way every other read path does.

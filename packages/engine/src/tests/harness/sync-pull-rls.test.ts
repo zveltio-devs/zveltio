@@ -212,4 +212,29 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     });
     expect(res.status).toBe(500);
   });
+
+  // A collection without `updated_at` is skipped — but its failed SELECT
+  // aborted the tenant transaction, so every collection after it in the same
+  // pull failed too and came back empty under a fresh `serverTimestamp`.
+  it('a collection without updated_at does not empty the collections after it', async () => {
+    const broken = `${COLLECTION}_noupd`;
+    await DDLManager.createCollection(db, {
+      name: broken,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    try {
+      await sql.raw(`ALTER TABLE "zvd_${broken}" DROP COLUMN updated_at`).execute(db);
+      const res = await app.request('/api/sync/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify({ collections: [`zvd_${broken}`, `zvd_${COLLECTION}`], since: 0 }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { changes: Array<{ data?: Record<string, unknown> }> };
+      expect(body.changes.map((ch) => ch.data?.title)).toContain('visible');
+    } finally {
+      await sql.raw(`DROP TABLE IF EXISTS "zvd_${broken}" CASCADE`).execute(db);
+      await db.deleteFrom('zvd_collections').where('name', '=', broken).execute();
+    }
+  });
 });
