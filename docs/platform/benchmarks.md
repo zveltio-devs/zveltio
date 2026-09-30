@@ -1,123 +1,90 @@
 # Benchmarks
 
-Reproducible performance measurements for the Zveltio engine. We
-publish these so operators can size hardware honestly and so
-contributors can detect performance regressions before they land on
-master.
+Measured numbers for the Zveltio engine, and the suite that produces them.
+Every figure on this page comes from `bench/` in this repository and can be
+re-run with the commands below.
 
-## TL;DR (alpha.99, single Bun process)
+## Latest run (2026-09-30, master `710d7e76`)
 
-Measured on a dedicated runner: 8 vCPU (AMD EPYC 9354P), 16 GB RAM,
-NVMe SSD, PostgreSQL 18 + pgvector on localhost, no Valkey. Each
-scenario warms up for 5 s then samples for 30 s.
-
-| Scenario | RPS | p50 | p95 | p99 | Notes |
-|---|---|---|---|---|---|
-| `GET /api/health` (cold) | 18,200 | 0.5 ms | 1.2 ms | 2.4 ms | No DB, no auth |
-| `GET /api/data/zvd_contacts?limit=20` | 4,800 | 4.1 ms | 9.3 ms | 17 ms | Session cookie, RLS-on table |
-| `POST /api/data/zvd_contacts` | 2,100 | 9.0 ms | 21 ms | 38 ms | Audit log + realtime broadcast |
-| `GET /api/data/zvd_contacts/:id` | 6,400 | 3.0 ms | 7.1 ms | 13 ms | Hot index path |
-| `POST /api/auth/sign-in/email` | 380 | 22 ms | 48 ms | 89 ms | argon2id verify dominates |
-| WS subscribe + broadcast roundtrip | n/a | 1.8 ms | 4.2 ms | 8.5 ms | 100 concurrent subscribers, 1 publisher |
-| Edge function (worker mode, hot) | 1,650 | 5.0 ms | 12 ms | 22 ms | 1 KB body, no fetch |
-| Edge function (subprocess mode) | 38 | 25 ms | 41 ms | 68 ms | spawn-per-invocation cost |
-
-**Memory**: RSS settles at ~720 MB after 30 min under mixed load.
-**Cold start**: 1.2 s to first served request (binary mode), 2.4 s
-(`bun run` mode).
-
-These numbers are baselines, not aspirational. Beta releases bump
-them by ≤ 20 % or the regression CI fails.
-
-## Hardware + software baseline
-
-The published numbers come from a CI-controlled environment:
+One developer machine, not a dedicated benchmark host:
 
 | Component | Spec |
 |---|---|
-| CPU | 8 vCPU AMD EPYC 9354P |
-| RAM | 16 GB |
-| Disk | NVMe SSD (Hetzner Cloud CCX23 or equivalent) |
-| OS | Ubuntu 24.04, kernel 6.8 |
-| Bun | 1.3.x (whatever's in `bun.lock`) |
-| PostgreSQL | 18.x with `pgvector` 0.7 |
-| Valkey | none (excluded to measure DB-direct path) |
-| Engine flags | `NODE_ENV=production`, default config |
+| CPU | 4 vCPU Intel Xeon Gold 5317 |
+| RAM | 8 GB |
+| PostgreSQL | 18.6, same host, default config |
+| Bun | 1.3.14 |
+| Valkey | none (direct database path) |
+| Engine | `NODE_ENV=test` (as the CI perf job; disables rate limiting), single process |
 
-Running on different hardware will give different absolute numbers.
-What matters for regression catching is the SHAPE — p50/p95 ratio,
-RPS plateaus under load, RSS growth slope.
+`bench/runner.ts`, 50 warm-up requests, 500 measured requests per row,
+authenticated as a `god` user on a fresh collection. Latency is wall-clock
+from the client, nearest-rank percentiles.
 
-## Reproducing the benchmarks
+**Sequential (concurrency 1):**
 
-The `bench/` directory at the repo root holds the runner + scenarios.
+| Operation | p50 | p95 | p99 | ops/s |
+|---|---|---|---|---|
+| `POST` create | 4.9 ms | 8.7 ms | 11.5 ms | 182 |
+| `GET` by id | 2.5 ms | 5.3 ms | 8.3 ms | 333 |
+| `PATCH` | 4.4 ms | 8.9 ms | 12.8 ms | 199 |
+| `DELETE` | 4.1 ms | 7.1 ms | 10.2 ms | 218 |
+| List, page 1 (5k rows) | 4.3 ms | 6.7 ms | 9.1 ms | 210 |
+| List, page 250 (offset) | 4.8 ms | 7.7 ms | 9.9 ms | 187 |
+| List, cursor | 3.7 ms | 6.2 ms | 8.4 ms | 239 |
+| Realtime: `POST` → WebSocket event | 3.4 ms | 5.5 ms | 7.2 ms | — (n=50) |
+
+**Concurrency 10 (CRUD only; the list and realtime benches run sequentially):**
+
+| Operation | p50 | p95 | p99 | ops/s |
+|---|---|---|---|---|
+| `POST` create | 27.0 ms | 38.3 ms | 42.2 ms | 360 |
+| `GET` by id | 16.2 ms | 23.1 ms | 26.5 ms | 595 |
+| `PATCH` | 25.8 ms | 33.2 ms | 37.4 ms | 379 |
+| `DELETE` | 26.0 ms | 36.4 ms | 43.5 ms | 370 |
+
+Throughput roughly doubles from 1 to 10 clients on 4 vCPU while latency
+grows about fivefold: the host is saturated, engine and database share it.
+Treat these as the shape of the curve on small hardware, not as a ceiling.
+
+Not measured on this run: sign-in, edge functions under load, memory over
+time, cold start. See [what is not published](#what-is-not-published).
+
+## Reproducing
 
 ```bash
-# 1. Start a fresh PostgreSQL (or point at your own)
-docker run -d --name bench-pg -e POSTGRES_PASSWORD=bench \
-  -e POSTGRES_DB=zveltio -p 55432:5432 \
-  pgvector/pgvector:pg18
+# 1. A database with the extensions the engine needs
+createdb zveltio_bench
+psql -d zveltio_bench -c 'CREATE EXTENSION pg_trgm; CREATE EXTENSION vector;'
+DATABASE_URL=postgresql://localhost/zveltio_bench bun packages/engine/src/db/migrate.ts
 
-# 2. Engine boot
-cd packages/engine
-ZVELTIO_DATABASE_URL=postgresql://postgres:bench@localhost:55432/zveltio \
+# 2. The engine
+DATABASE_URL=postgresql://localhost/zveltio_bench \
 BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
-FIELD_ENCRYPTION_KEY=$(openssl rand -hex 32) \
-bun run src/index.ts &
+NODE_ENV=test ZVELTIO_REGISTRATION_ENABLED=1 \
+bun packages/engine/src/index.ts &
 
-# 3. Wait for /api/health to come up
-until curl -fsS http://localhost:3000/api/health >/dev/null; do sleep 0.5; done
+# 3. A bench user with the god role
+curl -sf -X POST http://localhost:3000/api/auth/sign-up/email \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"admin1234","name":"Admin"}'
+psql -d zveltio_bench -c "UPDATE \"user\" SET role = 'god' WHERE email = 'admin@example.com'"
 
-# 4. Run the benchmark suite
-cd ../../bench
-bun run scenarios/data-list.ts   # GET /api/data/...
-bun run scenarios/data-write.ts  # POST + PATCH + DELETE
-bun run scenarios/auth.ts        # sign-in throughput
-bun run scenarios/edge-fn.ts     # edge function invocations
-bun run scenarios/realtime.ts    # WebSocket fan-out
+# 4. The suite (crud, list, realtime; cold start with BENCH_COLDSTART=1)
+BENCH_ITERATIONS=500 BENCH_WARMUP=50 BENCH_CONCURRENCY=1 bun run bench/runner.ts
 ```
 
-Each scenario writes its own JSON report under `bench/results/`. Pass
-`--format=md` for human-readable output.
+Results go to `bench/results/latest.json`. `bench/README.md` lists every
+knob (`BENCH_CONCURRENCY`, `BENCH_SKIP`, `BENCH_VARIANT`, …).
 
 ### CI regression check
 
-`bench/ci-check.ts` runs a SUBSET of the suite (the smoke scenarios)
-and compares against a stored baseline in `bench/baseline.json`. If
-any p95 regresses by more than the budget (default 20 %), CI fails.
+The `Perf Smoke` job in `.github/workflows/ci.yml` runs `bench/ci-check.ts`
+on every PR. It fails only on a catastrophic regression — a p95 roughly ten
+times over a baseline — because shared CI runners are too noisy to catch
+drift. The budgets and the reasoning live in the header of `ci-check.ts`.
 
-```bash
-# Update the baseline after intentional perf improvements:
-bun bench/ci-check.ts --update-baseline
-
-# CI mode (default — runs comparison, exits non-zero on regression):
-bun bench/ci-check.ts
-```
-
-The smoke run is wired into `.github/workflows/ci.yml` so every PR
-gets the regression check on a clean runner. The numbers from CI
-runners are NOISIER than the dedicated benchmark host (shared
-hardware), so the 20 % budget is set wide on purpose.
-
-## Workload-specific notes
-
-### Why no Valkey in the baseline
-
-Valkey (query cache, rate-limit, presence) skews numbers in the
-engine's favour for repeated reads. We measure the worst-case
-direct-DB path so operators know what they're getting on a single
-Postgres deployment. Enable Valkey and expect read-heavy scenarios
-to roughly double (cache hit ratio dependent).
-
-### Multi-tenant overhead
-
-The numbers above are single-tenant (no `tenantMiddleware` active).
-With tenant middleware on:
-
-- Each request opens a transaction + `SET LOCAL` (≈ 0.4 ms overhead).
-- FORCE RLS adds a per-row policy evaluation (≈ 0.1 ms per row).
-- Net cost on `GET /api/data/zvd_contacts?limit=20`: p50 +0.6 ms,
-  p95 +1.4 ms.
+## Workload notes
 
 ### Edge functions: one runner, and what it costs
 
@@ -152,28 +119,18 @@ README, AGENTS.md and SECURITY.md. It is the public document, so an
 operator reading it would have believed untrusted code ran in-process by
 default, and would have sized capacity against the wrong startup cost.
 
-## How we measure (methodology)
+## What is not published
 
-- **Loader**: `oha` for HTTP, `wscat`+homebrew loop for WS, a custom
-  Bun script for edge-fn (it has to keep auth cookies).
-- **Warm-up**: 5 s ignored before sampling begins. The first
-  `bun install --frozen-lockfile` + engine boot does NOT count.
-- **Sampling window**: 30 s per scenario. Reported percentiles are
-  HdrHistogram (`oha --hist`).
-- **Concurrency**: `oha -c 50 -z 30s` unless noted otherwise (50
-  parallel connections).
-- **Database state**: 10k rows in `zvd_contacts`, 100k rows in
-  `zvd_orders`, indexes warmed via `pg_prewarm`. Cold-cache numbers
-  are 2-3× slower; we publish the warm path because that's what
-  production runs.
+- **Sign-in throughput, edge functions under load, memory over time, cold
+  start.** The suite has a cold-start bench (`BENCH_COLDSTART=1`) and a soak
+  driver (`bench/soak.ts`, RSS slope and late-window p95); their results are
+  not on this page yet.
+- **Multi-tenant overhead.** Not measured separately.
+- **Engine and database on separate hosts.** Network round-trips dominate and
+  vary by topology.
+- **Valkey enabled.** Cached reads would be faster; the table above is the
+  direct database path.
 
-## Outstanding gaps
-
-- Multi-host benchmarks (engine on host A, DB on host B over LAN):
-  not yet published. Network adds 0.5-2 ms per round-trip; numbers
-  vary too much by deployment topology to publish a single figure.
-- Long-tail soak (24h): we run it before each release but don't
-  publish — Grafana screenshots in the release notes.
-- p99.9 numbers: HdrHistogram supports it, scenarios don't sample
-  long enough to be statistically clean. 30 s × 4.8k RPS = 144k
-  samples, fine for p99, noisy at p99.9.
+Numbers on this page were previously labelled "alpha.99" and described a
+dedicated host, load generator and scenario files that are not in this
+repository. They were replaced on 2026-09-30 by the run above.
