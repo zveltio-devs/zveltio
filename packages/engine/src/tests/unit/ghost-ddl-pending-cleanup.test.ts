@@ -29,6 +29,9 @@ describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
     // The swap refuses unless the ghost holds as many rows as the original.
     db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/FROM "_zv_changelog_zvd_widgets"/, []);
+    // The cleanup drops only the tables the swap left, recognised by oid.
+    db.when(/AS old,/, [{ old: '11', log: '11' }]);
+    db.when(/AS oid$/, [{ oid: '11' }]);
 
     let captured: (() => void) | null = null;
     const origSetTimeout = globalThis.setTimeout;
@@ -41,8 +44,8 @@ describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
       await GhostDDL.atomicSwap(asDb(db), MIGRATION);
       expect(captured).not.toBeNull();
       await captured!();
-      expect(db.executed(/DROP TABLE IF EXISTS "_zv_old_zvd_widgets"/)).toHaveLength(1);
-      expect(db.executed(/DROP TABLE IF EXISTS "_zv_changelog_zvd_widgets"/)).toHaveLength(1);
+      expect(db.executed(/^DROP TABLE "_zv_old_zvd_widgets"/)).toHaveLength(1);
+      expect(db.executed(/^DROP TABLE "_zv_changelog_zvd_widgets"/)).toHaveLength(1);
     } finally {
       globalThis.setTimeout = origSetTimeout;
       cancelPendingCleanups();
@@ -54,7 +57,10 @@ describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
     // The swap refuses unless the ghost holds as many rows as the original.
     db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/FROM "_zv_changelog_zvd_widgets"/, []);
-    db.fail(/DROP TABLE IF EXISTS "_zv_old_zvd_widgets"/, new Error('drop blocked'));
+    // The cleanup drops only the tables the swap left, recognised by oid.
+    db.when(/AS old,/, [{ old: '11', log: '11' }]);
+    db.when(/AS oid$/, [{ oid: '11' }]);
+    db.fail(/^DROP TABLE "_zv_old_zvd_widgets"/, new Error('drop blocked'));
 
     let captured: (() => void) | null = null;
     const origSetTimeout = globalThis.setTimeout;
