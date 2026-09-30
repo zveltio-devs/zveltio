@@ -102,6 +102,9 @@ describe('checkAccess', () => {
 
   it('api_key blocks zv_ system tables that are not zvd_ collections', async () => {
     spyOn(DDLManager, 'getTableName').mockReturnValue('zv_system_meta');
-    expect(await checkAccess(db, apiUser([]), 'system_meta', 'read')).toBe(false);
+    // Wildcard scopes: only the table guard can refuse. With `[]` the key was
+    // denied by its empty scopes, and the test passed with the guard deleted.
+    const all = [{ collection: '*', actions: ['*'] }];
+    expect(await checkAccess(db, apiUser(all), 'system_meta', 'read')).toBe(false);
   });
 });
