@@ -52,7 +52,7 @@ function syncTombstoneTrigger(tableName: string): string {
 }
 
 /** Field types whose values feed a collection's full-text search. */
-const SEARCH_FIELD_TYPES = new Set(['text', 'richtext', 'email']);
+export const SEARCH_FIELD_TYPES = new Set(['text', 'richtext', 'email']);
 
 /**
  * The body of `<table>_search_trigger()`.

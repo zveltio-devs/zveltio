@@ -17,6 +17,7 @@ const openScope = (table: string): ReadScope => ({
   keep: async (rows) => rows,
   admits: () => true,
   shape: (row) => row,
+  readable: () => true,
 });
 
 describe('WS subscribe decisions', () => {

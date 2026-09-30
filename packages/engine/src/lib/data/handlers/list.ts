@@ -13,7 +13,7 @@ import type { Context } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
-import { DDLManager } from '../ddl-manager.js';
+import { DDLManager, SEARCH_FIELD_TYPES } from '../ddl-manager.js';
 import { TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
@@ -29,7 +29,13 @@ import {
 } from '../time-travel-count.js';
 import { virtualList } from '../../virtual-collection-adapter.js';
 import type { CollectionDef, JsonValue } from '../types.js';
-import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../shape.js';
+import {
+  serializeRecord,
+  resolveExpand,
+  applyExpand,
+  computeEtag,
+  normalizeFields,
+} from '../shape.js';
 import { buildAllowedCols, parseFilters, decodeCursor } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, dynamicDb, getVirtualConfig } from '../write-pipeline.js';
@@ -241,6 +247,21 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         }
       }
 
+      // Upstream filters, sorts and searches on what it is sent, so a hidden
+      // column must not be sent. Refused as the managed path refuses an unknown
+      // field. The upstream's search covers columns we cannot name, so a caller
+      // with any hidden column cannot search it.
+      const hiddenFilter = vFilters.find((f) => !scope.readable(f.field));
+      if (hiddenFilter) {
+        return c.json({ error: `Unknown filter field: '${hiddenFilter.field}'` }, 400);
+      }
+      if (query.sort && !scope.readable(query.sort)) {
+        return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
+      }
+      if (query.search && scope.columns.hidden.size > 0) {
+        return c.json({ error: 'Search is not available on this collection' }, 400);
+      }
+
       const { data, total } = await virtualList(virtualConfig, {
         filters: vFilters,
         sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
@@ -272,8 +293,19 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   const tableName = DDLManager.getTableName(collection);
 
   // Columns clients may sort/filter by. Unknown columns become a clean 400
-  // at the edge instead of a Postgres 500.
-  const allowedCols = buildAllowedCols(collectionDef);
+  // at the edge instead of a Postgres 500. A column the caller may not read is
+  // not among them, so a predicate on it answers as one on a column that does
+  // not exist: filtering on a hidden column read it back through the row count.
+  const allowedCols = new Set([...buildAllowedCols(collectionDef)].filter(scope.readable));
+
+  // `?search=` matches the stored search columns, which cover every text field.
+  // A caller who may not read one of them searches the ones it can read.
+  const searchable = normalizeFields(collectionDef)
+    .filter((f) => SEARCH_FIELD_TYPES.has(f.type) && f.name)
+    .map((f) => f.name);
+  const ftsColumns = searchable.every(scope.readable)
+    ? undefined
+    : searchable.filter(scope.readable);
 
   // Parse filters — bracket + JSON formats (JSON wins on the same field).
   const parsed = parseFilters(c.req.query(), query.filter, allowedCols);
@@ -302,7 +334,10 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   let result: { records: DynamicRecord[]; total: number };
 
   if (useCursor) {
-    const decoded = decodeCursor(query.cursor);
+    // The client writes the cursor's value, and the keyset compares it with the
+    // sort column: on a hidden `created_at` (the default) that is a comparison
+    // oracle. Such a cursor is treated as malformed.
+    const decoded = allowedCols.has(sortField) ? decodeCursor(query.cursor) : null;
 
     if (decoded) {
       // Build keyset query directly with Kysely for proper compound pagination
@@ -352,6 +387,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           offset,
           fts: query.search ? query.search.trim().substring(0, 500) : undefined,
           hasTrgm: !!collectionDef.has_trgm,
+          ftsColumns,
           tenantScopeId: getSingleTenantId(),
           applyAlters,
         }),
@@ -369,6 +405,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       offset,
       fts: query.search ? query.search.trim().substring(0, 500) : undefined,
       hasTrgm: !!collectionDef.has_trgm,
+      ftsColumns,
       countMode: query.count,
       // Null whenever a hierarchy is in play, and then nothing is added.
       tenantScopeId: getSingleTenantId(),

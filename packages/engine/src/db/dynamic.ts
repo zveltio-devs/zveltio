@@ -157,6 +157,14 @@ export interface QueryOptions {
    */
   hasTrgm?: boolean;
   /**
+   * Search these columns instead of the stored `search_vector`/`search_text`.
+   *
+   * The stored columns cover every text field, so for a caller with a hidden text
+   * column `?search=` matched on the value it may not read — a search is a
+   * filter. Set only for such a caller; empty matches nothing.
+   */
+  ftsColumns?: string[];
+  /**
    * Whether to spend a `count(*)` on the filtered set.
    *
    * `'exact'` is the default and what every caller got before this existed.
@@ -288,6 +296,7 @@ export async function dynamicSelect(
     sort,
     fts,
     hasTrgm,
+    ftsColumns,
     applyAlters,
     countMode = 'exact',
     tenantScopeId,
@@ -323,7 +332,15 @@ export async function dynamicSelect(
 
   if (fts) {
     let ftsExpr;
-    if (hasTrgm) {
+    if (ftsColumns) {
+      // ponytail: computed per row, no index — only for a caller with a hidden
+      // text column. A per-visibility stored vector is the upgrade if it matters.
+      const cols = ftsColumns.map((c) => sql`${sql.ref(c)}::text`);
+      const text = sql`concat_ws(' ', ${sql.join(cols.length > 0 ? cols : [sql`NULL`])})`;
+      const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
+      const match = sql`to_tsvector('english', ${text}) @@ websearch_to_tsquery('english', ${fts})`;
+      ftsExpr = hasTrgm ? sql`(${match} OR ${text} ILIKE ${likePattern})` : match;
+    } else if (hasTrgm) {
       // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
       // search_text is maintained by the DDL trigger, and only exists on collections
       // carrying has_trgm — see the field's doc comment above.
