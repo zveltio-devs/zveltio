@@ -159,7 +159,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 
 **Where Zveltio is strong**
 
-- **Yours to run.** MIT-licensed, self-hosted, no per-seat fees, no cloud account required.
+- **Yours to run.** MIT-licensed and self-hosted: it runs on your hardware and the data never leaves it. No per-seat fees, no cloud account required.
 - **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
 - **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
 - **Schema changes on live tables.** Ghost DDL copies and swaps, so writes block only for milliseconds at the swap; schema branches get a diff, review, preview and merge first.
@@ -169,13 +169,9 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 **Where it is not there yet**
 
 - **Beta.** The extension API and marketplace flow are stable; engine internals and the Studio still move. No SOC 2 or ISO 27001 certification.
-- **You operate it.** There is no managed hosting. PostgreSQL, Valkey (required) and backups are yours to run.
 - **Small ecosystem.** 56 first-party extensions; third-party submissions are reviewed by hand and the community is small.
 - **Country coverage.** Fiscal compliance and payroll exist for Romania only.
-- **Svelte admin.** The engine and SDK are framework-agnostic, but the Studio renders in Svelte; an admin in another framework means building your own over the API.
 - **Limits of the isolation.** The worker boundary for community extensions has not been adversarially tested, the capability policy is enforced for WASM extensions only, and per-user row rules apply to reads, not to updates or deletes.
-- **Not a multi-tenant SaaS host.** Built for organisational units inside one installation, not for thousands of unrelated customers on shared infrastructure.
-- **Runtime.** Bun first; binaries for Linux and macOS, none for Windows.
 
 ---
 
