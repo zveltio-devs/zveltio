@@ -20,6 +20,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { withSavepoint } from '../savepoint.js';
+import { getCurrentTenantTrx } from './tenant-context.js';
 import { DEFAULT_TENANT_ID, getTenantSchemaName, publishEveryTenant } from './tenant-manager.js';
 
 export class TenantPurgeRefused extends Error {
@@ -56,6 +57,15 @@ export async function purgeTenant(
 ): Promise<TenantPurgeResult> {
   if (tenantId === DEFAULT_TENANT_ID) {
     throw new TenantPurgeRefused('The default tenant cannot be purged.', 409);
+  }
+  // The purge must OWN its transaction. Joined to a request's (the proxy's
+  // `transaction()` joins rather than nests), its `set_config(…, true)` — every
+  // tenant's reach, `rls_bypass=on` — would stay in force for the rest of that
+  // request, and the media objects the caller deletes on return would go while
+  // the rows naming them could still roll back. `/api/tenants` is in the tenant
+  // middleware's TXN_SKIP_PREFIXES; this keeps it from depending on that list.
+  if (getCurrentTenantTrx()) {
+    throw new Error('purgeTenant must not run inside a request transaction');
   }
   return db.transaction().execute(async (trx) => {
     // FOR UPDATE: a concurrent reactivation or a new child tenant (its FK takes

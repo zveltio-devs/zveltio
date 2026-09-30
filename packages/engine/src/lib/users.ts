@@ -128,7 +128,8 @@ export interface TenantlessUsers {
  * domain — the default tenant has no membership row, a grant is how a user of
  * it is told apart from an empty account.
  *
- * On `db`, the purge's transaction when there is one; one savepoint per user,
+ * In a transaction of its own on `db` (the purge's has committed by now — see
+ * `purgeTenant`), one savepoint per user,
  * so a failure is reported and the others go on. The sessions and grants
  * `deleteUser` removes first are not transactional: a failed user is left
  * unable to sign in, never deleted and still able to.

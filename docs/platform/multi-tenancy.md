@@ -301,6 +301,10 @@ read.
   extension, collection and BYOD tables alike, junction tables through their
   cascading keys — drops its `tenant_*` schemas, then the tenant row. Media
   objects are deleted after the commit; a failure there is reported, not fatal.
+  The purge owns that transaction: `/api/tenants` opens no request
+  transaction, and `purgeTenant` refuses to join one — joined, its every-tenant
+  reach and `rls_bypass=on` would outlive it, and a later rollback would bring
+  back rows whose media objects were already gone.
   The default tenant can be neither archived nor purged.
 
 The purge publishes every tenant's reach, as `withEveryTenant` does, so FORCE
@@ -318,7 +322,8 @@ and no Casbin rule outside the purged domain**. A membership in an archived
 tenant counts (archiving is reversible), and so does any grant: the default
 tenant has no membership row, so a grant is what tells its users apart from an
 empty account. Never deleted: the requester, god, an instance admin. It runs in
-the purge's transaction, one savepoint per user; the answer adds
+a transaction of its own after the purge's has committed, one savepoint per
+user; the answer adds
 `users: { deleted: [id], kept: [{ id, reason }], failed: [{ id, error }] }`,
 `reason` one of `self`, `god`, `instance_admin`, `other_tenant`, `other_grants`.
 A failed user has already lost their sessions and grants and keeps the row.
