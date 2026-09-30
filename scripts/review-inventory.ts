@@ -194,6 +194,7 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/tenant-context.ts`,
       `${E}lib/tenancy/tenant-scope.ts`,
       `${E}lib/tenancy/fail-closed-tenant.ts`,
+      `${E}lib/tenancy/tenant-purge.ts`,
       `${E}lib/tenancy/index.ts`,
     ],
   },
@@ -323,6 +324,7 @@ const SECTIONS: Section[] = [
     focus: 'Identifier quoting, two creators for one table, orphans left behind by a failed run.',
     match: [
       `${E}lib/data/ddl-manager.ts`,
+      `${E}lib/pg-identifier.ts`,
       `${E}lib/data/ddl-queue.ts`,
       `${E}lib/data/ghost-ddl.ts`,
     ],
