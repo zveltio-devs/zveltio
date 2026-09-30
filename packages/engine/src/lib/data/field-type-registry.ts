@@ -7,6 +7,8 @@
  * Studio UI and display are in packages/studio/src/field-types/
  * and link through the same `type` key.
  */
+import { indexName } from '../pg-identifier.js';
+
 export interface FieldTypeDefinition {
   // Unique identifier
   type: string;
@@ -191,7 +193,7 @@ export class FieldTypeRegistry {
 
     const indexType = typeDef.db.indexType || 'btree';
     const method = indexType === 'btree' ? '' : `USING ${indexType.toUpperCase()} `;
-    return `CREATE INDEX IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName} ${method}("${field.name}")`;
+    return `CREATE INDEX IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName} ${method}("${field.name}")`;
   }
 
   /**
@@ -224,7 +226,7 @@ export class FieldTypeRegistry {
     if (!field.indexed) return null;
     if (typeDef.db.indexType && typeDef.db.indexType !== 'btree') return null;
     return (
-      `CREATE INDEX IF NOT EXISTS idx_${tableName}_tenant_${field.name} ` +
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, `tenant_${field.name}`)} ` +
       `ON ${tableName} (tenant_id, "${field.name}", created_at DESC)`
     );
   }

@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
@@ -48,6 +49,41 @@ function syncTombstoneTrigger(tableName: string): string {
     `CREATE TRIGGER zv_sync_tombstone AFTER DELETE ON ${tableName} ` +
     'REFERENCING OLD TABLE AS zv_old_rows FOR EACH STATEMENT EXECUTE FUNCTION zveltio_sync_tombstone()'
   );
+}
+
+/** Field types whose values feed a collection's full-text search. */
+const SEARCH_FIELD_TYPES = new Set(['text', 'richtext', 'email']);
+
+/**
+ * The body of `<table>_search_trigger()`.
+ *
+ * Fields are read from `to_jsonb(NEW)` by key, never as `NEW."field"`. PL/pgSQL
+ * resolves `NEW."field"` when the row is written, so once a column was dropped
+ * or renamed — by removeField, the field routes, a schema-branch merge — every
+ * INSERT and UPDATE on the collection failed with `record "new" has no field`,
+ * and the collection could no longer be written at all. A missing key reads as
+ * NULL instead.
+ */
+function searchTriggerBody(fields: string[], withVector: boolean, withText: boolean): string {
+  const value = (f: string) => `coalesce(r->>'${f}', '')`;
+  const lines: string[] = [];
+  if (withVector) {
+    const weights = fields
+      .map((f, i) => `setweight(to_tsvector('english', ${value(f)}), '${'ABCD'[Math.min(i, 3)]}')`)
+      .join(' || ');
+    lines.push(`NEW.search_vector := ${weights};`);
+  }
+  // concat_ws skips NULLs, so an empty field adds no stray separator.
+  if (withText) {
+    lines.push(`NEW.search_text := concat_ws(' ', ${fields.map((f) => `r->>'${f}'`).join(', ')});`);
+  }
+  return `
+DECLARE r jsonb := to_jsonb(NEW);
+BEGIN
+  ${lines.join('\n  ')}
+  RETURN NEW;
+END
+`;
 }
 
 function toConcurrentIndex(indexSQL: string): string {
@@ -300,7 +336,7 @@ export class DDLManager {
     // Index the FK column for join performance
     await sql
       .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${fieldName} ` +
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, fieldName)} ` +
           `ON "${tableName}"("${fieldName}")`,
       )
       .execute(db);
@@ -364,7 +400,7 @@ export class DDLManager {
 
     const sourceTable = this.getTableName(sourceName);
     const targetTable = this.getTableName(targetName);
-    const junctionTable = `zvd_jnc_${sourceName}_${targetName}`;
+    const junctionTable = pgIdentifier(`zvd_jnc_${sourceName}_${targetName}`);
     await sql
       .raw(
         `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
@@ -377,13 +413,13 @@ export class DDLManager {
       .execute(db);
     await sql
       .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_src ` +
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(junctionTable, 'src')} ` +
           `ON "${junctionTable}"("${sourceName}_id")`,
       )
       .execute(db);
     await sql
       .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_tgt ` +
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(junctionTable, 'tgt')} ` +
           `ON "${junctionTable}"("${targetName}_id")`,
       )
       .execute(db);
@@ -442,8 +478,8 @@ export class DDLManager {
     ];
 
     const indexes: string[] = [
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC)`,
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status)`,
     ];
 
     const ALLOWED_PG_EXTENSIONS = new Set([
@@ -491,11 +527,7 @@ export class DDLManager {
       await sql.raw(indexSQL).execute(db);
     }
 
-    // FTS support
-    const textFields = regularFields
-      .filter((f) => ['text', 'richtext', 'email'].includes(f.type))
-      .map((f) => f.name);
-
+    // FTS support; the text half and the trigger follow the metadata below.
     await withLockTimeout(db, async (trx) => {
       await sql
         .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`)
@@ -503,55 +535,9 @@ export class DDLManager {
     });
     await sql
       .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)`,
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector)`,
       )
       .execute(db);
-
-    if (textFields.length > 0) {
-      const weightsClause = textFields
-        .map((f, i) => {
-          const weight = i === 0 ? 'A' : i === 1 ? 'B' : i === 2 ? 'C' : 'D';
-          return `setweight(to_tsvector('english', coalesce(NEW."${f}", '')), '${weight}')`;
-        })
-        .join(' || ');
-
-      const searchTextConcat =
-        textFields.length === 1
-          ? `coalesce(NEW."${textFields[0]}", '')`
-          : `concat_ws(' ', ${textFields.map((f) => `coalesce(NEW."${f}", '')`).join(', ')})`;
-
-      await withLockTimeout(db, async (trx) => {
-        await sql
-          .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
-          .execute(trx);
-      });
-      await sql
-        .raw(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_trgm ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
-        )
-        .execute(db);
-
-      await withLockTimeout(db, async (trx) => {
-        await sql
-          .raw(`
-          CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
-          BEGIN
-            NEW.search_vector := ${weightsClause};
-            NEW.search_text := ${searchTextConcat};
-            RETURN NEW;
-          END
-          $$ LANGUAGE plpgsql
-        `)
-          .execute(trx);
-        await sql
-          .raw(`
-          CREATE TRIGGER ${tableName}_search_update
-          BEFORE INSERT OR UPDATE ON ${tableName}
-          FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()
-        `)
-          .execute(trx);
-      });
-    }
 
     await withLockTimeout(db, async (trx) => {
       await sql
@@ -580,13 +566,7 @@ export class DDLManager {
     // Register metadata first so relation inserts can reference valid collection names
     await this.registerMetadata(db, validated);
 
-    if (textFields.length > 0) {
-      await db
-        .updateTable('zvd_collections')
-        .set({ has_trgm: true })
-        .where('name', '=', validated.name)
-        .execute();
-    }
+    await this.refreshSearchTrigger(db, validated.name);
 
     // Add FK columns and register m2o/reference relations after table + metadata exist
     for (const field of relationFields) {
@@ -877,7 +857,123 @@ export class DDLManager {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('name' as any, '=', name)
       .execute();
+    // Every path that adds, drops or renames a field records it here.
+    if (updates.fields) await this.refreshSearchTrigger(db, name, updates.fields);
     DDLManager.invalidateCache(name);
+  }
+
+  /**
+   * Point `<table>_search_trigger()` at the collection's current text fields.
+   * Returns whether anything changed; a settled table costs two catalog reads.
+   *
+   * Adds `search_text` and its trigram index for a collection that gains its
+   * first text field — but only on the pool, since the index is built
+   * CONCURRENTLY. Inside a transaction fields are only ever being removed or
+   * renamed, which needs neither.
+   */
+  static async refreshSearchTrigger(
+    db: Database,
+    collectionName: string,
+    fields?: { name: string; type: string }[],
+  ): Promise<boolean> {
+    if (!SAFE_NAME_RE.test(collectionName)) return false;
+    const tableName = this.getTableName(collectionName);
+    const meta = await db
+      .selectFrom('zvd_collections')
+      .select(['is_managed', 'fields'])
+      .where('name', '=', collectionName)
+      .executeTakeFirst();
+    // A BYOD table's triggers are its owner's.
+    if (!meta || meta.is_managed === false) return false;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+    const all: any[] =
+      fields ?? (typeof meta.fields === 'string' ? JSON.parse(meta.fields) : (meta.fields ?? []));
+    const names = all
+      .filter((f) => SEARCH_FIELD_TYPES.has(f?.type) && SAFE_NAME_RE.test(f?.name ?? ''))
+      .map((f) => f.name as string);
+
+    const cols = await sql<{ attname: string }>`
+      SELECT attname::text AS attname FROM pg_attribute
+      WHERE attrelid = to_regclass(${tableName}) AND NOT attisdropped
+        AND attname IN ('search_vector', 'search_text')
+    `.execute(db);
+    const has = new Set(cols.rows.map((c) => c.attname));
+    const inTransaction = (db as unknown as { isTransaction?: boolean }).isTransaction === true;
+
+    if (names.length > 0 && !has.has('search_text') && !inTransaction) {
+      await withLockTimeout(db, async (trx) => {
+        await sql
+          .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
+          .execute(trx);
+      });
+      await sql
+        .raw(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'trgm')} ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
+        )
+        .execute(db);
+      await db
+        .updateTable('zvd_collections')
+        .set({ has_trgm: true })
+        .where('name', '=', collectionName)
+        .execute();
+      has.add('search_text');
+    }
+
+    const current = await sql<{ src: string | null; trg: boolean }>`
+      SELECT (SELECT prosrc FROM pg_proc WHERE proname = ${`${tableName}_search_trigger`}
+                AND pronamespace = current_schema()::regnamespace) AS src,
+             EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = ${`${tableName}_search_update`}
+                AND tgrelid = to_regclass(${tableName})) AS trg
+    `.execute(db);
+    const { src, trg } = current.rows[0] ?? { src: null, trg: false };
+
+    if (names.length === 0 || !(has.has('search_vector') || has.has('search_text'))) {
+      if (!trg) return false;
+      await withLockTimeout(db, async (trx) => {
+        await sql
+          .raw(`DROP TRIGGER IF EXISTS ${tableName}_search_update ON ${tableName}`)
+          .execute(trx);
+      });
+      return true;
+    }
+
+    const body = searchTriggerBody(names, has.has('search_vector'), has.has('search_text'));
+    if (trg && src === body) return false;
+    await withLockTimeout(db, async (trx) => {
+      await sql
+        .raw(
+          `CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$${body}$$ LANGUAGE plpgsql`,
+        )
+        .execute(trx);
+      await sql
+        .raw(`DROP TRIGGER IF EXISTS ${tableName}_search_update ON ${tableName}`)
+        .execute(trx);
+      await sql
+        .raw(
+          `CREATE TRIGGER ${tableName}_search_update BEFORE INSERT OR UPDATE ON ${tableName} ` +
+            `FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()`,
+        )
+        .execute(trx);
+    });
+    return true;
+  }
+
+  /**
+   * `refreshSearchTrigger` over every managed collection, at boot. Collections
+   * created before it carry the `NEW."field"` form, and one that already lost a
+   * text field cannot be written until this runs.
+   */
+  static async reconcileSearchTriggers(db: Database): Promise<number> {
+    const rows = await db
+      .selectFrom('zvd_collections')
+      .select('name')
+      .where((eb) => eb.or([eb('is_managed', 'is', null), eb('is_managed', '=', true)]))
+      .execute();
+    let changed = 0;
+    for (const { name } of rows) {
+      if (await this.refreshSearchTrigger(db, name)) changed++;
+    }
+    return changed;
   }
 
   // ── addField ─────────────────────────────────────────────────────────────────
@@ -1009,36 +1105,36 @@ export class DDLManager {
     );
 
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC);`,
     );
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_id ON ${tableName}(tenant_id);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'tenant_id')} ON ${tableName}(tenant_id);`,
       // The composite every list endpoint needs: `ORDER BY created_at DESC` for
       // one tenant. Without it the planner walks `created_at` and throws away
       // the other tenants' rows — 6 408 discarded to return 25, on a table with
       // 63 tenants. See the note in tenant-manager.applyTenantRLS.
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_created ON ${tableName}(tenant_id, created_at DESC);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'tenant_created')} ON ${tableName}(tenant_id, created_at DESC);`,
     );
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status);`,
     );
 
     for (const field of schema.fields) {
       if (RELATION_FK_TYPES.has(field.type)) {
         statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName}("${field.name}");`,
         );
         continue;
       }
       if (field.indexed) {
         statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName}("${field.name}");`,
         );
         // The tenant-first form beside it, so a preview shows what a real
         // create produces. Why it exists, and why not for `status`:
         // `fieldTypeRegistry.getTenantIndexDDL`.
         statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_${field.name} ` +
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, `tenant_${field.name}`)} ` +
             `ON ${tableName}(tenant_id, "${field.name}", created_at DESC);`,
         );
       }
@@ -1051,7 +1147,7 @@ export class DDLManager {
 
     statements.push(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector;`);
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector);`,
     );
     statements.push(`-- Per-table updated_at trigger`);
     statements.push(

@@ -1407,6 +1407,13 @@ async function bootstrap() {
     console.warn('⚠️ import-logs contract failed (non-fatal):', (err as Error).message);
   }
   try {
+    const { DDLManager } = await import('./lib/data/index.js');
+    const n = await DDLManager.reconcileSearchTriggers(db);
+    if (n > 0) console.log(`🔎 Search trigger rewritten on ${n} collection(s)`);
+  } catch (err) {
+    console.warn('⚠️ Search trigger reconcile failed (non-fatal):', (err as Error).message);
+  }
+  try {
     const n = await reconcileTenantRLS(db);
     console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);
   } catch (err) {
