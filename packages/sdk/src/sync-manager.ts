@@ -3,6 +3,10 @@ import type { ZveltioRealtime } from './realtime.js';
 import { LocalStore } from './local-store.js';
 import { mergeLWW, fromDocument } from './crdt.js';
 import { generateUUID } from './utils.js';
+import { ZveltioApiError } from './errors.js';
+
+/** Local-store meta key holding `/api/sync/pull` positions, per table. */
+const PULL_CURSORS = 'sync_pull_cursors';
 
 export type CRDTConflictResolution = 'lww' | 'custom';
 
@@ -356,10 +360,71 @@ export class SyncManager {
    * a row was created never learns it exists: it missed the event and nothing
    * ever asks the server what it has. `syncNow()` is push-only despite the name.
    *
-   * Pages through `list()` rather than asking for everything at once, and stops
-   * on the first page that comes back empty or short.
+   * Reads `POST /api/sync/pull`, which returns what changed since the cursors
+   * kept in the local store, deletes included. Paging `list()` instead — what
+   * this did before — never removed anything: a row deleted on the server
+   * stayed in every local store that had pulled it.
+   *
+   * A collection pulled for the first time, or one the server answers with
+   * `resync`, loses its synced local rows before the page is applied; local
+   * edits not yet pushed stay. `/api/sync` takes sessions only, so a client
+   * authenticated by an API key (403) falls back to paging `list()`, without
+   * deletes.
    */
   async pull(collections: string[], pageSize = 200): Promise<number> {
+    let applied = 0;
+    // The server takes at most 20 collections per pull.
+    for (let i = 0; i < collections.length; i += 20) {
+      const names = collections.slice(i, i + 20);
+      try {
+        applied += await this.pullChanges(names);
+      } catch (err) {
+        if (!(err instanceof ZveltioApiError && err.status === 403)) throw err;
+        applied += await this.pullPages(names, pageSize);
+      }
+      for (const name of names) await this.notifyListeners(name);
+    }
+    return applied;
+  }
+
+  private async pullChanges(names: string[]): Promise<number> {
+    const byTable = new Map(names.map((n) => [n.startsWith('zvd_') ? n : `zvd_${n}`, n]));
+    const cursors = (await this.store.getMeta<Record<string, string>>(PULL_CURSORS)) ?? {};
+    for (const [table, name] of byTable) {
+      if (!cursors[table]) await this.store.dropSynced(name);
+    }
+    let applied = 0;
+    for (;;) {
+      const res = await this.client.post<{
+        changes: Array<{
+          collection: string;
+          id: string;
+          data: Record<string, unknown> | null;
+          operation: 'upsert' | 'delete';
+        }>;
+        hasMore: boolean;
+        cursors?: Record<string, string>;
+        resync?: Record<string, boolean>;
+      }>('/api/sync/pull', { collections: [...byTable.keys()], since: 0, cursors });
+      for (const [table, flag] of Object.entries(res.resync ?? {})) {
+        const name = byTable.get(table);
+        if (flag && name) await this.store.dropSynced(name);
+      }
+      for (const ch of res.changes) {
+        const name = byTable.get(ch.collection) ?? ch.collection;
+        if (ch.operation === 'delete') await this.store.applyServerDelete(name, ch.id);
+        else await this.store.applyServerUpdate(name, ch.id, ch.data ?? {}, Date.now());
+        applied++;
+      }
+      // Saved only after the page is applied: a pull cut short resumes here.
+      Object.assign(cursors, res.cursors);
+      await this.store.setMeta(PULL_CURSORS, cursors);
+      if (!res.hasMore) return applied;
+    }
+  }
+
+  /** Pages through `list()`; stops on the first page that comes back short. */
+  private async pullPages(collections: string[], pageSize: number): Promise<number> {
     let applied = 0;
     for (const name of collections) {
       for (let page = 1; ; page++) {
@@ -377,7 +442,6 @@ export class SyncManager {
         }
         if (rows.length < pageSize) break;
       }
-      await this.notifyListeners(name);
     }
     return applied;
   }

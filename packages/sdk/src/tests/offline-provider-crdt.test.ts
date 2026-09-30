@@ -23,25 +23,66 @@ const ENGINE = 'http://engine.test';
 
 /** Rows the fake engine holds, by collection. */
 let served: Record<string, Array<Record<string, unknown>>> = {};
+/** Ids the fake engine reports deleted (tombstones), by collection. */
+let tombstones: Record<string, string[]> = {};
+/** Collections the next pull answers with `resync`. */
+let resync: Record<string, true> = {};
+/** `/api/sync/pull` answers 403, as it does to an API key. */
+let pullForbidden = false;
+/** Bodies `/api/sync/pull` received. */
+let pullBodies: Array<{ collections: string[]; cursors: Record<string, string> }> = [];
 /** Every request the provider made, so "did it even ask" is answerable. */
 let requests: string[] = [];
 const realFetch = globalThis.fetch;
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 beforeEach(async () => {
   served = {};
+  tombstones = {};
+  resync = {};
+  pullForbidden = false;
+  pullBodies = [];
   requests = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     requests.push(`${init?.method ?? 'GET'} ${url.replace(ENGINE, '')}`);
+    if (url.endsWith('/api/sync/pull')) {
+      if (pullForbidden) return json({ error: 'Session required' }, 403);
+      const body = JSON.parse(String(init?.body));
+      pullBodies.push(body);
+      const changes = [];
+      const cursors: Record<string, string> = {};
+      for (const table of body.collections as string[]) {
+        const name = table.replace(/^zvd_/, '');
+        // A cursor means rows already sent: only tombstones follow it, unless
+        // the collection restarts (`resync`) or has none.
+        if (body.cursors?.[table] && !resync[table]) {
+          for (const id of tombstones[name] ?? []) {
+            changes.push({ collection: table, id, data: null, operation: 'delete' });
+          }
+        } else {
+          for (const row of served[name] ?? []) {
+            changes.push({ collection: table, id: row.id, data: row, operation: 'upsert' });
+          }
+        }
+        cursors[table] = `pos-${pullBodies.length}`;
+      }
+      const answer = { changes, hasMore: false, cursors, resync };
+      resync = {};
+      return json(answer);
+    }
     const match = url.match(/\/api\/data\/([^/?]+)/);
     const name = match?.[1] ?? '';
     const page = Number(new URL(url).searchParams.get('page') ?? '1');
     // One page only: page 2 comes back empty, which is how `pull` stops.
     const data = page === 1 ? (served[name] ?? []) : [];
-    return new Response(JSON.stringify({ data, total: data.length, page, limit: 200 }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    return json({ data, total: data.length, page, limit: 200 });
   }) as typeof fetch;
 
   const store = new LocalStore();
@@ -84,7 +125,7 @@ describe('createOfflineProvider — the crdt path actually syncs', () => {
     expect(rows.find((r) => r.id === 'o-1')?.data.total).toBe(10);
     // The old implementation made no request at all. This is the assertion that
     // would have caught it.
-    expect(requests.some((r) => r.startsWith('GET /api/data/orders'))).toBe(true);
+    expect(requests).toContain('POST /api/sync/pull');
   });
 
   it('pull refuses an empty table list instead of quietly doing nothing', async () => {
@@ -135,5 +176,57 @@ describe('createOfflineProvider — the crdt path actually syncs', () => {
     expect(seen.length).toBe(countAtUnsubscribe);
 
     await p.close();
+  });
+
+  it('a row deleted on the server leaves the local store on the next pull', async () => {
+    served.orders = [
+      { id: 'o-1', total: 10 },
+      { id: 'o-2', total: 20 },
+    ];
+    const p = await createOfflineProvider({ engineUrl: ENGINE, tables: ['orders'] });
+    await p.pull();
+
+    served.orders = [];
+    tombstones.orders = ['o-2'];
+    await p.pull();
+    await p.close();
+
+    // The second pull resumed from the cursor the first one saved.
+    expect(pullBodies[1]?.cursors).toEqual({ zvd_orders: 'pos-1' });
+    expect((await localRows('orders')).map((r) => r.id)).toEqual(['o-1']);
+  });
+
+  it('resync drops synced rows the server no longer sends, keeping unpushed edits', async () => {
+    served.orders = [
+      { id: 'o-1', total: 10 },
+      { id: 'o-2', total: 20 },
+    ];
+    const p = await createOfflineProvider({ engineUrl: ENGINE, tables: ['orders'] });
+    await p.pull();
+
+    const store = new LocalStore();
+    await store.open();
+    await store.put('orders', 'o-local', { total: 1 });
+    await store.close();
+
+    served.orders = [{ id: 'o-1', total: 11 }];
+    resync = { zvd_orders: true };
+    await p.pull();
+    await p.close();
+
+    const rows = await localRows('orders');
+    expect(rows.map((r) => r.id).sort()).toEqual(['o-1', 'o-local']);
+    expect(rows.find((r) => r.id === 'o-1')?.data.total).toBe(11);
+  });
+
+  it('a client the sync endpoint refuses (API key, 403) still pulls through the data API', async () => {
+    served.orders = [{ id: 'o-1', total: 10 }];
+    pullForbidden = true;
+    const p = await createOfflineProvider({ engineUrl: ENGINE, tables: ['orders'] });
+    await p.pull();
+    await p.close();
+
+    expect((await localRows('orders')).map((r) => r.id)).toEqual(['o-1']);
+    expect(requests.some((r) => r.startsWith('GET /api/data/orders'))).toBe(true);
   });
 });
