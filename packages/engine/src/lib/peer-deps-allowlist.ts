@@ -13,7 +13,7 @@
 
 export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   // Auth providers
-  'node-saml', // auth/saml — SAML SSO assertions
+  '@node-saml/node-saml', // auth/saml — SAML SSO assertions (successor to the unmaintained node-saml)
   'ldapts', // auth/ldap — LDAP / Active Directory client
 
   // Communications
