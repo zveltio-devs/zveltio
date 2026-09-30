@@ -4,6 +4,50 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.72] - 2026-09-30
+
+**Security: SAML SSO moves to `@node-saml/node-saml` 5.1.0 (#742, auth/saml
+1.2.0).** The auth/saml extension installed `node-saml` 3.1.2, which carries a
+critical authentication bypass (GHSA-m837-g268-mmv7) and two signature
+bypasses. The engine's peer-dependency allow-list now names the maintained
+package; upgrade the engine and auth/saml together. The mail extension (1.2.5)
+now installs nodemailer 10 (every 9.x is inside an advisory range).
+
+**Schema-branch merges on large tables (#745, #746).** A merge that added or
+removed a field on a table over 100 000 rows rebuilt the table through a ghost
+copy, and the rebuilt table:
+- lost its RLS and tenant policies, its triggers (sync, `updated_at`, search),
+  its grants and its foreign keys;
+- under a non-superuser engine role with FORCE RLS, kept only the default
+  tenant's rows — every other tenant's rows were dropped 60 s later;
+- could not remove a field at all (`INSERT has more expressions than target
+  columns`).
+The swap now carries every protection over, copies every tenant's rows, maps
+columns through DROP and RENAME, and refuses to swap when the row counts differ.
+
+**Sync pull (#734, #737, #738, #739, #744).**
+- A collection returns at most 1000 rows per pull; `hasMore` and per-collection
+  `cursors` page through the rest. Before, rows past 1000 were never sent.
+- A pull never hands out a position past a transaction still open, so rows it
+  commits later are not skipped.
+- One collection without `updated_at` no longer empties the rest of the pull.
+- Hard deletes arrive as `operation: 'delete'` from a tombstone table
+  (migration 032, kept 30 days); an older position gets `resync`.
+- SDK: `SyncManager.pull()` reads `/api/sync/pull`, so server deletes reach the
+  local store. API-key clients (403 on `/api/sync`) fall back to the data API.
+
+**One read gate (#723-#732).** List, single, `?expand=`, `?as_of=`, sync pull,
+saved-query execution and realtime (WS and SSE) all read through `readScope()`:
+RLS, extension query alters, entity access and column access together.
+`?as_of=` answers 403 and a realtime subscription is denied when an alter
+restricts the reader, instead of serving rows the live read would hide.
+
+**Dependencies (#733).** `bun audit` clean: nodemailer 10, undici,
+brace-expansion, fast-uri, devalue.
+
+**Docs.** SECURITY.md added (#741); benchmark figures replaced by a measured,
+reproducible run (#743); README and overview synced with the code (#736).
+
 ## [3.0.0-beta.71] - 2026-09-29
 
 **Upgrade with ai 1.0.19 or later.** A scheduled ai_task no longer holds a
