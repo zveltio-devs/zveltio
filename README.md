@@ -170,7 +170,6 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 
 - **Beta.** The extension API and marketplace flow are stable; engine internals and the Studio still move. No SOC 2 or ISO 27001 certification.
 - **Small ecosystem.** 56 first-party extensions; third-party submissions are reviewed by hand and the community is small.
-- **Country coverage.** Fiscal compliance and payroll exist for Romania only.
 - **Limits of the isolation.** The worker boundary for community extensions has not been adversarially tested, the capability policy is enforced for WASM extensions only, and per-user row rules apply to reads, not to updates or deletes.
 
 ---
