@@ -8,6 +8,7 @@
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
+import { sql } from 'kysely';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
 import {
@@ -469,8 +470,23 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   /**
    * POST /api/sync/pull
    * Client requests changes from a given timestamp.
-   * Body: { collections: ['users', 'posts'], since: 1709000000000 }
-   * Response: { changes: [{ collection, id, data, operation, timestamp }], serverTimestamp }
+   * Body: { collections: ['users', 'posts'], since: 1709000000000, cursors?: { zvd_posts: '…' } }
+   * Response: { changes: [{ collection, id, data, operation, timestamp }],
+   *             serverTimestamp, hasMore, cursors }
+   *
+   * A collection returns at most 1000 rows per pull. `hasMore` says one
+   * stopped there; `cursors` holds, per collection (keyed as `changes[].
+   * collection`), the opaque position of the last row read. A client pulls
+   * again with the merged `cursors` until `hasMore` is false, and keeps them
+   * for the next sync: a cursor replaces `since` for its collection.
+   *
+   * The cursor is `(updated_at, id)`, not a timestamp: a bulk insert gives
+   * every row the transaction's `now()`, and a page boundary inside those ties
+   * cannot be resumed from a time. `serverTimestamp` was `Date.now()` even
+   * when a collection filled its page, so a client pulling `since` it never
+   * received row 1001 onward. It now stops short of the first row not sent,
+   * for clients that only know `since`; they receive the last millisecond
+   * again, and cannot get past more than a page of rows in one millisecond.
    */
   app.post('/pull', async (c) => {
     const body = await c.req.json().catch(() => null);
@@ -493,9 +509,31 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       since: number;
     };
 
+    // `<updated_at in epoch microseconds>:<id>`, as the previous pull wrote it.
+    // Checked here, before any SQL: a bad value cast inside the tenant
+    // transaction would abort it and answer 500.
+    const cursorIn = new Map<string, { us: string; id: string }>();
+    if (body.cursors !== undefined) {
+      if (!body.cursors || typeof body.cursors !== 'object' || Array.isArray(body.cursors)) {
+        return c.json({ error: 'Invalid body: cursors must be an object' }, 400);
+      }
+      for (const [name, value] of Object.entries(body.cursors)) {
+        const m = typeof value === 'string' ? /^(\d{1,18}):(.+)$/s.exec(value) : null;
+        if (!m) return c.json({ error: `Invalid cursor for ${name}` }, 400);
+        cursorIn.set(name, { us: m[1]!, id: m[2]! });
+      }
+    }
+
     // Limit rows per collection to prevent OOM
     const PULL_LIMIT_PER_COLLECTION = 1000;
     const sinceDate = new Date(since);
+    const cursorsOut: Record<string, string> = {};
+    let hasMore = false;
+    // The `since` a timestamp-only client may resume from: just before the
+    // first row a full page did not send.
+    let resumeAt = Number.POSITIVE_INFINITY;
+    const updatedUs = sql`(extract(epoch from updated_at) * 1000000)::bigint`;
+    const idText = sql`id::text COLLATE "C"`;
     const changes: Array<{
       collection: string;
       id: string;
@@ -541,16 +579,26 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         c.get('user') as { id: string; email?: string; role: string },
         c.get('authType') ?? 'session',
       );
+      const cursor = cursorIn.get(collection);
       const pullQuery = scope.query(
         pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .selectFrom(collection as any)
           .selectAll()
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .where('updated_at' as any, '>', sinceDate)
+          .select([
+            sql<string>`${updatedUs}::text`.as('__zv_pull_us'),
+            sql<string>`id::text`.as('__zv_pull_id'),
+          ])
+          .where(
+            cursor
+              ? sql<boolean>`(${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
+              : sql<boolean>`updated_at > ${sinceDate}`,
+          )
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
-          .limit(PULL_LIMIT_PER_COLLECTION),
+          .orderBy(idText)
+          // One past the page: tells "full" from "exactly full".
+          .limit(PULL_LIMIT_PER_COLLECTION + 1),
       );
       // A collection without `updated_at` (42703) or without a table (42P01)
       // has nothing to pull — skip it. Under a savepoint, because the failed
@@ -569,7 +617,24 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         },
       );
       if (!fetched) continue;
-      const updated = await scope.keep(fetched);
+      const full = fetched.length > PULL_LIMIT_PER_COLLECTION;
+      const page = (full ? fetched.slice(0, PULL_LIMIT_PER_COLLECTION) : fetched) as Array<
+        Record<string, unknown> & { __zv_pull_us: string; __zv_pull_id: string }
+      >;
+      // The cursor is the last row READ, not the last one kept: a row the
+      // entity-access check drops below is still behind the client.
+      const last = page.at(-1);
+      if (last) cursorsOut[collection] = `${last.__zv_pull_us}:${last.__zv_pull_id}`;
+      else if (cursor) cursorsOut[collection] = `${cursor.us}:${cursor.id}`;
+      if (full && last) {
+        hasMore = true;
+        // The largest whole millisecond strictly before the last row sent, so
+        // `updated_at > serverTimestamp` still reaches its unsent ties.
+        resumeAt = Math.min(resumeAt, Math.floor((Number(last.__zv_pull_us) - 1) / 1000));
+      }
+      const updated = await scope.keep(
+        page.map(({ __zv_pull_us: _us, __zv_pull_id: _id, ...row }) => row),
+      );
 
       // Shape the rows the way every other read path does.
       //
@@ -595,7 +660,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
     }
 
-    return c.json({ changes, serverTimestamp: Date.now() });
+    return c.json({
+      changes,
+      serverTimestamp: hasMore ? resumeAt : Date.now(),
+      hasMore,
+      cursors: cursorsOut,
+    });
   });
 
   return app;
