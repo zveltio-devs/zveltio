@@ -18,6 +18,7 @@ import {
   isGodUser,
   purgeTenant,
   requireInstanceAdmin,
+  revalidatePrincipalsEverywhere,
   TenantPurgeRefused,
   type TenantPurgeResult,
 } from '../lib/tenancy/index.js';
@@ -275,6 +276,8 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     if (!updated) return c.json({ error: 'Tenant not found' }, 404);
     await invalidateTenantCache(updated.slug, updated.id);
+    // A tenant no longer 'active' also ends its open sockets and streams.
+    if (body.status !== undefined) revalidatePrincipalsEverywhere();
 
     // The field NAMES, and the status when it moved. `status` is the one that
     // decides whether every request for this firm is answered at all, so a
@@ -348,6 +351,8 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         .executeTakeFirst();
       if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
       await invalidateTenantCache(tenant.slug, tenant.id);
+      // Its open sockets and streams too, on every instance — see `tenantsStillActive`.
+      revalidatePrincipalsEverywhere();
       const children = await db
         .selectFrom('zv_tenants')
         .select(['id', 'slug', 'status'])
@@ -398,6 +403,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       );
     }
     await invalidateTenantCache(slug, id);
+    revalidatePrincipalsEverywhere();
     for (const memberId of result.memberIds) {
       await invalidateUserPermCache(memberId);
       await invalidateTenantCache(slug, id, memberId);

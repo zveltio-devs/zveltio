@@ -20,6 +20,7 @@ import {
   revalidateSockets,
   runWithDomain,
   sweepGeneration,
+  tenantsStillActive,
 } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
@@ -402,7 +403,8 @@ async function recheckSubscriptions(connId: string, conn: WSConnection): Promise
 /**
  * Close every socket whose session or API key no longer authenticates — signed
  * out, revoked, expired, its user barred or deleted, its key revoked or its
- * creator barred. One batched lookup for all of them.
+ * creator barred — or whose tenant is no longer active (`tenantsStillActive`).
+ * One batched lookup for all of them.
  *
  * Closed, not trimmed: the client's reconnect meets the upgrade's 401. A lookup
  * that throws closes nothing and answers `true`, as `revalidateWsSubscriptions`
@@ -412,10 +414,15 @@ export async function closeUnauthenticatedWs(): Promise<boolean> {
   const conns = [...connections];
   if (conns.length === 0 || !wsDb) return false;
   let found: Awaited<ReturnType<typeof stillAuthenticated<RealtimePrincipal>>>;
+  let tenantActive: (tenantId: string | null) => boolean;
   try {
     found = await stillAuthenticated(
       wsDb,
       conns.flatMap(([, c]) => (c.principal ? [c.principal] : [])),
+    );
+    tenantActive = await tenantsStillActive(
+      wsDb,
+      conns.map(([, c]) => c.tenantId),
     );
   } catch (err) {
     console.error('[ws] principal recheck failed; retrying:', err);
@@ -423,7 +430,7 @@ export async function closeUnauthenticatedWs(): Promise<boolean> {
   }
   let failed = false;
   for (const [connId, conn] of conns) {
-    if (!conn.principal || !found.live.has(conn.principal)) {
+    if (!conn.principal || !found.live.has(conn.principal) || !tenantActive(conn.tenantId)) {
       // Out of the registry first, so no event reaches it while the close runs.
       cleanupSocket(conn.ws);
       try {
