@@ -95,6 +95,14 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
     `.execute(db);
     await sql`DELETE FROM ${sql.id(TABLE)} WHERE title = 'r2'`.execute(db);
 
+    // A replay takes what it applied out of the changelog, so the one under the
+    // swap's lock only reads what landed since.
+    expect(await GhostDDL.applyChangelog(db, migration)).toBe(3);
+    const left = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.id(migration.changelogTable)}`.execute(db);
+    expect(left.rows[0]?.n).toBe(0);
+    await sql`UPDATE ${sql.id(TABLE)} SET qty = 99 WHERE title = 'late'`.execute(db);
+
     const expected = await snapshot(false);
     expect(Object.keys(expected)).toHaveLength(3);
 

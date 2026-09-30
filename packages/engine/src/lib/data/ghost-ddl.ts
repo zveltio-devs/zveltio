@@ -38,6 +38,12 @@ export interface GhostMigration {
    */
   foreignKeys?: { add: string; validate: string }[];
   /**
+   * Each ghost index paired with the original index it was copied from. `LIKE`
+   * names the copies after the ghost table, and the table rename does not
+   * rename them; the swap gives each back its original name.
+   */
+  indexes?: { ghost: string; original: string }[];
+  /**
    * Which original column fills each ghost column, by name. The copy and the
    * changelog replay both go through it: positions shift under a DROP COLUMN and
    * names change under a RENAME, and a column the DDL added has no source here.
@@ -239,6 +245,28 @@ export class GhostDDL {
     // Named as the original's columns until the DDL runs; an attnum survives a
     // RENAME or a type change, so this is what maps the two afterwards.
     const born = new Map((await liveColumns(db, ghost)).map((c) => [c.attnum, c.attname]));
+    // Paired while both tables still have the same columns, so an index and its
+    // copy have the same definition. Identical duplicates pair in oid order;
+    // which of two identical indexes gets which name makes no difference.
+    const indexes = await sql<{ ghost: string; original: string }>`
+      WITH ix AS (
+        SELECT i.indrelid, c.relname::text AS name,
+               row_number() OVER (
+                 PARTITION BY i.indrelid, c.relam, i.indkey::text, i.indclass::text,
+                              i.indoption::text, i.indisunique, i.indisprimary,
+                              pg_get_expr(i.indexprs, i.indrelid), pg_get_expr(i.indpred, i.indrelid)
+                 ORDER BY i.indexrelid) AS n,
+               concat_ws('|', c.relam, i.indkey::text, i.indclass::text, i.indoption::text,
+                         i.indisunique, i.indisprimary,
+                         pg_get_expr(i.indexprs, i.indrelid), pg_get_expr(i.indpred, i.indrelid)) AS def
+        FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE i.indrelid IN (to_regclass(quote_ident(${tableName})), to_regclass(quote_ident(${ghost})))
+      )
+      SELECT g.name AS ghost, o.name AS original
+      FROM ix o JOIN ix g ON g.def = o.def AND g.n = o.n
+      WHERE o.indrelid = to_regclass(quote_ident(${tableName}))
+        AND g.indrelid = to_regclass(quote_ident(${ghost}))
+    `.execute(db);
 
     // LIKE copies no foreign keys. Attached BEFORE the DDL (NOT VALID, on an
     // empty table: instant) so a DROP or RENAME COLUMN removes or follows them
@@ -282,7 +310,13 @@ export class GhostDDL {
       return original === undefined ? [] : [{ ghost: c.attname, original }];
     });
 
-    // 3. Changelog table — captures all mutations during batch copy
+    // 3. Changelog table — captures all mutations during batch copy.
+    // One by this name can only be a finished run's, still waiting for its
+    // post-swap cleanup: a run in progress holds the ghost table, and this
+    // run's CREATE of that just succeeded. Left in place, it failed every
+    // second migration of a table within a minute of the first — a
+    // schema-branch merge touching two fields of the same large table.
+    await sql`DROP TABLE IF EXISTS ${sql.id(changelog)}`.execute(db);
     await sql`
       CREATE TABLE ${sql.id(changelog)} (
         id        BIGSERIAL PRIMARY KEY,
@@ -330,6 +364,7 @@ export class GhostDDL {
       changelogTable: changelog,
       triggerName: trigger,
       foreignKeys: fks.rows.map(({ add, validate }) => ({ add, validate })),
+      indexes: indexes.rows,
       columns,
     };
   }
@@ -473,6 +508,18 @@ export class GhostDDL {
       applied++;
     }
 
+    // Replayed entries leave the changelog, so the replay under the swap's lock
+    // reads only what landed since, not every write made during the copy. The
+    // ids read are exactly the ones committed and applied: an entry committed
+    // later is kept even with a lower id, and two entries for one row were
+    // serialized by its row lock, so their id order is their commit order.
+    if (changes.rows.length > 0) {
+      await sql`
+        DELETE FROM ${sql.id(migration.changelogTable)}
+        WHERE id = ANY(${changes.rows.map((c) => c.id)}::bigint[])
+      `.execute(db);
+    }
+
     return applied;
   }
 
@@ -498,6 +545,7 @@ export class GhostDDL {
     await GhostDDL.applyChangelog(db, migration);
 
     let carried: { step: number; ddl: string }[] = [];
+    let owned: [string, string | null][] = [];
 
     // Transaction with LOCK + atomic RENAME
     await db.transaction().execute(async (trx) => {
@@ -536,6 +584,10 @@ export class GhostDDL {
         migration.triggerName,
       );
 
+      // A previous swap's old copy, if its cleanup has not run yet: dead since
+      // that swap committed (see sweepGhostOrphans).
+      await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(trx);
+
       // Swap atomic: original → old, ghost → original
       await sql
         .raw(`ALTER TABLE "${migration.originalTable}" RENAME TO "${oldTable}"`)
@@ -550,11 +602,40 @@ export class GhostDDL {
         .execute(trx);
       await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(trx);
 
+      // The old copy's index moves aside first, freeing its name — also when
+      // the DDL dropped the column its copy was on. Renaming an index renames
+      // the constraint it backs (primary key, unique) with it.
+      for (const ix of migration.indexes ?? []) {
+        const found = await sql<{ old: string | null; live: string | null }>`
+          SELECT to_regclass(quote_ident(${ix.original}))::oid::text AS old,
+                 to_regclass(quote_ident(${ix.ghost}))::text AS live
+        `.execute(trx);
+        const { old, live } = found.rows[0] ?? {};
+        if (old) {
+          await sql`ALTER INDEX ${sql.id(ix.original)} RENAME TO ${sql.id(`_zv_old_idx_${old}`)}`.execute(
+            trx,
+          );
+        }
+        if (live)
+          await sql`ALTER INDEX ${sql.id(ix.ghost)} RENAME TO ${sql.id(ix.original)}`.execute(trx);
+      }
+
       // Inside the transaction: a statement that no longer fits the new columns
       // (a policy naming a dropped or renamed column) rolls the swap back rather
       // than committing a table without its triggers, RLS, policies or grants.
       for (const { step, ddl } of carried) if (step < 100) await sql.raw(ddl).execute(trx);
       for (const fk of migration.foreignKeys ?? []) await sql.raw(fk.add).execute(trx);
+
+      // What the cleanup may drop, by oid: a later run on this table reuses both
+      // names, and a drop by name would take that run's changelog mid-copy.
+      const ids = await sql<{ old: string | null; log: string | null }>`
+        SELECT to_regclass(quote_ident(${oldTable}))::oid::text AS old,
+               to_regclass(quote_ident(${migration.changelogTable}))::oid::text AS log
+      `.execute(trx);
+      owned = [
+        [oldTable, ids.rows[0]?.old ?? null],
+        [migration.changelogTable, ids.rows[0]?.log ?? null],
+      ];
     });
 
     // After commit, off the lock: a foreign key re-added NOT VALID is enforced
@@ -579,8 +660,17 @@ export class GhostDDL {
     const timer = setTimeout(async () => {
       _pendingCleanups.delete(timer);
       try {
-        await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(db);
+        await db.transaction().execute(async (trx) => {
+          for (const [name, oid] of owned) {
+            const at = sql<{ oid: string | null }>`
+              SELECT to_regclass(quote_ident(${name}))::oid::text AS oid`;
+            if (!oid || (await at.execute(trx)).rows[0]?.oid !== oid) continue;
+            // Locked, then checked again: the name can only move before the lock.
+            await sql`LOCK TABLE ${sql.id(name)} IN ACCESS EXCLUSIVE MODE`.execute(trx);
+            if ((await at.execute(trx)).rows[0]?.oid !== oid) continue;
+            await sql`DROP TABLE ${sql.id(name)}`.execute(trx);
+          }
+        });
       } catch (err) {
         // Not fatal — a background timer has nobody to throw to — but silence
         // is what let these accumulate unnoticed. `sweepGhostOrphans` reclaims
