@@ -165,7 +165,7 @@ These are enforced in review. Skim before writing code:
 
 Found a vulnerability? **Don't open a public issue.** Email
 `security@zveltio.com`. We respond within 48 h on business days. See
-[`docs/platform/security-model.md`](docs/platform/security-model.md) for the disclosure policy.
+[`SECURITY.md`](SECURITY.md) for the disclosure policy.
 
 ## Licence
 
