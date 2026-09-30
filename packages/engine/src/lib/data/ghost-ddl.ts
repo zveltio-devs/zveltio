@@ -31,6 +31,94 @@ export interface GhostMigration {
   ghostTable: string;
   changelogTable: string;
   triggerName: string;
+  /**
+   * The ghost's outbound foreign keys, detached for the copy and re-added at the
+   * swap: `add` runs inside the swap transaction, `validate` after it commits.
+   */
+  foreignKeys?: { add: string; validate: string }[];
+}
+
+/**
+ * What `CREATE TABLE … (LIKE … INCLUDING ALL)` does not copy, as statements that
+ * recreate it on the ghost once the ghost has taken the original's name.
+ *
+ * Read from the catalog inside the swap transaction, under the lock, so a policy
+ * or trigger changed while the copy ran is carried in its current form. Every
+ * statement is built by Postgres (`format('%I')`, `pg_get_triggerdef`,
+ * `pg_get_expr`) and names the table by the original's name, which at execution
+ * time is the ghost's. The grants are mirrored exactly — REVOKE what the ghost
+ * got from default privileges, then GRANT what the original held — because a
+ * privilege revoked on the original would otherwise come back.
+ *
+ * `step >= 100` is the post-commit half: validating the re-pointed inbound
+ * foreign keys, which are re-added NOT VALID so the lock never waits on a scan.
+ */
+async function carriedOverDdl(
+  db: Database,
+  table: string,
+  ghost: string,
+  changelogTrigger: string,
+): Promise<{ step: number; ddl: string }[]> {
+  const r = await sql<{ step: number; ddl: string }>`
+    WITH o AS (
+      SELECT c.oid, c.relname, c.relowner, c.relrowsecurity, c.relforcerowsecurity,
+             coalesce(c.relacl, acldefault('r', c.relowner)) AS acl
+      FROM pg_class c WHERE c.oid = to_regclass(quote_ident(${table}))
+    ), g AS (
+      SELECT coalesce(c.relacl, acldefault('r', c.relowner)) AS acl
+      FROM pg_class c WHERE c.oid = to_regclass(quote_ident(${ghost}))
+    ), inbound AS (
+      SELECT k.* FROM o JOIN pg_constraint k
+        ON k.confrelid = o.oid AND k.conrelid <> o.oid AND k.contype = 'f'
+    )
+    SELECT 1 AS step, format('REVOKE ALL ON %I FROM %s', o.relname,
+             CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END) AS ddl
+      FROM o, g, aclexplode(g.acl) a GROUP BY o.relname, a.grantee
+    UNION ALL
+    SELECT 2, format('ALTER TABLE %I OWNER TO %I', o.relname, pg_get_userbyid(o.relowner)) FROM o
+    UNION ALL
+    SELECT 3, format('GRANT %s ON %I TO %s%s', a.privilege_type, o.relname,
+             CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END,
+             CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END)
+      FROM o, aclexplode(o.acl) a
+    UNION ALL
+    SELECT 4, format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', o.relname) FROM o WHERE o.relrowsecurity
+    UNION ALL
+    SELECT 4, format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', o.relname) FROM o WHERE o.relforcerowsecurity
+    UNION ALL
+    SELECT 5, format('CREATE POLICY %I ON %I AS %s FOR %s TO %s%s%s', p.polname, o.relname,
+             CASE WHEN p.polpermissive THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END,
+             CASE p.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE'
+                           WHEN 'd' THEN 'DELETE' ELSE 'ALL' END,
+             (SELECT string_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r)) END, ', ')
+                FROM unnest(p.polroles) r),
+             ' USING (' || pg_get_expr(p.polqual, p.polrelid) || ')',
+             ' WITH CHECK (' || pg_get_expr(p.polwithcheck, p.polrelid) || ')')
+      FROM o JOIN pg_policy p ON p.polrelid = o.oid
+    UNION ALL
+    SELECT 6, pg_get_triggerdef(t.oid)
+      FROM o JOIN pg_trigger t ON t.tgrelid = o.oid
+      WHERE NOT t.tgisinternal AND t.tgname <> ${changelogTrigger}
+    UNION ALL
+    SELECT 7, format('ALTER TABLE %I %s TRIGGER %I', o.relname,
+             CASE t.tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'R' THEN 'ENABLE REPLICA' ELSE 'ENABLE ALWAYS' END,
+             t.tgname)
+      FROM o JOIN pg_trigger t ON t.tgrelid = o.oid
+      WHERE NOT t.tgisinternal AND t.tgname <> ${changelogTrigger} AND t.tgenabled <> 'O'
+    UNION ALL
+    -- Inbound foreign keys are bound to the original by oid, so after the rename
+    -- they would guard the old copy and pin it against the post-swap DROP.
+    SELECT 8, format('ALTER TABLE %s DROP CONSTRAINT %I', k.conrelid::regclass, k.conname) FROM inbound k
+    UNION ALL
+    SELECT 9, format('ALTER TABLE %s ADD CONSTRAINT %I %s%s', k.conrelid::regclass, k.conname,
+             pg_get_constraintdef(k.oid), CASE WHEN k.convalidated THEN ' NOT VALID' ELSE '' END)
+      FROM inbound k
+    UNION ALL
+    SELECT 100, format('ALTER TABLE %s VALIDATE CONSTRAINT %I', k.conrelid::regclass, k.conname)
+      FROM inbound k WHERE k.convalidated
+    ORDER BY step
+  `.execute(db);
+  return r.rows;
 }
 
 /**
@@ -80,6 +168,9 @@ export function isAllowedGhostDdl(statement: string): boolean {
 // trigger and its function are all that name plus a literal prefix, and the
 // `migration` record carried between steps holds those same four strings.
 //
+// The other `sql.raw` inputs are statements Postgres itself built from the
+// catalog (`format('%I')`, `pg_get_*def`) — see carriedOverDdl.
+//
 // Whole-file rather than nineteen separate annotations: this is one pipeline
 // from one input, and marking each statement would say the same sentence
 // nineteen times.
@@ -113,6 +204,17 @@ export class GhostDDL {
     // 1. Create ghost table with same structure (including indexes, constraints)
     await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
 
+    // LIKE copies no foreign keys. Attached BEFORE the DDL (NOT VALID, on an
+    // empty table: instant) so a DROP or RENAME COLUMN removes or follows them
+    // exactly as it would on the original.
+    const outbound = await sql<{ ddl: string }>`
+      SELECT format('ALTER TABLE %I ADD CONSTRAINT %I %s%s', ${ghost}::text, k.conname,
+               pg_get_constraintdef(k.oid), CASE WHEN k.convalidated THEN ' NOT VALID' ELSE '' END) AS ddl
+      FROM pg_constraint k
+      WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype = 'f'
+    `.execute(db);
+    for (const { ddl } of outbound.rows) await sql.raw(ddl).execute(db);
+
     // 2. Apply DDL changes on ghost — see isAllowedGhostDdl.
     for (const ddl of ddlStatements) {
       const trimmed = ddl.trim();
@@ -123,6 +225,20 @@ export class GhostDDL {
         );
       }
       await sql.raw(`ALTER TABLE "${ghost}" ${trimmed}`).execute(db);
+    }
+
+    // …and detached again for the copy, which inserts in id order and would
+    // trip a self-reference to a row not yet copied. Re-added at the swap.
+    const fks = await sql<{ name: string; add: string; validate: string }>`
+      SELECT k.conname AS name,
+             format('ALTER TABLE %I ADD CONSTRAINT %I %s', ${tableName}::text, k.conname,
+               pg_get_constraintdef(k.oid)) AS add,
+             format('ALTER TABLE %I VALIDATE CONSTRAINT %I', ${tableName}::text, k.conname) AS validate
+      FROM pg_constraint k
+      WHERE k.conrelid = to_regclass(quote_ident(${ghost})) AND k.contype = 'f'
+    `.execute(db);
+    for (const { name } of fks.rows) {
+      await sql`ALTER TABLE ${sql.id(ghost)} DROP CONSTRAINT ${sql.id(name)}`.execute(db);
     }
 
     // 3. Changelog table — captures all mutations during batch copy
@@ -172,6 +288,7 @@ export class GhostDDL {
       ghostTable: ghost,
       changelogTable: changelog,
       triggerName: trigger,
+      foreignKeys: fks.rows.map(({ add, validate }) => ({ add, validate })),
     };
   }
 
@@ -338,6 +455,8 @@ export class GhostDDL {
     // Apply last changelog entries before swap (between last batchCopy and LOCK)
     await GhostDDL.applyChangelog(db, migration);
 
+    let carried: { step: number; ddl: string }[] = [];
+
     // Transaction with LOCK + atomic RENAME
     await db.transaction().execute(async (trx) => {
       // SHARE ROW EXCLUSIVE: blocks INSERT/UPDATE/DELETE, allows SELECT
@@ -349,6 +468,14 @@ export class GhostDDL {
       // the last applyChangelog above and the LOCK moment
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       await GhostDDL.applyChangelog(trx as any, migration);
+
+      // Read before the rename, run after it — see carriedOverDdl.
+      carried = await carriedOverDdl(
+        trx,
+        migration.originalTable,
+        migration.ghostTable,
+        migration.triggerName,
+      );
 
       // Swap atomic: original → old, ghost → original
       await sql
@@ -363,7 +490,31 @@ export class GhostDDL {
         .raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${oldTable}"`)
         .execute(trx);
       await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(trx);
+
+      // Inside the transaction: a statement that no longer fits the new columns
+      // (a policy naming a dropped or renamed column) rolls the swap back rather
+      // than committing a table without its triggers, RLS, policies or grants.
+      for (const { step, ddl } of carried) if (step < 100) await sql.raw(ddl).execute(trx);
+      for (const fk of migration.foreignKeys ?? []) await sql.raw(fk.add).execute(trx);
     });
+
+    // After commit, off the lock: a foreign key re-added NOT VALID is enforced
+    // for every new write already; validating only re-checks the copied rows.
+    const validations = [
+      ...carried.filter((c) => c.step >= 100).map((c) => c.ddl),
+      ...(migration.foreignKeys ?? []).map((fk) => fk.validate),
+    ];
+    for (const ddl of validations) {
+      try {
+        await sql.raw(ddl).execute(db);
+      } catch (err) {
+        console.warn(
+          `[ghost-ddl] ${ddl} failed after the swap; the constraint is in place and enforced ` +
+            `for new writes but stays NOT VALID:`,
+          (err as Error).message,
+        );
+      }
+    }
 
     // Cleanup async after 60s (safety net — doesn't block response)
     const timer = setTimeout(async () => {

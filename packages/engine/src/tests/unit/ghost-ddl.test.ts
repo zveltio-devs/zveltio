@@ -37,7 +37,7 @@ describe('createGhost', () => {
       'DROP COLUMN fax',
     ]);
 
-    expect(m).toEqual(MIGRATION);
+    expect(m).toEqual({ ...MIGRATION, foreignKeys: [] });
     expect(
       db.executed(/CREATE TABLE "_zv_ghost_zvd_orders" \(LIKE "zvd_orders" INCLUDING ALL\)/),
     ).toHaveLength(1);
