@@ -1,4 +1,4 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import type { Kysely, RawBuilder } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
@@ -36,6 +36,12 @@ export {
 export interface RlsFilter {
   readonly field: string;
   readonly condition: { readonly op: string; readonly value?: unknown };
+}
+
+/** What the data API answered a `ctx.internals` write: its HTTP status and JSON body. */
+export interface DataApiAnswer {
+  status: number;
+  body: Record<string, unknown>;
 }
 
 /** What `ctx.internals.readScope` resolves: one caller's read gate on one collection. */
@@ -547,6 +553,30 @@ export interface ExtensionInternals<DB = unknown> {
     user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
     authType: 'session' | 'api_key',
   ) => Promise<ReadScope>;
+  /**
+   * Write one record exactly as `POST /api/data/:collection` does — access check,
+   * column permissions, hooks, then revision, webhooks, flows and realtime — and
+   * answer with that route's status and JSON body (201 and the row on success).
+   *
+   * Acts as the caller the engine authenticated for `c`, the handler's own
+   * request context: session or API key, with the key's scopes and authorship.
+   * There is no way to name another identity. Throws outside that request (a
+   * job, a listener, a context kept from an earlier request). Needs `data:write`.
+   */
+  createRecord: (
+    c: Context,
+    collection: string,
+    data: Record<string, unknown>,
+  ) => Promise<DataApiAnswer>;
+  /** `PATCH /api/data/:collection/:id`, as `createRecord`: 404 for a row the caller cannot see, 403 for one they may not change. */
+  updateRecord: (
+    c: Context,
+    collection: string,
+    id: string,
+    data: Record<string, unknown>,
+  ) => Promise<DataApiAnswer>;
+  /** `DELETE /api/data/:collection/:id`, as `updateRecord`. */
+  deleteRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
   /** Is this user an administrator of the current tenant? */
   /**
    * The tenant to add as an explicit `tenant_id =` beside the RLS policy, or

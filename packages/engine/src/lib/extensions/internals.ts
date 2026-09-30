@@ -14,7 +14,7 @@ import type { Context } from 'hono';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
-import type { RlsFilter } from '@zveltio/sdk/extension';
+import type { DataApiAnswer, RlsFilter } from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -53,7 +53,9 @@ import {
 import { runEdgeFunction } from '../edge-function-runner.js';
 import { withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
-import { checkAccess, readScope } from '../data/index.js';
+import { checkAccess, dataApiWrite, readScope } from '../data/index.js';
+import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
+import { createRequestScopedDb } from '../tenancy/index.js';
 import type { ReadScope } from '../data/index.js';
 import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
@@ -273,6 +275,32 @@ export interface ExtensionInternals {
     authType: 'session' | 'api_key',
   ) => Promise<ReadScope>;
   /**
+   * The data API's own single-record writes — `POST`, `PATCH` and `DELETE
+   * /api/data/:collection[/:id]` — answering with that route's status and body.
+   * Access check, column permissions, row policies, extension alters, entity
+   * access, hooks and `afterWrite` (revision, webhooks, flows, realtime) are the
+   * handler's, not a copy.
+   *
+   * They act as whoever the `/ext/*` gate admitted for `c` — session or API key,
+   * with that key's scopes and authorship. There is no identity parameter: the
+   * identity is the gate's, recorded before the extension ran. A context that is
+   * not the running request's (a job, a listener, a forged object, one kept from
+   * an earlier request) is refused; there is no default caller. Gated
+   * `data:write`, unlike `readScope`, because a write is authority.
+   */
+  createRecord: (
+    c: unknown,
+    collection: string,
+    data: Record<string, unknown>,
+  ) => Promise<DataApiAnswer>;
+  updateRecord: (
+    c: unknown,
+    collection: string,
+    id: string,
+    data: Record<string, unknown>,
+  ) => Promise<DataApiAnswer>;
+  deleteRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
+  /**
    * The tenant to add as an explicit `tenant_id =` beside the policy, or `null`
    * when one must not be added.
    *
@@ -420,6 +448,38 @@ export interface ExtensionInternals {
   setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
 }
 
+/** One data API write, as the caller the `/ext/*` gate admitted for `c`. */
+function writeAsCaller(op: 'create' | 'update' | 'delete') {
+  return async (
+    c: unknown,
+    collection: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<DataApiAnswer> => {
+    const p = gatePrincipal(c);
+    if (!p) {
+      throw new Error(
+        `ctx.internals.${op}Record: pass the request context \`c\` of the /ext/* request ` +
+          'being handled. Writes act as the caller that request authenticated; outside ' +
+          'one there is no caller, so there is no write.',
+      );
+    }
+    const res = await dataApiWrite(op, c as Context, createRequestScopedDb(getDb()), {
+      collection,
+      id,
+      body: async () => data,
+      user: p.user,
+      authType: p.authType,
+      trx: p.trx,
+      tenantId: p.tenantId,
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+}
+const createAsCaller = writeAsCaller('create');
+const updateAsCaller = writeAsCaller('update');
+const deleteAsCaller = writeAsCaller('delete');
+
 /**
  * Build the `ctx.internals` object passed to every extension. All helpers are
  * statically imported above and already linked into the engine binary — building
@@ -466,6 +526,10 @@ export function buildExtensionInternals(): ExtensionInternals {
     resolveUserRole,
     // The host picks the handle, as for `getColumnAccess`.
     readScope: (collection, user, authType) => readScope(getDb(), collection, user, authType),
+    // Fixed arity: anything an extension passes past these is never read.
+    createRecord: (c, collection, data) => createAsCaller(c, collection, '', data),
+    updateRecord: (c, collection, id, data) => updateAsCaller(c, collection, id, data),
+    deleteRecord: (c, collection, id) => deleteAsCaller(c, collection, id, {}),
     getUserNames,
     getSingleTenantId,
     isTenantAdmin,

@@ -290,6 +290,7 @@ your `ctx`, not inside your own code.
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — sign in any user who is not deactivated (optionally ending their other sessions). |
 | `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive` — delete any user, end their sessions, or block and restore their sign-in. |
+| `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `notifications` | `sendNotification`. |
 | `files` | `moveToTrash`. |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |

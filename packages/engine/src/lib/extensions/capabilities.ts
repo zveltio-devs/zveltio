@@ -36,7 +36,7 @@
  * The manifest may pin `capabilityContract` to refuse loading against an engine
  * that speaks a different major version.
  */
-export const CAPABILITY_CONTRACT_VERSION = 2; // 2: `auth:users`
+export const CAPABILITY_CONTRACT_VERSION = 3; // 2: `auth:users`, 3: `data:write`
 
 /**
  * Every capability an extension may declare.
@@ -64,6 +64,13 @@ export const CAPABILITIES = [
    * out of reach of `ctx.db`, so this is the only way an extension can do it.
    */
   'auth:users',
+  /**
+   * Write collection records through the data API's own path, as the request's
+   * caller (`createRecord` / `updateRecord` / `deleteRecord`). Declared because
+   * a write is authority even when it is the caller's own: review sees which
+   * extensions write user data on a user's behalf.
+   */
+  'data:write',
   /** Send notifications to users. */
   'notifications',
   /** Read/extract from stored files, move to trash, schedule indexing. */
@@ -179,6 +186,10 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   deleteUser: 'auth:users',
   revokeUserSessions: 'auth:users',
   setUserActive: 'auth:users',
+  // Collection records, as the request's caller
+  createRecord: 'data:write',
+  updateRecord: 'data:write',
+  deleteRecord: 'data:write',
   // Messaging
   sendNotification: 'notifications',
   // Files
