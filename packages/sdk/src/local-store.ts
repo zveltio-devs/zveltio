@@ -310,6 +310,30 @@ export class LocalStore {
     await this.db.delete('records', [collection, id]);
   }
 
+  /**
+   * Drop every copy the server confirmed, keeping local edits not yet pushed
+   * (`pending`) and unresolved `conflict`s. For a pull that restarts a
+   * collection from nothing: a synced row it does not send again is gone.
+   */
+  async dropSynced(collection: string): Promise<void> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    const tx = this.db.transaction('records', 'readwrite');
+    for (const r of (await tx.store.index('by-collection').getAll(collection)) as LocalRecord[]) {
+      if (r._syncStatus === 'synced') await tx.store.delete([collection, r.id]);
+    }
+    await tx.done;
+  }
+
+  async getMeta<T>(key: string): Promise<T | undefined> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    return (await this.db.get('meta', key))?.value as T | undefined;
+  }
+
+  async setMeta(key: string, value: unknown): Promise<void> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    await this.db.put('meta', { key, value });
+  }
+
   /** Get records with conflicts for UI resolution */
   async getConflicts(collection?: string): Promise<LocalRecord[]> {
     if (!this.db) throw new Error('LocalStore not opened');
