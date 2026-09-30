@@ -12,6 +12,7 @@ const MIGRATION = {
   ghostTable: '_zv_ghost_zvd_orders',
   changelogTable: '_zv_changelog_zvd_orders',
   triggerName: '_zv_trg_ghost_zvd_orders',
+  columns: [{ ghost: 'id', original: 'id' }],
 };
 
 function asDb(db: CannedDb): Database {

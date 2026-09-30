@@ -12,6 +12,7 @@ const MIGRATION = {
   ghostTable: '_zv_ghost_zvd_widgets',
   changelogTable: '_zv_changelog_zvd_widgets',
   triggerName: '_zv_trg_ghost_zvd_widgets',
+  columns: [],
 };
 
 function asDb(db: CannedDb): Database {
@@ -25,6 +26,8 @@ afterEach(() => {
 describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
   it('runs the deferred DROP TABLE cleanup when the timer fires', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/FROM "_zv_changelog_zvd_widgets"/, []);
 
     let captured: (() => void) | null = null;
@@ -48,6 +51,8 @@ describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
 
   it('swallows errors during deferred cleanup without throwing', async () => {
     const db = new CannedDb();
+    // The swap refuses unless the ghost holds as many rows as the original.
+    db.when(/AS original_rows/, [{ original_rows: '0', ghost_rows: '0' }]);
     db.when(/FROM "_zv_changelog_zvd_widgets"/, []);
     db.fail(/DROP TABLE IF EXISTS "_zv_old_zvd_widgets"/, new Error('drop blocked'));
 
