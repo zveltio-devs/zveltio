@@ -309,6 +309,20 @@ RLS on a non-superuser owner does not hide the target's rows. It deletes only
 tenant's row references one of the target's rows, since that key's `ON DELETE`
 would change or delete it with RLS out of the way.
 
+A purge keeps every `user` row: its members lose the membership and the grants
+in its domain, not their account. `delete_users=true` (query or JSON body,
+purge only) also deletes, through the same `deleteUser` as `DELETE
+/api/users/:id` — sessions, API keys revoked, grants in every domain, a
+`user.deleted` audit row — each member left with **no membership in any tenant
+and no Casbin rule outside the purged domain**. A membership in an archived
+tenant counts (archiving is reversible), and so does any grant: the default
+tenant has no membership row, so a grant is what tells its users apart from an
+empty account. Never deleted: the requester, god, an instance admin. It runs in
+the purge's transaction, one savepoint per user; the answer adds
+`users: { deleted: [id], kept: [{ id, reason }], failed: [{ id, error }] }`,
+`reason` one of `self`, `god`, `instance_admin`, `other_tenant`, `other_grants`.
+A failed user has already lost their sessions and grants and keeps the row.
+
 ---
 
 ## 6. The TWO things called "RLS" — the largest source of confusion
@@ -461,6 +475,7 @@ tests/harness/second-reservation.test.ts            no request takes a second co
 tests/harness/unique-keys-tenant-scoped.test.ts     no unique key without tenant_id
 tests/harness/*tenant-isolation*.test.ts            per table and per route
 tests/harness/tenant-purge.test.ts                  a purge leaves no row of the tenant, and every other tenant's
+tests/harness/tenant-purge-users.test.ts            delete_users removes only the members left with nothing
 ```
 
 The claims worth trying to break:

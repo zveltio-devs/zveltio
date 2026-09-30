@@ -54,6 +54,8 @@ let deletingTenant = $state<{ id: string; name: string; slug: string; status: st
 );
 let deleteMode = $state<'archive' | 'purge'>('archive');
 let deleteConfirm = $state('');
+// Also delete the accounts left in no tenant. Off by default: an explicit choice.
+let deleteUsers = $state(false);
 let deleteBusy = $state(false);
 let deleteError = $state('');
 
@@ -131,6 +133,7 @@ function openDelete(tenant: { id: string; name: string; slug: string; status: st
   deletingTenant = tenant;
   deleteMode = tenant.status === 'deleted' ? 'purge' : 'archive';
   deleteConfirm = '';
+  deleteUsers = false;
   deleteError = '';
 }
 
@@ -142,15 +145,19 @@ async function deleteTenant() {
   try {
     const query =
       deleteMode === 'purge'
-        ? `mode=purge&confirm=${encodeURIComponent(deleteConfirm)}`
+        ? `mode=purge&confirm=${encodeURIComponent(deleteConfirm)}${deleteUsers ? '&delete_users=true' : ''}`
         : 'mode=archive';
     const res = await api.delete<{
       deleted?: Record<string, number>;
       files?: { deleted: number };
+      users?: { deleted: string[] };
     }>(`/api/tenants/${tenant.id}?${query}`);
     if (deleteMode === 'purge') {
       const rows = Object.values(res?.deleted ?? {}).reduce((a, n) => a + n, 0);
       toast.success(m['tenants.deletePurged']({ rows, files: res?.files?.deleted ?? 0 }));
+      if (res?.users) {
+        toast.success(m['tenants.deletedUsers']({ count: res.users.deleted.length }));
+      }
     } else {
       toast.success(m['tenants.deleteArchived']());
     }
@@ -720,6 +727,18 @@ async function createEnvironment() {
  bind:value={deleteConfirm}
  />
  </div>
+ <label class="flex gap-3 items-start cursor-pointer">
+ <input
+ id="delete-users"
+ type="checkbox"
+ class="checkbox checkbox-sm checkbox-error mt-1"
+ bind:checked={deleteUsers}
+ />
+ <span>
+ <span class="font-medium">{m['tenants.deleteUsers']()}</span>
+ <span class="block text-sm opacity-60">{m['tenants.deleteUsersHint']()}</span>
+ </span>
+ </label>
  {/if}
  </div>
 

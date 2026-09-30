@@ -15,12 +15,15 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { getAuth, revokeAllUserSessions } from './auth.js';
+import { withSavepoint } from './savepoint.js';
 import { isSignInBlocked, SignInBlockedError } from './security/index.js';
 import {
   getCurrentTenantTrx,
   getEnforcer,
   invalidateUserPermCache,
+  isGodUser,
   onAfterCommit,
+  requireInstanceAdmin,
 } from './tenancy/index.js';
 
 /**
@@ -106,6 +109,80 @@ export async function deleteUser(
     metadata: { ...(who.actor ? { actor: who.actor } : {}), reason: who.reason, ...who.metadata },
   });
   return true;
+}
+
+/** Why a purged tenant's member kept their account. */
+export type KeptReason = 'self' | 'god' | 'instance_admin' | 'other_tenant' | 'other_grants';
+
+export interface TenantlessUsers {
+  deleted: string[];
+  kept: { id: string; reason: KeptReason }[];
+  failed: { id: string; error: string }[];
+}
+
+/**
+ * After a tenant purge: delete the accounts of its members that belong nowhere
+ * else now, each through `deleteUser`. Kept: the requester, god, an instance
+ * admin, a member of any other tenant (archived included — archiving is
+ * undone by one PATCH), and anyone holding a Casbin rule outside the purged
+ * domain — the default tenant has no membership row, a grant is how a user of
+ * it is told apart from an empty account.
+ *
+ * On `db`, the purge's transaction when there is one; one savepoint per user,
+ * so a failure is reported and the others go on. The sessions and grants
+ * `deleteUser` removes first are not transactional: a failed user is left
+ * unable to sign in, never deleted and still able to.
+ */
+export async function deleteTenantlessUsers(
+  db: Database,
+  poolDb: Database,
+  tenant: { id: string; slug: string },
+  memberIds: string[],
+  requesterId: string,
+): Promise<TenantlessUsers> {
+  const out: TenantlessUsers = { deleted: [], kept: [], failed: [] };
+  const e = await getEnforcer();
+  const settle = async (trx: Database, id: string): Promise<KeptReason | 'deleted' | null> => {
+    if (id === requesterId) return 'self';
+    if (await isGodUser(id)) return 'god';
+    if (await requireInstanceAdmin(id)) return 'instance_admin';
+    // Locked before the membership read: an insert into zv_tenant_users takes
+    // KEY SHARE on this row, so it either committed already and is seen below,
+    // or waits for our commit and then fails its foreign key.
+    const row = await sql`SELECT 1 FROM "user" WHERE id = ${id} FOR UPDATE`.execute(trx);
+    if (row.rows.length === 0) return null;
+    const member = await sql`SELECT 1 FROM zv_tenant_users WHERE user_id = ${id} LIMIT 1`.execute(
+      trx,
+    );
+    if (member.rows.length) return 'other_tenant';
+    const roles = (await e.getFilteredGroupingPolicy(0, id)).filter((r) => r[2] !== tenant.id);
+    const rules = (await e.getFilteredPolicy(0, id)).filter((r) => r[1] !== tenant.id);
+    if (roles.length || rules.length) return 'other_grants';
+    const gone = await deleteUser(trx, poolDb, id, {
+      actorUserId: requesterId,
+      reason: 'tenant_purge',
+      metadata: { tenant_id: tenant.id, tenant_slug: tenant.slug },
+    });
+    return gone ? 'deleted' : null;
+  };
+  await db.transaction().execute(async (trx) => {
+    for (const id of memberIds) {
+      const r = await withSavepoint(
+        trx,
+        'zv_purge_user',
+        () => settle(trx, id),
+        (err) => {
+          // The FOR UPDATE check inside `deleteUser` — a promotion that raced ours.
+          if (err instanceof ProtectedUserError) return 'god' as const;
+          out.failed.push({ id, error: (err as Error)?.message ?? String(err) });
+          return null;
+        },
+      );
+      if (r === 'deleted') out.deleted.push(id);
+      else if (r) out.kept.push({ id, reason: r });
+    }
+  });
+  return out;
 }
 
 /** End every session `userId` has (but `exceptToken`), in the database and the

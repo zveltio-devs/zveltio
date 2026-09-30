@@ -22,6 +22,7 @@ import {
   type TenantPurgeResult,
 } from '../lib/tenancy/index.js';
 import { getStorage } from '../lib/storage/index.js';
+import { deleteTenantlessUsers, type TenantlessUsers } from '../lib/users.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,
@@ -65,13 +66,18 @@ const CreateEnvironmentSchema = z.object({
 const DeleteTenantSchema = z.object({
   mode: z.enum(['archive', 'purge']),
   confirm: z.string().optional(),
+  // A query string carries text; a JSON body may carry either.
+  delete_users: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
 });
 
 /** Thrown inside the create transaction so the tenant insert rolls back. */
 class MissingTenantAdminError extends Error {}
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function tenantsRoutes(db: Database, auth: any): Hono {
+export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
   const router = new Hono();
 
   // Auth guard
@@ -299,6 +305,9 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   //   slug. Every row it owns and the tenant row go in one transaction
   //   (lib/tenancy/tenant-purge.ts); its media objects after the commit, where a
   //   failure is reported and not fatal — the rows naming them are already gone.
+  //   `delete_users=true` also deletes the members left in no tenant and with no
+  //   grant outside it (lib/users.ts `deleteTenantlessUsers`), in the same
+  //   transaction, one savepoint per user.
   router.delete('/:id', async (c) => {
     const user = c.get('user' as never) as { id: string };
     if (!(await isGodUser(user.id))) return c.json({ error: 'Forbidden' }, 403);
@@ -307,9 +316,21 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     const parsed = DeleteTenantSchema.safeParse({
       mode: c.req.query('mode') ?? body.mode,
       confirm: c.req.query('confirm') ?? body.confirm,
+      delete_users: c.req.query('delete_users') ?? body.delete_users,
     });
     if (!parsed.success) {
-      return c.json({ error: "mode must be 'archive' or 'purge'" }, 400);
+      const onFlag = parsed.error.issues.some((i) => i.path[0] === 'delete_users');
+      return c.json(
+        {
+          error: onFlag
+            ? 'delete_users must be true or false'
+            : "mode must be 'archive' or 'purge'",
+        },
+        400,
+      );
+    }
+    if (parsed.data.delete_users && parsed.data.mode !== 'purge') {
+      return c.json({ error: 'delete_users applies to mode=purge only' }, 400);
     }
     if (id === DEFAULT_TENANT_ID) {
       return c.json({ error: 'The default tenant cannot be archived or purged.' }, 409);
@@ -379,6 +400,11 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       await invalidateTenantCache(slug, id, memberId);
     }
 
+    let users: TenantlessUsers | undefined;
+    if (parsed.data.delete_users) {
+      users = await deleteTenantlessUsers(db, poolDb, result.tenant, result.memberIds, user.id);
+    }
+
     await auditLog(db, {
       type: 'tenant.purged',
       userId: user.id,
@@ -390,6 +416,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
         dropped_schemas: result.droppedSchemas,
         files_deleted: files.deleted,
         files_failed: files.failed.length,
+        ...(users ? { deleted_users: users.deleted, users_failed: users.failed.length } : {}),
       },
     });
 
@@ -400,6 +427,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       dropped_schemas: result.droppedSchemas,
       files,
       warnings,
+      ...(users ? { users } : {}),
     });
   });
 
