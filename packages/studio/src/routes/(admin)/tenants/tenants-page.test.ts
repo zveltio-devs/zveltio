@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -13,12 +13,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * Removing a member also went straight through; it is the one destructive
  * action on this screen that asked nothing first.
  */
-const { del } = vi.hoisted(() => ({ del: vi.fn(async () => ({})) }));
+const { del, fixture } = vi.hoisted(() => ({
+  del: vi.fn(async () => ({})),
+  fixture: {
+    tenants: [{ id: 't1', name: 'Acme', slug: 'acme', status: 'active' }] as Record<
+      string,
+      string
+    >[],
+  },
+}));
 vi.mock('$lib/api.js', () => ({
   api: {
     get: vi.fn(async (path: string) => {
       if (path === '/api/tenants') {
-        return { tenants: [{ id: 't1', name: 'Acme', slug: 'acme', status: 'active' }] };
+        return { tenants: fixture.tenants };
       }
       if (path.endsWith('/environments')) return { environments: [] };
       if (path.endsWith('/members')) {
@@ -35,7 +43,11 @@ vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success
 
 import Page from './+page.svelte';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  del.mockClear();
+  fixture.tenants = [{ id: 't1', name: 'Acme', slug: 'acme', status: 'active' }];
+});
 
 describe('tenants — members table', () => {
   it('renders a member without throwing on the shadowed catalogue', async () => {
@@ -63,5 +75,59 @@ describe('tenants — members table', () => {
 
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
     expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('tenants — delete', () => {
+  const deleteButton = (c: HTMLElement) =>
+    c.querySelector('button[aria-label="Delete tenant"]') as HTMLButtonElement | null;
+  const actionButton = (label: RegExp) =>
+    [...document.querySelectorAll('.modal-action button')].find((b) =>
+      label.test(b.textContent ?? ''),
+    ) as HTMLButtonElement;
+
+  it('archives an active tenant; permanent deletion is not offered yet', async () => {
+    const { container } = render(Page);
+    await waitFor(() => expect(deleteButton(container)).not.toBeNull());
+    deleteButton(container)!.click();
+    await waitFor(() => expect(document.querySelector('.modal-open')).not.toBeNull());
+
+    const purge = document.querySelector('input[value="purge"]') as HTMLInputElement;
+    expect(purge.disabled).toBe(true);
+    actionButton(/Archive/).click();
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/api/tenants/t1?mode=archive'));
+  });
+
+  it('purges an archived tenant only once its slug is typed', async () => {
+    fixture.tenants = [{ id: 't1', name: 'Acme', slug: 'acme', status: 'deleted' }];
+    const { container } = render(Page);
+    await waitFor(() => expect(deleteButton(container)).not.toBeNull());
+    deleteButton(container)!.click();
+    await waitFor(() => expect(document.querySelector('#delete-confirm')).not.toBeNull());
+
+    const confirm = actionButton(/Delete permanently/);
+    expect(confirm.disabled).toBe(true);
+    await fireEvent.input(document.querySelector('#delete-confirm') as HTMLInputElement, {
+      target: { value: 'acme' },
+    });
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    confirm.click();
+    await waitFor(() =>
+      expect(del).toHaveBeenCalledWith('/api/tenants/t1?mode=purge&confirm=acme'),
+    );
+  });
+
+  it('offers no delete for the default tenant', async () => {
+    fixture.tenants = [
+      {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'Default',
+        slug: 'default',
+        status: 'active',
+      },
+    ];
+    const { container } = render(Page);
+    await waitFor(() => expect(document.body.textContent).toContain('Default'));
+    expect(deleteButton(container)).toBeNull();
   });
 });

@@ -63,7 +63,9 @@ export type AuditEventType =
   | 'tenant.updated'
   | 'tenant.member_added'
   | 'tenant.member_removed'
-  | 'tenant.rls_enabled';
+  | 'tenant.rls_enabled'
+  | 'tenant.archived'
+  | 'tenant.purged';
 
 export interface AuditEvent {
   type: AuditEventType;

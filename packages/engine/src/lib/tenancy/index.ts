@@ -12,3 +12,4 @@ export * from './column-permissions.js';
 export * from './permissions.js';
 export * from './resource-grants.js';
 export * from './denial.js';
+export * from './tenant-purge.js';

@@ -270,7 +270,8 @@ attack it first.
 ## 5. The hierarchy
 
 `zv_tenants.parent_id`, an adjacency list, with an anti-cycle trigger that also
-refuses depth beyond **64**. Units are not deleted: `closed_at` + `merged_into`.
+refuses depth beyond **64**. Units are closed, not deleted: `closed_at` +
+`merged_into`. Deleting one is an explicit god operation, below.
 
 A person's reach is `zv_tenant_users.read_scope`, with four values:
 
@@ -286,6 +287,27 @@ These are **grants, not filters**: someone with both `self` and `subtree` has
 resolved **once per request**, as the engine role, before the privilege
 descent — because `zv_tenant_users` must be read in order to learn what may be
 read.
+
+### Archiving and purging a tenant
+
+`DELETE /api/tenants/:id`, god only, `mode` in the query or a JSON body:
+
+- `mode=archive` sets `status = 'deleted'`. Nothing is removed and every request
+  for the tenant is refused; `PATCH` back to `active` undoes it. Children are not
+  archived with it — the answer lists them under `child_tenants`.
+- `mode=purge&confirm=<slug>` is accepted only for an archived tenant with no
+  child tenants (and no tenant merged into it). One transaction deletes the
+  tenant's rows from every `public` table with a `tenant_id` column — engine,
+  extension, collection and BYOD tables alike, junction tables through their
+  cascading keys — drops its `tenant_*` schemas, then the tenant row. Media
+  objects are deleted after the commit; a failure there is reported, not fatal.
+  The default tenant can be neither archived nor purged.
+
+The purge publishes every tenant's reach, as `withEveryTenant` does, so FORCE
+RLS on a non-superuser owner does not hide the target's rows. It deletes only
+`tenant_id = <target>` — never a child's or parent's — and refuses when another
+tenant's row references one of the target's rows, since that key's `ON DELETE`
+would change or delete it with RLS out of the way.
 
 ---
 
@@ -438,6 +460,7 @@ tests/harness/god-enforced-by-database.test.ts      god passes THROUGH the polic
 tests/harness/second-reservation.test.ts            no request takes a second connection
 tests/harness/unique-keys-tenant-scoped.test.ts     no unique key without tenant_id
 tests/harness/*tenant-isolation*.test.ts            per table and per route
+tests/harness/tenant-purge.test.ts                  a purge leaves no row of the tenant, and every other tenant's
 ```
 
 The claims worth trying to break:
