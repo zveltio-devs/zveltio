@@ -113,6 +113,18 @@ d('write paths map Postgres errors (in-process)', () => {
     expect(body.errors?.[0]).toContain('is still referenced by');
   });
 
+  it('a bulk delete a foreign key refuses is 422, not 500', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ ids: [parentId] }),
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as { detail: string }).toMatchObject({
+      detail: 'foreign_key_violation',
+    });
+  });
+
   it('a duplicate inside a batch is 409, not 500', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',

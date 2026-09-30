@@ -148,6 +148,32 @@ d('dynamic write authorship (in-process)', () => {
     expect(afterEdit?.updated_by).not.toBe(atInsert!.updated_by);
   });
 
+  it('moves updated_by on a bulk update too', async () => {
+    // Fresh sessions: minting one takes god from the previous holder.
+    const authorCookie = await createGodSession(app, db);
+    const create = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { cookie: authorCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'bulk-before' }),
+    });
+    const created = (await create.json()) as { record?: { id: string }; id?: string };
+    const id = created.record?.id ?? created.id!;
+    const atInsert = await persisted(id);
+
+    const otherCookie = await createGodSession(app, db);
+    const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
+      method: 'PATCH',
+      headers: { cookie: otherCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [{ id, title: 'bulk-after' }] }),
+    });
+    expect(res.status).toBe(200);
+
+    const afterEdit = await persisted(id);
+    expect(afterEdit?.created_by).toBe(atInsert!.created_by);
+    expect(afterEdit?.updated_by).not.toBeNull();
+    expect(afterEdit?.updated_by).not.toBe(atInsert!.updated_by);
+  });
+
   // Authorship is engine-supplied, so a caller claiming to be someone else must
   // not win. This is the half the RESERVED filter was always right about, and
   // it has to keep holding now that the trusted values arrive by another route.
