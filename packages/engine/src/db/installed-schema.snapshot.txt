@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 388
+# tables: 389
 
 table account
   col accessToken                    text
@@ -3097,6 +3097,14 @@ table zv_storage_quotas
   fk  zv_storage_quotas_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
   rls enabled forced
   pol tenant_isolation_zv_storage_quotas FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+
+table zv_sync_tombstones
+  col collection                     text NOT NULL
+  col deleted_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col row_id                         uuid NOT NULL
+  col tenant_id                      uuid NOT NULL
+  rls enabled forced
+  pol tenant_isolation_zv_sync_tombstones FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_tenant_transfers
   col from_tenant                    uuid NOT NULL
