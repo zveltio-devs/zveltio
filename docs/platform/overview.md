@@ -68,9 +68,8 @@ filters; the headless engine and the business extensions on one database, one
 permission model and one audit trail; schema changes on live tables; signed
 extensions with worker isolation and declarative admin pages.
 
-Where it is not there yet: beta, with no SOC 2 or ISO 27001 certification; a
-small ecosystem of first-party extensions; a community-extension worker boundary
-that has not been adversarially tested.
+Where it is not there yet: beta, with no SOC 2 or ISO 27001 certification, and
+a small ecosystem of first-party extensions.
 
 ---
 

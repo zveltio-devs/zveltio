@@ -45,7 +45,7 @@ The engine ships with everything every business application needs. Activate plug
 | Capability | Details |
 |---|---|
 | **Dynamic Collections** | Schemaless tables created at runtime. No code-side migrations for routine schema changes. |
-| **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. Tenant isolation is enforced in the database (FORCE RLS keyed on a per-transaction GUC); the per-user row rules configured under `/api/admin/rls` are applied by the engine on **read** paths — they do not currently constrain updates or deletes. |
+| **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. Tenant isolation is enforced in the database (FORCE RLS keyed on a per-transaction GUC); the per-user row rules configured under `/api/admin/rls` apply to reads, updates and deletes alike. |
 | **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
 | **File storage** | Local filesystem by default, zero dependencies. Any S3-compatible backend optional (AWS, MinIO, R2, or the bundled SeaweedFS). |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
@@ -170,7 +170,6 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 
 - **Beta.** The extension API and marketplace flow are stable; engine internals and the Studio still move. No SOC 2 or ISO 27001 certification.
 - **Small ecosystem.** 56 first-party extensions; third-party submissions are reviewed by hand and the community is small.
-- **Limits of the isolation.** The worker boundary for community extensions has not been adversarially tested, the capability policy is enforced for WASM extensions only, and per-user row rules apply to reads, not to updates or deletes.
 
 ---
 
