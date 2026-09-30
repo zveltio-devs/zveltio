@@ -56,6 +56,13 @@ export interface ReadScope {
   admits(row: Record<string, unknown>): boolean | Promise<boolean>;
   /** Column permissions onto one row: the same row, minus the hidden columns. */
   shape<R extends Record<string, unknown>>(row: R): R;
+  /**
+   * Whether the caller may read this column — and so filter, sort or search on
+   * it. A predicate reads a column as surely as selecting it: with `shape` alone,
+   * `?filter={"secret":{"like":"a%"}}` and a row count gave the hidden value
+   * back one character at a time.
+   */
+  readable(column: string): boolean;
 }
 
 /**
@@ -101,6 +108,7 @@ export async function readScope(
       return entityAccessRegistry.hasChecksFor(table) ? viewable(row) : true;
     },
     shape: (row) => applyColumnAccess(row, columns) as typeof row,
+    readable: (column) => !columns.hidden.has('*') && !columns.hidden.has(column),
   };
 }
 

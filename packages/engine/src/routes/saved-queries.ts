@@ -320,7 +320,6 @@ async function executeQueryConfig(
   // query is built, so a hidden column can be neither returned, filtered on nor
   // sorted by.
   const scope = await readScope(db, collection, user, authType);
-  const colAccess = scope.columns;
 
   const offset = (config.page - 1) * config.limit;
   // Row policies and alters in the WHERE, so the count and the page agree.
@@ -357,10 +356,7 @@ async function executeQueryConfig(
     'updated_by',
     'tenant_id',
   ];
-  const hiddenAll = colAccess.hidden.has('*');
-  const allowed = new Set(
-    [...METADATA_COLUMNS, ...declared].filter((n) => !hiddenAll && !colAccess.hidden.has(n)),
-  );
+  const allowed = new Set([...METADATA_COLUMNS, ...declared].filter(scope.readable));
   // A collection with no field metadata (legacy rows) would otherwise allow
   // nothing at all, which turns a leak into an outage. Fall back to the
   // metadata columns, which are the same on every collection.

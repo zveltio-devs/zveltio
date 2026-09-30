@@ -318,9 +318,17 @@ async function presenceList(
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
   if (sub.collections.length > 0 && !sub.collections.includes(collection)) return false;
-  if (sub.recordId && record?.id !== sub.recordId) return false;
+  return !(sub.recordId && record?.id !== sub.recordId);
+}
+
+/**
+ * The subscriber's `?filter=`, against the record as the subscriber may see it.
+ * Checked against the raw record, a filter on a hidden column told the
+ * subscriber its value: the event arrived exactly when the guess was right.
+ */
+function matchesFilters(sub: StreamSub, visible: Record<string, unknown>): boolean {
   for (const f of sub.filters) {
-    const val = record?.[f.field];
+    const val = visible[f.field];
     if (f.op === 'eq' && val !== f.value) return false;
     if (f.op === 'neq' && val === f.value) return false;
     if (f.op === 'in' && (!Array.isArray(f.value) || !f.value.includes(val))) return false;
@@ -364,6 +372,7 @@ export function broadcastDataEvent(
       // stream delivered rows and columns the API would have withheld.
       const write = (scope: ReadScope) => {
         const visible = scope.shape(record);
+        if (!matchesFilters(sub, visible)) return;
         const body =
           visible === record
             ? payload
