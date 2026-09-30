@@ -43,7 +43,7 @@
     "imagescript": "^1.3.1",
     "ioredis": "^5.11.1",
     "kysely": "^0.29.6",
-    "nodemailer": "^9.0.6",
+    "nodemailer": "^10.0.12",
     "pdf-lib": "^1.17.1",
     "pg": "^8.23.0",
     "pg-boss": "^12.33.3",
@@ -52,7 +52,6 @@
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
-    "@types/nodemailer": "^8.0.2",
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
     "fast-check": "^4.10.2",
