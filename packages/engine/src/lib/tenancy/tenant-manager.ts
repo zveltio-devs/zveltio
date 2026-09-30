@@ -3,6 +3,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
+import { indexName } from '../pg-identifier.js';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import {
@@ -206,7 +207,7 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
     ALTER TABLE ${sql.id(table)} ALTER COLUMN tenant_id SET NOT NULL
   `.execute(db);
   await sql`
-    CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${table}_tenant_id`)} ON ${sql.id(table)}(tenant_id)
+    CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_id'))} ON ${sql.id(table)}(tenant_id)
   `.execute(db);
   // And the composite the paginated read actually needs.
   //
@@ -230,7 +231,7 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   `.execute(db);
   if (hasCreatedAt.rows[0]?.n ?? 0) {
     await sql`
-      CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${table}_tenant_created`)}
+      CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_created'))}
       ON ${sql.id(table)}(tenant_id, created_at DESC)
     `.execute(db);
   }
@@ -378,7 +379,7 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       `.execute(db);
       if (!(leading.rows[0]?.n ?? 0)) {
         await sql`
-          CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_id`)}
+          CREATE INDEX IF NOT EXISTS ${sql.id(indexName(tablename, 'tenant_id'))}
           ON ${sql.id(tablename)}(tenant_id)
         `.execute(db);
       }
@@ -402,7 +403,7 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
       `.execute(db);
       if (hasCreatedAt.rows[0]?.n ?? 0) {
         await sql`
-          CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tablename}_tenant_created`)}
+          CREATE INDEX IF NOT EXISTS ${sql.id(indexName(tablename, 'tenant_created'))}
           ON ${sql.id(tablename)}(tenant_id, created_at DESC)
         `.execute(db);
       }
@@ -1389,7 +1390,7 @@ export async function enableRLS(tableName: string): Promise<void> {
 
   // 2. Index for query performance
   await sql`
-    CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tableName}_tenant`)}
+    CREATE INDEX IF NOT EXISTS ${sql.id(indexName(tableName, 'tenant'))}
     ON ${sql.id(tableName)}(tenant_id)
   `.execute(_db);
 

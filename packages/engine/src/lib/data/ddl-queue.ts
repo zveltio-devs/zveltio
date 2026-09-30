@@ -323,13 +323,13 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   await boss.work(QUEUE_NAMES.add_field, async ([job]: any[]) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const payload = job.data as { collection: string; field: any };
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const ran = await db.transaction().execute(async (trx: any) => {
-      if (await skipForByod(trx, job.data, 'add_field')) return false;
-      await DDLManager.addField(trx, payload.collection, payload.field);
-      return true;
-    });
-    if (ran) announceSchemaChange(payload.collection, 'alter');
+    // On the pool, like create_collection: addField builds the field's indexes
+    // CONCURRENTLY, which Postgres refuses inside a transaction block. Handed a
+    // transaction, every indexed field failed with 25001 and pg-boss retried
+    // the same failure until it gave up; the column never appeared.
+    if (await skipForByod(db, job.data, 'add_field')) return;
+    await DDLManager.addField(db, payload.collection, payload.field);
+    announceSchemaChange(payload.collection, 'alter');
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

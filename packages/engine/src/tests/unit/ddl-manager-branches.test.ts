@@ -40,23 +40,6 @@ describe('createCollection — relation + extension branches', () => {
     expect(db.executed(/CREATE TABLE zvd_places/)).toHaveLength(1);
   });
 
-  it('uses C/D FTS weights when three or more text fields exist', async () => {
-    const db = setup();
-    await DDLManager.createCollection(asDb(db), {
-      name: 'articles',
-      fields: [
-        { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-        { name: 'subtitle', type: 'text', required: false, unique: false, indexed: false },
-        { name: 'body', type: 'richtext', required: false, unique: false, indexed: false },
-        { name: 'tags', type: 'text', required: false, unique: false, indexed: false },
-      ],
-    } as never);
-    const trigger = db.executed(/CREATE OR REPLACE FUNCTION zvd_articles_search_trigger/)[0]!;
-    expect(trigger.sql).toContain("'C'");
-    expect(trigger.sql).toContain("'D'");
-    expect(db.executed(/update "zvd_collections" set "has_trgm"/)).toHaveLength(1);
-  });
-
   it('skips m2o when target collection name is unsafe', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {

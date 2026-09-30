@@ -71,7 +71,7 @@ describe('createCollection', () => {
     ).rejects.toThrow('not in the allowed extensions whitelist');
   });
 
-  it('creates the table with system columns, indexes, FTS and triggers', async () => {
+  it('creates the table with system columns, indexes, the FTS vector and triggers', async () => {
     const db = setup();
     await DDLManager.createCollection(asDb(db), {
       name: 'articles',
@@ -100,15 +100,10 @@ describe('createCollection', () => {
     // FTS: vector column + GIN, and (because there IS a text field) trgm + trigger
     expect(db.executed(/ADD COLUMN IF NOT EXISTS search_vector tsvector/)).toHaveLength(1);
     expect(db.executed(/USING GIN\(search_vector\)/)).toHaveLength(1);
-    expect(db.executed(/ADD COLUMN IF NOT EXISTS search_text text/)).toHaveLength(1);
-    expect(db.executed(/gin_trgm_ops/)).toHaveLength(1);
-    expect(db.executed(/CREATE TRIGGER zvd_articles_search_update/)).toHaveLength(1);
+    // The text half and the search trigger: refreshSearchTrigger, measured on
+    // Postgres in harness/ddl-search-trigger.test.ts.
     expect(db.executed(/CREATE TRIGGER update_zvd_articles_updated_at/)).toHaveLength(1);
-
-    // metadata registered + has_trgm flagged
     expect(db.executed(/insert into "zvd_collections"/)).toHaveLength(1);
-    const trgmUpdate = db.executed(/update "zvd_collections" set "has_trgm"/)[0]!;
-    expect(trgmUpdate.parameters).toContain(true);
   });
 
   it('skips the trgm/trigger machinery when no text fields exist', async () => {

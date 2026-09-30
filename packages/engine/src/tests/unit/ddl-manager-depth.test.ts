@@ -106,22 +106,6 @@ describe('syncFieldsFromDB', () => {
   });
 });
 
-describe('createCollection — FTS weight B', () => {
-  it('uses FTS weight B when exactly two text fields exist', async () => {
-    const db = setup();
-    await DDLManager.createCollection(asDb(db), {
-      name: 'pairs',
-      fields: [
-        { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-        { name: 'summary', type: 'text', required: false, unique: false, indexed: false },
-      ],
-    } as never);
-    const trigger = db.executed(/CREATE OR REPLACE FUNCTION zvd_pairs_search_trigger/)[0]!;
-    expect(trigger.sql).toContain("'B'");
-    expect(trigger.sql).not.toContain("'C'");
-  });
-});
-
 describe('previewCollection — index preview', () => {
   it('includes CREATE INDEX and UNIQUE constraint lines', async () => {
     const preview = await DDLManager.previewCollection({
