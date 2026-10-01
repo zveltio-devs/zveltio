@@ -23,16 +23,22 @@
  * nothing, which is what these assert against.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import type { EdgeRequest } from '../../lib/edge-function-runner.js';
 import {
   __limitedCmdForTests,
+  __poolStatsForTests,
   cgroupLimitAvailable,
+  drainRunnerPool,
   runEdgeFunctionInSubprocess,
 } from '../../lib/edge-functions/subprocess-runner.js';
 
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 const available = cgroupLimitAvailable();
+
+afterAll(async () => {
+  await drainRunnerPool();
+});
 
 describe.skipIf(!available)('runEdgeFunctionInSubprocess — cgroup memory budget', () => {
   it('enforces a budget smaller than the RLIMIT_AS floor', async () => {
@@ -61,6 +67,27 @@ describe.skipIf(!available)('runEdgeFunctionInSubprocess — cgroup memory budge
     expect(res.ok).toBe(true);
     expect(res.response?.body).toEqual({ count: 5000, who: 'cgroup' });
   }, 20_000);
+
+  // The pool holds runners spawned under the DEFAULT budget. The 3 GB case above
+  // fails under either budget, so it cannot tell whether a tighter caller was
+  // handed one of them; 400 MB fits the default and not 128 MB.
+  it('does not serve a tighter budget from the default-budget pool', async () => {
+    // Start from an empty pool so every runner waiting in it is a default one.
+    await drainRunnerPool();
+    const plain = 'async function handler() { return { status: 200, body: 1 }; }';
+    await runEdgeFunctionInSubprocess(plain, REQ, {}, 10_000);
+    await Bun.sleep(400);
+    expect(__poolStatsForTests().idle).toBeGreaterThan(0);
+
+    const code = `async function handler() {
+      const held = [];
+      for (let i = 0; i < 400; i++) held.push(new Uint8Array(1048576).fill(1));
+      return { status: 200, body: held.length };
+    }`;
+    const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 20_000, { memoryLimitMb: 128 });
+
+    expect(res.ok).toBe(false);
+  }, 30_000);
 });
 
 describe('the spawned command, whichever mechanism is available', () => {
@@ -93,4 +120,38 @@ describe('the spawned command, whichever mechanism is available', () => {
     const script = __limitedCmdForTests(128).at(-1) as string;
     expect(script).toContain('ulimit -t');
   });
+
+  // Defence in depth behind lockdownGlobals(): if untrusted code ever reaches
+  // process.env, the engine's secrets must not be in it. Read from the kernel,
+  // since the sandbox itself cannot see process.env at all. A non-default budget
+  // makes this a fresh spawn, after the variable below is set.
+  it.skipIf(process.platform !== 'linux')(
+    "does not hand the engine's environment to the child",
+    async () => {
+      const previous = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = 'postgres://edge-env-probe';
+      try {
+        const running = runEdgeFunctionInSubprocess(
+          'async function handler() { await new Promise((r) => setTimeout(r, 1500)); return 1; }',
+          REQ,
+          {},
+          10_000,
+          { memoryLimitMb: 2048 },
+        );
+        await Bun.sleep(500);
+        const pid = __poolStatsForTests().servedPids.at(-1);
+        const environ = await Bun.file(`/proc/${pid}/environ`).text();
+        expect((await running).ok).toBe(true);
+
+        const names = environ.split('\0').map((kv) => kv.split('=')[0]);
+        expect(names).toContain('PATH');
+        expect(names).not.toContain('DATABASE_URL');
+        expect(names).not.toContain('DBUS_SESSION_BUS_ADDRESS');
+      } finally {
+        if (previous === undefined) delete process.env.DATABASE_URL;
+        else process.env.DATABASE_URL = previous;
+      }
+    },
+    15_000,
+  );
 });

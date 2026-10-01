@@ -755,8 +755,8 @@ export async function runEdgeFunctionInSubprocess(
 
   // The handler protocol writes EXACTLY one JSON line on stdout. Anything
   // else (`console.log` from a user that imported a polluted polyfill,
-  // engine crashes, …) becomes logs. We grab the LAST JSON line as the
-  // envelope so stray output before it isn't mistaken for the result.
+  // engine crashes, …) becomes logs. The FIRST line that parses as JSON is
+  // the envelope; anything before or after it is kept as a log line.
   const lines = stdoutText.split('\n').filter((l) => l.trim().length > 0);
   let envelopeOut: {
     ok: boolean;
