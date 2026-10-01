@@ -186,18 +186,18 @@ await sync.stop();
 The engine exposes two endpoints for batch sync:
 
 - `POST /api/sync/push` — send offline operations to server
-- `POST /api/sync/pull` — pull changes since a timestamp
+- `POST /api/sync/pull` — pull changes after your cursors
 
 `SyncManager.pull()` uses `/api/sync/pull` and keeps its cursors in the local store. Both endpoints take a
 session only: a client authenticated by an API key gets 403, and `pull()` then falls back to paging the
 collections API, which cannot report deletes.
 
-A pull returns at most 1000 rows per collection. Send `{ collections, since, cursors }`, merge the
+A pull returns at most 1000 rows per collection. Send `{ collections, cursors }`, merge the
 response's `cursors` into yours, and pull again while `hasMore` is true. Keep `cursors` for the next
-sync — a collection's cursor replaces `since` for it, and is the only position that pages through rows
-sharing one `updated_at` (a bulk import).
+sync; a collection without one is read from its start. Cursors are opaque: there is no timestamp
+position, because a timestamp cannot page through rows sharing one `updated_at` (a bulk import).
 
 A row deleted on the server comes back as `{ operation: 'delete', data: null }`; drop your copy. Deletes are
-kept for 30 days: a cursor older than that gets `resync[collection] === true`, and the collection restarts
+kept for 30 days: a cursor last caught up longer ago than that gets `resync[collection] === true`, and the collection restarts
 from the first row — drop your synced copies of it before applying the page. A first pull (no cursor) gets
 no deletes, so start it from an empty copy.

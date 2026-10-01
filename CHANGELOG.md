@@ -4,6 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Breaking: sync pull takes cursors only (#805).**
+- `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
+  no cursor is read from its start. `since` is ignored.
+- The response no longer carries `serverTimestamp`.
+- Cursors have the form `d<deletes-from us>:<us>:<id>`. The `<us>:<id>`
+  form issued by beta.75 and earlier answers 400: a client holding one must
+  start that collection over without a cursor.
+- SDK `SyncManager.pullChanges` no longer sends `since`.
+
+A `since`-only client could not page past more than 1000 rows sharing one
+millisecond, and could not say when its deletes were last complete, so rows
+older than the 30-day tombstone retention restarted it on every page.
+
 ## [3.0.0-beta.76] - 2026-10-01
 
 **The engine records who banned an account (#802, migration 035).**

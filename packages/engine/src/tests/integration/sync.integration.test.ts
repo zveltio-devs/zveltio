@@ -57,7 +57,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/sync/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ collections: [], since: 0 }),
+      body: JSON.stringify({ collections: [] }),
     });
     expect(res.status).toBe(401);
   });
@@ -75,7 +75,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/sync/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
-      body: JSON.stringify({ collections: 'not-an-array', since: 0 }),
+      body: JSON.stringify({ collections: 'not-an-array' }),
     });
     expect(res.status).toBe(400);
   });
@@ -122,19 +122,18 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
     expect(res.status).toBe(400);
   });
 
-  it('POST /api/sync/pull — returns changes and serverTimestamp', async () => {
+  it('POST /api/sync/pull — returns changes and hasMore', async () => {
     const res = await fetch(`${BASE_URL}/api/sync/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
       body: JSON.stringify({
         collections: ['user'],
-        since: 0,
       }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(Array.isArray(body.changes)).toBe(true);
-    expect(typeof body.serverTimestamp).toBe('number');
+    expect(typeof body.hasMore).toBe('boolean');
   });
 
   it('POST /api/sync/pull — ignores unknown collections gracefully', async () => {
@@ -143,28 +142,12 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
       body: JSON.stringify({
         collections: ['nonexistent_table_xyz'],
-        since: 0,
       }),
     });
     // Should not crash — engine catches table-not-found errors per collection
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(Array.isArray(body.changes)).toBe(true);
-    expect(body.changes.length).toBe(0);
-  });
-
-  it('POST /api/sync/pull — filters by since timestamp', async () => {
-    const futureTs = Date.now() + 1_000_000_000; // far in the future → 0 results
-    const res = await fetch(`${BASE_URL}/api/sync/pull`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
-      body: JSON.stringify({
-        collections: ['user'],
-        since: futureTs,
-      }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
     expect(body.changes.length).toBe(0);
   });
 });

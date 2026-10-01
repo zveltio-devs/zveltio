@@ -64,7 +64,7 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     const res = await app.request('/api/sync/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`], since: 0 }),
+      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`] }),
     });
     expect(res.status).toBe(200);
     return (await res.json()) as { changes: Array<{ data?: Record<string, unknown> }> };
@@ -199,8 +199,8 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
 
   // A gate that fails must fail the pull, as it fails `GET /api/data`. The
   // pull's catch-all is for a table without `updated_at`; a gate failure landing
-  // there answered 200 with the collection empty and a fresh `serverTimestamp`,
-  // so a client pulling `since` that cursor never received those rows again.
+  // there answered 200 with the collection empty, so the client never received
+  // those rows again.
   it('fails the pull when an entity-access check throws, instead of skipping the rows', async () => {
     entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, () => {
       throw new Error('entity check unavailable');
@@ -208,14 +208,14 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     const res = await app.request('/api/sync/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: memberCookie },
-      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`], since: 0 }),
+      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`] }),
     });
     expect(res.status).toBe(500);
   });
 
   // A collection without `updated_at` is skipped — but its failed SELECT
   // aborted the tenant transaction, so every collection after it in the same
-  // pull failed too and came back empty under a fresh `serverTimestamp`.
+  // pull failed too and came back empty.
   it('a collection without updated_at does not empty the collections after it', async () => {
     const broken = `${COLLECTION}_noupd`;
     await DDLManager.createCollection(db, {
@@ -227,7 +227,7 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
       const res = await app.request('/api/sync/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify({ collections: [`zvd_${broken}`, `zvd_${COLLECTION}`], since: 0 }),
+        body: JSON.stringify({ collections: [`zvd_${broken}`, `zvd_${COLLECTION}`] }),
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { changes: Array<{ data?: Record<string, unknown> }> };

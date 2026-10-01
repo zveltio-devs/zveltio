@@ -2,7 +2,7 @@
  * SDK Local-First Sync Endpoints
  *
  * POST /api/sync/push — batch of operations from client (offline writes)
- * POST /api/sync/pull — client requests changes from a timestamp
+ * POST /api/sync/pull — client requests changes after its cursors
  */
 
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
@@ -38,7 +38,7 @@ import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
  * STARTED (the column default on insert, the touch trigger on update; sync push
  * and `dynamicInsert` strip a client-supplied value). A transaction still open
  * can therefore commit rows older than anything a pull has already returned,
- * and a client whose cursor or `serverTimestamp` had moved past them never
+ * and a client whose cursor had moved past them never
  * received them. Every row older than the oldest open transaction's start is
  * final, so a pull delivers only those.
  *
@@ -514,28 +514,26 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
 
   /**
    * POST /api/sync/pull
-   * Client requests changes from a given timestamp.
-   * Body: { collections: ['users', 'posts'], since: 1709000000000, cursors?: { zvd_posts: '…' } }
+   * Body: { collections: ['users', 'posts'], cursors?: { zvd_posts: '…' } }
    * Response: { changes: [{ collection, id, data, operation, timestamp }],
-   *             serverTimestamp, hasMore, cursors, resync }
+   *             hasMore, cursors, resync }
    *
    * A collection returns at most 1000 rows per pull. `hasMore` says one
    * stopped there; `cursors` holds, per collection (keyed as `changes[].
-   * collection`), the opaque position of the last row read. A client pulls
-   * again with the merged `cursors` until `hasMore` is false, and keeps them
-   * for the next sync: a cursor replaces `since` for its collection.
+   * collection`), an opaque position. A client pulls again with the merged
+   * `cursors` until `hasMore` is false, and keeps them for the next sync. A
+   * collection without a cursor is read from its start.
    *
-   * The cursor is `(updated_at, id)`, not a timestamp: a bulk insert gives
+   * The position is `(updated_at, id)`, not a timestamp: a bulk insert gives
    * every row the transaction's `now()`, and a page boundary inside those ties
-   * cannot be resumed from a time. `serverTimestamp` was `Date.now()` even
-   * when a collection filled its page, so a client pulling `since` it never
-   * received row 1001 onward. It now stops short of the first row not sent,
-   * for clients that only know `since`; they receive the last millisecond
-   * again, and cannot get past more than a page of rows in one millisecond.
+   * cannot be resumed from a time. That is also why there is no `since`: a
+   * timestamp-only client could not get past a page of rows in one millisecond,
+   * nor say when its deletes were last complete (below). A `since` an older
+   * SDK still sends is ignored.
    *
-   * Only rows older than `syncWatermarkUs` go out, and neither the cursors nor
-   * `serverTimestamp` pass it: a transaction still open commits rows dated at
-   * its start, which a position already past them would never reach.
+   * Only rows older than `syncWatermarkUs` go out, and no cursor passes it: a
+   * transaction still open commits rows dated at its start, which a position
+   * already past them would never reach.
    *
    * A deleted row comes back as `operation: 'delete'` (`data: null`), from the
    * tombstone migration 032 has every collection table write, on the same
@@ -545,9 +543,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
    * watermark of its last caught-up pull); older than the retention, a purged
    * one may be missing, so the collection restarts from nothing and
    * `resync[collection]` is true — the client drops its copy before applying
-   * the page. A `since`-only client has only its position, so rows older than
-   * the retention restart it on every page. A first pull (no cursor, `since` 0) has
-   * nothing to delete and gets no tombstones.
+   * the page. A first pull (no cursor) has nothing to delete and gets no
+   * tombstones.
    *
    * Known and accepted: a tombstone carries only the id, and no row rule can
    * judge a row that is gone, so a reader of the collection learns the ids of
@@ -555,13 +552,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
    */
   app.post('/pull', async (c) => {
     const body = await c.req.json().catch(() => null);
-    if (!body || !Array.isArray(body.collections) || typeof body.since !== 'number') {
-      return c.json(
-        {
-          error: 'Invalid body: expected { collections: string[], since: number }',
-        },
-        400,
-      );
+    if (!body || !Array.isArray(body.collections)) {
+      return c.json({ error: 'Invalid body: expected { collections: string[] }' }, 400);
     }
 
     // Limit max collections per pull request to prevent DoS
@@ -569,36 +561,27 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       return c.json({ error: 'Too many collections. Maximum 20 per pull request.' }, 400);
     }
 
-    const { collections, since } = body as {
-      collections: string[];
-      since: number;
-    };
+    const collections = body.collections as string[];
 
     // `d<deletes-from us>:<updated_at in epoch microseconds>:<id>`, as the
-    // previous pull wrote it; `<us>:<id>` from a pull before `d` existed.
-    // Checked here, before any SQL: a bad value cast inside the tenant
+    // previous pull wrote it. Checked here, before any SQL: a bad value cast inside the tenant
     // transaction would abort it and answer 500.
-    const cursorIn = new Map<string, { us: string; id: string; del?: string }>();
+    const cursorIn = new Map<string, { del: string; us: string; id: string }>();
     if (body.cursors !== undefined) {
       if (!body.cursors || typeof body.cursors !== 'object' || Array.isArray(body.cursors)) {
         return c.json({ error: 'Invalid body: cursors must be an object' }, 400);
       }
       for (const [name, value] of Object.entries(body.cursors)) {
-        const m =
-          typeof value === 'string' ? /^(?:d(\d{1,18}):)?(\d{1,18}):(.+)$/s.exec(value) : null;
+        const m = typeof value === 'string' ? /^d(\d{1,18}):(\d{1,18}):(.+)$/s.exec(value) : null;
         if (!m) return c.json({ error: `Invalid cursor for ${name}` }, 400);
-        cursorIn.set(name, { us: m[2]!, id: m[3]!, del: m[1] });
+        cursorIn.set(name, { del: m[1]!, us: m[2]!, id: m[3]! });
       }
     }
 
     // Limit rows per collection to prevent OOM
     const PULL_LIMIT_PER_COLLECTION = 1000;
-    const sinceDate = new Date(since);
     const cursorsOut: Record<string, string> = {};
     let hasMore = false;
-    // The `since` a timestamp-only client may resume from: just before the
-    // first row a full page did not send.
-    let resumeAt = Number.POSITIVE_INFINITY;
     const updatedUs = sql`(extract(epoch from updated_at) * 1000000)::bigint`;
     const idText = sql`id::text COLLATE "C"`;
     const changes: Array<{
@@ -652,8 +635,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // Resolved and applied OUTSIDE the catch below, so a gate that fails
       // fails the pull (500, as `GET /api/data` answers). Inside it, a failed
       // policy lookup or a throwing entity check answered 200 with the
-      // collection empty and a fresh `serverTimestamp`: a client pulling
-      // `since` that cursor never received those rows again.
+      // collection empty and an advanced cursor: the client never received
+      // those rows again.
       const scope = await readScope(
         db,
         collectionShortName,
@@ -661,22 +644,13 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         c.get('authType') ?? 'session',
       );
       let cursor = cursorIn.get(collection);
-      let collSince = sinceDate;
-      // Where this client's deletes are complete from: every tombstone dated
-      // after it is still owed. Not the cursor's row position — paging through
-      // rows older than the retention restarted from nothing on every page, so
-      // a large old collection never finished its first sync. An old
-      // `<us>:<id>` cursor knows only its position.
-      let deletesFrom: string | null = cursor
-        ? (cursor.del ?? cursor.us)
-        : since > 0
-          ? String(BigInt(Math.floor(since)) * 1000n)
-          : null;
-      if (deletesFrom !== null && BigInt(deletesFrom) < horizonUs) {
+      // Judged by where this client's deletes are complete from, not by the
+      // cursor's row position: paging through rows older than the retention
+      // restarted from nothing on every page, so a large old collection never
+      // finished its first sync.
+      if (cursor && BigInt(cursor.del) < horizonUs) {
         resync[collection] = true;
         cursor = undefined;
-        deletesFrom = null;
-        collSince = new Date(0);
       }
       const pullQuery = scope.query(
         pullDb
@@ -690,7 +664,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
           .where(
             cursor
               ? sql<boolean>`(${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
-              : sql<boolean>`updated_at > ${collSince}`,
+              : sql<boolean>`true`,
           )
           .where(sql<boolean>`${updatedUs} < ${watermarkUs}::bigint`)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -703,8 +677,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // has nothing to pull — skip it. Under a savepoint, because the failed
       // statement aborts the tenant transaction: every later collection in the
       // same pull then failed too, was skipped the same way, and the client got
-      // 200 with those collections empty and a fresh `serverTimestamp` — never
-      // receiving their rows again. Any other failure is a real one: 500.
+      // 200 with those collections empty — never receiving their rows again. Any other failure is a real one: 500.
       const fetched = await withSavepoint(
         pullDb,
         'sync_pull_collection',
@@ -724,26 +697,21 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       }));
       // Deletes after the same position. `deleted_at >=` lets the index bound
       // the scan; the row comparison is the keyset (uuid order = its text's).
-      const stones =
-        !cursor && (since <= 0 || resync[collection])
-          ? []
-          : (
-              await sql<{ us: string; id: string }>`
+      const stones = !cursor
+        ? []
+        : (
+            await sql<{ us: string; id: string }>`
                 SELECT (extract(epoch FROM deleted_at) * 1000000)::bigint::text AS us,
                        row_id::text AS id
                   FROM zv_sync_tombstones
                  WHERE collection = ${collection}
-                   AND ${
-                     cursor
-                       ? sql`deleted_at >= ${usToTs(cursor.us)}
-                          AND (deleted_at, row_id::text COLLATE "C") > (${usToTs(cursor.us)}, ${cursor.id})`
-                       : sql`deleted_at > ${collSince}`
-                   }
+                   AND deleted_at >= ${usToTs(cursor.us)}
+                   AND (deleted_at, row_id::text COLLATE "C") > (${usToTs(cursor.us)}, ${cursor.id})
                    AND deleted_at < ${usToTs(watermarkUs)}
                  ORDER BY deleted_at, row_id
                  LIMIT ${PULL_LIMIT_PER_COLLECTION + 1}
               `.execute(pullDb)
-            ).rows;
+          ).rows;
       // One key in both: deleted and re-inserted in one transaction. The row
       // is what exists.
       const rowKeys = new Set(rows.map((r) => `${r.us}:${r.id}`));
@@ -762,14 +730,9 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // Caught up, every tombstone below the watermark went out; a full page
       // (or a watermark of 0, which delivers nothing) still owes what it owed.
       // A client with no position holds nothing a delete could remove.
-      const owed = full || watermarkUs === '0' ? (deletesFrom ?? watermarkUs) : watermarkUs;
+      const owed = full || watermarkUs === '0' ? (cursor?.del ?? watermarkUs) : watermarkUs;
       if (last) cursorsOut[collection] = `d${owed}:${last.us}:${last.id}`;
-      if (full && last) {
-        hasMore = true;
-        // The largest whole millisecond strictly before the last row sent, so
-        // `updated_at > serverTimestamp` still reaches its unsent ties.
-        resumeAt = Math.min(resumeAt, Math.floor((Number(last.us) - 1) / 1000));
-      }
+      if (full) hasMore = true;
       const pageRows = page.flatMap((p) => (p.row ? [p.row] : []));
       const kept = await scope.keep(
         pageRows.map(({ __zv_pull_us: _us, __zv_pull_id: _id, ...row }) => row),
@@ -807,16 +770,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       }
     }
 
-    // Never past the watermark, in the database's clock: the last millisecond
-    // strictly before it. Never behind `since` either — every row at or before
-    // it was already final when the pull that returned it ran.
-    const watermarkMs = Math.floor((Number(watermarkUs) - 1) / 1000);
-    // A restarted collection must be re-read from its start by a client that
-    // only keeps `since` too.
-    const floor = Object.keys(resync).length > 0 ? 0 : since;
     return c.json({
       changes,
-      serverTimestamp: Math.max(floor, Math.min(resumeAt, watermarkMs)),
       hasMore,
       cursors: cursorsOut,
       resync,

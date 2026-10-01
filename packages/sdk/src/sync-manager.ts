@@ -405,7 +405,7 @@ export class SyncManager {
         hasMore: boolean;
         cursors?: Record<string, string>;
         resync?: Record<string, boolean>;
-      }>('/api/sync/pull', { collections: [...byTable.keys()], since: 0, cursors });
+      }>('/api/sync/pull', { collections: [...byTable.keys()], cursors });
       for (const [table, flag] of Object.entries(res.resync ?? {})) {
         const name = byTable.get(table);
         if (flag && name) await this.store.dropSynced(name);
