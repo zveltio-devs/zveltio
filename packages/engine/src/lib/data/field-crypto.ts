@@ -123,7 +123,10 @@ export async function encryptField(plaintext: string): Promise<string> {
   combined.set(new Uint8Array(cipherBuf), iv.byteLength);
   return (
     ENC_PREFIX +
-    btoa(String.fromCharCode(...combined))
+    // Buffer, not btoa(String.fromCharCode(...combined)): spreading a ~1 MB
+    // value as call arguments overflowed the stack and the write failed.
+    Buffer.from(combined.buffer)
+      .toString('base64')
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=/g, '')

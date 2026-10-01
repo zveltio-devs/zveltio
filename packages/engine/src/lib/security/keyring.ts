@@ -85,7 +85,10 @@ async function importKey(keyring: Keyring, usage: KeyUsage[]): Promise<CryptoKey
 }
 
 function toBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  // Not btoa(String.fromCharCode(...bytes)): spreading a large array as call
+  // arguments overflows the stack, and a ~1 MB field value then failed to
+  // encrypt with "Maximum call stack size exceeded".
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
 }
 
 function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
