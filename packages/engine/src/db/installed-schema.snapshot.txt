@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 392
+# tables: 391
 
 table account
   col accessToken                    text
@@ -2993,12 +2993,6 @@ table zv_schema_versions
   col version                        integer NOT NULL
   pk  zv_schema_versions_pkey PRIMARY KEY (id)
   uq  zv_schema_versions_version_key UNIQUE (version)
-
-table zv_scim_sign_in_blocks
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_scim_sign_in_blocks_pkey PRIMARY KEY (user_id)
-  fk  zv_scim_sign_in_blocks_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
 
 table zv_scim_tokens
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
