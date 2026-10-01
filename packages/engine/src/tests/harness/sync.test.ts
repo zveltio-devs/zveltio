@@ -253,7 +253,7 @@ d('sync routes (in-process)', () => {
 
     const res = await app.request(
       '/api/sync/pull',
-      json('/api/sync/pull', { collections: [COLLECTION], since: 0 }),
+      json('/api/sync/pull', { collections: [COLLECTION] }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -269,13 +269,12 @@ d('sync routes (in-process)', () => {
       '/api/sync/pull',
       json('/api/sync/pull', {
         collections: [COLLECTION],
-        since: 0,
       }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { changes: unknown[]; serverTimestamp: number };
+    const body = (await res.json()) as { changes: unknown[]; hasMore: boolean };
     expect(Array.isArray(body.changes)).toBe(true);
-    expect(typeof body.serverTimestamp).toBe('number');
+    expect(body.hasMore).toBe(false);
   });
 
   it('rejects system table writes via push', async () => {

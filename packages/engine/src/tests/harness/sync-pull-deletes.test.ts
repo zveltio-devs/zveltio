@@ -29,7 +29,6 @@ const OTHER_TENANT = '4d000000-0000-0000-0000-0000000000d1';
 type Change = { collection: string; id: string; operation: string; data?: { title?: string } };
 type PullBody = {
   changes: Change[];
-  serverTimestamp: number;
   hasMore?: boolean;
   cursors?: Record<string, string>;
   resync?: Record<string, boolean>;
@@ -44,7 +43,7 @@ d('sync pull returns deletes', () => {
     const res = await app.request('/api/sync/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: who },
-      body: JSON.stringify({ collections: [TABLE], since: 0, ...body }),
+      body: JSON.stringify({ collections: [TABLE], ...body }),
     });
     expect(res.status).toBe(200);
     return (await res.json()) as PullBody;
@@ -100,9 +99,6 @@ d('sync pull returns deletes', () => {
 
     const body = await pull({ cursors });
     expect(body.changes).toEqual([expect.objectContaining({ id, operation: 'delete' })]);
-    // And by `since`, for a client that keeps no cursor.
-    const bySince = await pull({ since: Date.now() - 60_000 });
-    expect(deletesIn(bySince)).toContain(id);
   });
 
   it('pages through deletes and inserts sharing one timestamp, each exactly once', async () => {
@@ -139,7 +135,7 @@ d('sync pull returns deletes', () => {
     expect(new Set(ups.map((ch) => ch.id)).size).toBe(INS);
   });
 
-  it('a delete committed after the pull still arrives, by cursor and by since', async () => {
+  it('a delete committed after the pull still arrives', async () => {
     const x = await insert(db, 'x');
     const y = await insert(db, 'y');
     const cursors = await caughtUp();
@@ -160,8 +156,6 @@ d('sync pull returns deletes', () => {
     const byCursor = await pull({ cursors: { ...cursors, ...f.cursors } });
     expect(deletesIn(byCursor)).toContain(x);
     expect(deletesIn(byCursor)).toContain(y);
-    const bySince = await pull({ since: f.serverTimestamp });
-    expect(deletesIn(bySince)).toContain(x);
   });
 
   it("another tenant's delete is not visible", async () => {
@@ -231,14 +225,12 @@ d('sync pull returns deletes', () => {
 
   it('a position older than the retention answers resync and restarts the collection', async () => {
     const keep = await insert(db, 'kept');
-    const stale = `${(Date.now() - 40 * 86_400_000) * 1000}:00000000-0000-0000-0000-000000000000`;
+    const old = (Date.now() - 40 * 86_400_000) * 1000;
+    const stale = `d${old}:${old}:00000000-0000-0000-0000-000000000000`;
     const body = await pull({ cursors: { [TABLE]: stale } });
     expect(body.resync?.[TABLE]).toBe(true);
     expect(body.changes.map((ch) => ch.id)).toContain(keep);
     expect(deletesIn(body)).toEqual([]);
-
-    const bySince = await pull({ since: Date.now() - 40 * 86_400_000 });
-    expect(bySince.resync?.[TABLE]).toBe(true);
 
     const fresh = await pull({ cursors: body.cursors });
     expect(fresh.resync?.[TABLE]).toBeUndefined();

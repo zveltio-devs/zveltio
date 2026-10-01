@@ -3,10 +3,9 @@
  *
  * A row's `updated_at` is its transaction's `now()` — the moment the
  * transaction STARTED, not the moment it commits. A pull that ran while that
- * transaction was open could not see the row, yet handed back a cursor and a
- * `serverTimestamp` already past it: a committed row written later, or simply
- * `Date.now()`. Once the transaction committed, its row sat behind the client's
- * position and was never pulled.
+ * transaction was open could not see the row, yet handed back a cursor already
+ * past it: a committed row written later. Once the transaction committed, its
+ * row sat behind the client's position and was never pulled.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -22,7 +21,6 @@ const NAME = `hsyncwm_${Date.now()}`;
 
 type PullBody = {
   changes: Array<{ id: string; data: { title?: string } }>;
-  serverTimestamp: number;
   cursors?: Record<string, string>;
 };
 
@@ -58,7 +56,7 @@ d('sync pull holds its position behind in-flight transactions', () => {
     await db.deleteFrom('zvd_collections').where('name', '=', NAME).execute();
   });
 
-  it('a row committed after the pull still arrives, by cursor and by since', async () => {
+  it('a row committed after the pull still arrives', async () => {
     const collections = [`zvd_${NAME}`];
     await insert(db, 'before');
 
@@ -69,17 +67,14 @@ d('sync pull holds its position behind in-flight transactions', () => {
       await Bun.sleep(5);
       // Committed, and newer than the in-flight row.
       await insert(db, 'after');
-      first = await pull({ collections, since: 0 });
+      first = await pull({ collections });
     });
     const f = first as unknown as PullBody;
     expect(titles(f)).toContain('before');
     expect(titles(f)).not.toContain('in-flight');
 
-    const byCursor = await pull({ collections, since: 0, cursors: f.cursors });
+    const byCursor = await pull({ collections, cursors: f.cursors });
     expect(titles(byCursor)).toContain('in-flight');
-
-    const bySince = await pull({ collections, since: f.serverTimestamp });
-    expect(titles(bySince)).toContain('in-flight');
   });
 
   it('a client cannot back-date updated_at through a push', async () => {
