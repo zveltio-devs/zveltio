@@ -410,6 +410,10 @@ Assign a Casbin role to a user.
 { "userId": "user-uuid", "role": "manager" }
 ```
 
+`god` and `member` are refused (422): they are the `"user".role` column, set by
+`PATCH /api/users/:id`, and every permission check already counts that column
+as a role the user holds in every tenant.
+
 ### DELETE /api/permissions/roles
 
 Remove a Casbin role from a user.

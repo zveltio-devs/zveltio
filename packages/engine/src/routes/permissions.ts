@@ -283,6 +283,12 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { userId, role } = c.req.valid('json');
+      // The `"user".role` column is the only source of these two; a `g` row
+      // would outlive the column (a `god` row kept every `p god` grant after
+      // a demotion, while the bypass itself was gone).
+      if (role === 'god' || role === 'member') {
+        return c.json({ error: `"${role}" is set by PATCH /api/users/:id, not as a role` }, 422);
+      }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();

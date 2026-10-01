@@ -122,17 +122,19 @@ describe('isGodUser', () => {
 });
 
 describe('roles', () => {
+  // Every user here is `member` in the column (seedDb), and the column role is
+  // held in every domain — what a `g <user> member *` row used to mirror.
   it('getUserRoles honours the * domain grants', async () => {
-    expect(await getUserRoles('u-editor')).toEqual(['editor']);
-    expect(await getUserRoles('u-nobody')).toEqual([]);
+    expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
+    expect(await getUserRoles('u-nobody')).toEqual(['member']);
   });
 
   it('getUserRoles scopes tenant-domain grants', async () => {
     await runWithDomain('tenant-b', async () => {
-      expect(await getUserRoles('u-auditor')).toEqual(['auditor']);
+      expect(await getUserRoles('u-auditor')).toEqual(['auditor', 'member']);
     });
     await runWithDomain('tenant-a', async () => {
-      expect(await getUserRoles('u-auditor')).toEqual([]);
+      expect(await getUserRoles('u-auditor')).toEqual(['member']);
     });
   });
 

@@ -88,7 +88,7 @@ describe('cache decode catch paths', () => {
     );
 
     await runWithDomain(domain, async () => {
-      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+      expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
     });
   });
 

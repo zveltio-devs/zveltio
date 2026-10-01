@@ -4,6 +4,17 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**`"user".role` is the only source of god/member.**
+- A Casbin grant to `member` (`p member * <resource> <action>`) now reaches every
+  member. It reached only users holding a `g <user> member *` row, which only
+  `PATCH /api/users/:id` wrote — never a self-registered member.
+- `PATCH /api/users/:id` no longer removes the user's global Casbin roles
+  (`employee`, `manager`, …) when it changes `role`.
+- Migration 033 deletes the `g <user> god|member *` rows that mirrored the
+  column (copies in `zvd_permissions_pruned_033`). A god demoted by the recovery
+  flow kept that row, and with it any `p god …` grant.
+- `POST /api/permissions/roles` refuses `god` and `member` (422).
+
 ## [3.0.0-beta.73] - 2026-10-01
 
 **Action required for GraphQL: approve `data:write` (#765, developer/graphql

@@ -45,6 +45,7 @@ import m028 from './sql/029_environments_rls.sql' with { type: 'text' };
 import m029 from './sql/030_policed_tables_tenant_created_index.sql' with { type: 'text' };
 import m030 from './sql/031_media_shares_tenant_backfill.sql' with { type: 'text' };
 import m031 from './sql/032_sync_tombstones.sql' with { type: 'text' };
+import m032 from './sql/033_drop_column_role_mirror.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -80,4 +81,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '030_policed_tables_tenant_created_index.sql': m029,
   '031_media_shares_tenant_backfill.sql': m030,
   '032_sync_tombstones.sql': m031,
+  '033_drop_column_role_mirror.sql': m032,
 };

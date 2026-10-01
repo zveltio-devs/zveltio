@@ -12,6 +12,7 @@
  * so the removal happened in memory and the rows came back at the next policy
  * load. #451 and #455 made those deletes reach the database, which made this
  * real — a repair that changed the blast radius of a route it did not touch.
+ * The route now writes no `g` row at all: the column is the role.
  */
 import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
@@ -67,26 +68,12 @@ d('PATCH /api/users/:id role scope (in-process)', () => {
 
     expect(held).toContain(`tenant_owner@${TENANT_A}`);
     expect(held).toContain(`tenant_member@${TENANT_B}`);
-    // And the thing the route is actually for still happened.
-    expect(held).toContain('member@*');
-  });
-
-  it('still replaces a previous GLOBAL grant rather than stacking one', async () => {
-    // The reset exists for a reason: two global roles at once would let the
-    // wider one win. Narrowing it to the '*' domain must not lose that.
-    const e = await getEnforcer();
-    await e.addRoleForUser(userId, 'god', '*');
-
-    const res = await app.request(`/api/users/${userId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ role: 'member' }),
-    });
-    expect(res.status).toBe(200);
-
-    const rows = await sql<{ v1: string }>`
-      SELECT v1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId} AND v2 = '*'
-    `.execute(db);
-    expect(rows.rows.map((r) => r.v1)).toEqual(['member']);
+    // And the thing the route is for: the column. No `member@*` mirror — the
+    // column is the role now (column-role-casbin-subject.test.ts).
+    expect(held).not.toContain('member@*');
+    const col = await sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId}`.execute(
+      db,
+    );
+    expect(col.rows[0]?.role).toBe('member');
   });
 });

@@ -82,7 +82,7 @@ describe('tampered permission caches', () => {
     _setCacheForTests(makeCache(new Map([[cacheKey, '["admin"]:deadbeef']])) as never);
 
     await runWithDomain(domain, async () => {
-      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+      expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
     });
   });
 
@@ -104,7 +104,7 @@ describe('tampered permission caches', () => {
     _setCacheForTests(makeCache(new Map([[cacheKey, `["admin"]:${FORGED_SIG}`]])) as never);
 
     await runWithDomain(DEFAULT_TENANT_ID, async () => {
-      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+      expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
     });
   });
 
@@ -132,10 +132,10 @@ describe('tampered permission caches', () => {
     const store = new Map<string, string>();
     _setCacheForTests(makeCache(store) as never);
     await runWithDomain('tenant-a', async () => {
-      expect(await getUserRoles('u-a')).toEqual(['editor']);
+      expect(await getUserRoles('u-a')).toEqual(['editor', 'member']);
     });
     await runWithDomain('tenant-b', async () => {
-      expect(await getUserRoles('u-a')).toEqual([]);
+      expect(await getUserRoles('u-a')).toEqual(['member']);
     });
 
     store.set(
@@ -143,7 +143,7 @@ describe('tampered permission caches', () => {
       store.get(`roles:${__cacheNamespace()}:tenant-a:u-a`)!,
     );
     await runWithDomain('tenant-b', async () => {
-      expect(await getUserRoles('u-a')).toEqual([]);
+      expect(await getUserRoles('u-a')).toEqual(['member']);
     });
   });
 });

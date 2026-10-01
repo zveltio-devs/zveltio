@@ -16,11 +16,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import {
-  getEnforcer,
-  getUserRoles,
-  invalidateUserPermCache,
-} from '../../lib/tenancy/permissions.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { getRlsFilters, invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -125,7 +121,11 @@ d('a member-keyed row rule applies to a column-role member over REST', () => {
       db,
     );
     expect(row.rows[0]?.role).toBe('member');
-    expect(await getUserRoles(userId)).not.toContain('member');
+    // The table, not `getUserRoles`: that now reports the column role too.
+    const g = await sql`SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}`.execute(
+      db,
+    );
+    expect(g.rows).toHaveLength(0);
   });
 
   it('getRlsFilters applies the rule whether or not the caller passed the role', async () => {

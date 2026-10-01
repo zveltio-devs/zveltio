@@ -175,7 +175,7 @@ describe('getUserRoles cache', () => {
     _setCacheForTests(makeCache(store) as never);
 
     await runWithDomain(domain, async () => {
-      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+      expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
     });
   });
 
