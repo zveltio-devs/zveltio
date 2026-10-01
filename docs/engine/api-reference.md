@@ -790,7 +790,9 @@ answers a key 403 `EXT_SESSION_REQUIRED`. Each route needs the action its
 method maps to: GET `read`, POST `create`, PUT/PATCH `update`, DELETE `delete`.
 The extension's own permission checks for the key are answered from the same
 entry (an action it asks by name, such as `settle`, must be named there too);
-Casbin is not asked. It too must be named. A 401 means no key, or one that is
+Casbin is not asked. An extension may check collections against the key's
+collection scopes instead, as developer/graphql does: there the `$ext` entry
+admits the endpoint and grants no collection. It too must be named. A 401 means no key, or one that is
 unknown, revoked, expired or of another tenant; a 403, a valid key without the
 scope or a route not declared for keys.
 
