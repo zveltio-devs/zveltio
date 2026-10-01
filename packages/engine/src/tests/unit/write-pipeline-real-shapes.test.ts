@@ -10,7 +10,7 @@
  * through messages that matched more than one pattern at once.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { registerCoreFieldTypes } from '../../field-types/index.js';
 import { DDLManager, fieldTypeRegistry } from '../../lib/data/index.js';
@@ -120,6 +120,9 @@ describe('getVirtualConfig', () => {
 });
 
 describe('processInput', () => {
+  // The validation handle is module state: leave none behind for the next file.
+  afterAll(() => initValidationEngine(null as unknown as Database));
+
   const rulesDb = (rules: unknown[]) => {
     const db = new CannedDb();
     db.when(/from "zv_validation_rules"/, rules);
