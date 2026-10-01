@@ -14,8 +14,24 @@
  * is a date rather than a retelling.
  */
 
-import { sql } from 'kysely';
+import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+
+/**
+ * THE definition of a membership in force: `valid_from` inclusive, `valid_to`
+ * exclusive, NULL `valid_to` open-ended. Every check of "is this user in this
+ * tenant now" — the membership middleware, a flow's role audience, a broadcast
+ * audience, the unit switcher — uses this, so a withdrawal by date means the
+ * same thing at every door.
+ *
+ * `table` is the alias the query gives `zv_tenant_users` (or the bare name).
+ * Not used where history is the question: a tenant purge counts every row.
+ */
+export function activeMembership(table = 'zv_tenant_users'): RawBuilder<boolean> {
+  const from = sql.ref(`${table}.valid_from`);
+  const to = sql.ref(`${table}.valid_to`);
+  return sql<boolean>`(${from} <= now() AND (${to} IS NULL OR ${to} > now()))`;
+}
 
 /**
  * Published when a user's assignments have all expired.
@@ -69,8 +85,7 @@ export async function resolveTenantScope(
         FROM zv_tenant_users
        WHERE user_id = ${userId}
          AND tenant_id = ${tenantId}::uuid
-         AND valid_from <= now()
-         AND (valid_to IS NULL OR valid_to > now())
+         AND ${activeMembership()}
     `.execute(db),
     sql<{ id: string }>`
       SELECT a::text AS id FROM zveltio_tenant_ancestors(${tenantId}::uuid) AS a

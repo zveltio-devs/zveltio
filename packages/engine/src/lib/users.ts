@@ -152,6 +152,9 @@ export async function deleteTenantlessUsers(
     // or waits for our commit and then fails its foreign key.
     const row = await sql`SELECT 1 FROM "user" WHERE id = ${id} FOR UPDATE`.execute(trx);
     if (row.rows.length === 0) return null;
+    // ANY row, lapsed included — deliberately not `activeMembership`. An expired
+    // membership is the other tenant's history, and deleting the account would
+    // cascade it away; a purge of one tenant must not edit another's records.
     const member = await sql`SELECT 1 FROM zv_tenant_users WHERE user_id = ${id} LIMIT 1`.execute(
       trx,
     );

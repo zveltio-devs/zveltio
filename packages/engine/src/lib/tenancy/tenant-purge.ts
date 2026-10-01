@@ -171,6 +171,7 @@ export async function purgeTenant(
         AND NOT EXISTS (SELECT 1 FROM zv_media_files o
                          WHERE o.storage_path = x.p AND o.tenant_id <> ${tenantId})
     `.execute(trx);
+    // Every row, lapsed included: a former member is this tenant's to clean up.
     const members = await sql<{ id: string }>`
       SELECT user_id AS id FROM zv_tenant_users WHERE tenant_id = ${tenantId}
     `.execute(trx);
