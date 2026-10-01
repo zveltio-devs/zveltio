@@ -540,10 +540,13 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
    * A deleted row comes back as `operation: 'delete'` (`data: null`), from the
    * tombstone migration 032 has every collection table write, on the same
    * keyset and under the same watermark — a tombstone is dated at its
-   * transaction's start too. They are kept `SYNC_TOMBSTONE_RETENTION_DAYS`: a
-   * position older than that may have missed a purged one, so the collection
-   * restarts from nothing and `resync[collection]` is true — the client drops
-   * its copy before applying the page. A first pull (no cursor, `since` 0) has
+   * transaction's start too. They are kept `SYNC_TOMBSTONE_RETENTION_DAYS`. A
+   * cursor also carries where its client's deletes are complete from (the
+   * watermark of its last caught-up pull); older than the retention, a purged
+   * one may be missing, so the collection restarts from nothing and
+   * `resync[collection]` is true — the client drops its copy before applying
+   * the page. A `since`-only client has only its position, so rows older than
+   * the retention restart it on every page. A first pull (no cursor, `since` 0) has
    * nothing to delete and gets no tombstones.
    *
    * Known and accepted: a tombstone carries only the id, and no row rule can
@@ -571,18 +574,20 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       since: number;
     };
 
-    // `<updated_at in epoch microseconds>:<id>`, as the previous pull wrote it.
+    // `d<deletes-from us>:<updated_at in epoch microseconds>:<id>`, as the
+    // previous pull wrote it; `<us>:<id>` from a pull before `d` existed.
     // Checked here, before any SQL: a bad value cast inside the tenant
     // transaction would abort it and answer 500.
-    const cursorIn = new Map<string, { us: string; id: string }>();
+    const cursorIn = new Map<string, { us: string; id: string; del?: string }>();
     if (body.cursors !== undefined) {
       if (!body.cursors || typeof body.cursors !== 'object' || Array.isArray(body.cursors)) {
         return c.json({ error: 'Invalid body: cursors must be an object' }, 400);
       }
       for (const [name, value] of Object.entries(body.cursors)) {
-        const m = typeof value === 'string' ? /^(\d{1,18}):(.+)$/s.exec(value) : null;
+        const m =
+          typeof value === 'string' ? /^(?:d(\d{1,18}):)?(\d{1,18}):(.+)$/s.exec(value) : null;
         if (!m) return c.json({ error: `Invalid cursor for ${name}` }, 400);
-        cursorIn.set(name, { us: m[1]!, id: m[2]! });
+        cursorIn.set(name, { us: m[2]!, id: m[3]!, del: m[1] });
       }
     }
 
@@ -657,14 +662,20 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       );
       let cursor = cursorIn.get(collection);
       let collSince = sinceDate;
-      const position = cursor
-        ? BigInt(cursor.us)
+      // Where this client's deletes are complete from: every tombstone dated
+      // after it is still owed. Not the cursor's row position — paging through
+      // rows older than the retention restarted from nothing on every page, so
+      // a large old collection never finished its first sync. An old
+      // `<us>:<id>` cursor knows only its position.
+      let deletesFrom: string | null = cursor
+        ? (cursor.del ?? cursor.us)
         : since > 0
-          ? BigInt(Math.floor(since)) * 1000n
+          ? String(BigInt(Math.floor(since)) * 1000n)
           : null;
-      if (position !== null && position < horizonUs) {
+      if (deletesFrom !== null && BigInt(deletesFrom) < horizonUs) {
         resync[collection] = true;
         cursor = undefined;
+        deletesFrom = null;
         collSince = new Date(0);
       }
       const pullQuery = scope.query(
@@ -747,9 +758,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       const page = full ? merged.slice(0, PULL_LIMIT_PER_COLLECTION) : merged;
       // The cursor is the last row READ, not the last one kept: a row the
       // entity-access check drops below is still behind the client.
-      const last = page.at(-1);
-      if (last) cursorsOut[collection] = `${last.us}:${last.id}`;
-      else if (cursor) cursorsOut[collection] = `${cursor.us}:${cursor.id}`;
+      const last = page.at(-1) ?? cursor;
+      // Caught up, every tombstone below the watermark went out; a full page
+      // (or a watermark of 0, which delivers nothing) still owes what it owed.
+      // A client with no position holds nothing a delete could remove.
+      const owed = full || watermarkUs === '0' ? (deletesFrom ?? watermarkUs) : watermarkUs;
+      if (last) cursorsOut[collection] = `d${owed}:${last.us}:${last.id}`;
       if (full && last) {
         hasMore = true;
         // The largest whole millisecond strictly before the last row sent, so
