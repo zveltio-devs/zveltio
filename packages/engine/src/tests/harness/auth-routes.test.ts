@@ -138,6 +138,21 @@ d('auth + invitation routes (in-process)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('POST /api/invitations/accept → 410 for an expired invite, and creates no account', async () => {
+    const res = await app.request('/api/invitations/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: EXPIRED_TOKEN, password: 'Passw0rd!123' }),
+    });
+    expect(res.status).toBe(410);
+    const user = await db
+      .selectFrom('user')
+      .select('id')
+      .where('email', '=', `expired-${STAMP}@test.invalid`)
+      .executeTakeFirst();
+    expect(user).toBeUndefined();
+  });
+
   it('POST /api/invitations/accept provisions the user for a valid invite', async () => {
     const res = await app.request('/api/invitations/accept', {
       method: 'POST',

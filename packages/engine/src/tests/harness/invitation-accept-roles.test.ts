@@ -58,14 +58,26 @@ d('POST /api/invitations/accept', () => {
       // to every request the new user makes, so they can sign in and do nothing.
       const state = await sql<{
         members: number;
+        member_role: string;
+        member_tenant: string;
+        invite_tenant: string;
         consumed: boolean;
         db_role: string;
+        grants: { role: string; domain: string }[];
       }>`
         SELECT
           (SELECT COUNT(*)::int FROM zv_tenant_users m
              JOIN "user" u ON u.id = m.user_id WHERE u.email = ${email}) AS members,
+          (SELECT m.role FROM zv_tenant_users m
+             JOIN "user" u ON u.id = m.user_id WHERE u.email = ${email}) AS member_role,
+          (SELECT m.tenant_id::text FROM zv_tenant_users m
+             JOIN "user" u ON u.id = m.user_id WHERE u.email = ${email}) AS member_tenant,
+          (SELECT tenant_id::text FROM zv_invitations WHERE email = ${email}) AS invite_tenant,
           (SELECT accepted_at IS NOT NULL FROM zv_invitations WHERE email = ${email}) AS consumed,
-          (SELECT role FROM "user" WHERE email = ${email}) AS db_role
+          (SELECT role FROM "user" WHERE email = ${email}) AS db_role,
+          (SELECT COALESCE(json_agg(json_build_object('role', p.v1, 'domain', p.v2)), '[]'::json)
+             FROM zvd_permissions p JOIN "user" u ON u.id = p.v0
+            WHERE u.email = ${email} AND p.ptype = 'g') AS grants
       `.execute(db);
       const s = state.rows[0]!;
 
@@ -74,6 +86,17 @@ d('POST /api/invitations/accept', () => {
       // Never the invitation's role: that column holds only 'god' or 'member',
       // and writing anything else is what crashed the endpoint.
       expect(['god', 'member']).toContain(s.db_role);
+
+      // The membership lands in the inviting tenant, at the matching grade when
+      // the role is one (`admin`), and as `member` when it is a Casbin-only name.
+      expect(s.member_tenant).toBe(s.invite_tenant);
+      expect(s.member_role).toBe(role === 'manager' ? 'member' : role);
+
+      // Exactly the role that was offered, in the inviting tenant's domain. A
+      // count alone passed when every invitee was granted `tenant_member`, or
+      // when the grant landed in another tenant's domain.
+      const casbinRole = role === 'manager' ? 'manager' : `tenant_${role}`;
+      expect(s.grants).toEqual([{ role: casbinRole, domain: s.invite_tenant }]);
     }, 30_000);
   }
 

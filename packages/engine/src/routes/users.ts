@@ -59,21 +59,20 @@ export function usersRoutes(
     const parsedLimit = Math.min(parseInt(limit) || 20, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = db.selectFrom('user').selectAll().orderBy('createdAt', 'desc');
+    // One filtered base for the page and its total: the count used to read the
+    // whole table, so a search reported every user as a match and the pager
+    // offered pages of nothing.
+    let base = db.selectFrom('user');
     if (search) {
       const safeSearch = `%${escapeLike(search)}%`;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      query = query.where((eb: any) =>
+      base = base.where((eb) =>
         eb.or([eb('name', 'like', safeSearch), eb('email', 'like', safeSearch)]),
       );
     }
 
     const [users, total] = await Promise.all([
-      query.offset(offset).limit(parsedLimit).execute(),
-      db
-        .selectFrom('user')
-        .select((eb) => eb.fn.count('id').as('count'))
-        .executeTakeFirst(),
+      base.selectAll().orderBy('createdAt', 'desc').offset(offset).limit(parsedLimit).execute(),
+      base.select((eb) => eb.fn.count('id').as('count')).executeTakeFirst(),
     ]);
 
     // Batch-fetch all roles in one Casbin call — avoids N+1 queries
