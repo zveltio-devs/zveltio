@@ -23,6 +23,24 @@ const d = harnessAvailable() ? describe : describe.skip;
 
 type Case = { subject: string; domain: string; resource: string; action: string };
 
+/**
+ * `enforce()` over the subject AND its `"user".role`: the set counts the column
+ * role as a `g <user> <role> *` row would, and the effect is `some(allow)`, so
+ * the union is the two verdicts OR-ed.
+ */
+async function oracle(
+  db: Database,
+  e: Awaited<ReturnType<typeof getEnforcer>>,
+  c: Case,
+): Promise<boolean> {
+  if (await e.enforce(c.subject, c.domain, c.resource, c.action)) return true;
+  const row = await sql<{ role: string }>`
+    SELECT role FROM "user" WHERE id = ${c.subject}
+  `.execute(db);
+  const role = row.rows[0]?.role;
+  return role !== undefined && (await e.enforce(role, c.domain, c.resource, c.action));
+}
+
 d('resolved permission set matches enforce()', () => {
   let db: Database;
   const cases: Case[] = [];
@@ -68,6 +86,15 @@ d('resolved permission set matches enforce()', () => {
        LIMIT 4
     `.execute(db);
     cases.unshift(...held.rows);
+    // A user allowed only through the column role (a `p member` rule, no `g` row).
+    const viaColumn = await sql<Case>`
+      SELECT u.id AS subject, '*' AS domain, p.v2 AS resource, p.v3 AS action
+        FROM "user" u
+        JOIN zvd_permissions p ON p.ptype = 'p' AND p.v0 = u.role AND p.v1 = '*'
+       WHERE u.role = 'member'
+       LIMIT 1
+    `.execute(db);
+    cases.unshift(...viaColumn.rows);
 
     // A subject with no grants at all — the expensive denial, and the common one.
     cases.push({
@@ -133,7 +160,7 @@ d('resolved permission set matches enforce()', () => {
     }
 
     for (const c of sample) {
-      const slow = await e.enforce(c.subject, c.domain, c.resource, c.action);
+      const slow = await oracle(db, e, c);
       const fast = await __allowViaSet(c.subject, c.domain, c.resource, c.action);
       if (slow) allowed++;
       if (slow !== fast) {
@@ -165,7 +192,7 @@ d('resolved permission set matches enforce()', () => {
     // taken away. Asserting `false` there would be testing the fixture, not the
     // code, and it is exactly the wrong assumption this test made first.
     const agree = async (label: string) => {
-      const slow = await e.enforce(subject, domain, resource, 'read');
+      const slow = await oracle(db, e, { subject, domain, resource, action: 'read' });
       const fast = await __allowViaSet(subject, domain, resource, 'read');
       expect(`${label}: ${fast}`).toBe(`${label}: ${slow}`);
       return slow;

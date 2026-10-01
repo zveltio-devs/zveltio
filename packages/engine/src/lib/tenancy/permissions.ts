@@ -189,6 +189,8 @@ interface EffectivePermissions {
   exact: Set<string>;
   /** Objects granted with `act = '*'`. */
   anyAction: Set<string>;
+  /** The column role could not be read: this set lacks it, and is never memoized. */
+  unread?: unknown;
 }
 
 const _effective = new Map<string, { perms: EffectivePermissions; expires: number }>();
@@ -210,6 +212,19 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
   // Role chains and the `'*'` domain grant, resolved by casbin itself.
   const subjects = new Set<string>([userId]);
   for (const role of await e.getImplicitRolesForUser(userId, domain)) subjects.add(role);
+  // The column role counts exactly as a `g <user> <role> *` row would, chain
+  // included: only PATCH /api/users/:id ever wrote that row, so a grant to
+  // `member` used to miss every self-registered member.
+  let unread: unknown;
+  try {
+    const column = await columnRole(userId);
+    if (column) {
+      subjects.add(column);
+      for (const role of await e.getImplicitRolesForUser(column, domain)) subjects.add(role);
+    }
+  } catch (err) {
+    unread = err ?? new Error('role lookup failed');
+  }
 
   const perms: EffectivePermissions = { all: false, exact: new Set(), anyAction: new Set() };
   for (const rule of await e.getPolicy()) {
@@ -227,6 +242,7 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
     else perms.exact.add(`${po}\u0000${pa}`);
   }
 
+  if (unread !== undefined) return { ...perms, unread };
   if (gen !== _policyGen) return perms;
   if (_effective.size >= LOCAL_PERM_MAX) {
     const oldest = _effective.keys().next().value;
@@ -787,6 +803,17 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   return role;
 }
 
+/**
+ * `"user".role` as a role held in every domain — the single source of
+ * god/member. `null` for an API key or an unknown id (`resolveUserRole` answers
+ * 'public' for both): a key's authority is its scopes, never a column. Throws
+ * when the column cannot be read.
+ */
+async function columnRole(userId: string): Promise<string | null> {
+  const role = await resolveUserRole({ id: userId });
+  return role === 'public' ? null : role;
+}
+
 export async function isGodUser(userId: string): Promise<boolean> {
   try {
     return await lookupGod(userId);
@@ -903,13 +930,15 @@ export async function checkPermission(
   } catch (err) {
     godLookupError = err ?? new Error('god lookup failed');
   }
-  const allowed = await casbinAllows(userId, resource, action, gen);
-  // A failed god lookup is not "not god". A grant Casbin holds decides alone;
-  // a refusal cannot be told apart from an unreadable god flag, so it THROWS.
+  const { allowed, unread } = await casbinAllows(userId, resource, action, gen);
+  // A failed god or role lookup is not "not god" / "no role". A grant Casbin
+  // holds without them decides alone; a refusal cannot be told apart from an
+  // unreadable column, so it THROWS.
   // Still a refusal to every request-path caller (none reads a throw as yes),
   // while the realtime sweeps read it as "retry", not as a revoke that ends a
   // god's streams on a database blip.
-  if (allowed || godLookupError === undefined) return allowed;
+  const lookupError = godLookupError ?? unread;
+  if (allowed || lookupError === undefined) return allowed;
   // 503 + Retry-After, not a bare 500: the caller is told the check is
   // temporarily impossible and can retry, rather than that it was refused.
   const err = problem(
@@ -918,7 +947,7 @@ export async function checkPermission(
     `Permission for  on "" cannot be checked right now; retry shortly.`,
   );
   err.retryAfter = 5;
-  err.cause = godLookupError;
+  err.cause = lookupError;
   throw err;
 }
 
@@ -928,7 +957,7 @@ async function casbinAllows(
   resource: string,
   action: string,
   gen: number,
-): Promise<boolean> {
+): Promise<{ allowed: boolean; unread?: unknown }> {
   const domain = getCurrentDomain();
   const cache = getCache();
   // A name no policy mentions cannot change the answer — see `policyObjectIndex`.
@@ -943,7 +972,7 @@ async function casbinAllows(
       if (cached !== null) {
         // Verify HMAC signature — null means tampered, fall through to DB
         const decoded = _decodePermCache(cacheKey, cached);
-        if (decoded !== null) return decoded;
+        if (decoded !== null) return { allowed: decoded };
       }
     } catch {
       /* cache unavailable */
@@ -952,7 +981,7 @@ async function casbinAllows(
     // No shared cache — see the note on `_localPerm`. No HMAC here: the value
     // never leaves this process, so there is nothing to tamper with in transit.
     const local = localPermGet(cacheKey);
-    if (local !== null) return local;
+    if (local !== null) return { allowed: local };
   }
 
   // Resolved once per (user, domain), then answered by lookup — see
@@ -960,9 +989,12 @@ async function casbinAllows(
   // granted question was already cheap; it was the DENIALS that read all 7 208
   // rules to conclude nothing applied, at 364-885 ms each. Those are the answers
   // an attacker asks for, and now they cost a Set miss.
-  const result = allowedBy(await effectivePermissions(userId, domain), resource, action);
+  const perms = await effectivePermissions(userId, domain);
+  const result = allowedBy(perms, resource, action);
+  // Without the column role: a grant holds, a refusal is not an answer to file.
+  if (perms.unread !== undefined) return { allowed: result, unread: perms.unread };
   // Computed across a policy change: right for this request, not for the next.
-  if (gen !== _policyGen) return result;
+  if (gen !== _policyGen) return { allowed: result };
 
   if (cache) {
     try {
@@ -977,7 +1009,7 @@ async function casbinAllows(
     localPermSet(cacheKey, result);
   }
 
-  return result;
+  return { allowed: result };
 }
 
 /**
@@ -1124,7 +1156,12 @@ export async function getUserRoles(userId: string): Promise<string[]> {
   const e = await getEnforcer();
   // Roles the user holds in this domain. Casbin's getRolesForUser(user, domain)
   // honours the '*' domain-matching func, so global grants are included.
-  const roles = await e.getRolesForUser(userId, domain);
+  // Plus the column role, which no `g` row mirrors any more. Not caught: a list
+  // missing it would stand down every rule keyed on it.
+  const column = await columnRole(userId);
+  const roles = [
+    ...new Set([...(await e.getRolesForUser(userId, domain)), ...(column ? [column] : [])]),
+  ];
 
   // Same rule as `checkPermission`: never file an answer computed across a change.
   if (cache && gen === _policyGen) {

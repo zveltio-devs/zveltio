@@ -115,7 +115,7 @@ describe('cache encode without BETTER_AUTH_SECRET', () => {
     delete process.env.BETTER_AUTH_SECRET;
     try {
       await runWithDomain(domain, async () => {
-        expect(await getUserRoles('u-editor')).toEqual(['editor']);
+        expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
       });
       expect(store.has(cacheKey)).toBe(false);
     } finally {
