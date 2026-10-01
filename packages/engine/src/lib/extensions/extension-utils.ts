@@ -49,13 +49,15 @@ const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
  * layers on the Postgres advisory lock for cross-replica safety.
  */
 export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prior = extensionLifecycleLocks.get(key);
-  if (prior) {
-    await prior.catch(() => {
+  // Chain onto the tail and register BEFORE awaiting anything. Awaiting the
+  // prior first let every caller that arrived while it ran read the same
+  // prior, wake together and run concurrently — three callers, two at once.
+  const prior = extensionLifecycleLocks.get(key) ?? Promise.resolve();
+  const current = prior
+    .catch(() => {
       /* swallow — not our concern */
-    });
-  }
-  const current = fn();
+    })
+    .then(fn);
   extensionLifecycleLocks.set(key, current);
   try {
     return await current;

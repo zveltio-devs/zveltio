@@ -63,6 +63,8 @@ function appWith(auth: unknown, prefetchedKey?: KeyRow | null) {
       user: c.get('user').id,
       admitted: admittedApiKey()?.id ?? null,
       create: await check(c.get('user').id, 'invoices', 'create'),
+      // Another key's principal, asked inside this key's admitted request.
+      otherKey: await check('apikey:22222222-2222-4222-8222-222222222222', 'invoices', 'create'),
       settle: await check(c.get('user').id, 'invoices', 'settle'),
       casbin,
     });
@@ -152,6 +154,33 @@ describe('extensionAuthGate', () => {
     expect(res.status).toBe(401);
   });
 
+  it('resolves the longest name whatever order the extensions registered in', async () => {
+    // The registry is a Map, iterated in insertion order: the case above would
+    // pass with "the last name that matches wins". Here the parent comes last.
+    registerExtensionPublicRoutes('content/page-builder', []);
+    registerExtensionPublicRoutes('content', ['/page-builder/cms/*']);
+    const res = await appWith(authAnon).request('/ext/content/page-builder/cms/home');
+    expect(res.status).toBe(401);
+  });
+
+  it('matches a public pattern as a whole path, not as a prefix or a regex', async () => {
+    registerExtensionPublicRoutes('sms', ['/webhook/twilio', '/feed.xml']);
+    const app = appWith(authAnon);
+    app.post('/ext/sms/webhook/twilio/admin', (c) => c.text('admin'));
+    app.get('/ext/sms/feedXxml', (c) => c.text('not the feed'));
+    expect((await app.request('/ext/sms/webhook/twilio/admin', { method: 'POST' })).status).toBe(
+      401,
+    );
+    expect((await app.request('/ext/sms/feedXxml')).status).toBe(401);
+  });
+
+  it("applies an extension's rules to its own root path", async () => {
+    registerExtensionPublicRoutes('sms', ['/']);
+    const app = appWith(authAnon);
+    app.get('/ext/sms', (c) => c.text('root'));
+    expect((await app.request('/ext/sms')).status).toBe(200);
+  });
+
   it('is disabled by ZVELTIO_EXT_AUTH_GATE=0', async () => {
     process.env.ZVELTIO_EXT_AUTH_GATE = '0';
     registerExtensionPublicRoutes('sms', []);
@@ -183,6 +212,7 @@ describe('extensionAuthGate', () => {
         user: string;
         admitted: string | null;
         create: boolean;
+        otherKey: boolean;
         settle: boolean;
         casbin: string[];
         code?: string;
@@ -199,6 +229,7 @@ describe('extensionAuthGate', () => {
         expect(b.admitted).toBe(`apikey:${KEY_ID}`);
         // The extension's own checks read the scope — Casbin is never asked for a key.
         expect(b.create).toBe(true);
+        expect(b.otherKey).toBe(false);
         expect(b.settle).toBe(false);
         expect(b.casbin).toEqual([]);
       }
@@ -233,6 +264,15 @@ describe('extensionAuthGate', () => {
         expect(res.status).toBe(403);
         expect((await body(res)).code).toBe('EXT_SESSION_REQUIRED');
       }
+    });
+
+    it('ignores a malformed apiKeyRoutes entry instead of half-reading it', async () => {
+      registerExtensionPublicRoutes('finance/invoicing', [], ['GET /invoices trailing-junk']);
+      const res = await appWith(authAnon, key(INV)).request('/ext/finance/invoicing/invoices', {
+        headers,
+      });
+      expect(res.status).toBe(403);
+      expect((await body(res)).code).toBe('EXT_SESSION_REQUIRED');
     });
 
     it('401s an unknown key and another tenant key on a declared route', async () => {
