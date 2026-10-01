@@ -42,6 +42,19 @@ d('RBAC role + permission management (in-process)', () => {
     return body.role?.id ?? body.id!;
   };
 
+  // What GET /api/admin/permissions reports for one role, as `resource:action`.
+  const grantsOf = async (roleId: string): Promise<string[]> => {
+    const res = await app.request('/api/admin/permissions', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const { permissions } = (await res.json()) as {
+      permissions: Array<{ role_id: string; resource: string; action: string }>;
+    };
+    return permissions
+      .filter((p) => p.role_id === roleId)
+      .map((p) => `${p.resource}:${p.action}`)
+      .sort();
+  };
+
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
@@ -49,6 +62,9 @@ d('RBAC role + permission management (in-process)', () => {
 
   afterAll(async () => {
     if (db) {
+      await sql`DELETE FROM zvd_permissions WHERE v0 IN (${CHILD}, ${PARENT}) OR v1 IN (${CHILD}, ${PARENT})`
+        .execute(db)
+        .catch(() => {});
       await sql`DELETE FROM zv_roles WHERE name IN (${CHILD}, ${PARENT})`
         .execute(db)
         .catch(() => {});
@@ -82,17 +98,25 @@ d('RBAC role + permission management (in-process)', () => {
       '/api/admin/permissions/bulk',
       json('POST', {
         permissions: [
-          { role_id: childId, resource: 'zvd_harness', action: 'read' },
+          // `view` is what the screen used to offer; the engine checks `read`.
+          { role_id: childId, resource: 'zvd_harness', action: 'view' },
           { role_id: childId, resource: 'zvd_harness', action: 'update' },
         ],
       }),
     );
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(await grantsOf(childId)).toEqual(['zvd_harness:read', 'zvd_harness:update']);
   });
 
-  it('lists permissions (GET /api/admin/permissions)', async () => {
-    const res = await app.request('/api/admin/permissions', { headers: { cookie } });
+  it('bulk REPLACES the custom-role grants rather than adding to them', async () => {
+    const res = await app.request(
+      '/api/admin/permissions/bulk',
+      json('POST', {
+        permissions: [{ role_id: childId, resource: 'zvd_harness', action: 'update' }],
+      }),
+    );
     expect(res.status).toBe(200);
+    expect(await grantsOf(childId)).toEqual(['zvd_harness:update']);
   });
 
   it('sets a role hierarchy (POST /api/admin/roles/hierarchy)', async () => {
@@ -100,7 +124,7 @@ d('RBAC role + permission management (in-process)', () => {
       '/api/admin/roles/hierarchy',
       json('POST', { child: CHILD, parent: PARENT }),
     );
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(200);
   });
 
   it('rejects a self-inheriting hierarchy (child == parent → 400)', async () => {
@@ -114,6 +138,10 @@ d('RBAC role + permission management (in-process)', () => {
   it('reads the role hierarchy (GET /api/admin/roles/hierarchy)', async () => {
     const res = await app.request('/api/admin/roles/hierarchy', { headers: { cookie } });
     expect(res.status).toBe(200);
+    const { hierarchy } = (await res.json()) as {
+      hierarchy: Array<{ child: string; parent: string }>;
+    };
+    expect(hierarchy).toContainEqual({ child: CHILD, parent: PARENT });
   });
 
   it('deletes a role (DELETE /api/admin/roles/:id)', async () => {
@@ -121,6 +149,16 @@ d('RBAC role + permission management (in-process)', () => {
       method: 'DELETE',
       headers: { cookie },
     });
-    expect([200, 204]).toContain(res.status);
+    expect(res.status).toBe(200);
+
+    // The role row, its grants and its inheritance edge go with it. A Casbin row
+    // left behind is silently re-attached to any role later created under the
+    // same name.
+    const role = await db.selectFrom('zv_roles').select('id').where('id', '=', childId).execute();
+    expect(role).toEqual([]);
+    const rows = await sql<{ ptype: string }>`
+      SELECT ptype FROM zvd_permissions WHERE v0 = ${CHILD} OR v1 = ${CHILD}
+    `.execute(db);
+    expect(rows.rows).toEqual([]);
   });
 });

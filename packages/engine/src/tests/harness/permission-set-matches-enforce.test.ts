@@ -180,4 +180,30 @@ d('resolved permission set matches enforce()', () => {
     }
     await agree('dupa retragere');
   }, 60_000);
+
+  // The sampled cases above come from whatever rows `LIMIT` returns, and on a
+  // fresh install every `p` row sits in domain `*` — so a set that ignored the
+  // policy's domain, or widened `read` to every action, agreed with enforce() on
+  // all of them. A grant in one tenant must not answer for another.
+  it('a grant in one tenant answers for that tenant and that action only', async () => {
+    const e = await getEnforcer();
+    const subject = `equiv_sub_${Date.now()}`;
+    const resource = `equiv_res_${Date.now()}`;
+    const tenantA = '00000000-0000-4000-8000-0000000000a1';
+    const tenantB = '00000000-0000-4000-8000-0000000000b2';
+    const verdict = async (domain: string, action: string) => {
+      const slow = await e.enforce(subject, domain, resource, action);
+      const fast = await __allowViaSet(subject, domain, resource, action);
+      expect(`${domain}/${action}: ${fast}`).toBe(`${domain}/${action}: ${slow}`);
+      return fast;
+    };
+    await e.addPolicy(subject, tenantA, resource, 'read');
+    try {
+      expect(await verdict(tenantA, 'read')).toBe(true);
+      expect(await verdict(tenantB, 'read')).toBe(false);
+      expect(await verdict(tenantA, 'update')).toBe(false);
+    } finally {
+      await e.removePolicy(subject, tenantA, resource, 'read');
+    }
+  }, 60_000);
 });
