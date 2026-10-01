@@ -1,5 +1,6 @@
 // ioredis connects to Valkey (Redis-compatible, open-source).
 // Valkey was chosen over Redis after Redis's BSL license change (2024).
+import type { SecondaryStorage } from 'better-auth';
 import Redis from 'ioredis';
 
 let _cache: Redis | null = null;
@@ -116,17 +117,30 @@ export async function createCacheSecondaryStorage() {
    * - Immediate deletion instead of lazy cleanup
    * - Minimal serialization overhead
    */
-  return {
-    get: async (key: string, _ttl?: number) => {
-      const value = await cache.get(key);
-      if (!value) return null;
-      try {
-        return JSON.parse(value);
-      } catch {
-        // Corrupted cache entry — treat as miss so DB is used instead
-        return null;
-      }
-    },
+  const parse = (value: string | null) => {
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      // Corrupted cache entry — treat as miss so DB is used instead
+      return null;
+    }
+  };
+
+  const storage = {
+    get: async (key: string, _ttl?: number) => parse(await cache.get(key)),
+    /**
+     * Better-Auth consumes every single-use value through this: password-reset
+     * tokens, magic links, email/phone OTPs, two-factor OTPs, one-time tokens,
+     * email-change links. Since 1.7 it is a required member of SecondaryStorage
+     * and is called unguarded, so without it each of those flows threw
+     * "secondaryStorage.getAndDelete is not a function" on every install with
+     * Valkey — which, since #402, is every production install.
+     *
+     * One GETDEL, not GET then DEL: two requests redeeming the same token
+     * together must not both read it before either deletes it.
+     */
+    getAndDelete: async (key: string) => parse(await cache.getdel(key)),
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     set: async (key: string, value: any, ttl: number = 300) => {
       // Default TTL of 300s (5min) - shorter than previous default
@@ -201,4 +215,7 @@ export async function createCacheSecondaryStorage() {
       return results.map((r: any) => (r[0] ? null : r[1]));
     },
   };
+  // A member Better-Auth adds to the interface must fail typecheck here, not
+  // production: auth.ts hands this object over as `any`, so nothing else checks.
+  return storage satisfies SecondaryStorage;
 }

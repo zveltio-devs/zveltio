@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: password reset, magic links and OTPs failed on every install with Valkey.**
+Since better-auth 1.7 (beta.64), redeeming any single-use token — password
+reset, magic link, email/phone OTP, two-factor OTP, one-time token, email
+change — threw `secondaryStorage.getAndDelete is not a function` whenever
+`VALKEY_URL` was set, which production requires. Affects beta.64 to beta.76.
+
 **Breaking: sync pull takes cursors only (#805).**
 - `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
   no cursor is read from its start. `since` is ignored.
