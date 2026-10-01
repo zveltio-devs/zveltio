@@ -132,10 +132,54 @@ describe('sendWebPush', () => {
     ).toBe(false);
   });
 
+  it('signs a VAPID JWT the push service can verify (RFC 8292)', async () => {
+    stubFetch(201);
+    await sendWebPush(SUB, MSG, {}, VAPID);
+    const auth = new Headers(seen?.init?.headers as HeadersInit).get('Authorization') ?? '';
+    const [header, claims, sig] = auth.slice('vapid t='.length).split(',')[0].split('.');
+    const b64 = (s: string) =>
+      Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0));
+
+    // A shape-only check let a wrong signature, a wrong alg and an already
+    // expired token through — every one of which the push service answers
+    // with 401/403, so nothing is ever delivered.
+    expect(JSON.parse(new TextDecoder().decode(b64(header)))).toEqual({ typ: 'JWT', alg: 'ES256' });
+    const exp = JSON.parse(new TextDecoder().decode(b64(claims))).exp as number;
+    const now = Math.floor(Date.now() / 1000);
+    expect(exp).toBeGreaterThan(now);
+    expect(exp - now).toBeLessThanOrEqual(24 * 60 * 60);
+
+    const key = await crypto.subtle.importKey(
+      'raw',
+      b64(VAPID.publicKey) as BufferSource,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+    const valid = await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key,
+      b64(sig) as BufferSource,
+      new TextEncoder().encode(`${header}.${claims}`) as BufferSource,
+    );
+    expect(valid).toBe(true);
+  });
+
+  it('passes the caller’s TTL and urgency to the push service', async () => {
+    stubFetch(201);
+    await sendWebPush(SUB, MSG, { ttlSeconds: 60, urgency: 'high' }, VAPID);
+    const headers = new Headers(seen?.init?.headers as HeadersInit);
+    expect(headers.get('TTL')).toBe('60');
+    expect(headers.get('Urgency')).toBe('high');
+  });
+
   it('checks the subscription key shapes', () => {
     expect(isValidP256dh(SUB.p256dh)).toBe(true);
     expect(isValidP256dh('AAAA')).toBe(false);
+    // Right length, but not an uncompressed point (no 0x04 prefix).
+    expect(isValidP256dh(btoa(String.fromCharCode(...new Uint8Array(65))))).toBe(false);
     expect(isValidAuthSecret(SUB.auth)).toBe(true);
     expect(isValidAuthSecret('AAAA')).toBe(false);
+    expect(isValidAuthSecret(btoa(String.fromCharCode(...new Uint8Array(17))))).toBe(false);
   });
 });

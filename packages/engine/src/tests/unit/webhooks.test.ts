@@ -122,6 +122,11 @@ describe('WebhookManager.deliver', () => {
     expect(sig).toBe(expectedHex);
   });
 
+  it('sends with the method the webhook is configured for', async () => {
+    await WebhookManager.deliver({ ...basePayload, method: 'PUT' });
+    expect(lastReq?.init?.method).toBe('PUT');
+  });
+
   it('strips exploitable headers but forwards custom ones', async () => {
     await WebhookManager.deliver({
       ...basePayload,
