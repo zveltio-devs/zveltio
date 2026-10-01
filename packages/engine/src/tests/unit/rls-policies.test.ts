@@ -23,9 +23,20 @@ import {
 } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
+/**
+ * The `"user".role` column, which `getRlsFilters` resolves the direct role
+ * from — never from the role on the object its caller passes.
+ */
+const USER_COLUMN_ROLE: Record<string, string> = { 'u-1': 'editor', 'u-2': 'editor' };
+const permissionsDb = new CannedDb();
+permissionsDb.when(/SELECT role FROM "user"/i, (q) => {
+  const role = USER_COLUMN_ROLE[q.parameters[0] as string];
+  return role ? [{ role }] : [];
+});
+
 beforeAll(async () => {
   process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
-  await initPermissions(new CannedDb().kysely as unknown as Database);
+  await initPermissions(permissionsDb.kysely as unknown as Database);
 });
 
 function setup(): CannedDb {
@@ -79,9 +90,9 @@ describe('getRlsFilters — overrides', () => {
     // `checkPermission` throws (503) when the god lookup errors and no rule
     // grants the action. Caught as `true`, a database hiccup would hand every
     // caller every row; it must end in the rules or in the error, never in [].
-    const permissionsDb = new CannedDb();
-    permissionsDb.fail(/SELECT role FROM "user"/i, new Error('connection terminated'));
-    await initPermissions(permissionsDb.kysely as unknown as Database);
+    const failing = new CannedDb();
+    failing.fail(/SELECT role FROM "user"/i, new Error('connection terminated'));
+    await initPermissions(failing.kysely as unknown as Database);
     try {
       const db = setup();
       db.when(/FROM zvd_rls_policies/i, [policy()]);
@@ -95,7 +106,7 @@ describe('getRlsFilters — overrides', () => {
       );
       expect(outcome).not.toEqual([]);
     } finally {
-      await initPermissions(new CannedDb().kysely as unknown as Database);
+      await initPermissions(permissionsDb.kysely as unknown as Database);
     }
   });
 
@@ -144,7 +155,7 @@ describe('getRlsFilters — policy matching', () => {
     expect(filters).toEqual([{ field: 'owner_id', condition: { op: 'eq', value: 'u-1' } }]);
   });
 
-  it('role-specific policy applies only to that role (direct-role fallback)', async () => {
+  it('role-specific policy applies only to that role (the user-column role)', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-editor', role: 'editor', filter_value_source: 'user_email' }),
@@ -249,26 +260,53 @@ describe('RLS policy CRUD', () => {
   });
 });
 
-describe('a caller without a role', () => {
+describe('the role on the caller object', () => {
   /**
-   * Better-Auth does not populate `role` on a session, so this is the ordinary
-   * shape of a caller, not an edge case. The engine's own routes cast the
-   * session user into a type that claims `role: string` and hand it straight in.
-   *
-   * What must NOT happen: the policy being skipped. `resolveValue` returning
-   * null means "cannot resolve", and the caller drops that policy — fail-open on
-   * the one source that is absent on every session. The Postgres twin of the
-   * same policy (`buildRowRulePredicate`) compares against
-   * `current_setting('zveltio.user_role')`, which is `''` when unset, and keeps
-   * the rule. The two must agree.
+   * Better-Auth does not populate `role` on a session, so REST passed none
+   * while the realtime doors passed the resolved one — and a `member` rule
+   * applied on one door and not the other. The role is resolved from the user
+   * column inside `getRlsFilters` now, so what the caller passes, or claims,
+   * changes nothing. The Postgres twin reads the same resolved role from
+   * `zveltio.user_role` (middleware/tenant.ts).
    */
-  it('still gets a user_role policy, compared against the empty string', async () => {
+  it('is ignored: no role, or a claimed one, both resolve from the column', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-role', filter_field: 'team', filter_value_source: 'user_role' }),
+      policy({
+        id: 'p-editor',
+        role: 'editor',
+        filter_field: 'dept',
+        filter_value_source: 'static:x',
+      }),
     ]);
-    const noRole = { id: 'u-3' } as { id: string; role?: string };
-    const filters = await getRlsFilters('contacts', noRole, 'session');
-    expect(filters).toEqual([{ field: 'team', condition: { op: 'eq', value: '' } }]);
+    const expected: Awaited<ReturnType<typeof getRlsFilters>> = [
+      { field: 'team', condition: { op: 'eq', value: 'editor' } },
+      { field: 'dept', condition: { op: 'eq', value: 'x' } },
+    ];
+    expect(await getRlsFilters('contacts', { id: 'u-1' }, 'session')).toEqual(expected);
+    expect(await getRlsFilters('contacts', { id: 'u-1', role: 'viewer' }, 'session')).toEqual(
+      expected,
+    );
+  });
+
+  it('an API key is `api_key` by its id, with or without the role on the object', async () => {
+    const db = setup();
+    db.when(/FROM zvd_rls_policies/i, [
+      policy({ id: 'p-key', role: 'api_key', filter_field: 'k', filter_value_source: 'user_role' }),
+      policy({
+        id: 'p-public',
+        role: 'public',
+        filter_field: 'p',
+        filter_value_source: 'static:p',
+      }),
+    ]);
+    const expected: Awaited<ReturnType<typeof getRlsFilters>> = [
+      { field: 'k', condition: { op: 'eq', value: 'api_key' } },
+    ];
+    expect(await getRlsFilters('contacts', { id: 'apikey:k1' }, 'api_key')).toEqual(expected);
+    expect(
+      await getRlsFilters('contacts', { id: 'apikey:k1', role: 'api_key' }, 'api_key'),
+    ).toEqual(expected);
   });
 });

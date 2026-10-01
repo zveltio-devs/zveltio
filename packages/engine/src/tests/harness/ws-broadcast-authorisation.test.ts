@@ -116,8 +116,12 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
   });
 
   it('GET /api/data redacts the column (the behaviour being matched)', async () => {
+    // Owned by the member: the `member` row rule holds on REST as on the socket,
+    // so an unowned row is not listed at all and the column is never reached.
     await sql
-      .raw(`INSERT INTO "zvd_${COLLECTION}" (title, salary) VALUES ('a','SECRET-WS')`)
+      .raw(
+        `INSERT INTO "zvd_${COLLECTION}" (title, salary, owner) VALUES ('a','SECRET-WS','${member.userId}')`,
+      )
       .execute(db);
     const res = await app.request(`/api/data/${COLLECTION}`, {
       headers: { cookie: member.cookie },
