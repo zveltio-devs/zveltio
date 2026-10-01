@@ -651,21 +651,37 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
   return tenant || null;
 }
 
+/** What `stillInTenant` reads off a realtime connection. */
+interface TenantBoundConnection {
+  tenantId: string | null;
+  /** A session's carries `userId`; an API key's does not. */
+  principal: { kind: string; userId?: string } | null;
+}
+
 /**
- * The realtime sweep's tenant rule: is a connection opened in `tenantId` still
- * allowed to stay open? The tenant middleware refuses every request to a tenant
- * that is not 'active' (archived, suspended, purged), but a socket or stream
- * captures its tenant once, at open — so each sweep asks again, for all of them.
- * `null` (no tenant captured) always holds.
+ * The realtime sweep's tenant rule: may a connection opened in `tenantId` stay
+ * open? The tenant middleware refuses every request to a tenant that is not
+ * 'active' (archived, suspended, purged), and the membership middleware every
+ * session whose user holds no membership in force there (`activeMembership`) —
+ * but a socket or stream is admitted once, at open, so each sweep asks both
+ * again, for all of them.
  *
- * One query for every id, from the table: the cache copy is what an archive has
- * just dropped. Throws when the lookup fails — that is not an archive.
+ * Membership as the middleware asks it: the default tenant counts everyone, a
+ * god is exempt, and an API key is not asked (it is bound to its tenant at
+ * issue). A lapse is a date with no event, so the periodic principal sweep
+ * (`startPolicyReconcile`) is what reaches it. `null` (no tenant captured)
+ * always holds.
+ *
+ * One query per question for every connection, from the tables: the cache copy
+ * is what an archive has just dropped. Throws when a lookup fails — that is not
+ * an archive or a lapse.
  */
-export async function tenantsStillActive(
+export async function stillInTenant(
   db: Database,
-  tenantIds: Iterable<string | null>,
-): Promise<(tenantId: string | null) => boolean> {
-  const ids = [...new Set([...tenantIds].filter((id): id is string => id !== null))];
+  conns: Iterable<TenantBoundConnection>,
+): Promise<(conn: TenantBoundConnection) => boolean> {
+  const list = [...conns];
+  const ids = [...new Set(list.flatMap((c) => (c.tenantId ? [c.tenantId] : [])))];
   const active = new Set<string>();
   if (ids.length > 0) {
     const rows = await db
@@ -676,7 +692,33 @@ export async function tenantsStillActive(
       .execute();
     for (const r of rows) active.add(r.id);
   }
-  return (tenantId) => tenantId === null || active.has(tenantId);
+  const memberOf = (c: TenantBoundConnection) =>
+    c.principal?.kind === 'session' && c.tenantId && c.tenantId !== DEFAULT_TENANT_ID
+      ? c.principal.userId
+      : undefined;
+  const asked = list.filter((c) => memberOf(c) && active.has(c.tenantId!));
+  const held = new Set<string>();
+  if (asked.length > 0) {
+    const users = [...new Set(asked.map((c) => memberOf(c)!))];
+    const tenants = [...new Set(asked.map((c) => c.tenantId!))];
+    // `role = 'god'` is `isGodUser`'s own question, asked here so a failed read
+    // throws instead of answering "not god" and closing a god's sockets.
+    const rows = await sql<{ user_id: string; tenant_id: string }>`
+      SELECT user_id, tenant_id::text AS tenant_id FROM zv_tenant_users
+       WHERE user_id = ANY(${sql.val(users)}::text[])
+         AND tenant_id = ANY(${sql.val(tenants)}::uuid[])
+         AND ${activeMembership()}
+      UNION ALL
+      SELECT id, '*' FROM "user" WHERE id = ANY(${sql.val(users)}::text[]) AND role = 'god'
+    `.execute(db);
+    for (const r of rows.rows) held.add(`${r.tenant_id}:${r.user_id}`);
+  }
+  return (c) => {
+    if (c.tenantId === null) return true;
+    if (!active.has(c.tenantId)) return false;
+    const userId = memberOf(c);
+    return !userId || held.has(`${c.tenantId}:${userId}`) || held.has(`*:${userId}`);
+  };
 }
 
 export async function getUserTenants(userId: string): Promise<(Tenant & { role: string })[]> {

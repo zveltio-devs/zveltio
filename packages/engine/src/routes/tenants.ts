@@ -352,7 +352,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         .executeTakeFirst();
       if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
       await invalidateTenantCache(tenant.slug, tenant.id);
-      // Its open sockets and streams too, on every instance — see `tenantsStillActive`.
+      // Its open sockets and streams too, on every instance — see `stillInTenant`.
       revalidatePrincipalsEverywhere();
       const children = await db
         .selectFrom('zv_tenants')
