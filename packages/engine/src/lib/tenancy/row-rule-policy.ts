@@ -463,13 +463,17 @@ export async function applyRowRulePolicy(
 }
 
 /**
- * Put the rules on every collection that has them. Run at boot.
+ * Put the rules on every collection that has them, and take them off every
+ * collection that no longer does. Run at boot and on every `*` rule change.
  *
  * Existing installs have rules and no policies; nothing else would ever create
  * them, and a feature that only protects collections created after the upgrade
  * protects the ones nobody has data in yet.
  */
 export async function reconcileRowRulePolicies(db: Database): Promise<number> {
+  // And every collection still carrying the policy: a deleted, disabled or
+  // moved `*` rule leaves collections with no rule at all, and those are exactly
+  // the ones that must drop it.
   const rows = await sql<{ name: string }>`
     SELECT DISTINCT c.name
       FROM zvd_collections c
@@ -477,6 +481,11 @@ export async function reconcileRowRulePolicies(db: Database): Promise<number> {
        SELECT 1 FROM zvd_rls_policies p
         WHERE p.is_enabled AND (p.collection = c.name OR p.collection = '*')
      )
+        OR EXISTS (
+          SELECT 1 FROM pg_policies pp
+           WHERE pp.schemaname = 'public' AND pp.tablename = 'zvd_' || c.name
+             AND pp.policyname = ${ROW_RULE_POLICY}
+        )
   `.execute(db);
   let n = 0;
   for (const r of rows.rows) {

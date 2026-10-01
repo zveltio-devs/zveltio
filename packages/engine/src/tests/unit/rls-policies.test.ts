@@ -75,6 +75,30 @@ describe('getRlsFilters — overrides', () => {
     expect(filters[0]!.field).toBe('owner_id');
   });
 
+  it('a view_all lookup that fails does not read as the exemption', async () => {
+    // `checkPermission` throws (503) when the god lookup errors and no rule
+    // grants the action. Caught as `true`, a database hiccup would hand every
+    // caller every row; it must end in the rules or in the error, never in [].
+    const permissionsDb = new CannedDb();
+    permissionsDb.fail(/SELECT role FROM "user"/i, new Error('connection terminated'));
+    await initPermissions(permissionsDb.kysely as unknown as Database);
+    try {
+      const db = setup();
+      db.when(/FROM zvd_rls_policies/i, [policy()]);
+      const outcome = await getRlsFilters(
+        'contacts',
+        { ...USER, id: 'u-lookup-down' },
+        'session',
+      ).then(
+        (filters) => filters,
+        () => 'rejected' as const,
+      );
+      expect(outcome).not.toEqual([]);
+    } finally {
+      await initPermissions(new CannedDb().kysely as unknown as Database);
+    }
+  });
+
   it('an API key bypasses only when ITS OWN flag says so', async () => {
     // Was blanket for every key, then per key with a default of true, and now
     // opt-in: migration 032 flipped the default and 040 backfilled the keys

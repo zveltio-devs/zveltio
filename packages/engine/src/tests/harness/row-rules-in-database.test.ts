@@ -21,6 +21,7 @@ import {
   type RlsIdentity,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
+import { createRlsPolicy, deleteRlsPolicy, updateRlsPolicy } from '../../lib/tenancy/rls.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -150,6 +151,43 @@ d('row rules are enforced by the database (in-process)', () => {
     // The policy is replaced wholesale on every change, so deleting the last
     // rule has to take the enforcement with it.
     expect((await forgottenWhere(asUser(ALICE))).length).toBe(4);
+  });
+
+  it('stops enforcing a rule on the collection it was moved away from', async () => {
+    // PATCH /api/rls/:id accepts `collection`. The update refreshed the
+    // database policy of the collection the rule moved TO only, so the one it
+    // left kept a predicate built from a rule that no longer applies there.
+    const rule = await createRlsPolicy({
+      collection: COLL,
+      role: '*',
+      filter_field: 'created_by',
+      filter_op: 'eq',
+      filter_value_source: 'user_id',
+    });
+    policyIds.push(rule.id);
+    expect(await forgottenWhere(asUser(ALICE))).toEqual(['alice-1', 'alice-2']);
+
+    await updateRlsPolicy(rule.id, { collection: `${COLL}_elsewhere` });
+    expect((await forgottenWhere(asUser(ALICE))).length).toBe(4);
+    await clearRules();
+  });
+
+  it('stops enforcing a `*` rule once it is deleted', async () => {
+    // A `*` change rebuilt only the collections that still had a rule, so the
+    // ones the deleted `*` rule alone covered kept enforcing it.
+    const rule = await createRlsPolicy({
+      collection: '*',
+      role: '*',
+      filter_field: 'created_by',
+      filter_op: 'eq',
+      filter_value_source: 'user_id',
+    });
+    policyIds.push(rule.id);
+    expect(await forgottenWhere(asUser(ALICE))).toEqual(['alice-1', 'alice-2']);
+
+    await deleteRlsPolicy(rule.id);
+    expect((await forgottenWhere(asUser(ALICE))).length).toBe(4);
+    await clearRules();
   });
 
   describe('it means what the engine means', () => {
