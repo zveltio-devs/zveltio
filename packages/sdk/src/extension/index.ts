@@ -38,6 +38,27 @@ export interface RlsFilter {
   readonly condition: { readonly op: string; readonly value?: unknown };
 }
 
+/** What `ctx.internals.readScope` resolves: one caller's read gate on one collection. */
+export interface ReadScope {
+  /** The physical table the alters and entity checks are registered against. */
+  readonly table: string;
+  /** Row policies, for a reader that renders them itself. */
+  readonly rls: RlsFilter[];
+  readonly columns: { hidden: Set<string>; readOnly: Set<string> };
+  /** An extension alter changes what this caller reads (see `admits`). */
+  readonly altersRestrict: boolean;
+  /** Alters + row policies onto a SELECT builder. Not for UPDATE/DELETE. */
+  query<Q>(qb: Q): Q;
+  /** The fetched rows entity access lets the caller `view`. */
+  keep<R>(rows: R[]): Promise<R[]>;
+  /** One row that did not come through `query` (a write's RETURNING): all three row gates in memory. */
+  admits(row: Record<string, unknown>): boolean | Promise<boolean>;
+  /** Column permissions onto one row. */
+  shape<R extends Record<string, unknown>>(row: R): R;
+  /** Whether the caller may read — and so filter, sort or join on — this column. */
+  readable(column: string): boolean;
+}
+
 /**
  * The filter operators the engine's query compiler understands — the vocabulary
  * `buildCondition` accepts.
@@ -510,6 +531,22 @@ export interface ExtensionInternals<DB = unknown> {
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   /** The Casbin role behind a user — what `getColumnAccess` keys on. */
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
+  /**
+   * The engine's whole read gate for one caller on one collection: row policies,
+   * extension query alters, entity-access checks (`view`) and column
+   * permissions, resolved together — what every engine read path uses. Prefer it
+   * to composing `getRlsFilters` + `getColumnAccess`, which leaves out the alters
+   * and entity checks another extension registered.
+   *
+   *     const scope = await ctx.internals.readScope(coll, user, 'session');
+   *     const rows = await scope.keep(await scope.query(db.selectFrom(t).selectAll()).execute());
+   *     return rows.map(scope.shape);
+   */
+  readScope: (
+    collection: string,
+    user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+  ) => Promise<ReadScope>;
   /** Is this user an administrator of the current tenant? */
   /**
    * The tenant to add as an explicit `tenant_id =` beside the RLS policy, or

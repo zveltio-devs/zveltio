@@ -53,7 +53,8 @@ import {
 import { runEdgeFunction } from '../edge-function-runner.js';
 import { withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
-import { checkAccess } from '../data/index.js';
+import { checkAccess, readScope } from '../data/index.js';
+import type { ReadScope } from '../data/index.js';
 import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
@@ -260,6 +261,18 @@ export interface ExtensionInternals {
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   resolveUserRole: typeof resolveUserRole;
   /**
+   * The engine's read gate — row policies, extension query alters, entity access
+   * and column permissions — as one object, the same one every engine read path
+   * uses. The four members above are three of those; an extension composing them
+   * skipped the alters and the entity checks, which it had no way to reach.
+   * Ungated, like them: it only removes rows and columns.
+   */
+  readScope: (
+    collection: string,
+    user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
+    authType: 'session' | 'api_key',
+  ) => Promise<ReadScope>;
+  /**
    * The tenant to add as an explicit `tenant_id =` beside the policy, or `null`
    * when one must not be added.
    *
@@ -451,6 +464,8 @@ export function buildExtensionInternals(): ExtensionInternals {
     getColumnAccess: (collection: string, role: string, userId?: string) =>
       getColumnAccess(getDb(), collection, role, userId),
     resolveUserRole,
+    // The host picks the handle, as for `getColumnAccess`.
+    readScope: (collection, user, authType) => readScope(getDb(), collection, user, authType),
     getUserNames,
     getSingleTenantId,
     isTenantAdmin,
