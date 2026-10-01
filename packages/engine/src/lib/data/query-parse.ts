@@ -109,10 +109,13 @@ export function parseFilters(
     const mappedOp = OP_ALIAS[op];
     if (!mappedOp) continue;
     // Coerce numeric-looking values to numbers for comparison operators
+    // A query string has no arrays, so `tag[in]=a,b` is the list a,b.
     const value =
-      NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !Number.isNaN(Number(paramVal))
-        ? Number(paramVal)
-        : paramVal;
+      mappedOp === 'in' || mappedOp === 'not_in'
+        ? paramVal.split(',')
+        : NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !Number.isNaN(Number(paramVal))
+          ? Number(paramVal)
+          : paramVal;
     filters[field] = { op: mappedOp, value };
   }
 

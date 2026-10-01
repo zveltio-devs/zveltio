@@ -63,4 +63,21 @@ describe('buildCondition', () => {
       /Unsupported filter operator/,
     );
   });
+
+  it('binds a lone in/not_in value as a one-element list, not as an array literal', () => {
+    const db = new CannedDb();
+    const kysely = db.kysely as unknown as {
+      selectFrom(t: string): {
+        selectAll(): { where(e: unknown): { compile(): { parameters: unknown[] } } };
+      };
+    };
+    const params = (op: 'in' | 'not_in') =>
+      kysely
+        .selectFrom('zvd_things')
+        .selectAll()
+        .where(buildCondition('tag', { op, value: 'a' }))
+        .compile().parameters;
+    expect(params('in')).toEqual([['a']]);
+    expect(params('not_in')).toEqual([['a']]);
+  });
 });
