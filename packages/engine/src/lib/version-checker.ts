@@ -3,7 +3,12 @@ import { ENGINE_VERSION } from '../version.js';
 
 /**
  * Checks compatibility of an extension with the current engine version.
- * Uses simple semver: major.minor.patch
+ *
+ * Full semver, prerelease included. The engine ships as `3.0.0-beta.N`, and the
+ * old `split('.')` parser read its patch as `Number('0-beta')`, NaN: every
+ * comparison against a beta came out "compatible", so a `zveltioMinVersion` of
+ * `3.0.0-beta.73` admitted beta.72. A version that is not semver is refused,
+ * not waved through.
  */
 export function isCompatible(
   engineVersion: string,
@@ -12,24 +17,21 @@ export function isCompatible(
 ): { compatible: boolean; reason?: string } {
   if (!extMinVersion) return { compatible: true };
 
-  const engine = parseSemver(engineVersion);
-  const min = parseSemver(extMinVersion);
-
-  if (compareSemver(engine, min) < 0) {
-    return {
-      compatible: false,
-      reason: `Requires engine >= ${extMinVersion}, current is ${engineVersion}`,
-    };
-  }
-
-  if (extMaxVersion) {
-    const max = parseSemver(extMaxVersion);
-    if (compareSemver(engine, max) > 0) {
+  try {
+    if (compareVersions(engineVersion, extMinVersion) < 0) {
+      return {
+        compatible: false,
+        reason: `Requires engine >= ${extMinVersion}, current is ${engineVersion}`,
+      };
+    }
+    if (extMaxVersion && compareVersions(engineVersion, extMaxVersion) > 0) {
       return {
         compatible: false,
         reason: `Requires engine <= ${extMaxVersion}, current is ${engineVersion}`,
       };
     }
+  } catch (err) {
+    return { compatible: false, reason: (err as Error).message };
   }
 
   return { compatible: true };
@@ -93,9 +95,8 @@ export async function checkExtensionDependencies(
 
     if (dep.minVersion) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const current = parseSemver((installed as any).version || '0.0.0');
-      const required = parseSemver(dep.minVersion);
-      if (compareSemver(current, required) < 0) {
+      const current = (installed as any).version || '0.0.0';
+      if (compareVersions(current, dep.minVersion) < 0) {
         missing.push(
           // `version`, not `installed_version`: the query above selects
           // `['version', 'is_enabled']` and nothing else, so the other name read
@@ -117,19 +118,7 @@ export function getEngineVersion(): string {
 
 // ── Semver helpers ────────────────────────────────────────────
 
-interface SemVer {
-  major: number;
-  minor: number;
-  patch: number;
-}
-
-function parseSemver(v: string): SemVer {
-  const [major = 0, minor = 0, patch = 0] = v.replace(/^v/, '').split('.').map(Number);
-  return { major, minor, patch };
-}
-
-function compareSemver(a: SemVer, b: SemVer): number {
-  if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return a.minor - b.minor;
-  return a.patch - b.patch;
+/** Semver order, prerelease included. Throws `Invalid SemVer: <v>`. */
+function compareVersions(a: string, b: string): number {
+  return Bun.semver.order(a, b);
 }

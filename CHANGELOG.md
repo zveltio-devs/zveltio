@@ -4,6 +4,40 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Action required for GraphQL: approve `data:write` (#765, developer/graphql
+1.0.12).** GraphQL mutations now write through the data API as the request's
+user instead of writing tables directly, which the new capability `data:write`
+gates (extension capability contract v3). On an install that has recorded
+capability consent, every GraphQL mutation is refused with
+`CapabilityDeniedError` until an admin approves the pending capability:
+`POST /api/marketplace/developer/graphql/approve-capabilities`, then reload the
+extension (the denial message says the same). Installs with no
+recorded consent are unaffected. Queries keep working either way.
+
+**GraphQL goes through the engine's gates (#764, #765, developer/graphql
+1.0.11-1.0.13).**
+- Queries, relations and mutation results read through `readScope()`: row
+  policies, extension query alters, entity access and column permissions.
+  Before, `list_`/`get_` returned rows a query alter or an entity-access check
+  hides.
+- `update_`/`delete_` no longer change rows an alter hides or entity access
+  locks. Mutations set `created_by`/`updated_by`, write revisions and fire
+  webhooks, flows and realtime events; before-hooks see the real user.
+- Schema introspection is admin-only: any signed-in user could list every
+  collection and hidden column name.
+- Error messages are the data API's (`Forbidden`, validation 422).
+- Extensions get `ctx.internals.readScope` and, with `data:write`,
+  `createRecord`/`updateRecord`/`deleteRecord(c, …)`. The identity is the
+  request's, recorded at the `/ext/*` gate; it is never a parameter.
+- graphql 1.0.13 requires engine 3.0.0-beta.73. Upgrade the engine first.
+
+**Extension engine-version bounds work on beta engines.** A version such as
+`3.0.0-beta.72` parsed its patch as `NaN`, so every `zveltioMinVersion` and
+`zveltioMaxVersion` check passed and a minimum of `3.0.0-beta.73` admitted
+beta.72. Comparison is now full semver, prerelease included; a bound that is
+not semver refuses the extension instead of admitting it. Engines up to
+beta.72 still ignore beta bounds.
+
 ## [3.0.0-beta.72] - 2026-09-30
 
 **Security: SAML SSO moves to `@node-saml/node-saml` 5.1.0 (#742, auth/saml
