@@ -19,7 +19,7 @@ import { createMiddleware } from 'hono/factory';
 import { requestSession } from './session-prefetch.js';
 import type { Database } from '../db/index.js';
 import { isGodUser } from '../lib/tenancy/index.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
+import { activeMembership, DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { problem } from '../lib/problem.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -50,6 +50,9 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
       .select('user_id')
       .where('tenant_id', '=', tenant.id)
       .where('user_id', '=', userId)
+      // Withdrawal is a date: an expired or not-yet-started membership is none.
+      // Read uncached, so it takes effect on the next request.
+      .where(activeMembership())
       .executeTakeFirst()
       // fabricated-ok: `!member` throws a 403. An unreadable membership denies access rather than granting it.
       .catch(() => null);

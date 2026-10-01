@@ -32,7 +32,14 @@ export interface RlsIdentity {
   roles: string[];
   bypass: boolean;
 }
-import { encodeTenantSet, resolveTenantScope, type TenantScope } from './tenant-scope.js';
+import {
+  activeMembership,
+  encodeTenantSet,
+  resolveTenantScope,
+  type TenantScope,
+} from './tenant-scope.js';
+
+export { activeMembership };
 
 export interface Tenant {
   id: string;
@@ -693,6 +700,10 @@ export async function getUserTenants(userId: string): Promise<(Tenant & { role: 
     .select(['tu.role'])
     .where('tu.user_id', '=', userId)
     .where('t.status', '=', 'active')
+    // A lapsed assignment is no unit to switch to. Cached for TENANT_CACHE_TTL,
+    // so a `valid_to` passing shows here within that bound; the membership
+    // middleware, which is what actually refuses, reads uncached.
+    .where(activeMembership('tu'))
     .execute();
 
   if (cache) {

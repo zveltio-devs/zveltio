@@ -12,6 +12,7 @@ import { auditLog } from '../lib/audit.js';
 // routes take the tenant id from the URL without checking it is the caller's,
 // so a tenant admin could make themselves owner of any other tenant.
 import {
+  activeMembership,
   DEFAULT_TENANT_ID,
   getEnforcer,
   invalidateUserPermCache,
@@ -453,6 +454,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         .select('role')
         .where('tenant_id', '=', id)
         .where('user_id', '=', user.id)
+        .where(activeMembership())
         .executeTakeFirst();
       if (!membership) return c.json({ error: 'Forbidden' }, 403);
     }
@@ -568,11 +570,16 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       .executeTakeFirst();
     if (!target) return c.json({ error: `No user with email ${user_email}` }, 404);
 
-    // Upsert membership.
+    // Upsert membership. Adding someone means "a member from now on": a row
+    // that lapsed (`valid_to` passed) or has not started yet is reopened, or the
+    // 201 below would describe a member every membership check refuses.
     await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role, invited_by)
       VALUES (${tenantId}, ${target.id}, ${role}, ${user.id})
-      ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role
+      ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+        role = EXCLUDED.role,
+        valid_from = LEAST(zv_tenant_users.valid_from, now()),
+        valid_to = NULL
     `.execute(db);
 
     // Bridge to Casbin: replace any prior per-tenant grant with the new role.

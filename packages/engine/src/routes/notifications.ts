@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
+import { activeMembership, DEFAULT_TENANT_ID, isTenantAdmin } from '../lib/tenancy/index.js';
 import { getVapidConfig, isValidAuthSecret, isValidP256dh } from '../lib/web-push.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
@@ -311,7 +311,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       // enforced for a real tenant, and a no-op for the default one, where
       // every account belongs to the single tenant and no membership rows are
       // written. Anything else would make broadcast deliver to nobody on a
-      // single-tenant install.
+      // single-tenant install. A lapsed membership is none, as it is there.
       const actingTenant = tenantId(c);
       const audience =
         actingTenant && actingTenant !== DEFAULT_TENANT_ID
@@ -320,6 +320,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
                 .selectFrom('zv_tenant_users')
                 .select('user_id')
                 .where('tenant_id', '=', actingTenant)
+                .where(activeMembership())
                 .execute()
             ).map((r) => r.user_id)
           : null; // null = the whole instance, which here is the whole tenant
