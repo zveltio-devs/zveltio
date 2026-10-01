@@ -81,7 +81,10 @@ export function usersRoutes(
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       users.map(async (u: any) => {
         // getRolesForUser is a single Casbin in-memory lookup (no DB round-trip)
-        const roles = await e.getRolesForUser(u.id).catch(() => []);
+        const casbin = await e.getRolesForUser(u.id).catch(() => [] as string[]);
+        // The column role is a role too (checkPermission reads it); it is no
+        // longer mirrored into Casbin, so list it from the row.
+        const roles = [...new Set([...casbin, ...(u.role ? [u.role] : [])])];
         return { ...u, roles };
       }),
     );

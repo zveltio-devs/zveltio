@@ -60,10 +60,13 @@ d('users admin (in-process)', () => {
     // The filter applies to the page AND to its total: the count used to read
     // the whole table, so every search reported every user as a match.
     const body = (await res.json()) as {
-      users: Array<{ email: string }>;
+      users: Array<{ email: string; roles: string[] }>;
       pagination: { total: number };
     };
     expect(body.users.map((u) => u.email)).toEqual([throwawayEmail]);
+    // Self-registered: `member` lives only in the user column (no Casbin row
+    // since #785), and the list still names it.
+    expect(body.users[0]?.roles).toContain('member');
     expect(body.pagination.total).toBe(1);
   });
 

@@ -944,7 +944,7 @@ export async function checkPermission(
   const err = problem(
     'permission.unavailable',
     503,
-    `Permission for  on "" cannot be checked right now; retry shortly.`,
+    `Permission for ${action} on "${resource}" cannot be checked right now; retry shortly.`,
   );
   err.retryAfter = 5;
   err.cause = lookupError;
