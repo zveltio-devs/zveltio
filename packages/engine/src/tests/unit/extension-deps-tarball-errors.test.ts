@@ -38,10 +38,26 @@ afterEach(() => {
   }
 });
 
+/**
+ * ensureExtensionCoreDeps never throws — it catches and warns — so "resolves"
+ * holds whatever happened. The warning is the only observable outcome.
+ */
+async function warningsOf(base: string): Promise<string> {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...a: unknown[]) => warnings.push(a.map(String).join(' '));
+  try {
+    await ensureExtensionCoreDeps(base);
+  } finally {
+    console.warn = original;
+  }
+  return warnings.join('\n');
+}
+
 describe('ensureExtensionCoreDeps — tarball errors', () => {
   it('warns when npm metadata fetch fails', async () => {
     globalThis.fetch = (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch;
-    await expect(ensureExtensionCoreDeps(extBase)).resolves.toBeUndefined();
+    expect(await warningsOf(extBase)).toMatch(/npm metadata fetch failed for hono: 404/);
   });
 
   it('warns when tarball download fails', async () => {
@@ -59,7 +75,7 @@ describe('ensureExtensionCoreDeps — tarball errors', () => {
       return { ok: false, status: 500 } as Response;
     }) as typeof fetch;
 
-    await expect(ensureExtensionCoreDeps(extBase)).resolves.toBeUndefined();
+    expect(await warningsOf(extBase)).toMatch(/tarball download failed for hono@1\.0\.0: 500/);
   });
 
   it('warns when tar extraction fails', async () => {
@@ -100,6 +116,8 @@ describe('ensureExtensionCoreDeps — tarball errors', () => {
       return originalSpawn(cmd as never);
     }) as typeof Bun.spawn;
 
-    await expect(ensureExtensionCoreDeps(extBase)).resolves.toBeUndefined();
+    expect(await warningsOf(extBase)).toMatch(
+      /tar extraction failed for hono: tar: invalid archive/,
+    );
   });
 });

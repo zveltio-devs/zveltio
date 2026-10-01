@@ -28,6 +28,26 @@ describe('inMemoryMutex', () => {
     expect(order).toEqual([1, 2, 3, 4]);
   });
 
+  it('runs only one at a time when three callers queue behind each other', async () => {
+    // Two callers cannot show it: the bug let every caller that arrived while
+    // the first ran read the same prior and then run together.
+    let active = 0;
+    let peak = 0;
+    const order: string[] = [];
+    const job = (name: string) =>
+      inMemoryMutex('lock-test-three', async () => {
+        active++;
+        peak = Math.max(peak, active);
+        order.push(name);
+        await Bun.sleep(20);
+        active--;
+      });
+
+    await Promise.all([job('a'), job('b'), job('c')]);
+    expect(peak).toBe(1);
+    expect(order).toEqual(['a', 'b', 'c']);
+  });
+
   it('allows concurrent calls for different keys', async () => {
     const log: string[] = [];
 
