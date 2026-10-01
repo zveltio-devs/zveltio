@@ -17,7 +17,6 @@ function apiUser(scopes: unknown, id = 'apikey:key-1') {
 
 afterEach(() => {
   spyOn(tenancy, 'checkPermission').mockRestore();
-  spyOn(DDLManager, 'getTableName').mockRestore();
 });
 
 describe('checkAccess', () => {
@@ -100,11 +99,12 @@ describe('checkAccess', () => {
     }
   });
 
-  it('api_key blocks zv_ system tables that are not zvd_ collections', async () => {
-    spyOn(DDLManager, 'getTableName').mockReturnValue('zv_system_meta');
-    // Wildcard scopes: only the table guard can refuse. With `[]` the key was
-    // denied by its empty scopes, and the test passed with the guard deleted.
-    const all = [{ collection: '*', actions: ['*'] }];
-    expect(await checkAccess(db, apiUser(all), 'system_meta', 'read')).toBe(false);
+  // checkAccess had a `zv_` system-table check that could never fire: the
+  // table name is always `zvd_<collection>`. This pins that invariant instead,
+  // without a spy that makes getTableName answer what it never answers.
+  it('a collection name always maps to a zvd_ table, never a zv_ system table', () => {
+    for (const name of ['system_meta', 'zv_api_keys', 'zvd_x', '']) {
+      expect(DDLManager.getTableName(name).startsWith('zvd_')).toBe(true);
+    }
   });
 });

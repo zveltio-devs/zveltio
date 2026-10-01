@@ -12,7 +12,6 @@ import { publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
-import { DDLManager } from './ddl-manager.js';
 import { requestSession } from '../../middleware/session-prefetch.js';
 import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
@@ -475,9 +474,9 @@ export async function checkAccess(
   // cache) first, then Casbin, so admins with proper policies still get
   // access without depending on a session field that may be missing.
   if (isApiKeyPrincipal(user)) {
-    // API keys cannot access system tables
-    const tableName = DDLManager.getTableName(collection);
-    if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
+    // No system-table check here: a collection name only ever reaches the
+    // database as `DDLManager.getTableName(name)` = `zvd_<name>`, so a key
+    // cannot name a `zv_` table (pinned in data-auth-checkAccess.test.ts).
 
     // Scopes format: Array<{ collection: string; actions: string[] }>.
     //
