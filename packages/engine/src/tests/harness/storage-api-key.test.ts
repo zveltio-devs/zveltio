@@ -97,6 +97,9 @@ d('storage with an API key', () => {
     const colleague = (await createMemberSession(app, db)).userId;
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${TENANT}::uuid, ${issuer}, 'member')`.execute(db);
     for (const [name, k] of Object.entries(KEYS)) {
       raw[name] = generateApiKey();
       await sql`
@@ -126,6 +129,7 @@ d('storage with an API key', () => {
               OR created_by = ${issuer}`.execute(db);
     await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${TENANT}::uuid`.execute(db);
   });
 

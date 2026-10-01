@@ -56,6 +56,9 @@ d('media tables under tenant RLS', () => {
     const { userId } = await createMemberSession(app, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
       const file = await sql<{ id: string }>`
         INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
@@ -104,6 +107,7 @@ d('media tables under tenant RLS', () => {
     await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`.execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

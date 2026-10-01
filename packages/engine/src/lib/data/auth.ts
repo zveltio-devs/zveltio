@@ -13,7 +13,12 @@ import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { requestSession } from '../../middleware/session-prefetch.js';
-import { apiKeyActsIn, checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
+import {
+  activeMembership,
+  apiKeyActsIn,
+  checkPermission,
+  DEFAULT_TENANT_ID,
+} from '../tenancy/index.js';
 import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
@@ -147,7 +152,17 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
   return apiKey;
 }
 
-/** Active keys whose creator is not barred — `findApiKey` and the realtime recheck. */
+/**
+ * Active keys whose creator is not barred and still belongs to the key's tenant
+ * — `findApiKey` and the realtime recheck, so every door and the sweep ask it.
+ *
+ * A key bound to an ordinary tenant acts there on its creator's standing: once
+ * their membership is no longer in force (`activeMembership` — lapsed, not yet
+ * started, removed; SCIM suspends a user in one tenant this way) the key stops
+ * with their sessions. Exempt, as at the membership middleware: the default
+ * tenant (it counts everyone) and a god creator. A NULL `created_by` passes, as
+ * it does the barred check above — deleting a user revokes their keys.
+ */
 function usableApiKeys(db: Database) {
   return db
     .selectFrom('zv_api_keys')
@@ -161,6 +176,28 @@ function usableApiKeys(db: Database) {
             .where('user.banned', '=', true),
         ),
       ),
+    )
+    .where((eb) =>
+      eb.or([
+        eb('zv_api_keys.tenant_id', 'is', null),
+        eb('zv_api_keys.tenant_id', '=', DEFAULT_TENANT_ID),
+        eb('zv_api_keys.created_by', 'is', null),
+        eb.exists(
+          eb
+            .selectFrom('user')
+            .select('user.id')
+            .whereRef('user.id', '=', 'zv_api_keys.created_by')
+            .where('user.role', '=', 'god'),
+        ),
+        eb.exists(
+          eb
+            .selectFrom('zv_tenant_users as tu')
+            .select('tu.user_id')
+            .whereRef('tu.user_id', '=', 'zv_api_keys.created_by')
+            .whereRef('tu.tenant_id', '=', 'zv_api_keys.tenant_id')
+            .where(activeMembership('tu')),
+        ),
+      ]),
     );
 }
 

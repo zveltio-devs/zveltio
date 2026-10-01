@@ -4,6 +4,16 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Upgrade note: a tenant API key now needs its creator to be a member of the
+key's tenant.** A key bound to a non-default tenant authenticates only while
+its creator's membership there is in force (`valid_from`/`valid_to`). Keys
+of the default tenant, keys created by the god, and keys with no creator are
+unchanged. A key minted for a tenant by someone who was never its member
+starts answering 401: re-mint it as a member of that tenant.
+- An API key kept working in a tenant after its creator's membership there
+  lapsed or was removed (`DELETE /api/tenants/:id/members/:userId`); open
+  WS/SSE streams opened with it now close on the next principal sweep.
+
 ## [3.0.0-beta.74] - 2026-10-01
 
 **Upgrade note: migrations 033 and 034 delete Casbin rows, with backups.**

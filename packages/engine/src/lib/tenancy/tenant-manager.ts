@@ -667,8 +667,8 @@ interface TenantBoundConnection {
  * again, for all of them.
  *
  * Membership as the middleware asks it: the default tenant counts everyone, a
- * god is exempt, and an API key is not asked (it is bound to its tenant at
- * issue). A lapse is a date with no event, so the periodic principal sweep
+ * god is exempt, and an API key is not asked here: its creator's membership in
+ * the key's tenant is part of the key lookup (`stillAuthenticated`). A lapse is a date with no event, so the periodic principal sweep
  * (`startPolicyReconcile`) is what reaches it. `null` (no tenant captured)
  * always holds.
  *

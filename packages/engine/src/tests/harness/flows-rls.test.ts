@@ -100,6 +100,9 @@ d('zv_flows under tenant RLS', () => {
     god = await createGodSession(app, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
       await sql`INSERT INTO zv_flows (name, tenant_id, trigger_type)
                 VALUES (${`${STAMP}-seed`}, ${tenant}::uuid, 'manual')`.execute(db);
@@ -130,6 +133,7 @@ d('zv_flows under tenant RLS', () => {
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await sql`DELETE FROM zv_flows WHERE name LIKE ${`${STAMP}%`}`.execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 
