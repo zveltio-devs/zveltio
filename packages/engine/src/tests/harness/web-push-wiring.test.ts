@@ -12,7 +12,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { _settleNotificationPushes, sendNotification } from '../../routes/notifications.js';
 // The path extensions are handed through `ctx.internals` — a second copy for a
 // long time, and the copy that sent nothing.
@@ -52,11 +52,12 @@ d('sendNotification delivers web push (in-process)', () => {
   const settle = _settleNotificationPushes;
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
-    const row = await sql<{ id: string }>`
-      SELECT id FROM "user" ORDER BY "createdAt" DESC LIMIT 1
-    `.execute(db);
-    userId = row.rows[0]!.id;
+    const harness = await getTestApp();
+    db = harness.db;
+    // Its own user: borrowing the newest row in "user" made the file depend on
+    // some earlier file having signed one up — on a fresh database there is
+    // none and beforeAll threw.
+    ({ userId } = await createMemberSession(harness.app, db));
 
     process.env.VAPID_PUBLIC_KEY = VAPID_PUBLIC;
     process.env.VAPID_PRIVATE_KEY = VAPID_PRIVATE;
