@@ -8,10 +8,9 @@
  * absent: the absent one does not tell you it is protecting you.
  *
  * `processInput` applies them now, which is the single point the API handlers,
- * import and sync all go through — so these cases check the rule through the
- * HTTP path and then confirm import obeys the same rule, because "the rules
- * only apply on the route someone remembered" is the failure this whole
- * campaign kept finding.
+ * import and sync all go through. These cases drive the HTTP create path only;
+ * they cover import and sync just as far as those keep calling `processInput`.
+ * The fail-closed branch is pinned in `unit/write-pipeline-validation-refuses`.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
