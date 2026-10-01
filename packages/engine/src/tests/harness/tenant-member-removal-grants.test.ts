@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { parseMigrationFile } from '../../db/migrations/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import {
   checkPermission,
@@ -124,6 +125,9 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${TAG}%`} OR v1 LIKE ${`%${TAG}%`}`
       .execute(db)
       .catch(() => {});
+    await sql`DELETE FROM zvd_permissions_pruned_034 WHERE v0 = ${USER}`
+      .execute(db)
+      .catch(() => {});
     await sql`DELETE FROM "user" WHERE id = ${USER}`.execute(db).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id IN (${TENANT_A}::uuid, ${TENANT_B}::uuid)`
       .execute(db)
@@ -196,4 +200,33 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
     });
     expect((await grantsOf(USER)).map((g) => g.dom)).toEqual(['*', TENANT_B]);
   }, 15_000);
+
+  it('migration 034 prunes grants in tenants the user left, and keeps default, `*`, member and role→role rows', async () => {
+    // State here: USER is a member of B only. Rows written straight to the table,
+    // as the old route left them: the trigger fires on membership deletes, not here.
+    const DEF = '00000000-0000-0000-0000-000000000001';
+    const DEF_ROLE = `probe_default_${TAG}`;
+    await sql`
+      INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES
+        ('g', ${USER}, ${EMP}, ${TENANT_A}),
+        ('g', ${USER}, 'tenant_member', ${TENANT_A}),
+        ('g', ${USER}, ${DEF_ROLE}, ${DEF})
+    `.execute(db);
+    const file = Bun.file(
+      new URL('../../db/migrations/sql/034_drop_removed_member_tenant_grants.sql', import.meta.url),
+    );
+    await sql.raw(parseMigrationFile(await file.text()).up).execute(db);
+
+    expect((await grantsOf(USER)).map((g) => `${g.dom} ${g.role}`).sort()).toEqual(
+      [`${DEF} ${DEF_ROLE}`, `* ${GLOBAL}`, `${TENANT_B} ${ROLE_B}`].sort(),
+    );
+    const edge = await sql`
+      SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${MGR} AND v1 = ${EMP} AND v2 = ${TENANT_A}
+    `.execute(db);
+    expect(edge.rows).toHaveLength(1);
+    const saved = await sql<{ v1: string }>`
+      SELECT v1 FROM zvd_permissions_pruned_034 WHERE v0 = ${USER} ORDER BY v1
+    `.execute(db);
+    expect(saved.rows.map((r) => r.v1)).toEqual([EMP, 'tenant_member'].sort());
+  });
 });
