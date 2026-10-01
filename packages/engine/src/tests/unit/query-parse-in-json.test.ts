@@ -25,3 +25,14 @@ describe('parseFilters — in via JSON', () => {
     }
   });
 });
+
+describe('parseFilters — in via brackets', () => {
+  it('reads a comma-separated list, because a query string has no arrays', () => {
+    const r = parseFilters({ 'label[in]': 'a,b', 'score[not_in]': '1' }, undefined, cols);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.filters.label).toEqual({ op: 'in', value: ['a', 'b'] });
+      expect(r.filters.score).toEqual({ op: 'not_in', value: ['1'] });
+    }
+  });
+});

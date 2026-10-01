@@ -258,10 +258,12 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
       return sql`${col} LIKE ${'%' + String(value) + '%'}`;
     case 'ilike':
       return sql`${col} ILIKE ${'%' + String(value) + '%'}`;
+    // A lone value is a one-element list; bound as-is, PostgreSQL parses it as
+    // an array literal and refuses it ("malformed array literal").
     case 'in':
-      return sql`${col} = ANY(${value})`;
+      return sql`${col} = ANY(${Array.isArray(value) ? value : [value]})`;
     case 'not_in':
-      return sql`NOT (${col} = ANY(${value}))`;
+      return sql`NOT (${col} = ANY(${Array.isArray(value) ? value : [value]}))`;
     case 'null':
       return sql`${col} IS NULL`;
     case 'not_null':

@@ -88,6 +88,23 @@ d('data list null and text filters (in-process)', () => {
     expect(body.records.some((r) => r.label === 'gamma')).toBe(true);
   });
 
+  it('filters with in via bracket syntax — the documented form', async () => {
+    // Bound as a string, `= ANY($1)` made PostgreSQL parse "alpha,gamma" as an
+    // array literal and refuse the query.
+    const res = await list('?label[in]=alpha,gamma');
+    expect(res.status).toBe(200);
+    const labels = ((await res.json()) as ListBody).records.map((r) => r.label).sort();
+    expect(labels).toEqual(['alpha', 'gamma']);
+  });
+
+  it('filters with not_in holding a single value in JSON', async () => {
+    const filter = JSON.stringify({ label: { not_in: 'beta' } });
+    const res = await list(`?filter=${encodeURIComponent(filter)}`);
+    expect(res.status).toBe(200);
+    const labels = ((await res.json()) as ListBody).records.map((r) => r.label).sort();
+    expect(labels).toEqual(['alpha', 'gamma']);
+  });
+
   it('filters with like on code via bracket syntax', async () => {
     const res = await list('?code[like]=A-%');
     expect(res.status).toBe(200);
