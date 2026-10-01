@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import enginePkg from '../../../package.json' with { type: 'json' };
 import { CORE_NPM_PACKAGES, ensureExtensionCoreDeps } from '../../lib/extensions/extension-deps.js';
 
 let extBase: string;
@@ -58,7 +59,7 @@ describe('ensureExtensionCoreDeps npm tarball fallback', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('registry.npmjs.org') && url.endsWith('/latest')) {
+      if (url.includes('registry.npmjs.org') && !url.endsWith('.tgz')) {
         const pkg = url.split('/').slice(-2, -1)[0]!;
         return {
           ok: true,
@@ -111,7 +112,7 @@ describe('ensureExtensionCoreDeps npm tarball fallback', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('registry.npmjs.org') && url.endsWith('/latest')) {
+      if (url.includes('registry.npmjs.org') && !url.endsWith('.tgz')) {
         const pkg = url.split('/').slice(-2, -1)[0]!;
         return {
           ok: true,
@@ -151,9 +152,11 @@ describe('ensureExtensionCoreDeps npm tarball fallback', () => {
       if (cmd[0] === 'bun') throw new Error('bun: command not found');
       return originalSpawn(cmd as never, opts as never);
     }) as typeof Bun.spawn;
+    const asked: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/latest')) {
+      if (!url.endsWith('.tgz')) {
+        asked.push(url);
         return {
           ok: true,
           json: async () => ({ version: '9.9.9', dist: { tarball: 'https://example.test/x.tgz' } }),
@@ -169,6 +172,17 @@ describe('ensureExtensionCoreDeps npm tarball fallback', () => {
         expect(existsSync(join(modules, pkg, 'package.json'))).toBe(true);
       }
       expect(readdirSync(modules).filter((n) => n.endsWith('.tgz'))).toEqual([]);
+      // The version the engine was built against, never `latest`.
+      const deps = enginePkg.dependencies as Record<string, string>;
+      expect(asked).toEqual(
+        CORE_NPM_PACKAGES.map(
+          (pkg) => `https://registry.npmjs.org/${pkg}/${deps[pkg]?.replace(/^[\^~]/, '')}`,
+        ),
+      );
+      const written = JSON.parse(readFileSync(join(extBase, 'package.json'), 'utf8'));
+      expect(written.dependencies).toEqual(
+        Object.fromEntries(CORE_NPM_PACKAGES.map((pkg) => [pkg, deps[pkg]])),
+      );
     } finally {
       rmSync(src, { recursive: true, force: true });
     }

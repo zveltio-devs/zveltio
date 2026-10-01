@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'path';
+import enginePkg from '../../../package.json' with { type: 'json' };
 
 /**
  * When running as a compiled binary (e.g. /opt/zveltio/zveltio), Bun resolves
@@ -53,12 +54,7 @@ export async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
           name: 'zveltio-extensions',
           private: true,
           type: 'module',
-          dependencies: {
-            hono: '^4.4.0',
-            zod: '^4.0.0',
-            kysely: '^0.27.6',
-            '@hono/zod-validator': '^0.7.6',
-          },
+          dependencies: CORE_DEP_RANGES,
         },
         null,
         2,
@@ -106,9 +102,20 @@ async function tryBunInstall(cwd: string): Promise<boolean> {
 export const CORE_NPM_PACKAGES = ['hono', 'zod', 'kysely', '@hono/zod-validator'];
 
 /**
+ * The engine's own ranges for the core packages, read from its package.json.
+ * Hand-written copies drifted: a fresh install got kysely ^0.27.6 while the
+ * engine ran ^0.29.6, and the tarball fallback took whatever `latest` was.
+ */
+export const CORE_DEP_RANGES: Record<string, string> = Object.fromEntries(
+  CORE_NPM_PACKAGES.map((pkg) => [pkg, (enginePkg.dependencies as Record<string, string>)[pkg]]),
+);
+
+/**
  * Direct npm install fallback for production compiled binaries.
  * For each core package:
- *   1. GET https://registry.npmjs.org/<name>/latest → metadata with tarball URL
+ *   1. GET https://registry.npmjs.org/<name>/<version> → metadata with tarball URL.
+ *      The registry does not resolve ranges, so <version> is the lower bound of
+ *      the engine's own range — the version it was built against, never `latest`.
  *   2. Download tarball
  *   3. Extract via system `tar` into node_modules/<name>/, stripping the
  *      'package/' top-level directory that npm tarballs always contain
@@ -122,7 +129,8 @@ async function installCorePackagesFromNpm(extBase: string): Promise<void> {
   mkdirSync(nodeModules, { recursive: true });
 
   for (const pkg of CORE_NPM_PACKAGES) {
-    const metaRes = await fetch(`https://registry.npmjs.org/${pkg}/latest`, {
+    const version = CORE_DEP_RANGES[pkg]?.replace(/^[\^~]/, '');
+    const metaRes = await fetch(`https://registry.npmjs.org/${pkg}/${version}`, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(30_000),
     });

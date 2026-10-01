@@ -63,7 +63,7 @@ describe('ensureExtensionCoreDeps — tarball errors', () => {
   it('warns when tarball download fails', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/latest')) {
+      if (!url.endsWith('.tgz')) {
         return {
           ok: true,
           json: async () => ({
@@ -81,7 +81,7 @@ describe('ensureExtensionCoreDeps — tarball errors', () => {
   it('warns when tar extraction fails', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/latest')) {
+      if (!url.endsWith('.tgz')) {
         return {
           ok: true,
           json: async () => ({
