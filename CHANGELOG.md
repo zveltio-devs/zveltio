@@ -17,7 +17,7 @@ extension (the denial message says the same). Installs with no
 recorded consent are unaffected. Queries keep working either way.
 
 **GraphQL goes through the engine's gates (#764, #765, developer/graphql
-1.0.11-1.0.13).**
+1.0.11-1.0.14).**
 - Queries, relations and mutation results read through `readScope()`: row
   policies, extension query alters, entity access and column permissions.
   Before, `list_`/`get_` returned rows a query alter or an entity-access check
@@ -32,6 +32,11 @@ recorded consent are unaffected. Queries keep working either way.
   `createRecord`/`updateRecord`/`deleteRecord(c, …)`. The identity is the
   request's, recorded at the `/ext/*` gate; it is never a parameter.
 - graphql 1.0.13 requires engine 3.0.0-beta.73. Upgrade the engine first.
+- API keys (graphql 1.0.14): `POST /` and `POST /persisted/:name/execute`
+  accept a key holding `$ext:developer/graphql` with `create`. Collections
+  follow the key's collection scopes, relations included; writes are
+  attributed to the issuer. Keys get no introspection and run public persisted
+  queries only. See `docs/engine/graphql.md`.
 
 **Extension engine-version bounds work on beta engines.** A version such as
 `3.0.0-beta.72` parsed its patch as `NaN`, so every `zveltioMinVersion` and
