@@ -23,8 +23,8 @@ This mounts the GraphQL API at `/api/graphql` and registers all endpoints below.
 | Relations (m2o, o2m, m2m) | ✅ Auto-resolved |
 | DataLoader batching (N+1 prevention) | ✅ Enabled |
 | Filtering, limit, offset | ✅ Via arguments |
-| Auth (session cookie) | ✅ Required |
-| Casbin permission checks | ✅ Enforced per collection |
+| Auth | ✅ Session cookie, or an API key on `POST /` and persisted execute |
+| Collection access | ✅ The data API's: Casbin for sessions, key scopes for keys, plus RLS, query alters, entity access and column permissions |
 | GraphiQL interactive playground | ✅ Built-in |
 | Persisted queries | ✅ Admin-managed |
 | Field-level access policies | ✅ Per role |
@@ -174,3 +174,20 @@ To prevent deeply nested denial-of-service queries, the extension enforces a max
 ## Why a separate extension?
 
 GraphQL adds the `graphql` npm package (~3MB) and runtime schema-building overhead. Not every deployment needs it. Keeping it as an opt-in extension means zero cost for projects that only use REST.
+
+## API keys
+
+From developer/graphql 1.0.14 (engine 3.0.0-beta.73), an API key can call
+`POST /ext/developer/graphql` and
+`POST /ext/developer/graphql/persisted/:name/execute`.
+
+- The key needs `{ "collection": "$ext:developer/graphql", "actions": ["create"] }`
+  to reach the endpoint (POST maps to `create`), even for read-only queries.
+- Every collection it reads or writes is checked against its collection scopes
+  exactly as `/api/data` checks them, relations included. The `$ext` entry
+  admits the endpoint only; it grants no collection.
+- Writes are attributed to the person who issued the key.
+- Keys get no introspection, run public persisted queries only, and hold no
+  roles for field policies. Persisted-query management, schema refresh, logs,
+  stats, field policies and the playground stay session-only.
+
