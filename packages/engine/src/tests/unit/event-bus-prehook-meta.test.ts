@@ -24,4 +24,26 @@ describe('engineEvents pre-hook helpers', () => {
     expect(engineEvents.preHookCount('record.beforeUpdate')).toBe(0);
     expect(engineEvents.preHookCount('record.beforeDelete')).toBe(0);
   });
+
+  it('runs pre-hooks one after another, so each sees what the previous one changed', async () => {
+    const seen: unknown[] = [];
+    const offA = engineEvents.onBefore('record.beforeInsert', async (p) => {
+      await new Promise((r) => setTimeout(r, 5));
+      p.mutate({ stamped: true });
+    });
+    const offB = engineEvents.onBefore('record.beforeInsert', (p) => {
+      seen.push(p.data.stamped);
+    });
+    try {
+      await engineEvents.runBefore('record.beforeInsert', {
+        collection: 'c',
+        data: { a: 1 },
+        userId: 'u',
+      });
+      expect(seen).toEqual([true]);
+    } finally {
+      offA();
+      offB();
+    }
+  });
 });
