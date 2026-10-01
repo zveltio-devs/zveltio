@@ -186,6 +186,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   deleteUser: 'auth:users',
   revokeUserSessions: 'auth:users',
   setUserActive: 'auth:users',
+  liftOwnBan: 'auth:users',
   // Collection records, as the request's caller
   createRecord: 'data:write',
   updateRecord: 'data:write',
@@ -199,6 +200,20 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // Compute
   runEdgeFunction: 'edge-functions',
 };
+
+/**
+ * Members that act AS the calling extension, keyed by the bag that has them.
+ * The bag's own copies have no caller; `gateInternals` asks `bind` for copies
+ * that carry `ext:<name>`, so the identity comes from the host's record of who
+ * is calling and never from an argument an extension could forge.
+ */
+const callerBound = new WeakMap<object, (caller: string) => Record<string, unknown>>();
+
+/** Register how `bag`'s caller-bound members are built for one extension. */
+export function bindsCaller<T extends object>(bag: T, bind: (caller: string) => Partial<T>): T {
+  callerBound.set(bag, bind as (caller: string) => Record<string, unknown>);
+  return bag;
+}
 
 /**
  * Wrap an internals bag so each guarded member throws unless the extension
@@ -228,11 +243,12 @@ export function gateInternals<T extends object>(
 
   const granted = new Set(capabilities);
   const awaiting = new Set(pending);
+  const bound: Record<string, unknown> = callerBound.get(internals)?.(`ext:${extName}`) ?? {};
 
   return new Proxy(internals, {
     get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof prop !== 'string') return value;
+      if (typeof prop !== 'string') return Reflect.get(target, prop, receiver);
+      const value = Object.hasOwn(bound, prop) ? bound[prop] : Reflect.get(target, prop, receiver);
 
       const required = INTERNALS_CAPABILITY[prop];
       if (!required || granted.has(required)) return value;

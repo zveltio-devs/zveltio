@@ -289,7 +289,7 @@ your `ctx`, not inside your own code.
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — sign in any user who is not deactivated (optionally ending their other sessions). |
-| `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive` — delete any user, end their sessions, or block and restore their sign-in. |
+| `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive`, `liftOwnBan` — delete any user, end their sessions, or block and restore their sign-in. A block records your extension as its source; `liftOwnBan` lifts only a block you placed, while `setUserActive(…, true)` lifts any. |
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `notifications` | `sendNotification`. |
 | `files` | `moveToTrash`. |

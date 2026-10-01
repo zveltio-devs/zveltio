@@ -70,6 +70,10 @@ export interface UserTable {
   updatedAt: Date;
   /** Sign-in blocked (migration 020). NULL and false both mean "may sign in". */
   banned: boolean | null;
+  /** Who placed the ban: `ext:<name>`, or `unknown` (migration 035). NULL iff not banned. */
+  ban_source: string | null;
+  /** When the ban was placed; NULL if not banned or banned before migration 035. */
+  banned_at: Date | null;
 }
 
 export interface SessionTable {

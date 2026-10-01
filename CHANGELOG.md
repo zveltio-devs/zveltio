@@ -4,6 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+- A sign-in block now records who placed it and when: `"user".ban_source`
+  and `"user".banned_at` (migration 035). `ctx.internals.setUserActive(…,
+  false)` records the calling extension as `ext:<name>`, bound by the host,
+  never taken from an argument. Banning an account that is already banned
+  keeps the first source. A ban placed any other way (raw SQL, an older
+  ban) reads `unknown`; lifting a ban by any route clears both columns.
+  Existing bans that auth/scim recorded in `zv_scim_sign_in_blocks` become
+  `ext:auth/scim`.
+- New `ctx.internals.liftOwnBan(db, userId)` (capability `auth:users`) lifts
+  a ban only if the calling extension placed it, and returns whether it did.
+  `setUserActive(…, true)` still lifts any ban, for extensions written before
+  it; new code should use `liftOwnBan`.
+
 ## [3.0.0-beta.75] - 2026-10-01
 
 **Upgrade note: a tenant API key now needs its creator to be a member of the
