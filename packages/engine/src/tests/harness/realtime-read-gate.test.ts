@@ -16,6 +16,8 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager, queryAlterRegistry } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
+import { __sweepIdle, getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
+import { sql } from 'kysely';
 import { _sseConnectionsForTests, broadcastDataEvent } from '../../routes/realtime.js';
 import { broadcastEvent, websocketHandler } from '../../routes/ws.js';
 import {
@@ -215,5 +217,55 @@ d('realtime doors honour the read gate (in-process)', () => {
     await Bun.sleep(20);
     expect(s.delivered.join('\n')).toContain('shown');
     expect(s.delivered.join('\n')).not.toContain('hidden');
+  });
+
+  it('SSE: the wildcard stream re-resolves a gate it already resolved', async () => {
+    // The wildcard stream resolves each collection's gate on first use and keeps
+    // it. A column rule created after that first event must still apply: the
+    // recheck has to drop the kept gate, not leave the open one in force. A god
+    // is exempt from column rules, so the listener is a tenant admin who is not.
+    const admin = await createMemberSession(app, db, { role: 'member' });
+    const e = await getEnforcer();
+    await e.addPolicy(admin.userId, '*', 'admin', '*');
+    await e.addPolicy(admin.userId, '*', COLLECTION, 'read');
+    await invalidateUserPermCache(admin.userId);
+    try {
+      const s = await stream(admin.cookie, admin.userId, '');
+      expect(s.status).toBe(200);
+      broadcastDataEvent(COLLECTION, 'insert', { id: 'e1', title: 'EARLY' }, s.tenantId ?? null);
+      await settle(() => s.delivered.join('\n').includes('EARLY'));
+      expect(s.delivered.join('\n')).toContain('EARLY');
+
+      const res = await app.request('/api/admin/column-permissions', {
+        method: 'POST',
+        headers: { cookie: god, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          collection_name: COLLECTION,
+          column_name: 'title',
+          role: 'member',
+          can_read: false,
+          can_write: false,
+        }),
+      });
+      expect(res.status).toBe(201);
+      await Bun.sleep(200);
+      await __sweepIdle();
+
+      broadcastDataEvent(
+        COLLECTION,
+        'insert',
+        { id: 'e2', title: 'COLUMN-SECRET' },
+        s.tenantId ?? null,
+      );
+      await settle(() => s.delivered.join('\n').includes('e2'));
+      expect(s.delivered.join('\n')).toContain('e2');
+      expect(s.delivered.join('\n')).not.toContain('COLUMN-SECRET');
+    } finally {
+      await e.removePolicy(admin.userId, '*', 'admin', '*');
+      await e.removePolicy(admin.userId, '*', COLLECTION, 'read');
+      await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`.execute(
+        db,
+      );
+    }
   });
 });
