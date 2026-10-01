@@ -34,6 +34,24 @@ describe('isCompatible', () => {
     expect(isCompatible('3.1.0', '3.0.0', '3.2.0').compatible).toBe(true);
     expect(isCompatible('3.2.0', '3.0.0', '3.2.0').compatible).toBe(true); // equal max
   });
+
+  // The engine is a prerelease. Split on '.', its patch read as NaN and every
+  // comparison passed, so a beta minimum admitted an older beta.
+  it('orders prereleases: beta.72 is below a beta.73 minimum', () => {
+    const r = isCompatible('3.0.0-beta.72', '3.0.0-beta.73');
+    expect(r.compatible).toBe(false);
+    expect(r.reason).toContain('Requires engine >= 3.0.0-beta.73');
+    expect(isCompatible('3.0.0-beta.73', '3.0.0-beta.73').compatible).toBe(true);
+    expect(isCompatible('3.0.0-beta.100', '3.0.0-beta.73').compatible).toBe(true);
+    expect(isCompatible('3.0.0', '3.0.0-beta.73').compatible).toBe(true);
+    expect(isCompatible('3.0.0-beta.72', '1.0.0', '4.0.0').compatible).toBe(true);
+  });
+
+  it('refuses a version that is not semver', () => {
+    const r = isCompatible('3.0.0-beta.72', 'latest');
+    expect(r.compatible).toBe(false);
+    expect(r.reason).toContain('Invalid SemVer');
+  });
 });
 
 describe('getEngineVersion', () => {
