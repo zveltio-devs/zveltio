@@ -137,9 +137,9 @@ d('column permissions resolve the real role (in-process)', () => {
   });
 
   it('does not hide it from an administrator', async () => {
-    // getColumnAccess short-circuits for admin roles. Evaluating a god as
-    // `public` skipped that, so a rule aimed at members could blind the admin
-    // who wrote it.
+    // Evaluating a god as `public` let a `public` rule blind the admin who
+    // wrote it. This rule names `member`, so it pins only that god is not
+    // matched as `member`; the exemption itself is pinned by the '*' test below.
     const row = await firstRecord(godCookie);
     expect(row.salary).toBe('100000');
   });
@@ -155,5 +155,15 @@ d('column permissions resolve the real role (in-process)', () => {
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`.execute(db);
     await setColumnPerm('*', 'salary', false);
     expect((await firstRecord(memberCookie)).salary).toBeUndefined();
+  });
+
+  it("a '*' rule does not hide the column from a holder of data:view_all_columns", async () => {
+    // The administrator test above cannot see this exemption: its rule names
+    // `member`, and god's role is not `member`, so god kept the salary with or
+    // without it. A '*' rule matches god's role too, so only the
+    // `data:view_all_columns` permission (which god holds) keeps it visible.
+    await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`.execute(db);
+    await setColumnPerm('*', 'salary', false);
+    expect((await firstRecord(godCookie)).salary).toBe('100000');
   });
 });
