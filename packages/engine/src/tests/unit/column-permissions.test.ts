@@ -13,6 +13,11 @@ import {
   invalidateColumnPermCache,
 } from '../../lib/tenancy/column-permissions.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
+import {
+  currentAfterCommitQueue,
+  runWithTenantTrx,
+  settleAfterCommit,
+} from '../../lib/tenancy/tenant-context.js';
 import { CannedDb } from './fixtures/canned-db.js';
 // The engine refuses to start without BETTER_AUTH_SECRET (see initPermissions):
 // it is what signs the authorization caches. Without it here, signing throws,
@@ -42,6 +47,10 @@ class ColPermFakeRedis {
     const re = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
     const matches = [...this.store.keys()].filter((k) => re.test(k));
     return [cursor === '0' && matches.length > 0 ? '0' : '0', matches] as [string, string[]];
+  }
+  // Sets are stored as JSON arrays — enough for the query cache's key index.
+  async smembers(key: string): Promise<string[]> {
+    return JSON.parse(this.store.get(key) ?? '[]');
   }
 }
 
@@ -160,5 +169,37 @@ describe('invalidateColumnPermCache', () => {
     expect(redis.store.has('colperms:contacts:editor')).toBe(false);
     expect(redis.store.has('colperms:contacts:viewer')).toBe(false);
     expect(redis.store.has('colperms:orders:editor')).toBe(true);
+  });
+});
+
+describe('invalidateColumnPermCache — what else it must drop', () => {
+  it('drops the cached query results of the collection', async () => {
+    // A cached list response was shaped under the old mask. Left in place, a
+    // column hidden a moment ago stays readable until the entry expires.
+    const redis = new ColPermFakeRedis();
+    redis.store.set('qc:contacts:list-1', '[{"ssn":"x"}]');
+    redis.store.set('qc_keys:t1:contacts', JSON.stringify(['qc:contacts:list-1']));
+    _setCacheForTests(redis as unknown as Redis);
+
+    await invalidateColumnPermCache('contacts');
+    expect(redis.store.has('qc:contacts:list-1')).toBe(false);
+  });
+
+  it('drops the mask again after the transaction that changed the rule commits', async () => {
+    // Inside the transaction the rule change is not visible yet, so a read
+    // between the first drop and COMMIT re-caches the OLD mask. Only the drop
+    // queued for after the commit removes it.
+    const redis = new ColPermFakeRedis();
+    _setCacheForTests(redis as unknown as Redis);
+
+    let jobs: Array<() => void | Promise<void>> = [];
+    await runWithTenantTrx({} as Database, 't1', async () => {
+      await invalidateColumnPermCache('contacts');
+      redis.store.set('colperms:contacts:viewer', 'stale-mask-read-mid-transaction');
+      jobs = settleAfterCommit(currentAfterCommitQueue()!, true);
+    });
+    expect(redis.store.has('colperms:contacts:viewer')).toBe(true);
+    for (const job of jobs) await job();
+    expect(redis.store.has('colperms:contacts:viewer')).toBe(false);
   });
 });
