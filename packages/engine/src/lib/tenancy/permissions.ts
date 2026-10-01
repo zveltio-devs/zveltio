@@ -1558,6 +1558,7 @@ async function reconcilePolicyChange(change: PolicyChange): Promise<void> {
     touched.add(rule[0]!);
   }
   if (touched.size === 0) return;
+  _appliedFingerprint = null; // as in `trackPolicyWrite`
 
   // After the model, not before: a check that ran in between would re-cache
   // the old answer.
@@ -1603,6 +1604,9 @@ export async function trackPolicyWrite<T>(write: () => Promise<T>): Promise<T> {
   } finally {
     _writesInFlight--;
     _writeGen++;
+    // The model moved with the table, so the table returning to the applied
+    // fingerprint (a trigger or psql undoing this write) is a change, not none.
+    _appliedFingerprint = null;
   }
 }
 

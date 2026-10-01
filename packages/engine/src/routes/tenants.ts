@@ -609,8 +609,11 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       .where('user_id', '=', targetId)
       .execute();
 
+    // Every role in this tenant's domain, not only the `tenant_*` grades: an
+    // invited `manager` or a custom role outlived the membership. Migration
+    // 034's trigger does the same on the table; this updates the live model.
     const e = await getEnforcer();
-    for (const r of TENANT_ROLES) await e.deleteRoleForUser(targetId, casbinRole(r), tenantId);
+    await e.deleteRolesForUser(targetId, tenantId);
     await invalidateUserPermCache(targetId);
 
     const tenant = await db
