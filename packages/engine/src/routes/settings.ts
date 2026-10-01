@@ -261,6 +261,10 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const raw = (setting as any).value;
+    // Same mask as the list: reading one key by name used to hand back the
+    // plaintext the list had stopped disclosing.
+    const key = c.req.param('key');
+    if (isSecretSettingKey(key)) return c.json({ key, value: maskSecret(raw) });
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let parsed: any;
     if (typeof raw === 'string') {
@@ -352,7 +356,11 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         metadata: { key, is_public: is_public ?? null },
       });
 
-      return c.json({ success: true, key, value });
+      return c.json({
+        success: true,
+        key,
+        value: isSecretSettingKey(key) ? maskSecret(value) : value,
+      });
     },
   );
 

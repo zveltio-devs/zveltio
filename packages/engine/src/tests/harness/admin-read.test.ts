@@ -51,10 +51,13 @@ d('admin/read surface (in-process)', () => {
   it('GET /api/permissions/roles/:userId resolves a user’s roles', async () => {
     // ask for the god session's own roles via the "me"-style lookup; any
     // userid string exercises the handler + Casbin role resolution path.
+    // The handler answers 200 with an empty list for an id nobody holds; it has
+    // no 404 branch, so accepting one pinned nothing.
     const res = await app.request('/api/permissions/roles/nonexistent-user', {
       headers: { cookie },
     });
-    expect([200, 404]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ roles: [] });
   });
 
   it('GET /api/settings/public is reachable without auth', async () => {
