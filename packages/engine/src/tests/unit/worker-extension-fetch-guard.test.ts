@@ -105,3 +105,13 @@ describe('worker fetch guard', () => {
     expect(msg.toLowerCase()).toMatch(/private|blocked|refus|not allowed/);
   }, 20_000);
 });
+
+describe('worker fetch guard — redirects', () => {
+  it('is the engine safeFetch, which re-validates every hop', () => {
+    // The guard used to check the first URL and then hand it to the real fetch,
+    // which followed redirects on its own: a configured public URL that 302'd to
+    // 169.254.169.254 was fetched. Hop handling is exercised in
+    // safe-fetch-redirect.test.ts; this pins that the worker bundle carries it.
+    expect(WORKER_RUNTIME_SOURCE).toContain('[safeFetch] Redirect with no Location header.');
+  });
+});

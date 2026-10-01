@@ -20,7 +20,7 @@
  */
 
 import { Hono } from 'hono';
-import { assertPublicUrl } from './security/index.js';
+import { createSafeFetch } from './edge-functions/safe-fetch.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -182,16 +182,12 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
 function installFetchGuard(): void {
   if (process.env.ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH === '1') return;
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.href
-          : (input as Request).url;
-    await assertPublicUrl(url);
-    return original(input as RequestInfo, init);
-  }) as typeof fetch;
+  // The engine's own safeFetch, not a check in front of the real fetch: a check
+  // in front let the real fetch follow redirects, so a configured public URL
+  // that 302'd to 169.254.169.254 was fetched anyway.
+  const guarded = createSafeFetch(() => original);
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    guarded(input, init)) as typeof fetch;
 }
 
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {

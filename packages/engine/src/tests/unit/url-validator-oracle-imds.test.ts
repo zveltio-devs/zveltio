@@ -50,3 +50,13 @@ describe('SSRF guard — Oracle Cloud IMDS (192.0.0.192)', () => {
     expect(isBlockedHost('169.254.169.254')).toBe(true);
   });
 });
+
+describe('storage-endpoint guard — other spellings of cloud metadata', () => {
+  it('blocks link-local metadata written as IPv4-mapped IPv6', () => {
+    expect(() => validateStorageEndpoint('http://[::ffff:169.254.169.254]/')).toThrow();
+  });
+
+  it('blocks Azure’s metadata hostname', () => {
+    expect(() => validateStorageEndpoint('http://metadata.azure.com/')).toThrow();
+  });
+});

@@ -200,3 +200,66 @@ describe('the sandbox connects to the address it validated', () => {
     expect(new Headers(seen[0].init.headers ?? {}).get('host')).toBeNull();
   });
 });
+
+describe('the sandbox follows a redirect the way fetch would', () => {
+  const to = (location: string, status = 302) =>
+    new Response(null, { status, headers: { location } });
+
+  function scripted(...script: Response[]) {
+    const seen: { url: string; init: any }[] = [];
+    const factory = new Function(
+      '_stubLookup',
+      '_fetch',
+      `${buildSandboxSsrfGuardSource('_stubLookup')}\n${buildSandboxSafeFetchSource()}\nreturn safeFetch;`,
+    );
+    const safeFetch = factory(
+      async () => [{ address: '93.184.216.34' }],
+      async (url: string, init: any) => {
+        seen.push({ url, init });
+        return script[seen.length - 1] ?? new Response('ok');
+      },
+    ) as (input: unknown, init?: unknown) => Promise<Response>;
+    return { seen, safeFetch };
+  }
+
+  it('refuses a redirect to cloud metadata without requesting it', async () => {
+    const { seen, safeFetch } = scripted(to('http://169.254.169.254/latest/meta-data/'));
+    await expect(safeFetch('https://example.com/')).rejects.toThrow(/blocked/);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('drops credentials on a hop to another origin, keeps the rest', async () => {
+    const { seen, safeFetch } = scripted(to('https://example.org/'));
+    await safeFetch('https://example.com/', { headers: { authorization: 'Bearer x', 'x-a': '1' } });
+    const sent = new Headers(seen[1].init.headers);
+    expect(sent.get('authorization')).toBeNull();
+    expect(sent.get('x-a')).toBe('1');
+  });
+
+  it('turns a POST answered 303 into a bodiless GET', async () => {
+    const { seen, safeFetch } = scripted(to('/done', 303));
+    await safeFetch('https://example.com/', { method: 'POST', body: 'x' });
+    expect(seen[1].init.method).toBe('GET');
+    expect(seen[1].init.body).toBeNull();
+  });
+
+  it('keeps a Request input’s method past the first hop', async () => {
+    const { seen, safeFetch } = scripted(to('/moved', 307));
+    await safeFetch(new Request('https://example.com/', { method: 'PUT' }));
+    expect(seen[1].init.method).toBe('PUT');
+  });
+
+  it('returns a 304 instead of treating it as a hop', async () => {
+    const { safeFetch } = scripted(new Response(null, { status: 304 }));
+    expect((await safeFetch('https://example.com/')).status).toBe(304);
+  });
+});
+
+describe('the edge-function subprocess runs this safeFetch, not a copy', () => {
+  it('embeds the generated, pinning safeFetch in its bootstrap', () => {
+    // A hand-written copy lived here and never pinned: it validated the name
+    // and handed the NAME to fetch, so the rebinding race this generator closes
+    // stayed open in the only sandbox that ran user code.
+    expect(__subprocessBootstrapForTests).toContain(buildSandboxSafeFetchSource().trim());
+  });
+});
