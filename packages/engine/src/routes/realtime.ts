@@ -12,7 +12,7 @@ import {
   revalidateSockets,
   runWithDomain,
   sweepGeneration,
-  tenantsStillActive,
+  stillInTenant,
 } from '../lib/tenancy/index.js';
 import {
   authenticate,
@@ -483,31 +483,29 @@ export async function revalidateSseStreams(): Promise<boolean> {
 /**
  * End every stream whose session or API key no longer authenticates — signed
  * out, revoked, expired, its user barred or deleted, its key revoked or its
- * creator barred — or whose tenant is no longer active. The whole stream: its
- * reconnect meets `/stream`'s 401 (403 for the tenant). One batched lookup; a
+ * creator barred — or whose tenant is no longer active, or its user no longer a
+ * member there (`stillInTenant`). The whole stream: its reconnect meets
+ * `/stream`'s 401 (403 for the tenant). One batched lookup per question; a
  * failed one ends nothing and answers `true`, as `revalidateSseStreams` does.
  */
 export async function closeUnauthenticatedSse(): Promise<boolean> {
   const subs = [...connections.values()].flatMap((set) => [...set]);
   if (subs.length === 0 || !sseDb) return false;
   let found: Awaited<ReturnType<typeof stillAuthenticated<RealtimePrincipal>>>;
-  let tenantActive: (tenantId: string | null) => boolean;
+  let inTenant: (sub: (typeof subs)[number]) => boolean;
   try {
     found = await stillAuthenticated(
       sseDb,
       subs.flatMap((s) => (s.principal ? [s.principal] : [])),
     );
-    tenantActive = await tenantsStillActive(
-      sseDb,
-      subs.map((s) => s.tenantId),
-    );
+    inTenant = await stillInTenant(sseDb, subs);
   } catch (err) {
     console.error('[realtime] SSE principal recheck failed; retrying:', err);
     return true;
   }
   let failed = false;
   for (const sub of subs) {
-    if (!sub.principal || !found.live.has(sub.principal) || !tenantActive(sub.tenantId)) {
+    if (!sub.principal || !found.live.has(sub.principal) || !inTenant(sub)) {
       sub.stream.abort();
       continue;
     }

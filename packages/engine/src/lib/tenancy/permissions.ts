@@ -1734,9 +1734,10 @@ let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * `tick` is a test seam; production runs `reconcilePolicies` and `reconcileRules`,
- * and re-asks every open connection's principal: a session or key that expired
- * on its own sends no event, and neither does a revocation whose bus message
- * was lost.
+ * and re-asks every open connection's principal and its tenant membership: a
+ * session or key that expired on its own, or a membership whose `valid_to`
+ * passed, sends no event, and neither does a revocation whose bus message was
+ * lost.
  */
 export function startPolicyReconcile(
   tick: () => Promise<unknown> = () => {
