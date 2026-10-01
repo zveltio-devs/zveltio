@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hrls_${Date.now()}`;
@@ -120,6 +125,49 @@ d('admin RLS routes (in-process)', () => {
     }
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe('unenforceable_rls_rule');
+  });
+
+  it("a rule written for every collection ('*') filters this one too", async () => {
+    // The policy loader asks for the collection's rules OR the '*' ones; every
+    // other test here names the collection, so dropping the '*' half passed.
+    // The rule's role is '*' too: on REST a role-named rule matches Casbin
+    // roles only, and this member holds per-user grants, not a Casbin role.
+    const member = await createMemberSession(app, db, {
+      role: 'member',
+      grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
+    });
+    await sql
+      .raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`)
+      .execute(db);
+    const titles = async () => {
+      const res = await app.request(`/api/data/${COLLECTION}`, {
+        headers: { cookie: member.cookie },
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { records: Array<{ title: string }> }).records.map(
+        (r) => r.title,
+      );
+    };
+    expect(await titles()).toContain('not-mine');
+
+    const res = await app.request('/api/admin/rls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        collection: '*',
+        role: '*',
+        filter_field: 'created_by',
+        filter_op: 'eq',
+        filter_value_source: 'user_id',
+      }),
+    });
+    expect(res.status).toBe(201);
+    const wildcardId = ((await res.json()) as { policy: { id: string } }).policy.id;
+    try {
+      expect(await titles()).not.toContain('not-mine');
+    } finally {
+      await app.request(`/api/admin/rls/${wildcardId}`, { method: 'DELETE', headers: { cookie } });
+    }
   });
 
   it('DELETE /api/admin/rls/:id removes the policy', async () => {

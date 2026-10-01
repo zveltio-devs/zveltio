@@ -603,8 +603,14 @@ export async function updateRlsPolicy(
     WHERE id = ${id}
     RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
   `.execute(_db);
-  if (rows.rows[0]) await invalidateRlsCache(rows.rows[0].collection);
-  return rows.rows[0] ?? null;
+  const next = rows.rows[0];
+  if (next) {
+    await invalidateRlsCache(next.collection);
+    // A rule moved to another collection leaves one too, and that one has to
+    // stop enforcing it.
+    if (cur && cur.collection !== next.collection) await invalidateRlsCache(cur.collection);
+  }
+  return next ?? null;
 }
 
 export async function deleteRlsPolicy(id: string): Promise<boolean> {
