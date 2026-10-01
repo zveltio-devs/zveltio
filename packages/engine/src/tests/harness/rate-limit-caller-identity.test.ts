@@ -12,7 +12,10 @@
  *  - an `apikey:<id>` override applies on `/api/*`;
  *  - an API key's requests count against the tenant bucket;
  *  - a bogus key, a foreign-tenant key or a bogus session is bucketed per IP,
- *    so rotating fake identities never buys a fresh bucket.
+ *    so rotating fake identities never buys a fresh bucket;
+ *  - anonymous requests naming a tenant never spend its bucket;
+ *  - a `perIp` tier (sign-in) stays per IP for signed-in callers too, so N
+ *    accounts never buy N guessing budgets.
  *
  * NODE_ENV is flipped off `test` for the duration, or the limiter is bypassed.
  * No Valkey in the harness: this drives the in-memory bucket.
@@ -78,11 +81,12 @@ d('rate limit caller identity', () => {
     return app.request('/api/me', { headers: { 'x-forwarded-for': ip, ...extra } });
   }
 
-  async function setApiTier(max: number) {
+  async function setTier(tier: string, max: number) {
     await sql`UPDATE zv_rate_limit_configs SET max_requests = ${max}
-              WHERE key_prefix = 'api'`.execute(db);
-    invalidateRateLimitCache('api');
+              WHERE key_prefix = ${tier}`.execute(db);
+    invalidateRateLimitCache(tier);
   }
+  const setApiTier = (max: number) => setTier('api', max);
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -96,6 +100,7 @@ d('rate limit caller identity', () => {
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
     await setApiTier(200);
+    await setTier('auth', 10);
     await sql`DELETE FROM zv_rate_limit_configs
               WHERE key_prefix LIKE 'tenant:%' OR key_prefix LIKE 'apikey:%'`.execute(db);
     invalidateRateLimitCache();
@@ -139,11 +144,14 @@ d('rate limit caller identity', () => {
   it('counts API-key traffic against the tenant bucket', async () => {
     const t = await newTenant();
     const key = await newKey(t.id);
+    const headers = { 'x-api-key': key.raw, 'x-tenant-slug': t.slug };
+    // A request before the limit exists caches "no limit" for this tenant; the
+    // override's invalidation must drop that, or the limit never applies.
+    expect((await hit(nextIp(), headers)).status).not.toBe(429);
     await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
               VALUES (${`tenant:api:${t.id}`}, 60000, 2)`.execute(db);
     invalidateRateLimitCache(`tenant:api:${t.id}`);
 
-    const headers = { 'x-api-key': key.raw, 'x-tenant-slug': t.slug };
     const seen: number[] = [];
     for (let i = 0; i < 3; i++) seen.push((await hit(nextIp(), headers)).status);
     expect(seen.slice(0, 2)).not.toContain(429);
@@ -169,5 +177,36 @@ d('rate limit caller identity', () => {
     await setApiTier(200);
     expect(seen.slice(0, 3)).not.toContain(429);
     expect(seen.slice(3)).toEqual([429, 429]);
+  });
+
+  it('never spends a tenant bucket on anonymous requests naming it', async () => {
+    const t = await newTenant();
+    const key = await newKey(t.id);
+    await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
+              VALUES (${`tenant:api:${t.id}`}, 60000, 2)`.execute(db);
+    invalidateRateLimitCache(`tenant:api:${t.id}`);
+
+    // Anyone can name a tenant; counting them would let a few addresses lock it out.
+    for (let i = 0; i < 3; i++) await hit(nextIp(), { 'x-tenant-slug': t.slug });
+    const headers = { 'x-api-key': key.raw, 'x-tenant-slug': t.slug };
+    expect((await hit(nextIp(), headers)).status).not.toBe(429);
+  });
+
+  it('keeps a perIp tier per address for signed-in callers', async () => {
+    const users = [await newUser(), await newUser(), await newUser()];
+    await setTier('auth', 2);
+    const ip = nextIp();
+    const seen: number[] = [];
+    for (const u of users) {
+      const res = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: u.cookie, 'x-forwarded-for': ip },
+        body: JSON.stringify({ email: `nobody-${STAMP}@example.test`, password: 'wrong-password' }),
+      });
+      seen.push(res.status);
+    }
+    await setTier('auth', 10);
+    expect(seen.slice(0, 2)).not.toContain(429);
+    expect(seen[2]).toBe(429);
   });
 });

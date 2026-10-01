@@ -26,8 +26,10 @@ import {
   realtimeBus,
   type RealtimeBusMessage,
 } from '../../lib/runtime/index.js';
+import { getCurrentTenantTrx, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   clearLocalRateLimitCache,
+  invalidateRateLimitCache,
   rateLimitDefaults,
   rateLimitTiers,
 } from '../../middleware/rate-limit.js';
@@ -149,5 +151,38 @@ d('rate-limit config: every tier tunable, changes reach every instance', () => {
     for (const { msg } of published) await dispatchToWs({ ...msg, originId: 'replica-a' });
     const after = await files(3);
     expect(after[2]).toBe(429);
+  });
+
+  it('drops a limit read while the change was uncommitted, once it commits', async () => {
+    await admin('/reset', 'POST');
+    expect(await files(1)).not.toContain(429); // caches the committed 1200
+    const tenant = (
+      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
+    ).rows[0]!.id;
+
+    let changed!: () => void;
+    let readDone!: () => void;
+    const changedP = new Promise<void>((r) => (changed = r));
+    const readP = new Promise<void>((r) => (readDone = r));
+    const writer = withTenantIsolation(
+      tenant,
+      async () => {
+        await sql`UPDATE zv_rate_limit_configs SET max_requests = 2
+                   WHERE key_prefix = 'files'`.execute(getCurrentTenantTrx()!);
+        invalidateRateLimitCache('files');
+        changed();
+        await readP; // commit only after another request has re-read the old row
+      },
+      { userId: null },
+    );
+    await changedP;
+    // Outside the transaction: still sees 1200, and caches it.
+    expect(await files(1)).not.toContain(429);
+    readDone();
+    await writer;
+
+    const after = await files(3);
+    expect(after[2]).toBe(429);
+    await admin('/reset', 'POST');
   });
 });
