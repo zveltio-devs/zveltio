@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.73] - 2026-10-01
+
 **Action required for GraphQL: approve `data:write` (#765, developer/graphql
 1.0.12).** GraphQL mutations now write through the data API as the request's
 user instead of writing tables directly, which the new capability `data:write`
@@ -15,7 +17,7 @@ extension (the denial message says the same). Installs with no
 recorded consent are unaffected. Queries keep working either way.
 
 **GraphQL goes through the engine's gates (#764, #765, developer/graphql
-1.0.11-1.0.13).**
+1.0.11-1.0.14).**
 - Queries, relations and mutation results read through `readScope()`: row
   policies, extension query alters, entity access and column permissions.
   Before, `list_`/`get_` returned rows a query alter or an entity-access check
@@ -30,6 +32,11 @@ recorded consent are unaffected. Queries keep working either way.
   `createRecord`/`updateRecord`/`deleteRecord(c, …)`. The identity is the
   request's, recorded at the `/ext/*` gate; it is never a parameter.
 - graphql 1.0.13 requires engine 3.0.0-beta.73. Upgrade the engine first.
+- API keys (graphql 1.0.14): `POST /` and `POST /persisted/:name/execute`
+  accept a key holding `$ext:developer/graphql` with `create`. Collections
+  follow the key's collection scopes, relations included; writes are
+  attributed to the issuer. Keys get no introspection and run public persisted
+  queries only. See `docs/engine/graphql.md`.
 
 **Extension engine-version bounds work on beta engines.** A version such as
 `3.0.0-beta.72` parsed its patch as `NaN`, so every `zveltioMinVersion` and
@@ -37,6 +44,37 @@ recorded consent are unaffected. Queries keep working either way.
 beta.72. Comparison is now full semver, prerelease included; a bound that is
 not semver refuses the extension instead of admitting it. Engines up to
 beta.72 still ignore beta bounds.
+
+**Archive or permanently delete a tenant (#752, #753, #754, #758).**
+`DELETE /api/tenants/:id?mode=archive` blocks a tenant and keeps its data
+(`PATCH {status:'active'}` reactivates it). `mode=purge&confirm=<slug>` deletes
+its rows, media, memberships and policies, only after an archive;
+`delete_users=true` also deletes accounts left in no tenant. A purge refuses to
+run inside a request transaction. Open WebSockets and SSE streams of a tenant
+that is no longer active are closed.
+
+**Hidden columns are no longer an oracle (#759, #761).** A column hidden by
+column permissions could still be filtered, sorted, searched or paged by
+cursor on, which recovered its values character by character. Those are now
+refused like an unknown field, and the default list order falls back to `id`
+when `created_at` is hidden.
+
+**DDL and schema-branch merges (#748-#751).**
+- After a text field was dropped or renamed, every INSERT and UPDATE on the
+  collection failed (`record "new" has no field`); the search trigger now reads
+  fields by key.
+- A stuck `add_field` job, and collections with names past 63 bytes losing
+  indexes to Postgres truncation, are fixed.
+- Ghost-DDL (merges on tables over 100 000 rows): a jsonb array written during
+  the copy no longer becomes a string; index names survive the swap and a
+  second migration on the same table works; a swap that would drop rows RLS hid
+  from the copy is refused.
+
+**Errors (#755).** Mapped Postgres constraint errors (foreign key, unique, not
+null, check) keep their message in `errors`; deleting a record another record
+references says so instead of claiming the referenced record is missing.
+
+**Security: `@grpc/grpc-js` pinned to 1.14.5 (#762)** for GHSA-m9gg-hp2v-232j.
 
 ## [3.0.0-beta.72] - 2026-09-30
 
