@@ -2231,6 +2231,11 @@ export interface ZvSchemaVersionsTable {
   rolled_back_at: Date | null;
 }
 
+export interface ZvScimSignInBlocksTable {
+  user_id: Generated<string>;
+  created_at: Generated<Date>;
+}
+
 export interface ZvScimTokensTable {
   id: Generated<string>;
   name: string;
@@ -2248,6 +2253,8 @@ export interface ZvScimUsersTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+  suspended_at: Date | null;
+  held_valid_to: Date | null;
 }
 
 export interface ZvSearchIndexesTable {
@@ -5654,6 +5661,7 @@ export interface DbSchema {
   zv_saved_queries: ZvSavedQueriesTable;
   zv_schema_branches: ZvSchemaBranchesTable;
   zv_schema_versions: ZvSchemaVersionsTable;
+  zv_scim_sign_in_blocks: ZvScimSignInBlocksTable;
   zv_scim_tokens: ZvScimTokensTable;
   zv_scim_users: ZvScimUsersTable;
   zv_search_indexes: ZvSearchIndexesTable;
