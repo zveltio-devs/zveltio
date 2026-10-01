@@ -270,6 +270,9 @@ export function initRateLimitDb(db: Database) {
 interface RateLimitEntry {
   count: number;
   windowStart: number;
+  // The entry's own window: the sweep below runs from whichever tier is
+  // calling, and windows differ once a config row or tenant limit sets one.
+  windowMs: number;
 }
 
 const memoryStore = new Map<string, RateLimitEntry>();
@@ -303,7 +306,7 @@ function memoryRateLimit(key: string, windowMs: number, max: number, countRefuse
   if (now - lastCleanup > CLEANUP_INTERVAL) {
     lastCleanup = now;
     for (const [k, entry] of memoryStore) {
-      if (entry.windowStart < windowStart) {
+      if (entry.windowStart + entry.windowMs < now) {
         memoryStore.delete(k);
       }
     }
@@ -313,14 +316,14 @@ function memoryRateLimit(key: string, windowMs: number, max: number, countRefuse
 
   if (!entry) {
     // New entry
-    memoryStore.set(key, { count: 1, windowStart: now });
+    memoryStore.set(key, { count: 1, windowStart: now, windowMs });
     return 0;
   }
 
   // Check if window expired
   if (entry.windowStart < windowStart) {
     // Reset counter for new window
-    memoryStore.set(key, { count: 1, windowStart: now });
+    memoryStore.set(key, { count: 1, windowStart: now, windowMs });
     return 0;
   }
 
