@@ -45,6 +45,7 @@ d('tenant purge — delete_users', () => {
   let only: Member; // T only → deleted
   let also: Member; // T and U → kept, other_tenant
   let granted: Member; // T, plus a grant in '*' → kept, other_grants
+  let roled: Member; // T, plus a ROLE in '*' (how PATCH /api/users sets one) → kept, other_grants
   let admin: Member; // T, instance admin → kept
   let onlyN: Member; // N only, purged without the flag → kept
   const keyIds = [crypto.randomUUID(), crypto.randomUUID()];
@@ -83,11 +84,13 @@ d('tenant purge — delete_users', () => {
     granted = await createMemberSession(app, db, {
       grants: [{ collection: `hpu_${SFX}`, actions: ['read'] }],
     });
+    roled = await createMemberSession(app, db);
+    await (await getEnforcer()).addRoleForUser(roled.userId, 'member', '*');
     admin = await createMemberSession(app, db, {
       grants: [{ collection: 'admin', actions: ['*'] }],
     });
     onlyN = await createMemberSession(app, db);
-    for (const m of [only, also, granted, admin]) await join(T.id, m.email);
+    for (const m of [only, also, granted, roled, admin]) await join(T.id, m.email);
     const godEmail = (
       await sql<{ e: string }>`SELECT email AS e FROM "user" WHERE id = ${godId}`.execute(db)
     ).rows[0]!.e;
@@ -142,6 +145,8 @@ d('tenant purge — delete_users', () => {
     expect(Object.fromEntries(users.kept.map((k) => [k.id, k.reason]))).toEqual({
       [also.userId]: 'other_tenant',
       [granted.userId]: 'other_grants',
+      // A role alone, no rule: the check on roles is what keeps this one.
+      [roled.userId]: 'other_grants',
       [admin.userId]: 'instance_admin',
       [godId]: 'self',
     });
@@ -162,7 +167,7 @@ d('tenant purge — delete_users', () => {
     expect(await e.getFilteredGroupingPolicy(0, only.userId)).toEqual([]);
 
     // Kept: rows, sign-in, and the other tenant's membership and role.
-    for (const m of [also, granted, admin]) {
+    for (const m of [also, granted, roled, admin]) {
       expect(await exists(m.userId)).toBe(true);
       expect((await signIn(m.email)).status).toBe(200);
     }
