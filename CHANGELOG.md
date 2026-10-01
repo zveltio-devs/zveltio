@@ -4,6 +4,10 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.76] - 2026-10-01
+
+**The engine records who banned an account (#802, migration 035).**
+
 - A sign-in block now records who placed it and when: `"user".ban_source`
   and `"user".banned_at` (migration 035). `ctx.internals.setUserActive(…,
   false)` records the calling extension as `ext:<name>`, bound by the host,
@@ -16,6 +20,16 @@ All notable changes to Zveltio will be documented in this file.
   a ban only if the calling extension placed it, and returns whether it did.
   `setUserActive(…, true)` still lifts any ban, for extensions written before
   it; new code should use `liftOwnBan`.
+
+**Fixes**
+- The in-memory rate limiter kept every bucket for the window of whichever
+  caller swept it, so a tier with a longer window lost its count early (#798).
+- Mapped Postgres errors report a missing field as `null` instead of
+  `undefined` (#796).
+- A sync pull stopped paging once it reached rows older than the tombstone
+  retention; it now finishes paging through them (#803).
+
+**Tests** (T01 test review): #795, #796, #799, #800, #801.
 
 ## [3.0.0-beta.75] - 2026-10-01
 
