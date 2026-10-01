@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.75] - 2026-10-01
+
 **Upgrade note: a tenant API key now needs its creator to be a member of the
 key's tenant.** A key bound to a non-default tenant authenticates only while
 its creator's membership there is in force (`valid_from`/`valid_to`). Keys
@@ -12,7 +14,20 @@ unchanged. A key minted for a tenant by someone who was never its member
 starts answering 401: re-mint it as a member of that tenant.
 - An API key kept working in a tenant after its creator's membership there
   lapsed or was removed (`DELETE /api/tenants/:id/members/:userId`); open
-  WS/SSE streams opened with it now close on the next principal sweep.
+  WS/SSE streams opened with it now close on the next principal sweep (#793).
+
+**Extensions (no engine upgrade needed unless noted)**
+- auth/scim 1.0.12: a tenant whose membership with the user has lapsed may
+  read and deprovision the user, not modify them (zveltio-extensions#167).
+- auth/scim 1.0.13 (security): POST /Users with the email of an existing
+  account answers 409 instead of attaching the account to the calling tenant;
+  any tenant's IdP could claim and ban another tenant's user
+  (zveltio-extensions#168).
+- analytics/dashboard 1.0.8: on a multi-tenant install the default tenant
+  counts its own members, not every user (zveltio-extensions#167).
+- auth/scim 1.0.14 (requires this release): an IdP's `active:false`
+  deactivates the person in that tenant only; the instance-wide ban applies
+  only when no tenant has them any more (zveltio-extensions#169).
 
 ## [3.0.0-beta.74] - 2026-10-01
 
