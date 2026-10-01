@@ -124,6 +124,51 @@ d('policy reconcile', () => {
     expect(await check(user, rule[2]!)).toBe(true);
   });
 
+  it('a lost revoke and a lost grant in the same tick both land', async () => {
+    // What a bulk permission replace on another instance looks like when its
+    // messages are lost: one rule gone, another added, the count unchanged. A
+    // comparison that only counted rules, or only checked one direction, would
+    // call the stale model current and keep the revoked rule live.
+    const e = await getEnforcer();
+    const user = `rc-u7-${tag}`;
+    const role = `rc_role7_${tag}`;
+    const revoked = [role, '*', `rc_res7a_${tag}`, 'read'];
+    const granted = [role, '*', `rc_res7b_${tag}`, 'read'];
+    await e.addRoleForUser(user, role, TENANT);
+    await e.addPolicy(...revoked);
+    await reconcilePolicies();
+    expect(await check(user, revoked[2]!)).toBe(true);
+
+    await deleteRow(revoked);
+    await insertRow(granted);
+
+    expect(await reconcilePolicies()).toBe(true);
+    expect(await check(user, revoked[2]!)).toBe(false);
+    expect(await check(user, granted[2]!)).toBe(true);
+  });
+
+  it('a write to an enforcer a reconcile already replaced reaches the live one', async () => {
+    // A request fetched the enforcer, a tick swapped it, then the request wrote.
+    // The table has the rule; the live model must get it without waiting for
+    // the next tick.
+    const stale = await getEnforcer();
+    const user = `rc-u8-${tag}`;
+    const role = `rc_role8_${tag}`;
+    const rule = [role, '*', `rc_res8_${tag}`, 'read'];
+    await stale.addRoleForUser(user, role, TENANT);
+    await insertRow([`rc_other8_${tag}`, '*', `rc_res8b_${tag}`, 'read']);
+    expect(await reconcilePolicies()).toBe(true);
+    expect(await getEnforcer()).not.toBe(stale);
+
+    await stale.addPolicy(...rule);
+
+    const deadline = Date.now() + 3_000;
+    while (!(await getEnforcer()).getModel().hasPolicy('p', 'p', rule) && Date.now() < deadline) {
+      await Bun.sleep(20);
+    }
+    expect(await check(user, rule[2]!)).toBe(true);
+  });
+
   it('a tick after a change the bus did deliver rebuilds nothing', async () => {
     const e = await getEnforcer();
     await reconcilePolicies();
