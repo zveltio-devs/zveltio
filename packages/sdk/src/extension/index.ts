@@ -761,8 +761,21 @@ export interface ExtensionInternals<DB = unknown> {
    * with the credentials they had. Instance-wide: a user has one sign-in, not
    * one per tenant. `db` is your transaction — pass the one that may already
    * have written the user's row. Needs the `auth:users` capability.
+   *
+   * A ban records your extension as its source (`"user".ban_source =
+   * 'ext:<your name>'`, taken by the host, not from you). Banning an account
+   * that is already banned keeps the first source. `true` lifts ANY ban,
+   * an administrator's included — kept for extensions written before
+   * `liftOwnBan`; to undo your own ban, use `liftOwnBan`.
    */
   setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
+  /**
+   * Lift the user's ban only if YOUR extension placed it (through
+   * `setUserActive(…, false)`); resolves whether it did. A ban an
+   * administrator, another extension or raw SQL placed stays. Needs the
+   * `auth:users` capability.
+   */
+  liftOwnBan: (db: unknown, userId: string) => Promise<boolean>;
 }
 
 /**

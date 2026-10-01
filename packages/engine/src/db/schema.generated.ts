@@ -53,6 +53,8 @@ export interface UserTable {
   updatedAt: Generated<Date>;
   twoFactorEnabled: Generated<boolean>;
   banned: boolean | null;
+  ban_source: string | null;
+  banned_at: Date | null;
 }
 
 export interface VerificationTable {

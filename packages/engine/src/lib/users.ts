@@ -212,20 +212,44 @@ export async function revokeUserSessions(
  * row lock of a caller that had just written the same row (SCIM PUT renames the
  * user first) and the request hung. So it is invisible until commit, and the
  * sessions are revoked again then — see `revokeThroughCommit`.
+ *
+ * A ban records `source` (`ext:<name>`, bound by the extension gate) and the
+ * time (migration 035). The first ban stands: banning a banned account keeps
+ * its source, so the extension that placed it can still lift it with
+ * `liftOwnBan` and a second one cannot. `active = true` lifts ANY ban, whoever
+ * placed it — what auth/scim ≤ 1.0.15 relies on; new code lifts with
+ * `liftOwnBan`.
  */
 export async function setUserActive(
   db: Database,
   poolDb: Database,
   userId: string,
   active: boolean,
+  source: string,
 ): Promise<void> {
   if (!active) await refuseGod(db, userId, 'deactivated');
   // IdPs resend `active: true` on every sync; only a change touches the row.
+  // The provenance columns follow `banned` through the trigger of migration 035.
   await sql`
-    UPDATE "user" SET banned = ${!active}, "updatedAt" = NOW()
+    UPDATE "user" SET banned = ${!active}, ban_source = ${active ? null : source},
+                      "updatedAt" = NOW()
      WHERE id = ${userId} AND COALESCE(banned, false) <> ${!active}
   `.execute(db);
   if (!active) await revokeThroughCommit(poolDb, userId);
+}
+
+/**
+ * Lift `userId`'s ban only if `source` placed it; whether it did. A ban an
+ * administrator or another extension placed — or one older than migration
+ * 035 (`unknown`) — stays. Nothing to revoke: lifting opens, it does not close.
+ */
+export async function liftOwnBan(db: Database, userId: string, source: string): Promise<boolean> {
+  const r = await sql`
+    UPDATE "user" SET banned = false, "updatedAt" = NOW()
+     WHERE id = ${userId} AND banned IS TRUE AND ban_source = ${source}
+    RETURNING id
+  `.execute(db);
+  return r.rows.length > 0;
 }
 
 /**

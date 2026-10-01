@@ -78,9 +78,11 @@ import { sendNotification } from '../notifications.js';
 import {
   createBetterAuthSession,
   deleteUser,
+  liftOwnBan,
   revokeUserSessions,
   setUserActive,
 } from '../users.js';
+import { bindsCaller } from './capabilities.js';
 import type { CreateSsoSessionOptions, UserDeletion } from '../users.js';
 
 /**
@@ -444,9 +446,21 @@ export interface ExtensionInternals {
   /** End a user's sessions (DB and cache). Gated `auth:users`. */
   revokeUserSessions: (userId: string) => Promise<void>;
   /** Block (`false`, and every session revoked) or restore sign-in by every
-   *  method. `db` is the caller's transaction. Gated `auth:users`. */
+   *  method. A ban records the calling extension as its source; `true` lifts
+   *  any ban. `db` is the caller's transaction. Gated `auth:users`. */
   setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
+  /** Lift the user's ban only if the calling extension placed it; whether it
+   *  did. `db` is the caller's transaction. Gated `auth:users`. */
+  liftOwnBan: (db: unknown, userId: string) => Promise<boolean>;
 }
+
+/** A caller-bound member reached without `gateInternals`: there is no caller. */
+const unbound = (member: string) => () => {
+  throw new Error(
+    `ctx.internals.${member} acts as the calling extension, and this bag was not ` +
+      'handed to one: reach it through gateInternals.',
+  );
+};
 
 /** One data API write, as the caller the `/ext/*` gate admitted for `c`. */
 function writeAsCaller(op: 'create' | 'update' | 'delete') {
@@ -487,6 +501,14 @@ const deleteAsCaller = writeAsCaller('delete');
  * (index.ts) and passed to `loadAll`.
  */
 export function buildExtensionInternals(): ExtensionInternals {
+  return bindsCaller(buildUnboundInternals(), (caller) => ({
+    setUserActive: (db: unknown, userId: string, active: boolean) =>
+      setUserActive(db as Database, getDb(), userId, active, caller),
+    liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),
+  }));
+}
+
+function buildUnboundInternals(): ExtensionInternals {
   return {
     withTenantIsolation,
     checkAccess,
@@ -560,7 +582,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     deleteUser: (db: unknown, userId: string, who: UserDeletion) =>
       deleteUser(db as Database, getDb(), userId, who),
     revokeUserSessions: (userId: string) => revokeUserSessions(getDb(), userId),
-    setUserActive: (db: unknown, userId: string, active: boolean) =>
-      setUserActive(db as Database, getDb(), userId, active),
+    setUserActive: unbound('setUserActive'),
+    liftOwnBan: unbound('liftOwnBan'),
   };
 }
