@@ -37,29 +37,41 @@ export interface FlowRunResult {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Users holding a Casbin role (ptype='g') in one tenant. `zvd_permissions` is
- * global and a grant is (user, role, domain), so without the domain predicate a
- * flow told every holder of the role in every tenant. `*` is every domain, as in
- * the enforcer's `g` matching function. No catch: a lookup that fails fails the
- * step — an empty list here was reported as `{ sent: true, count: 0 }`.
+ * Users holding a role in one tenant, as the enforcer would answer it there.
+ * No catch: a lookup that fails fails the step — an empty list here was
+ * reported as `{ sent: true, count: 0 }`.
  *
- * `"user".role` (god/member; since #785 never mirrored into `g`) counts too, but
- * it holds in every domain, so only for members of the tenant — every account
- * in the default tenant — where the membership middleware draws the line. The
- * one god is enrolled in no tenant by construction, so a tenant flow does not
- * reach it. Joined to `"user"`: the seeded `g member member *` rows name roles,
- * not recipients.
+ * - `held` is the role and every role that inherits it: `g manager employee D`
+ *   makes a manager hold `employee`, as `getImplicitRolesForUser` walks it. Only
+ *   role→role rows (v0 not a user) in this tenant or `*` (the `g` domain
+ *   matcher); UNION ends the seeded `g member member *` self-loops and cycles.
+ * - A `g` row in this tenant's domain is a grant for this tenant: it counts.
+ * - A `g` row at `*` and the `"user".role` column (god/member since #785) hold
+ *   in every domain, so they count only for members of the tenant — every
+ *   account in the default tenant — where the membership middleware draws the
+ *   line. Otherwise a tenant-A flow carried its message to tenant B. The one
+ *   god is enrolled in no tenant by construction, so a tenant flow does not
+ *   reach it.
  */
 async function getUsersForRole(db: Database, role: string, tenantId: string): Promise<string[]> {
   const rows = await sql<{ id: string }>`
+    WITH RECURSIVE held(r) AS (
+      SELECT ${role}::text
+      UNION
+      SELECT g.v0 FROM zvd_permissions g JOIN held ON g.v1 = held.r
+       WHERE g.ptype = 'g' AND (g.v2 = ${tenantId} OR g.v2 = '*')
+         AND NOT EXISTS (SELECT 1 FROM "user" x WHERE x.id = g.v0)
+    )
     SELECT u.id FROM "user" u
+     CROSS JOIN LATERAL (
+       SELECT ${tenantId} = ${DEFAULT_TENANT_ID}
+           OR EXISTS (SELECT 1 FROM zv_tenant_users tu
+                       WHERE tu.tenant_id::text = ${tenantId} AND tu.user_id = u.id) AS member
+     ) m
      WHERE EXISTS (SELECT 1 FROM zvd_permissions g
-                    WHERE g.ptype = 'g' AND g.v0 = u.id AND g.v1 = ${role}
-                      AND (g.v2 = ${tenantId} OR g.v2 = '*'))
-        OR (u.role = ${role}
-            AND (${tenantId} = ${DEFAULT_TENANT_ID}
-                 OR EXISTS (SELECT 1 FROM zv_tenant_users tu
-                             WHERE tu.tenant_id::text = ${tenantId} AND tu.user_id = u.id)))
+                    WHERE g.ptype = 'g' AND g.v0 = u.id AND g.v1 IN (SELECT r FROM held)
+                      AND (g.v2 = ${tenantId} OR (g.v2 = '*' AND m.member)))
+        OR (m.member AND u.role IN (SELECT r FROM held))
   `.execute(db);
   return rows.rows.map((r) => r.id);
 }

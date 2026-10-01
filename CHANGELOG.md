@@ -18,6 +18,10 @@ All notable changes to Zveltio will be documented in this file.
   column holds it, if they belong to the flow's tenant (everyone, in the default
   tenant). It read `g` rows alone, so after 033 it reached nobody. The god is
   enrolled in no tenant, so a tenant flow no longer reaches it.
+- A flow's `send_notification` to a role no longer reaches holders of a `*`
+  grant who are not members of the flow's tenant (`POST /api/permissions/roles`
+  writes every role at `*`, so a tenant-A flow told tenant B), and it now
+  reaches holders of an inheriting role (`g manager employee *`).
 
 ## [3.0.0-beta.73] - 2026-10-01
 
