@@ -85,6 +85,9 @@ d('zvd_webhooks under tenant RLS', () => {
     god = await createGodSession(app, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     await DDLManager.createCollection(db, {
       name: COLLECTION,
       fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
@@ -136,6 +139,7 @@ d('zvd_webhooks under tenant RLS', () => {
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${COLLECTION}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

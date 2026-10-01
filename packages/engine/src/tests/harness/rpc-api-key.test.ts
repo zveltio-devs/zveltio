@@ -82,6 +82,9 @@ d('rpc with an API key', () => {
     ({ cookie, userId: member } = await createMemberSession(app, db));
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${TENANT}::uuid, ${member}, 'member')`.execute(db);
     // What the function itself sees: the RLS actor, the tenant and the database role.
     await fn(
       WHOAMI,
@@ -138,6 +141,7 @@ d('rpc with an API key', () => {
     await sql.raw(`DROP FUNCTION IF EXISTS "${ROWS}"(text)`).execute(db);
     await sql`DELETE FROM zv_record_comments WHERE collection = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${TENANT}::uuid`.execute(db);
   });
 

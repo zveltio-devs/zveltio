@@ -75,6 +75,9 @@ d('zv_environments under tenant RLS', () => {
     god = await createGodSession(app, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    // A tenant key acts on its issuer's membership there.
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
       await sql`INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
                 VALUES (${tenant}::uuid, ${STAMP}, ${STAMP}, ${`${STAMP}_${tenant.slice(0, 8)}`})`.execute(
@@ -113,6 +116,7 @@ d('zv_environments under tenant RLS', () => {
         await sql.raw(`DROP SCHEMA IF EXISTS "${s}" CASCADE`).execute(db);
     }
     await sql`DELETE FROM zv_environments WHERE slug = ${STAMP}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 
