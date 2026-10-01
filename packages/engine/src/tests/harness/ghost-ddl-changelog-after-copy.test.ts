@@ -10,7 +10,7 @@
  * text[] values into JSON before they are bound back into typed columns.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
@@ -109,5 +109,31 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
     await GhostDDL.atomicSwap(db, migration);
 
     expect(await snapshot(true)).toEqual(expected);
+  });
+
+  it('carries a write that lands between the last unlocked replay and the swap lock', async () => {
+    const migration = await GhostDDL.createGhost(db, TABLE, ['ADD COLUMN extra2 TEXT']);
+    await GhostDDL.batchCopy(db, migration);
+
+    // The swap replays once on the pool, then again under its lock. A write in
+    // between reaches only the second.
+    const unlocked = GhostDDL.applyChangelog.bind(GhostDDL);
+    let calls = 0;
+    const spy = spyOn(GhostDDL, 'applyChangelog').mockImplementation(async (on, m) => {
+      const n = await unlocked(on, m);
+      if (++calls === 1) {
+        await sql`UPDATE ${sql.id(TABLE)} SET qty = 123 WHERE title = 'late'`.execute(db);
+      }
+      return n;
+    });
+    try {
+      await GhostDDL.atomicSwap(db, migration);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(calls).toBe(2);
+    const late = await sql<{ qty: number }>`
+      SELECT qty FROM ${sql.id(TABLE)} WHERE title = 'late'`.execute(db);
+    expect(Number(late.rows[0]?.qty)).toBe(123);
   });
 });
