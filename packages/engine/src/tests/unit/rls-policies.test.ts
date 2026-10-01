@@ -12,6 +12,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  checkPermission,
   createRlsPolicy,
   deleteRlsPolicy,
   getRlsFilters,
@@ -27,7 +28,11 @@ import { CannedDb } from './fixtures/canned-db.js';
  * The `"user".role` column, which `getRlsFilters` resolves the direct role
  * from — never from the role on the object its caller passes.
  */
-const USER_COLUMN_ROLE: Record<string, string> = { 'u-1': 'editor', 'u-2': 'editor' };
+const USER_COLUMN_ROLE: Record<string, string> = {
+  'u-1': 'editor',
+  'u-2': 'editor',
+  'u-god': 'god',
+};
 const permissionsDb = new CannedDb();
 permissionsDb.when(/SELECT role FROM "user"/i, (q) => {
   const role = USER_COLUMN_ROLE[q.parameters[0] as string];
@@ -69,9 +74,16 @@ describe('getRlsFilters — overrides', () => {
     // still bypasses; the difference is that the same power can be granted to
     // a named role, or withheld from an operator who must administer without
     // reading customer data.
+    //
+    // The god lookup reads the PERMISSIONS database, so that is where this
+    // user is god. A rule that would filter them is loaded, so `[]` can only
+    // come from the exemption: this case used to stub god on the RLS database
+    // and load no rule, and came back `[]` without the exemption ever firing.
     const db = setup();
-    db.when(/SELECT role FROM "user"/i, [{ role: 'god' }]);
-    expect(await getRlsFilters('contacts', { ...USER, role: 'irrelevant' }, 'session')).toEqual([]);
+    db.when(/FROM zvd_rls_policies/i, [policy({ role: '*' })]);
+    expect(
+      await getRlsFilters('contacts', { ...USER, id: 'u-god', role: 'irrelevant' }, 'session'),
+    ).toEqual([]);
   });
 
   it('a user WITHOUT it is filtered, whatever their session says', async () => {
@@ -105,6 +117,25 @@ describe('getRlsFilters — overrides', () => {
         () => 'rejected' as const,
       );
       expect(outcome).not.toEqual([]);
+    } finally {
+      await initPermissions(permissionsDb.kysely as unknown as Database);
+    }
+  });
+
+  it('the 503 says which permission could not be checked', async () => {
+    // The template had lost both placeholders: every one of these errors read
+    // `Permission for  on ""`, whatever was asked.
+    const failing = new CannedDb();
+    failing.fail(/SELECT role FROM "user"/i, new Error('connection terminated'));
+    await initPermissions(failing.kysely as unknown as Database);
+    try {
+      setup();
+      const err = await checkPermission('u-503', 'contacts', 'view_all').then(
+        () => null,
+        (e: Error & { status?: number }) => e,
+      );
+      expect(err?.status).toBe(503);
+      expect(err?.message).toContain('view_all on "contacts"');
     } finally {
       await initPermissions(permissionsDb.kysely as unknown as Database);
     }
