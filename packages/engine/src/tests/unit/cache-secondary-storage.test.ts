@@ -3,7 +3,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { betterAuth } from 'better-auth';
+// The minimal entry, not 'better-auth': two auth-init unit files mock.module
+// 'better-auth', and bun's module mocks leak across files in one run.
+import { betterAuth } from 'better-auth/minimal';
 import { _setCacheForTests, createCacheSecondaryStorage } from '../../lib/runtime/cache.js';
 
 function makeCache(store = new Map<string, string>()) {
