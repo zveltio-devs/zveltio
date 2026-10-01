@@ -292,6 +292,7 @@ const SECTIONS: Section[] = [
       `${E}lib/data/write-pipeline.ts`,
       `${E}lib/data/handlers/single.ts`,
       `${E}lib/data/handlers/bulk.ts`,
+      `${E}lib/data/api-write.ts`,
       `${E}lib/data/auth.ts`,
       `${E}lib/data/types.ts`,
       `${E}lib/data/index.ts`,

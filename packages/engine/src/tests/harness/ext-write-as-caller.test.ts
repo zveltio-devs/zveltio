@@ -156,6 +156,27 @@ d('an extension writes records as the request caller, and only as them', () => {
             kept = c as unknown as Context;
             return c.json({ kept: true });
           });
+          sub.post('/write-with-foreign', async (c) => {
+            // A context that is not this request's, passed while this request
+            // runs: the gate's scope is live, but it belongs to `c`, not to them.
+            const forged = {
+              get: () => ({ id: godId, role: 'god' }),
+              req: {},
+              json: () => undefined,
+            };
+            const refused: string[] = [];
+            for (const [name, other] of [
+              ['kept', kept],
+              ['forged', forged],
+            ] as const) {
+              try {
+                await internals.createRecord(other, C, { label: `foreign-${name}` });
+              } catch {
+                refused.push(name);
+              }
+            }
+            return c.json({ refused });
+          });
         },
       },
       { permissions: ['data:write'], apiKeyRoutes: ['POST /write'] },
@@ -225,6 +246,14 @@ d('an extension writes records as the request caller, and only as them', () => {
       );
     }
     expect(await authorOf('outside')).toBeUndefined();
+  });
+
+  it('refuses a context other than the running request’s, even while one runs', async () => {
+    expect((await post(`/ext/${WRITER}/keep`, {}, { cookie: godCookie })).status).toBe(200);
+    const res = await post(`/ext/${WRITER}/write-with-foreign`, {}, { cookie: member.cookie });
+    expect(await res.json()).toEqual({ refused: ['kept', 'forged'] });
+    expect(await authorOf('foreign-kept')).toBeUndefined();
+    expect(await authorOf('foreign-forged')).toBeUndefined();
   });
 
   it('an API key writes with its scopes, attributed to whoever issued it', async () => {
