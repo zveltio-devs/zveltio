@@ -250,6 +250,22 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(enableAll.status).toBe(403);
   });
 
+  it('approve-capabilities refuses a name that escapes the extensions directory', async () => {
+    // A manifest outside the extensions base, reachable as `../<dir>`.
+    const outside = mkdtempSync(join(tmpdir(), 'zv-mkt-outside-'));
+    writeFileSync(join(outside, 'manifest.json'), JSON.stringify({ permissions: ['db:admin'] }));
+    const app = mountRoutes(db, extBase);
+    const name = encodeURIComponent(`../${outside.split(/[\\/]/).pop()}`);
+    const res = await app.request(`/api/marketplace/${name}/approve-capabilities`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ capabilities: ['db:admin'] }),
+    });
+    nodeFs.rmSync(outside, { recursive: true, force: true });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('Invalid extension name');
+  });
+
   it('GET /api/marketplace merges catalog with registry rows', async () => {
     writeExtOnDisk(extBase, CATALOG_ENTRY.name);
     db.when(/from "zv_extension_registry"/i, [

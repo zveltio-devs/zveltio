@@ -881,7 +881,7 @@ export function registerMarketplaceRoutes(
       // Remove extension files from disk, guarded against path-traversal.
       const extBase = resolveExtensionsBase();
       const extDir = join(extBase, name);
-      if (await isPathInsideBase(extBase, extDir)) {
+      if (isPathInsideBase(extBase, extDir)) {
         const fs = await import('fs');
         try {
           fs.rmSync(extDir, { recursive: true, force: true });

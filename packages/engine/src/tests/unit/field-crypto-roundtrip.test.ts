@@ -61,6 +61,11 @@ describe('encryptField / decryptField', () => {
     }
   });
 
+  it('round-trips a 1 MB value — the encoder used to overflow the stack', async () => {
+    const plain = 'é'.repeat(500_000);
+    expect(await decryptField(await encryptField(plain))).toBe(plain);
+  });
+
   it('uses a fresh IV each time (same plaintext → different ciphertext)', async () => {
     const a = await encryptField('same');
     const b = await encryptField('same');

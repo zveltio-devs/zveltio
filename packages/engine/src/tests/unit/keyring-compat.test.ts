@@ -108,6 +108,13 @@ describe('reads what integrations/migrators already wrote', () => {
   });
 });
 
+describe('large values', () => {
+  it('round-trips a 1 MB field value — the encoder used to overflow the stack', async () => {
+    const plain = 'é'.repeat(500_000);
+    expect(await decryptWithKeyring(await encryptWithKeyring(plain, 'field'), 'field')).toBe(plain);
+  });
+});
+
 describe('reads what communications/mail already wrote', () => {
   it('decrypts an aes256gcm: password', async () => {
     const stored = await oldMailEncrypt('imap-password-1');
@@ -155,5 +162,54 @@ describe('a missing key fails loudly', () => {
     await expect(encryptWithKeyring('x', 'mail')).rejects.toThrow(MissingKeyError);
     await expect(encryptWithKeyring('x', 'mail')).rejects.toThrow('MAIL_ENCRYPTION_KEY');
     process.env.MAIL_ENCRYPTION_KEY = savedKey;
+  });
+});
+
+/** Runs `fn` with one env var set, then restores it. */
+async function withEnv(name: string, value: string | undefined, fn: () => Promise<void>) {
+  const saved = process.env[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+  try {
+    await fn();
+  } finally {
+    if (saved === undefined) delete process.env[name];
+    else process.env[name] = saved;
+  }
+}
+
+describe('key material', () => {
+  it('refuses a 64-character key that is not hex instead of deriving a weak one', async () => {
+    // parseInt('zz', 16) is NaN, which a Uint8Array stores as 0: without the
+    // hex check a typo'd key silently became mostly zero bytes.
+    await withEnv('FIELD_ENCRYPTION_KEY', 'zz'.repeat(32), async () => {
+      await expect(encryptWithKeyring('x', 'field')).rejects.toThrow(MissingKeyError);
+    });
+  });
+
+  it('accepts a key with surrounding whitespace, as a secrets file or YAML leaves it', async () => {
+    const enc = await encryptWithKeyring('secret', 'field');
+    await withEnv('FIELD_ENCRYPTION_KEY', `  ${FIELD_KEY}\n`, async () => {
+      expect(await decryptWithKeyring(enc, 'field')).toBe('secret');
+    });
+  });
+});
+
+describe('the ai keyring', () => {
+  const AI_KEY = 'd5e6'.repeat(16);
+
+  it('round-trips under its own prefix and its own key', async () => {
+    await withEnv('AI_KEY_ENCRYPTION_KEY', AI_KEY, async () => {
+      const enc = await encryptWithKeyring('sk-provider-key', 'ai');
+      expect(enc.startsWith('aes256gcm-ai:')).toBe(true);
+      expect(isKeyringValue(enc)).toBe(true);
+      // Another mail key changes nothing: the value is bound to the ai key.
+      await withEnv('MAIL_ENCRYPTION_KEY', 'c9d4'.repeat(16), async () => {
+        expect(await decryptWithKeyring(enc, 'ai')).toBe('sk-provider-key');
+      });
+      await withEnv('AI_KEY_ENCRYPTION_KEY', 'e7f8'.repeat(16), async () => {
+        await expect(decryptWithKeyring(enc, 'ai')).rejects.toThrow();
+      });
+    });
   });
 });

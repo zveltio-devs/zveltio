@@ -23,7 +23,7 @@
 import { sql as _sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { existsSync } from 'node:fs';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 
 // ── Lifecycle mutex (same-process) ───────────────────────────────────────────
 //
@@ -159,8 +159,10 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
  * the case where they resolve to the exact same path (you should not delete
  * the base directory itself).
  */
-export async function isPathInsideBase(base: string, target: string): Promise<boolean> {
-  const { resolve, sep } = await import('path');
+export function isPathInsideBase(base: string, target: string): boolean {
+  // Synchronous on purpose. It was async (for a lazy `path` import), and
+  // `if (!isPathInsideBase(...))` without an await negates a Promise — always
+  // false — so the approve-capabilities guard never refused anything.
   const safeBase = resolve(base);
   const safeTarget = resolve(target);
   if (safeTarget === safeBase) return false;
