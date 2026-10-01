@@ -74,14 +74,27 @@ d('creating a company requires its administrator', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ slug, name: 'Real Co', admin_user_email: email }),
     });
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(201);
 
-    const members = await sql<{ n: number }>`
-      SELECT COUNT(*)::int AS n FROM zv_tenant_users u
+    // The named user, as owner — in the membership table and in the tenant's
+    // Casbin domain. A count of one passed with the grade written as `member`
+    // and with the owner grant dropped, which leaves a company whose only
+    // administrator can administer nothing.
+    const members = await sql<{ email: string; role: string }>`
+      SELECT us.email, u.role FROM zv_tenant_users u
         JOIN zv_tenants t ON t.id = u.tenant_id
+        JOIN "user" us ON us.id = u.user_id
        WHERE t.slug = ${slug}
     `.execute(db);
-    expect(members.rows[0]?.n).toBe(1);
+    expect(members.rows).toEqual([{ email, role: 'owner' }]);
+
+    const grants = await sql<{ role: string }>`
+      SELECT p.v1 AS role FROM zvd_permissions p
+        JOIN "user" us ON us.id = p.v0
+        JOIN zv_tenants t ON t.id::text = p.v2
+       WHERE p.ptype = 'g' AND us.email = ${email} AND t.slug = ${slug}
+    `.execute(db);
+    expect(grants.rows).toEqual([{ role: 'tenant_owner' }]);
 
     await sql`DELETE FROM zv_tenants WHERE slug = ${slug}`.execute(db).catch(() => {});
   }, 60_000);

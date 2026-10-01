@@ -52,10 +52,19 @@ d('users admin (in-process)', () => {
   });
 
   it('lists users with search + pagination', async () => {
-    const res = await app.request('/api/users?search=throwaway&page=1&limit=5', {
-      headers: { cookie },
-    });
+    const res = await app.request(
+      `/api/users?search=${encodeURIComponent(throwawayEmail)}&page=1&limit=5`,
+      { headers: { cookie } },
+    );
     expect(res.status).toBe(200);
+    // The filter applies to the page AND to its total: the count used to read
+    // the whole table, so every search reported every user as a match.
+    const body = (await res.json()) as {
+      users: Array<{ email: string }>;
+      pagination: { total: number };
+    };
+    expect(body.users.map((u) => u.email)).toEqual([throwawayEmail]);
+    expect(body.pagination.total).toBe(1);
   });
 
   it('reads a user detail (GET /:id)', async () => {
@@ -82,6 +91,10 @@ d('users admin (in-process)', () => {
       headers: { cookie },
     });
     expect([200, 204]).toContain(res.status);
+    const left = await sql<{ n: number }>`
+      SELECT COUNT(*)::int AS n FROM "user" WHERE id = ${throwawayId}
+    `.execute(db);
+    expect(left.rows[0]?.n).toBe(0);
     throwawayId = '';
   });
 
