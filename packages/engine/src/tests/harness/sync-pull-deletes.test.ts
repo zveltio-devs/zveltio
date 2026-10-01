@@ -242,6 +242,17 @@ d('sync pull returns deletes', () => {
 
     const fresh = await pull({ cursors: body.cursors });
     expect(fresh.resync?.[TABLE]).toBeUndefined();
+    // What counts is when the client's deletes stop, not where its rows are.
+    const staleDeletes = `d${(Date.now() - 40 * 86_400_000) * 1000}:${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`;
+    expect((await pull({ cursors: { [TABLE]: staleDeletes } })).resync?.[TABLE]).toBe(true);
+
+    // A caught-up pull moves it to now, or a client syncing daily would still
+    // be restarted once its first pull fell out of the retention.
+    const agingDeletes = `d${(Date.now() - 29 * 86_400_000) * 1000}:${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`;
+    const caughtUp = await pull({ cursors: { [TABLE]: agingDeletes } });
+    expect(caughtUp.resync?.[TABLE]).toBeUndefined();
+    const owed = Number(/^d(\d+):/.exec(caughtUp.cursors?.[TABLE] ?? '')?.[1]) / 1000;
+    expect(owed).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it('the nightly collector purges tombstones past the retention', async () => {

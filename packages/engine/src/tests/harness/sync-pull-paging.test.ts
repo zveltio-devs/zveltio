@@ -20,6 +20,7 @@ import { createGodSession, getTestApp, harnessAvailable } from '../../testing/ap
 const d = harnessAvailable() ? describe : describe.skip;
 const SPREAD = `hsyncpage_spread_${Date.now()}`;
 const TIED = `hsyncpage_tied_${Date.now()}`;
+const OLD = `hsyncpage_old_${Date.now()}`;
 // More than one page (the route's limit is 1000 per collection).
 const ROWS = 1200;
 
@@ -48,7 +49,7 @@ d('sync pull pages without losing rows', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    for (const name of [SPREAD, TIED]) {
+    for (const name of [SPREAD, TIED, OLD]) {
       await DDLManager.createCollection(db, {
         name,
         fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
@@ -59,7 +60,9 @@ d('sync pull pages without losing rows', () => {
     await sql
       .raw(
         `INSERT INTO "zvd_${SPREAD}" (title, updated_at)
-         SELECT 'r' || g, now() - interval '1 hour' + g * interval '1 millisecond'
+         SELECT 'r' || g, date_trunc('milliseconds', now()) - interval '1 hour'
+                -- rows 991-1010 share one whole millisecond, across the page boundary
+                + (CASE WHEN g BETWEEN 991 AND 1010 THEN 991 ELSE g END) * interval '1 millisecond'
          FROM generate_series(1, ${ROWS}) g`,
       )
       .execute(db);
@@ -70,10 +73,17 @@ d('sync pull pages without losing rows', () => {
          SELECT 'r' || g, now() - interval '1 hour' FROM generate_series(1, ${ROWS}) g`,
       )
       .execute(db);
+    await sql
+      .raw(
+        `INSERT INTO "zvd_${OLD}" (title, updated_at)
+         SELECT 'r' || g, now() - interval '60 days' + g * interval '1 millisecond'
+         FROM generate_series(1, ${ROWS}) g`,
+      )
+      .execute(db);
   });
 
   afterAll(async () => {
-    for (const name of [SPREAD, TIED]) {
+    for (const name of [SPREAD, TIED, OLD]) {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`).execute(db);
       await db.deleteFrom('zvd_collections').where('name', '=', name).execute();
     }
@@ -112,7 +122,9 @@ d('sync pull pages without losing rows', () => {
     const after = await pull({ collections: [`zvd_${TIED}`], since: 0, cursors });
     expect(after.changes.length).toBe(0);
     expect(after.hasMore).toBe(false);
-    expect(after.cursors?.[`zvd_${TIED}`]).toBe(cursors[`zvd_${TIED}`]);
+    // The row position holds; only where its deletes are complete from moves on.
+    const position = (cur?: string) => cur?.replace(/^d\d+:/, '');
+    expect(position(after.cursors?.[`zvd_${TIED}`])).toBe(position(cursors[`zvd_${TIED}`]));
   });
 
   it('refuses a malformed cursor with 400 instead of failing the pull', async () => {
@@ -126,5 +138,39 @@ d('sync pull pages without losing rows', () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('pages through rows older than the tombstone retention', async () => {
+    const seen: string[] = [];
+    let cursors: Record<string, string> = {};
+    let done = false;
+    for (let round = 0; round < 5 && !done; round++) {
+      const body = await pull({ collections: [`zvd_${OLD}`], since: 0, cursors });
+      seen.push(...body.changes.map((ch) => ch.id));
+      cursors = { ...cursors, ...body.cursors };
+      done = !body.hasMore;
+    }
+    expect(done).toBe(true);
+    expect(new Set(seen).size).toBe(ROWS);
+
+    // A full page leaves the deletes owed where they were: they are complete
+    // only up to where this client's previous caught-up pull left them.
+    const owed = `${(Date.now() - 29 * 86_400_000) * 1000}`;
+    const page = await pull({
+      collections: [`zvd_${OLD}`],
+      since: 0,
+      cursors: { [`zvd_${OLD}`]: `d${owed}:0:00000000-0000-0000-0000-000000000000` },
+    });
+    expect(page.hasMore).toBe(true);
+    expect(page.cursors?.[`zvd_${OLD}`]).toStartWith(`d${owed}:`);
+  });
+
+  it('a since-only client restarted past the retention resumes from the page it got', async () => {
+    const since = Date.now() - 40 * 86_400_000;
+    const body = await pull({ collections: [`zvd_${OLD}`], since });
+    expect((body as { resync?: Record<string, boolean> }).resync?.[`zvd_${OLD}`]).toBe(true);
+    expect(body.hasMore).toBe(true);
+    // Its rows are 60 days old: resuming from its own `since` would skip 200 of them.
+    expect(body.serverTimestamp).toBeLessThan(since);
   });
 });
