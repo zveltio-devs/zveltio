@@ -14,6 +14,10 @@ All notable changes to Zveltio will be documented in this file.
   column (copies in `zvd_permissions_pruned_033`). A god demoted by the recovery
   flow kept that row, and with it any `p god …` grant.
 - `POST /api/permissions/roles` refuses `god` and `member` (422).
+- A flow's `send_notification` to role `member` or `god` reaches the users whose
+  column holds it, if they belong to the flow's tenant (everyone, in the default
+  tenant). It read `g` rows alone, so after 033 it reached nobody. The god is
+  enrolled in no tenant, so a tenant flow no longer reaches it.
 
 ## [3.0.0-beta.73] - 2026-10-01
 

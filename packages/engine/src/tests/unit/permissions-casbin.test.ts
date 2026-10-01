@@ -138,9 +138,11 @@ describe('roles', () => {
     });
   });
 
-  it('listAllRoles returns the distinct role set from g policies', async () => {
+  it('listAllRoles returns the g-policy roles plus the user-column roles', async () => {
+    // `god`/`member` live in "user".role with no `g` row since migration 033;
+    // dashboard sharing validates `shared_with_role` against this list.
     const roles = await listAllRoles();
-    expect(roles.sort()).toEqual(['admin', 'auditor', 'editor']);
+    expect(roles.sort()).toEqual(['admin', 'auditor', 'editor', 'god', 'member']);
   });
 });
 

@@ -42,13 +42,26 @@ export interface FlowRunResult {
  * flow told every holder of the role in every tenant. `*` is every domain, as in
  * the enforcer's `g` matching function. No catch: a lookup that fails fails the
  * step — an empty list here was reported as `{ sent: true, count: 0 }`.
+ *
+ * `"user".role` (god/member; since #785 never mirrored into `g`) counts too, but
+ * it holds in every domain, so only for members of the tenant — every account
+ * in the default tenant — where the membership middleware draws the line. The
+ * one god is enrolled in no tenant by construction, so a tenant flow does not
+ * reach it. Joined to `"user"`: the seeded `g member member *` rows name roles,
+ * not recipients.
  */
 async function getUsersForRole(db: Database, role: string, tenantId: string): Promise<string[]> {
-  const rows = await sql<{ v0: string }>`
-    SELECT DISTINCT v0 FROM zvd_permissions
-     WHERE ptype = 'g' AND v1 = ${role} AND (v2 = ${tenantId} OR v2 = '*')
+  const rows = await sql<{ id: string }>`
+    SELECT u.id FROM "user" u
+     WHERE EXISTS (SELECT 1 FROM zvd_permissions g
+                    WHERE g.ptype = 'g' AND g.v0 = u.id AND g.v1 = ${role}
+                      AND (g.v2 = ${tenantId} OR g.v2 = '*'))
+        OR (u.role = ${role}
+            AND (${tenantId} = ${DEFAULT_TENANT_ID}
+                 OR EXISTS (SELECT 1 FROM zv_tenant_users tu
+                             WHERE tu.tenant_id::text = ${tenantId} AND tu.user_id = u.id)))
   `.execute(db);
-  return rows.rows.map((r) => r.v0);
+  return rows.rows.map((r) => r.id);
 }
 
 /** Replaces {{key.nested}} placeholders from a context object. */
