@@ -209,6 +209,37 @@ d('SSE stream with an API key', () => {
     await expectEnded(s);
   });
 
+  it('ends the stream of a key that loses its row-rule exemption, scopes unchanged', async () => {
+    // Only `rls_bypass` changes, so a recheck that compared scopes alone kept
+    // streaming the rows a row rule now hides from this key.
+    const res = await app.request('/api/admin/rls', {
+      method: 'POST',
+      headers: { cookie: god, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        collection: SCOPED,
+        role: 'api_key',
+        filter_field: 'title',
+        filter_op: 'eq',
+        filter_value_source: 'static:visible',
+      }),
+    });
+    expect(res.status).toBeLessThan(300);
+    try {
+      const key = await createKey({ rls_bypass: true });
+      const s = await openStream(key);
+      s.send(SCOPED, 'hidden-before');
+      expect(s.delivered.join('\n')).toContain('hidden-before');
+
+      await sql`UPDATE zv_api_keys SET rls_bypass = false WHERE id = ${key.id}`.execute(db);
+      revalidateSockets('principals');
+      await Bun.sleep(20);
+      await __sweepIdle();
+      await expectEnded(s);
+    } finally {
+      await sql`DELETE FROM zvd_rls_policies WHERE collection = ${SCOPED}`.execute(db);
+    }
+  });
+
   it('401 for nobody, an unknown key and another tenant key', async () => {
     const raw = generateApiKey();
     await sql`

@@ -17,7 +17,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
+import { __sweepIdle, revalidateSockets } from '../../lib/tenancy/index.js';
+import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -42,10 +43,11 @@ d('WebSocket accepts an API key and enforces its scopes', () => {
   let db: Database;
   let rawKey: string;
   let keyId: string;
+  let cookie: string;
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    const cookie = await createGodSession(app, db);
+    cookie = await createGodSession(app, db);
     for (const name of [SCOPED, UNSCOPED]) {
       await DDLManager.createCollection(db, {
         name,
@@ -67,6 +69,9 @@ d('WebSocket accepts an API key and enforces its scopes', () => {
   afterAll(async () => {
     if (!db) return;
     _wsPermCacheForTests().connections.delete('ws_key_probe');
+    _wsPermCacheForTests().connections.delete('ws_key_bypass');
+    await sql`DELETE FROM zvd_rls_policies WHERE collection = ${SCOPED}`.execute(db);
+    await sql`DELETE FROM zv_api_keys WHERE name LIKE ${'Harness ws bypass key %'}`.execute(db);
     if (keyId) {
       await db
         .deleteFrom('zv_api_key_access_log')
@@ -127,5 +132,62 @@ d('WebSocket accepts an API key and enforces its scopes', () => {
       .find((m) => m.type === 'subscribed');
     expect(reply?.collections).toEqual([SCOPED]);
     expect(reply?.denied).toEqual([UNSCOPED]);
+  });
+
+  it('a key that loses its row-rule exemption stops hearing the rows a rule hides', async () => {
+    // Only `rls_bypass` changes, so a recheck that compared scopes alone kept
+    // the exempt gate on the open socket.
+    const rule = await app.request('/api/admin/rls', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        collection: SCOPED,
+        role: 'api_key',
+        filter_field: 'title',
+        filter_op: 'eq',
+        filter_value_source: 'static:visible',
+      }),
+    });
+    expect(rule.status).toBeLessThan(300);
+    const keyRes = await app.request('/api/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        name: `Harness ws bypass key ${Date.now()}`,
+        scopes: [{ collection: SCOPED, actions: ['read'] }],
+        rls_bypass: true,
+      }),
+    });
+    expect(keyRes.status).toBe(200);
+    const key = (await keyRes.json()) as { id: string; key: string };
+
+    const { data } = await upgrade(app, { 'X-API-Key': key.key });
+    const sent: string[] = [];
+    const ws = {
+      data: { ...data, id: 'ws_key_bypass' },
+      send: (p: string) => sent.push(p),
+      close: () => {},
+    };
+    websocketHandler.open(ws as never);
+    await websocketHandler.message(
+      ws as never,
+      JSON.stringify({ type: 'subscribe', collections: [SCOPED] }),
+    );
+    const tenant = (data?.tenantId as string | null | undefined) ?? null;
+    const heard = async (title: string) => {
+      broadcastEvent(SCOPED, 'insert', { id: title, title }, tenant);
+      await Bun.sleep(50);
+      return sent.some((m) => m.includes(title));
+    };
+    expect(await heard('hidden-before')).toBe(true);
+
+    await sql`UPDATE zv_api_keys SET rls_bypass = false WHERE id = ${key.id}`.execute(db);
+    revalidateSockets('principals');
+    await Bun.sleep(50);
+    await __sweepIdle();
+
+    expect(await heard('hidden-after')).toBe(false);
+    expect(await heard('visible')).toBe(true);
+    websocketHandler.close(ws as never);
   });
 });
