@@ -358,6 +358,31 @@ export function escalationSeconds(offences: number, windowSec: number): number {
   return Math.min(windowSec * factor, MAX_BLOCK_SEC);
 }
 
+/**
+ * The rate-limit bucket for an address: an IPv4 address as is, an IPv6 address
+ * as its /64.
+ *
+ * A /64 is the smallest block one IPv6 subscriber is handed, and every address
+ * in it is theirs to use. Bucketing by the full address gave whoever holds one
+ * 2^64 separate buckets — the per-IP login limit counted nothing for them.
+ * Anything that does not parse as IPv6 is returned unchanged.
+ */
+export function rateLimitIpBucket(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const halves = ip.toLowerCase().split('::');
+  if (halves.length > 2) return ip;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return ip;
+  const groups = [...head, ...Array<string>(missing).fill('0'), ...tail];
+  if (!groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return ip;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => g.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`;
+}
+
 type Cidr = { base: number; mask: number };
 
 /** Parse a comma-separated IPv4 / CIDR list. Invalid entries are dropped. */
@@ -489,6 +514,7 @@ export function rateLimit(config: RateLimitConfig) {
       return c.json({ error: 'Forbidden' }, 403);
     }
     if (ipMatches(listedIp, allowList())) return next();
+    const identifier = bucketId ?? rateLimitIpBucket(listedIp);
 
     const cache = getCache();
 
@@ -510,7 +536,6 @@ export function rateLimit(config: RateLimitConfig) {
       // It only bites without a cache backend, which is the default shape of a
       // small self-hosted install: the one least likely to notice, and the one
       // where a single visitor can take the public forms down.
-      const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const wait = memoryRateLimit(key, windowMs, max);
       if (wait > 0) {
@@ -521,8 +546,6 @@ export function rateLimit(config: RateLimitConfig) {
     }
 
     try {
-      const identifier = bucketId ?? listedIp;
-
       const key = `rl:${keyPrefix}:${identifier}`;
       const blockKey = `rl:block:${keyPrefix}:${identifier}`;
       const penaltyKey = `rl:pen:${keyPrefix}:${identifier}`;
@@ -576,7 +599,6 @@ export function rateLimit(config: RateLimitConfig) {
       // FAILS, so an install that has a cache and believes itself covered
       // degrades into the broken behaviour during an outage — while it is
       // already busy with something else.
-      const identifier = bucketId ?? listedIp;
       const key = `rl:${keyPrefix}:${identifier}`;
       const wait = memoryRateLimit(key, windowMs, max);
       if (wait > 0) {

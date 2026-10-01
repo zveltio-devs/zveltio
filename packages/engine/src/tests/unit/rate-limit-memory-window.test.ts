@@ -11,7 +11,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, setSystemTime } from 'bun:test';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
-import { rateLimit } from '../../middleware/rate-limit.js';
+import { rateLimit, rateLimitIpBucket } from '../../middleware/rate-limit.js';
 
 function ctxForIp(ip: string): unknown {
   return {
@@ -68,5 +68,36 @@ describe('in-memory rate limit sweep', () => {
     expect(((await call(once, '198.51.100.3')) as { status: number }).status).toBe(429);
     setSystemTime(new Date(t0 + 92_000));
     expect(await call(once, '198.51.100.3')).toBe('next');
+  });
+
+  it('counts an IPv6 client by its /64, not by each address in it', async () => {
+    setSystemTime();
+    const mw = rateLimit({ windowMs: 60_000, max: 2, keyPrefix: 'rlmw-v6' });
+    const next = async () => 'next';
+    const call = (ip: string): Promise<unknown> => mw(ctxForIp(ip) as never, next as never);
+
+    // Three addresses, one subscriber: the third request is the third in the bucket.
+    expect(await call('2001:db8:aa:1::1')).toBe('next');
+    expect(await call('2001:db8:aa:1::2')).toBe('next');
+    expect(((await call('2001:db8:aa:1:ffff:ffff:ffff:ffff')) as { status: number }).status).toBe(
+      429,
+    );
+    // The next /64 is someone else.
+    expect(await call('2001:db8:aa:2::1')).toBe('next');
+  });
+});
+
+describe('rateLimitIpBucket', () => {
+  it('keeps IPv4 as is and reduces IPv6 to its /64 whatever the spelling', () => {
+    expect(rateLimitIpBucket('203.0.113.7')).toBe('203.0.113.7');
+    expect(rateLimitIpBucket('2001:0DB8:1:2::9')).toBe('2001:db8:1:2::/64');
+    expect(rateLimitIpBucket('2001:db8:1:2:3:4:5:6')).toBe('2001:db8:1:2::/64');
+    expect(rateLimitIpBucket('::1')).toBe('0:0:0:0::/64');
+  });
+
+  it('leaves what is not an IPv6 address alone', () => {
+    for (const s of ['unknown', 'garbage:zz::1', '1:2:3:4:5:6:7:8:9', '1::2::3']) {
+      expect(rateLimitIpBucket(s)).toBe(s);
+    }
   });
 });
