@@ -1121,6 +1121,9 @@ function _decodeRolesCache(cacheKey: string, userId: string, raw: string): strin
  * caller-supplied role name (e.g. dashboard sharing) before persisting
  * it, so we don't store dead references to roles that don't exist.
  */
+/** The values the `"user".role` column accepts (its CHECK constraint). */
+const COLUMN_ROLES = ['god', 'member'] as const;
+
 export async function listAllRoles(): Promise<string[]> {
   const e = await getEnforcer();
   // ptype='g' grouping policies — each row is [user, role]. Take the
@@ -1130,6 +1133,9 @@ export async function listAllRoles(): Promise<string[]> {
   for (const row of policies) {
     if (row.length >= 2 && row[1]) set.add(row[1]);
   }
+  // The `"user".role` column's values are roles too (checkPermission reads
+  // them as subjects) and, since migration 033, have no `g` row of their own.
+  for (const role of COLUMN_ROLES) set.add(role);
   return [...set];
 }
 
