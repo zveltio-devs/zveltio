@@ -14,7 +14,7 @@
  * proving a revocation is never served from it.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, setSystemTime } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
@@ -116,6 +116,26 @@ d('permission memo (in-process, no shared cache)', () => {
     // One subject resolved away, the other still held.
     expect(__effectivePermissionsSize()).toBe(1);
     expect(await checkPermission(other, `scoped_${STAMP}`, 'read')).toBe(false);
+  });
+
+  it('an answer no invalidation reached still expires after its TTL', async () => {
+    // Every known write path invalidates explicitly; the TTL is what bounds a
+    // path that forgets to. The grant goes into the model directly, past every
+    // hook, so only expiry can make the memo see it.
+    const resource = `ttl_${STAMP}`;
+    const rule = [userId, '*', resource, 'read'];
+    clearLocalPermissionCache();
+    expect(await checkPermission(userId, resource, 'read')).toBe(false);
+    const e = await getEnforcer();
+    e.getModel().addPolicy('p', 'p', rule);
+    try {
+      expect(await checkPermission(userId, resource, 'read')).toBe(false);
+      setSystemTime(new Date(Date.now() + 61_000));
+      expect(await checkPermission(userId, resource, 'read')).toBe(true);
+    } finally {
+      setSystemTime();
+      e.getModel().removePolicy('p', 'p', rule);
+    }
   });
 
   it('invalidateUserPermCache drops the memo even with no shared cache', async () => {
