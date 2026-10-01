@@ -35,6 +35,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 import { guardSessionOrKey, presentsUsableKey } from '../lib/admin-guard.js';
 import { apiKeyHoldsScope, extScope, isApiKeyPrincipal, requestApiKey } from '../lib/data/index.js';
+import type { RequestUser } from '../lib/data/index.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -89,6 +90,44 @@ const admitted = new AsyncLocalStorage<{ id: string; scopes: unknown }>();
 
 export function admittedApiKey(): { id: string; scopes: unknown } | undefined {
   return admitted.getStore();
+}
+
+/**
+ * Who the gate admitted, as the gate saw it: what the write members of
+ * `ctx.internals` act as (`gatePrincipal`).
+ *
+ * Not `c.get('user')`: the extension holds `c`, and `c.set` or a mutation of the
+ * object it returns would make it someone else. So the identity, its kind, the
+ * request's transaction and its tenant are copied here, before any extension
+ * code runs, and bound to the context object and to this request's async scope.
+ */
+export interface GatePrincipal {
+  user: RequestUser;
+  authType: 'session' | 'api_key';
+  trx: Database | undefined;
+  tenantId: string | null;
+}
+
+const gated = new AsyncLocalStorage<{ c: Context; principal: GatePrincipal }>();
+
+function runAdmitted(c: Context, user: RequestUser, next: () => Promise<void>): Promise<void> {
+  const principal: GatePrincipal = {
+    user: structuredClone(user),
+    authType: isApiKeyPrincipal(user) ? 'api_key' : 'session',
+    trx: c.get('tenantTrx') ?? undefined,
+    tenantId: c.get('tenant')?.id ?? null,
+  };
+  return gated.run({ c, principal }, next);
+}
+
+/**
+ * The principal the gate admitted for `c` — only while `c`'s own request is the
+ * one running, so a context kept from another request, a forged object, a job
+ * or a listener outside any request all get `undefined`.
+ */
+export function gatePrincipal(c: unknown): GatePrincipal | undefined {
+  const store = gated.getStore();
+  return store && store.c === c ? store.principal : undefined;
 }
 
 /**
@@ -220,8 +259,8 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
       if (user instanceof Response) return user;
       c.set('user', user);
       // A session sent alongside the key wins, as it does in `authenticate`.
-      if (!isApiKeyPrincipal(user)) return next();
-      return admitted.run({ id: user.id, scopes: user.scopes }, () => next());
+      if (!isApiKeyPrincipal(user)) return runAdmitted(c, user, next);
+      return admitted.run({ id: user.id, scopes: user.scopes }, () => runAdmitted(c, user, next));
     }
 
     // Fail-closed: require an authenticated session.
@@ -253,6 +292,6 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     // Expose the resolved user so extension handlers can reuse it instead of a
     // second getSession round-trip (they may still call getSession themselves).
     c.set('user', session.user);
-    return next();
+    return runAdmitted(c, session.user as RequestUser, next);
   };
 }

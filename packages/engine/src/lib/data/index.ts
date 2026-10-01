@@ -42,6 +42,9 @@ export { serializeRecord } from './shape.js';
 //     `?expand=`, the realtime doors) asks the one read gate instead of picking
 //     a subset of row policies, alters, entity access and column permissions.
 export { inOrder, readScope, type ReadScope } from './read-scope.js';
+//   - `dataApiWrite` so an extension's writes (`ctx.internals.createRecord` …)
+//     take the data API's own handlers instead of Kysely through `ctx.db`.
+export { dataApiWrite, type WriteRequest } from './api-write.js';
 export { validateApiKey } from './auth.js';
 //   - `findApiKey`/`requestApiKey` so `sessionPrefetch` resolves the key once,
 //     before the rate limiters, and `authenticate` reuses that row.

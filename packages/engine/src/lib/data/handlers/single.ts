@@ -43,6 +43,36 @@ import {
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
+import type { RequestUser } from '../types.js';
+
+/**
+ * What a single-record write acts on, and as whom. The route builds it from its
+ * own request (`routeWrite`); `ctx.internals` builds it from what the `/ext/*`
+ * gate admitted, so an extension's write takes this path — the checks, the
+ * hooks, `afterWrite` — as its caller and never as an identity it supplied.
+ */
+export interface WriteRequest {
+  collection: string;
+  id: string;
+  body: () => Promise<Record<string, unknown>>;
+  user: RequestUser;
+  authType: 'session' | 'api_key';
+  /** The request's tenant transaction; the handler's `db` when there is none. */
+  trx: Database | undefined;
+  tenantId: string | null;
+}
+
+function routeWrite(c: Context): WriteRequest {
+  return {
+    collection: c.req.param('collection')!,
+    id: c.req.param('id') ?? '',
+    body: () => c.req.json(),
+    user: c.get('user'),
+    authType: c.get('authType'),
+    trx: c.get('tenantTrx') ?? undefined,
+    tenantId: getTenantId(c),
+  };
+}
 
 export async function getRecord(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -167,9 +197,12 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   return c.json(serializedRecord);
 }
 
-export async function createRecord(c: Context, db: Database): Promise<Response> {
-  const collection = c.req.param('collection')!;
-  const user = c.get('user');
+export async function createRecord(
+  c: Context,
+  db: Database,
+  w: WriteRequest = routeWrite(c),
+): Promise<Response> {
+  const { collection, user } = w;
   const author = rowAuthorId(user);
 
   if (!(await checkAccess(db, user, collection, 'create'))) {
@@ -180,7 +213,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   const virtualConfigCreate = await getVirtualConfig(db, collection);
   if (virtualConfigCreate) {
     try {
-      const body = await c.req.json();
+      const body = await w.body();
       // Column-level write permission applies to virtual writes too.
       const vColAccess = await getColumnAccess(
         db,
@@ -203,7 +236,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
   const tableName = DDLManager.getTableName(collection);
-  const body = await c.req.json();
+  const body = await w.body();
 
   const { errors, processed } = await processInput(body, collectionDef);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -225,7 +258,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
     );
   }
 
-  const effectiveDb = getDb(c, db);
+  const effectiveDb = w.trx ?? db;
   // Authorship travels as `system` on the insert, not inside the payload. It
   // used to be merged here and then stripped by `dynamicInsert`'s RESERVED
   // filter, so every row landed with NULL authorship. Keeping it out of
@@ -262,7 +295,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
       data: record,
       userId: user.id,
       author: rowAuthorId(user),
-      tenantId: getTenantId(c),
+      tenantId: w.tenantId,
     });
     const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
     return c.json(serialized, 201);
@@ -384,10 +417,12 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   return result as Response;
 }
 
-export async function patchRecord(c: Context, db: Database): Promise<Response> {
-  const collection = c.req.param('collection')!;
-  const id = c.req.param('id')!;
-  const user = c.get('user');
+export async function patchRecord(
+  c: Context,
+  db: Database,
+  w: WriteRequest = routeWrite(c),
+): Promise<Response> {
+  const { collection, id, user } = w;
   const author = rowAuthorId(user);
 
   if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
@@ -400,7 +435,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   const virtualConfigPatch = await getVirtualConfig(db, collection);
   if (virtualConfigPatch) {
     try {
-      const body = await c.req.json();
+      const body = await w.body();
       const vColAccess = await getColumnAccess(
         db,
         collection,
@@ -422,7 +457,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
   const tableName = DDLManager.getTableName(collection);
-  const body = await c.req.json();
+  const body = await w.body();
 
   const { errors, processed } = await processInput(body, collectionDef, true);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -441,7 +476,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
     return c.json({ error: `Fields are read-only for your role: ${blockedPatch.join(', ')}` }, 403);
   }
 
-  const effectiveDb = getDb(c, db);
+  const effectiveDb = w.trx ?? db;
   const toUpdate = { ...allowedPatch, updated_by: author };
 
   // The before-row fetch doubles as the authorisation probe: run the caller's
@@ -449,10 +484,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   // found and the UPDATE never happens. Without this the policies applied to
   // reads only, and any member could patch another user's record by id.
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
-  beforeQuery = applyRlsFilters(
-    beforeQuery,
-    await getRlsFilters(collection, user, c.get('authType')),
-  );
+  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await beforeQuery.executeTakeFirst();
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -501,7 +533,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
       delta: finalPatch,
       userId: user.id,
       author: rowAuthorId(user),
-      tenantId: getTenantId(c),
+      tenantId: w.tenantId,
     });
     const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
     return c.json(serialized);
@@ -509,10 +541,12 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   return result as Response;
 }
 
-export async function deleteRecord(c: Context, db: Database): Promise<Response> {
-  const collection = c.req.param('collection')!;
-  const id = c.req.param('id')!;
-  const user = c.get('user');
+export async function deleteRecord(
+  c: Context,
+  db: Database,
+  w: WriteRequest = routeWrite(c),
+): Promise<Response> {
+  const { collection, id, user } = w;
 
   if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
 
@@ -536,16 +570,13 @@ export async function deleteRecord(c: Context, db: Database): Promise<Response> 
   }
 
   const tableName = DDLManager.getTableName(collection);
-  const effectiveDb = getDb(c, db);
+  const effectiveDb = w.trx ?? db;
 
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
   // Fetch existing for revision log, then delete atomically. Apply query
   // alters so a row hidden by an extension filter cannot be deleted by ID.
   let existingQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
-  existingQuery = applyRlsFilters(
-    existingQuery,
-    await getRlsFilters(collection, user, c.get('authType')),
-  );
+  existingQuery = applyRlsFilters(existingQuery, await getRlsFilters(collection, user, w.authType));
   existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
   const existing = await existingQuery.executeTakeFirst();
 
@@ -586,7 +617,7 @@ export async function deleteRecord(c: Context, db: Database): Promise<Response> 
       data: existing,
       userId: user.id,
       author: rowAuthorId(user),
-      tenantId: getTenantId(c),
+      tenantId: w.tenantId,
     });
 
     return c.json({ success: true, id });
