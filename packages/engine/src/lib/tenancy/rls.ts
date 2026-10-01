@@ -15,7 +15,12 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
-import { checkPermission, getUserRoles, revalidateSocketsEverywhere } from './permissions.js';
+import {
+  checkPermission,
+  getUserRoles,
+  resolveUserRole,
+  revalidateSocketsEverywhere,
+} from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
@@ -62,8 +67,8 @@ function resolveValue(
   // doors — which filter in memory, with no database policy behind them. `''`
   // matches no real owner, which is what "a caller with no email" should see.
   if (source === 'user_email') return user.email ?? '';
-  // For `user_role` the absent value is the ordinary case, since Better-Auth
-  // does not populate `role` on a session. The
+  // For `user_role` the value is the role `getRlsFilters` resolved, never the
+  // caller's `user.role`; `''` remains only for a caller with none. The
   // Postgres side is the reason the empty string is the right answer rather
   // than a lazy one: `buildRowRulePredicate` compiles the same policy against
   // `current_setting('zveltio.user_role')`, which is `''` when unset, and
@@ -250,21 +255,31 @@ export async function getRlsFilters(
   // rule whose role the caller lacks is skipped below — so reading a failed
   // lookup as `[]` stood down every role-keyed rule and served the rows they
   // hide. A rejection here refuses the request, as a failed policy load does.
-  const userRoles = await getUserRoles(user.id);
-  // Always include the direct role, when the caller has one. Better-Auth does
-  // not populate `role` on a session, so this is usually absent — and pushing
-  // `undefined` into the list only ever matched a policy role that cannot be
-  // undefined.
-  if (user.role && !userRoles.includes(user.role)) userRoles.push(user.role);
+  //
+  // Plus the DIRECT role, resolved here and never read off `user`. It used to
+  // be `user.role` from whatever object the caller passed: the realtime doors
+  // resolved it, REST passed the session user, where better-auth leaves it
+  // undefined. A self-registered member holds `member` only in the `"user".role`
+  // column — no Casbin `g` row — so a `member` rule filtered their socket and
+  // stood down on `GET /api/data`, where in single-tenant mode nothing else
+  // applies it. The database policy reads `resolveUserRole` too (middleware/
+  // tenant.ts), so this is now the same set it publishes.
+  //
+  // A key's role is `api_key` by construction (lib/data/auth.ts), decided by
+  // its id: `resolveUserRole` would answer `public` for it and stand down every
+  // `api_key` rule.
+  const direct = user.id.startsWith('apikey:') ? 'api_key' : await resolveUserRole({ id: user.id });
+  const userRoles = new Set([...(await getUserRoles(user.id)), direct]);
+  const actor = { id: user.id, email: user.email, role: direct };
 
   const result: Array<{ field: string; condition: FilterCondition }> = [];
 
   for (const policy of policies) {
     // Match if policy role is '*' or user has that role
-    const roleMatch = policy.role === '*' || userRoles.includes(policy.role);
+    const roleMatch = policy.role === '*' || userRoles.has(policy.role);
     if (!roleMatch) continue;
 
-    const value = resolveValue(policy.filter_value_source, user);
+    const value = resolveValue(policy.filter_value_source, actor);
     if (value === null) {
       // A source this engine does not know — a row stored before the route
       // refused them (`user.id`), or written straight into the table. It used to

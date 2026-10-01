@@ -130,12 +130,22 @@ d('admin RLS routes (in-process)', () => {
   it("a rule written for every collection ('*') filters this one too", async () => {
     // The policy loader asks for the collection's rules OR the '*' ones; every
     // other test here names the collection, so dropping the '*' half passed.
-    // The rule's role is '*' too: on REST a role-named rule matches Casbin
-    // roles only, and this member holds per-user grants, not a Casbin role.
+    // The `member` rule above would hide the row by itself — this member holds
+    // `member` in the user column, which REST now applies like realtime does —
+    // so it stands down for the length of this test.
     const member = await createMemberSession(app, db, {
       role: 'member',
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
+    const setMemberRule = async (on: boolean) => {
+      const res = await app.request(`/api/admin/rls/${policyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ is_enabled: on }),
+      });
+      expect(res.status).toBe(200);
+    };
+    await setMemberRule(false);
     await sql
       .raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`)
       .execute(db);
@@ -167,6 +177,7 @@ d('admin RLS routes (in-process)', () => {
       expect(await titles()).not.toContain('not-mine');
     } finally {
       await app.request(`/api/admin/rls/${wildcardId}`, { method: 'DELETE', headers: { cookie } });
+      await setMemberRule(true);
     }
   });
 
