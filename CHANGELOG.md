@@ -4,7 +4,34 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
-**`"user".role` is the only source of god/member.**
+## [3.0.0-beta.74] - 2026-10-01
+
+**Upgrade note: migrations 033 and 034 delete Casbin rows, with backups.**
+033 removes the `g <user> god|member *` rows that mirrored `"user".role`
+(copies in `zvd_permissions_pruned_033`). 034 removes role grants held in a
+tenant by users who are no longer its members (copies in
+`zvd_permissions_pruned_034`) and adds a trigger that keeps it that way. Both
+DOWN migrations restore the copies; the backup tables are safe to drop once
+reviewed.
+
+**Security**
+- `GET /api/settings/:key` returned secret settings in plaintext (#772).
+- A row rule keyed on a role (`role='member'`) did not apply on REST to a
+  self-registered member, who holds the role only in `"user".role`: REST and
+  `?as_of=` returned other owners' rows, while WS/SSE filtered them. In
+  single-tenant mode nothing else enforces the rule (#783).
+- A moved or deleted row rule kept enforcing in Postgres where it left (#778).
+- Removing a member from a tenant revoked only the `tenant_*` grade. Every
+  other role they held there survived and came back on re-add; a SCIM removal
+  kept every grant (#789).
+- An expired or not-yet-started tenant membership (`valid_from`/`valid_to`)
+  counted as current everywhere except tenant scoping: the request gate for
+  `/api/*` and `/ext/*`, new WS/SSE connections, flow notifications, the tenant
+  broadcast, environments and the unit switcher (#790). Open WS/SSE
+  connections now close within one reconcile tick (30-60 s) once the
+  membership lapses (#791).
+
+**`"user".role` is the only source of god/member (#785, #787, #788).**
 - A Casbin grant to `member` (`p member * <resource> <action>`) now reaches every
   member. It reached only users holding a `g <user> member *` row, which only
   `PATCH /api/users/:id` wrote — never a self-registered member.
@@ -22,6 +49,24 @@ All notable changes to Zveltio will be documented in this file.
   grant who are not members of the flow's tenant (`POST /api/permissions/roles`
   writes every role at `*`, so a tenant-A flow told tenant B), and it now
   reaches holders of an inheriting role (`g manager employee *`).
+
+**Fixes**
+- `checkPermission`'s `permission.unavailable` 503 names the permission it
+  could not check; `GET /api/users` lists the column role (#786).
+- Queued extension lifecycle operations (install, enable, …) on the same
+  extension ran two at a time; each extra waiter held a pool connection for
+  the length of an install (#781).
+- First-time extension core dependencies install the engine's own versions:
+  a fresh install pinned kysely ^0.27.6 against the engine's ^0.29.6, and the
+  tarball fallback took `latest` (#782).
+- `checkAccess` lost an unreachable system-table check (#768).
+
+**Extensions**
+- auth/scim 1.0.11 reports a lapsed member to the IdP as `active: false`
+  instead of `true`; analytics/dashboard 1.0.7 no longer counts lapsed members.
+  Both need no engine upgrade (zveltio-extensions#166).
+
+**Tests** (T01 test review): #770, #771, #773-#777, #779, #780, #784.
 
 ## [3.0.0-beta.73] - 2026-10-01
 
