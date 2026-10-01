@@ -295,7 +295,7 @@ export function mapPgError(
             ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
             : 'Referenced record does not exist.',
         code: code || '23503',
-        field: referencedBy ? null : (matchKey?.[1] ?? column ?? null),
+        field: referencedBy ? null : (matchKey?.[1] ?? (column || null)),
       },
     };
   }
@@ -329,7 +329,7 @@ export function mapPgError(
         error: 'not_null_violation',
         message: column ? `Field "${column}" is required.` : 'A required field is missing.',
         code: code || '23502',
-        field: column ?? null,
+        field: column || null,
       },
     };
   }
