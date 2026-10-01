@@ -92,4 +92,14 @@ describe('safeFetch — connecting to the validated address', () => {
     expect(pinned.url).toBe('https://example.com/hook');
     expect((pinned.init as { tls?: unknown }).tls).toBeUndefined();
   });
+
+  it('does not rewrite anything when the request names its own proxy', () => {
+    const pinned = pinnedRequestForTests(
+      'https://example.com/hook',
+      { proxy: 'http://proxy.internal:3128' } as RequestInit,
+      '93.184.216.34',
+    );
+
+    expect(pinned.url).toBe('https://example.com/hook');
+  });
 });

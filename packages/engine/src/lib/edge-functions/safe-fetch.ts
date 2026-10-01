@@ -83,36 +83,88 @@ function pinnedRequest(
 /** Exposed so a test can assert the request shape without opening a socket. */
 export const pinnedRequestForTests = pinnedRequest;
 
-export async function safeFetch(
-  input: string | URL | Request,
-  init?: RequestInit,
-  _hops = 0,
-): Promise<Response> {
-  const url =
-    typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+/**
+ * A `safeFetch` that opens its connections with `baseFetch()`.
+ *
+ * The extension worker replaces its own `globalThis.fetch` with one of these,
+ * so the guard there cannot reach the network through `globalThis.fetch` — it
+ * would call itself. Resolved per request, not captured, so a test that swaps
+ * `globalThis.fetch` still sees its stub.
+ */
+export function createSafeFetch(baseFetch: () => typeof fetch) {
+  return async function safeFetch(
+    input: string | URL | Request,
+    init?: RequestInit,
+    _hops = 0,
+  ): Promise<Response> {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
-  // DNS-aware: also rejects hostnames that RESOLVE into private space, which a
-  // literal-text blocklist cannot see. Returns the address to connect to.
-  const address = await assertPublicUrl(url);
+    // DNS-aware: also rejects hostnames that RESOLVE into private space, which a
+    // literal-text blocklist cannot see. Returns the address to connect to.
+    const address = await assertPublicUrl(url);
 
-  if (_hops > 5) throw new Error('[safeFetch] Too many redirects.');
+    if (_hops > 5) throw new Error('[safeFetch] Too many redirects.');
 
-  // A `Request` carries its own headers and body, and pinning has to rewrite the
-  // URL — so it is unpacked here rather than passed through.
-  const baseInit: RequestInit =
-    input instanceof Request
-      ? { method: input.method, headers: input.headers, body: input.body, ...(init ?? {}) }
-      : (init ?? {});
+    // A `Request` carries its own headers and body, and pinning has to rewrite the
+    // URL — so it is unpacked here rather than passed through.
+    const baseInit: RequestInit =
+      input instanceof Request
+        ? { method: input.method, headers: input.headers, body: input.body, ...(init ?? {}) }
+        : (init ?? {});
 
-  // Prevent redirect-based SSRF: intercept redirects and re-validate the Location URL.
-  const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address);
-  const response = await fetch(target.url, target.init);
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get('location');
-    if (!location) throw new Error('[safeFetch] Redirect with no Location header.');
-    // Re-validate redirect target to block chains like public.example.com → 169.254.169.254
-    return safeFetch(new URL(location, url).toString(), init, _hops + 1);
+    // Prevent redirect-based SSRF: intercept redirects and re-validate the Location URL.
+    const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address);
+    const response = await baseFetch()(target.url, target.init);
+    if (REDIRECT_STATUSES.has(response.status)) {
+      const location = response.headers.get('location');
+      if (!location) throw new Error('[safeFetch] Redirect with no Location header.');
+      // Re-validate redirect target to block chains like public.example.com → 169.254.169.254
+      const next = new URL(location, url);
+      const nextInit = redirectInit(baseInit, response.status, next.origin !== new URL(url).origin);
+      return safeFetch(next.toString(), nextInit, _hops + 1);
+    }
+
+    return response;
+  };
+}
+
+export const safeFetch = createSafeFetch(() => fetch);
+
+// The statuses fetch itself follows. A 304 answers a conditional request and
+// a 300 has no single target — neither is a hop.
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The request for the next hop, as fetch's own redirect handling would build
+ * it (Fetch standard, "HTTP-redirect fetch"). Following redirects by hand means
+ * owning these rules too; without them every hop resent the caller's
+ * credentials to whatever origin the Location named — a webhook's or a
+ * virtual collection's `Authorization` handed to a third party by one open
+ * redirect on the configured host.
+ */
+function redirectInit(init: RequestInit, status: number, crossOrigin: boolean): RequestInit {
+  const headers = new Headers(init.headers);
+  const next: RequestInit = { ...init, headers };
+  const method = (init.method ?? 'GET').toUpperCase();
+  if (
+    ((status === 301 || status === 302) && method === 'POST') ||
+    (status === 303 && method !== 'GET' && method !== 'HEAD')
+  ) {
+    next.method = 'GET';
+    next.body = null;
+    for (const h of [
+      'content-type',
+      'content-length',
+      'content-encoding',
+      'content-language',
+      'content-location',
+    ]) {
+      headers.delete(h);
+    }
   }
-
-  return response;
+  if (crossOrigin) {
+    for (const h of ['authorization', 'cookie', 'proxy-authorization']) headers.delete(h);
+  }
+  return next;
 }

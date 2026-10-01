@@ -42,6 +42,11 @@ describe('validatePublicUrl — blocks internal/private targets (SSRF)', () => {
     'http://[fd00::1]', // IPv6 ULA
     'http://[::ffff:127.0.0.1]', // IPv4-mapped IPv6 loopback (dotted)
     'http://[::ffff:169.254.169.254]', // IPv4-mapped cloud metadata via IPv6
+    'http://0.0.0.0:8080/', // connects to this host on Linux
+    'http://[::]:8080/', // the IPv6 spelling of the same
+    'http://172.31.255.255', // top of 172.16.0.0/12
+    'http://[fc00::1]', // the fc half of the ULA block fc00::/7
+    'http://[febf::1]', // top of link-local fe80::/10
   ];
   for (const url of blocked) {
     it(`blocks ${url}`, () => {
@@ -73,4 +78,10 @@ describe('RFC 6598 shared address space', () => {
       expect(isBlockedHost(host)).toBe(false);
     },
   );
+});
+
+describe('172.16.0.0/12 stops at its edges', () => {
+  test.each(['172.15.255.255', '172.32.0.1'])('leaves %s reachable', (host) => {
+    expect(isBlockedHost(host)).toBe(false);
+  });
 });

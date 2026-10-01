@@ -336,13 +336,39 @@ async function safeFetch(input, init, _hops) {
   else _url = String(input);
   const _pin = await _assertUrl(_url);
   if (_hops > 5) throw new Error('[sandbox] Too many redirects.');
-  const _res = await _pinnedFetch(_url, Object.assign({}, init || {}, { redirect: 'manual' }), _pin);
-  if (_res.status >= 300 && _res.status < 400) {
+  // A Request carries its own method, headers and body; the next hop is built
+  // from them, so they are unpacked once here.
+  let _init = init || {};
+  if (input && typeof input === 'object' && typeof input.url === 'string' && input.headers) {
+    _init = Object.assign({ method: input.method, headers: input.headers, body: input.body }, _init);
+  }
+  const _res = await _pinnedFetch(_url, Object.assign({}, _init, { redirect: 'manual' }), _pin);
+  const _s = _res.status;
+  if (_s === 301 || _s === 302 || _s === 303 || _s === 307 || _s === 308) {
     const _loc = _res.headers.get('location');
     if (!_loc) throw new Error('[sandbox] Redirect with no Location header blocked.');
-    return safeFetch(new URL(_loc, _url).toString(), init, _hops + 1);
+    const _next = new URL(_loc, _url);
+    return safeFetch(_next.toString(), _redirectInit(_init, _s, _next.origin !== new URL(_url).origin), _hops + 1);
   }
   return _res;
+}
+
+// The next hop as fetch's own redirect handling builds it (Fetch standard,
+// "HTTP-redirect fetch"): a POST answered 301/302, or anything but GET/HEAD
+// answered 303, becomes a bodiless GET; a hop to another origin drops the
+// credentials, which belonged to the origin they were written for.
+function _redirectInit(init, status, crossOrigin) {
+  const headers = new Headers(init.headers || undefined);
+  const next = Object.assign({}, init, { headers: headers });
+  const method = String(init.method || 'GET').toUpperCase();
+  if (((status === 301 || status === 302) && method === 'POST') ||
+      (status === 303 && method !== 'GET' && method !== 'HEAD')) {
+    next.method = 'GET';
+    next.body = null;
+    for (const h of ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']) headers.delete(h);
+  }
+  if (crossOrigin) for (const h of ['authorization', 'cookie', 'proxy-authorization']) headers.delete(h);
+  return next;
 }
 `;
 }

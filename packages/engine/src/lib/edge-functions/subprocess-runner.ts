@@ -36,7 +36,7 @@
 
 import { spawn, type Subprocess } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
-import { buildSandboxSsrfGuardSource } from '../security/index.js';
+import { buildSandboxSafeFetchSource, buildSandboxSsrfGuardSource } from '../security/index.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -164,23 +164,9 @@ const _procExit = process.exit.bind(process);
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
     const _fetch = fetch;
     // Wrap fetch so untrusted user code cannot reach internal/private addresses
-    // (SSRF). Validates the target + re-validates every redirect hop.
-    async function safeFetch(input, init, _hops) {
-      _hops = _hops || 0;
-      let _url;
-      if (typeof input === 'string') _url = input;
-      else if (input && typeof input === 'object' && input.url) _url = input.url;
-      else _url = String(input);
-      await _assertUrl(_url);
-      if (_hops > 5) throw new Error('[sandbox] Too many redirects.');
-      const _res = await _fetch(input, Object.assign({}, init || {}, { redirect: 'manual' }));
-      if (_res.status >= 300 && _res.status < 400) {
-        const _loc = _res.headers.get('location');
-        if (!_loc) throw new Error('[sandbox] Redirect with no Location header blocked.');
-        return safeFetch(new URL(_loc, _url).toString(), init, _hops + 1);
-      }
-      return _res;
-    }
+    // (SSRF): the shared sandbox safeFetch validates the target, connects to
+    // the address it validated, and re-validates every redirect hop.
+    ${buildSandboxSafeFetchSource()}
     lockdownGlobals();
 
     // 'eval' is intentionally absent from this shadow-parameter list: it is an
