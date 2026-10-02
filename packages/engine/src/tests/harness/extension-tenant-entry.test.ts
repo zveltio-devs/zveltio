@@ -1,6 +1,7 @@
 /**
  * `ctx.internals.withTenantIsolation(tenantId, fn)` enters only the tenant the
- * work already runs as — any other firm needs `db:admin`.
+ * work already runs as — any other firm needs `tenant:enter` (or `db:admin`,
+ * which implies it).
  *
  * It was ungated and took the tenant as a plain argument: an extension with no
  * capability at all, handling a request in firm A, opened a transaction as firm
@@ -36,12 +37,14 @@ const SLUG = `ten-${OTHER.slice(0, 8)}`;
 const STAMP = `tenentry_${Date.now()}`;
 const NOCAP = `tenentry-nocap-${Date.now()}`;
 const ADMIN = `tenentry-admin-${Date.now()}`;
+const ENTER = `tenentry-enter-${Date.now()}`;
 
-d('ctx.internals.withTenantIsolation enters only the running tenant without db:admin', () => {
+d('ctx.internals.withTenantIsolation enters only the running tenant without tenant:enter', () => {
   let db: Database;
   let app: Hono;
   let member: { cookie: string; userId: string };
   const bags: Record<string, ExtensionInternals> = {};
+  const adminDbs: Record<string, Database> = {};
   let later: Promise<unknown> = Promise.resolve();
 
   /** Rows of the seeded table the entered transaction can see, by firm. */
@@ -55,7 +58,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without db:a
   const outcome = (p: Promise<string[]>) =>
     p.then(
       (seen) => ({ seen }),
-      (err: Error) => ({ refused: err.message.includes('db:admin') }),
+      (err: Error) => ({ refused: err.message.includes('tenant:enter') }),
     );
 
   async function load(name: string, permissions: string[]): Promise<void> {
@@ -79,6 +82,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without db:a
       async register(sub, ectx) {
         const internals = ectx.internals as unknown as ExtensionInternals;
         bags[name] = internals;
+        adminDbs[name] = ectx.adminDb as unknown as Database;
         sub.get('/peek', async (c) => c.json(await outcome(peek(internals, c.req.query('t')!))));
         // Fire-and-forget past the response, as `data/export` and `data/import` do.
         sub.get('/later', (c) => {
@@ -123,13 +127,16 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without db:a
     await load(NOCAP, []);
     // The legacy label grants nothing; `data/export` declares only this.
     await load(ADMIN, ['database', 'db:admin']);
+    await load(ENTER, ['tenant:enter']);
     invalidateActivationCache();
   }, 60_000);
 
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${NOCAP}, ${ADMIN})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${NOCAP}, ${ADMIN}, ${ENTER})`.execute(
+      db,
+    );
     await sql`DELETE FROM zv_dashboards WHERE name = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
@@ -168,5 +175,11 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without db:a
   it('db:admin may enter any firm, in a request or out of one', async () => {
     expect(await get(ADMIN, OTHER)).toEqual({ seen: [OTHER] });
     expect(await outcome(peek(bags[ADMIN]!, OTHER))).toEqual({ seen: [OTHER] });
+  });
+
+  it('tenant:enter may enter any firm, and grants no adminDb', async () => {
+    expect(await get(ENTER, OTHER)).toEqual({ seen: [OTHER] });
+    expect(await outcome(peek(bags[ENTER]!, OTHER))).toEqual({ seen: [OTHER] });
+    expect(() => adminDbs[ENTER]!.selectFrom('zv_dashboards')).toThrow('db:admin');
   });
 });

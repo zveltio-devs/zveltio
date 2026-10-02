@@ -651,14 +651,31 @@ async function registerExtensionRoutes(
  * scope, so there is nobody to ask the per-firm question — see
  * `isExtensionActiveAnywhere`. All this can enforce is that a schedule
  * belonging to an extension no firm has turned on does not run.
+ *
+ * The handler gets THIS extension's restricted context, not the runner's. The
+ * runner holds one base context for everybody — the raw pool and the ungated
+ * internals — and handed it to every handler, so a schedule of an extension
+ * declaring nothing could read `"user"`, decrypt secrets and enter any tenant:
+ * all that `buildRestrictedContext` withholds from the same extension's routes.
  */
-function guardedSchedule(s: ExtensionSchedule, extName: string, db: Database): ExtensionSchedule {
+function guardedSchedule(
+  s: ExtensionSchedule,
+  extName: string,
+  db: Database,
+  restrictedCtx: ExtensionContext,
+): ExtensionSchedule {
   const handler = (s as { handler?: unknown }).handler;
   if (typeof handler !== 'function') return s;
-  return {
-    ...s,
-    handler: guardScheduleHandler(handler as (...a: unknown[]) => unknown, extName, db),
-  } as ExtensionSchedule;
+  // A schedule runs after the app is built; it cannot add routes.
+  const ctx: ExtensionContext = {
+    ...restrictedCtx,
+    registerPublicRoute: () => {
+      console.warn(`[cron-runner] ${extName}: schedules cannot register public routes — no-op`);
+    },
+  };
+  const run = (_runnerCtx: unknown, runId: string) =>
+    (handler as ExtensionSchedule['handler'])(ctx, runId);
+  return { ...s, handler: guardScheduleHandler(run, extName, db) } as ExtensionSchedule;
 }
 
 /**
@@ -693,7 +710,7 @@ export async function finalizeExtensionLoad(
     console.warn(
       `🔒 Extension "${extName}" requests capabilities that were never approved: ` +
         `${pending.join(', ')}. It is running WITHOUT them — approve at ` +
-        `POST /api/marketplace/${extName}/capabilities/approve to grant.`,
+        `POST /api/marketplace/${extName}/approve-capabilities to grant.`,
     );
   }
 
@@ -785,7 +802,10 @@ export async function finalizeExtensionLoad(
     try {
       const schedules = extension.schedules() ?? [];
       for (const s of schedules) {
-        cronRunner.register(extName, guardedSchedule(s as ExtensionSchedule, extName, ctx.db));
+        cronRunner.register(
+          extName,
+          guardedSchedule(s as ExtensionSchedule, extName, ctx.db, restrictedCtx),
+        );
       }
       if (schedules.length > 0) {
         console.log(`⏰ Extension "${extName}" registered ${schedules.length} schedule(s)`);
@@ -885,7 +905,10 @@ export async function reRegisterExtension(
     if (typeof extension.schedules === 'function') {
       try {
         for (const s of extension.schedules() ?? []) {
-          cronRunner.register(name, guardedSchedule(s as ExtensionSchedule, name, loader.ctx.db));
+          cronRunner.register(
+            name,
+            guardedSchedule(s as ExtensionSchedule, name, loader.ctx.db, restrictedCtx),
+          );
         }
       } catch (err) {
         console.warn(

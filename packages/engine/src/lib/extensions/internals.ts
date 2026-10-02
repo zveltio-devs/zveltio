@@ -208,8 +208,8 @@ export interface ExtensionInternals {
    * so the isolation policies apply exactly as they do to a request.
    *
    * Only the tenant the work already runs as — the request's, or the job's
-   * (`runAsTenantWithoutTransaction`) — unless the extension holds `db:admin`.
-   * See `enterTenantAs`.
+   * (`runAsTenantWithoutTransaction`) — unless the extension holds
+   * `tenant:enter` (or `db:admin`). See `enterTenantAs`.
    */
   withTenantIsolation: <T>(tenantId: string, fn: (trx: Database) => Promise<T>) => Promise<T>;
 
@@ -500,7 +500,8 @@ const deleteAsCaller = writeAsCaller('delete');
 
 /**
  * `withTenantIsolation` as an extension gets it: the tenant must be the one the
- * work already runs as, unless the extension holds `db:admin`.
+ * work already runs as, unless the extension holds `tenant:enter` (or
+ * `db:admin`, which implies it).
  *
  * It was handed over raw, so the tenant was whatever the extension passed: an
  * extension with no capability, serving a request in firm A, opened a
@@ -508,7 +509,7 @@ const deleteAsCaller = writeAsCaller('delete');
  * that needs `db:admin`. The running tenant is the domain in the async context,
  * set by the host (tenant middleware, flow scheduler), never by an argument.
  * Outside any — load time, a timer — there is no tenant to inherit, so only
- * `db:admin` enters one.
+ * `tenant:enter` enters one.
  */
 function enterTenantAs(
   caller: string,
@@ -521,8 +522,8 @@ function enterTenantAs(
       new Error(
         `${caller}: ctx.internals.withTenantIsolation("${tenantId}") refused — this work runs ` +
           (running ? `as tenant "${running}"` : 'as no tenant') +
-          ', and entering another needs the "db:admin" capability (declared in manifest.json ' +
-          'and approved by an administrator).',
+          ', and entering another needs the "tenant:enter" capability (declared in ' +
+          'manifest.json and approved by an administrator).',
       ),
     );
   };
@@ -536,7 +537,10 @@ function enterTenantAs(
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return bindsCaller(buildUnboundInternals(), (caller, granted) => ({
-    withTenantIsolation: enterTenantAs(caller, granted.has('db:admin')),
+    withTenantIsolation: enterTenantAs(
+      caller,
+      granted.has('db:admin') || granted.has('tenant:enter'),
+    ),
     setUserActive: (db: unknown, userId: string, active: boolean) =>
       setUserActive(db as Database, getDb(), userId, active, caller),
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),

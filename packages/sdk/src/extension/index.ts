@@ -445,7 +445,8 @@ export interface ExtensionInternals<DB = unknown> {
    *
    * Only the tenant the work already runs as — the request's, or the job's —
    * is entered without a capability. Another tenant, or any tenant where none
-   * runs (load time, a timer), needs `db:admin`; without it the promise rejects.
+   * runs (load time, a timer), needs `tenant:enter` (or `db:admin`, which
+   * implies it); without it the promise rejects.
    * A fire-and-forget job started from a handler keeps the handler's tenant.
    *
    *     await ctx.internals.withTenantIsolation(tenantId, async (db) => {

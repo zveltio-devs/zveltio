@@ -36,7 +36,7 @@
  * The manifest may pin `capabilityContract` to refuse loading against an engine
  * that speaks a different major version.
  */
-// 2: `auth:users`, 3: `data:write`, 4: `db:admin` also enters a tenant other than the running one
+// 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`)
 export const CAPABILITY_CONTRACT_VERSION = 4;
 
 /**
@@ -48,12 +48,18 @@ export const CAPABILITY_CONTRACT_VERSION = 4;
  */
 export const CAPABILITIES = [
   /**
-   * Cross-tenant database access. The most dangerous one. Grants `ctx.adminDb`,
-   * and lets `ctx.internals.withTenantIsolation` enter a tenant other than the
-   * one the request or job runs as — or any tenant where none runs (load time,
-   * a timer). Without it that helper enters only the running tenant.
+   * Cross-tenant database handle (`ctx.adminDb`). The most dangerous one.
+   * Implies `tenant:enter`.
    */
   'db:admin',
+  /**
+   * Let `ctx.internals.withTenantIsolation` enter a tenant other than the one
+   * the request or job runs as — or any tenant where none runs (load time, a
+   * timer). Without it (or `db:admin`) that helper enters only the running
+   * tenant. Grants nothing else: no `adminDb`, no table beyond `ctx.db`'s.
+   * `storage/cloud` needs it: a share link names no firm, the token row does.
+   */
+  'tenant:enter',
   /** Enqueue schema changes (DDL) — creates/alters physical tables. */
   'ddl',
   /** Encrypt/decrypt values with the engine's field key. */
