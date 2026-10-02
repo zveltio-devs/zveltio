@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../lib/tenancy/index.js';
 import { withAuthorizedUserCreation } from '../lib/auth.js';
+import { hashInvitationToken } from '../lib/security/index.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
 // This file registers the handler and adds a /me convenience endpoint
@@ -97,7 +98,7 @@ export function invitationRoutes(db: Database, auth: any): Hono {
     const invite = await db
       .selectFrom('zv_invitations')
       .select(['email', 'name', 'role', 'expires_at', 'accepted_at'])
-      .where('token', '=', token)
+      .where('token', '=', hashInvitationToken(token))
       .executeTakeFirst();
 
     if (!invite) return c.json({ error: 'Invitation not found' }, 404);
@@ -130,7 +131,7 @@ export function invitationRoutes(db: Database, auth: any): Hono {
       const invite = await db
         .selectFrom('zv_invitations')
         .selectAll()
-        .where('token', '=', token)
+        .where('token', '=', hashInvitationToken(token))
         .executeTakeFirst();
 
       if (!invite) return c.json({ error: 'Invitation not found' }, 404);

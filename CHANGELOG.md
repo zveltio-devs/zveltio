@@ -4,6 +4,18 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Security: invitation tokens are stored as digests.** `zv_invitations.token`
+held the raw token from the invite link, and each `user.invited` audit row
+repeated it: a database read or a backup was every live invitation. The table
+now stores `sha256:<hex>` of the token, the accept routes look up the digest,
+and migration 038 hashes the invitations already pending (their links keep
+working) and points their audit rows at the invitation id.
+
+**Fixed: saved queries and audit metadata written as JSON strings.** A saved
+query's `config`, and the audit `metadata` some extensions wrote, were stored
+as a JSON string rather than an object, so `config->'filters'` was NULL.
+Migration 039 turns the rows already written back into objects.
+
 **Fixed: a backup schedule keeps its own number of backups.** A schedule's
 `retention_count` was accepted, stored and returned by the schedules API, and
 read by nothing: pruning kept the newest 20 backups overall. Migration 037

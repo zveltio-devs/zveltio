@@ -13,6 +13,7 @@
  * Asserted against the real tables because the missing row is the whole bug.
  */
 
+import { hashInvitationToken } from '../../lib/security/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
@@ -41,7 +42,7 @@ d('accepting an invitation joins the tenant', () => {
     `.execute(db);
     await sql`
       INSERT INTO zv_invitations (email, name, role, token, expires_at, tenant_id)
-      VALUES (${EMAIL}, 'Invited Person', 'member', ${TOKEN},
+      VALUES (${EMAIL}, 'Invited Person', 'member', ${hashInvitationToken(TOKEN)},
               NOW() + INTERVAL '7 days', ${TENANT_ID}::uuid)
     `.execute(db);
   });
@@ -85,7 +86,7 @@ d('accepting an invitation joins the tenant', () => {
     const invite = await db
       .selectFrom('zv_invitations')
       .select(['accepted_at', 'accepted_by'])
-      .where('token', '=', TOKEN)
+      .where('token', '=', hashInvitationToken(TOKEN))
       .executeTakeFirst();
     expect(invite?.accepted_at).not.toBeNull();
     expect(invite?.accepted_by).toBe(userId);

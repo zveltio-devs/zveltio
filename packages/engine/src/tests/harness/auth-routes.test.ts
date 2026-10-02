@@ -5,6 +5,7 @@
  * public accept path. In-process + DB, no external service.
  */
 
+import { hashInvitationToken } from '../../lib/security/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
@@ -39,19 +40,19 @@ d('auth + invitation routes (in-process)', () => {
           email: `invitee-${STAMP}@test.invalid`,
           name: 'Invitee',
           role: 'member',
-          token: VALID_TOKEN,
+          token: hashInvitationToken(VALID_TOKEN),
           expires_at: new Date(Date.now() + hour),
         },
         {
           email: `expired-${STAMP}@test.invalid`,
           role: 'member',
-          token: EXPIRED_TOKEN,
+          token: hashInvitationToken(EXPIRED_TOKEN),
           expires_at: new Date(Date.now() - hour),
         },
         {
           email: `used-${STAMP}@test.invalid`,
           role: 'member',
-          token: USED_TOKEN,
+          token: hashInvitationToken(USED_TOKEN),
           expires_at: new Date(Date.now() + hour),
           accepted_at: new Date(),
         },
@@ -59,7 +60,7 @@ d('auth + invitation routes (in-process)', () => {
           email: `accept-${STAMP}@test.invalid`,
           name: 'Accepted',
           role: 'member',
-          token: ACCEPT_TOKEN,
+          token: hashInvitationToken(ACCEPT_TOKEN),
           expires_at: new Date(Date.now() + hour),
         },
       ] as never)
@@ -70,7 +71,11 @@ d('auth + invitation routes (in-process)', () => {
     if (!db) return;
     await db
       .deleteFrom('zv_invitations')
-      .where('token', 'in', [VALID_TOKEN, EXPIRED_TOKEN, USED_TOKEN, ACCEPT_TOKEN])
+      .where(
+        'token',
+        'in',
+        [VALID_TOKEN, EXPIRED_TOKEN, USED_TOKEN, ACCEPT_TOKEN].map(hashInvitationToken),
+      )
       .execute()
       .catch(() => {});
   });
@@ -157,7 +162,11 @@ d('auth + invitation routes (in-process)', () => {
     const res = await app.request('/api/invitations/accept', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: ACCEPT_TOKEN, password: 'Passw0rd!123', name: 'Accepted' }),
+      body: JSON.stringify({
+        token: ACCEPT_TOKEN,
+        password: 'Passw0rd!123',
+        name: 'Accepted',
+      }),
     });
     expect([200, 201]).toContain(res.status);
     // The invite is now consumed → a second accept is 410.

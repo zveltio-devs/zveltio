@@ -14,6 +14,7 @@ import { deleteUser } from '../lib/users.js';
 import { escapeLike } from '../lib/data/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
+import { hashInvitationToken } from '../lib/security/index.js';
 
 function escapeHtml(str: string): string {
   return str
@@ -222,19 +223,21 @@ export function usersRoutes(
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
       // Persist invite. Migration 004 guarantees the table exists; any
-      // INSERT failure here is a real DB error worth surfacing.
-      await db
+      // INSERT failure here is a real DB error worth surfacing. Only the digest
+      // is stored: the raw token is a credential, and lives only in the link.
+      const invite = await db
         .insertInto('zv_invitations')
         .values({
           email,
           name: name || email.split('@')[0],
           role,
-          token,
+          token: hashInvitationToken(token),
           expires_at: expiresAt,
           invited_by: adminUser.id,
           tenant_id: getCurrentDomain(),
         })
-        .execute();
+        .returning('id')
+        .executeTakeFirstOrThrow();
 
       // Send invite email if SMTP is configured
       const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
@@ -261,7 +264,7 @@ export function usersRoutes(
       await auditLog(db, {
         type: 'user.invited',
         userId: adminUser.id,
-        resourceId: token,
+        resourceId: invite.id,
         resourceType: 'invitation',
         metadata: { email, role },
       });
