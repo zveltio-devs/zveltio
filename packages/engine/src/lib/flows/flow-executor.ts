@@ -380,7 +380,16 @@ async function executeStep(
         if (userIds.length > 0) {
           await sendNotification(db, { ...notifBase, user_id: userIds });
         }
-        return { output: { sent: true, sent_to: 'role', role: cfg.role, count: userIds.length } };
+        // Nobody holds the role: nothing was sent, and a step log that says
+        // `sent: true` would record a delivery that did not happen.
+        return {
+          output: {
+            sent: userIds.length > 0,
+            sent_to: 'role',
+            role: cfg.role,
+            count: userIds.length,
+          },
+        };
       }
 
       if (cfg.user_id) {
