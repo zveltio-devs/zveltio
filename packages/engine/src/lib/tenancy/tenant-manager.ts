@@ -302,6 +302,70 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
     USING (tenant_id = ANY (${sql.raw(visibleFn)}))
     WITH CHECK (zveltio_tenant_write_ok(tenant_id))
   `.execute(db);
+
+  // The two narrow roles hold an allowlist of collection tables, and this is
+  // where a collection joins it: `zveltio_worker` (the worker SQL bridge, DML)
+  // and `zveltio_flow_reader` (flow `query_db` steps, SELECT) — the grants
+  // migration 001 gave the tables that existed when it ran. `zveltio_worker`'s
+  // create-time grant was never written, so every collection created after
+  // install answered `permission denied` to every worker-isolated extension;
+  // the flow reader's was made at CREATE TABLE, before any policy existed.
+  //
+  // Granted here, after FORCE and the policy, so neither role reaches a
+  // collection before tenant isolation is on it. Both callers — the
+  // create_collection job and the boot reconcile — come through here; a table an
+  // extension creates through `ctx.ddl` stays unreachable to both roles until
+  // the boot reconcile isolates it, which is the side to fail on.
+  // Probed rather than attempted: a role is absent where 001 could not create
+  // it, and a refused GRANT would abort a caller's transaction.
+  for (const role of await narrowRolesPresent(db)) {
+    await sql`GRANT ${sql.raw(NARROW_ROLE_GRANTS[role])} ON ${sql.id(table)} TO ${sql.id(role)}`.execute(
+      db,
+    );
+  }
+}
+
+/** The roles that may hold collection tables only, and what each holds on one. */
+const NARROW_ROLE_GRANTS: Record<string, string> = {
+  zveltio_worker: 'SELECT, INSERT, UPDATE, DELETE',
+  zveltio_flow_reader: 'SELECT',
+};
+
+async function narrowRolesPresent(db: Database): Promise<string[]> {
+  const r = await sql<{ rolname: string }>`
+    SELECT rolname FROM pg_roles WHERE rolname = ANY(${Object.keys(NARROW_ROLE_GRANTS)}::text[])
+  `.execute(db);
+  return r.rows.map((x) => x.rolname);
+}
+
+/**
+ * Take the narrow roles off every `zvd_*` table that is not a collection.
+ *
+ * Migration 001 granted every table matching `zvd_%`, and that prefix is not
+ * only collections: `zvd_permissions` (the Casbin policy table),
+ * `zvd_rls_policies`, `zvd_column_permissions`, `zvd_collections`,
+ * `zvd_webhooks` (signing secrets), `zvd_push_tokens` and more share it, most
+ * without RLS. So a worker extension — the class the platform does not trust —
+ * could write itself a `god` grant, and a flow step could read every tenant's
+ * webhook secrets. Revoked at every boot, as `ensureRlsEnforcementRole` does
+ * for the credential tables, so an install that ran the old grant heals; on a
+ * settled install the query finds nothing.
+ */
+async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[]): Promise<void> {
+  for (const role of await narrowRolesPresent(db)) {
+    const stray = await sql<{ t: string }>`
+      SELECT c.relname AS t
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public'
+         AND left(c.relname, 4) = 'zvd_'
+         AND NOT (c.relname = ANY(${tables}::text[]))
+         AND EXISTS (
+           SELECT 1 FROM aclexplode(c.relacl) a WHERE a.grantee = ${role}::regrole)
+    `.execute(db);
+    for (const { t } of stray.rows) {
+      await sql`REVOKE ALL ON ${sql.id(t)} FROM ${sql.id(role)}`.execute(db);
+    }
+  }
 }
 
 /**
@@ -512,6 +576,14 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
     } catch (err) {
       console.warn(`[tenant-rls] reconcile failed for ${table}:`, (err as Error).message);
     }
+  }
+  try {
+    await revokeNarrowRolesFromNonCollections(
+      db,
+      names.map((n) => `zvd_${n}`),
+    );
+  } catch (err) {
+    console.warn('[tenant-rls] narrow-role revoke failed:', (err as Error).message);
   }
   return applied;
 }

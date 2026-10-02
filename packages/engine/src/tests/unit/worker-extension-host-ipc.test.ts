@@ -4,6 +4,7 @@ import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
+import { workerSqlEngineTables } from '../../lib/extensions/worker-sql-policy.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import {
   WorkerExtensionHost,
@@ -14,6 +15,11 @@ import {
 } from '../../lib/worker-extension-host.js';
 
 const { dispatchMessage, mountProxy, heartbeat, resetInvokeWaiters } = _internalForTests;
+
+// The bridge checks every query against the engine's own tables, read once from
+// the migrations. Warm that read here so a `db:query` settles within the
+// `setTimeout(0)` the cases below wait, as it does on any engine past its first.
+await workerSqlEngineTables();
 
 function makeManaged(
   host: WorkerExtensionHost,
