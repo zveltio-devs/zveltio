@@ -10,7 +10,12 @@
 import { describe, expect, it } from 'bun:test';
 import { buildRowRulePredicate, type RowRule } from '../../lib/tenancy/row-rule-policy.js';
 
-const TYPES = { created_by: 'text', code: 'integer', bucket: 'text', payload: 'jsonb' };
+const TYPES = {
+  created_by: 'text',
+  code: 'integer',
+  bucket: 'text',
+  payload: 'jsonb',
+};
 const rule = (over: Partial<RowRule> = {}): RowRule => ({
   role: '*',
   filter_field: 'created_by',
@@ -28,6 +33,30 @@ describe('row rules as a Postgres predicate', () => {
     const { predicate } = buildRowRulePredicate([rule()], TYPES);
     expect(predicate).toContain("current_setting('zveltio.user_id', true)");
     expect(predicate).toContain('"created_by" =');
+  });
+
+  it('reads every setting once per statement, not once per row', () => {
+    // A bare `current_setting()` in a policy is evaluated per row and keeps the
+    // planner off an index on the column. Wrapped in `(SELECT …)` it is an
+    // InitPlan: computed once, compared like a constant. The value side used to
+    // be bare while the helper that wraps it sat unused.
+    const sources = ['user_id', 'user_email', 'user_role'];
+    for (const filter_value_source of sources) {
+      for (const filter_op of ['eq', 'in']) {
+        const { predicate } = buildRowRulePredicate(
+          [
+            rule({ filter_value_source, filter_op }),
+            rule({ filter_value_source, filter_field: 'code' }),
+          ],
+          TYPES,
+        );
+        // The value side: right of `=`, inside `IN (`, or inside `CAST(`.
+        expect(predicate).not.toMatch(/(= |IN \(|CAST\()current_setting\(/);
+        expect(predicate).toContain(
+          `(SELECT current_setting('zveltio.${filter_value_source}', true))`,
+        );
+      }
+    }
   });
 
   it('lets an exempt session through', () => {
@@ -103,7 +132,13 @@ describe('row rules as a Postgres predicate', () => {
   describe('lists', () => {
     it('splits a static value on commas for in', () => {
       const { predicate } = buildRowRulePredicate(
-        [rule({ filter_field: 'bucket', filter_op: 'in', filter_value_source: 'static:a, b ,c' })],
+        [
+          rule({
+            filter_field: 'bucket',
+            filter_op: 'in',
+            filter_value_source: 'static:a, b ,c',
+          }),
+        ],
         TYPES,
       );
       expect(predicate).toContain(`"bucket" IN ('a', 'b', 'c')`);
@@ -116,7 +151,9 @@ describe('row rules as a Postgres predicate', () => {
         [rule({ filter_op: 'in', filter_value_source: 'user_id' })],
         TYPES,
       );
-      expect(predicate).toContain(`"created_by" IN (current_setting('zveltio.user_id', true))`);
+      expect(predicate).toContain(
+        `"created_by" IN ((SELECT current_setting('zveltio.user_id', true)))`,
+      );
     });
 
     it('reads an empty static list the way the engine does, never as IN ()', () => {
@@ -128,7 +165,13 @@ describe('row rules as a Postgres predicate', () => {
       );
       expect(inEmpty.predicate).toContain('((false))');
       const notInEmpty = buildRowRulePredicate(
-        [rule({ filter_field: 'bucket', filter_op: 'not_in', filter_value_source: 'static:,' })],
+        [
+          rule({
+            filter_field: 'bucket',
+            filter_op: 'not_in',
+            filter_value_source: 'static:,',
+          }),
+        ],
         TYPES,
       );
       expect(notInEmpty.predicate).toContain('("bucket" IS NOT NULL)');
