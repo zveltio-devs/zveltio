@@ -30,11 +30,14 @@ describe('DDLManager.previewCollection — constraints', () => {
           required: false,
           unique: false,
           indexed: true,
+          defaultValue: 'n/a',
         },
       ],
     } as never);
     const joined = stmts.join('\n');
-    expect(joined).toContain('uq_zvd_items_sku');
+    // Inline, exactly as createCollection writes the column.
+    expect(joined).toContain('"sku" text NOT NULL UNIQUE');
+    expect(joined).toContain(`"label" text DEFAULT 'n/a'`);
     expect(joined).toContain('idx_zvd_items_label');
     expect(joined).toContain('idx_zvd_items_tenant_id');
   });

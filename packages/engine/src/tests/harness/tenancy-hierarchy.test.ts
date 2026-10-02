@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
-import { withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
+import { applyTenantRLS, withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -32,7 +32,7 @@ const SIS_A = '3a000000-0000-0000-0000-0000000000a1';
 const SIS_B = '3a000000-0000-0000-0000-0000000000b2';
 
 /** A plain tenant table, isolated the way every collection is. */
-const PLAIN = 'zv_hier_probe_plain';
+const PLAIN = 'zvd_hier_probe_plain';
 /** The same, but its collection is marked inherited downward. */
 const SHARED = 'zv_hier_probe_shared';
 
@@ -98,12 +98,18 @@ d('tenancy hierarchy', () => {
       const read = inherit
         ? 'tenant_id = ANY (zveltio_visible_tenants()) OR tenant_id = ANY (zveltio_ancestor_tenants())'
         : 'tenant_id = ANY (zveltio_visible_tenants())';
-      await sql
-        .raw(
-          `CREATE POLICY tenant_isolation_${table} ON ${table} ` +
-            `USING (${read}) WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
-        )
-        .execute(db);
+      // The unmarked table gets the policy every collection gets, so test 3
+      // fails if applyTenantRLS ever checks writes with the read predicate.
+      if (inherit) {
+        await sql
+          .raw(
+            `CREATE POLICY tenant_isolation_${table} ON ${table} ` +
+              `USING (${read}) WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
+          )
+          .execute(db);
+      } else {
+        await applyTenantRLS(db, table);
+      }
       await sql
         .raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO zveltio_rls`)
         .execute(db)

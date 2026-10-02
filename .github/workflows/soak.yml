@@ -1,7 +1,7 @@
 name: Soak
 
 # Long-running mixed-traffic soak to catch memory leaks before operators do.
-# `memory-monitor.ts` + stress tests exist, but nothing runs long enough. This
+# `memory-monitor.ts` exists, but nothing else runs long enough. This
 # drives 60 min of CRUD/list/patch/delete churn while sampling RSS from
 # /metrics, then asserts the RSS slope is flat, p95 is stable, and there were no
 # unhandled rejections. Nightly + on-demand.

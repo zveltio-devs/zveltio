@@ -164,7 +164,7 @@ tooling is involved — the mechanism is native PostgreSQL throughout.
 
 1. **Requires `id` column** — The cursor-based copy and changelog assume each row has an `id` column. All Zveltio-managed collections have this by default. BYOD tables without `id` are skipped (Ghost DDL is not run on unmanaged tables).
 
-2. **JSONB and array columns** — Preserved correctly via `to_jsonb(NEW)` row snapshots in changelog. Tested in stress tests with 1,000+ concurrent mutations.
+2. **JSONB and array columns** — Preserved through the `to_jsonb(NEW)` changelog snapshot, which is bound back into typed columns. Covered by `packages/engine/src/tests/harness/ghost-ddl-changelog-after-copy.test.ts` (jsonb, text[], numeric, boolean, timestamptz).
 
 3. **Foreign key constraints** — Ghost table is created with `INCLUDING ALL` (includes FK constraints). If referenced tables are also being migrated simultaneously, order of execution matters.
 
@@ -178,6 +178,6 @@ tooling is involved — the mechanism is native PostgreSQL throughout.
 
 ## Relevant Files
 
-- Implementation: `packages/engine/src/lib/ghost-ddl.ts`
-- Stress tests: `packages/engine/src/tests/stress/ghost-ddl.stress.test.ts`
-- DDL manager (triggers Ghost DDL): `packages/engine/src/lib/ddl-manager.ts`
+- Implementation: `packages/engine/src/lib/data/ghost-ddl.ts`
+- Tests: `packages/engine/src/tests/harness/ghost-ddl-*.test.ts`
+- DDL manager (triggers Ghost DDL): `packages/engine/src/lib/data/ddl-manager.ts`
