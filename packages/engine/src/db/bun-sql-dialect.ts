@@ -355,10 +355,12 @@ class BunSqlDriver implements Driver {
    */
   async recyclePool(): Promise<void> {
     if (!this.#pool) return;
+    // New pool first, then drain the old one: the close can take up to its
+    // timeout, and a query arriving meanwhile must find a pool, not a driver
+    // that throws "not initialized".
     const old = this.#pool;
-    this.#pool = null;
-    await old.close(CLOSE).catch(() => {});
     await this.init();
+    await old.close(CLOSE).catch(() => {});
   }
 
   /**

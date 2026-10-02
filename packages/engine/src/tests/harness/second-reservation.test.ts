@@ -162,6 +162,35 @@ d('a request needs one connection (in-process)', () => {
     expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
   });
 
+  it('reports a second connection through the request header', async () => {
+    // Every case above reads a header that is absent at zero, so a tenant
+    // middleware that stopped opening or closing the traced window would turn
+    // them all green. Planted: the prefetch fails, so nothing primed the god
+    // flag, and `checkPermission` reads it from the pool inside the
+    // transaction — the exact second reservation fixed on 2026-08-30.
+    const { getAuth } = await import('../../lib/auth.js');
+    const { invalidateGodCache } = await import('../../lib/tenancy/index.js');
+    const [{ id: godId }] = (
+      await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db)
+    ).rows;
+    await invalidateGodCache(godId);
+    const api = (getAuth() as unknown as { api: { getSession: (...a: unknown[]) => unknown } }).api;
+    const original = api.getSession;
+    let failed = false;
+    api.getSession = (...a: unknown[]) => {
+      if (failed) return original(...a);
+      failed = true;
+      return Promise.reject(new Error('prefetch outage'));
+    };
+    try {
+      const res = await app.request('/api/settings', { headers: { cookie } });
+      expect(res.status).toBe(200);
+      expect(Number(res.headers.get('x-zveltio-extra-connections'))).toBeGreaterThan(0);
+    } finally {
+      api.getSession = original;
+    }
+  });
+
   it('counts a second connection when one is genuinely taken', async () => {
     // The ratchet is only worth having if a violation would be seen. Planted:
     // a query issued on the pool while the request's transaction is open is

@@ -72,7 +72,7 @@ d('pool autosizing (in-process)', () => {
     // Eight instances must not each be told they may have what one could have —
     // that is how a fleet exhausts a server under exactly the load that started
     // the extra replicas.
-    expect(many!.max).toBeLessThanOrEqual(one!.max);
+    expect(many!.max).toBeLessThan(one!.max);
   });
 
   it('never goes below the floor, however many instances are declared', async () => {
@@ -90,6 +90,8 @@ d('pool autosizing (in-process)', () => {
     const good = await withEnv({ DB_POOL_SHARE: '0.5', ZVELTIO_INSTANCES: '1' }, () =>
       autosizePool(URL_),
     );
+    // The clamp hides the share at most sizes, so read the share it used.
+    expect(bad!.reason).toContain('share 0.5,');
     expect(bad!.max).toBe(good!.max);
   });
 
