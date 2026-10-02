@@ -10,6 +10,7 @@
  */
 
 import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
+import { htmlToText } from './pdf-text.js';
 
 self.onmessage = async (event: MessageEvent) => {
   const msg = event.data as {
@@ -39,32 +40,7 @@ self.onmessage = async (event: MessageEvent) => {
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function generatePDF(html: string, options: Record<string, any>): Promise<Buffer> {
-  const text = html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<\/h[1-6]>/gi, '\n\n')
-    .replace(
-      /<h([1-6])[^>]*>(.*?)<\/h\1>/gi,
-      (_: string, level: string, content: string) =>
-        `\n__H${level}__${content.replace(/<[^>]+>/g, '')}__END__\n`,
-    )
-    .replace(/<[^>]+>/g, '')
-    // These four decoded the entities an HTML template carries. They had been
-    // flattened to `.replace(/&/g, '&')` — pattern and replacement identical,
-    // four no-ops in a row — so `Smith &amp; Co` printed as `Smith &amp; Co` in
-    // the PDF. `&amp;` goes LAST: decoding it first would turn `&amp;lt;` into a
-    // `<`, which is the classic double-decode.
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const text = htmlToText(html);
 
   const doc = await PDFDocument.create();
 
