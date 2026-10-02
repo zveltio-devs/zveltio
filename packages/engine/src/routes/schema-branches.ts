@@ -9,8 +9,14 @@ import type { User } from 'better-auth';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
-import { announceSchemaChange, DDLManager } from '../lib/data/index.js';
-import { GhostDDL } from '../lib/data/index.js';
+import {
+  announceSchemaChange,
+  DDLManager,
+  type FieldConfig,
+  FieldSchema,
+  fieldTypeRegistry,
+  GhostDDL,
+} from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 
 /**
@@ -24,6 +30,20 @@ import { toJsonb } from '../lib/jsonb.js';
  * defensively here also recovers any branch already written that way before
  * this fix, with no migration needed.
  */
+// A branch change is replayed as DDL at merge, so its payload is checked as
+// strictly as the routes that apply the same change directly: a field is the
+// FieldSchema POST /api/collections/:name/fields takes, a name is an identifier.
+// `z.record(z.any())` here let `field.name` reach `sql.raw` unchecked.
+const CollectionName = z
+  .string()
+  .max(63)
+  .regex(/^[a-z][a-z0-9_]*$/);
+const AddFieldPayload = z.object({ collection: CollectionName, field: FieldSchema });
+const RemoveFieldPayload = z.object({
+  collection: CollectionName,
+  field: z.string().regex(/^[a-z][a-z0-9_]*$/),
+});
+
 function parseChanges(value: unknown) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
@@ -456,60 +476,46 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               await enqueueDDLJob(db, 'create_collection', change.payload);
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
-              const { fieldTypeRegistry } = await import('../lib/data/index.js');
-              const tableName = DDLManager.getTableName(change.payload.collection);
-              const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
-              if (colDDL) {
-                // Use Ghost DDL for large tables (>100k rows) to avoid downtime
-                const rowCount = await rowCountOrAssumeLarge(db, tableName);
-
-                if (rowCount > 100_000) {
-                  // The column and its per-tenant key, both built on the ghost.
-                  await GhostDDL.execute(
-                    db,
-                    tableName,
-                    [{ kind: 'add_column', field: change.payload.field }],
-                    (phase, detail) => {
-                      console.log(`[ghost-ddl] ${phase}: ${detail}`);
-                    },
-                  );
-                } else {
-                  const { dynamicAddColumn } = await import(
-                    '../../../../packages/engine/src/db/dynamic.js'
-                  );
-                  await dynamicAddColumn(db, tableName, colDDL);
-                  await DDLManager.addUniqueKey(db, tableName, change.payload.field);
-                }
-              }
-              announceSchemaChange(change.payload.collection, 'alter');
-              applied.push(
-                `Add field: ${change.payload.field.name} to ${change.payload.collection}`,
-              );
-            } else if (change.type === 'remove_field') {
-              const tableName = DDLManager.getTableName(change.payload.collection);
-
-              // Use Ghost DDL for large tables (>100k rows) to avoid downtime
-              const rowCount = await rowCountOrAssumeLarge(db, tableName);
-
-              if (rowCount > 100_000) {
+              // Parsed again here: a branch stores what was posted, and a row
+              // written before the shape was checked at /changes still merges.
+              const { collection, field } = AddFieldPayload.parse(change.payload);
+              const tableName = DDLManager.getTableName(collection);
+              // Over 100k rows the column and its per-tenant key are built on a
+              // ghost; addField then finds both in place and does what is left
+              // — indexes and the field in zvd_collections.fields — the same way
+              // POST /api/collections/:name/fields does.
+              if (
+                fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&
+                (await rowCountOrAssumeLarge(db, tableName)) > 100_000
+              ) {
                 await GhostDDL.execute(
                   db,
                   tableName,
-                  [{ kind: 'drop_column', column: change.payload.field }],
+                  [{ kind: 'add_column', field: field as FieldConfig }],
                   (phase, detail) => {
                     console.log(`[ghost-ddl] ${phase}: ${detail}`);
                   },
                 );
-              } else {
-                const { dynamicDropColumn } = await import(
-                  '../../../../packages/engine/src/db/dynamic.js'
-                );
-                await dynamicDropColumn(db, tableName, change.payload.field);
               }
-              announceSchemaChange(change.payload.collection, 'alter');
-              applied.push(
-                `Remove field: ${change.payload.field} from ${change.payload.collection}`,
-              );
+              await DDLManager.addField(db, collection, field);
+              announceSchemaChange(collection, 'alter');
+              applied.push(`Add field: ${field.name} to ${collection}`);
+            } else if (change.type === 'remove_field') {
+              const { collection, field } = RemoveFieldPayload.parse(change.payload);
+              const tableName = DDLManager.getTableName(collection);
+              if ((await rowCountOrAssumeLarge(db, tableName)) > 100_000) {
+                await GhostDDL.execute(
+                  db,
+                  tableName,
+                  [{ kind: 'drop_column', column: field }],
+                  (phase, detail) => {
+                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
+                  },
+                );
+              }
+              await DDLManager.removeField(db, collection, field);
+              announceSchemaChange(collection, 'alter');
+              applied.push(`Remove field: ${field} from ${collection}`);
             }
           } catch (err) {
             errors.push(`${change.type}: ${err instanceof Error ? err.message : String(err)}`);
@@ -539,10 +545,11 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
       '/branches/:id/changes',
       zValidator(
         'json',
-        z.object({
-          type: z.enum(['add_collection', 'add_field', 'remove_field']),
-          payload: z.record(z.string(), z.any()),
-        }),
+        z.discriminatedUnion('type', [
+          z.object({ type: z.literal('add_collection'), payload: z.record(z.string(), z.any()) }),
+          z.object({ type: z.literal('add_field'), payload: AddFieldPayload }),
+          z.object({ type: z.literal('remove_field'), payload: RemoveFieldPayload }),
+        ]),
       ),
       async (c) => {
         const id = c.req.param('id');

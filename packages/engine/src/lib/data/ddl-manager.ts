@@ -1024,6 +1024,11 @@ export class DDLManager {
     field: z.infer<typeof FieldSchema>,
   ): Promise<void> {
     const validated = FieldSchema.parse(field);
+    // Here, not in each route: the schema-branch merge called this layer's
+    // building blocks with a name no route had checked.
+    if (SYSTEM_COLUMNS.has(validated.name)) {
+      throw new Error(`"${validated.name}" is a system column`);
+    }
     if (!fieldTypeRegistry.has(validated.type)) {
       throw new Error(`Unknown field type: "${validated.type}"`);
     }
@@ -1070,6 +1075,9 @@ export class DDLManager {
   static async removeField(db: Database, collectionName: string, fieldName: string): Promise<void> {
     if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
       throw new Error(`Invalid field name: "${fieldName}".`);
+    }
+    if (SYSTEM_COLUMNS.has(fieldName)) {
+      throw new Error(`"${fieldName}" is a system column`);
     }
     const tableName = this.getTableName(collectionName);
     if (!(await this.tableExists(db, collectionName))) {

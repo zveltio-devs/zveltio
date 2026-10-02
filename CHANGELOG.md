@@ -20,6 +20,17 @@ names the table. A failure on one table never stops the boot; the next boot
 retries it. The duplicate-value error still names the field and the value, and
 does not include the tenant id.
 
+**Fixed: a schema-branch merge validates what it applies.** A branch change
+was stored as `payload: any` and replayed as DDL. On a table under 100 000 rows
+the field name went unchecked into raw SQL, and `remove_field` dropped any
+column it was named, `tenant_id` included. Small tables also added the column
+and its unique key in separate transactions, never built the index of an
+`indexed` field, and never recorded the field in the collection's metadata.
+`POST /api/schema/branches/:id/changes` now takes the same field shape as
+`POST /api/collections/:name/fields`, the merge parses stored changes again,
+and both table sizes finish through `DDLManager.addField` / `removeField`,
+which now refuse system columns for every caller.
+
 **Changed: Ghost DDL takes typed operations, not SQL fragments.** A
 schema-branch merge into a table past 100 000 rows runs Ghost DDL, which
 checked the `ALTER TABLE` fragments it received with a regular expression. The
