@@ -4,6 +4,13 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: preview environments now serve the branch.** An `X-Preview-Token`
+request switched `search_path` to the branch schema, but the request role had
+no access to it and PostgreSQL silently skipped it, so every preview read
+`public`. Enabling preview now gives each branch table the grants, row-level
+security and policies of its `public` counterpart. A branch whose preview was
+enabled before this release starts working once preview is enabled again.
+
 **Fixed: password reset, magic links and OTPs failed on every install with Valkey.**
 Since better-auth 1.7 (beta.64), redeeming any single-use token — password
 reset, magic link, email/phone OTP, two-factor OTP, one-time token, email

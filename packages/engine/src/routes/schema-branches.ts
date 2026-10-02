@@ -65,6 +65,78 @@ async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<n
   }
 }
 
+/**
+ * Give every table in a branch schema the protections its `public` namesake has,
+ * so the preview token can reach it without reaching more than `public` would.
+ *
+ * `CREATE TABLE … (LIKE … INCLUDING ALL)` copies columns, defaults, indexes and
+ * constraints, and nothing that decides WHO may read: no grants, no row-level
+ * security, no policies — and `public`'s default privileges do not apply to
+ * another schema. So the branch was unreachable to the request role
+ * (`zveltio_rls`), and Postgres silently drops a `search_path` entry the role
+ * cannot use: every preview request read `public` and the feature did nothing.
+ * Granting access alone would have been worse — a table with no
+ * `tenant_isolation` policy hands every tenant's rows to whoever holds a token.
+ *
+ * So the whole set is mirrored, in one transaction, policies before grants and
+ * the schema's USAGE last, so no reader ever meets a table that is reachable and
+ * not yet policed. Re-runnable: the branch's own policies and grants are
+ * replaced, not added to. Statements are built by Postgres (`format('%I')`,
+ * `pg_get_expr`), as in Ghost DDL's `carriedOverDdl`.
+ */
+async function mirrorPublicProtections(db: Database, schema: string): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const r = await sql<{ ddl: string }>`
+      WITH t AS (
+        SELECT b.oid AS boid, b.relname, b.relowner AS bowner,
+               coalesce(b.relacl, acldefault('r', b.relowner)) AS bacl,
+               coalesce(p.relacl, acldefault('r', p.relowner)) AS pacl,
+               p.oid AS poid, p.relrowsecurity, p.relforcerowsecurity
+          FROM pg_class b
+          JOIN pg_class p ON p.relname = b.relname
+                         AND p.relnamespace = 'public'::regnamespace AND p.relkind IN ('r', 'p')
+         WHERE b.relnamespace = to_regnamespace(${schema}::text) AND b.relkind = 'r'
+      ), s AS (
+        SELECT 1 AS step, format('DROP POLICY %I ON %I.%I', bp.polname, ${schema}::text, t.relname) AS ddl
+          FROM t JOIN pg_policy bp ON bp.polrelid = t.boid
+        UNION ALL
+        SELECT 2, format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', ${schema}::text, t.relname)
+          FROM t WHERE t.relrowsecurity
+        UNION ALL
+        SELECT 2, format('ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY', ${schema}::text, t.relname)
+          FROM t WHERE t.relforcerowsecurity
+        UNION ALL
+        SELECT 3, format('CREATE POLICY %I ON %I.%I AS %s FOR %s TO %s%s%s', p.polname, ${schema}::text, t.relname,
+                 CASE WHEN p.polpermissive THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END,
+                 CASE p.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE'
+                               WHEN 'd' THEN 'DELETE' ELSE 'ALL' END,
+                 (SELECT string_agg(CASE WHEN x = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(x)) END, ', ')
+                    FROM unnest(p.polroles) x),
+                 ' USING (' || pg_get_expr(p.polqual, p.polrelid) || ')',
+                 ' WITH CHECK (' || pg_get_expr(p.polwithcheck, p.polrelid) || ')')
+          FROM t JOIN pg_policy p ON p.polrelid = t.poid
+        UNION ALL
+        SELECT 4, format('REVOKE ALL ON %I.%I FROM %s', ${schema}::text, t.relname,
+                 CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END)
+          FROM t, aclexplode(t.bacl) a WHERE a.grantee <> t.bowner GROUP BY t.relname, a.grantee
+        UNION ALL
+        SELECT 5, format('GRANT %s ON %I.%I TO %s%s', a.privilege_type, ${schema}::text, t.relname,
+                 CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END,
+                 CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END)
+          FROM t, aclexplode(t.pacl) a
+        UNION ALL
+        SELECT 6, format('GRANT USAGE ON SCHEMA %I TO %s', ${schema}::text,
+                 CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END)
+          FROM pg_namespace n, aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+         WHERE n.nspname = 'public' AND a.privilege_type = 'USAGE'
+           AND to_regnamespace(${schema}::text) IS NOT NULL
+      )
+      SELECT ddl FROM s ORDER BY step
+    `.execute(trx);
+    for (const { ddl } of r.rows) await sql.raw(ddl).execute(trx);
+  });
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function schemaBranchesRoutes(db: Database, auth: any): Hono {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -539,6 +611,13 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
       `.execute(db);
       if (!result.rows[0]) return c.json({ error: 'Branch not found' }, 404);
       const branch = result.rows[0];
+
+      // Here, where the branch becomes reachable, rather than at provisioning:
+      // until a token exists nothing reads the branch as the request role, this
+      // also repairs branches provisioned before the mirror existed, and every
+      // enable re-takes `public`'s CURRENT policies (a row rule added since).
+      // A failure throws before the token is written, so preview stays off.
+      await mirrorPublicProtections(db, branch.branch_schema);
 
       // Always generate a fresh token on enable
       const token = crypto.randomUUID().replace(/-/g, '');
