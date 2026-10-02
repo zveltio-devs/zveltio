@@ -20,6 +20,7 @@ import type { Database } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
+import { ACCESS_RULES_CHANGED_EVENT, realtimeBus } from '../../lib/runtime/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
@@ -54,15 +55,30 @@ d('extension offboarding through ctx.internals', () => {
     await e.addGroupingPolicy(userId, 'admin', '*');
     expect(await sessionUser(cookie)).toBe(userId);
 
-    const deleted = await asRequest((trx) =>
-      internals.deleteUser(trx, userId, {
-        actor: 'scim:token-1',
-        reason: 'scim.deprovision',
-        metadata: { tenant_id: TENANT },
-      }),
-    );
+    // Revoking sessions does not touch open sockets, and neither does the
+    // Casbin delete; the access sweep that closes a deleted user's streams is
+    // `invalidateUserPermCache`, and removing it left this suite green.
+    const bus = realtimeBus();
+    const origPublish = bus.publish;
+    const announced: unknown[] = [];
+    bus.publish = async (m) => {
+      if (m.event === ACCESS_RULES_CHANGED_EVENT) announced.push(m.data);
+    };
+    let deleted: boolean;
+    try {
+      deleted = await asRequest((trx) =>
+        internals.deleteUser(trx, userId, {
+          actor: 'scim:token-1',
+          reason: 'scim.deprovision',
+          metadata: { tenant_id: TENANT },
+        }),
+      );
+    } finally {
+      bus.publish = origPublish;
+    }
 
     expect(deleted).toBe(true);
+    expect(announced).toContainEqual(expect.objectContaining({ userId }));
     expect(await sessionUser(cookie)).toBeUndefined();
     const user = await sql`SELECT 1 FROM "user" WHERE id = ${userId}`.execute(db);
     expect(user.rows).toHaveLength(0);

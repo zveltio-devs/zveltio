@@ -170,6 +170,30 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
     }
   }, 60_000);
 
+  it('keeps only non-empty strings from manifest.resources', async () => {
+    // A hand-edited manifest is input: a number, an empty string or an object
+    // in the list must not become a resource name the reconcile grants on.
+    const junk = `audit/junk-${STAMP}`;
+    const good = `junk_ok_${STAMP}`;
+    mkdirSync(join(extRoot, junk), { recursive: true });
+    writeFileSync(
+      join(extRoot, junk, 'manifest.json'),
+      JSON.stringify({ name: junk, resources: [42, '', null, { x: 1 }, good] }),
+    );
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
+      VALUES (${junk}, 'Junk', '1.0.0', true, false)
+    `.execute(db);
+    try {
+      const known = await listKnownResources(db, extRoot);
+      expect(known).toContain(good);
+      expect(known.filter((r) => typeof r !== 'string' || r === '')).toEqual([]);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${junk}`.execute(db);
+      rmSync(join(extRoot, junk), { recursive: true, force: true });
+    }
+  });
+
   it('survives an extension whose manifest is missing or unreadable', async () => {
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
@@ -183,8 +207,20 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       // free — so it proved nothing about the reading. With the list gone the
       // honest assertion is the one the test was named for: it returns, and it
       // returns a list.
-      const known = await listKnownResources(db, extRoot);
+      const said: string[] = [];
+      const warn = spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+        said.push(a.map(String).join(' '));
+      });
+      let known: string[];
+      try {
+        known = await listKnownResources(db, extRoot);
+      } finally {
+        warn.mockRestore();
+      }
       expect(Array.isArray(known)).toBe(true);
+      // And it is named, like one that declares nothing: a missing manifest
+      // grants nothing on that extension either.
+      expect(said.find((l) => l.includes('declare no'))).toContain(`audit/no-manifest-${STAMP}`);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${`audit/no-manifest-${STAMP}`}`.execute(
         db,

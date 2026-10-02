@@ -42,45 +42,56 @@ async function signIn(app: Hono, email: string, password: string): Promise<Respo
 }
 
 d('POST /api/auth/change-password', () => {
-  it('revokes other sessions even when the caller does not ask', async () => {
-    const { app } = await getTestApp();
-    const email = `pwrot-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
+  // Absent is what the Studio sends; an explicit `false` is a client opting
+  // out, which the guard overrides too — spreading the body after the forced
+  // flag would let it win.
+  for (const [label, extra] of [
+    ['does not ask', {}],
+    ['asks not to', { revokeOtherSessions: false }],
+  ] as const) {
+    it(`revokes other sessions even when the caller ${label}`, async () => {
+      const { app } = await getTestApp();
+      const email = `pwrot-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
 
-    const signUp = await app.request('/api/auth/sign-up/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'Test12345', name: 'Rotator' }),
-    });
-    expect([200, 201]).toContain(signUp.status);
-    const first = cookieOf(signUp);
+      const signUp = await app.request('/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'Test12345', name: 'Rotator' }),
+      });
+      expect([200, 201]).toContain(signUp.status);
+      const first = cookieOf(signUp);
 
-    // A second sign-in for the same user: the session an attacker would be
-    // holding, or simply the user's other browser.
-    const second = cookieOf(await signIn(app, email, 'Test12345'));
-    expect(second).not.toBe('');
+      // A second sign-in for the same user: the session an attacker would be
+      // holding, or simply the user's other browser.
+      const second = cookieOf(await signIn(app, email, 'Test12345'));
+      expect(second).not.toBe('');
 
-    const stillValid = async (cookie: string) => {
-      const res = await app.request('/api/auth/get-session', { headers: { cookie } });
-      // better-auth answers 200 with a null body for a session that no longer
-      // exists, so status alone would pass against the bug.
-      return (await res.text()).includes('"user"');
-    };
-    expect(await stillValid(second)).toBe(true);
+      const stillValid = async (cookie: string) => {
+        const res = await app.request('/api/auth/get-session', { headers: { cookie } });
+        // better-auth answers 200 with a null body for a session that no longer
+        // exists, so status alone would pass against the bug.
+        return (await res.text()).includes('"user"');
+      };
+      expect(await stillValid(second)).toBe(true);
 
-    // Exactly what the Studio sends: no `revokeOtherSessions` at all.
-    const changed = await app.request('/api/auth/change-password', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        cookie: first,
-        origin: 'http://localhost',
-      },
-      body: JSON.stringify({ currentPassword: 'Test12345', newPassword: 'Rotated123456' }),
-    });
-    expect(changed.status).toBe(200);
+      const changed = await app.request('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: first,
+          origin: 'http://localhost',
+        },
+        body: JSON.stringify({
+          currentPassword: 'Test12345',
+          newPassword: 'Rotated123456',
+          ...extra,
+        }),
+      });
+      expect(changed.status).toBe(200);
 
-    expect(await stillValid(second)).toBe(false);
-  }, 30_000);
+      expect(await stillValid(second)).toBe(false);
+    }, 30_000);
+  }
 
   it('leaves a body it cannot parse to better-auth', async () => {
     // The guard clones and re-serialises the body. One it cannot read must fall
