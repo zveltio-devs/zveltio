@@ -40,14 +40,32 @@ export class AdvisoryLockLost extends Error {
   }
 }
 
-/** Waits for the lock, then runs `fn` while holding it. */
+/** The wait for a blocking lock passed `maxWait`: another holder kept it that long. */
+export class AdvisoryLockTimeout extends Error {
+  constructor(key: AdvisoryKey, maxWait: string) {
+    super(`waited ${maxWait} for advisory lock ${String(key)}; another holder still has it`);
+    this.name = 'AdvisoryLockTimeout';
+  }
+}
+
+/**
+ * Waits for the lock, then runs `fn` while holding it.
+ *
+ * `maxWait` (a Postgres interval, e.g. "10min") bounds the wait on the
+ * engine's terms: the holder sets its own `lock_timeout` to it and lifts
+ * `statement_timeout`, so a server or role `statement_timeout` an operator set
+ * for queries no longer decides how long a replica waits for a migration —
+ * and the wait still ends, as `AdvisoryLockTimeout`, instead of never.
+ * Without it the wait is whatever the session's settings allow.
+ */
 export async function withAdvisoryLock<T>(
   db: Database,
   key: AdvisoryKey,
   fn: () => Promise<T>,
+  opts: { maxWait?: string } = {},
 ): Promise<T> {
   // Never null here: only the try variant gives up.
-  return (await hold(db, key, true, fn)) as T;
+  return (await hold(db, key, true, fn, opts.maxWait)) as T;
 }
 
 /** Runs `fn` under the lock, or returns null at once when another holder has it. */
@@ -64,6 +82,7 @@ async function hold<T>(
   key: AdvisoryKey,
   wait: boolean,
   fn: () => Promise<T>,
+  maxWait?: string,
 ): Promise<T | null> {
   // Literal, not a parameter: a bound statement leaves its portal — and its
   // snapshot — open on the holder until the next statement, and every
@@ -75,7 +94,19 @@ async function hold<T>(
     return await db.transaction().execute(async (holder) => {
       await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
       if (wait) {
-        await sql`SELECT pg_advisory_xact_lock(${k})`.execute(holder);
+        if (maxWait) {
+          await sql`SET LOCAL statement_timeout = 0`.execute(holder);
+          await sql`SET LOCAL lock_timeout = ${sql.lit(maxWait)}`.execute(holder);
+        }
+        try {
+          await sql`SELECT pg_advisory_xact_lock(${k})`.execute(holder);
+        } catch (err) {
+          // 55P03: lock_timeout fired while waiting for the advisory lock.
+          if (maxWait && (err as { errno?: unknown })?.errno === '55P03') {
+            throw new AdvisoryLockTimeout(key, maxWait);
+          }
+          throw err;
+        }
       } else {
         const { rows } = await sql<{ ok: boolean }>`
           SELECT pg_try_advisory_xact_lock(${k}) AS ok

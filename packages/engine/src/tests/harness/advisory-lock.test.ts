@@ -12,7 +12,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
-import { AdvisoryLockLost, tryAdvisoryLock, withAdvisoryLock } from '../../db/advisory-lock.js';
+import {
+  AdvisoryLockLost,
+  AdvisoryLockTimeout,
+  tryAdvisoryLock,
+  withAdvisoryLock,
+} from '../../db/advisory-lock.js';
 import { autoMigrate } from '../../db/auto-migrate.js';
 import { MAX_SCHEMA_VERSION } from '../../version.js';
 
@@ -197,6 +202,59 @@ d('advisory locks on the pool', () => {
       expect(ran).toBe(false);
       expect(await tryAdvisoryLock(db, key, async () => 'ran')).toBe('ran');
     });
+
+    it('maxWait ends the wait with AdvisoryLockTimeout, and only the wait', async () => {
+      const key = freshKey();
+      let ran = false;
+      const t0 = Date.now();
+      const err = await withAdvisoryLock(probe, key, () =>
+        withAdvisoryLock(
+          db,
+          key,
+          async () => {
+            ran = true;
+          },
+          { maxWait: '200ms' },
+        ).catch((e: unknown) => e),
+      );
+      expect(err).toBeInstanceOf(AdvisoryLockTimeout);
+      expect(ran).toBe(false);
+      expect(Date.now() - t0).toBeLessThan(5_000);
+      // Free again, it is taken at once under the same bound.
+      expect(await withAdvisoryLock(db, key, async () => 'ran', { maxWait: '200ms' })).toBe('ran');
+    });
+
+    it("maxWait, not the database's statement_timeout, decides how long a replica waits", async () => {
+      // A statement_timeout an operator set on the database for queries used to
+      // cancel a replica waiting for migrations — a restart loop with a bare
+      // Postgres message. New connections pick the setting up; existing ones not.
+      const dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(probe))
+        .rows[0]!.d;
+      await sql`ALTER DATABASE ${sql.id(dbName)} SET statement_timeout = '150ms'`.execute(probe);
+      const strict = createDb(URL!);
+      try {
+        const key = freshKey();
+        // Holds the key for 600 ms while `strict` waits for it; the waiter's
+        // promise is returned after the hold ends, not awaited inside it.
+        const wait = async (opts?: { maxWait: string }) => {
+          let waiting!: Promise<unknown>;
+          await withAdvisoryLock(probe, key, async () => {
+            waiting = withAdvisoryLock(strict, key, async () => 'got', opts).catch(
+              (e: unknown) => e,
+            );
+            await Bun.sleep(600);
+          });
+          return waiting;
+        };
+        // Without a bound of its own the server setting cancels the wait…
+        expect(String(await wait())).toContain('statement timeout');
+        // …with one, it waits the 600 ms out and takes the lock.
+        expect(await wait({ maxWait: '5s' })).toBe('got');
+      } finally {
+        await strict.destroy();
+        await sql`ALTER DATABASE ${sql.id(dbName)} RESET statement_timeout`.execute(probe);
+      }
+    }, 20_000);
 
     it('outlives the idle-in-transaction timeout the engine pool runs with', async () => {
       const u = new globalThis.URL(URL!);

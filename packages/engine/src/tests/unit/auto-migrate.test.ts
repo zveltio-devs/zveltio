@@ -83,6 +83,48 @@ describe('S4-10 advisory lock', () => {
   });
 });
 
+describe('migration lock wait', () => {
+  /** A pending schema whose lock wait is cancelled by lock_timeout (55P03). */
+  async function waitOut(wait: string | undefined) {
+    const saved = process.env.ZVELTIO_MIGRATION_LOCK_WAIT;
+    if (wait === undefined) delete process.env.ZVELTIO_MIGRATION_LOCK_WAIT;
+    else process.env.ZVELTIO_MIGRATION_LOCK_WAIT = wait;
+    const db = new CannedDb();
+    db.when(/from "zv_schema_versions"/i, [{ version: MAX_SCHEMA_VERSION - 1 }]);
+    db.when(/select version, filename, checksum from zv_schema_versions/i, []);
+    db.when(/pg_advisory_xact_lock/i, () => {
+      throw Object.assign(new Error('canceling statement due to lock timeout'), {
+        errno: '55P03',
+      });
+    });
+    try {
+      const { autoMigrate } = await import('../../db/auto-migrate.js');
+      const err = await autoMigrate(db.kysely as unknown as Database).catch((e: unknown) => e);
+      return { err: err as Error, db };
+    } finally {
+      if (saved === undefined) delete process.env.ZVELTIO_MIGRATION_LOCK_WAIT;
+      else process.env.ZVELTIO_MIGRATION_LOCK_WAIT = saved;
+    }
+  }
+
+  it('bounds the wait on its own terms and names the setting when it runs out', async () => {
+    const { err, db } = await waitOut(undefined);
+    expect(db.executed(/set local statement_timeout = 0/i)).toHaveLength(1);
+    expect(db.executed(/set local lock_timeout = '10min'/i)).toHaveLength(1);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toContain('more than 10min');
+    expect(err.message).toContain('ZVELTIO_MIGRATION_LOCK_WAIT');
+  });
+
+  it('takes the bound from ZVELTIO_MIGRATION_LOCK_WAIT, and refuses a malformed one', async () => {
+    const { db } = await waitOut('45s');
+    expect(db.executed(/set local lock_timeout = '45s'/i)).toHaveLength(1);
+    const bad = await waitOut('ten minutes');
+    expect(bad.err.message).toContain('ZVELTIO_MIGRATION_LOCK_WAIT="ten minutes"');
+    expect(bad.db.executed(/pg_advisory_xact_lock/i)).toHaveLength(0);
+  });
+});
+
 describe('S4-10 autoMigrate — integration with stub db (env path)', () => {
   // This exercises the real autoMigrate against a stub that records
   // calls. We verify MIGRATIONS_AUTO=false skips ALL DB calls (no
