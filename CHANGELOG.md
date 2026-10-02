@@ -17,6 +17,14 @@ reset, magic link, email/phone OTP, two-factor OTP, one-time token, email
 change — threw `secondaryStorage.getAndDelete is not a function` whenever
 `VALKEY_URL` was set, which production requires. Affects beta.64 to beta.76.
 
+**Changed: `like`, `ilike` and `contains` filters match the value literally.**
+All three were already a case-insensitive substring match, but `%` and `_` in
+the value reached PostgreSQL as wildcards: `sku[like]=A_1` also matched `AB1`.
+They are now plain characters. A client that put `%` in a filter value to mean
+"anything" drops it; `code[like]=A-%` becomes `code[like]=A-`. `?search=` no
+longer strips `%` and `_` from its substring fallback, so `foo_bar` finds
+`foo_bar`.
+
 **Breaking: sync pull takes cursors only (#805).**
 - `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
   no cursor is read from its start. `since` is ignored.

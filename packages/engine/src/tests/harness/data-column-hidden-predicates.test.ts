@@ -152,18 +152,18 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
   }
 
   it('JSON filter on a hidden column is refused like an unknown column', async () => {
-    await sameAsUnknown(COLLECTION, (f) => json({ [f]: { like: 'class%' } }));
+    await sameAsUnknown(COLLECTION, (f) => json({ [f]: { like: 'class' } }));
     await sameAsUnknown(COLLECTION, (f) => json({ [f]: 'classified' }));
     // Cursor pagination parses the same filters.
     const cursor = Buffer.from(
       JSON.stringify({ id: crypto.randomUUID(), val: '2100-01-01' }),
     ).toString('base64url');
-    await sameAsUnknown(COLLECTION, (f) => `${json({ [f]: { like: 'class%' } })}&cursor=${cursor}`);
+    await sameAsUnknown(COLLECTION, (f) => `${json({ [f]: { like: 'class' } })}&cursor=${cursor}`);
   });
 
   it('bracket filter on a hidden column does not change the result', async () => {
-    const hit = await list(COLLECTION, 'secret[like]=class%25');
-    const miss = await list(COLLECTION, 'secret[like]=zebra%25');
+    const hit = await list(COLLECTION, 'secret[like]=class');
+    const miss = await list(COLLECTION, 'secret[like]=zebra');
     expect(hit.status).toBe(200);
     expect(hit.count).toBe(miss.count);
   });
@@ -228,7 +228,7 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
     }
     const order = async () => {
       const res = await app.request(
-        `/api/data/${COLLECTION}?${json({ title: { like: 'order-%' } })}`,
+        `/api/data/${COLLECTION}?${json({ title: { like: 'order-' } })}`,
         { headers: { cookie: member.cookie } },
       );
       return ((await res.json()) as { records: { id: string }[] }).records.map((r) => r.id);
@@ -274,7 +274,7 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
       });
     }) as unknown as typeof fetch;
 
-    for (const qs of [json({ secret: { like: 'class%' } }), 'sort=secret', 'search=classified']) {
+    for (const qs of [json({ secret: { like: 'class' } }), 'sort=secret', 'search=classified']) {
       const res = await list(VIRTUAL, qs);
       expect(res.status).toBe(400);
     }

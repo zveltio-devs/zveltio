@@ -228,6 +228,16 @@ export interface QueryResult {
 // ─── Query helpers ────────────────────────────────────────────────────────────
 
 /**
+ * Escapes LIKE metacharacters in a string so it is treated as a literal
+ * value in a PostgreSQL LIKE / ILIKE expression.
+ *
+ * Escaped characters: \ % _
+ */
+export function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, '\\$1');
+}
+
+/**
  * One filter condition → SQL. Exported because the cursor-pagination branch in
  * the list handler used to re-implement a SUBSET of this switch — it covered
  * the six comparison operators and silently dropped everything else, including
@@ -254,10 +264,13 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
       return sql`${col} > ${value}`;
     case 'gte':
       return sql`${col} >= ${value}`;
+    // `like`, `ilike` and `contains` are a substring match: the value is a
+    // literal, never a pattern. Passed through, `%` and `_` were wildcards, so
+    // `sku[like]=A_1` also matched `AB1`.
     case 'like':
-      return sql`${col} LIKE ${'%' + String(value) + '%'}`;
+      return sql`${col} LIKE ${'%' + escapeLike(String(value)) + '%'}`;
     case 'ilike':
-      return sql`${col} ILIKE ${'%' + String(value) + '%'}`;
+      return sql`${col} ILIKE ${'%' + escapeLike(String(value)) + '%'}`;
     // A lone value is a one-element list; bound as-is, PostgreSQL parses it as
     // an array literal and refuses it ("malformed array literal").
     case 'in':
@@ -339,14 +352,14 @@ export async function dynamicSelect(
       // text column. A per-visibility stored vector is the upgrade if it matters.
       const cols = ftsColumns.map((c) => sql`${sql.ref(c)}::text`);
       const text = sql`concat_ws(' ', ${sql.join(cols.length > 0 ? cols : [sql`NULL`])})`;
-      const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
+      const likePattern = `%${escapeLike(fts)}%`;
       const match = sql`to_tsvector('english', ${text}) @@ websearch_to_tsquery('english', ${fts})`;
       ftsExpr = hasTrgm ? sql`(${match} OR ${text} ILIKE ${likePattern})` : match;
     } else if (hasTrgm) {
       // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
       // search_text is maintained by the DDL trigger, and only exists on collections
       // carrying has_trgm — see the field's doc comment above.
-      const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
+      const likePattern = `%${escapeLike(fts)}%`;
       ftsExpr = sql`(search_vector @@ websearch_to_tsquery('english', ${fts}) OR search_text ILIKE ${likePattern})`;
     } else {
       // websearch_to_tsquery() tolerates arbitrary user input without syntax errors

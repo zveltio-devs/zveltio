@@ -1,9 +1,2 @@
-/**
- * Escapes LIKE metacharacters in a string so it is treated as a literal
- * value in a PostgreSQL LIKE / ILIKE expression.
- *
- * Escaped characters: \ % _
- */
-export function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, '\\$1');
-}
+// Lives with the SQL it serves; re-exported here for the lib/data barrel.
+export { escapeLike } from '../../db/dynamic.js';
