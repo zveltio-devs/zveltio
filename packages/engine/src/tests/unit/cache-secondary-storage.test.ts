@@ -3,6 +3,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+// The minimal entry, not 'better-auth': two auth-init unit files mock.module
+// 'better-auth', and bun's module mocks leak across files in one run.
+import { betterAuth } from 'better-auth/minimal';
 import { _setCacheForTests, createCacheSecondaryStorage } from '../../lib/runtime/cache.js';
 
 function makeCache(store = new Map<string, string>()) {
@@ -12,6 +15,11 @@ function makeCache(store = new Map<string, string>()) {
     store,
     expiries,
     get: async (key: string) => store.get(key) ?? null,
+    getdel: async (key: string) => {
+      const value = store.get(key) ?? null;
+      store.delete(key);
+      return value;
+    },
     setex: async (key: string, ttl: number, value: string) => {
       store.set(key, value);
       return 'OK';
@@ -194,5 +202,60 @@ describe('increment — the method whose absence takes authentication down', () 
     await s.increment('a');
     await s.increment('a');
     expect(await s.increment('b')).toBe(1);
+  });
+});
+
+/**
+ * Better-Auth (since 1.7) consumes every single-use value — password-reset
+ * tokens, magic links, email/phone OTPs, two-factor OTPs, one-time tokens —
+ * through `getAndDelete`, called unguarded. Without it each of those flows threw
+ * "secondaryStorage.getAndDelete is not a function" on every install with
+ * Valkey, which since #402 is every production install.
+ */
+describe('getAndDelete — how Better-Auth redeems a single-use token', () => {
+  it('returns the value once, then null', async () => {
+    _setCacheForTests(makeCache() as never);
+    const s = (await createCacheSecondaryStorage())!;
+    await s.set('tok', { user: 'u1' });
+    expect(await s.getAndDelete('tok')).toEqual({ user: 'u1' });
+    expect(await s.getAndDelete('tok')).toBeNull();
+    expect(await s.get('tok')).toBeNull();
+  });
+
+  it('is one GETDEL, never a GET and a DEL two requests could interleave', async () => {
+    const cache = makeCache();
+    const calls: string[] = [];
+    for (const cmd of ['get', 'getdel', 'del'] as const) {
+      const real = cache[cmd] as (...a: string[]) => Promise<unknown>;
+      cache[cmd] = ((...a: string[]) => {
+        calls.push(cmd);
+        return real(...a);
+      }) as never;
+    }
+    _setCacheForTests(cache as never);
+    const s = (await createCacheSecondaryStorage())!;
+    await s.set('tok', 'v');
+    await s.getAndDelete('tok');
+    expect(calls).toEqual(['getdel']);
+  });
+
+  it("Better-Auth's own consumeVerificationValue redeems a token exactly once", async () => {
+    _setCacheForTests(makeCache() as never);
+    const secondaryStorage = (await createCacheSecondaryStorage())!;
+    // Same verification options as lib/auth.ts.
+    const auth = betterAuth({
+      secret: 'x'.repeat(32),
+      secondaryStorage,
+      verification: { storeIdentifier: 'hashed' },
+    });
+    const { internalAdapter } = await auth.$context;
+    await internalAdapter.createVerificationValue({
+      identifier: 'reset-password:tok',
+      value: 'u1',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const first = await internalAdapter.consumeVerificationValue('reset-password:tok');
+    expect(first?.value).toBe('u1');
+    expect(await internalAdapter.consumeVerificationValue('reset-password:tok')).toBeNull();
   });
 });
