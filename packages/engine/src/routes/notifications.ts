@@ -18,7 +18,11 @@ import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 // notification an extension raised was silently excluded from mobile and
 // browser push — the twin problem this campaign keeps finding, with the two
 // copies in different directories and only one of them growing features.
-import { _settleNotificationPushes, sendNotification } from '../lib/notifications.js';
+import {
+  _settleNotificationPushes,
+  isSafeActionUrl,
+  sendNotification,
+} from '../lib/notifications.js';
 export { _settleNotificationPushes, sendNotification };
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -282,11 +286,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
         // people click without reading.
         action_url: z
           .string()
-          .url()
-          .refine(
-            (u) => /^https?:\/\//i.test(u) || u.startsWith('/'),
-            'action_url must be an http(s) URL or an in-app path',
-          )
+          .refine(isSafeActionUrl, 'action_url must be an http(s) URL or an in-app path')
           .optional(),
       }),
     ),

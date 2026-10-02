@@ -48,6 +48,26 @@ export async function _settleNotificationPushes(): Promise<void> {
   }
 }
 
+/**
+ * Where a notification's link may point: an http(s) URL, or a path on this
+ * origin.
+ *
+ * The link becomes a click target — the push service worker navigates to it —
+ * so `javascript:` and `data:` would be click-to-execute, and `//host` or
+ * `/\host` (which browsers read as `//host`) an off-site redirect dressed as an
+ * in-app path. Exported so the HTTP route and every in-process sender share it.
+ */
+export function isSafeActionUrl(url: string): boolean {
+  if (url.startsWith('/')) return !url.startsWith('//') && !url.startsWith('/\\');
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Track a fire-and-forget push so `_settleNotificationPushes` can await it. */
 function track(p: Promise<unknown>): void {
   _pushesInFlight.add(p);
@@ -70,12 +90,19 @@ export async function sendNotification(
   },
 ): Promise<void> {
   const userIds = Array.isArray(opts.user_id) ? opts.user_id : [opts.user_id];
+  // Flows and extensions reach this without the route's schema; an unsafe link
+  // is dropped rather than stored, and the notification still goes out.
+  let actionUrl = opts.action_url ?? null;
+  if (actionUrl !== null && !isSafeActionUrl(actionUrl)) {
+    console.warn(`[notifications] dropping an unsafe action_url: ${actionUrl.slice(0, 80)}`);
+    actionUrl = null;
+  }
   const values = userIds.map((uid) => ({
     user_id: uid,
     title: opts.title,
     message: opts.message,
     type: opts.type ?? 'info',
-    action_url: opts.action_url ?? null,
+    action_url: actionUrl,
     source: opts.source ?? null,
     // See lib/jsonb.ts. Measured on a live database before this: 12 of 12
     // rows held a jsonb string, so `metadata ? 'key'` was false and
@@ -121,7 +148,7 @@ export async function sendNotification(
       sendWebPushToUsers(db, userIds, {
         title: opts.title,
         body: opts.message,
-        data: opts.action_url ? { url: opts.action_url } : undefined,
+        data: actionUrl ? { url: actionUrl } : undefined,
       }).catch((err: Error) => {
         console.warn(`[notifications] web push to ${userIds.length} user(s) failed:`, err.message);
       }),
