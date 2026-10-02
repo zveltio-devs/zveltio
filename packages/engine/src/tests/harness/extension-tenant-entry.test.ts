@@ -177,6 +177,22 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     expect(await outcome(peek(bags[ADMIN]!, OTHER))).toEqual({ seen: [OTHER] });
   });
 
+  it('hands the callback the same table guard as ctx.db, not a bare transaction', async () => {
+    // The transaction was passed through unwrapped: an extension with no grant
+    // reached every engine table through it — `zv_dashboards` here, but equally
+    // `user`, `account` or `zv_api_keys` — although `ctx.db` refuses them.
+    // `db:admin` gets the same guard on `ctx.adminDb`, so it gets it here too.
+    for (const ext of [NOCAP, ADMIN, ENTER]) {
+      const r = await runAsTenantWithoutTransaction(ROOT, () =>
+        bags[ext]!.withTenantIsolation(ROOT, async (trx) => {
+          trx.selectFrom('zv_dashboards' as never);
+          return 'reached';
+        }).catch((err: Error) => err.message),
+      );
+      expect(r).toContain('attempted to access table "zv_dashboards"');
+    }
+  });
+
   it('tenant:enter may enter any firm, and grants no adminDb', async () => {
     expect(await get(ENTER, OTHER)).toEqual({ seen: [OTHER] });
     expect(await outcome(peek(bags[ENTER]!, OTHER))).toEqual({ seen: [OTHER] });
