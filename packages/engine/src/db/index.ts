@@ -50,6 +50,17 @@ export function resolvePoolMax(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DB_POOL_MAX;
 }
 
+let poolMaxInUse: number | undefined;
+
+/**
+ * The ceiling `initDatabase` built the pool with. Unset, `DB_POOL_MAX` is
+ * autosized from the server, so `resolvePoolMax()` is only the fallback: the
+ * boot advice read it and announced 40 over a pool of 60.
+ */
+export function activePoolMax(): number {
+  return poolMaxInUse ?? resolvePoolMax();
+}
+
 /**
  * Creates a standalone Kysely instance for a given connection string.
  * Used primarily in integration tests to get an isolated db connection.
@@ -108,6 +119,28 @@ export function withIdleInTransactionTimeout(url: string): string {
 
 let _db: Database | null = null;
 
+/**
+ * The pool ceiling `initDatabase` builds with, logged and remembered for
+ * `activePoolMax`. Separate so the boot advice can be tested without opening a
+ * second primary pool, whose `destroy()` clears the module-level pool handles.
+ */
+export async function sizeBootPool(databaseUrl: string): Promise<number> {
+  let poolMax = resolvePoolMax();
+  if (!process.env.DB_POOL_MAX && process.env.DB_POOL_AUTOSIZE !== '0') {
+    const sized = await autosizePool(databaseUrl);
+    if (sized) {
+      poolMax = sized.max;
+      console.log(`   Pool sized from the server: DB_POOL_MAX=${sized.max} (${sized.reason})`);
+    } else {
+      console.log(
+        `   Pool sizing could not read the server's limits — keeping the default ${poolMax}.`,
+      );
+    }
+  }
+  poolMaxInUse = poolMax;
+  return poolMax;
+}
+
 export async function initDatabase(): Promise<Database> {
   const rawDatabaseUrl = process.env.DATABASE_URL;
   if (!rawDatabaseUrl) {
@@ -161,18 +194,7 @@ export async function initDatabase(): Promise<Database> {
   // it allows rather than shipping one number to every server — see
   // `pool-autosize.ts` for why the engine host's own memory is the wrong thing
   // to measure, and for the one input it cannot derive.
-  let poolMax = resolvePoolMax();
-  if (!process.env.DB_POOL_MAX && process.env.DB_POOL_AUTOSIZE !== '0') {
-    const sized = await autosizePool(databaseUrl);
-    if (sized) {
-      poolMax = sized.max;
-      console.log(`   Pool sized from the server: DB_POOL_MAX=${sized.max} (${sized.reason})`);
-    } else {
-      console.log(
-        `   Pool sizing could not read the server's limits — keeping the default ${poolMax}.`,
-      );
-    }
-  }
+  const poolMax = await sizeBootPool(databaseUrl);
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
@@ -302,6 +324,12 @@ export const _internalForTests = {
   swapDbForTests(db: Database | null): Database | null {
     const previous = _db;
     _db = db;
+    return previous;
+  },
+  /** Put back the ceiling the booted engine recorded, after a test re-sized it. */
+  setPoolMaxInUse(max: number | undefined): number | undefined {
+    const previous = poolMaxInUse;
+    poolMaxInUse = max;
     return previous;
   },
 };
