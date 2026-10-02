@@ -40,14 +40,16 @@ let failed = false;
 for (const root of roots) {
   const label = root === '.' ? 'this repository' : root;
 
-  // Tracked files under the protected path. `ls-files` reports the index, which
+  // Tracked files under the protected path, and the path itself: with the
+  // trailing slash the pathspec matched only a directory, so a tracked FILE
+  // named `docs/private` passed. `ls-files` reports the index, which
   // is what a push would carry — not the working tree, where the files are
   // meant to stay.
   // `Bun.spawnSync` rather than the `$` shell: this repository's TypeScript
   // config does not see `$` as an export of `bun`, and every other gate here
   // spawns git the same way.
   const tracked = new TextDecoder()
-    .decode(Bun.spawnSync(['git', '-C', root, 'ls-files', '--', PROTECTED]).stdout)
+    .decode(Bun.spawnSync(['git', '-C', root, 'ls-files', '--', PROTECTED.slice(0, -1)]).stdout)
     .trim();
 
   if (tracked) {

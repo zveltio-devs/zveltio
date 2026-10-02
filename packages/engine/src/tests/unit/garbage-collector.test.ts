@@ -1,11 +1,9 @@
 /**
  * Garbage collector (lib/runtime/garbage-collector.ts) — over CannedDb.
  *
- * runGarbageCollector scans every tenant_/public schema for tables with a
- * `_deletedAt` column, deletes rows older than 30 days, then runs the
- * retention purges for the high-churn observability tables. These tests pin
- * the schema/table discovery, the per-table delete SQL, the env-gated
- * retention knobs, and the best-effort error tolerance. scheduleGarbageCollector
+ * runGarbageCollector runs the retention purges for the high-churn
+ * observability tables. These tests pin the env-gated retention knobs and the
+ * best-effort error tolerance. scheduleGarbageCollector
  * is covered for its timer contract without waiting for 03:00.
  */
 
@@ -35,76 +33,6 @@ afterEach(() => {
   delete process.env.AUDIT_LOG_RETENTION_DAYS;
 });
 
-describe('runGarbageCollector — soft-delete sweep', () => {
-  it('scans schemas, finds _deletedAt tables, and deletes expired rows per table', async () => {
-    const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, [
-      { schema_name: 'public' },
-      { schema_name: 'tenant_acme' },
-    ]);
-    // per-schema column probe → one soft-deletable table each
-    db.when(/FROM information_schema\.columns/i, (q) =>
-      q.parameters[0] === 'public'
-        ? [{ table_name: 'zvd_orders' }]
-        : [{ table_name: 'zvd_contacts' }],
-    );
-    db.whenAffected(/delete from "public"\."zvd_orders"/i, 4);
-    db.whenAffected(/delete from "tenant_acme"\."zvd_contacts"/i, 7);
-
-    const q = quiet();
-    try {
-      await runGarbageCollector(asDb(db));
-    } finally {
-      q.restore();
-    }
-
-    const orders = db.executed(/delete from "public"\."zvd_orders"/i)[0]!;
-    expect(orders.sql).toContain(`"_deletedAt" < NOW() - INTERVAL '30 days'`);
-    expect(db.executed(/delete from "tenant_acme"\."zvd_contacts"/i)).toHaveLength(1);
-  });
-
-  it('swallows a per-table delete failure and keeps going', async () => {
-    const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, [{ schema_name: 'public' }]);
-    db.when(/FROM information_schema\.columns/i, [
-      { table_name: 'zvd_broken' },
-      { table_name: 'zvd_ok' },
-    ]);
-    db.fail(/delete from "public"\."zvd_broken"/i, new Error('permission denied'));
-    db.whenAffected(/delete from "public"\."zvd_ok"/i, 2);
-
-    const q = quiet();
-    try {
-      await expect(runGarbageCollector(asDb(db))).resolves.toBeUndefined();
-    } finally {
-      q.restore();
-    }
-    expect(db.executed(/delete from "public"\."zvd_ok"/i)).toHaveLength(1);
-  });
-
-  it('logs per-table soft-delete counts when rows are purged', async () => {
-    const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, [{ schema_name: 'public' }]);
-    db.when(/FROM information_schema\.columns/i, [{ table_name: 'zvd_archive' }]);
-    db.whenAffected(/delete from "public"\."zvd_archive"/i, 3);
-
-    const log = spyOn(console, 'log').mockImplementation(() => {});
-    const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await runGarbageCollector(asDb(db));
-      expect(
-        log.mock.calls.some(
-          (c) => String(c[0]).includes('public.zvd_archive') && String(c[0]).includes('3'),
-        ),
-      ).toBe(true);
-      expect(log.mock.calls.some((c) => String(c[0]).includes('Total rows purged: 3'))).toBe(true);
-    } finally {
-      log.mockRestore();
-      warn.mockRestore();
-    }
-  });
-});
-
 describe('runGarbageCollector — retention purges', () => {
   it('purges request-log + slow-query + audit tables with the configured cutoffs', async () => {
     process.env.REQUEST_LOG_RETENTION_DAYS = '14';
@@ -131,7 +59,6 @@ describe('runGarbageCollector — retention purges', () => {
     process.env.REQUEST_LOG_RETENTION_DAYS = '0';
     process.env.AUDIT_LOG_RETENTION_DAYS = '0';
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
 
     const q = quiet();
     try {
@@ -147,7 +74,6 @@ describe('runGarbageCollector — retention purges', () => {
 
   it('defaults to 30d request-log / 365d audit retention when unset', async () => {
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 0 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 0 }]);
 
@@ -167,7 +93,6 @@ describe('runGarbageCollector — retention purges', () => {
     // error inline (yielding 0 deleted), so a failure never aborts the sweep —
     // it silently moves on to the next table.
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.fail(/DELETE FROM zv_request_logs/i, new Error('lock timeout'));
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 2 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 1 }]);
@@ -185,7 +110,6 @@ describe('runGarbageCollector — retention purges', () => {
 
   it('logs retention purge counts when rows are deleted', async () => {
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 11 }]);
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 6 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);

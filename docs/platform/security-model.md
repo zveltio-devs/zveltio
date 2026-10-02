@@ -441,10 +441,11 @@ pass; flip back to `strict` for production.
 | `zv_request_logs` | 30 days | `REQUEST_LOG_RETENTION_DAYS` |
 | `zv_slow_queries` | 30 days | `REQUEST_LOG_RETENTION_DAYS` (shared) |
 | `zv_audit_log` | 365 days | `AUDIT_LOG_RETENTION_DAYS` |
-| Soft-deleted rows (`_deletedAt`) | 30 days | hard-coded |
+| `zv_sync_tombstones` | 30 days | hard-coded |
 
 Set to `0` to disable purge for a given table. Purges run nightly at
-03:00 from the garbage collector (`lib/garbage-collector.ts`).
+03:00 from the garbage collector (`lib/runtime/garbage-collector.ts`), on one
+replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ---
 

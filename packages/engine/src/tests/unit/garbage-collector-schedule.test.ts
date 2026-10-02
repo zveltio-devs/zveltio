@@ -19,7 +19,7 @@ afterEach(() => {
 describe('scheduleGarbageCollector — timer callback', () => {
   it('runs garbage collection when the scheduled timer fires', async () => {
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
+    db.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
 
     let captured: (() => void) | null = null;
     const origSetTimeout = globalThis.setTimeout;
@@ -33,7 +33,7 @@ describe('scheduleGarbageCollector — timer callback', () => {
       const cancel = scheduleGarbageCollector(asDb(db));
       expect(captured).not.toBeNull();
       await captured!();
-      expect(db.executed(/FROM information_schema\.schemata/i).length).toBeGreaterThan(0);
+      expect(db.executed(/UPDATE zv_flow_runs/i).length).toBe(1);
       cancel();
     } finally {
       globalThis.setTimeout = origSetTimeout;
@@ -43,7 +43,7 @@ describe('scheduleGarbageCollector — timer callback', () => {
 
   it('logs an error when the scheduled run rejects', async () => {
     const db = new CannedDb();
-    db.fail(/FROM information_schema\.schemata/i, new Error('db offline'));
+    db.fail(/pg_try_advisory_xact_lock/i, new Error('db offline'));
 
     let captured: (() => void) | null = null;
     const origSetTimeout = globalThis.setTimeout;
@@ -68,11 +68,34 @@ describe('scheduleGarbageCollector — timer callback', () => {
   });
 });
 
+describe('scheduleGarbageCollector — one replica', () => {
+  it('skips the run when another replica holds the lock', async () => {
+    const db = new CannedDb();
+    db.when(/pg_try_advisory_xact_lock/i, [{ ok: false }]);
+
+    let captured: (() => void) | null = null;
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => {
+      captured = fn;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      scheduleGarbageCollector(asDb(db));
+      await captured!();
+      expect(db.executed(/UPDATE zv_flow_runs/i)).toEqual([]);
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+      log.mockRestore();
+    }
+  });
+});
+
 describe('runGarbageCollector — purge outer catch', () => {
   it('warns when request-log purge logging throws', async () => {
     process.env.REQUEST_LOG_RETENTION_DAYS = '7';
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 3 }]);
 
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
@@ -95,7 +118,6 @@ describe('runGarbageCollector — purge outer catch', () => {
   it('warns when slow-query purge logging throws', async () => {
     process.env.REQUEST_LOG_RETENTION_DAYS = '7';
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 0 }]);
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 2 }]);
 
@@ -119,7 +141,6 @@ describe('runGarbageCollector — purge outer catch', () => {
   it('warns when audit-log purge logging throws', async () => {
     process.env.AUDIT_LOG_RETENTION_DAYS = '30';
     const db = new CannedDb();
-    db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
 
     const warn = spyOn(console, 'warn').mockImplementation(() => {});

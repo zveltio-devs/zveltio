@@ -189,10 +189,9 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
  * became a permission that god actually holds. The tests were green because of
  * the defect they were meant to catch.
  *
- * `role` defaults to `member`, the least privileged grade the CHECK constraint
- * on `"user".role` permits. Pass `admin` to prove an instance admin is subject
- * to the same restrictions as anyone else — which is the point of this
- * engine's single-privileged-role design.
+ * The user is a `member`: the CHECK constraint on `"user".role` permits only
+ * `god` and `member`. It once offered `admin` and `manager` too, which the
+ * constraint refuses — no suite used them, so nobody noticed.
  *
  * Returns the id as well as the cookie because column and row rules are keyed
  * by identity, and a test that plants a rule needs to name the subject.
@@ -201,7 +200,7 @@ export async function createMemberSession(
   app: Hono,
   db: Database,
   opts: {
-    role?: 'member' | 'manager' | 'admin';
+    role?: 'member';
     /**
      * Collections this user may act on, and how. Required for almost every
      * test: `checkAccess` resolves `checkPermission(user.id, collection,
@@ -215,7 +214,7 @@ export async function createMemberSession(
     grants?: Array<{ collection: string; actions: string[] }>;
   } = {},
 ): Promise<{ cookie: string; userId: string; email: string }> {
-  const role = opts.role ?? 'member';
+  const role = 'member';
   const email = `harness-${role}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
   const password = 'HarnessMember123!';
 
