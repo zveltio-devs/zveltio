@@ -77,12 +77,16 @@ d('ghost DDL index names and back-to-back runs (in-process)', () => {
     const before = await names();
     expect(before.length).toBeGreaterThanOrEqual(3);
 
-    await GhostDDL.execute(db, TABLE, ['ADD COLUMN extra TEXT']);
+    await GhostDDL.execute(db, TABLE, [
+      { kind: 'add_column', field: { name: 'extra', type: 'text' } },
+    ]);
     expect(await names()).toEqual(before);
 
     // Straight after, as a schema-branch merge with two fields does: the first
     // swap's old copy and changelog are still waiting for their cleanup.
-    await GhostDDL.execute(db, TABLE, ['ADD COLUMN more TEXT']);
+    await GhostDDL.execute(db, TABLE, [
+      { kind: 'add_column', field: { name: 'more', type: 'text' } },
+    ]);
     expect(await names()).toEqual(before);
   });
 
@@ -96,13 +100,17 @@ d('ghost DDL index names and back-to-back runs (in-process)', () => {
       return 0 as unknown as ReturnType<typeof setTimeout>;
     }) as unknown as typeof setTimeout;
     try {
-      await GhostDDL.execute(db, TABLE, ['ADD COLUMN third TEXT']);
+      await GhostDDL.execute(db, TABLE, [
+        { kind: 'add_column', field: { name: 'third', type: 'text' } },
+      ]);
     } finally {
       globalThis.setTimeout = realSetTimeout;
     }
     expect(cleanup).not.toBeNull();
 
-    const next = await GhostDDL.createGhost(db, TABLE, ['ADD COLUMN fourth TEXT']);
+    const next = await GhostDDL.createGhost(db, TABLE, [
+      { kind: 'add_column', field: { name: 'fourth', type: 'text' } },
+    ]);
     await cleanup!();
     const left = await sql<{ log: string | null; old: string | null }>`
       SELECT to_regclass(${next.changelogTable})::text AS log,
@@ -118,7 +126,7 @@ d('ghost DDL index names and back-to-back runs (in-process)', () => {
     cancelPendingCleanups();
     await sweepGhostOrphans(db);
     const before = await names();
-    await GhostDDL.execute(db, TABLE, ['DROP COLUMN note']);
+    await GhostDDL.execute(db, TABLE, [{ kind: 'drop_column', column: 'note' }]);
     // Both indexes on `note` — its own and the tenant composite — go with it.
     expect(await names()).toEqual(before.filter((n) => !n.idx.endsWith('_note')));
   });

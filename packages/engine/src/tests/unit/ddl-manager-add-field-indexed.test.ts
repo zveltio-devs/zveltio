@@ -48,5 +48,6 @@ describe('DDLManager.addField — indexes', () => {
       db.executed(/CREATE INDEX CONCURRENTLY.*tenant_id, "sku", created_at DESC/),
     ).toHaveLength(1);
     expect(db.executed(/UNIQUE/)).toHaveLength(1);
+    expect(db.executed(/ADD UNIQUE \(tenant_id, "sku"\)/)).toHaveLength(1);
   });
 });

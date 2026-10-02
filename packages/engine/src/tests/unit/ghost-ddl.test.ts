@@ -11,8 +11,11 @@
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { cancelPendingCleanups, GhostDDL } from '../../lib/data/index.js';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
+import { cancelPendingCleanups, fieldTypeRegistry, GhostDDL } from '../../lib/data/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+registerCoreFieldTypes(fieldTypeRegistry);
 
 function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
@@ -37,35 +40,24 @@ describe('createGhost', () => {
   it('creates the ghost + changelog tables and the capture trigger', async () => {
     const db = new CannedDb();
     const m = await GhostDDL.createGhost(asDb(db), 'zvd_orders', [
-      'ADD COLUMN phone TEXT',
-      'DROP COLUMN fax',
+      { kind: 'add_column', field: { name: 'phone', type: 'text' } },
+      { kind: 'drop_column', column: 'fax' },
     ]);
 
     expect(m).toEqual({ ...MIGRATION, foreignKeys: [], indexes: [], columns: [] });
     expect(
       db.executed(/CREATE TABLE "_zv_ghost_zvd_orders" \(LIKE "zvd_orders" INCLUDING ALL\)/),
     ).toHaveLength(1);
-    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" ADD COLUMN phone TEXT/)).toHaveLength(1);
-    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" DROP COLUMN fax/)).toHaveLength(1);
+    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" ADD COLUMN "phone" text/)).toHaveLength(
+      1,
+    );
+    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" DROP COLUMN "fax"/)).toHaveLength(1);
     const changelog = db.executed(/CREATE TABLE "_zv_changelog_zvd_orders"/)[0]!;
     expect(changelog.sql).toContain("CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE'))");
     const trigger = db.executed(/CREATE TRIGGER "_zv_trg_ghost_zvd_orders"/)[0]!;
     expect(trigger.sql).toContain('AFTER INSERT OR UPDATE OR DELETE ON "zvd_orders"');
   });
-
-  it('rejects DDL outside the ADD/DROP/ALTER/RENAME COLUMN allowlist', async () => {
-    const db = new CannedDb();
-    for (const bad of [
-      'DROP TABLE zvd_orders',
-      'ADD CONSTRAINT evil CHECK (true)',
-      'RENAME TO hijacked',
-    ]) {
-      await expect(GhostDDL.createGhost(asDb(db), 'zvd_orders', [bad])).rejects.toThrow(
-        'Unsafe DDL statement rejected',
-      );
-    }
-    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders"/)).toHaveLength(0);
-  });
+  // What it refuses: ghost-ddl-operations.test.ts.
 });
 
 describe('batchCopy', () => {
@@ -214,7 +206,12 @@ describe('execute (orchestration)', () => {
     db.when(/select "is_managed" from "zvd_collections"/, [{ is_managed: false }]);
     const phases: string[] = [];
 
-    await GhostDDL.execute(asDb(db), 'zvd_external', ['ADD COLUMN x TEXT'], (p) => phases.push(p));
+    await GhostDDL.execute(
+      asDb(db),
+      'zvd_external',
+      [{ kind: 'add_column', field: { name: 'x', type: 'text' } }],
+      (p) => phases.push(p),
+    );
 
     expect(phases).toEqual(['skipped']);
     expect(db.executed(/CREATE TABLE/)).toHaveLength(0);
@@ -230,7 +227,12 @@ describe('execute (orchestration)', () => {
     db.when(/SELECT id FROM "_zv_ghost_zvd_orders" ORDER BY id DESC/i, [{ id: 'r2' }]);
     const phases: string[] = [];
 
-    await GhostDDL.execute(asDb(db), 'zvd_orders', ['ADD COLUMN x TEXT'], (p) => phases.push(p));
+    await GhostDDL.execute(
+      asDb(db),
+      'zvd_orders',
+      [{ kind: 'add_column', field: { name: 'x', type: 'text' } }],
+      (p) => phases.push(p),
+    );
 
     expect(phases[0]).toBe('creating');
     expect(phases).toContain('copying');
@@ -247,9 +249,11 @@ describe('execute (orchestration)', () => {
     db.when(/select "is_managed" from "zvd_collections"/, [{ is_managed: true }]);
     db.fail(/SELECT count\(\*\) AS cnt/i, new Error('copy phase exploded'));
 
-    await expect(GhostDDL.execute(asDb(db), 'zvd_orders', ['ADD COLUMN x TEXT'])).rejects.toThrow(
-      'copy phase exploded',
-    );
+    await expect(
+      GhostDDL.execute(asDb(db), 'zvd_orders', [
+        { kind: 'add_column', field: { name: 'x', type: 'text' } },
+      ]),
+    ).rejects.toThrow('copy phase exploded');
 
     expect(db.executed(/DROP TABLE IF EXISTS "_zv_ghost_zvd_orders" CASCADE/)).toHaveLength(1);
     expect(db.executed(/DROP TABLE IF EXISTS "_zv_changelog_zvd_orders" CASCADE/)).toHaveLength(1);
@@ -265,9 +269,11 @@ describe('execute (orchestration)', () => {
       db.fail(/SELECT count\(\*\) AS cnt/i, new Error('copy phase exploded'));
       db.fail(/DROP TRIGGER IF EXISTS/, new Error('trigger drop failed'));
 
-      await expect(GhostDDL.execute(asDb(db), 'zvd_orders', ['ADD COLUMN x TEXT'])).rejects.toThrow(
-        'copy phase exploded',
-      );
+      await expect(
+        GhostDDL.execute(asDb(db), 'zvd_orders', [
+          { kind: 'add_column', field: { name: 'x', type: 'text' } },
+        ]),
+      ).rejects.toThrow('copy phase exploded');
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('DROP TRIGGER cleanup failed')),
       ).toBe(true);

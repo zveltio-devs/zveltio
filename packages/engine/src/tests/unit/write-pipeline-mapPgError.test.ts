@@ -39,6 +39,18 @@ describe('mapPgError', () => {
     expect(mapped?.body.field).toBe('email');
   });
 
+  it('names the field of a per-tenant key, not the tenant', () => {
+    const mapped = mapPgError({
+      errno: '23505',
+      detail:
+        'Key (tenant_id, email)=(00000000-0000-0000-0000-000000000001, dup@x.com) already exists.',
+    });
+    expect(mapped?.body.field).toBe('email');
+    expect(mapped?.body.message).toBe(
+      'A record with the same email already exists (value: dup@x.com).',
+    );
+  });
+
   it('maps 23502 not-null violations', () => {
     const mapped = mapPgError({ code: '23502', column_name: 'title' });
     expect(mapped?.status).toBe(422);

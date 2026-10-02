@@ -535,7 +535,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       await db.transaction().execute(async (trx: any) => {
         // Table before metadata row — the order PATCH /:name/fields/:field locks in.
         // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
-        if (colDDL) await dynamicAddColumn(trx, tableName, colDDL);
+        if (colDDL) {
+          await dynamicAddColumn(trx, tableName, colDDL);
+          await DDLManager.addUniqueKey(trx, tableName, field);
+        }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const locked = await (trx as any)
           .selectFrom('zvd_collections')

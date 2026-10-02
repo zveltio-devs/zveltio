@@ -1,19 +1,17 @@
 /**
  * DDL injection guards.
  *
- * Column DEFAULTs and ghost-migration ALTER fragments are the two places a
- * caller-supplied string reaches raw SQL — a DEFAULT clause cannot be
- * parameterised, and the ghost path builds `ALTER TABLE ... <fragment>`. Both
- * are reachable by a tenant admin, who is deliberately not given the SQL editor,
- * and the pool speaks Postgres' simple-query protocol, which happily runs
- * several statements in one command.
+ * A column DEFAULT is a caller-supplied string that reaches raw SQL — a DEFAULT
+ * clause cannot be parameterised. It is reachable by a tenant admin, who is
+ * deliberately not given the SQL editor, and the pool speaks Postgres'
+ * simple-query protocol, which happily runs several statements in one command.
+ *
+ * Ghost migrations no longer take SQL fragments at all: see
+ * ghost-ddl-operations.test.ts.
  */
 
 import { describe, expect, it } from 'bun:test';
 import { renderSqlDefault } from '../../lib/data/field-type-registry.js';
-// The real matcher, not a copy of it — a duplicated regex would agree with
-// whatever the source says, including when the source is wrong.
-import { isAllowedGhostDdl } from '../../lib/data/ghost-ddl.js';
 
 describe('renderSqlDefault — column DEFAULT escaping', () => {
   it('doubles embedded quotes instead of ending the literal', () => {
@@ -53,52 +51,4 @@ describe('renderSqlDefault — column DEFAULT escaping', () => {
     expect(renderSqlDefault(42)).toBe('42');
     expect(renderSqlDefault(true)).toBe('true');
   });
-});
-
-describe('ghost-ddl allow-list — anchored at both ends', () => {
-  const accepted = [
-    'ADD COLUMN phone TEXT',
-    'ADD COLUMN IF NOT EXISTS phone TEXT',
-    'ADD COLUMN price NUMERIC(10,2)',
-    'ADD COLUMN tags TEXT[]',
-    'DROP COLUMN fax',
-    'DROP COLUMN IF EXISTS fax',
-    'ALTER COLUMN phone TYPE TEXT',
-    'RENAME COLUMN phone TO mobile',
-    'ADD COLUMN "quoted_ident" TEXT',
-    // Real migrations from the harness suite — these were rejected by an
-    // over-tight first version of this regex, which is a reminder that a guard
-    // that blocks legitimate DDL is a broken guard, not a strict one.
-    "ADD COLUMN extra TEXT NOT NULL DEFAULT ''",
-    "ADD COLUMN tag TEXT NOT NULL DEFAULT 'migrated'",
-    "ALTER COLUMN note SET DEFAULT 'ghost-default'",
-    "ADD COLUMN alpha TEXT NOT NULL DEFAULT 'a'",
-    "ADD COLUMN created TIMESTAMPTZ DEFAULT 'epoch'::timestamptz",
-  ];
-
-  for (const ddl of accepted) {
-    it(`accepts legitimate: ${ddl}`, () => {
-      expect(isAllowedGhostDdl(ddl)).toBe(true);
-    });
-  }
-
-  const rejected = [
-    'ADD COLUMN x int; DROP TABLE "user"; --',
-    'DROP COLUMN fax; DELETE FROM "user"',
-    'ADD COLUMN x TEXT DEFAULT \'a\'; GRANT ALL ON "user" TO PUBLIC; --',
-    'ALTER COLUMN x TYPE TEXT; COPY (SELECT * FROM "user") TO \'/tmp/x\'',
-    'RENAME COLUMN a TO b; ALTER TABLE "user" OWNER TO attacker',
-    'ADD COLUMN x TEXT -- comment',
-    'DROP TABLE "user"',
-    // A closed empty literal followed by a second statement: the `;` sits
-    // outside any literal, so the tail cannot absorb it.
-    "ADD COLUMN x TEXT DEFAULT ''; DROP TABLE \"user\"; --'",
-    'ALTER COLUMN n SET DEFAULT \'a\'; TRUNCATE "user"',
-  ];
-
-  for (const ddl of rejected) {
-    it(`rejects injection: ${ddl.slice(0, 42)}…`, () => {
-      expect(isAllowedGhostDdl(ddl)).toBe(false);
-    });
-  }
 });

@@ -29,7 +29,7 @@ describe('GhostDDL.execute — ownership cannot be read', () => {
     await GhostDDL.execute(
       db.kysely as unknown as Database,
       'zvd_customer_ledger',
-      ['ADD COLUMN note TEXT'],
+      [{ kind: 'drop_column', column: 'note' }],
       (phase, detail) => phases.push([phase, detail]),
     );
 
@@ -50,7 +50,7 @@ describe('GhostDDL.execute — ownership cannot be read', () => {
     await GhostDDL.execute(
       db.kysely as unknown as Database,
       'zvd_byod_table',
-      ['ADD COLUMN note TEXT'],
+      [{ kind: 'drop_column', column: 'note' }],
       (phase, detail) => phases.push([phase, detail]),
     );
 

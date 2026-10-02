@@ -102,7 +102,9 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
     const before = await perTenant();
     expect(before).toEqual({ [DEFAULT_TENANT_ID]: 30, [OTHER_TENANT]: 20 });
 
-    await GhostDDL.execute(owner, TABLE, ['ADD COLUMN note TEXT']);
+    await GhostDDL.execute(owner, TABLE, [
+      { kind: 'add_column', field: { name: 'note', type: 'text' } },
+    ]);
 
     expect(await perTenant()).toEqual(before);
   });
@@ -112,7 +114,9 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
     cancelPendingCleanups();
     await sweepGhostOrphans(db);
     const before = await perTenant();
-    const migration = await GhostDDL.createGhost(owner, TABLE, ['ADD COLUMN extra TEXT']);
+    const migration = await GhostDDL.createGhost(owner, TABLE, [
+      { kind: 'add_column', field: { name: 'extra', type: 'text' } },
+    ]);
     await GhostDDL.batchCopy(owner, migration);
     // A copy that lost one row, whatever the cause.
     await sql`DELETE FROM ${sql.id(migration.ghostTable)} WHERE title = 'o1'`.execute(db);

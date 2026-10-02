@@ -185,7 +185,9 @@ d('ghost DDL keeps triggers, RLS, policies, grants and foreign keys', () => {
   // Straight to GhostDDL: the merge route only ever sends ADD and DROP COLUMN.
   it('a renamed relation column keeps its foreign key, under the new name', async () => {
     const before = await protections(db, TABLE);
-    await GhostDDL.execute(db, TABLE, ['RENAME COLUMN owner_ref TO owner_link']);
+    await GhostDDL.execute(db, TABLE, [
+      { kind: 'rename_column', from: 'owner_ref', to: 'owner_link' },
+    ]);
     cancelPendingCleanups();
     await sweepGhostOrphans(db);
 
@@ -198,9 +200,9 @@ d('ghost DDL keeps triggers, RLS, policies, grants and foreign keys', () => {
   it('a change a policy cannot follow aborts the swap instead of shedding the policy', async () => {
     const before = await protections(db, TABLE);
     // hgp_restrict reads `title`; recreated on the renamed ghost it cannot resolve.
-    await expect(GhostDDL.execute(db, TABLE, ['RENAME COLUMN title TO headline'])).rejects.toThrow(
-      /title/,
-    );
+    await expect(
+      GhostDDL.execute(db, TABLE, [{ kind: 'rename_column', from: 'title', to: 'headline' }]),
+    ).rejects.toThrow(/title/);
 
     expect(await protections(db, TABLE)).toEqual(before);
     const left = await sql<{ n: number }>`

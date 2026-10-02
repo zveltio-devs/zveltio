@@ -4,6 +4,50 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a unique field is unique per tenant, not across every tenant.** A
+collection field marked `unique` got a column-level `UNIQUE`, but every
+collection table holds every tenant's rows. One company could not store an
+email or code another company already had, and the refusal confirmed that the
+value existed in a row it cannot see. The key is now
+`UNIQUE (tenant_id, <field>)` on every path that adds a column: creating a
+collection, adding a field, and merging a schema branch. The keys collections
+already have are widened at every boot, in the background after the engine
+starts listening: the new index is built concurrently, then swapped in under a
+two-second lock timeout, so writes are not blocked for the length of a build.
+One instance does it at a time. Extension-owned tables and BYOD tables are left
+alone, and a key that a foreign key references is kept with a warning that
+names the table. A failure on one table never stops the boot; the next boot
+retries it. The duplicate-value error still names the field and the value, and
+does not include the tenant id.
+
+**Fixed: a schema-branch merge validates what it applies.** A branch change
+was stored as `payload: any` and replayed as DDL. On a table under 100 000 rows
+the field name went unchecked into raw SQL, and `remove_field` dropped any
+column it was named, `tenant_id` included. Small tables also added the column
+and its unique key in separate transactions, never built the index of an
+`indexed` field, and never recorded the field in the collection's metadata.
+`POST /api/schema/branches/:id/changes` now takes the same field shape as
+`POST /api/collections/:name/fields`, the merge parses stored changes again,
+and both table sizes finish through `DDLManager.addField` / `removeField`,
+which now refuse system columns for every caller.
+
+**Changed: Ghost DDL takes typed operations, not SQL fragments.** A
+schema-branch merge into a table past 100 000 rows runs Ghost DDL, which
+checked the `ALTER TABLE` fragments it received with a regular expression. The
+type part of that expression accepted commas and keywords, so
+`ADD COLUMN x text, DROP COLUMN tenant_id` and
+`ADD COLUMN x text, ADD CONSTRAINT evil CHECK (true)` passed. No caller sent
+such a fragment. `GhostDDL.createGhost` and `GhostDDL.execute` now accept only
+`add_column` (a field definition), `drop_column` and `rename_column`, and Ghost
+DDL builds the SQL from the field-type registry. System columns such as
+`tenant_id` and `id`, and names that are not identifiers, are refused before
+anything is created. `isAllowedGhostDdl` and `ALTER COLUMN` support are removed.
+`add_column` of a unique field creates its `UNIQUE (tenant_id, <field>)` key on
+the shadow table before the swap. Previously the merge added the key after the
+swap, building the index while the table was locked; if that build failed, the
+column stayed without its key. Now a failure stops the migration before the
+swap and leaves the table unchanged.
+
 **Fixed: a newly installed extension let a parent unit write into its children.**
 Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`
 uses the read predicate, so a parent that reads its subtree could also insert

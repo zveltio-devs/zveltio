@@ -78,8 +78,8 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
 
   it('carries inserts, updates and deletes made after batchCopy, typed values intact', async () => {
     const migration = await GhostDDL.createGhost(db, TABLE, [
-      'RENAME COLUMN note TO memo',
-      'ADD COLUMN extra TEXT',
+      { kind: 'rename_column', from: 'note', to: 'memo' },
+      { kind: 'add_column', field: { name: 'extra', type: 'text' } },
     ]);
     expect(await GhostDDL.batchCopy(db, migration)).toBe(3);
 
@@ -112,7 +112,9 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
   });
 
   it('carries a write that lands between the last unlocked replay and the swap lock', async () => {
-    const migration = await GhostDDL.createGhost(db, TABLE, ['ADD COLUMN extra2 TEXT']);
+    const migration = await GhostDDL.createGhost(db, TABLE, [
+      { kind: 'add_column', field: { name: 'extra2', type: 'text' } },
+    ]);
     await GhostDDL.batchCopy(db, migration);
 
     // The swap replays once on the pool, then again under its lock. A write in

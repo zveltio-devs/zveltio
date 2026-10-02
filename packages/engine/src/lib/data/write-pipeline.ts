@@ -261,6 +261,13 @@ export function mapPgError(
   const matchKey = /Key \(([^)]+)\)=\(([^)]+)\)(?: is not present in table "([^"]+)")?/.exec(
     detail || message,
   );
+  // A collection's unique key is `(tenant_id, <field>)`, so Postgres reports
+  // `Key (tenant_id, code)=(<uuid>, X)`. The tenant is the caller's own and
+  // not a field they wrote: name the field, quote the value.
+  if (matchKey?.[1]?.startsWith('tenant_id, ')) {
+    matchKey[1] = matchKey[1].slice('tenant_id, '.length);
+    matchKey[2] = (matchKey[2] ?? '').replace(/^[0-9a-f-]{36}, /i, '');
+  }
 
   const referencedBy = /is (?:still )?referenced from table "([^"]+)"/.exec(detail || message)?.[1];
 

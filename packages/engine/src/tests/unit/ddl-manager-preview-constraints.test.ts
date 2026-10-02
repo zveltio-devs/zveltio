@@ -36,7 +36,8 @@ describe('DDLManager.previewCollection — constraints', () => {
     } as never);
     const joined = stmts.join('\n');
     // Inline, exactly as createCollection writes the column.
-    expect(joined).toContain('"sku" text NOT NULL UNIQUE');
+    expect(joined).toContain('"sku" text NOT NULL,');
+    expect(joined).toContain('UNIQUE (tenant_id, "sku")\n);');
     expect(joined).toContain(`"label" text DEFAULT 'n/a'`);
     expect(joined).toContain('idx_zvd_items_label');
     expect(joined).toContain('idx_zvd_items_tenant_id');

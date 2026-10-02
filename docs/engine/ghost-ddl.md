@@ -38,9 +38,10 @@ Original Table ─────────────────────�
 -- Ghost table: identical structure INCLUDING all indexes and constraints
 CREATE TABLE _zv_ghost_products (LIKE products INCLUDING ALL);
 
--- Apply DDL changes on ghost ONLY (original stays untouched)
-ALTER TABLE "_zv_ghost_products" ADD COLUMN phone TEXT;
-ALTER TABLE "_zv_ghost_products" DROP COLUMN fax;
+-- Apply the operations on ghost ONLY (original stays untouched)
+ALTER TABLE "_zv_ghost_products" ADD COLUMN "sku" text;
+ALTER TABLE "_zv_ghost_products" ADD CONSTRAINT "products_tenant_id_sku_key" UNIQUE (tenant_id, "sku");
+ALTER TABLE "_zv_ghost_products" DROP COLUMN "fax";
 
 -- Changelog table: captures all mutations during copy
 CREATE TABLE _zv_changelog_products (
@@ -58,6 +59,14 @@ FOR EACH ROW EXECUTE FUNCTION "_zv_trg_ghost_products_fn"();
 ```
 
 The original table **continues serving all traffic** with no changes.
+
+Ghost DDL does not accept SQL. It takes typed operations and builds the
+statements itself: `add_column` (a field definition, rendered by the
+field-type registry), `drop_column` and `rename_column`. A system column
+(`id`, `tenant_id`, …) or a name that is not an identifier is refused before
+anything is created. The `UNIQUE (tenant_id, <field>)` key of a unique field
+is built on the ghost. The copy and the changelog replay never write the new
+column, so it holds only its default, and the key is in place before the swap.
 
 ### Step 2 — Cursor-Based Batch Copy
 

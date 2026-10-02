@@ -65,7 +65,9 @@ d('Ghost DDL orphan sweep (in-process)', () => {
     } as never);
     await sql.raw(`INSERT INTO "${TABLE}" (title) VALUES ('one'), ('two')`).execute(db);
 
-    await GhostDDL.execute(db, TABLE, ['ADD COLUMN note TEXT']);
+    await GhostDDL.execute(db, TABLE, [
+      { kind: 'add_column', field: { name: 'note', type: 'text' } },
+    ]);
 
     // The swap has committed; the DROP is queued sixty seconds out. This is the
     // graceful shutdown that cancels it.
@@ -111,9 +113,9 @@ d('Ghost DDL orphan sweep (in-process)', () => {
     // interpolates the name, so a name that is not an identifier must never get
     // past here.
     for (const bad of ['users; DROP TABLE x', 'has space', '"quoted"', '1starts_with_digit']) {
-      await expect(GhostDDL.execute(db, bad, ['ADD COLUMN z TEXT'])).rejects.toThrow(
-        /Unsafe table name/,
-      );
+      await expect(
+        GhostDDL.execute(db, bad, [{ kind: 'add_column', field: { name: 'z', type: 'text' } }]),
+      ).rejects.toThrow(/Unsafe table name/);
     }
   });
 

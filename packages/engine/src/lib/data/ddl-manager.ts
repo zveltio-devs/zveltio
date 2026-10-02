@@ -480,6 +480,7 @@ export class DDLManager {
     );
 
     const columns: string[] = [...SYSTEM_COLUMN_DDL];
+    const uniqueKeys: string[] = [];
 
     const indexes: string[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
@@ -517,6 +518,8 @@ export class DDLManager {
       const colDDL = fieldTypeRegistry.getColumnDDL(field as FieldConfig);
       if (!colDDL) continue;
       columns.push(colDDL);
+      const uniqueKey = fieldTypeRegistry.getUniqueKeyDDL(field as FieldConfig);
+      if (uniqueKey) uniqueKeys.push(uniqueKey);
       const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
       if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
       // The tenant-first form beside it — the one a tenant-scoped read can use.
@@ -524,6 +527,8 @@ export class DDLManager {
       if (tenantIndexDDL) indexes.push(toConcurrentIndex(tenantIndexDDL));
     }
 
+    // Table constraints after every column, as CREATE TABLE has them.
+    columns.push(...uniqueKeys);
     await sql.raw(`CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`).execute(db);
     await grantFlowReaderSelect(db, tableName);
 
@@ -980,6 +985,37 @@ export class DDLManager {
     return changed;
   }
 
+  /**
+   * Gives a column added to an existing table the key `createCollection` would
+   * have given it — `UNIQUE (tenant_id, <col>)` for a `unique` field, nothing
+   * otherwise. Every road that adds a column calls this right after it.
+   *
+   * Idempotent by DEFINITION, not by name: the DDL queue retries a failed job,
+   * and the column's `ADD … IF NOT EXISTS` is a no-op the second time while a
+   * bare `ADD UNIQUE` would stack a second key. A name check is no good either —
+   * a renamed column keeps the constraint named after its old name.
+   */
+  static async addUniqueKey(
+    db: Database,
+    tableName: string,
+    field: Pick<FieldConfig, 'name' | 'type' | 'unique'>,
+  ): Promise<void> {
+    const key = fieldTypeRegistry.getUniqueKeyDDL(field);
+    if (!key) return;
+    const existing = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM pg_constraint k
+      WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype IN ('u', 'p')
+        AND k.conkey = ARRAY(
+          SELECT a.attnum FROM unnest(ARRAY['tenant_id', ${field.name}]) WITH ORDINALITY AS c(name, i)
+          JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attname = c.name ORDER BY c.i
+        )::int2[]
+    `.execute(db);
+    if ((existing.rows[0]?.n ?? 0) > 0) return;
+    await withLockTimeout(db, async (trx) => {
+      await sql`ALTER TABLE ${sql.id(tableName)} ADD ${sql.raw(key)}`.execute(trx);
+    });
+  }
+
   // ── addField ─────────────────────────────────────────────────────────────────
 
   static async addField(
@@ -988,6 +1024,11 @@ export class DDLManager {
     field: z.infer<typeof FieldSchema>,
   ): Promise<void> {
     const validated = FieldSchema.parse(field);
+    // Here, not in each route: the schema-branch merge called this layer's
+    // building blocks with a name no route had checked.
+    if (SYSTEM_COLUMNS.has(validated.name)) {
+      throw new Error(`"${validated.name}" is a system column`);
+    }
     if (!fieldTypeRegistry.has(validated.type)) {
       throw new Error(`Unknown field type: "${validated.type}"`);
     }
@@ -1001,6 +1042,7 @@ export class DDLManager {
         await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(
           trx,
         );
+        await this.addUniqueKey(trx, tableName, validated as FieldConfig);
       });
     }
     const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
@@ -1033,6 +1075,9 @@ export class DDLManager {
   static async removeField(db: Database, collectionName: string, fieldName: string): Promise<void> {
     if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
       throw new Error(`Invalid field name: "${fieldName}".`);
+    }
+    if (SYSTEM_COLUMNS.has(fieldName)) {
+      throw new Error(`"${fieldName}" is a system column`);
     }
     const tableName = this.getTableName(collectionName);
     if (!(await this.tableExists(db, collectionName))) {
@@ -1075,14 +1120,20 @@ export class DDLManager {
           const onDelete = String(f.options?.on_delete ?? 'SET NULL').toUpperCase();
           return `  "${f.name}" UUID REFERENCES "${targetTable}"(id) ON DELETE ${onDelete}`;
         }
-        // The same column DDL createCollection writes: UNIQUE and per-field defaults included.
+        // The same column DDL createCollection writes, per-field defaults included.
         const colDDL = fieldTypeRegistry.getColumnDDL(f as FieldConfig);
         return colDDL ? `  ${colDDL}` : null;
       })
       .filter((s): s is string => s !== null);
+    // …and the same per-tenant unique keys, after the columns as there.
+    const uniqueKeys = schema.fields
+      .filter((f) => !RELATION_FK_TYPES.has(f.type) || !f.options?.related_collection)
+      .map((f) => fieldTypeRegistry.getUniqueKeyDDL(f as FieldConfig))
+      .filter((s): s is string => s !== null)
+      .map((k) => `  ${k}`);
 
     statements.push(
-      `CREATE TABLE IF NOT EXISTS ${tableName} (\n${[...SYSTEM_COLUMN_DDL.map((c) => `  ${c}`), ...userCols].join(',\n')}\n);`,
+      `CREATE TABLE IF NOT EXISTS ${tableName} (\n${[...SYSTEM_COLUMN_DDL.map((c) => `  ${c}`), ...userCols, ...uniqueKeys].join(',\n')}\n);`,
     );
 
     statements.push(
