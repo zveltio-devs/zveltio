@@ -17,3 +17,7 @@
 DROP INDEX CONCURRENTLY IF EXISTS idx_zv_record_comments_parent;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zv_record_comments_parent
   ON zv_record_comments (parent_id);
+
+-- DOWN
+
+DROP INDEX CONCURRENTLY IF EXISTS idx_zv_record_comments_parent;

@@ -18,12 +18,25 @@
 
 ALTER TABLE zv_backups ADD COLUMN IF NOT EXISTS schedule_id UUID;
 
-ALTER TABLE zv_backups
-  ADD CONSTRAINT zv_backups_schedule_id_fkey FOREIGN KEY (schedule_id)
-  REFERENCES zv_backup_schedules(id) ON DELETE SET NULL NOT VALID;
+-- Guarded: a rollback-and-reapply, or a rerun after a failure, must not die on
+-- "constraint already exists" (ADD CONSTRAINT has no IF NOT EXISTS).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'zv_backups_schedule_id_fkey'
+  ) THEN
+    ALTER TABLE zv_backups
+      ADD CONSTRAINT zv_backups_schedule_id_fkey FOREIGN KEY (schedule_id)
+      REFERENCES zv_backup_schedules(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+END $$;
 
 UPDATE zv_backups b
    SET schedule_id = s.id
   FROM zv_backup_schedules s
  WHERE b.schedule_id IS NULL
    AND b.filename LIKE 'backup-schedule-' || s.id::text || '-%';
+
+-- DOWN
+
+ALTER TABLE zv_backups DROP COLUMN IF EXISTS schedule_id;
