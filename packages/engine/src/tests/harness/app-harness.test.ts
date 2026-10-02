@@ -39,10 +39,13 @@ d('in-process app harness', () => {
     // valid, structured responses proving the handler ran.
     expect([200, 503]).toContain(res.status);
     // `body.checks ?? body` was defined for any JSON reply, a 403 included.
-    // `checks` may be empty: only extensions register checks, and none load here.
-    const body = (await res.json()) as { status?: string; checks?: unknown };
+    // A 503 here (no cache or object store in the harness) used to be rewrapped
+    // into a generic envelope with no `checks`; it now carries the report.
+    const body = (await res.json()) as { status?: string; checks?: Record<string, unknown> };
     expect(['ok', 'degraded', 'unhealthy']).toContain(body.status as string);
-    expect(typeof body.checks).toBe('object');
+    expect(Object.keys(body.checks ?? {})).toEqual(
+      expect.arrayContaining(['database', 'migrations', 'queue']),
+    );
   });
 
   it('serves the OpenAPI spec (public) with real collections', async () => {
