@@ -74,24 +74,33 @@ d('unique keys are scoped to the tenant (in-process)', () => {
       conname: string;
       cols: string;
     }>`
+      -- From pg_index, not pg_constraint: a key written as
+      -- CREATE UNIQUE INDEX has no constraint row, and an expression key such
+      -- as lower(email) has no column in conkey, so a constraint-only query
+      -- saw neither. Every PRIMARY KEY / UNIQUE constraint has a backing index
+      -- of the same name, so nothing the old query saw is lost.
       WITH suspect AS (
         SELECT c.relname AS tabel,
-               con.conname AS conname,
-               (SELECT string_agg(a.attname, ',' ORDER BY a.attnum)
-                  FROM unnest(con.conkey) k
-                  JOIN pg_attribute a
-                    ON a.attrelid = con.conrelid AND a.attnum = k) AS cols
-          FROM pg_constraint con
-          JOIN pg_class c     ON c.oid = con.conrelid
+               i.relname AS conname,
+               concat_ws(',',
+                 (SELECT string_agg(a.attname, ',' ORDER BY a.attnum)
+                    FROM unnest(ix.indkey) k
+                    JOIN pg_attribute a
+                      ON a.attrelid = ix.indrelid AND a.attnum = k),
+                 pg_get_expr(ix.indexprs, ix.indrelid)) AS cols
+          FROM pg_index ix
+          JOIN pg_class i     ON i.oid = ix.indexrelid
+          JOIN pg_class c     ON c.oid = ix.indrelid
           JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public'
-           AND con.contype IN ('p', 'u')
-           AND EXISTS (SELECT 1 FROM information_schema.columns col
-                        WHERE col.table_name = c.relname
-                          AND col.column_name = 'tenant_id')
-           AND NOT EXISTS (SELECT 1 FROM unnest(con.conkey) k
+           AND ix.indisunique
+           AND EXISTS (SELECT 1 FROM pg_attribute a
+                        WHERE a.attrelid = c.oid
+                          AND a.attname = 'tenant_id'
+                          AND NOT a.attisdropped)
+           AND NOT EXISTS (SELECT 1 FROM unnest(ix.indkey) k
                              JOIN pg_attribute a
-                               ON a.attrelid = con.conrelid AND a.attnum = k
+                               ON a.attrelid = ix.indrelid AND a.attnum = k
                             WHERE a.attname = 'tenant_id')
       )
       SELECT tabel, conname, cols

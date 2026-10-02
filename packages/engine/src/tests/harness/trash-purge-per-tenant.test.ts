@@ -31,14 +31,31 @@ it.skipIf(!harnessAvailable())(
       INSERT INTO zv_tenants (id, name, slug, status)
       VALUES (${extra}, 'purge probe tenant', ${`purge-probe-${extra.slice(0, 8)}`}, 'active')
     `.execute(db);
+    // An archived tenant (DELETE /api/tenants/:id sets 'deleted') keeps its
+    // data by definition; a purge that reached it would empty a trash the
+    // archive promised to keep.
+    const archived = crypto.randomUUID();
+    await sql`
+      INSERT INTO zv_tenants (id, name, slug, status)
+      VALUES (${archived}, 'archived probe', ${`purge-arch-${archived.slice(0, 8)}`}, 'deleted')
+    `.execute(db);
 
     const seen: string[] = [];
     extensionRegistry.registerTrashPurgeHandler(async (tenantDb: Database) => {
       const r = await sql<{ t: string | null }>`
         SELECT current_setting('zveltio.current_tenant', true) AS t
       `.execute(tenantDb);
-      seen.push(r.rows[0]?.t ?? '');
+      const t = r.rows[0]?.t ?? '';
+      seen.push(t);
+      // Fail first in line, on purpose: a throw here must cost this tenant its
+      // purge, not every tenant scheduled after it.
+      if (t === first) throw new Error('purge probe failure');
     });
+    const first = (
+      await sql<{ id: string }>`
+        SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at LIMIT 1
+      `.execute(db)
+    ).rows[0]!.id;
 
     try {
       const active = await sql<{ n: number }>`
@@ -52,8 +69,9 @@ it.skipIf(!harnessAvailable())(
       // because the GUC was absent.
       expect(seen).toContain(extra);
       expect(seen.every((t) => t !== '')).toBe(true);
+      expect(seen).not.toContain(archived);
     } finally {
-      await sql`DELETE FROM zv_tenants WHERE id = ${extra}`.execute(db);
+      await sql`DELETE FROM zv_tenants WHERE id IN (${extra}, ${archived})`.execute(db);
     }
   },
   30_000,

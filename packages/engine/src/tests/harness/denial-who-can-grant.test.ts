@@ -84,10 +84,17 @@ d('who a refusal points at', () => {
   it('caps the list, because fifteen names is not help', async () => {
     const { db } = await getTestApp();
     const many = '00000000-0000-0000-0000-00000000d002';
-    for (let i = 0; i < 5; i++) {
+    // Written in reverse so the order below is the query's, not the insert's.
+    for (let i = 4; i >= 0; i--) {
       await grant(db, await makeUser(db, `Admin ${i}`), 'tenant_admin', many);
     }
-    expect((await whoCanGrant(db, many)).length).toBeLessThanOrEqual(3);
+    // Exactly three, and the same three every time: a capped list in no order
+    // names a different subset of administrators on every refusal.
+    expect((await whoCanGrant(db, many)).map((g) => g.name)).toEqual([
+      'Admin 0',
+      'Admin 1',
+      'Admin 2',
+    ]);
   });
 
   it('separates a confidential resource from a missing grant', async () => {

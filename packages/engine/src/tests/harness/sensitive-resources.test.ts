@@ -193,8 +193,12 @@ d('sensitive resources', () => {
     const user = await makeUser(db, 'materialize');
     await grantRole(db, user, 'tenant_member');
 
-    registerSensitiveResources(['medical_records']);
+    // Padded the way a hand-written manifest gets padded: the name is trimmed
+    // before it is withheld, or the withholding matches nothing and the grant
+    // below goes out to every member.
+    registerSensitiveResources([' medical_records ', '  ']);
     expect(listSensitiveResources()).toContain('medical_records');
+    expect(listSensitiveResources()).not.toContain('');
 
     await materializeDefaultGrants(db, ['lab_results', 'medical_records']);
     await reconcilePolicies();
