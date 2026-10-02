@@ -32,7 +32,7 @@ import {
   initTenantManager,
   withTenantIsolation,
 } from '../../lib/tenancy/tenant-manager.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -69,10 +69,14 @@ function tenantResidue(s: ConnectionState): string[] {
 d('connection hygiene', () => {
   let own: Database;
   let restore: Database;
+  let godId = '';
 
   beforeAll(async () => {
-    const { db } = await getTestApp();
+    const { app, db } = await getTestApp();
     restore = db;
+    await createGodSession(app, db);
+    godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
+      .rows[0].id;
     own = new Kysely<DbSchema>({
       dialect: new BunSqlDialect({
         connectionString: process.env.TEST_DATABASE_URL,
@@ -112,14 +116,13 @@ d('connection hygiene', () => {
     // not fail closed — it widens the next request on that connection.
     const before = await readState(own);
 
-    const inside = await withTenantIsolation(
-      DEFAULT_TENANT_ID,
-      (trx) => readState(trx),
-      // No user: the reach resolves to nothing and the GUCs are written empty,
-      // which is the path every background worker takes.
-      { userId: null },
-    );
+    // A god's reach is every firm, so the set is written non-empty. With no
+    // user it is written empty, and "empty afterwards" would prove nothing.
+    const inside = await withTenantIsolation(DEFAULT_TENANT_ID, (trx) => readState(trx), {
+      userId: godId,
+    });
     expect(inside.pid).toBe(before.pid);
+    expect(inside.visibleTenants).toContain(DEFAULT_TENANT_ID);
 
     const after = await readState(own);
     expect(after.visibleTenants).toBe('');

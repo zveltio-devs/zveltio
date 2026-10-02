@@ -71,6 +71,16 @@ d('a pooled plan does not survive a migration', () => {
     expect(rows.rows.length).toBe(1);
   }, 30_000);
 
+  it('serves a query that arrives while the old pool is closing', async () => {
+    // The old pool can take up to the close timeout to drain, and boot work
+    // fired before the recycle (the policy reconcile baseline) may still query.
+    // A driver with no pool in that window throws instead of serving.
+    const recycling = recycleActivePool();
+    const rows = await sql<{ one: number }>`SELECT 1 AS one`.execute(db);
+    await recycling;
+    expect(rows.rows[0]?.one).toBe(1);
+  }, 30_000);
+
   it('survives a column appearing underneath a prepared read', async () => {
     // A parameterised read, so the driver prepares a plan whose result type is
     // the table as it stands now.
