@@ -63,7 +63,9 @@ describe('withExtensionLock', () => {
     await Promise.all([p1, p2]);
     // `b` did not wait for `a` to finish.
     expect(order.indexOf('b')).toBeLessThan(order.indexOf('a-end'));
-    const keys = canned.executed(/pg_advisory_xact_lock/i).map((q) => q.parameters[0]);
+    const keys = canned
+      .executed(/pg_advisory_xact_lock/i)
+      .map((q) => q.sql.match(/hashtext\('([^']*)'\)/)?.[1]);
     expect(keys.sort()).toEqual(['ext:ext-a', 'ext:ext-b']);
   });
 });

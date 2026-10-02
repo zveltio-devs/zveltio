@@ -20,7 +20,7 @@
  * keep working without code changes.
  */
 
-import { sql as _sql } from 'kysely';
+import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'path';
@@ -35,7 +35,7 @@ import { join, resolve, sep } from 'path';
 // Trade-off: when a wrapped operation runs an external long task (download,
 // npm install) it holds one transaction open for that duration (the cross-replica
 // pg_advisory_xact_lock lives in it — see withExtensionLock). That pins one
-// connection + an MVCC snapshot, but only for an infrequent admin action, and it
+// connection, but only for an infrequent admin action, and it
 // is the price of a lock that CANNOT leak — see the incident note on
 // withExtensionLock. The pool default of 10 connections has headroom.
 const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
@@ -85,9 +85,12 @@ export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promi
  * minutes. `pg_advisory_xact_lock` cannot leak: Postgres releases it when the
  * transaction ends — commit OR rollback OR connection reset — which always
  * happens before the connection can be reused. `fn` opens its own transactions
- * on the pool; the only cost of the outer txn is pinning one connection + an
- * MVCC snapshot for the op's duration, which is negligible for an infrequent
- * admin action and vastly preferable to a cross-replica deadlock.
+ * on the pool; the only cost of the holder transaction (`withAdvisoryLock`) is
+ * pinning one connection for the op's duration, which is negligible for an
+ * infrequent admin action and vastly preferable to a cross-replica deadlock.
+ * The holder outlives the pool's 60s idle-in-transaction timeout, which used to
+ * end it mid-install: the lock dropped and the finished install answered with
+ * a COMMIT error.
  *
  * DO NOT switch this back to a session-level lock without a mechanism that
  * DESTROYS the connection on release (so a leaked lock dies with it) — the
@@ -104,12 +107,7 @@ export async function withExtensionLock<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const key = `ext:${name}`;
-  return inMemoryMutex(key, async () =>
-    db.transaction().execute(async (trx) => {
-      await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
-      return fn();
-    }),
-  );
+  return inMemoryMutex(key, () => withAdvisoryLock(db, key, fn));
 }
 
 // ── Network ──────────────────────────────────────────────────────────────────

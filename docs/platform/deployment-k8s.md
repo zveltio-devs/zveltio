@@ -197,7 +197,7 @@ Two patterns, controlled by `engine.config.migrationsAuto` and `migrationJob.ena
 
 | Setting | Behavior |
 |---|---|
-| `migrationsAuto: "true"` (default) + `migrationJob.enabled: false` | Engine pod applies pending migrations on startup under a `pg_advisory_lock`. Multiple replicas race; only one applies. |
+| `migrationsAuto: "true"` (default) + `migrationJob.enabled: false` | Engine pod applies pending migrations on startup under a transaction-scoped advisory lock. Replicas wait for it; only one applies. |
 | `migrationsAuto: "false"` + `migrationJob.enabled: true` | Helm runs a pre-install/pre-upgrade Job (`bun run migrate`) that applies migrations before any new engine pod starts. Blue/green-friendly. |
 | Both true | Job runs first, engines find nothing to migrate. Redundant but safe. |
 | Both false | You manage migrations manually with `zveltio migrate`. CI / explicit-control deploys only. |
