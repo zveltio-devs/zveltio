@@ -4,6 +4,24 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: the boot migration lock is released, and stays held while it works.**
+Auto-migrate took a session advisory lock and released it on "the same
+connection", but the database driver sends each statement outside a
+transaction to whichever pooled connection is free. When the pool had rotated,
+the release went to a different connection, failed with only a server warning,
+and the lock stayed held on an idle pooled connection; the next replica to
+start waited on it. The lock is now transaction-scoped and held on one reserved
+connection for as long as the migrations run, so it cannot outlive them.
+Replicas still wait for it and then re-check. The same helper now guards the
+unique-key reconciler and extension install, enable and uninstall. Its
+connection is no longer ended by the 60-second idle-in-transaction timeout,
+which used to drop the extension lock partway through a long install and then
+fail the finished install. It is also no longer ended by the pool's own idle
+timeout, which closed it after five minutes. If that connection dies anyway,
+the call fails with an error saying the lock was lost; it does not report that
+the work ran alone. Closing the pool no longer hangs after one of its
+connections has died.
+
 **Fixed: a unique field is unique per tenant, not across every tenant.** A
 collection field marked `unique` got a column-level `UNIQUE`, but every
 collection table holds every tenant's rows. One company could not store an

@@ -152,9 +152,16 @@ interface BunSQLPool {
   reserve(): Promise<BunReservedConnection>;
   /** Register a handler for LISTEN/NOTIFY */
   subscribe(channel: string, handler: (payload: string) => void): Promise<BunSubscription>;
-  /** Close the pool and all connections */
-  close(): Promise<void>;
+  /** Close the pool; `timeout` (seconds) force-closes what is still open after it. */
+  close(options?: { timeout?: number }): Promise<void>;
 }
+
+/**
+ * Bun's `close()` with no timeout never resolves once a reserved connection's
+ * backend has died (terminated, idle-in-transaction timeout), released or not —
+ * measured on 1.3.14. The boot-time `recyclePool()` would hang on it.
+ */
+const CLOSE = { timeout: 5 };
 
 export interface BunSubscription {
   unsubscribe(): Promise<void>;
@@ -350,7 +357,7 @@ class BunSqlDriver implements Driver {
     if (!this.#pool) return;
     const old = this.#pool;
     this.#pool = null;
-    await old.close().catch(() => {});
+    await old.close(CLOSE).catch(() => {});
     await this.init();
   }
 
@@ -398,7 +405,7 @@ class BunSqlDriver implements Driver {
 
   async destroy(): Promise<void> {
     if (this.#pool) {
-      await this.#pool.close();
+      await this.#pool.close(CLOSE);
       this.#pool = null;
     }
     // Clear the module-level handles this driver set in `init()`.

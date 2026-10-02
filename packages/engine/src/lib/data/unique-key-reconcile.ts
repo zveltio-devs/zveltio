@@ -23,6 +23,7 @@
  * violate it: `(tenant_id, x)` is unique wherever `(x)` was.
  */
 import { sql } from 'kysely';
+import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { pgIdentifier } from '../pg-identifier.js';
 
@@ -44,23 +45,11 @@ interface Candidate {
 
 /**
  * Returns null when another instance holds the lock — it is doing this work.
- *
- * Transaction-scoped, as `withExtensionLock` insists — a session lock leaked
- * onto a pooled connection once deadlocked every enable, and `db.connection()`
- * does not even pin one in this dialect (only a transaction reserves). The work
- * runs on the pool beside the holder: `CREATE INDEX CONCURRENTLY` refuses a
- * transaction. The holder idles in its transaction for as long as a build takes,
- * so it lifts the pool's `idle_in_transaction_session_timeout` for itself; it
- * holds no snapshot and no table lock, so the builds do not wait on it.
+ * The builds run on the pool beside the lock's holder (`tryAdvisoryLock`):
+ * `CREATE INDEX CONCURRENTLY` refuses a transaction.
  */
 export async function reconcileUniqueKeys(db: Database): Promise<UniqueKeyReconcileResult | null> {
-  return db.transaction().execute(async (holder) => {
-    await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
-    const lock = await sql<{ ok: boolean }>`
-      SELECT pg_try_advisory_xact_lock(hashtext('zveltio:unique-key-reconcile')) AS ok
-    `.execute(holder);
-    return lock.rows[0]?.ok ? reconcileLocked(db) : null;
-  });
+  return tryAdvisoryLock(db, 'zveltio:unique-key-reconcile', () => reconcileLocked(db));
 }
 
 async function reconcileLocked(db: Database): Promise<UniqueKeyReconcileResult> {

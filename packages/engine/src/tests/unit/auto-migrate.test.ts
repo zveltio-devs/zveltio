@@ -8,8 +8,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
  *   - `MIGRATIONS_AUTO=false` short-circuits early.
  *   - Schema already at MAX_SCHEMA_VERSION → no lock, no migrations.
  *
- * The advisory-lock acquire+release path is covered by integration
- * tests against a real Postgres in `tests/integration/`. Here we
+ * The lock itself is covered against a real Postgres in
+ * `tests/harness/advisory-lock.test.ts`. Here we
  * exercise the early-exit branches with a stub DB.
  */
 
@@ -35,7 +35,7 @@ async function run(env: string | undefined, versions: number[]) {
     { version: versions[Math.min(read++, versions.length - 1)] },
   ]);
   db.when(/select version, filename, checksum from zv_schema_versions/i, []);
-  db.when(/pg_advisory_(un)?lock/i, [{}]);
+  db.when(/pg_advisory_xact_lock/i, [{}]);
   try {
     const { autoMigrate } = await import('../../db/auto-migrate.js');
     const result = await autoMigrate(db.kysely as unknown as Database);
@@ -51,7 +51,7 @@ describe('S4-10 auto-migrate decision logic', () => {
     for (const v of [MAX_SCHEMA_VERSION, MAX_SCHEMA_VERSION + 1]) {
       const { result, db } = await run(undefined, [v]);
       expect(result.ran).toBe(false);
-      expect(db.executed(/pg_advisory_lock/i)).toHaveLength(0);
+      expect(db.executed(/pg_advisory_xact_lock/i)).toHaveLength(0);
     }
   });
 
@@ -73,11 +73,13 @@ describe('S4-10 advisory lock', () => {
     const { result, db } = await run(undefined, [MAX_SCHEMA_VERSION - 1, MAX_SCHEMA_VERSION]);
     expect(result.ran).toBe(false);
     expect(result.after).toBe(MAX_SCHEMA_VERSION);
-    const lock = db.executed(/pg_advisory_lock/i);
+    const lock = db.executed(/pg_advisory_xact_lock/i);
     expect(lock).toHaveLength(1);
     // 'zveltio\0' as a big-endian 64-bit integer — every replica must agree on it.
-    expect(lock[0]!.parameters[0]).toBe(0x7a76656c74696f00n);
-    expect(db.executed(/pg_advisory_unlock/i)).toHaveLength(1);
+    expect(lock[0]!.sql).toBe('SELECT pg_advisory_xact_lock(8824352036363005696)');
+    expect(8824352036363005696n).toBe(0x7a76656c74696f00n);
+    // Transaction-scoped: nothing to unlock, and nothing a pooled backend can keep.
+    expect(db.executed(/pg_advisory_unlock/i)).toHaveLength(0);
   });
 });
 
