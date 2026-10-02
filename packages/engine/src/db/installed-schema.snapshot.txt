@@ -707,10 +707,12 @@ table zv_backups
   col filename                       text NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col notes                          text
+  col schedule_id                    uuid
   col size_bytes                     bigint
   col status                         text NOT NULL DEFAULT 'in_progress'::text
   fk  zv_backups_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_backups_pkey PRIMARY KEY (id)
+  fk  zv_backups_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES zv_backup_schedules(id) ON DELETE SET NULL NOT VALID
   ck  zv_backups_status_check CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text, 'failed'::text])))
 
 table zv_billing_plans
