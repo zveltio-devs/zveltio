@@ -1,7 +1,6 @@
 /**
- * validation-engine.ts — unsafe custom expression warning path.
+ * validation-engine.ts — a refused expression refuses the write.
  */
-
 import { describe, expect, test, spyOn } from 'bun:test';
 import { validateFieldValue, type ValidationRule } from '../../lib/validation-engine.js';
 
@@ -15,21 +14,17 @@ function rule(expression: string): ValidationRule {
 }
 
 describe('validateFieldValue — unsafe expression guard', () => {
-  test('warns and skips violation when the expression contains a blocked token', async () => {
-    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+  test('refuses the write and logs why when the expression contains a blocked token', async () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {});
     try {
       const errors = await validateFieldValue(5, [rule('value.constructor')]);
-      expect(errors).toEqual([]);
-      // Wording follows `evaluateExpressionRule`, which both this engine and
-      // the validation extension now share. What is asserted is unchanged: a
-      // refused expression fails nobody's write, and the operator is told the
-      // rule is inert rather than left to assume it is enforcing something.
-      expect(warn.mock.calls.some((c) => /refused an expression rule/.test(String(c[0])))).toBe(
-        true,
-      );
-      expect(warn.mock.calls.some((c) => /blocked token/.test(String(c[0])))).toBe(true);
+      // The caller learns the rule is broken, not what the rule says.
+      expect(errors).toEqual([expect.stringMatching(/cannot be evaluated/)]);
+      expect(errors[0]).not.toMatch(/constructor|blocked/);
+      // The operator learns why.
+      expect(error.mock.calls.some((c) => /blocked token/.test(String(c[0])))).toBe(true);
     } finally {
-      warn.mockRestore();
+      error.mockRestore();
     }
   });
 });

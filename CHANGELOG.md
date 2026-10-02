@@ -24,6 +24,18 @@ They are now plain characters. A client that put `%` in a filter value to mean
 "anything" drops it; `code[like]=A-%` becomes `code[like]=A-`. `?search=` no
 longer strips `%` and `_` from its substring fallback, so `foo_bar` finds
 `foo_bar`.
+**Breaking: a validation rule the engine cannot evaluate refuses the write.**
+An expression rule that was refused (does not parse, refers to anything but
+`value`, carries a blocked token), an `nlp`/`custom` rule with no expression,
+and a rule type the engine does not implement all validated nothing while the
+rule stayed listed as active. Each now refuses writes that set its field with
+422 `<field>: a validation rule on this field cannot be evaluated`; the log
+names the rule (`[validation-engine] rule <id> on <field> cannot be
+evaluated: …`). Writes that do not set the field are unaffected. Before
+upgrading, list active rules of an unknown type with
+`SELECT id, collection, field_name, rule_type FROM zv_validation_rules WHERE
+is_active AND rule_type NOT IN ('required','min','max','minLength','maxLength',
+'pattern','range','email','url','custom','nlp');`.
 
 **Breaking: sync pull takes cursors only (#805).**
 - `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with

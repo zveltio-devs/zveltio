@@ -158,6 +158,12 @@ Add validation rules at field level or using the Validation Rules engine:
 
 For complex business rules, use `POST /api/validation-rules` to create natural language rules (e.g. *"price must be greater than cost"*) that are enforced on every write.
 
+A rule the engine cannot evaluate — an expression that does not parse or
+refers to anything but `value`, an `nlp` rule with no expression, a rule type
+the engine does not implement — refuses every write that sets its field, with
+422 `<field>: a validation rule on this field cannot be evaluated`. The log
+names the rule and the reason. Fix the rule or set `is_active = false`.
+
 ## Schema Branches
 
 Before making breaking schema changes in production, create a branch:

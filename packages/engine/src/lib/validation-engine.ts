@@ -411,6 +411,7 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
     const cfg =
       typeof rule.rule_config === 'string' ? JSON.parse(rule.rule_config) : rule.rule_config;
     let violated = false;
+    let misconfigured: string | null = null;
 
     switch (rule.rule_type) {
       case 'required':
@@ -447,22 +448,36 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
         }
         break;
       case 'custom':
-      case 'nlp':
-        if (cfg.expression) {
-          const outcome = evaluateExpressionRule(String(cfg.expression), value);
-          if (outcome.status === 'refused') {
-            // Permissive on refusal, and logged. A rule the engine declines to
-            // run must not start failing everyone's writes — but the operator
-            // has to learn that a rule they configured is inert.
-            console.warn(
-              `[validation-engine] refused an expression rule on ${rule.field_name}: ` +
-                `it ${outcome.reason}`,
-            );
-          } else {
-            violated = outcome.status === 'failed';
-          }
+      case 'nlp': {
+        const expression = String(cfg?.expression ?? '');
+        if (expression === '') {
+          misconfigured = 'has no expression';
+          break;
         }
+        const outcome = evaluateExpressionRule(expression, value);
+        if (outcome.status === 'refused') misconfigured = outcome.reason;
+        else violated = outcome.status === 'failed';
         break;
+      }
+      default:
+        misconfigured = `has rule type \`${rule.rule_type}\`, which this engine does not implement`;
+    }
+
+    // Fail CLOSED on a rule that cannot be evaluated. This used to log a
+    // warning and pass — as did an unknown rule type or an expression-less
+    // `nlp` rule, silently — so a constraint an administrator put in place
+    // vanished while still listed as active. Only writes that touch this field
+    // are refused, and the caller is told why without seeing the rule; the
+    // details go to the log for the operator.
+    if (misconfigured !== null) {
+      console.error(
+        `[validation-engine] rule ${rule.id ?? '(unsaved)'} on ${rule.field_name} cannot be ` +
+          `evaluated: it ${misconfigured}; refusing the write`,
+      );
+      errors.push(
+        'a validation rule on this field cannot be evaluated; an administrator must fix or deactivate it',
+      );
+      continue;
     }
 
     if (violated) errors.push(rule.error_message ?? `Validation failed: ${rule.rule_type}`);
