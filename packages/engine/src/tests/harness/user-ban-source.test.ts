@@ -102,6 +102,18 @@ d('ban provenance', () => {
     expect(await asRequest((trx) => scim.liftOwnBan(trx, id))).toBe(false);
   });
 
+  it('a ban older than migration 035 keeps no time when it is placed again', async () => {
+    const id = await member();
+    // An old ban: banned, time never recorded.
+    await sql`UPDATE "user" SET banned = true WHERE id = ${id}`.execute(db);
+    await sql`UPDATE "user" SET banned_at = NULL WHERE id = ${id}`.execute(db);
+    expect((await ban(id)).banned_at).toBeNull();
+    // better-auth's admin plugin re-banning writes `banned = true` again; now()
+    // would date the ban to the re-ban, which is a guess.
+    await sql`UPDATE "user" SET banned = true WHERE id = ${id}`.execute(db);
+    expect(await ban(id)).toEqual({ banned: true, ban_source: 'unknown', banned_at: null });
+  });
+
   it('is gated auth:users, and has no caller outside the gate', async () => {
     const bare = gateInternals('compliance/gdpr', buildExtensionInternals(), ['database']);
     expect(() => bare.liftOwnBan(db, 'anyone')).toThrow(CapabilityDeniedError);
