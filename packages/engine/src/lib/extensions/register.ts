@@ -21,12 +21,14 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import type { Context } from 'hono';
-import type { Database } from '../../db/index.js';
+import { getDb, type Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import {
   checkPermission,
   getUserRoles,
+  applyTenantRLS,
   getCurrentTenantTrx,
+  onAfterCommit,
   poolOrRefusal,
   materializeDefaultGrants,
   registerSensitiveResources,
@@ -966,6 +968,21 @@ export async function reRegisterExtension(
 export const announcingDDLManager: typeof DDLManager = Object.assign(Object.create(DDLManager), {
   async createCollection(...args: Parameters<typeof DDLManager.createCollection>) {
     await DDLManager.createCollection(...args);
+    // Tenant RLS and the narrow roles' grants, as the DDL queue applies them
+    // right after CREATE TABLE. Without this a collection an extension created
+    // had no policy and RLS off until the next boot reconciled it. On the pool,
+    // after the request's commit: ALTER TABLE / CREATE POLICY are the engine's
+    // DDL, not the request role's — the same split `invalidateRlsCache` makes.
+    const table = `zvd_${args[1].name}`;
+    const isolate = async () => {
+      try {
+        await applyTenantRLS(getDb(), table);
+      } catch (err) {
+        console.warn(`[extensions] applyTenantRLS on ${table} failed:`, (err as Error).message);
+      }
+    };
+    if (getCurrentTenantTrx()) onAfterCommit(isolate);
+    else await isolate();
     announceSchemaChange(args[1].name, 'create');
   },
   async dropCollection(...args: Parameters<typeof DDLManager.dropCollection>) {
