@@ -13,7 +13,7 @@ describe('moveToTrash', () => {
     canned.whenAffected(/update "zv_media_files"/i, 1);
     const db = canned.kysely as unknown as Database;
 
-    await moveToTrash(db, 'file-1', 'u1');
+    await moveToTrash(db, 'file-1', 'u1', 't1');
     expect(canned.executed(/update "zv_media_files"/i).length).toBe(1);
   });
 
@@ -33,6 +33,6 @@ describe('moveToTrash', () => {
     canned.whenAffected(/update "zv_media_files"/i, 0);
     const db = canned.kysely as unknown as Database;
 
-    await expect(moveToTrash(db, 'gone', 'u1')).rejects.toThrow(/not found|already deleted/i);
+    await expect(moveToTrash(db, 'gone', 'u1', 't1')).rejects.toThrow(/not found|already deleted/i);
   });
 });

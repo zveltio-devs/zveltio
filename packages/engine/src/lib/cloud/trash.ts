@@ -7,17 +7,20 @@ import type { Database } from '../../db/index.js';
  *
  * `tenantId` scopes the update so a caller can't trash another tenant's file by
  * id — a belt over the tenant policy (migration 023), which binds only inside a
- * tenant transaction. Optional so the extension passthrough keeps its signature;
- * route handlers MUST pass it.
+ * tenant transaction and not at all for a role that bypasses RLS. Required: it
+ * was optional, the extension passthrough called the three-argument form, and
+ * where the policy did not bind that trashed another tenant's file. Extensions
+ * reach this through `ctx.internals.moveToTrash`, which supplies the running
+ * tenant itself.
  */
 export async function moveToTrash(
   db: Database,
   fileId: string,
   deletedBy: string,
-  tenantId?: string,
+  tenantId: string,
 ): Promise<void> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let q = (db as any)
+  const q = (db as any)
     .updateTable('zv_media_files')
     // `deleted_by` was never written, so the trash showed no one as having
     // deleted a file trashed through here. Resolved against "user" so a caller
@@ -28,8 +31,8 @@ export async function moveToTrash(
       deleted_by: sql`(SELECT id FROM "user" WHERE id = ${deletedBy})`,
     })
     .where('id', '=', fileId)
+    .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null);
-  if (tenantId) q = q.where('tenant_id', '=', tenantId);
   // Gate on the RETURNED ROW, never on `numUpdatedRows`. The Bun SQL dialect
   // reports it as 0n even when the write succeeded, so this threw "not found"
   // on every successful delete — the file WAS trashed and the caller was told
