@@ -127,3 +127,15 @@ describe('EntityAccessRegistryImpl', () => {
     expect(await registry.isAllowed('zvd_y', {}, {}, 'view')).toBe(true);
   });
 });
+
+describe('several checks on one table', () => {
+  it('denies when any check denies, not only the first one registered', async () => {
+    // Consulting only the first check survived every test: a second
+    // extension's deny would have been ignored.
+    const reg = new EntityAccessRegistryImpl();
+    reg.registerAs('ext-a', 'zvd_docs', () => 'allow');
+    reg.registerAs('ext-b', 'zvd_docs', () => 'deny');
+    expect(await reg.checkAccess('zvd_docs', {}, {}, 'view')).toBe('deny');
+    expect(await reg.isAllowed('zvd_docs', {}, {}, 'view')).toBe(false);
+  });
+});
