@@ -11,6 +11,12 @@ no access to it and PostgreSQL silently skipped it, so every preview read
 security and policies of its `public` counterpart. A branch whose preview was
 enabled before this release starts working once preview is enabled again.
 
+**Fixed: the boot line that sizes a deployment named the wrong pool.** With
+`DB_POOL_MAX` unset the pool is sized from the server's `max_connections`, but
+`Concurrency ceiling: DB_POOL_MAX=…` still printed the fallback default of 40:
+on a server allowing 200 connections the engine built a pool of 60 and said
+about 4 instances fit, when 3 do. It now prints the pool it built.
+
 **Fixed: password reset, magic links and OTPs failed on every install with Valkey.**
 Since better-auth 1.7 (beta.64), redeeming any single-use token — password
 reset, magic link, email/phone OTP, two-factor OTP, one-time token, email

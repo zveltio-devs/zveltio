@@ -50,6 +50,17 @@ export function resolvePoolMax(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DB_POOL_MAX;
 }
 
+let poolMaxInUse: number | undefined;
+
+/**
+ * The ceiling `initDatabase` built the pool with. Unset, `DB_POOL_MAX` is
+ * autosized from the server, so `resolvePoolMax()` is only the fallback: the
+ * boot advice read it and announced 40 over a pool of 60.
+ */
+export function activePoolMax(): number {
+  return poolMaxInUse ?? resolvePoolMax();
+}
+
 /**
  * Creates a standalone Kysely instance for a given connection string.
  * Used primarily in integration tests to get an isolated db connection.
@@ -173,6 +184,7 @@ export async function initDatabase(): Promise<Database> {
       );
     }
   }
+  poolMaxInUse = poolMax;
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
