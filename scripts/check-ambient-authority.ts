@@ -183,8 +183,11 @@ function scan(root: string): Finding[] {
       if (ALLOWLIST[rel]) continue;
       const lines = stripComments(readFileSync(file, 'utf-8')).split('\n');
       lines.forEach((line, i) => {
-        if (/\bprocess\.env\b/.test(line)) {
-          findings.push({ file: rel, line: i + 1, text: line.trim(), what: 'process.env' });
+        // `Bun.env` is the same object under the runtime's own name — and the
+        // spelling AGENTS.md steers contributors toward.
+        const env = /\b(process|Bun)\.env\b/.exec(line);
+        if (env) {
+          findings.push({ file: rel, line: i + 1, text: line.trim(), what: `${env[1]}.env` });
         }
         const nodeImport = line.match(/(?:from|import|require)\s*\(?\s*['"]node:([a-z_/]+)['"]/);
         if (nodeImport && AUTHORITY_MODULES.includes(nodeImport[1])) {

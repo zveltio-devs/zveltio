@@ -71,6 +71,19 @@ function resolve(invocation: string): string[] {
   return body ? (body.match(SCRIPT_RE) ?? []) : [];
 }
 
+/**
+ * A relative `scripts/x.ts` in a step whose `working-directory:` is a package
+ * names that package's script. Resolved by where the file is, not by parsing
+ * the step: one package holding it is the answer, none or several is left as is.
+ */
+function underPackage(path: string): string {
+  if (path.startsWith('packages/') || existsSync(join(ROOT, path))) return path;
+  const hits = readdirSync(join(ROOT, 'packages')).filter((d) =>
+    existsSync(join(ROOT, 'packages', d, path)),
+  );
+  return hits.length === 1 ? `packages/${hits[0]}/${path}` : path;
+}
+
 // ── What CI actually runs ──────────────────────────────────────────────────
 const workflowFiles = readdirSync(WORKFLOWS).filter(
   (f) => f.endsWith('.yml') || f.endsWith('.yaml'),
@@ -88,6 +101,14 @@ for (const f of workflowFiles) {
     if (line.trimStart().startsWith('#')) continue;
     for (const m of line.matchAll(/bun run ([a-z0-9:.\-/]+(?:\.ts)?)/g)) {
       for (const s of resolve(m[1]!)) ciScripts.add(s);
+    }
+    // `bun <path>.ts` without `run` executes the script just the same, and one
+    // such step (a studio gate that exits 1) was invisible to this list.
+    const cd = /\bcd (packages\/[\w-]+) &&/.exec(line)?.[1];
+    for (const m of line.matchAll(
+      /\bbun (?!run\b)((?:packages\/[\w-]+\/)?scripts\/[\w./-]+\.ts)/g,
+    )) {
+      ciScripts.add(cd && !m[1]!.startsWith('packages/') ? `${cd}/${m[1]}` : underPackage(m[1]!));
     }
   }
 }

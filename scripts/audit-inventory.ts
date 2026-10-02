@@ -84,7 +84,10 @@ async function scanFile(file: string): Promise<RouteHandler[]> {
     const sliceStart = cur.offset;
     const sliceEnd = next ? next.offset : src.length;
     const block = src.slice(sliceStart, sliceEnd);
-    const audited = /\bauditLog\s*\(/.test(block);
+    // Comments out first: a commented-out `// await auditLog(...)` counted as
+    // the handler being audited — a false negative on the compliance report.
+    const code = block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const audited = /\bauditLog\s*\(/.test(code);
     const endLine = next ? next.line - 1 : lines.length;
     handlers.push({
       file,
