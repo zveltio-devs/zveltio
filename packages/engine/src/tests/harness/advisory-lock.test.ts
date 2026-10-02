@@ -10,8 +10,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { sql } from 'kysely';
-import { createDb, type Database } from '../../db/index.js';
+import { Kysely, sql } from 'kysely';
+import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
+import { activePoolMax, createDb, type Database, sizeBootPool } from '../../db/index.js';
 import {
   AdvisoryLockLost,
   AdvisoryLockTimeout,
@@ -273,6 +274,39 @@ d('advisory locks on the pool', () => {
         await strict.destroy();
       }
     });
+
+    it('never lets holders take the whole pool, so their work still gets a connection', async () => {
+      // Each holder pins a pooled connection while its work runs on the same
+      // pool. With as many holders as connections — a pool of two, a unique-key
+      // reconcile and an extension install — every work waited for a connection
+      // only another holder's end could free, and none ended.
+      const savedEnv = process.env.DB_POOL_MAX;
+      const savedMax = activePoolMax();
+      process.env.DB_POOL_MAX = '2';
+      await sizeBootPool(URL!); // explicit value: no autosize, no round trip
+      const small: Database = new Kysely({
+        dialect: new BunSqlDialect({ connectionString: URL!, max: 2 }),
+      });
+      try {
+        const both = Promise.all(
+          [freshKey(), freshKey()].map((key) =>
+            withAdvisoryLock(small, key, async () => {
+              await Bun.sleep(200); // both holders are in before either work asks
+              return (await sql<{ one: number }>`SELECT 1 AS one`.execute(small)).rows[0];
+            }),
+          ),
+        );
+        both.catch(() => {}); // the hung run rejects later, after the pool is gone
+        const out = await Promise.race([both, Bun.sleep(5000).then(() => 'hung')]);
+        expect(out).toEqual([{ one: 1 }, { one: 1 }]);
+      } finally {
+        process.env.DB_POOL_MAX = String(savedMax);
+        await sizeBootPool(URL!);
+        if (savedEnv === undefined) delete process.env.DB_POOL_MAX;
+        else process.env.DB_POOL_MAX = savedEnv;
+        await small.destroy();
+      }
+    }, 20_000);
 
     describe('with a short pool idle timeout', () => {
       const saved = process.env.BUN_SQL_IDLE_TIMEOUT_MS;

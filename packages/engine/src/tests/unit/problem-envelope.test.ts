@@ -96,6 +96,29 @@ describe('H-13 error envelope', () => {
     expect(body.code).toBe('custom_legacy');
   });
 
+  it('a health 503 keeps its report; other statuses and routes are still wrapped', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    const report = { status: 'degraded', checks: { 'ext:x:queue': { ok: false } } };
+    app.get('/api/health/deep', (c) => c.json(report, 503));
+    app.get('/api/health/deep/denied', (c) => c.json({ error: 'Forbidden' }, 403));
+    app.get('/api/healthy-ish', (c) => c.json(report, 503));
+    const deep = await app.request('http://local/api/health/deep');
+    expect(deep.status).toBe(503);
+    expect(await deep.json()).toEqual(report);
+    isEnvelope(
+      (await (await app.request('http://local/api/health/deep/denied')).json()) as Record<
+        string,
+        unknown
+      >,
+      403,
+    );
+    isEnvelope(
+      (await (await app.request('http://local/api/healthy-ish')).json()) as Record<string, unknown>,
+      503,
+    );
+  });
+
   it('malformed JSON bodies fall back to the raw text snippet', async () => {
     const app = new Hono();
     app.use('/api/*', problemNormalizer());

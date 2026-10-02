@@ -69,6 +69,13 @@ describe('DB_POOL_MAX has one source', () => {
     }
   });
 
+  it('never goes below two connections', () => {
+    // An advisory-lock holder pins one connection while its work needs another;
+    // at 1 the boot migration waited for a connection forever.
+    process.env.DB_POOL_MAX = '1';
+    expect(resolvePoolMax()).toBe(2);
+  });
+
   it('neither the pool nor the advice spells the default itself', () => {
     // The regression is textual: a second `?? <number>` reintroduces the drift
     // even while both files still look correct on their own.

@@ -263,6 +263,10 @@ export function problemNormalizer(): MiddlewareHandler {
     await next();
     const status = c.res.status;
     if (status < 400) return;
+    // A health 503 is the report, not an error: its body names the subsystem
+    // that failed. Rewrapped, `/api/health/deep` told an operator only
+    // "Service Unavailable". A 401/403 from the same routes is still wrapped.
+    if (status === 503 && /^\/api\/health(\/|$)/.test(c.req.path)) return;
     const ct = c.res.headers.get('content-type') ?? '';
     if (ct.includes('application/problem+json')) return; // already an envelope
 

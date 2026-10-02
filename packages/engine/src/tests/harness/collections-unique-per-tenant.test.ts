@@ -37,6 +37,8 @@ const FK_REF = `zvd_uniq_fkref_${SFX}`;
 const BROKEN = `uniq_broken_${SFX}`;
 const BYOD = `uniq_byod_${SFX}`;
 const SLOW = `uniq_slow_${SFX}`;
+const PARTIAL = `uniq_partial_${SFX}`;
+const NULLABLE = `uniq_nullable_${SFX}`;
 /** A `zvd_*` table no collection owns — an extension's, with its own key. */
 const FOREIGN = `zvd_uniq_ext_${SFX}`;
 
@@ -235,6 +237,25 @@ d('a unique field is unique per tenant', () => {
         .where('name', '=', BYOD)
         .execute();
 
+      // A partial key is not `(x)`: widening it would drop its WHERE.
+      await DDLManager.createCollection(db, {
+        name: PARTIAL,
+        fields: [field('code', false)],
+      } as never);
+      await sql`
+        CREATE UNIQUE INDEX ${sql.id(`zvd_${PARTIAL}_code_live`)} ON ${sql.id(`zvd_${PARTIAL}`)} (code)
+          WHERE code <> ''
+      `.execute(db);
+
+      // A NULL tenant_id is distinct from every other: (tenant_id, x) would be looser than (x).
+      await DDLManager.createCollection(db, {
+        name: NULLABLE,
+        fields: [field('code', false)],
+      } as never);
+      await sql`
+        ALTER TABLE ${sql.id(`zvd_${NULLABLE}`)} ALTER COLUMN tenant_id DROP NOT NULL, ADD UNIQUE (code)
+      `.execute(db);
+
       // An extension's own zvd_* table, registered as no collection.
       await sql`
         CREATE TABLE ${sql.id(FOREIGN)} (id uuid PRIMARY KEY, code text UNIQUE, tenant_id uuid NOT NULL)
@@ -244,7 +265,7 @@ d('a unique field is unique per tenant', () => {
     afterAll(async () => {
       warn.mockRestore();
       await sql`DROP TABLE IF EXISTS ${sql.id(FK_REF)}`.execute(db);
-      for (const c of [FK, BROKEN, BYOD]) await dropTestCollection(db, c);
+      for (const c of [FK, BROKEN, BYOD, PARTIAL, NULLABLE]) await dropTestCollection(db, c);
     });
 
     it('a second instance skips while one holds the lock', async () => {
@@ -306,6 +327,14 @@ d('a unique field is unique per tenant', () => {
     it('leaves BYOD and extension-owned tables alone', async () => {
       expect(await keys(`zvd_${BYOD}`)).toEqual(['UNIQUE (code)']);
       expect(await keys(FOREIGN)).toEqual(['UNIQUE (code)']);
+    });
+
+    it('leaves a partial key and a table whose tenant_id may be NULL alone', async () => {
+      expect(await uniqueIndexes(`zvd_${PARTIAL}`)).toEqual(["(code) WHERE (code <> ''::text)"]);
+      expect(await keys(`zvd_${NULLABLE}`)).toEqual(['UNIQUE (code)']);
+      expect(mine(first).fixed.filter((k) => k.includes(PARTIAL) || k.includes(NULLABLE))).toEqual(
+        [],
+      );
     });
 
     it('a second run changes nothing', async () => {

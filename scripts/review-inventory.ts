@@ -257,6 +257,7 @@ const SECTIONS: Section[] = [
       `${E}db/dynamic-types.ts`,
       `${E}db/pool-autosize.ts`,
       `${E}db/connection-trace.ts`,
+      `${E}db/advisory-lock.ts`,
       `${E}db/auto-migrate.ts`,
       `${E}db/migrate.ts`,
       `${E}db/migrations/index.ts`,
@@ -328,6 +329,7 @@ const SECTIONS: Section[] = [
       `${E}lib/pg-identifier.ts`,
       `${E}lib/data/ddl-queue.ts`,
       `${E}lib/data/ghost-ddl.ts`,
+      `${E}lib/data/unique-key-reconcile.ts`,
     ],
   },
   {
