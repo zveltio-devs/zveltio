@@ -48,7 +48,7 @@ import type {
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor } from './extensions/index.js';
-import { assertWorkerSqlAllowed } from './extensions/index.js';
+import { assertWorkerSqlAllowed, workerSqlEngineTables } from './extensions/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
 
@@ -804,7 +804,7 @@ async function runRawWithParams(
   params: unknown[],
   tenantId?: string,
 ): Promise<unknown[]> {
-  assertWorkerSqlAllowed(extName, sql);
+  assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
 
   const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
   const pool = getActiveBunPool();
@@ -835,32 +835,33 @@ async function runRawWithParams(
     await reserved.unsafe('BEGIN');
     inTransaction = true;
     await reserved.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
-    // Best-effort: a managed Postgres may not have let migration 030 create the
-    // role. Failing the query outright would take every worker extension down
-    // on such a deployment, which is a worse outcome than the status quo there.
-    try {
-      // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
-      // UPDATE and DELETE on every table in `public` — including Better-Auth's
-      // `user`, `session`, `account`, `verification` and `twoFactor`, none of
-      // which has RLS. This bridge exists to sandbox extension code the platform
-      // has decided not to trust, and it was running under a role that could
-      // read every live session token on the instance.
-      //
-      // `zveltio_worker` is granted collection tables only (migration 043), and
-      // is NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
-      // as it does for a request.
-      await reserved.unsafe('SET LOCAL ROLE zveltio_worker');
-    } catch {
-      // The narrow role is absent — a managed Postgres that would not let
-      // migration 043 create it. Fall back rather than taking every worker
-      // extension down there, and let the allowlist in worker-sql-policy.ts be
-      // the layer that holds. That is why the policy was inverted first: this
-      // fallback has to be survivable on its own.
-      try {
-        await reserved.unsafe('SET LOCAL ROLE zveltio_rls');
-      } catch {
-        /* neither role present — see migrations 030 and 043 */
-      }
+    // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
+    // UPDATE and DELETE on every table in `public` — including Better-Auth's
+    // `user`, `session`, `account`, `verification` and `twoFactor`, none of
+    // which has RLS. This bridge exists to sandbox extension code the platform
+    // has decided not to trust, and it was running under a role that could
+    // read every live session token on the instance.
+    //
+    // `zveltio_worker` is granted collection tables only — by applyTenantRLS,
+    // once FORCE RLS and the policy are on the table — and is
+    // NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
+    // as it does for a request. The engine's own `zvd_*` metadata tables are
+    // revoked at boot (reconcileTenantRLS).
+    //
+    // Where a managed Postgres would not let migration 001 create it, fall back
+    // to `zveltio_rls` rather than take every worker extension down, and let the
+    // allowlist in worker-sql-policy.ts be the layer that holds. ASKED which role
+    // exists rather than attempting `SET ROLE` and catching: a refused statement
+    // aborts this transaction, so the old `catch` fallback ran its second
+    // `SET ROLE` — and then the extension's query — on an aborted transaction,
+    // and every worker query on such a deployment failed with 25P02. Measured.
+    const [picked] = (await reserved.unsafe(
+      `SELECT (SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_rls')
+                ORDER BY rolname = 'zveltio_worker' DESC LIMIT 1) AS role`,
+    )) as { role?: string | null }[];
+    // Neither role present — see migrations 001 (zveltio_worker) and 030.
+    if (picked?.role === 'zveltio_worker' || picked?.role === 'zveltio_rls') {
+      await reserved.unsafe(`SET LOCAL ROLE ${picked.role}`);
     }
     if (tenantId) {
       // Parameterised: this value comes from the host's own record, but it is

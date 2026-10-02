@@ -164,7 +164,11 @@ function stripNonCode(sql: string): string {
  * function. Multi-statement payloads are therefore structurally impossible, and
  * this check only has to reason about the tables one statement can name.
  */
-export function assertWorkerSqlAllowed(extName: string, sql: string): void {
+export function assertWorkerSqlAllowed(
+  extName: string,
+  sql: string,
+  engineTables: ReadonlySet<string>,
+): void {
   const owned = ownedPrefixFor(extName).toLowerCase();
   const code = stripNonCode(sql);
 
@@ -211,7 +215,13 @@ export function assertWorkerSqlAllowed(extName: string, sql: string): void {
       offenders.add(`${ref.schema}.${ref.table}`);
       continue;
     }
-    if (ref.table.startsWith('zvd_')) continue;
+    // `zvd_` is the collection prefix, and also the prefix of the engine's own
+    // metadata: `zvd_permissions` (the Casbin policy table), `zvd_rls_policies`,
+    // `zvd_column_permissions`, `zvd_collections`, `zvd_webhooks`… Letting the
+    // prefix through let a worker extension write itself a `god` grant whenever
+    // the bridge ran as `zveltio_rls` (the fallback where `zveltio_worker` could
+    // not be created). Collections are `zvd_*` minus what the engine creates.
+    if (ref.table.startsWith('zvd_') && !engineTables.has(ref.table)) continue;
     if (ref.table.startsWith(owned)) continue;
     offenders.add(ref.table);
   }
@@ -225,6 +235,16 @@ export function assertWorkerSqlAllowed(extName: string, sql: string): void {
         `makes this an allowlist rather than a list of tables someone remembered.`,
     );
   }
+}
+
+/**
+ * The engine's own tables, derived from its migrations (`engineOwnedTables`), as
+ * `assertWorkerSqlAllowed` takes them. Loaded lazily: `register.ts` is heavy, and
+ * this module is also imported where only `ownedPrefixFor` is needed.
+ */
+export async function workerSqlEngineTables(): Promise<ReadonlySet<string>> {
+  const { engineOwnedTables } = await import('./register.js');
+  return engineOwnedTables();
 }
 
 /**

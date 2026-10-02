@@ -13,13 +13,16 @@ import {
   assertWorkerSqlAllowed,
   ownedPrefixFor,
   WorkerSqlPolicyError,
+  workerSqlEngineTables,
 } from '../../lib/extensions/worker-sql-policy.js';
 
 const EXT = 'ai';
+/** The engine's own tables, read from its migrations as the bridge reads them. */
+const ENGINE = await workerSqlEngineTables();
 
 function allowed(sql: string): boolean {
   try {
-    assertWorkerSqlAllowed(EXT, sql);
+    assertWorkerSqlAllowed(EXT, sql, ENGINE);
     return true;
   } catch (e) {
     if (e instanceof WorkerSqlPolicyError) return false;
@@ -65,7 +68,7 @@ describe('assertWorkerSqlAllowed — engine tables', () => {
 
   it('names every offending table in the error', () => {
     try {
-      assertWorkerSqlAllowed(EXT, 'SELECT * FROM zv_tenants, zv_api_keys');
+      assertWorkerSqlAllowed(EXT, 'SELECT * FROM zv_tenants, zv_api_keys', ENGINE);
       throw new Error('should have thrown');
     } catch (e) {
       expect((e as Error).message).toContain('zv_api_keys');
@@ -244,13 +247,15 @@ describe('assertWorkerSqlAllowed — schema-qualified references', () => {
       'SELECT * FROM pg_catalog.pg_authid',
       'SELECT rolname FROM pg_catalog.pg_roles',
     ]) {
-      expect(() => assertWorkerSqlAllowed('finance/banking', q)).toThrow(WorkerSqlPolicyError);
+      expect(() => assertWorkerSqlAllowed('finance/banking', q, ENGINE)).toThrow(
+        WorkerSqlPolicyError,
+      );
     }
   });
 
   it('names what it refused, so the author can see which reference was the problem', () => {
     expect(() =>
-      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM information_schema.columns'),
+      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM information_schema.columns', ENGINE),
     ).toThrow(/information_schema\.columns/);
   });
 
@@ -258,7 +263,37 @@ describe('assertWorkerSqlAllowed — schema-qualified references', () => {
     // `public` is where everything the extension owns lives, so qualifying with it
     // must not itself be an offence — only another schema is.
     expect(() =>
-      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM public.zvd_invoices'),
+      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM public.zvd_invoices', ENGINE),
     ).not.toThrow();
+  });
+});
+
+describe('assertWorkerSqlAllowed — the engine metadata that shares the zvd_ prefix', () => {
+  // `zvd_permissions` is the Casbin policy table. Through the bridge's fallback
+  // role (`zveltio_rls`, which holds DML on it) a worker extension could insert
+  // itself a `god` grant: the prefix check let every `zvd_` name through.
+  it('refuses the engine tables the migrations create under zvd_', () => {
+    for (const q of [
+      "INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', 'x', 'god', '*')",
+      'UPDATE "zvd_rls_policies" SET using_expr = $1',
+      'SELECT * FROM public.zvd_column_permissions',
+      'DELETE FROM ZVD_COLLECTIONS',
+      'SELECT secret FROM zvd_webhooks',
+      'SELECT token FROM zvd_push_tokens',
+      'SELECT * FROM zvd_invoices i JOIN zvd_rpc_functions f ON true',
+    ]) {
+      expect({ q, ok: allowed(q) }).toEqual({ q, ok: false });
+    }
+  });
+
+  it('derives the list rather than naming it — every engine zvd_ table is in it', () => {
+    const zvd = [...ENGINE].filter((t) => t.startsWith('zvd_'));
+    expect(zvd).toContain('zvd_permissions');
+    expect(zvd).toContain('zvd_rls_policies');
+    for (const t of zvd) expect({ t, ok: allowed(`SELECT 1 FROM ${t}`) }).toEqual({ t, ok: false });
+  });
+
+  it('still lets a collection through', () => {
+    expect(allowed('SELECT * FROM zvd_invoices')).toBe(true);
   });
 });

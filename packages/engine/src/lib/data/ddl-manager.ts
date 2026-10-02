@@ -111,48 +111,6 @@ function toConcurrentIndex(indexSQL: string): string {
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 /**
- * Let flow `query_db` steps read a newly created collection.
- *
- * The flow reader role holds an ALLOWLIST of `zvd_*` tables (migration 024), so
- * a collection created after that migration is invisible to flows until it is
- * granted here. Fail-closed in the useful direction: forgetting this breaks a
- * report visibly, where a denylist would silently expose the next system table.
- *
- * Best-effort — the role is absent on a Postgres where it could not be created,
- * and a missing hardening layer must not fail a collection create.
- */
-/**
- * Does the role exist? Asked once per database handle.
- *
- * Per HANDLE, not per process. `bun test` runs every file in one process, so a
- * process-wide answer is shared with whatever stub an unrelated test hands over
- * — a first version cached "absent" from such a stub and then silently skipped
- * the GRANT for the rest of the run, which surfaced as `permission denied` in a
- * flow test that had nothing to do with any of it.
- */
-const flowReaderRolePresent = new WeakMap<object, boolean>();
-
-async function grantFlowReaderSelect(db: Database, tableName: string): Promise<void> {
-  // Ask whether the role is there rather than issuing a GRANT and catching the
-  // refusal. The refusal aborts the transaction — and this runs inside a
-  // collection create — so the `catch` that used to be here handed back a DDL
-  // transaction on which every later statement answered 25P02. See
-  // lib/savepoint.ts for how that failure reads from the outside.
-  let present = flowReaderRolePresent.get(db as unknown as object);
-  if (present === undefined) {
-    const probe = await sql<{ present: boolean }>`
-      SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_flow_reader') AS present
-    `.execute(db);
-    present = probe.rows[0]?.present === true;
-    flowReaderRolePresent.set(db as unknown as object, present);
-  }
-  // Role absent (see migration 024) — query_db falls back to the authorship gate.
-  if (!present) return;
-  // raw-ident-ok: `tableName` comes from DDLManager.getTableName, not a caller.
-  await sql.raw(`GRANT SELECT ON ${tableName} TO zveltio_flow_reader`).execute(db);
-}
-
-/**
  * Physical columns every collection table owns (see `createCollection`), so no
  * user field may claim one. Single source of truth: the collections routes
  * reject these names on create/add/rename/remove, and `introspectTable` skips
@@ -530,7 +488,6 @@ export class DDLManager {
     // Table constraints after every column, as CREATE TABLE has them.
     columns.push(...uniqueKeys);
     await sql.raw(`CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`).execute(db);
-    await grantFlowReaderSelect(db, tableName);
 
     for (const indexSQL of indexes) {
       await sql.raw(indexSQL).execute(db);
