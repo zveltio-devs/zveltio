@@ -52,8 +52,16 @@ export function resolvePoolMax(): number {
   const raw = process.env.DB_POOL_MAX;
   if (raw === undefined || raw.trim() === '') return DEFAULT_DB_POOL_MAX;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.max(2, parsed) : DEFAULT_DB_POOL_MAX;
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DB_POOL_MAX;
+  if (parsed < 2 && !warnedPoolFloor) {
+    // Said once: the operator budgets connections from the number they set.
+    warnedPoolFloor = true;
+    console.warn(`⚠️  DB_POOL_MAX=${raw} raised to 2: a lock holder and its work need one each.`);
+  }
+  return Math.max(2, parsed);
 }
+
+let warnedPoolFloor = false;
 
 let poolMaxInUse: number | undefined;
 

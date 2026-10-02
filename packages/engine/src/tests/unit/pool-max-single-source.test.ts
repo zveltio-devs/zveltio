@@ -22,7 +22,7 @@
  * while measuring the concurrency ceiling for Block A. Now held here too.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_DB_POOL_MAX, resolvePoolMax } from '../../db/index.js';
@@ -73,7 +73,17 @@ describe('DB_POOL_MAX has one source', () => {
     // An advisory-lock holder pins one connection while its work needs another;
     // at 1 the boot migration waited for a connection forever.
     process.env.DB_POOL_MAX = '1';
-    expect(resolvePoolMax()).toBe(2);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(resolvePoolMax()).toBe(2);
+      expect(resolvePoolMax()).toBe(2);
+      // Once, naming what was set: the operator budgets from that number.
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+        expect.stringContaining('DB_POOL_MAX=1 raised to 2'),
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('neither the pool nor the advice spells the default itself', () => {
