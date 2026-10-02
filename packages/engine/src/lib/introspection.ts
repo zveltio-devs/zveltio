@@ -8,6 +8,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { engineHandle } from './engine-handle.js';
 import { toJsonb } from './jsonb.js';
 
 // PG data_type → Zveltio type mapping
@@ -107,17 +108,20 @@ export interface IntrospectedTable {
 /**
  * Introspects `schemaName` and imports found tables as unmanaged collections.
  *
- * @param db          Kysely Database instance
+ * @param callerDb    Kysely Database instance (an extension handle is unwrapped)
  * @param schemaName  PostgreSQL schema to scan (default: 'public')
  * @param excludePatterns  Substrings — tables containing these are ignored
  * @param dryRun      If true, returns result without writing to DB
  */
 export async function introspectSchema(
-  db: Database,
+  callerDb: Database,
   schemaName = 'public',
   excludePatterns: string[] = [],
   dryRun = false,
 ): Promise<IntrospectedTable[]> {
+  // Reached by extensions with their `ctx.db` (`developer/byod`); the catalogue
+  // reads below are the engine's SQL, so they run on the engine's view of it.
+  const db = engineHandle(callerDb);
   // Find distinct tables in the given schema
   const tablesResult = await sql<{ table_name: string }>`
     SELECT DISTINCT table_name

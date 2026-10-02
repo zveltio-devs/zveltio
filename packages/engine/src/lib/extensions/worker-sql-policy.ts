@@ -168,8 +168,17 @@ export function assertWorkerSqlAllowed(
   extName: string,
   sql: string,
   engineTables: ReadonlySet<string>,
+  /**
+   * Tables this extension may reach beyond the two prefixes: the ones its own
+   * migrations create and the ones `EXTENSION_TABLE_GRANTS` names — the same set
+   * `createRestrictedDb` takes. Given for inline extensions, whose raw SQL is
+   * checked here too; the worker bridge passes none.
+   */
+  allowedTables?: ReadonlySet<string>,
+  channel = 'the worker SQL bridge',
 ): void {
   const owned = ownedPrefixFor(extName).toLowerCase();
+  const granted = new Set([...(allowedTables ?? [])].map((t) => t.toLowerCase()));
   const code = stripNonCode(sql);
 
   // Checked on the stripped text so the keyword has to be real code — a
@@ -177,8 +186,8 @@ export function assertWorkerSqlAllowed(
   for (const form of CODE_BEARING_FORMS) {
     if (form.re.test(code)) {
       throw new WorkerSqlPolicyError(
-        `Extension "${extName}" attempted ${form.what} through the worker SQL ` +
-          `bridge. Statements that execute a body as code are refused here: the ` +
+        `Extension "${extName}" attempted ${form.what} through ${channel}. ` +
+          `Statements that execute a body as code are refused here: the ` +
           `body is opaque to the table policy and can assemble any table name at ` +
           `runtime. Declare schema and functions in the extension's migrations.`,
       );
@@ -223,14 +232,18 @@ export function assertWorkerSqlAllowed(
     // not be created). Collections are `zvd_*` minus what the engine creates.
     if (ref.table.startsWith('zvd_') && !engineTables.has(ref.table)) continue;
     if (ref.table.startsWith(owned)) continue;
+    if (granted.has(ref.table)) continue;
     offenders.add(ref.table);
   }
 
   if (offenders.size > 0) {
     throw new WorkerSqlPolicyError(
       `Extension "${extName}" attempted to access ${[...offenders].sort().join(', ')} ` +
-        `through the worker SQL bridge. Extensions may query user data tables ` +
-        `(zvd_*) and their own namespace (${ownedPrefixFor(extName)}*) only — ` +
+        `through ${channel}. Extensions may query user data tables ` +
+        (allowedTables
+          ? `(zvd_*), their own namespace (${ownedPrefixFor(extName)}*) and the tables ` +
+            `their migrations create or a grant names only — `
+          : `(zvd_*) and their own namespace (${ownedPrefixFor(extName)}*) only — `) +
         `anything else is refused because it was never permitted, which is what ` +
         `makes this an allowlist rather than a list of tables someone remembered.`,
     );

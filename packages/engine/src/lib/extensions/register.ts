@@ -36,6 +36,7 @@ import {
 } from '../tenancy/index.js';
 import { announceSchemaChange, DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
+import { engineHandle } from '../engine-handle.js';
 import {
   activationMiddlewareFor,
   guardListenerArgs,
@@ -167,7 +168,16 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // purpose. Shipped, and broken on every install since.
   // `zv_storage_quotas`: engine-owned, sole creator — see the `content/media`
   // entry above. Same story, same repair, same load-bearing grant.
-  'storage/cloud': ['zv_storage_quotas', 'zv_media_files', 'zv_media_folders', 'zv_media_shares'],
+  'storage/cloud': [
+    'zv_storage_quotas',
+    'zv_media_files',
+    'zv_media_folders',
+    'zv_media_shares',
+    // content/media creates both; trash and file versions read them with raw
+    // SQL, which meets the same allowlist since raw SQL is checked.
+    'zv_media_versions',
+    'zv_media_favorites',
+  ],
 };
 
 /**
@@ -446,7 +456,7 @@ export function buildRestrictedContext(
     describeDenial: (resource: string, action: string) =>
       describeDenial(getCurrentTenantTrx() ?? ctx.db, resource, action),
     getUserRoles: ctx.getUserRoles ?? getUserRoles,
-    DDLManager: ctx.DDLManager ?? announcingDDLManager,
+    DDLManager: engineSqlHelper(ctx.DDLManager ?? announcingDDLManager),
     // Hand each extension a scoped view of the registry so its register()
     // calls are tagged for cleanup on unload. Idempotent on hot-reload.
     services: serviceRegistry.scope(extName),
@@ -954,6 +964,29 @@ export async function reRegisterExtension(
   } catch (err) {
     console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
   }
+}
+
+/**
+ * A helper whose every SQL statement is the ENGINE's, handed the engine's view
+ * of whatever handle the extension passes.
+ *
+ * `ctx.DDLManager.createCollection(ctx.db, …)` reads `information_schema`,
+ * writes `zvd_collections` and creates the search trigger's function — raw SQL
+ * that `ctx.db` refuses from an extension, and that DDLManager has always run.
+ * The table names it touches are its own (`getTableName` puts every collection
+ * under `zvd_`), so it is trusted whole. A helper that runs a statement on a
+ * table the EXTENSION names (`internals.dynamicInsert`) is not wrapped here; it
+ * unwraps only its own metadata read.
+ */
+function engineSqlHelper<T extends object>(helper: T): T {
+  return new Proxy(helper, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) =>
+        (value as (...a: unknown[]) => unknown).apply(target, args.map(engineHandle));
+    },
+  });
 }
 
 /**

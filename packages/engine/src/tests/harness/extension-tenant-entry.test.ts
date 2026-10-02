@@ -100,7 +100,9 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
       app,
       ctx,
       { name, version: '1.0.0', category: 'custom', permissions } as never,
-      new Set(),
+      // The probe reads zv_dashboards with raw SQL; inside the callback that is
+      // checked against the extension's tables, so the probe holds a grant.
+      new Set(['zv_dashboards']),
     );
   }
 
@@ -179,17 +181,17 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
 
   it('hands the callback the same table guard as ctx.db, not a bare transaction', async () => {
     // The transaction was passed through unwrapped: an extension with no grant
-    // reached every engine table through it — `zv_dashboards` here, but equally
-    // `user`, `account` or `zv_api_keys` — although `ctx.db` refuses them.
+    // reached every engine table through it — `zv_api_keys` here, but equally
+    // `user` or `account` — although `ctx.db` refuses them.
     // `db:admin` gets the same guard on `ctx.adminDb`, so it gets it here too.
     for (const ext of [NOCAP, ADMIN, ENTER]) {
       const r = await runAsTenantWithoutTransaction(ROOT, () =>
         bags[ext]!.withTenantIsolation(ROOT, async (trx) => {
-          trx.selectFrom('zv_dashboards' as never);
+          trx.selectFrom('zv_api_keys' as never);
           return 'reached';
         }).catch((err: Error) => err.message),
       );
-      expect(r).toContain('attempted to access table "zv_dashboards"');
+      expect(r).toContain('attempted to access table "zv_api_keys"');
     }
   });
 

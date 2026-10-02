@@ -14,6 +14,7 @@ import { generateRandomString, makeSignature } from 'better-auth/crypto';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auditLog } from './audit.js';
+import { engineHandle } from './engine-handle.js';
 import { getAuth, revokeAllUserSessions } from './auth.js';
 import { withSavepoint } from './savepoint.js';
 import { isSignInBlocked, SignInBlockedError } from './security/index.js';
@@ -71,11 +72,14 @@ export interface UserDeletion {
  * `false`, having touched nothing, when there is no such user.
  */
 export async function deleteUser(
-  db: Database,
+  callerDb: Database,
   poolDb: Database,
   userId: string,
   who: UserDeletion,
 ): Promise<boolean> {
+  // The caller's handle may be an extension's `ctx.db`, which refuses raw SQL on
+  // `user`; this is the engine's own SQL, so it runs on the engine's view.
+  const db = engineHandle(callerDb);
   // Before anything touches the id: `e.deleteUser` removes every Casbin row
   // whose subject is this string, and a role name sits in the same column.
   // Raw SQL, because an extension hands over a handle whose builder refuses "user".
@@ -221,12 +225,13 @@ export async function revokeUserSessions(
  * `liftOwnBan`.
  */
 export async function setUserActive(
-  db: Database,
+  callerDb: Database,
   poolDb: Database,
   userId: string,
   active: boolean,
   source: string,
 ): Promise<void> {
+  const db = engineHandle(callerDb); // engine SQL — see deleteUser
   if (!active) await refuseGod(db, userId, 'deactivated');
   // IdPs resend `active: true` on every sync; only a change touches the row.
   // The provenance columns follow `banned` through the trigger of migration 035.
@@ -243,7 +248,12 @@ export async function setUserActive(
  * administrator or another extension placed — or one older than migration
  * 035 (`unknown`) — stays. Nothing to revoke: lifting opens, it does not close.
  */
-export async function liftOwnBan(db: Database, userId: string, source: string): Promise<boolean> {
+export async function liftOwnBan(
+  callerDb: Database,
+  userId: string,
+  source: string,
+): Promise<boolean> {
+  const db = engineHandle(callerDb); // engine SQL — see deleteUser
   const r = await sql`
     UPDATE "user" SET banned = false, "updatedAt" = NOW()
      WHERE id = ${userId} AND banned IS TRUE AND ban_source = ${source}
@@ -296,11 +306,12 @@ export interface CreateSsoSessionOptions {
  * not a bypass.
  */
 export async function createBetterAuthSession(
-  db: Database,
+  callerDb: Database,
   poolDb: Database,
   userId: string,
   opts: CreateSsoSessionOptions = {},
 ): Promise<{ token: string; setCookie: string }> {
+  const db = engineHandle(callerDb); // engine SQL — see deleteUser
   if (await isSignInBlocked(db, userId)) throw new SignInBlockedError();
   const ctx = await getAuth().$context;
   const ttl = opts.ttlSeconds ?? ctx.sessionConfig.expiresIn;

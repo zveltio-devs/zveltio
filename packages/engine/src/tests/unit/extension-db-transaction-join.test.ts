@@ -21,6 +21,22 @@ import { describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 
+/**
+ * The callback's handle is the transaction behind the same guard as `ctx.db`:
+ * it reads through to the transaction but is not the transaction itself.
+ * Handing over the bare one let `trx.selectFrom('session')` and raw SQL on any
+ * table straight through (`harness/extension-raw-sql-allowlist.test.ts`).
+ */
+function expectGuarded(t: unknown, tag: string): void {
+  expect((t as { tag: string }).tag).toBe(tag);
+  expect(Object.keys(t as object)).toEqual([]); // the proxy, not the stub
+}
+
+type Trx = { execute(cb: (t: unknown) => unknown): unknown };
+type Creator = {
+  transaction(): Trx & { setIsolationLevel(l: string): { setAccessMode(m: string): Trx } };
+};
+
 function handle(tag: string, isTransaction: boolean) {
   return {
     tag,
@@ -34,7 +50,7 @@ function handle(tag: string, isTransaction: boolean) {
           return this;
         },
         execute<T>(cb: (t: unknown) => T) {
-          return cb(`${tag}:fresh-transaction`);
+          return cb({ tag: `${tag}:fresh-transaction` });
         },
       };
     },
@@ -43,60 +59,34 @@ function handle(tag: string, isTransaction: boolean) {
 
 describe('extension db.transaction()', () => {
   it('joins the request transaction instead of opening a second one', async () => {
-    const trx = handle('request-trx', true);
-    const db = createRestrictedDb(() => trx, 'probe/join');
-    const used = (
-      db as unknown as { transaction(): { execute(cb: (t: unknown) => unknown): unknown } }
-    )
-      .transaction()
-      .execute((t) => t);
-    expect(await used).toBe(trx);
+    const db = createRestrictedDb(
+      () => handle('request-trx', true),
+      'probe/join',
+    ) as never as Creator;
+    expectGuarded(await db.transaction().execute((t) => t), 'request-trx');
   });
 
   it('accepts the builder chain an extension would write', async () => {
-    const trx = handle('request-trx', true);
-    const db = createRestrictedDb(() => trx, 'probe/chain');
-    const b = (
-      db as unknown as {
-        transaction(): {
-          setIsolationLevel(l: string): {
-            setAccessMode(m: string): { execute(cb: (t: unknown) => unknown): unknown };
-          };
-        };
-      }
-    ).transaction();
-    expect(
-      await b
-        .setIsolationLevel('serializable')
-        .setAccessMode('read write')
-        .execute((t) => t),
-    ).toBe(trx);
+    const db = createRestrictedDb(
+      () => handle('request-trx', true),
+      'probe/chain',
+    ) as never as Creator;
+    const b = db.transaction().setIsolationLevel('serializable').setAccessMode('read write');
+    expectGuarded(await b.execute((t) => t), 'request-trx');
   });
 
-  it('opens a real transaction when the handle is a pool', () => {
+  it('opens a real transaction when the handle is a pool', async () => {
     // Background jobs and `ctx.adminDb` have no request transaction to join, and
     // must still get a genuine one.
-    const pool = handle('pool', false);
-    const db = createRestrictedDb(() => pool, 'probe/pool');
-    const used = (
-      db as unknown as { transaction(): { execute(cb: (t: unknown) => unknown): unknown } }
-    )
-      .transaction()
-      .execute((t) => t);
-    expect(used).toBe('pool:fresh-transaction');
+    const db = createRestrictedDb(() => handle('pool', false), 'probe/pool') as never as Creator;
+    expectGuarded(await db.transaction().execute((t) => t), 'pool:fresh-transaction');
   });
 
   it('follows the resolver, so the same handle tracks the current request', async () => {
     let current = handle('first', true);
-    const db = createRestrictedDb(() => current, 'probe/resolver');
-    const read = () =>
-      (db as unknown as { transaction(): { execute(cb: (t: unknown) => unknown): unknown } })
-        .transaction()
-        .execute((t) => t);
-
-    expect(await read()).toBe(current);
-    const second = handle('second', true);
-    current = second;
-    expect(await read()).toBe(second);
+    const db = createRestrictedDb(() => current, 'probe/resolver') as never as Creator;
+    expectGuarded(await db.transaction().execute((t) => t), 'first');
+    current = handle('second', true);
+    expectGuarded(await db.transaction().execute((t) => t), 'second');
   });
 });

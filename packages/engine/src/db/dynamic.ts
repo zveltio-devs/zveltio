@@ -9,6 +9,7 @@ import { sql } from 'kysely';
 import type { RawBuilder } from 'kysely';
 import type { Database } from './index.js';
 import type { DynamicRecord } from './dynamic-types.js';
+import { engineHandle } from '../lib/engine-handle.js';
 
 // ─── Safe DDL helpers ─────────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ async function jsonbColumnsFor(db: Database, table: string): Promise<Set<string>
     SELECT column_name
       FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = ${table} AND data_type = 'jsonb'
-  `.execute(db);
+  `.execute(engineHandle(db)); // the engine's own catalogue read — see engine-handle.ts
   const set = new Set(rows.rows.map((r) => r.column_name));
   jsonbColumns.set(table, set);
   return set;
