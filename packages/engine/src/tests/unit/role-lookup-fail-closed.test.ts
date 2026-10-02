@@ -169,4 +169,37 @@ describe('a healthy role lookup', () => {
       spy.mockRestore();
     }
   });
+  it('SSE: a record from another tenant is not delivered', async () => {
+    // Dropping the per-subscriber tenant check in broadcastDataEvent passed
+    // every unit and harness test: the stream would carry another tenant's
+    // rows to anyone subscribed to the same collection name.
+    const spy = spyOn(auth.api, 'getSession').mockResolvedValue({
+      user: USER,
+      session: { token: 'unit-token' },
+    } as never);
+    try {
+      const app = new Hono().route('/', realtimeRoutes(asDb(db), auth));
+      const res = await app.request('/stream?collection=contacts');
+      const delivered: string[] = [];
+      for (const sub of _sseConnectionsForTests().get(USER.id) ?? []) {
+        sub.stream.writeSSE = ((msg: { data: string }) => {
+          delivered.push(msg.data);
+          return Promise.resolve();
+        }) as typeof sub.stream.writeSSE;
+      }
+      broadcastDataEvent(
+        'contacts',
+        'insert',
+        { id: 'c-other' },
+        'bbbbbbbb-0000-4000-8000-00000000000b',
+      );
+      broadcastDataEvent('contacts', 'insert', { id: 'c-own' }, null);
+      await res.body?.cancel().catch(() => {});
+
+      expect(delivered.join('\n')).toContain('"c-own"');
+      expect(delivered.join('\n')).not.toContain('"c-other"');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

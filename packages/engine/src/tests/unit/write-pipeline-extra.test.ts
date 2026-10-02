@@ -10,6 +10,8 @@ import { afterWrite, processInput, runAtomic, isUuid } from '../../lib/data/writ
 import { fieldTypeRegistry } from '../../lib/data/field-type-registry.js';
 import { registerCoreFieldTypes } from '../../field-types/index.js';
 import * as wsModule from '../../routes/ws.js';
+import * as realtimeModule from '../../routes/realtime.js';
+import { realtimeBus } from '../../lib/runtime/realtime-bus.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
@@ -111,6 +113,36 @@ describe('isUuid', () => {
 });
 
 describe('afterWrite', () => {
+  it('carries the tenant to every fan-out, not only to WebSocket', async () => {
+    // Only the WebSocket call was pinned: passing null instead of the tenant to
+    // SSE, to the cross-instance bus or to the engine event survived every test,
+    // and each of those routes a record by tenant.
+    const db = new CannedDb();
+    db.when(/insert into "zv_revisions"/i, []);
+    const sseSpy = spyOn(realtimeModule, 'broadcastDataEvent').mockImplementation(() => {});
+    const busSpy = spyOn(realtimeBus(), 'publish').mockImplementation(async () => {});
+    const events: Array<{ tenantId?: string | null }> = [];
+    const unsub = engineEvents.on('record.updated', (p) => events.push(p));
+    try {
+      await afterWrite(db.kysely as unknown as Database, {
+        collection: 'contacts',
+        recordId: 'rec-9',
+        action: 'update',
+        data: { id: 'rec-9' },
+        userId: 'user-1',
+        author: 'user-1',
+        tenantId: 'tenant-z',
+      });
+      expect(sseSpy).toHaveBeenCalledWith('contacts', 'update', { id: 'rec-9' }, 'tenant-z');
+      expect(busSpy.mock.calls[0]?.[0]).toMatchObject({ tenantId: 'tenant-z' });
+      expect(events[0]?.tenantId).toBe('tenant-z');
+    } finally {
+      unsub();
+      sseSpy.mockRestore();
+      busSpy.mockRestore();
+    }
+  });
+
   it('writes a revision row, broadcasts, and emits engine events on create', async () => {
     const db = new CannedDb();
     db.when(/insert into "zv_revisions"/i, []);
