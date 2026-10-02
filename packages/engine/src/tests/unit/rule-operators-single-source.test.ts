@@ -18,7 +18,11 @@ import { describe, expect, it } from 'bun:test';
 import { Kysely, PostgresDialect } from 'kysely';
 import { buildRowRulePredicate } from '../../lib/tenancy/row-rule-policy.js';
 import { applyRlsFilters, matchesRlsFilters, rlsJsonConditions } from '../../lib/tenancy/rls.js';
-import { RULE_OPERATORS, type RuleOperator } from '../../lib/tenancy/rule-operators.js';
+import {
+  RULE_OPERATORS,
+  isRuleOperator,
+  type RuleOperator,
+} from '../../lib/tenancy/rule-operators.js';
 
 const OPS = Object.keys(RULE_OPERATORS) as RuleOperator[];
 
@@ -144,5 +148,16 @@ describe('the four appliers read one table', () => {
     );
     expect(predicate).toContain('(false)');
     expect(skipped[0]?.reason).toContain('regex');
+  });
+});
+
+describe('isRuleOperator', () => {
+  it('knows the four operators and nothing the object inherits', () => {
+    for (const op of ['eq', 'neq', 'in', 'not_in']) expect(isRuleOperator(op)).toBe(true);
+    // `op in RULE_OPERATORS` would accept these: a policy row naming one would
+    // reach the interpreters with no SQL operator behind it.
+    for (const op of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'like']) {
+      expect(isRuleOperator(op)).toBe(false);
+    }
   });
 });
