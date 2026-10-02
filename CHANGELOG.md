@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: the collection SQL preview shows what create runs.** The Studio
+preview built its column list separately from `createCollection`: it dropped
+per-field default values, showed `UNIQUE` as a separate `ALTER TABLE` that
+create never runs, and missed a field type's own index method (GIN, GiST).
+It now uses the same column and index builders as create.
+
 **Fixed: preview environments now serve the branch.** An `X-Preview-Token`
 request switched `search_path` to the branch schema, but the request role had
 no access to it and PostgreSQL silently skipped it, so every preview read

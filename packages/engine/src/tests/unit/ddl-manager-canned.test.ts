@@ -362,7 +362,7 @@ describe('previewCollection (pure)', () => {
     const all = stmts.join('\n');
     expect(all).toContain('CREATE TABLE IF NOT EXISTS zvd_books');
     expect(all).toContain('"author" UUID REFERENCES "zvd_authors"(id) ON DELETE SET NULL');
-    expect(all).toContain('ADD CONSTRAINT uq_zvd_books_title UNIQUE ("title")');
+    expect(all).toContain('"title" text NOT NULL UNIQUE');
     expect(all).toContain('idx_zvd_books_price');
     expect(all).toContain('idx_zvd_books_author');
     expect(all).toContain(`VALUES ('books_author', 'm2o', 'books', 'author', 'authors', 'id');`);

@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
+import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 import { toJsonb } from '../jsonb.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
@@ -85,6 +85,21 @@ BEGIN
 END
 `;
 }
+
+// Every collection table starts with these; createCollection and its preview
+// share them so the preview cannot drift from what is created.
+const SYSTEM_COLUMN_DDL: readonly string[] = [
+  'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
+  'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+  'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+  "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
+  'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+  'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+  // Multi-tenant: every row belongs to a tenant, defaulted from the request
+  // GUC (or the default tenant). The boot/RLS-on-create reconciler then
+  // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
+  "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+];
 
 function toConcurrentIndex(indexSQL: string): string {
   return indexSQL.replace(
@@ -464,18 +479,7 @@ export class DDLManager {
       (f) => !RELATION_FK_TYPES.has(f.type) || !f.options?.related_collection,
     );
 
-    const columns: string[] = [
-      'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
-      'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-      'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-      "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
-      'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
-      'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
-      // Multi-tenant: every row belongs to a tenant, defaulted from the request
-      // GUC (or the default tenant). The boot/RLS-on-create reconciler then
-      // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
-      "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
-    ];
+    const columns: string[] = [...SYSTEM_COLUMN_DDL];
 
     const indexes: string[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
@@ -1063,20 +1067,6 @@ export class DDLManager {
     const tableName = `zvd_${schema.name}`;
     const statements: string[] = [];
 
-    const systemCols = [
-      'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
-      'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-      'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-      "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
-      'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
-      'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
-      // Multi-tenant: every collection row belongs to a tenant. Defaulted from
-      // the request's tenant GUC (set by withTenantIsolation), falling back to
-      // the default tenant so inserts outside a tenant transaction (CLI, jobs)
-      // still succeed. RLS (applied by the boot reconciler) isolates by this.
-      "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
-    ];
-
     const userCols = schema.fields
       .map((f) => {
         // Relation fields: show FK column in preview
@@ -1085,23 +1075,14 @@ export class DDLManager {
           const onDelete = String(f.options?.on_delete ?? 'SET NULL').toUpperCase();
           return `  "${f.name}" UUID REFERENCES "${targetTable}"(id) ON DELETE ${onDelete}`;
         }
-        const def = fieldTypeRegistry.get(f.type);
-        if (def?.db.virtual) return null;
-        const colType = def?.db.columnType ?? 'TEXT';
-        const nullable = f.required ? 'NOT NULL' : 'NULL';
-        // Same escaping rule as getColumnDDL — no field type ships a db default
-        // today, so this branch is currently unreachable, but leaving a raw
-        // interpolation here would re-open the hole the moment one does.
-        const defaultVal =
-          def?.db.defaultValue !== undefined && def?.db.defaultValue !== null
-            ? ` DEFAULT ${renderSqlDefault(def.db.defaultValue)}`
-            : '';
-        return `  "${f.name}" ${colType} ${nullable}${defaultVal}`;
+        // The same column DDL createCollection writes: UNIQUE and per-field defaults included.
+        const colDDL = fieldTypeRegistry.getColumnDDL(f as FieldConfig);
+        return colDDL ? `  ${colDDL}` : null;
       })
       .filter((s): s is string => s !== null);
 
     statements.push(
-      `CREATE TABLE IF NOT EXISTS ${tableName} (\n${[...systemCols.map((c) => `  ${c}`), ...userCols].join(',\n')}\n);`,
+      `CREATE TABLE IF NOT EXISTS ${tableName} (\n${[...SYSTEM_COLUMN_DDL.map((c) => `  ${c}`), ...userCols].join(',\n')}\n);`,
     );
 
     statements.push(
@@ -1126,22 +1107,11 @@ export class DDLManager {
         );
         continue;
       }
-      if (field.indexed) {
-        statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName}("${field.name}");`,
-        );
-        // The tenant-first form beside it, so a preview shows what a real
-        // create produces. Why it exists, and why not for `status`:
-        // `fieldTypeRegistry.getTenantIndexDDL`.
-        statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, `tenant_${field.name}`)} ` +
-            `ON ${tableName}(tenant_id, "${field.name}", created_at DESC);`,
-        );
-      }
-      if (field.unique) {
-        statements.push(
-          `ALTER TABLE ${tableName} ADD CONSTRAINT uq_${tableName}_${field.name} UNIQUE ("${field.name}");`,
-        );
+      for (const ddl of [
+        fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig),
+        fieldTypeRegistry.getTenantIndexDDL(tableName, field as FieldConfig),
+      ]) {
+        if (ddl) statements.push(`${toConcurrentIndex(ddl)};`);
       }
     }
 
