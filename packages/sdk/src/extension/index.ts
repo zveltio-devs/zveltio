@@ -443,6 +443,11 @@ export interface ExtensionInternals<DB = unknown> {
    * like a request's: the tenant GUC is set and `SET LOCAL ROLE` applied, so
    * the isolation policies bind.
    *
+   * Only the tenant the work already runs as — the request's, or the job's —
+   * is entered without a capability. Another tenant, or any tenant where none
+   * runs (load time, a timer), needs `db:admin`; without it the promise rejects.
+   * A fire-and-forget job started from a handler keeps the handler's tenant.
+   *
    *     await ctx.internals.withTenantIsolation(tenantId, async (db) => {
    *       await db.selectFrom('zvd_things').selectAll().execute();
    *     });

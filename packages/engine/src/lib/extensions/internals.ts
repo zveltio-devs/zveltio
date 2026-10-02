@@ -51,7 +51,7 @@ import {
 // as well — so the extension shipped throwing `request.headers.forEach is not a
 // function` on every invocation. A shared name is not a contract.
 import { runEdgeFunction } from '../edge-function-runner.js';
-import { withTenantIsolation } from '../tenancy/index.js';
+import { getCurrentDomainOrNull, withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiWrite, readScope } from '../data/index.js';
 import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
@@ -206,6 +206,10 @@ export interface ExtensionInternals {
    * The tenant has to come from wherever the work was ENQUEUED, since a job
    * has no caller to inherit from. Both the GUC and `SET LOCAL ROLE` are set,
    * so the isolation policies apply exactly as they do to a request.
+   *
+   * Only the tenant the work already runs as — the request's, or the job's
+   * (`runAsTenantWithoutTransaction`) — unless the extension holds `db:admin`.
+   * See `enterTenantAs`.
    */
   withTenantIsolation: <T>(tenantId: string, fn: (trx: Database) => Promise<T>) => Promise<T>;
 
@@ -495,13 +499,44 @@ const updateAsCaller = writeAsCaller('update');
 const deleteAsCaller = writeAsCaller('delete');
 
 /**
+ * `withTenantIsolation` as an extension gets it: the tenant must be the one the
+ * work already runs as, unless the extension holds `db:admin`.
+ *
+ * It was handed over raw, so the tenant was whatever the extension passed: an
+ * extension with no capability, serving a request in firm A, opened a
+ * transaction as firm B and read B's rows — more than `ctx.adminDb` grants, and
+ * that needs `db:admin`. The running tenant is the domain in the async context,
+ * set by the host (tenant middleware, flow scheduler), never by an argument.
+ * Outside any — load time, a timer — there is no tenant to inherit, so only
+ * `db:admin` enters one.
+ */
+function enterTenantAs(
+  caller: string,
+  anyTenant: boolean,
+): ExtensionInternals['withTenantIsolation'] {
+  return (tenantId, fn) => {
+    const running = getCurrentDomainOrNull();
+    if (anyTenant || tenantId === running) return withTenantIsolation(tenantId, fn);
+    return Promise.reject(
+      new Error(
+        `${caller}: ctx.internals.withTenantIsolation("${tenantId}") refused — this work runs ` +
+          (running ? `as tenant "${running}"` : 'as no tenant') +
+          ', and entering another needs the "db:admin" capability (declared in manifest.json ' +
+          'and approved by an administrator).',
+      ),
+    );
+  };
+}
+
+/**
  * Build the `ctx.internals` object passed to every extension. All helpers are
  * statically imported above and already linked into the engine binary — building
  * the object is just struct construction. Called once by the engine bootstrap
  * (index.ts) and passed to `loadAll`.
  */
 export function buildExtensionInternals(): ExtensionInternals {
-  return bindsCaller(buildUnboundInternals(), (caller) => ({
+  return bindsCaller(buildUnboundInternals(), (caller, granted) => ({
+    withTenantIsolation: enterTenantAs(caller, granted.has('db:admin')),
     setUserActive: (db: unknown, userId: string, active: boolean) =>
       setUserActive(db as Database, getDb(), userId, active, caller),
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),

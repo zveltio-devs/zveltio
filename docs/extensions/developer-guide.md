@@ -285,7 +285,7 @@ your `ctx`, not inside your own code.
 
 | Capability | Grants |
 | --- | --- |
-| `db:admin` | `ctx.adminDb` — the cross-tenant database handle. |
+| `db:admin` | `ctx.adminDb` — the cross-tenant database handle — and `ctx.internals.withTenantIsolation` into a tenant other than the one the request or job runs as, or where none runs (load time, a timer). Without it, `withTenantIsolation` enters only the running tenant. |
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — sign in any user who is not deactivated (optionally ending their other sessions). |
