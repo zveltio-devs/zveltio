@@ -4,6 +4,15 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Changed: a replica waits for another one's migrations on the engine's terms.**
+A replica that boots while another runs migrations waits for the migration
+lock. That wait was bounded by whatever `statement_timeout` the server or the
+database role carried — a setting meant for queries — so a long migration
+cancelled the waiting replicas with a bare Postgres message and they restarted
+in a loop until it finished. The wait now lifts `statement_timeout` and is
+bounded by `ZVELTIO_MIGRATION_LOCK_WAIT` (default `10min`) instead; when it
+runs out the error says another instance is migrating and names the variable.
+
 **Fixed: the boot migration lock is released, and stays held while it works.**
 Auto-migrate took a session advisory lock and released it on "the same
 connection", but the database driver sends each statement outside a

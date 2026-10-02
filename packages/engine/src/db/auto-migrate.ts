@@ -17,9 +17,14 @@
  * bugs.
  */
 
-import { withAdvisoryLock } from './advisory-lock.js';
+import { AdvisoryLockTimeout, withAdvisoryLock } from './advisory-lock.js';
 import type { Database } from './index.js';
-import { runPending, getLastAppliedMigration, assertChainCompatible } from './migrations/index.js';
+import {
+  runPending,
+  getLastAppliedMigration,
+  assertChainCompatible,
+  timeoutSetting,
+} from './migrations/index.js';
 import { MAX_SCHEMA_VERSION } from '../version.js';
 
 /**
@@ -83,17 +88,50 @@ export async function autoMigrate(db: Database): Promise<AutoMigrateResult> {
   console.log(`⚙️  Pending migrations: ${MAX_SCHEMA_VERSION - before}. Acquiring advisory lock…`);
 
   // Every replica waits here, then re-checks: the one ahead may have applied it all.
-  return withAdvisoryLock(db, MIGRATIONS_LOCK_KEY, async () => {
-    const recheck = await getLastAppliedMigration(db);
-    if (recheck >= MAX_SCHEMA_VERSION) {
-      console.log(`✅ Migrations applied by another replica while we waited (now at v${recheck})`);
-      return { ran: false, before, after: recheck, durationMs: Date.now() - t0 };
+  // The wait is bounded by ZVELTIO_MIGRATION_LOCK_WAIT, not by whatever
+  // statement_timeout the server or role carries: that one is set for queries,
+  // and cancelled a waiting replica into a restart loop with a bare Postgres
+  // message. Read before the wait so a malformed value fails at once.
+  const maxWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
+  try {
+    return await migrateUnderLock(db, before, t0, maxWait);
+  } catch (err) {
+    if (err instanceof AdvisoryLockTimeout) {
+      throw new Error(
+        `Another instance has been running migrations for more than ${maxWait}, so this one ` +
+          "stopped waiting. Check that instance's log: if it is still migrating, restart this " +
+          'one when it finishes, or raise ZVELTIO_MIGRATION_LOCK_WAIT for this upgrade.',
+        { cause: err },
+      );
     }
+    throw err;
+  }
+}
 
-    await runPending(db);
-    const after = await getLastAppliedMigration(db);
-    const durationMs = Date.now() - t0;
-    console.log(`✅ Auto-migrate complete: v${before} → v${after} (${durationMs}ms)`);
-    return { ran: true, before, after, durationMs };
-  });
+async function migrateUnderLock(
+  db: Database,
+  before: number,
+  t0: number,
+  maxWait: string,
+): Promise<AutoMigrateResult> {
+  return withAdvisoryLock(
+    db,
+    MIGRATIONS_LOCK_KEY,
+    async () => {
+      const recheck = await getLastAppliedMigration(db);
+      if (recheck >= MAX_SCHEMA_VERSION) {
+        console.log(
+          `✅ Migrations applied by another replica while we waited (now at v${recheck})`,
+        );
+        return { ran: false, before, after: recheck, durationMs: Date.now() - t0 };
+      }
+
+      await runPending(db);
+      const after = await getLastAppliedMigration(db);
+      const durationMs = Date.now() - t0;
+      console.log(`✅ Auto-migrate complete: v${before} → v${after} (${durationMs}ms)`);
+      return { ran: true, before, after, durationMs };
+    },
+    { maxWait },
+  );
 }
