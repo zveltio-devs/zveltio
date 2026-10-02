@@ -75,6 +75,23 @@ d('createBetterAuthSession through ctx.internals (no cache)', () => {
     expect(rows.rows).toHaveLength(0);
   });
 
+  it('ttlSeconds bounds the session and the cookie; crossDomain makes it SameSite=None; Secure', async () => {
+    const { userId } = await createMemberSession(app, db);
+    const before = Date.now();
+    const { token, setCookie } = await asRequest((trx) =>
+      internals.createBetterAuthSession(trx, userId, { ttlSeconds: 600, crossDomain: true }),
+    );
+    const attrs = setCookie.split('; ').slice(1);
+    expect(attrs).toContain('Max-Age=600');
+    expect(attrs).toContain('SameSite=None');
+    expect(attrs).toContain('Secure');
+    const row = await sql<{ expiresAt: Date }>`
+      SELECT "expiresAt" FROM session WHERE token = ${token}`.execute(db);
+    const expires = new Date(row.rows[0]?.expiresAt as Date).getTime();
+    expect(expires).toBeGreaterThanOrEqual(before + 600_000 - 1000);
+    expect(expires).toBeLessThanOrEqual(Date.now() + 600_000 + 1000);
+  });
+
   it('replaceExisting ends the previous SSO session', async () => {
     const { userId } = await createMemberSession(app, db);
     const first = await asRequest((trx) => internals.createBetterAuthSession(trx, userId));
