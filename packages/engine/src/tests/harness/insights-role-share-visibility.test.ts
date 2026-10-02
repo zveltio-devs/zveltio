@@ -93,6 +93,29 @@ d('a role-shared dashboard is listed as well as readable', () => {
     const ids = (await list.json()).dashboards.map((x: { id: string }) => x.id);
     expect(ids).not.toContain(dashboardId);
   });
+
+  it('a dashboard shared with one user is listed for that user only', async () => {
+    const mk = await app.request('/api/insights/dashboards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: god },
+      body: JSON.stringify({ name: `user-shared-${ROLE}` }),
+    });
+    const id = (await mk.json()).dashboard.id;
+    const share = await app.request(`/api/insights/dashboards/${id}/shares`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: god },
+      body: JSON.stringify({ shared_with_user_id: member.userId, permission: 'view' }),
+    });
+    expect(share.status).toBe(201);
+
+    const listed = async (cookie: string) =>
+      (
+        await (await app.request('/api/insights/dashboards', { headers: { cookie } })).json()
+      ).dashboards.map((x: { id: string }) => x.id);
+    expect(await listed(member.cookie)).toContain(id);
+    const other = await createMemberSession(app, db, { role: 'member', grants: [] });
+    expect(await listed(other.cookie)).not.toContain(id);
+  });
 });
 
 /**

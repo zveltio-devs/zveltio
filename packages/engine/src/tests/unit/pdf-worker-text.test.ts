@@ -28,6 +28,10 @@ describe('htmlToText', () => {
     );
   });
 
+  it('ends the paragraph of a heading spanning lines, which the heading pass cannot pair', () => {
+    expect(htmlToText('<h2>Terms\nof sale</h2>Body')).toBe('Terms\nof sale\n\nBody');
+  });
+
   it('drops scripts and styles with their contents', () => {
     expect(htmlToText('<style>p{}</style><script>alert(1)</script><p>x</p>')).toBe('x');
   });
