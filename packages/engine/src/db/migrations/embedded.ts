@@ -48,6 +48,7 @@ import m031 from './sql/032_sync_tombstones.sql' with { type: 'text' };
 import m032 from './sql/033_drop_column_role_mirror.sql' with { type: 'text' };
 import m033 from './sql/034_drop_removed_member_tenant_grants.sql' with { type: 'text' };
 import m034 from './sql/035_user_ban_source.sql' with { type: 'text' };
+import m035 from './sql/036_record_comments_parent_index.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -86,4 +87,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '033_drop_column_role_mirror.sql': m032,
   '034_drop_removed_member_tenant_grants.sql': m033,
   '035_user_ban_source.sql': m034,
+  '036_record_comments_parent_index.sql': m035,
 };

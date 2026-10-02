@@ -4,6 +4,11 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: deleting record comments no longer scans the whole table per row.**
+`zv_record_comments.parent_id` cascades deletes to replies but had no index, so
+every comment delete scanned the table: 5 000 deletes over 195 000 comments
+took 61 s. Migration 036 adds the index, built without blocking writes.
+
 **Changed: a replica waits for another one's migrations on the engine's terms.**
 A replica that boots while another runs migrations waits for the migration
 lock. That wait was bounded by whatever `statement_timeout` the server or the
