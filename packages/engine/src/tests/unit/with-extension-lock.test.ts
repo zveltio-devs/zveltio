@@ -45,4 +45,25 @@ describe('withExtensionLock', () => {
     await Promise.all([p1, p2]);
     expect(order).toEqual(['a-start', 'a-end', 'b']);
   });
+
+  it('locks per extension: another name neither waits nor shares the key', async () => {
+    const canned = new CannedDb();
+    canned.when(/pg_advisory_xact_lock/i, []);
+    const db = canned.kysely as unknown as Database;
+    const order: string[] = [];
+    const p1 = withExtensionLock(db, 'ext-a', async () => {
+      order.push('a-start');
+      await Bun.sleep(30);
+      order.push('a-end');
+    });
+    await Promise.resolve();
+    const p2 = withExtensionLock(db, 'ext-b', async () => {
+      order.push('b');
+    });
+    await Promise.all([p1, p2]);
+    // `b` did not wait for `a` to finish.
+    expect(order.indexOf('b')).toBeLessThan(order.indexOf('a-end'));
+    const keys = canned.executed(/pg_advisory_xact_lock/i).map((q) => q.parameters[0]);
+    expect(keys.sort()).toEqual(['ext:ext-a', 'ext:ext-b']);
+  });
 });

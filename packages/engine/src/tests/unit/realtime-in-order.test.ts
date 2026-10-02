@@ -32,3 +32,32 @@ it('a verdict that rejects behind a pending one is dropped, never unhandled', as
   expect(sent).toEqual(['first', 'second']);
   expect(queue.pending).toBeUndefined();
 });
+
+it('a send that throws behind a pending verdict is not an unhandled rejection', async () => {
+  // Writing to a socket that closed meanwhile throws; on the queued path that
+  // throw lands in a promise chain, where it would take the engine down.
+  process.on('unhandledRejection', listener);
+  const queue: { pending?: Promise<void> } = {};
+  let release!: (ok: boolean) => void;
+  inOrder(queue, new Promise<boolean>((r) => (release = r)), () => {
+    throw new Error('socket closed');
+  });
+  release(true);
+  await Bun.sleep(20);
+  expect(seen).toEqual([]);
+});
+
+it('an earlier verdict settling does not let a later one jump the queue', async () => {
+  const queue: { pending?: Promise<void> } = {};
+  const sent: string[] = [];
+  let releaseA!: (ok: boolean) => void;
+  let releaseB!: (ok: boolean) => void;
+  inOrder(queue, new Promise<boolean>((r) => (releaseA = r)), () => sent.push('a'));
+  inOrder(queue, new Promise<boolean>((r) => (releaseB = r)), () => sent.push('b'));
+  releaseA(true);
+  await Bun.sleep(10); // `a` is done, `b` still pending
+  inOrder(queue, true, () => sent.push('c'));
+  releaseB(true);
+  await Bun.sleep(10);
+  expect(sent).toEqual(['a', 'b', 'c']);
+});

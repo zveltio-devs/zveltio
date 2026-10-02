@@ -249,9 +249,11 @@ export async function revokeAllUserSessions(
       // `listSessions`, and present-but-unlistable is its own kind of broken.
       // Double-encoded on the way in, matching how the adapter stores what
       // better-auth already stringified.
+      // KEEPTTL: the adapter wrote this key with SETEX; a plain SET dropped the
+      // expiry and left the index in Valkey for good.
       if (kept.length > 0) {
         await cache
-          .set(`active-sessions-${userId}`, JSON.stringify(JSON.stringify(kept)))
+          .set(`active-sessions-${userId}`, JSON.stringify(JSON.stringify(kept)), 'KEEPTTL')
           .catch(() => {});
       } else {
         await cache.del(`active-sessions-${userId}`).catch(() => {});
