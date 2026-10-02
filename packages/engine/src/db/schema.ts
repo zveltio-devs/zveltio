@@ -555,6 +555,7 @@ export interface ZvBackupsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   completed_at: Date | null;
+  schedule_id: string | null; // migration 037 — the schedule that wrote it
 }
 
 export interface ZvBackupSchedulesTable {

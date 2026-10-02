@@ -45,18 +45,27 @@ export interface ScheduledBackupOutcome {
  * the path that most needs a bound on what it leaves behind, since nobody is
  * there afterwards to notice or delete an old dump by hand.
  *
- * This is a global cap, not the per-schedule `retention_count` a schedule
- * stores: `zv_backups` carries no `schedule_id` to group by, so honouring a
- * schedule's own count needs a schema change wider than this file — logged
- * rather than built here.
+ * Each schedule keeps its own `retention_count` newest completed dumps
+ * (`zv_backups.schedule_id`, migration 037); backups no schedule owns keep the
+ * newest 20. The count was stored and never read until then.
  */
+/** How many backups no schedule owns are kept. */
+const UNSCHEDULED_KEEP = 20;
+
 export async function cleanupOldBackups(db: Database): Promise<void> {
   try {
+    // Each schedule keeps its own retention_count newest; backups no schedule
+    // owns (the one-off button, or a deleted schedule's) keep the newest 20.
     const oldBackups = await sql<{ id: string; filename: string }>`
-      SELECT id::text, filename FROM zv_backups
-      WHERE status = 'completed'
-      ORDER BY created_at DESC
-      OFFSET 20
+      SELECT id::text, filename FROM (
+        SELECT b.id, b.filename,
+               row_number() OVER (PARTITION BY b.schedule_id ORDER BY b.created_at DESC) AS n,
+               COALESCE(s.retention_count, ${UNSCHEDULED_KEEP}) AS keep
+          FROM zv_backups b
+          LEFT JOIN zv_backup_schedules s ON s.id = b.schedule_id
+         WHERE b.status = 'completed'
+      ) ranked
+      WHERE n > keep
     `.execute(db);
 
     for (const backup of oldBackups.rows) {
@@ -105,8 +114,8 @@ export async function runScheduledBackup(
   const note = opts.note ?? `Triggered by schedule: ${scheduleName}`;
 
   const inserted = await sql<{ id: string }>`
-    INSERT INTO zv_backups (filename, status, created_by, notes)
-    VALUES (${filename}, 'in_progress', ${actorId}, ${note})
+    INSERT INTO zv_backups (filename, status, created_by, notes, schedule_id)
+    VALUES (${filename}, 'in_progress', ${actorId}, ${note}, ${scheduleId}::uuid)
     RETURNING id::text
   `.execute(db);
   const backupId = inserted.rows[0]!.id;

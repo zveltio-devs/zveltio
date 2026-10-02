@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a backup schedule keeps its own number of backups.** A schedule's
+`retention_count` was accepted, stored and returned by the schedules API, and
+read by nothing: pruning kept the newest 20 backups overall. Migration 037
+records which schedule wrote each backup; each schedule now keeps its own count,
+and backups no schedule owns keep the newest 20.
+
 **Fixed: deleting record comments no longer scans the whole table per row.**
 `zv_record_comments.parent_id` cascades deletes to replies but had no index, so
 every comment delete scanned the table: 5 000 deletes over 195 000 comments

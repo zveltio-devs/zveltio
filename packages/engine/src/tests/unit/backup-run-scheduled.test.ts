@@ -26,8 +26,8 @@ const PAYLOAD = 'PGDMP fake dump bytes\n';
 const INSERT_BACKUP = /INSERT INTO zv_backups/i;
 const UPDATE_BACKUP = /UPDATE zv_backups/i;
 const UPDATE_SCHEDULE = /UPDATE zv_backup_schedules/i;
-// Unique to cleanupOldBackups's SELECT — nothing else in this path queries an OFFSET.
-const CLEANUP_SELECT = /OFFSET 20/i;
+// Unique to cleanupOldBackups's SELECT — nothing else in this path ranks rows.
+const CLEANUP_SELECT = /WHERE n > keep/i;
 
 // Imported after BACKUP_DIR is set: the module reads it once, at load.
 let runScheduledBackup: typeof import('../../lib/backup/run-scheduled-backup.js').runScheduledBackup;
