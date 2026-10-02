@@ -269,14 +269,23 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         limit: query.limit,
         search: query.search,
       });
+      // Row policies, alters and entity access in memory — the rows come from
+      // an upstream API, so there is no query to attach them to. Only the
+      // columns were gated before. When any row gate applies, the upstream's
+      // total counts rows this caller may not see, so it is not reported.
+      const admitted = await Promise.all(
+        data.map(async (r: Record<string, unknown>) => ((await scope.admits(r)) ? r : null)),
+      );
+      const visible = admitted.filter((r): r is Record<string, unknown> => r !== null);
+      const gated = scope.rls.length > 0 || scope.altersRestrict || visible.length < data.length;
       // Column permissions apply to virtual collections too.
       return c.json({
-        records: data.map((r: Record<string, unknown>) => scope.shape(r)),
+        records: visible.map((r) => scope.shape(r)),
         pagination: {
-          total,
+          total: gated ? -1 : total,
           page: query.page,
           limit: query.limit,
-          pages: Math.ceil(total / query.limit),
+          pages: gated ? -1 : Math.ceil(total / query.limit),
         },
       });
     } catch (err) {

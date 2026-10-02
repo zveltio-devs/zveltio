@@ -140,7 +140,13 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   if (virtualConfigSingle) {
     try {
       const record = await virtualGetOne(virtualConfigSingle, id);
-      if (!record) return c.json({ error: 'Record not found' }, 404);
+      // Row policies, alters and entity access in memory, as for `?as_of=`:
+      // the record comes from an upstream API, so there is no query to attach
+      // them to. Only the columns were gated before — a row its policy hides
+      // was served whole.
+      if (!record || !(await scope.admits(record))) {
+        return c.json({ error: 'Record not found' }, 404);
+      }
       // Column permissions apply to virtual collections too — hide columns the
       // role can't read instead of proxying them through verbatim.
       return c.json({ record: scope.shape(record) });
