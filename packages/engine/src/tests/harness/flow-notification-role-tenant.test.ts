@@ -34,7 +34,8 @@ const ROLE = `probe_notify_${TAG}`;
 const MANAGER = `probe_mgr_${TAG}`;
 const CYC_X = `probe_cx_${TAG}`;
 const CYC_Y = `probe_cy_${TAG}`;
-const ROLES = [ROLE, MANAGER, CYC_X, CYC_Y];
+const B_ONLY = `probe_bonly_${TAG}`;
+const ROLES = [ROLE, MANAGER, CYC_X, CYC_Y, B_ONLY];
 
 d('flow send_notification to a role stays in the flow tenant', () => {
   let db: Database;
@@ -45,6 +46,7 @@ d('flow send_notification to a role stays in the flow tenant', () => {
     everywhere: `fnr-star-${TAG}`,
     manager: `fnr-mgr-${TAG}`,
     cyclic: `fnr-cyc-${TAG}`,
+    bOnlyHeir: `fnr-bonly-${TAG}`,
   };
 
   async function notifiedBy(tenantId: string, role: string): Promise<string[]> {
@@ -92,6 +94,11 @@ d('flow send_notification to a role stays in the flow tenant', () => {
       [CYC_X, CYC_Y, '*'],
       [CYC_Y, CYC_X, '*'],
       [users.cyclic, CYC_X, TENANT_A],
+      // B_ONLY inherits ROLE in tenant B alone. Holding B_ONLY in tenant A is
+      // not holding ROLE there: tenant B's role tree must not be walked for a
+      // tenant-A flow.
+      [B_ONLY, ROLE, TENANT_B],
+      [users.bOnlyHeir, B_ONLY, TENANT_A],
     ];
     for (const [v0, v1, dom] of grants) {
       await sql`

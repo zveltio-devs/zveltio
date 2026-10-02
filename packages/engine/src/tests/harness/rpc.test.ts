@@ -6,7 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const FN = 'harness_rpc_ping';
@@ -38,7 +43,9 @@ d('rpc routes (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`
+    await sql`
+      DELETE FROM zvd_rpc_functions WHERE function_name IN (${FN}, 'harness_rpc_member_add')
+    `
       .execute(db)
       .catch(() => {});
     await sql`DROP FUNCTION IF EXISTS ${sql.raw(`"${FN}"`)}()`.execute(db).catch(() => {});
@@ -71,6 +78,34 @@ d('rpc routes (in-process)', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { function: { description: string } };
     expect(body.function.description).toBe('updated harness fn');
+  });
+
+  it('a member cannot read or change the whitelist', async () => {
+    // The whitelist decides which SQL functions anyone may execute. Each of its
+    // four routes carries its own `requireInstanceAdmin`, and removing any one
+    // of them left every other test here green: they all run as god.
+    const { cookie: member } = await createMemberSession(app, db);
+    const send = (method: string, path: string, body?: unknown) =>
+      app.request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie: member },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    expect((await send('GET', '/api/rpc')).status).toBe(403);
+    expect(
+      (await send('POST', '/api/rpc', { function_name: 'harness_rpc_member_add' })).status,
+    ).toBe(403);
+    expect(
+      (await send('PATCH', `/api/rpc/${whitelistId}`, { required_role: 'member' })).status,
+    ).toBe(403);
+    expect((await send('DELETE', `/api/rpc/${whitelistId}`)).status).toBe(403);
+
+    const rows = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zvd_rpc_functions
+       WHERE function_name IN (${FN}, 'harness_rpc_member_add')
+    `.execute(db);
+    expect(rows.rows[0]!.n).toBe(1);
   });
 
   it('rejects unauthenticated rpc calls', async () => {

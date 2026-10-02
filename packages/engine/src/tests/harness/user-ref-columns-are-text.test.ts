@@ -42,7 +42,7 @@ d('user reference columns (in-process)', () => {
         FROM information_schema.columns
        WHERE table_schema = 'public'
          AND data_type = 'uuid'
-         AND column_name ~ '_by$'
+         AND column_name ~ '(_by|(^|_)user_id|(^|_)owner_id)$'
        ORDER BY table_name, column_name
     `.execute(db);
 

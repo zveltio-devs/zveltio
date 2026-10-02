@@ -91,6 +91,16 @@ d('role hierarchy excludes user assignments (in-process)', () => {
     expect(await count(userId, ROLE)).toBe(1);
   });
 
+  it('refuses to add a user as a child role through the hierarchy endpoint', async () => {
+    // The mirror of the DELETE guard: without it, POST wrote a user role
+    // assignment, audited as a hierarchy change, that GET then hides because
+    // its child is a user.
+    const res = await send('/api/admin/roles/hierarchy', 'POST', { child: userId, parent: PARENT });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain('is a user, not a role');
+    expect(await count(userId, PARENT)).toBe(0);
+  });
+
   it('removes a role edge (DELETE was shadowed by DELETE /roles/:id)', async () => {
     const res = await send('/api/admin/roles/hierarchy', 'DELETE', {
       child: CHILD,

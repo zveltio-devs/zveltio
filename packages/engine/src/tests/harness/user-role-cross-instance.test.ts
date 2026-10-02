@@ -20,12 +20,19 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { dispatchToWs, realtimeBus, type RealtimeBusMessage } from '../../lib/runtime/index.js';
+import {
+  ACCESS_RULES_CHANGED_EVENT,
+  dispatchToWs,
+  realtimeBus,
+  type RealtimeBusMessage,
+} from '../../lib/runtime/index.js';
 import {
   __sweepIdle,
   getEnforcer,
+  invalidateUserPermCache,
   isGodUser,
   permissionGeneration,
 } from '../../lib/tenancy/index.js';
@@ -119,6 +126,28 @@ d('a user role change reaches open subscriptions', () => {
 
     expect(await isGodUser(userId)).toBe(false);
     expect(leaks(frames, `LOCAL-${STAMP}`)).toBe(false);
+  });
+
+  it('a role change made outside any transaction sweeps and is announced too', async () => {
+    // `invalidateUserPermCache` has two branches: inside a request transaction
+    // it defers to after-commit (the cases above), outside one it sweeps at
+    // once. Dropping the second branch left every other test green.
+    const { userId, frames } = await godWithSocket();
+    sent.length = 0;
+
+    await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
+    await invalidateUserPermCache(userId);
+    await __sweepIdle();
+
+    expect(await isGodUser(userId)).toBe(false);
+    expect(leaks(frames, `NOTRX-${STAMP}`)).toBe(false);
+    expect(
+      sent.some(
+        (m) =>
+          m.event === ACCESS_RULES_CHANGED_EVENT &&
+          (m.data as { userId?: string } | undefined)?.userId === userId,
+      ),
+    ).toBe(true);
   });
 
   it('another instance stops streaming to a god demoted here', async () => {
