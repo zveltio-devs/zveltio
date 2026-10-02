@@ -15,8 +15,7 @@ export async function applyFailClosedTenantSetting(db: Database): Promise<void> 
     const r = await sql<{ db: string }>`SELECT current_database() AS db`.execute(db);
     const dbName = r.rows[0]?.db;
     if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName)) {
-      console.warn('[tenant] skip fail-closed GUC — unexpected database name');
-      return;
+      throw new Error(`unexpected database name ${JSON.stringify(dbName)}`);
     }
     if (enabled) {
       await sql.raw(`ALTER DATABASE "${dbName}" SET zveltio.fail_closed_tenant = 'on'`).execute(db);
@@ -32,9 +31,19 @@ export async function applyFailClosedTenantSetting(db: Database): Promise<void> 
       await sql`SELECT set_config('zveltio.fail_closed_tenant', 'off', false)`.execute(db);
     }
   } catch (err) {
-    console.warn(
-      '[tenant] could not apply fail-closed GUC:',
-      err instanceof Error ? err.message : err,
-    );
+    const why = err instanceof Error ? err.message : String(err);
+    // Asked for and not applied is fatal. The operator set this to make a
+    // contextless query see zero rows; booting without it — a non-owner role
+    // gets 'must be owner of database' — is the opposite, and a warning
+    // scrolls past during a deploy. Turning it OFF is only a warning: a
+    // setting that stays on is stricter, not looser.
+    if (enabled) {
+      throw new Error(
+        `ZVELTIO_FAIL_CLOSED_TENANT=1 could not be applied (${why}). Run ` +
+          `ALTER DATABASE <db> SET zveltio.fail_closed_tenant = 'on' as the database ` +
+          'owner, or unset the variable.',
+      );
+    }
+    console.warn('[tenant] could not apply fail-closed GUC:', why);
   }
 }

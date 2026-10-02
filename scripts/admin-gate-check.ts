@@ -60,8 +60,21 @@ const ROOTS = ['packages/engine/src/routes'];
 
 requireSibling(EXT_ROOT, 'admin-gate-check');
 
-/** `checkPermission(x, 'admin', '*')` with any argument spacing. */
-const BARE_GATE = /checkPermission\(\s*[A-Za-z0-9_.]+\s*,\s*'admin'\s*,\s*'\*'\s*\)/;
+/**
+ * `checkPermission(x, 'admin', '*')` with any spacing — line breaks included,
+ * because the formatter wraps a long call — and any quote style. Matched over
+ * the whole file: a line-by-line scan missed the wrapped form, and double
+ * quotes escaped it.
+ */
+const BARE_GATE =
+  /checkPermission\(\s*[A-Za-z0-9_.]+\s*,\s*(['"`])admin\1\s*,\s*(['"`])\*\2\s*,?\s*\)/g;
+
+/** Comments blanked, newlines kept, so a match's offset still gives its line. */
+function blankComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/.*$/gm, (c, pre: string) => pre + ' '.repeat(c.length - pre.length));
+}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -77,13 +90,12 @@ const violations: string[] = [];
 
 for (const root of ROOTS) {
   for (const file of walk(root)) {
-    const lines = readFileSync(file, 'utf-8').split('\n');
-    lines.forEach((line, i) => {
-      const trimmed = line.trim();
-      // Comments may quote the pattern — this file's own docs do.
-      if (trimmed.startsWith('//') || trimmed.startsWith('*')) return;
-      if (BARE_GATE.test(line)) violations.push(`${file}:${i + 1}  ${trimmed.slice(0, 100)}`);
-    });
+    // Comments may quote the pattern — this file's own docs do.
+    const src = blankComments(readFileSync(file, 'utf-8'));
+    for (const m of src.matchAll(BARE_GATE)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      violations.push(`${file}:${line}  ${m[0].replace(/\s+/g, ' ').slice(0, 100)}`);
+    }
   }
 }
 

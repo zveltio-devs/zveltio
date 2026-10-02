@@ -167,6 +167,12 @@ d('saved queries (in-process)', () => {
     const id = body.query?.id ?? body.data?.id ?? body.id;
     expect(id).toBeDefined();
     queryId = id!;
+    // Stored as the object it is, not a JSON string of it: `::jsonb` on a
+    // stringified value kept a jsonb STRING, so `config->'filters'` was NULL.
+    const kind = await sql<{ t: string }>`
+      SELECT jsonb_typeof(config) AS t FROM zv_saved_queries WHERE id = ${queryId}::uuid
+    `.execute(db);
+    expect(kind.rows[0]?.t).toBe('object');
   });
 
   it('lists saved queries (GET /) including the new one', async () => {

@@ -350,6 +350,29 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
       }
     }
   }
+
+  // The same wrong cast in a raw `sql` INSERT/UPDATE, which the Kysely-chain
+  // scan above never sees: zv_saved_queries.config was written this way while
+  // this gate reported zero sites. A stringified value cast straight to jsonb
+  // is a jsonb string whatever the column, so no column lookup is needed.
+  // This repository only: the sibling ratchets the same shape with its own
+  // gate (scripts/check-jsonb-cast.ts there), against its own baseline.
+  if (file.startsWith(EXT_ROOT)) return found;
+  const rawCast = /\$\{\s*JSON\.stringify\([^`]*?\)\s*\}\s*::\s*jsonb\b/g;
+  // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
+  while ((m = rawCast.exec(src)) !== null) {
+    // A backtick inside a `//` comment confuses stripComments; a comment that
+    // NAMES the wrong form is not a site.
+    const lineStart = src.lastIndexOf('\n', m.index) + 1;
+    if (/^\s*(\/\/|\*)/.test(src.slice(lineStart, m.index))) continue;
+    found.push({
+      file: relative(ROOT, file),
+      line: src.slice(0, m.index).split('\n').length,
+      table: '(raw sql)',
+      column: '::jsonb',
+      form: `${INTERP_OPEN}JSON.stringify(…)}::jsonb`,
+    });
+  }
   return found;
 }
 

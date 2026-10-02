@@ -20,6 +20,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { DDLManager, readScope } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { toJsonb } from '../lib/jsonb.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -570,7 +571,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
       const result = await sql<{ id: string }>`
         INSERT INTO zv_saved_queries (name, description, collection, config, is_shared, created_by, tenant_id)
-        VALUES (${data.name}, ${data.description || null}, ${data.collection}, ${JSON.stringify(data.config)}::jsonb, ${isShared}, ${user.id}, ${tenantId(c)}::uuid)
+        VALUES (${data.name}, ${data.description || null}, ${data.collection}, ${toJsonb(data.config)}, ${isShared}, ${user.id}, ${tenantId(c)}::uuid)
         RETURNING id
       `.execute(reqDb(c, db));
 

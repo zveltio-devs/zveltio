@@ -43,8 +43,16 @@ describe('applyFailClosedTenantSetting', () => {
     expect(db.executed(/RESET zveltio\.fail_closed_tenant/i).length).toBeGreaterThan(0);
   });
 
-  it('swallows probe errors', async () => {
+  it('refuses to boot when the flag is set and cannot be applied', async () => {
     process.env.ZVELTIO_FAIL_CLOSED_TENANT = '1';
+    const db = new CannedDb();
+    db.when(/current_database/i, [{ db: 'zveltio_test' }]);
+    db.fail(/ALTER DATABASE/i, new Error('must be owner of database zveltio_test'));
+    await expect(applyFailClosedTenantSetting(asDb(db))).rejects.toThrow('must be owner');
+  });
+
+  it('only warns when turning it off fails — the setting that stays is stricter', async () => {
+    delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     const db = new CannedDb();
     db.fail(/current_database/i, new Error('boom'));
     const warn = spyOn(console, 'warn').mockImplementation(() => {});

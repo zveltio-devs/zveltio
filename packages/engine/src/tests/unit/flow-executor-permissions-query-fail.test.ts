@@ -32,4 +32,17 @@ describe('executeStep — send_notification role lookup failures', () => {
     ).rejects.toThrow('permissions table missing');
     expect(db.executed(/INSERT INTO "zv_notifications"/i)).toHaveLength(0);
   });
+
+  it('reports sent: false when nobody holds the role', async () => {
+    const db = new CannedDb();
+    db.when(/FROM "user" u/i, []);
+    const r = await executeStep(
+      db.kysely as unknown as Database,
+      { type: 'send_notification', config: { role: 'editor', title: 'Hi', message: 'There' } },
+      {},
+      {},
+    );
+    expect(r.output).toMatchObject({ sent: false, count: 0 });
+    expect(db.executed(/INSERT INTO "zv_notifications"/i)).toHaveLength(0);
+  });
 });

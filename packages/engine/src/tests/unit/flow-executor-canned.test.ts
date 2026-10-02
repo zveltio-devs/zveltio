@@ -424,7 +424,7 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.error).toMatch(/No role or user_id/i);
   });
 
-  it('send_notification with an empty role still reports sent with count 0', async () => {
+  it('send_notification to a role nobody holds reports sent: false, count 0', async () => {
     const db = new CannedDb();
     db.when(/SELECT v0 FROM zvd_permissions/i, []);
     const { output } = await executeStep(
@@ -433,7 +433,7 @@ describe('executeStep — CannedDb branches', () => {
       {},
       {},
     );
-    expect(output.sent).toBe(true);
+    expect(output.sent).toBe(false);
     expect(output.count).toBe(0);
   });
 
