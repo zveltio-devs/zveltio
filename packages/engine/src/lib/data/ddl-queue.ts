@@ -213,12 +213,36 @@ export async function enqueueDDLJob(
 async function waitForJobToSettle(queue: string, id: string, timeoutMs = 30_000): Promise<void> {
   if (!_boss) return;
   const start = Date.now();
+  let state = 'unknown';
   while (Date.now() - start < timeoutMs) {
     const job = await _boss.getJobById(queue, id).catch(() => null);
     if (!job) return;
+    state = job.state;
     if (['completed', 'failed', 'cancelled'].includes(job.state)) return;
     await Bun.sleep(50);
   }
+  // It used to return here as if the job had run, and the caller answered 202
+  // over a table that did not exist yet. Say so, with what the database was
+  // doing, so a stall in CI names its cause instead of a 30 s timeout.
+  throw new Error(
+    `[ddl-queue] ${queue} job ${id} still ${state} after ${timeoutMs} ms; ` +
+      `backends: ${await describeBackends()}`,
+  );
+}
+
+/** Every busy or blocked backend of this database, for a stall report. Bounded. */
+async function describeBackends(): Promise<string> {
+  const q = sql<Record<string, unknown>>`
+    SELECT pid, state, wait_event_type, wait_event, pg_blocking_pids(pid) AS blocked_by,
+           round(extract(epoch FROM now() - xact_start)) AS xact_s, left(query, 160) AS query
+      FROM pg_stat_activity
+     WHERE datname = current_database() AND pid <> pg_backend_pid() AND state <> 'idle'
+  `
+    .execute(_db)
+    .then((r) => JSON.stringify(r.rows));
+  return Promise.race([q, Bun.sleep(5000).then(() => 'unavailable (query hung)')]).catch(
+    (err) => `unavailable (${(err as Error).message})`,
+  );
 }
 
 /**
