@@ -60,7 +60,7 @@ jobs:
         with:
           bun-version: '1.3.14'
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       # The same sequence the Studio workflow uses, and for the same reasons:
       # the SDK's `dist/` and paraglide's output are both gitignored, so they

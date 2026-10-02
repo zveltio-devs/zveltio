@@ -100,6 +100,22 @@ describe('check-private-docs-untracked — docs/private as a symlink', () => {
     }
   });
 
+  it('refuses a tracked FILE named docs/private', () => {
+    // The pathspec had a trailing slash, which matches directories only: this
+    // file was tracked, and the gate said `untracked and ignored`.
+    const { base, root } = fixture({ symlink: false, ignored: true });
+    try {
+      rmSync(join(root, 'docs', 'private'), { recursive: true, force: true });
+      writeFileSync(join(root, 'docs', 'private'), 'notes\n');
+      Bun.spawnSync(['git', 'add', '-f', 'docs/private'], { cwd: root });
+      const { code, out } = runGate(root);
+      expect(out).toContain('tracked under');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a symlink that is NOT ignored — the next `git add` would commit it', () => {
     const { base, root } = fixture({ symlink: true, ignored: false });
     try {

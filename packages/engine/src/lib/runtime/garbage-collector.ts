@@ -1,15 +1,15 @@
 /**
- * Garbage Collector — deletes soft-deleted rows older than 30 days, applies
- * log retention, and fails flow runs abandoned in 'running'.
+ * Garbage Collector — applies log retention, purges old sync tombstones, and
+ * fails flow runs abandoned in 'running'. Once per night, on one replica.
  *
- * Scans all tenant_ + public schemas, finds tables with column
- * "_deletedAt" and executes DELETE for expired rows.
- *
- * Runs automatically at 03:00 every night (scheduled by flow-scheduler).
+ * It also swept every `tenant_%`/public table for a `_deletedAt` column. No
+ * table has one — the engine's soft delete is `deleted_at`, purged by the
+ * trash handler — so that sweep deleted nothing, ever, and was removed.
  */
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import { withEveryTenant } from '../tenancy/index.js';
 
 const ABANDONED_RUN_HOURS = 6;
@@ -23,47 +23,7 @@ export const SYNC_TOMBSTONE_RETENTION_DAYS = 30;
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
 
-  // Collect all schemas: tenant_* + public
-  const schemasResult = await sql<{ schema_name: string }>`
-    SELECT schema_name
-    FROM information_schema.schemata
-    WHERE schema_name LIKE 'tenant_%' OR schema_name = 'public'
-    ORDER BY schema_name
-  `.execute(db);
-
-  const schemas = schemasResult.rows.map((r) => r.schema_name);
   let totalDeleted = 0;
-
-  for (const schema of schemas) {
-    // Find tables in this schema that have column _deletedAt
-    const tablesResult = await sql<{ table_name: string }>`
-      SELECT table_name
-      FROM information_schema.columns
-      WHERE table_schema = ${schema}
-        AND column_name = '_deletedAt'
-    `.execute(db);
-
-    for (const { table_name } of tablesResult.rows) {
-      try {
-        // RETURNING, not `numAffectedRows` — the latter is absent on this
-        // dialect, so every purge logged and totalled zero however much it
-        // actually deleted.
-        const result = await sql<{ ok: number }>`
-          DELETE FROM ${sql.id(schema, table_name)}
-          WHERE "_deletedAt" < NOW() - INTERVAL '30 days'
-          RETURNING 1 AS ok
-        `.execute(db);
-
-        const deleted = result.rows.length;
-        if (deleted > 0) {
-          console.log(`[GC] ${schema}.${table_name}: ${deleted} rows deleted`);
-          totalDeleted += deleted;
-        }
-      } catch {
-        // Table may be unavailable or there may be an error — skip silently
-      }
-    }
-  }
 
   // ── Retention purges for high-churn audit tables ──────────────────
   // zv_request_logs grows ~one row per API call — without a retention
@@ -206,9 +166,13 @@ export function scheduleGarbageCollector(db: Database): () => void {
     );
 
     timer = setTimeout(async () => {
-      await runGarbageCollector(db).catch((err) => {
-        console.error('[GC] Error during garbage collection:', err);
-      });
+      // Every replica wakes at 03:00; one runs the sweep, the rest find the
+      // lock held and skip. The deletes were idempotent but not free.
+      await tryAdvisoryLock(db, 'zveltio:garbage-collector', () => runGarbageCollector(db)).catch(
+        (err) => {
+          console.error('[GC] Error during garbage collection:', err);
+        },
+      );
       scheduleNext(); // Re-schedule for the next day
     }, msUntil);
   }

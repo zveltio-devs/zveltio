@@ -26,6 +26,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { requireSibling } from './lib/require-sibling.js';
 
 const ROOT = process.cwd();
 const EXT_ROOT = process.env.EXTENSIONS_ROOT ?? join(ROOT, '..', 'zveltio-extensions');
@@ -110,6 +111,8 @@ function shadows(p: Route, s: Route): boolean {
 
 const files = new Set<string>();
 for (const f of walkRouteFiles(join(ROOT, 'packages', 'engine', 'src', 'routes'))) files.add(f);
+// An absent sibling dropped 75 of 112 files and still printed the all-clear.
+if (!process.env.EXTENSIONS_ROOT) requireSibling(EXT_ROOT, 'route-collision');
 for (const f of walkRouteFiles(EXT_ROOT)) files.add(f);
 
 let count = 0;
