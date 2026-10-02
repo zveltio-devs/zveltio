@@ -9,7 +9,13 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { createRequestScopedDb, runWithTenantTrx } from '../../lib/tenancy/index.js';
+import {
+  createRequestScopedDb,
+  getUnscopedFallbackCount,
+  resetUnscopedFallbackCount,
+  runWithTenantTrx,
+} from '../../lib/tenancy/index.js';
+import { setTenantScopedTables } from '../../lib/tenancy/tenant-context.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 
 /** A stand-in for the pool: enough surface to tell it apart from a transaction. */
@@ -136,5 +142,35 @@ describe('createRequestScopedDb', () => {
       .transaction()
       .execute((t) => t);
     expect(opened).toBe('pool:own-transaction');
+  });
+});
+
+describe('a tenant-scoped table reached with no tenant transaction', () => {
+  // The pool connects as a superuser, which bypasses RLS: a scoped table read
+  // through it sees every tenant. Neither the counter nor the strict-mode throw
+  // that guard against it was tested — removing either passed every test.
+  it('is counted, and refused under ZVELTIO_STRICT_TENANT_SCOPE=1', () => {
+    const saved = process.env.ZVELTIO_STRICT_TENANT_SCOPE;
+    setTenantScopedTables(['zvd_contacts']);
+    resetUnscopedFallbackCount();
+    try {
+      const db = createRequestScopedDb(fakePool('pool'));
+      delete process.env.ZVELTIO_STRICT_TENANT_SCOPE;
+      expect(db.selectFrom('zvd_contacts' as never) as unknown).toBe('pool:select:zvd_contacts');
+      expect(db.selectFrom('zv_settings' as never) as unknown).toBe('pool:select:zv_settings');
+      expect(getUnscopedFallbackCount()).toBe(1);
+
+      process.env.ZVELTIO_STRICT_TENANT_SCOPE = '1';
+      expect(() => db.selectFrom('zvd_contacts as c' as never)).toThrow(/tenant-scope/);
+      // Inside a request transaction nothing is counted or refused.
+      runWithTenantTrx(fakeTrx('trx'), DEFAULT_TENANT_ID, () => {
+        expect(db.selectFrom('zvd_contacts' as never) as unknown).toBe('trx:select:zvd_contacts');
+      });
+    } finally {
+      if (saved === undefined) delete process.env.ZVELTIO_STRICT_TENANT_SCOPE;
+      else process.env.ZVELTIO_STRICT_TENANT_SCOPE = saved;
+      setTenantScopedTables([]);
+      resetUnscopedFallbackCount();
+    }
   });
 });
