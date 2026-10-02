@@ -1,58 +1,70 @@
 /**
- * `action_url` on a broadcast notification is a link people click.
+ * Where a notification's link may point.
  *
- * The schema said `z.string().url().optional()`, which reads like validation
- * and is not: `new URL()` accepts `javascript:alert(1)` and
- * `data:text/html,…` quite happily, so both passed. The Studio renders the
- * value as the notification's link, and a notification that appears to come
- * from the platform is exactly the thing people click without reading — so a
- * tenant admin could hand every member of their tenant a click-to-execute
- * payload through a field that looked checked.
- *
- * These cases pin the shapes that must not survive, and the two that must.
+ * `z.string().url()` alone accepts `javascript:alert(1)` and `data:text/html,…`,
+ * and the push service worker navigates to the link on click. This file used to
+ * assert a copy of the route's zod schema written inside the test — so the
+ * route could drop its check and nothing here would notice, and the copy also
+ * hid that `.url()` refused the in-app paths the message promised. It drives
+ * the real validator and the in-process sender (flows, extensions) now.
  */
+import { describe, expect, it, spyOn } from 'bun:test';
+import type { Database } from '../../db/index.js';
+import { isSafeActionUrl, sendNotification } from '../../lib/notifications.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
-import { describe, expect, it } from 'bun:test';
-import { z } from 'zod';
-
-/** The schema as the broadcast route declares it. */
-const actionUrl = z
-  .string()
-  .url()
-  .refine(
-    (u) => /^https?:\/\//i.test(u) || u.startsWith('/'),
-    'action_url must be an http(s) URL or an in-app path',
-  )
-  .optional();
-
-const accepts = (u: string) => actionUrl.safeParse(u).success;
-
-describe('notification action_url', () => {
-  it('accepts an ordinary https link', () => {
-    expect(accepts('https://zveltio.com/invoices/42')).toBe(true);
+describe('isSafeActionUrl', () => {
+  it('accepts http(s) links and in-app paths', () => {
+    expect(isSafeActionUrl('https://zveltio.com/invoices/42')).toBe(true);
+    expect(isSafeActionUrl('http://intranet.local/tickets/7')).toBe(true);
+    // Refused by the old `.url()` schema although its message allowed it.
+    expect(isSafeActionUrl('/intranet/notifications')).toBe(true);
   });
 
-  it('accepts http, since self-hosted installs are not all on TLS', () => {
-    expect(accepts('http://intranet.local/tickets/7')).toBe(true);
+  it('refuses click-to-execute schemes and other schemes', () => {
+    for (const u of [
+      'javascript:alert(1)',
+      'JavaScript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'file:///etc/passwd',
+      'vbscript:msgbox(1)',
+      'dashboard',
+    ]) {
+      expect(isSafeActionUrl(u)).toBe(false);
+    }
   });
 
-  it('refuses javascript:', () => {
-    // The whole finding. `z.string().url()` alone returns success here.
-    expect(z.string().url().safeParse('javascript:alert(1)').success).toBe(true);
-    expect(accepts('javascript:alert(1)')).toBe(false);
+  it('refuses an off-site link dressed as an in-app path', () => {
+    expect(isSafeActionUrl('//evil.example/login')).toBe(false);
+    expect(isSafeActionUrl('/\\evil.example/login')).toBe(false);
+  });
+});
+
+describe('sendNotification — the path flows and extensions take', () => {
+  async function stored(action_url: string): Promise<unknown[]> {
+    const canned = new CannedDb();
+    canned.when(/insert into "zv_notifications"/i, []);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await sendNotification(canned.kysely as unknown as Database, {
+        user_id: 'u1',
+        title: 't',
+        message: 'm',
+        action_url,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+    return canned.executed(/insert into "zv_notifications"/i)[0]!.parameters as unknown[];
+  }
+
+  it('drops an unsafe link and still sends the notification', async () => {
+    const params = await stored('javascript:alert(1)');
+    expect(params).toContain('u1');
+    expect(params).not.toContain('javascript:alert(1)');
   });
 
-  it('refuses data: URLs', () => {
-    // `data:text/html,…` navigates to attacker-authored markup.
-    expect(accepts('data:text/html,<script>alert(1)</script>')).toBe(false);
-  });
-
-  it('refuses other schemes', () => {
-    expect(accepts('file:///etc/passwd')).toBe(false);
-    expect(accepts('vbscript:msgbox(1)')).toBe(false);
-  });
-
-  it('refuses a bare word that is not a URL at all', () => {
-    expect(accepts('dashboard')).toBe(false);
+  it('keeps a safe link', async () => {
+    expect(await stored('/intranet/tickets/7')).toContain('/intranet/tickets/7');
   });
 });
