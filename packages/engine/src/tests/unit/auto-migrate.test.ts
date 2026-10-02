@@ -15,72 +15,69 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import type { Database } from '../../db/index.js';
 
-// Re-implement the decision logic so we don't need to import the real
-// `autoMigrate` (which pulls Kysely's `sql` tag and would require a
-// live driver to exercise). Drift between this stub and the real
-// function should be caught in review when the file is edited.
-function decideAutoMigrate(opts: { env: string | undefined; current: number; max: number }): {
-  skip: boolean;
-  reason: 'env' | 'up-to-date' | 'run';
-} {
-  if (opts.env === 'false') return { skip: true, reason: 'env' };
-  if (opts.current >= opts.max) return { skip: true, reason: 'up-to-date' };
-  return { skip: false, reason: 'run' };
+import { MAX_SCHEMA_VERSION } from '../../version.js';
+import { CannedDb } from './fixtures/canned-db.js';
+
+/**
+ * The real autoMigrate over a CannedDb. This file used to re-implement the
+ * decision logic and the lock key locally and assert the copies, so neither
+ * could drift without the test noticing. `versions` answers successive reads
+ * of the last applied migration (the first read, then the re-check under the
+ * lock); the chain-compatibility read sees no recorded rows.
+ */
+async function run(env: string | undefined, versions: number[]) {
+  const saved = process.env.MIGRATIONS_AUTO;
+  if (env === undefined) delete process.env.MIGRATIONS_AUTO;
+  else process.env.MIGRATIONS_AUTO = env;
+  const db = new CannedDb();
+  let read = 0;
+  db.when(/from "zv_schema_versions"/i, () => [
+    { version: versions[Math.min(read++, versions.length - 1)] },
+  ]);
+  db.when(/select version, filename, checksum from zv_schema_versions/i, []);
+  db.when(/pg_advisory_(un)?lock/i, [{}]);
+  try {
+    const { autoMigrate } = await import('../../db/auto-migrate.js');
+    const result = await autoMigrate(db.kysely as unknown as Database);
+    return { result, db };
+  } finally {
+    if (saved === undefined) delete process.env.MIGRATIONS_AUTO;
+    else process.env.MIGRATIONS_AUTO = saved;
+  }
 }
 
 describe('S4-10 auto-migrate decision logic', () => {
-  it('skips when MIGRATIONS_AUTO=false even with pending migrations', () => {
-    const d = decideAutoMigrate({ env: 'false', current: 50, max: 73 });
-    expect(d).toEqual({ skip: true, reason: 'env' });
+  it('skips without taking the lock when the schema is at or ahead of this build', async () => {
+    for (const v of [MAX_SCHEMA_VERSION, MAX_SCHEMA_VERSION + 1]) {
+      const { result, db } = await run(undefined, [v]);
+      expect(result.ran).toBe(false);
+      expect(db.executed(/pg_advisory_lock/i)).toHaveLength(0);
+    }
   });
 
-  it('skips when schema is already at MAX_SCHEMA_VERSION', () => {
-    const d = decideAutoMigrate({ env: undefined, current: 73, max: 73 });
-    expect(d).toEqual({ skip: true, reason: 'up-to-date' });
-  });
-
-  it('skips when schema is ahead of MAX_SCHEMA_VERSION (downgrade)', () => {
-    // Downgrade case: replica was bumped to a newer engine first, then
-    // someone restarted this older engine. The schema-compat check
-    // catches this immediately after — we just need auto-migrate to
-    // not try to apply anything backward.
-    const d = decideAutoMigrate({ env: undefined, current: 80, max: 73 });
-    expect(d).toEqual({ skip: true, reason: 'up-to-date' });
-  });
-
-  it('runs when there is at least one pending migration', () => {
-    const d = decideAutoMigrate({ env: undefined, current: 72, max: 73 });
-    expect(d).toEqual({ skip: false, reason: 'run' });
-  });
-
-  it('runs on a fresh DB (current=0)', () => {
-    const d = decideAutoMigrate({ env: undefined, current: 0, max: 73 });
-    expect(d).toEqual({ skip: false, reason: 'run' });
-  });
-
-  it('only treats the literal string "false" as opt-out', () => {
-    // Common typos that should NOT disable auto-migrate.
-    expect(decideAutoMigrate({ env: '0', current: 50, max: 73 }).skip).toBe(false);
-    expect(decideAutoMigrate({ env: 'False', current: 50, max: 73 }).skip).toBe(false);
-    expect(decideAutoMigrate({ env: 'no', current: 50, max: 73 }).skip).toBe(false);
-    expect(decideAutoMigrate({ env: '', current: 50, max: 73 }).skip).toBe(false);
+  it('only treats the literal string "false" as opt-out', async () => {
+    // Common typos must not disable auto-migrate: they reach the chain check,
+    // which the opt-out path returns before.
+    for (const env of ['0', 'False', 'no', '']) {
+      const { db } = await run(env, [MAX_SCHEMA_VERSION]);
+      expect(db.executed(/select version, filename, checksum/i).length).toBeGreaterThan(0);
+    }
+    const { db } = await run('false', [MAX_SCHEMA_VERSION]);
+    expect(db.executed(/select version, filename, checksum/i)).toHaveLength(0);
   });
 });
 
-describe('S4-10 advisory-lock key stability', () => {
-  // The lock key must be a stable 64-bit integer literal so every
-  // replica converges on the same value. Hard-coded in auto-migrate.ts
-  // as 0x7a76656c74696f00n. This test pins the value so a future drift
-  // (e.g. someone "refactoring" the literal) is caught.
-  const EXPECTED = 0x7a76656c74696f00n;
-
-  it('locks all replicas on the same key', () => {
-    // The first 7 bytes are ASCII 'zveltio', the 8th is NUL.
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setBigInt64(0, EXPECTED, false);
-    // Bytes 0..6 spell 'zveltio'.
-    expect(String.fromCharCode(...Array.from(bytes.slice(0, 7)))).toBe('zveltio');
-    expect(bytes[7]).toBe(0);
+describe('S4-10 advisory lock', () => {
+  it('locks every replica on the same key and re-checks under it', async () => {
+    // Pending on the first read; another replica finished while we waited.
+    const { result, db } = await run(undefined, [MAX_SCHEMA_VERSION - 1, MAX_SCHEMA_VERSION]);
+    expect(result.ran).toBe(false);
+    expect(result.after).toBe(MAX_SCHEMA_VERSION);
+    const lock = db.executed(/pg_advisory_lock/i);
+    expect(lock).toHaveLength(1);
+    // 'zveltio\0' as a big-endian 64-bit integer — every replica must agree on it.
+    expect(lock[0]!.parameters[0]).toBe(0x7a76656c74696f00n);
+    expect(db.executed(/pg_advisory_unlock/i)).toHaveLength(1);
   });
 });
 
