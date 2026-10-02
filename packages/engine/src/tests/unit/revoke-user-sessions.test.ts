@@ -27,7 +27,9 @@ class FakeCache {
   async get(k: string): Promise<string | null> {
     return this.store.get(k) ?? null;
   }
-  async set(k: string, v: string): Promise<'OK'> {
+  setArgs: unknown[][] = [];
+  async set(k: string, v: string, ...rest: unknown[]): Promise<'OK'> {
+    this.setArgs.push([k, ...rest]);
     this.store.set(k, v);
     return 'OK';
   }
@@ -96,6 +98,12 @@ describe('revokeAllUserSessions', () => {
     expect(idx).toBeDefined();
     expect(idx).toContain('tok-current');
     expect(idx).not.toContain('tok-other');
+    // Keeping the expiry the adapter gave it, or the key outlives every session.
+    expect(cache.setArgs).toEqual([[`active-sessions-${USER}`, 'KEEPTTL']]);
+    // In the adapter's encoding, or `listSessions` reads it as something else.
+    expect(JSON.parse(JSON.parse(idx as string))).toEqual([
+      expect.objectContaining({ token: 'tok-current' }),
+    ]);
 
     // And the DB delete excludes it.
     const sql = db.executed(/delete from "session"/i)[0];
@@ -167,5 +175,24 @@ describe('revokeAllUserSessions', () => {
     // The index itself is still dropped, and the DB delete still runs.
     expect(cache.deleted).toContain(`active-sessions-${USER}`);
     expect(db.executed(/delete from "session"/i).length).toBe(1);
+  });
+
+  it('an entry without a token does not stop the ones after it being revoked', async () => {
+    const cache = new FakeCache();
+    cache.store.set(
+      `active-sessions-${USER}`,
+      doubleEncoded([{ expiresAt: 1 }, null, { token: 'tok-a' }, { token: 'tok-b' }]),
+    );
+    _setCacheForTests(cache as unknown as Redis);
+    await revokeAllUserSessions(new CannedDb().kysely as unknown as Database, USER);
+    expect(cache.deleted).toEqual(expect.arrayContaining(['tok-a', 'tok-b']));
+  });
+
+  it('drops an index that parses to something other than a list', async () => {
+    const cache = new FakeCache();
+    cache.store.set(`active-sessions-${USER}`, doubleEncoded({ token: 'tok-a' }));
+    _setCacheForTests(cache as unknown as Redis);
+    await revokeAllUserSessions(new CannedDb().kysely as unknown as Database, USER);
+    expect(cache.store.has(`active-sessions-${USER}`)).toBe(false);
   });
 });

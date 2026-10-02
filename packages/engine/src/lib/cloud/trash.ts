@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 
 /**
@@ -12,13 +13,20 @@ import type { Database } from '../../db/index.js';
 export async function moveToTrash(
   db: Database,
   fileId: string,
-  _deletedBy: string,
+  deletedBy: string,
   tenantId?: string,
 ): Promise<void> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let q = (db as any)
     .updateTable('zv_media_files')
-    .set({ deleted_at: new Date().toISOString() })
+    // `deleted_by` was never written, so the trash showed no one as having
+    // deleted a file trashed through here. Resolved against "user" so a caller
+    // that is not a user row (an API key's id) records NULL instead of failing
+    // the foreign key.
+    .set({
+      deleted_at: new Date().toISOString(),
+      deleted_by: sql`(SELECT id FROM "user" WHERE id = ${deletedBy})`,
+    })
     .where('id', '=', fileId)
     .where('deleted_at', 'is', null);
   if (tenantId) q = q.where('tenant_id', '=', tenantId);

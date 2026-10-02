@@ -36,6 +36,13 @@ upgrading, list active rules of an unknown type with
 `SELECT id, collection, field_name, rule_type FROM zv_validation_rules WHERE
 is_active AND rule_type NOT IN ('required','min','max','minLength','maxLength',
 'pattern','range','email','url','custom','nlp');`.
+**Fixed: enabling two-factor no longer leaves a session index in Valkey forever.**
+Revoking the other sessions rewrote `active-sessions-<user>` with a plain
+`SET`, which dropped the expiry the adapter gave it. It now keeps it (`KEEPTTL`).
+
+**Fixed: a media file moved to trash records who deleted it.** The engine's
+`moveToTrash` (used by `content/media`) never wrote `deleted_by`, so the trash
+showed nobody as the deleter.
 
 **Breaking: sync pull takes cursors only (#805).**
 - `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with

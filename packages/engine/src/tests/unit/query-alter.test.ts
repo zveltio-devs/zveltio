@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
+import { sql } from 'kysely';
+import type { DynamicDB } from '../../db/dynamic-types.js';
 import { QueryAlterRegistryImpl } from '../../lib/data/query-alter.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 // Fake query builder for testing — the real one is Kysely, but the registry
 // itself doesn't care about the shape: it just chains the user-provided alters.
@@ -121,5 +124,36 @@ describe('QueryAlterRegistryImpl', () => {
 
     expect(rowsQb.whereCalls).toEqual([{ field: 'tenant_id', op: '=', value: 't1' }]);
     expect(countQb.whereCalls).toEqual([{ field: 'tenant_id', op: '=', value: 't1' }]);
+  });
+
+  describe('restricts — the time-travel gate', () => {
+    // `?as_of=` refuses a collection an alter narrows, so `restricts` saying
+    // false for a narrowing alter hands out every historical row.
+    const db = () => new CannedDb().kysely as unknown as DynamicDB;
+    type QB = { where: (...a: unknown[]) => QB };
+
+    it('is true for an alter that adds a parameter-free predicate', () => {
+      // SQL changes, parameters do not: comparing parameters alone misses it.
+      registry.registerAs('a', 'zvd_x', (qb: QB) => qb.where(sql`deleted_at is null`));
+      expect(registry.restricts(db(), 'zvd_x', null)).toBe(true);
+    });
+
+    it('is true for a parameterised predicate', () => {
+      registry.registerAs('a', 'zvd_x', (qb: QB) => qb.where('owner', '=', 'u1'));
+      expect(registry.restricts(db(), 'zvd_x', null)).toBe(true);
+    });
+
+    it('is false for an alter that leaves the query as it was, or targets another table', () => {
+      registry.registerAs('a', 'zvd_x', (qb: QB) => qb);
+      registry.registerAs('b', 'zvd_y', (qb: QB) => qb.where('owner', '=', 'u1'));
+      expect(registry.restricts(db(), 'zvd_x', null)).toBe(false);
+    });
+
+    it('is true when an alter throws, rather than guessing it narrows nothing', () => {
+      registry.registerAs('a', 'zvd_x', () => {
+        throw new Error('boom');
+      });
+      expect(registry.restricts(db(), 'zvd_x', null)).toBe(true);
+    });
   });
 });
