@@ -19,6 +19,7 @@ import {
   parseMigrationFile,
   timeoutAdvice,
   timeoutSetting,
+  splitSqlStatements,
 } from '../../db/migrations/index.js';
 
 describe('isNonTransactional', () => {
@@ -148,5 +149,42 @@ describe('timeoutAdvice', () => {
   it('is not fooled by the SQLSTATE landing on `code`, which is where it is not', () => {
     const wrongField = Object.assign(new Error('canceling statement'), { code: '55P03' });
     expect(timeoutAdvice(wrongField)).toBeNull();
+  });
+});
+
+describe('splitSqlStatements — what a NO TRANSACTION migration is cut into', () => {
+  // Only a harness file reached this splitter, and indirectly; a split inside a
+  // function body would send PostgreSQL half a statement.
+  it('keeps dollar-quoted bodies, tagged or not, in one statement', () => {
+    expect(
+      splitSqlStatements(
+        'CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql; SELECT 1;',
+      ),
+    ).toEqual([
+      'CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql',
+      'SELECT 1',
+    ]);
+    expect(splitSqlStatements('DO $body$ BEGIN PERFORM 1; END $body$; SELECT 2;')).toEqual([
+      'DO $body$ BEGIN PERFORM 1; END $body$',
+      'SELECT 2',
+    ]);
+  });
+
+  it('does not split on a semicolon inside quotes or comments', () => {
+    expect(splitSqlStatements(`SELECT 'a;b'; SELECT "c;d";`)).toEqual([
+      `SELECT 'a;b'`,
+      `SELECT "c;d"`,
+    ]);
+    expect(splitSqlStatements('-- a; b\nSELECT 1; /* x; y */ SELECT 2;')).toEqual([
+      '-- a; b\nSELECT 1',
+      '/* x; y */ SELECT 2',
+    ]);
+  });
+
+  it('does not mistake a positional parameter or a $ in an identifier for a dollar quote', () => {
+    expect(splitSqlStatements('SELECT $1; SELECT a$b FROM t;')).toEqual([
+      'SELECT $1',
+      'SELECT a$b FROM t',
+    ]);
   });
 });
