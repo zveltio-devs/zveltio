@@ -20,6 +20,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { withAuthorizedUserCreation } from '../../lib/auth.js';
+import { hashInvitationToken } from '../../lib/security/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -44,7 +45,7 @@ d('registration gate is enforced at user creation', () => {
 
     await sql`
       INSERT INTO zv_invitations (email, name, role, token, expires_at)
-      VALUES (${INVITED}, 'Invited', 'member', ${TOKEN}, NOW() + INTERVAL '7 days')
+      VALUES (${INVITED}, 'Invited', 'member', ${hashInvitationToken(TOKEN)}, NOW() + INTERVAL '7 days')
     `.execute(db);
   });
 
@@ -52,7 +53,9 @@ d('registration gate is enforced at user creation', () => {
     if (previous === undefined) delete process.env.ZVELTIO_REGISTRATION_ENABLED;
     else process.env.ZVELTIO_REGISTRATION_ENABLED = previous;
     if (!db) return;
-    await sql`DELETE FROM zv_invitations WHERE token = ${TOKEN}`.execute(db).catch(() => {});
+    await sql`DELETE FROM zv_invitations WHERE token = ${hashInvitationToken(TOKEN)}`
+      .execute(db)
+      .catch(() => {});
     for (const email of [STRANGER, INVITED]) {
       const u = await db
         .selectFrom('user')
@@ -72,7 +75,11 @@ d('registration gate is enforced at user creation', () => {
     const res = await app.request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: STRANGER, password: PASSWORD, name: 'Stranger' }),
+      body: JSON.stringify({
+        email: STRANGER,
+        password: PASSWORD,
+        name: 'Stranger',
+      }),
     });
     expect(res.status).toBe(403);
 
@@ -114,7 +121,11 @@ d('registration gate is enforced at user creation', () => {
     const res = await app.request('/api/invitations/accept', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: TOKEN, password: PASSWORD, name: 'Invited' }),
+      body: JSON.stringify({
+        token: TOKEN,
+        password: PASSWORD,
+        name: 'Invited',
+      }),
     });
     expect(res.status).toBe(201);
 
@@ -133,7 +144,11 @@ d('registration gate is enforced at user creation', () => {
     const res = await app.request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: STRANGER, password: PASSWORD, name: 'Stranger' }),
+      body: JSON.stringify({
+        email: STRANGER,
+        password: PASSWORD,
+        name: 'Stranger',
+      }),
     });
     expect(res.status).toBe(403);
   });

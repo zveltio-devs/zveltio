@@ -41,3 +41,16 @@ export async function hashApiKey(key: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
+
+/**
+ * What `zv_invitations.token` stores: SHA-256 hex of the token in the link.
+ * Not `hashApiKey`'s HMAC: migration 038 must hash the rows that already exist,
+ * and the database does not hold BETTER_AUTH_SECRET. Unkeyed is enough for 256
+ * random bits — there is nothing to brute-force (same reasoning as Better-Auth's
+ * `storeIdentifier: 'hashed'` in lib/auth.ts). Prefixed, so a digest is never
+ * mistaken for a raw token: both are 64 hex characters, and the migration that
+ * hashes existing rows has to be safe to run twice.
+ */
+export function hashInvitationToken(token: string): string {
+  return `sha256:${new Bun.CryptoHasher('sha256').update(token).digest('hex')}`;
+}

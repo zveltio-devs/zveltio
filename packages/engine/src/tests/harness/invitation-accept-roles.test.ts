@@ -40,10 +40,9 @@ d('POST /api/invitations/accept', () => {
       });
       expect(invited.status).toBe(201);
 
-      const row = await sql<{ token: string }>`
-        SELECT token FROM zv_invitations WHERE email = ${email} LIMIT 1
-      `.execute(db);
-      const token = row.rows[0]?.token;
+      // From the link, not the row: the row holds only a digest.
+      const { invite_url } = (await invited.json()) as { invite_url: string };
+      const token = new URL(invite_url).searchParams.get('token');
       expect(token).toBeTruthy();
 
       const accepted = await app.request('/api/invitations/accept', {
@@ -108,19 +107,18 @@ d('POST /api/invitations/accept', () => {
     const cookie = await createGodSession(app, db);
     const email = `inv-cas-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
 
-    await app.request('/api/users/invite', {
+    const invited = await app.request('/api/users/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ email, name: 'Invitee', role: 'manager' }),
     });
-    const row = await sql<{ token: string }>`
-      SELECT token FROM zv_invitations WHERE email = ${email} LIMIT 1
-    `.execute(db);
+    const { invite_url } = (await invited.json()) as { invite_url: string };
+    const token = new URL(invite_url).searchParams.get('token');
 
     const res = await app.request('/api/invitations/accept', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: row.rows[0]!.token, password: 'Test12345' }),
+      body: JSON.stringify({ token, password: 'Test12345' }),
     });
     expect(res.status).toBe(201);
 
