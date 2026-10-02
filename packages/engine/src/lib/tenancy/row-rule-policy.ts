@@ -101,15 +101,12 @@ function valueExpr(source: string, pgType: string): { sql: string; guc?: string 
   // marked.
   //
   // The tenant policy has used this shape since migration 005 for exactly this
-  // reason. The row-rule generator was written without it.
+  // reason. The row-rule generator was written without it — and then shipped
+  // with this helper defined and unused, so the value side stayed bare.
   const guc = (name: string) => `(SELECT current_setting('${name}', true))`;
   const cast = (inner: string) => (pgType === 'text' ? inner : `CAST(${inner} AS ${pgType})`);
-  if (source === 'user_id')
-    return { sql: cast(`current_setting('zveltio.user_id', true)`), guc: 'zveltio.user_id' };
-  if (source === 'user_email')
-    return { sql: cast(`current_setting('zveltio.user_email', true)`), guc: 'zveltio.user_email' };
-  if (source === 'user_role')
-    return { sql: cast(`current_setting('zveltio.user_role', true)`), guc: 'zveltio.user_role' };
+  if (source === 'user_id' || source === 'user_email' || source === 'user_role')
+    return { sql: cast(guc(`zveltio.${source}`)), guc: `zveltio.${source}` };
   if (source.startsWith('static:')) return { sql: cast(lit(source.slice('static:'.length))) };
   return null;
 }
