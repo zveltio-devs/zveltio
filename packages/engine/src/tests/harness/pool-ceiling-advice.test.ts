@@ -11,48 +11,47 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   _internalForTests as dbTesting,
-  type Database,
   DEFAULT_DB_POOL_MAX,
-  initDatabase,
+  sizeBootPool,
 } from '../../db/index.js';
 import { reportConcurrencyCeiling } from '../../lib/startup-guards.js';
-import { harnessAvailable } from '../../testing/app-harness.js';
+import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
+// Sizes the pool without opening one: a second `initDatabase()` here, once
+// destroyed, cleared the module-level pool handles the rest of the harness
+// process relies on (stale-plan-recycle saw a null pool).
 d('concurrency ceiling advice', () => {
   const saved = {
-    DATABASE_URL: process.env.DATABASE_URL,
     DB_POOL_MAX: process.env.DB_POOL_MAX,
     DB_POOL_AUTOSIZE: process.env.DB_POOL_AUTOSIZE,
     ZVELTIO_INSTANCES: process.env.ZVELTIO_INSTANCES,
   };
-  let previousDb: Database | null = null;
-  let db: Database;
+  let previousMax: number | undefined;
   let logged: string[] = [];
 
   beforeAll(async () => {
-    process.env.DATABASE_URL ||= process.env.TEST_DATABASE_URL;
+    const { db } = await getTestApp();
     delete process.env.DB_POOL_MAX;
     delete process.env.DB_POOL_AUTOSIZE;
     // Enough instances that the autosized pool clamps to its floor, away from
     // the flat default whatever the server's max_connections.
     process.env.ZVELTIO_INSTANCES = '100000';
-    previousDb = dbTesting.swapDbForTests(null);
+    previousMax = dbTesting.setPoolMaxInUse(undefined);
     const log = spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
       logged.push(a.join(' '));
     });
     try {
-      db = await initDatabase();
+      await sizeBootPool(process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? '');
       await reportConcurrencyCeiling(db);
     } finally {
       log.mockRestore();
     }
   });
 
-  afterAll(async () => {
-    await db?.destroy();
-    dbTesting.swapDbForTests(previousDb);
+  afterAll(() => {
+    dbTesting.setPoolMaxInUse(previousMax);
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
