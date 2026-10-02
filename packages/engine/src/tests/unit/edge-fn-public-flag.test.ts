@@ -1,71 +1,55 @@
 /**
- * A public edge function turns authentication off — for ITS tenant only.
+ * An edge function marked public in one tenant is not public in another.
  *
- * `/api/fn/:name` used to be served by two implementations at once: the
- * engine's parameterised route and one static route per function registered by
- * the `developer/edge-functions` extension. Hono prefers a static path over a
- * parameterised one, so the extension silently won — and the two do not
- * authenticate alike. The engine takes a session or an API key bound to the
- * tenant; the extension took a session only, and treated `ZVELTIO_PUBLIC=true`
- * as no authentication at all. A function author could switch the engine's gate
- * off by setting an environment variable.
+ * `ZVELTIO_PUBLIC=true` lets a function be invoked with no session or key. The
+ * probe that reads it must be scoped to the requesting tenant: two tenants may
+ * each have a function called `webhook`, and only one of them opted in.
  *
- * The engine owns the prefix now and honours the flag itself. Which introduces
- * the hazard these cases exist for: the probe that decides "is this public?"
- * must be scoped by the same key as the lookup it authorises. The first version
- * of this fix was not, and two tenants each owning a `webhook` — one public,
- * one not — would have run the private one with no authentication.
+ * This file used to assert a local copy of the lookup (an array `find` with and
+ * without the tenant), so the route could drop its tenant filter and nothing
+ * here would notice. It drives the real handler now.
  */
-
 import { describe, expect, it } from 'bun:test';
+import { Hono } from 'hono';
+import type { Database } from '../../db/index.js';
+import { edgeFunctionInvokeRoutes } from '../../routes/edge-functions.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 const TENANT_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
 const TENANT_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
 
-/** The rows both tenants own, each with a function called `webhook`. */
-const ROWS = [
-  { name: 'webhook', tenant_id: TENANT_A, env_vars: JSON.stringify({ ZVELTIO_PUBLIC: 'true' }) },
-  { name: 'webhook', tenant_id: TENANT_B, env_vars: JSON.stringify({}) },
-];
-
-/** The probe as the route performs it: by name AND tenant. */
-function probeScoped(name: string, tenant: string) {
-  return ROWS.find((r) => r.name === name && r.tenant_id === tenant);
+/** Status of an anonymous call to `webhook` from `tenant`. */
+async function anonymousCall(tenant: string): Promise<number> {
+  const db = new CannedDb();
+  // `webhook` exists in both tenants; only tenant A marked it public.
+  db.when(/select "env_vars" from "zv_edge_functions"/i, (q) =>
+    q.parameters.includes(TENANT_A)
+      ? [{ env_vars: JSON.stringify({ ZVELTIO_PUBLIC: 'true' }) }]
+      : // An explicit 'false' — only the exact string 'true' opts in.
+        [{ env_vars: JSON.stringify({ ZVELTIO_PUBLIC: 'false' }) }],
+  );
+  // Past the gate the function lookup finds nothing, so a 404 means "let in".
+  db.when(/select \* from "zv_edge_functions"/i, []);
+  const app = new Hono();
+  app.use('*', async (c, next) => {
+    c.set('tenant' as never, { id: tenant } as never);
+    await next();
+  });
+  app.route(
+    '/',
+    edgeFunctionInvokeRoutes(db.kysely as unknown as Database, {
+      api: { getSession: async () => null },
+    }),
+  );
+  return (await app.request('/webhook', { method: 'POST' })).status;
 }
-
-/** The probe as the first version of the fix performed it: by name alone. */
-function probeUnscoped(name: string) {
-  return ROWS.find((r) => r.name === name);
-}
-
-const isPublic = (row?: { env_vars: string }) =>
-  row ? JSON.parse(row.env_vars).ZVELTIO_PUBLIC === 'true' : false;
 
 describe('edge function public flag', () => {
-  it('reports public for the tenant that marked it public', () => {
-    expect(isPublic(probeScoped('webhook', TENANT_A))).toBe(true);
+  it('lets an anonymous call through in the tenant that marked the function public', async () => {
+    expect(await anonymousCall(TENANT_A)).toBe(404);
   });
 
-  it('reports private for a different tenant with the same function name', () => {
-    // The case that matters. Tenant B never marked theirs public.
-    expect(isPublic(probeScoped('webhook', TENANT_B))).toBe(false);
-  });
-
-  it('an unscoped probe would have leaked tenant A’s flag onto tenant B', () => {
-    // Pinning the bug itself, so the reason for the tenant filter cannot be
-    // optimised away by someone who reads the query and sees a redundant
-    // predicate. Without it, B's private function answers unauthenticated.
-    expect(isPublic(probeUnscoped('webhook'))).toBe(true);
-    expect(isPublic(probeScoped('webhook', TENANT_B))).toBe(false);
-  });
-
-  it('reports private when the function does not exist for this tenant', () => {
-    expect(isPublic(probeScoped('nope', TENANT_A))).toBe(false);
-  });
-
-  it('treats a missing or malformed flag as private', () => {
-    expect(isPublic({ env_vars: '{}' })).toBe(false);
-    expect(isPublic({ env_vars: JSON.stringify({ ZVELTIO_PUBLIC: true }) })).toBe(false);
-    expect(isPublic({ env_vars: JSON.stringify({ ZVELTIO_PUBLIC: 'yes' }) })).toBe(false);
+  it('refuses it in a tenant whose function of the same name is not public', async () => {
+    expect(await anonymousCall(TENANT_B)).toBe(401);
   });
 });
