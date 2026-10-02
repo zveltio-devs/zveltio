@@ -61,6 +61,8 @@ describe('GhostDDL operations', () => {
       },
     ],
     ['a column carrying a statement', { kind: 'drop_column', column: 'x; DROP TABLE "user"' }],
+    // Postgres would cut it to 63 bytes, possibly onto a column that exists.
+    ['a name past 63 bytes', { kind: 'rename_column', from: 'a', to: 'x'.repeat(64) }],
     ['a virtual field', { kind: 'add_column', field: { name: 'total', type: 'computed' } }],
     ['an unknown field type', { kind: 'add_column', field: { name: 'x', type: 'notarealtype' } }],
   ];

@@ -69,16 +69,23 @@ export async function spawnEngine(opts: {
     `${await new Response(proc.stdout).text()}\n${await new Response(proc.stderr).text()}`;
   if (!up) {
     proc.kill();
-    throw new Error(`spawned engine on :${port} never came up`);
+    // Killed, the pipes end, so the boot output can be read — it says why.
+    throw new Error(`spawned engine on :${port} never came up:\n${(await logs()).slice(-4000)}`);
   }
 
   const godEmail = `fault-${port}-${Date.now()}@test.local`;
   const password = 'FaultPass123!';
-  await fetch(`${baseUrl}/api/auth/sign-up/email`, {
+  const signup = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: godEmail, password, name: 'Fault Admin' }),
   });
+  // Before the demotion below: a refused sign-up (registration closed) would
+  // otherwise stand the database's god down and promote nobody.
+  if (!signup.ok) {
+    proc.kill();
+    throw new Error(`sign-up on :${port} refused (${signup.status}): ${await signup.text()}`);
+  }
   const db = createDb(dbUrl);
   // One god per instance since migration 008 — stand the previous holder down
   // first. Each spawned engine makes its own admin, and without this the second
@@ -142,7 +149,7 @@ export function startMockRegistry(extName: string): MockRegistry {
   };
 }
 
-/** Terminate every backend a role/app currently holds — the mid-flight kill. */
+/** Terminate one backend by pid — the mid-flight kill. */
 export async function terminateBackend(killer: Database, pid: number): Promise<void> {
   await sql`SELECT pg_terminate_backend(${pid})`.execute(killer);
 }

@@ -42,12 +42,17 @@ export type Database = Kysely<DbSchema>;
  */
 export const DEFAULT_DB_POOL_MAX = 40;
 
-/** The effective pool ceiling: an explicit `DB_POOL_MAX`, or the default above. */
+/**
+ * The effective pool ceiling: an explicit `DB_POOL_MAX`, or the default above.
+ * Never below 2: an advisory-lock holder pins one connection while its work
+ * needs another (`advisory-lock.ts`), and at 1 the boot migration waited for a
+ * connection forever.
+ */
 export function resolvePoolMax(): number {
   const raw = process.env.DB_POOL_MAX;
   if (raw === undefined || raw.trim() === '') return DEFAULT_DB_POOL_MAX;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DB_POOL_MAX;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(2, parsed) : DEFAULT_DB_POOL_MAX;
 }
 
 let poolMaxInUse: number | undefined;

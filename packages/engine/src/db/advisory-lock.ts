@@ -21,10 +21,33 @@
  * network — the heartbeat notices and the call rejects with `AdvisoryLockLost`
  * once the work returns: the work cannot be stopped, but its caller must not be
  * told it ran alone.
+ *
+ * So each call costs two connections at once — the holder's and its work's —
+ * and the holders in this process are capped at one below the pool: were every
+ * connection a holder, every work would wait for one only another holder's end
+ * could free, and none would end. A pool of two, a unique-key reconcile and an
+ * extension install were enough. Beyond the cap a caller queues for its turn.
  */
 
 import { sql } from 'kysely';
-import type { Database } from './index.js';
+import { activePoolMax, type Database } from './index.js';
+
+// ponytail: one counter for the process, sized from the engine pool every
+// holder runs on; a per-pool count if holders ever run on another pool.
+let holding = 0;
+const waiting: (() => void)[] = [];
+
+async function takeHolderSlot(): Promise<void> {
+  while (holding >= Math.max(1, activePoolMax() - 1)) {
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  }
+  holding++;
+}
+
+function giveHolderSlot(): void {
+  holding--;
+  waiting.shift()?.();
+}
 
 /** A literal bigint key, or a name hashed with `hashtext` (int4, widened). */
 export type AdvisoryKey = bigint | string;
@@ -68,7 +91,10 @@ export async function withAdvisoryLock<T>(
   return (await hold(db, key, true, fn, opts.maxWait)) as T;
 }
 
-/** Runs `fn` under the lock, or returns null at once when another holder has it. */
+/**
+ * Runs `fn` under the lock, or returns null at once when another holder has it.
+ * "At once" after its turn for a connection: the holder cap queues it first.
+ */
 export async function tryAdvisoryLock<T>(
   db: Database,
   key: AdvisoryKey,
@@ -90,6 +116,7 @@ async function hold<T>(
   const k = typeof key === 'bigint' ? sql.lit(key) : sql`hashtext(${sql.lit(key)})`;
   let lost: unknown;
   let failed: { err: unknown } | undefined;
+  await takeHolderSlot();
   try {
     return await db.transaction().execute(async (holder) => {
       await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
@@ -141,6 +168,8 @@ async function hold<T>(
     if (failed) throw failed.err;
     if (lost !== undefined) throw new AdvisoryLockLost(key, lost);
     throw err;
+  } finally {
+    giveHolderSlot();
   }
 }
 

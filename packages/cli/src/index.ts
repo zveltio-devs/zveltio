@@ -25,7 +25,8 @@ import pkg from '../package.json' with { type: 'json' };
 
 const program = new Command();
 
-// commander 12 accepts undeclared positionals; subcommands inherit this.
+// commander 12 accepts undeclared positionals. `.command()` children inherit
+// this; `addCommand()` ones do not — see `refuseExcessArguments` below.
 program
   .name('zveltio')
   .allowExcessArguments(false)
@@ -453,4 +454,12 @@ adminMarketplace
 // `keys generate`) finish before the script exits. With plain `parse()`,
 // commander returns immediately and the Bun process exits while the action
 // is still mid-await, silently truncating output.
+// `addCommand()` copies no settings from the parent, so `zveltio version junk`
+// ran and exited 0. Applied to the whole tree, whichever way a command joined it.
+const refuseExcessArguments = (cmd: Command): void => {
+  cmd.allowExcessArguments(false);
+  for (const sub of cmd.commands) refuseExcessArguments(sub);
+};
+refuseExcessArguments(program);
+
 await program.parseAsync(process.argv);
