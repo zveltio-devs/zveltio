@@ -45,6 +45,9 @@ describe('validateFieldValue', () => {
     expect(await validateFieldValue(7, [rule('min', { value: 5 })])).toEqual([]);
     expect(await validateFieldValue(9, [rule('max', { value: 5 })])).toHaveLength(1);
     expect(await validateFieldValue(4, [rule('max', { value: 5 })])).toEqual([]);
+    // The bounds are inclusive: the limit itself is allowed, on both sides.
+    expect(await validateFieldValue(5, [rule('max', { value: 5 })])).toEqual([]);
+    expect(await validateFieldValue(5, [rule('min', { value: 5 })])).toEqual([]);
   });
 
   test('minLength / maxLength compare string length', async () => {
