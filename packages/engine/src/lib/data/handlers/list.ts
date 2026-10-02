@@ -357,16 +357,14 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       // `dynamicSelect`. Both were once bypassed by paginating with a cursor.
       kQuery = applyAlters(kQuery);
 
-      // Add keyset condition (compound: sort col + tiebreak by id)
+      // Keyset condition (sort col + tiebreak by id) as a ROW comparison. The
+      // equivalent OR form cannot seek an index: at offset 100 000 it filtered
+      // 100 001 rows, 11 449 ms against 0.069 ms for this form on the same index.
       if (query.order === 'asc') {
-        kQuery = kQuery.where(
-          sql`(${sql.ref(sortField)} > ${decoded.val}) OR (${sql.ref(sortField)} = ${decoded.val} AND id > ${decoded.id})`,
-        );
+        kQuery = kQuery.where(sql`(${sql.ref(sortField)}, id) > (${decoded.val}, ${decoded.id})`);
         kQuery = kQuery.orderBy(sortField, 'asc').orderBy('id', 'asc');
       } else {
-        kQuery = kQuery.where(
-          sql`(${sql.ref(sortField)} < ${decoded.val}) OR (${sql.ref(sortField)} = ${decoded.val} AND id < ${decoded.id})`,
-        );
+        kQuery = kQuery.where(sql`(${sql.ref(sortField)}, id) < (${decoded.val}, ${decoded.id})`);
         kQuery = kQuery.orderBy(sortField, 'desc').orderBy('id', 'desc');
       }
 
