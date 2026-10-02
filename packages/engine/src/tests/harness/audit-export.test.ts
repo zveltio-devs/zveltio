@@ -30,7 +30,8 @@ d('audit log — range + CSV export', () => {
       INSERT INTO zv_audit_log (event_type, resource_type, resource_id, ip, metadata, created_at)
       VALUES
         (${MARKER}, 'test', 'old', '1.2.3.4', ${JSON.stringify({ note: 'say "hi", ok' })}::jsonb, '2020-03-15T10:00:00Z'),
-        (${MARKER}, 'test', 'new', '5.6.7.8', '{}'::jsonb, '2020-06-01T09:00:00Z')
+        (${MARKER}, 'test', 'new', '5.6.7.8', '{}'::jsonb, '2020-06-01T09:00:00Z'),
+        (${MARKER}, 'test', '=HYPERLINK("http://evil.example/x")', NULL, '{}'::jsonb, '2019-01-01T00:00:00Z')
     `.execute(db);
   });
 
@@ -66,7 +67,7 @@ d('audit log — range + CSV export', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toContain('text/csv');
     expect(res.headers.get('Content-Disposition')).toContain('attachment');
-    expect(res.headers.get('X-Zveltio-Row-Count')).toBe('2');
+    expect(res.headers.get('X-Zveltio-Row-Count')).toBe('3');
 
     const csv = await res.text();
     const lines = csv.trim().split('\n');
@@ -77,7 +78,11 @@ d('audit log — range + CSV export', () => {
     // JSONB metadata is CSV-escaped by doubling its quotes, so the embedded
     // comma in `say "hi", ok` stays inside one cell instead of splitting it.
     expect(csv).toContain('""note""');
-    expect(csv.trim().split('\n')).toHaveLength(3); // header + 2 rows, not 4
+    expect(csv.trim().split('\n')).toHaveLength(4); // header + 3 rows, not more
+    // A planted resource id reaches the reviewer's spreadsheet as text, not as
+    // a formula — the export route must use the neutralising encoder.
+    expect(csv).toContain('"\'=HYPERLINK(""http://evil.example/x"")"');
+    expect(csv).not.toMatch(/,"=HYPERLINK/);
   });
 
   it('requires admin', async () => {
