@@ -140,4 +140,52 @@ d('validation rules are enforced on writes', () => {
       .execute()
       .catch(() => {});
   });
+
+  it('refuses a write to a field whose rule cannot be evaluated, and only that field', async () => {
+    // A rule type nobody implemented used to validate nothing, while staying
+    // listed as active. New collection for the same cache reason as above.
+    const other = `${COLLECTION}_bad`;
+    await DDLManager.createCollection(db, {
+      name: other,
+      fields: [
+        { name: 'isbn', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'title', type: 'text', required: false, unique: false, indexed: false },
+      ],
+    } as never);
+    const row = await sql<{ id: string }>`
+      INSERT INTO zv_validation_rules
+        (collection, field_name, rule_type, rule_config, error_message, is_active)
+      VALUES (${other}, 'isbn', 'isbn13', '{}'::jsonb, 'Not an ISBN', TRUE)
+      RETURNING id
+    `.execute(db);
+    const post = (body: unknown) =>
+      app.request(`/api/data/${other}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify(body),
+      });
+
+    try {
+      const refused = await post({ isbn: '978-3-16-148410-0' });
+      expect(refused.status).toBe(422);
+      expect(JSON.stringify(await refused.json())).toMatch(
+        /isbn: a validation rule .*cannot be evaluated/,
+      );
+      // A write that does not touch the field is not held hostage by it.
+      expect((await post({ title: 'no isbn' })).status).toBe(201);
+    } finally {
+      await sql`DELETE FROM zv_validation_rules WHERE id = ${row.rows[0]!.id}::uuid`
+        .execute(db)
+        .catch(() => {});
+      await sql
+        .raw(`DROP TABLE IF EXISTS "zvd_${other}" CASCADE`)
+        .execute(db)
+        .catch(() => {});
+      await db
+        .deleteFrom('zvd_collections')
+        .where('name', '=', other)
+        .execute()
+        .catch(() => {});
+    }
+  });
 });
