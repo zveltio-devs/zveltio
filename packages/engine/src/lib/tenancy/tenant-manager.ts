@@ -320,8 +320,15 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
  * isolation for a table that deliberately has none (catalogues, lookup data).
  *
  * Best-effort per table: one failure must not stop the engine from booting.
+ *
+ * `only` narrows it to the tables an extension's migrations just touched — the
+ * runtime path (`runExtensionMigrations`), which must not lock every other
+ * extension's tables to fix one install.
  */
-export async function reconcileExtensionTenantRLS(db: Database): Promise<number> {
+export async function reconcileExtensionTenantRLS(
+  db: Database,
+  only?: readonly string[],
+): Promise<number> {
   let targets: { tablename: string; policyname: string }[];
   try {
     const rows = await sql<{ tablename: string; policyname: string }>`
@@ -330,7 +337,7 @@ export async function reconcileExtensionTenantRLS(db: Database): Promise<number>
        WHERE schemaname = 'public'
          AND policyname LIKE 'tenant\\_isolation\\_%'
     `.execute(db);
-    targets = rows.rows;
+    targets = only ? rows.rows.filter((r) => only.includes(r.tablename)) : rows.rows;
   } catch {
     return 0;
   }

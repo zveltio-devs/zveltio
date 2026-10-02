@@ -12,6 +12,7 @@ import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { isNonTransactional, splitSqlStatements } from '../../db/migrations/index.js';
+import { reconcileExtensionTenantRLS } from '../tenancy/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
@@ -180,6 +181,8 @@ export async function runExtensionMigrations(
   // marker is opt-in and why the linter demands `IF NOT EXISTS` throughout a
   // marked migration. The migration row is written only after its own UP
   // succeeds, so a failed run is retried whole on the next boot.
+  const policiesBefore = await tenantIsolationPolicies(db);
+
   type Segment = { transactional: boolean; items: Pending[] };
   const segments: Segment[] = [];
   for (const m of pending) {
@@ -218,6 +221,31 @@ export async function runExtensionMigrations(
       console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
     }
   }
+
+  // Extension templates put the READ predicate (`zveltio_tenant_scope_ok`, a
+  // whole subtree for a consolidating parent) in WITH CHECK, which lets a parent
+  // write into a child's rows. The boot reconciler rewrites that, but an install
+  // or enable at run time used to keep it until the next restart. Only the
+  // policies this run created or changed are touched.
+  const policiesAfter = await tenantIsolationPolicies(db);
+  const touched = [...policiesAfter]
+    .filter(([table, def]) => policiesBefore.get(table) !== def)
+    .map(([table]) => table);
+  if (touched.length > 0) await reconcileExtensionTenantRLS(db, touched);
+}
+
+/** `tenant_isolation_*` policies per table, as text, to tell which a run changed. */
+async function tenantIsolationPolicies(db: Database): Promise<Map<string, string>> {
+  const rows = await _sql<{ t: string; def: string }>`
+    SELECT tablename AS t,
+           string_agg(policyname || ':' || coalesce(qual, '') || ':' || coalesce(with_check, ''),
+                      ';' ORDER BY policyname) AS def
+      FROM pg_policies
+     WHERE schemaname = 'public'
+       AND policyname LIKE 'tenant\\_isolation\\_%'
+     GROUP BY tablename
+  `.execute(db);
+  return new Map(rows.rows.map((r) => [r.t, r.def]));
 }
 
 /**
