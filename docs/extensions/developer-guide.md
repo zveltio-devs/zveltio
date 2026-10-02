@@ -2160,9 +2160,16 @@ Ask, in this order:
 
 - **Don't use raw `sql\`...\``** unless you absolutely must. Kysely is type-safe;
   raw SQL is not, and it bypasses query-alter hooks.
-- **Don't write to `zv_*` system tables.** The proxy blocks Kysely calls; raw
-  SQL would work but is forbidden. Future engine versions will WASM-sandbox
-  this.
+- **Don't reach engine tables.** `ctx.db` refuses them for Kysely calls and for
+  raw SQL alike (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`, and the
+  handle `ctx.db.transaction()` passes its callback): a statement may name only
+  collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
+  migrations create or `EXTENSION_TABLE_GRANTS` grants you. `user`, `session`,
+  `account`, the engine's `zv_*` / `zvd_*` metadata, `information_schema` and
+  `pg_catalog` are refused, as are `DO`, `CREATE FUNCTION`, `LOCK` and
+  transaction control (`SAVEPOINT` included) — group statements with
+  `ctx.db.transaction()`. Reach engine data through `ctx.internals` and
+  `ctx.DDLManager` instead.
 - **Don't store secrets in `manifest.json`.** It is shipped to every installer.
   Use `zv_settings` (encrypted at rest).
 - **Don't share state across `register()` calls.** It is called once but may

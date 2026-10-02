@@ -24,7 +24,10 @@ d("an extension's joined transaction", () => {
   let db: Database;
   let userId: string;
   // The handle production gives an extension: the current request transaction.
-  const extDb = () => createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'probe');
+  // `user` is granted so the probe can write a row it can read back; without a
+  // grant raw SQL on it is refused (`extension-raw-sql-allowlist.test.ts`).
+  const extDb = () =>
+    createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'probe', new Set(['user']));
   const nameOf = async () =>
     (await sql<{ name: string }>`SELECT name FROM "user" WHERE id = ${userId}`.execute(db)).rows[0]!
       .name;

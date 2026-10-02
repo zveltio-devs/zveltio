@@ -26,13 +26,20 @@
  * Fast path: if no hook is registered for the relevant event, the proxy
  * returns the raw Kysely builder — zero overhead in the steady state.
  *
- * Note: only Kysely query-builder methods are intercepted. Raw
- * `sql\`...\`.execute(db)` passes through without inspection.
+ * Raw SQL — `sql\`…\`.execute(ctx.db)`, `sql.raw(…).execute(ctx.db)`,
+ * `ctx.db.executeQuery(…)` — is checked against the same allowlist by the
+ * worker bridge's analyzer (`assertWorkerSqlAllowed`); see `checkedExecutor`.
  */
 
 import type { Database } from '../../db/index.js';
+import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
 import { withSavepoint } from '../savepoint.js';
+import {
+  assertWorkerSqlAllowed,
+  WorkerSqlPolicyError,
+  workerSqlEngineTables,
+} from './worker-sql-policy.js';
 
 // All Kysely query-builder entry points that accept a table name as first arg.
 const QUERY_METHODS = [
@@ -384,10 +391,130 @@ function restrictQueryEntry<T extends object>(
 /** Savepoint names for joined extension transactions; unique so nesting is plain. */
 let savepointSeq = 0;
 
+/** A compiled query as an executor receives it — only its text is read here. */
+interface CompiledLike {
+  sql: string;
+}
+
+/** Kysely's QueryExecutor, as far as this file touches it. */
+interface ExecutorLike {
+  executeQuery(query: CompiledLike, ...rest: unknown[]): Promise<unknown>;
+  stream(query: CompiledLike, ...rest: unknown[]): AsyncIterableIterator<unknown>;
+}
+
+/**
+ * Raw SQL from an extension, checked against its allowlist.
+ *
+ * The query builder's guard (`restrictQueryEntry`) only sees a table NAME, so it
+ * never saw raw SQL at all: `sql\`SELECT token FROM "session"\`.execute(ctx.db)`
+ * asked `ctx.db.getExecutor()`, which this proxy bound straight to the real
+ * handle, and Postgres answered. The worker bridge has had a text analyzer for
+ * exactly this since beta.61; this is that analyzer, given the inline
+ * extension's grants as well, so both kinds of extension meet one rule:
+ * collections (`zvd_*` minus the engine's metadata), the extension's own
+ * `zv_<ext>_*` namespace, and the tables its migrations create or a grant
+ * names. `user`, `session`, `account`, the engine's `zv_*` and `zvd_*` metadata,
+ * `information_schema` and `pg_catalog` are refused because none is permitted.
+ */
+async function assertRawSqlAllowed(
+  extName: string,
+  text: string,
+  allowedTables: Set<string> | undefined,
+): Promise<void> {
+  try {
+    assertWorkerSqlAllowed(
+      extName,
+      text,
+      await workerSqlEngineTables(),
+      allowedTables ?? new Set(),
+      'raw SQL',
+    );
+  } catch (err) {
+    if (err instanceof WorkerSqlPolicyError) throw new ExtensionSecurityError(err.message);
+    throw err;
+  }
+}
+
+/**
+ * The executor `ctx.db.getExecutor()` hands out: every statement it runs is
+ * checked first.
+ *
+ * This is the executor raw SQL reaches and nothing else does. A builder query
+ * captures the REAL handle's executor when `selectFrom` & co. are called on the
+ * target below, so it never comes through here and is not checked twice; a
+ * `sql\`…\`.execute(ctx.db)` is the only caller that asks this proxy for one.
+ *
+ * `provideConnection` is refused: the connection it lends runs SQL with no
+ * executor in between, and only Kysely's own `connection()` / `transaction()`
+ * use it — on the real handle, never through here. Any method that returns
+ * another executor (`withPlugin`, `withoutPlugins`, …) gets the same wrapper.
+ */
+function checkedExecutor<T extends object>(
+  executor: T,
+  extName: string,
+  allowedTables: Set<string> | undefined,
+): T {
+  const real = executor as unknown as ExecutorLike;
+  return new Proxy(executor, {
+    get(target, prop) {
+      if (prop === 'executeQuery') {
+        return async (query: CompiledLike, ...rest: unknown[]) => {
+          await assertRawSqlAllowed(extName, query.sql, allowedTables);
+          return real.executeQuery(query, ...rest);
+        };
+      }
+      if (prop === 'stream') {
+        return async function* (query: CompiledLike, ...rest: unknown[]) {
+          await assertRawSqlAllowed(extName, query.sql, allowedTables);
+          yield* real.stream(query, ...rest);
+        };
+      }
+      if (prop === 'provideConnection') {
+        return () => {
+          throw new ExtensionSecurityError(
+            `Extension "${extName}" asked ctx.db's executor for a connection. That ` +
+              `connection runs SQL past the table allowlist; use ctx.db.transaction().`,
+          );
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        const out = (value as (...a: unknown[]) => unknown).apply(target, args);
+        return typeof (out as Partial<ExecutorLike> | null)?.executeQuery === 'function'
+          ? checkedExecutor(out as object, extName, allowedTables)
+          : out;
+      };
+    },
+  });
+}
+
+/**
+ * Members of a Kysely handle that hand back a handle — or a connection — this
+ * proxy cannot see into, so raw SQL run on it would skip `checkedExecutor`.
+ * None is used by any first-party extension; `transaction()` is the supported
+ * way to group statements, and it hands its callback a guarded handle.
+ */
+const UNGUARDED_HANDLES = new Set([
+  'connection',
+  'startTransaction',
+  'withPlugin',
+  'withoutPlugins',
+  'withTables',
+  'schema',
+  'introspection',
+]);
+
 export function createRestrictedDb(
   dbOrResolver: Database | (() => Database),
   extName: string,
   allowedTables?: Set<string>,
+  /**
+   * Engine-only: the view `engineHandle()` returns, for SQL the ENGINE writes on
+   * a handle an extension passed in. Raw SQL is not checked; the builder guard
+   * stays. Extensions never receive this.
+   */
+  trustRawSql = false,
 ): RestrictedDatabase {
   // H-12: accept a RESOLVER so `ctx.db` can bind to the CURRENT request/job
   // tenant transaction (resolved per query via the ALS) rather than a single
@@ -399,11 +526,37 @@ export function createRestrictedDb(
   // owns `zv_compliance_ro_saft_*` (slashes normalized to underscores).
   const ownedPrefix = `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
 
+  /** The same guard over a handle this one opened (a transaction). */
+  const guarded = (db: Database): Database => createRestrictedDb(db, extName, allowedTables);
+
   // Proxy over an empty object; every property access resolves the real
   // (possibly request-scoped) Database on demand via `resolveDb()`.
-  return new Proxy({} as Database, {
+  const handle = new Proxy({} as Database, {
     get(_dummy, prop: string | symbol) {
       const target = resolveDb();
+
+      if (!trustRawSql && typeof prop === 'string') {
+        if (prop === 'getExecutor') {
+          return () => checkedExecutor(target.getExecutor(), extName, allowedTables);
+        }
+        if (prop === 'executeQuery') {
+          return async (query: unknown, ...rest: unknown[]) => {
+            const compiled = (
+              typeof (query as { compile?: unknown }).compile === 'function'
+                ? (query as { compile(): CompiledLike }).compile()
+                : query
+            ) as CompiledLike;
+            await assertRawSqlAllowed(extName, compiled.sql, allowedTables);
+            return (target.executeQuery as (...a: unknown[]) => unknown)(compiled, ...rest);
+          };
+        }
+        if (UNGUARDED_HANDLES.has(prop)) {
+          throw new ExtensionSecurityError(
+            `Extension "${extName}" used ctx.db.${prop}, which returns a handle the table ` +
+              `allowlist does not cover. Use ctx.db (and ctx.db.transaction()) directly.`,
+          );
+        }
+      }
 
       // `ctx.db.transaction()` JOINS the request's transaction rather than
       // nesting, which Kysely refuses outright with "calling the transaction
@@ -437,7 +590,11 @@ export function createRestrictedDb(
               withSavepoint(
                 target,
                 `zv_ext_trx_${++savepointSeq}`,
-                () => fn(target),
+                // The guarded handle, not `target`: the callback is extension
+                // code, and the bare transaction it used to get answered both
+                // `trx.selectFrom('session')` and raw SQL on any table. The
+                // engine's view keeps the bare transaction it always had.
+                () => fn(trustRawSql ? target : guarded(target)),
                 (err) => {
                   throw err;
                 },
@@ -445,6 +602,22 @@ export function createRestrictedDb(
           };
           return builder;
         };
+      }
+
+      // Outside a tenant transaction (the pool — boot, `ctx.adminDb`), Kysely's
+      // own transaction runs, and its callback gets the same guard.
+      if (prop === 'transaction' && !trustRawSql) {
+        type TrxBuilder = {
+          setIsolationLevel(l: unknown): TrxBuilder;
+          setAccessMode(m: unknown): TrxBuilder;
+          execute<T>(fn: (t: Database) => Promise<T>): Promise<T>;
+        };
+        const wrap = (b: TrxBuilder): TrxBuilder => ({
+          setIsolationLevel: (l) => wrap(b.setIsolationLevel(l)),
+          setAccessMode: (m) => wrap(b.setAccessMode(m)),
+          execute: (fn) => b.execute((trx) => fn(guarded(trx))),
+        });
+        return () => wrap(target.transaction() as unknown as TrxBuilder);
       }
 
       // `unknown`, not `any` — see the same trap in `createRequestScopedDb`.
@@ -490,6 +663,13 @@ export function createRestrictedDb(
       return value;
     },
   }) as RestrictedDatabase;
+
+  if (!trustRawSql) {
+    registerEngineView(handle, () =>
+      createRestrictedDb(dbOrResolver, extName, allowedTables, true),
+    );
+  }
+  return handle;
 }
 
 /**
