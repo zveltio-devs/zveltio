@@ -49,4 +49,30 @@ d('collections reject system column names (in-process)', () => {
     // 400 (reserved) must win over the 404 the collection lookup would give.
     expect(res.status).toBe(400);
   });
+  // The collection does not exist, so without the guard these answer 404.
+  it('POST /:name/fields refuses a system column name', async () => {
+    const res = await app.request('/api/collections/hsg_nonexistent/fields', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        name: 'tenant_id',
+        type: 'text',
+        required: false,
+        unique: false,
+        indexed: false,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /:name/fields/:field refuses renaming to or from a system column name', async () => {
+    const patch = (field: string, newName: string) =>
+      app.request(`/api/collections/hsg_nonexistent/fields/${field}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ new_name: newName }),
+      });
+    expect((await patch('search_text', 'renamed')).status).toBe(400);
+    expect((await patch('title', 'tenant_id')).status).toBe(400);
+  });
 });
