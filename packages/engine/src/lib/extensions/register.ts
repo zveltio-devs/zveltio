@@ -54,7 +54,7 @@ import { problemOnError } from '../problem.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
-import type { ExtensionContext } from './internals.js';
+import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import { buildExtensionConfig } from './config.js';
 import { readGranted, resolveCapabilities } from './consent.js';
@@ -514,8 +514,40 @@ export function buildRestrictedContext(
     // boundary — the previous capability policy died because its only live
     // call site was inside the WASM host, so no denial was ever reachable for
     // a JS extension.
-    internals: gateInternals(extName, ctx.internals, capabilities, pendingCapabilities),
+    internals: guardTenantTrx(
+      gateInternals(extName, ctx.internals, capabilities, pendingCapabilities),
+      extName,
+      allowedTables,
+    ),
   };
+}
+
+/**
+ * `ctx.internals.withTenantIsolation` hands its callback the same table guard
+ * `ctx.db` has.
+ *
+ * It handed over the bare transaction: an extension that `ctx.db` refuses on
+ * `user`, `account` or any engine table reached all of them through `trx`. The
+ * guard is the per-extension one — own namespace, granted tables, collections —
+ * so `data/export` (`zvd_export_jobs`) and `data/import` (`zv_import_logs`,
+ * granted) keep working.
+ */
+function guardTenantTrx<T>(
+  internals: T,
+  extName: string,
+  allowedTables: Set<string> | undefined,
+): T {
+  if (!internals) return internals;
+  return new Proxy(internals as object, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop !== 'withTenantIsolation' || typeof value !== 'function') return value;
+      return <R>(tenantId: string, fn: (trx: Database) => Promise<R>) =>
+        (value as ExtensionInternals['withTenantIsolation'])(tenantId, (trx) =>
+          fn(createRestrictedDb(trx, extName, allowedTables)),
+        );
+    },
+  }) as T;
 }
 
 /**
