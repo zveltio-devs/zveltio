@@ -94,7 +94,6 @@ table trace_dispatches
   col item_name_from_invoice         character varying
   col lot_id                         uuid
   col notes                          text
-  col schedule_id                    uuid
   col quantity_dispatched            numeric
   col quantity_invoiced              numeric
   col status                         character varying NOT NULL DEFAULT 'pending'::character varying
@@ -708,6 +707,7 @@ table zv_backups
   col filename                       text NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col notes                          text
+  col schedule_id                    uuid
   col size_bytes                     bigint
   col status                         text NOT NULL DEFAULT 'in_progress'::text
   fk  zv_backups_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
