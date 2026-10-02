@@ -18,21 +18,24 @@
  * regresses.
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+
+const { executeStep } = _internalForTests;
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-/** Exactly what the executor now does around a user query. */
-async function runAsQueryDbStep(db: Database, query: string, tenantId = 'harness-tenant') {
-  return db.transaction().execute(async (trx) => {
-    await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
-    await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
-    await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
-    return sql.raw(query).execute(trx);
-  });
+/**
+ * The real step. This used to re-implement the executor's transaction inline,
+ * so deleting `SET TRANSACTION READ ONLY` from the executor left it green: it
+ * tested Postgres, not the executor.
+ */
+async function runAsQueryDbStep(db: Database, query: string, tenantId?: string) {
+  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId);
+  return { rows: r.output };
 }
 
 d('query_db read-only enforcement', () => {
@@ -40,28 +43,37 @@ d('query_db read-only enforcement', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    await sql.raw('DROP TABLE IF EXISTS zv_ro_probe').execute(db);
-    await sql.raw('CREATE TABLE zv_ro_probe (id int)').execute(db);
-    await sql.raw('INSERT INTO zv_ro_probe VALUES (1), (2), (3)').execute(db);
+    await sql.raw('DROP TABLE IF EXISTS zvd_ro_probe').execute(db);
+    await sql.raw('CREATE TABLE zvd_ro_probe (id int)').execute(db);
+    await sql.raw('INSERT INTO zvd_ro_probe VALUES (1), (2), (3)').execute(db);
+    // The executor drops to zveltio_flow_reader, which reads collections only.
+    await sql
+      .raw('GRANT SELECT ON zvd_ro_probe TO zveltio_flow_reader')
+      .execute(db)
+      .catch(() => {});
+  });
+
+  afterAll(async () => {
+    if (db) await sql.raw('DROP TABLE IF EXISTS zvd_ro_probe').execute(db);
   });
 
   it('refuses a DELETE hidden in a CTE', async () => {
     await expect(
-      runAsQueryDbStep(db, 'WITH x AS (DELETE FROM zv_ro_probe RETURNING *) SELECT * FROM x'),
+      runAsQueryDbStep(db, 'WITH x AS (DELETE FROM zvd_ro_probe RETURNING *) SELECT * FROM x'),
     ).rejects.toThrow(/read-only/i);
 
-    const after = await sql<{ n: string }>`SELECT count(*) AS n FROM zv_ro_probe`.execute(db);
+    const after = await sql<{ n: string }>`SELECT count(*) AS n FROM zvd_ro_probe`.execute(db);
     expect(Number(after.rows[0]!.n)).toBe(3);
   });
 
   it('refuses an UPDATE and an INSERT hidden in a CTE', async () => {
     for (const q of [
-      'WITH x AS (UPDATE zv_ro_probe SET id = 99 RETURNING *) SELECT * FROM x',
-      'WITH x AS (INSERT INTO zv_ro_probe VALUES (4) RETURNING *) SELECT * FROM x',
+      'WITH x AS (UPDATE zvd_ro_probe SET id = 99 RETURNING *) SELECT * FROM x',
+      'WITH x AS (INSERT INTO zvd_ro_probe VALUES (4) RETURNING *) SELECT * FROM x',
     ]) {
       await expect(runAsQueryDbStep(db, q)).rejects.toThrow(/read-only/i);
     }
-    const rows = await sql<{ id: number }>`SELECT id FROM zv_ro_probe ORDER BY id`.execute(db);
+    const rows = await sql<{ id: number }>`SELECT id FROM zvd_ro_probe ORDER BY id`.execute(db);
     expect(rows.rows.map((r) => r.id)).toEqual([1, 2, 3]);
   });
 
@@ -76,7 +88,7 @@ d('query_db read-only enforcement', () => {
   });
 
   it('still runs an ordinary SELECT', async () => {
-    const res = await runAsQueryDbStep(db, 'SELECT id FROM zv_ro_probe ORDER BY id');
+    const res = await runAsQueryDbStep(db, 'SELECT id FROM zvd_ro_probe ORDER BY id');
     expect((res as { rows: { id: number }[] }).rows.map((r) => r.id)).toEqual([1, 2, 3]);
   });
 
@@ -95,7 +107,7 @@ d('query_db read-only enforcement', () => {
   it('still runs a legitimate read-only CTE', async () => {
     const res = await runAsQueryDbStep(
       db,
-      'WITH x AS (SELECT id FROM zv_ro_probe WHERE id > 1) SELECT count(*) AS n FROM x',
+      'WITH x AS (SELECT id FROM zvd_ro_probe WHERE id > 1) SELECT count(*) AS n FROM x',
     );
     expect(Number((res as { rows: { n: string }[] }).rows[0]!.n)).toBe(2);
   });

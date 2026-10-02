@@ -61,3 +61,13 @@ it('an earlier verdict settling does not let a later one jump the queue', async 
   await Bun.sleep(10);
   expect(sent).toEqual(['a', 'b', 'c']);
 });
+
+it('a verdict that never settles is dropped after the timeout, and the queue moves on', async () => {
+  const queue: { pending?: Promise<void> } = {};
+  const sent: string[] = [];
+  inOrder(queue, new Promise<boolean>(() => {}), () => sent.push('stuck'), 30);
+  inOrder(queue, true, () => sent.push('next'));
+  await Bun.sleep(80);
+  expect(sent).toEqual(['next']);
+  expect(queue.pending).toBeUndefined();
+});

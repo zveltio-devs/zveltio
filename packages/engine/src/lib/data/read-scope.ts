@@ -119,12 +119,22 @@ export async function readScope(
  * is async. Sending each event when its own check settles would let a later
  * write overtake an earlier one on the same socket. So once one verdict is
  * pending, every later event for that subscriber queues behind it. A verdict
- * that rejects drops the event: a check that cannot answer does not admit.
+ * that rejects, or does not settle within `timeoutMs`, drops the event: a check
+ * that cannot answer does not admit.
  */
+/**
+ * How long a queued verdict may take before it counts as a refusal. Without a
+ * bound, one entity-access check that never settles held every later event
+ * for that subscriber forever — the socket stayed open and silent, and the
+ * queue grew with each write.
+ */
+export const VERDICT_TIMEOUT_MS = 5_000;
+
 export function inOrder(
   queue: { pending?: Promise<void> },
   verdict: boolean | Promise<boolean>,
   send: () => void,
+  timeoutMs = VERDICT_TIMEOUT_MS,
 ): void {
   if (verdict === false) return;
   if (verdict === true && !queue.pending) {
@@ -134,7 +144,13 @@ export function inOrder(
   // Handled now, not when the queue reaches it: a verdict that rejects while an
   // earlier one is pending was an unhandled rejection, and the engine exits on
   // those.
-  const admitted = Promise.resolve(verdict).catch(() => false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const admitted = Promise.race([
+    Promise.resolve(verdict).catch(() => false),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
   const next = (queue.pending ?? Promise.resolve())
     .then(() => admitted)
     .then((ok) => {

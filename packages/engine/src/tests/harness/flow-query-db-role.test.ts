@@ -18,7 +18,10 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+
+const { executeStep } = _internalForTests;
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -36,14 +39,14 @@ const d = harnessAvailable() ? describe : describe.skip;
  */
 const HARNESS_TENANT = '00000000-0000-0000-0000-0000000000ff';
 
+/**
+ * The real step. An inline copy of the executor's transaction drifted from it
+ * and ran its SET ROLE outside the savepoint the executor needs, so deleting
+ * the executor's own SET LOCAL ROLE left this suite green.
+ */
 async function runAsQueryDbStep(db: Database, query: string, tenantId = HARNESS_TENANT) {
-  return db.transaction().execute(async (trx) => {
-    await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
-    await sql.raw('SET LOCAL ROLE zveltio_flow_reader').execute(trx);
-    await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
-    await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
-    return sql.raw(query).execute(trx);
-  });
+  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId);
+  return { rows: r.output };
 }
 
 d('query_db cannot reach the auth tables', () => {
