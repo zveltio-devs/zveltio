@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a newly installed extension let a parent unit write into its children.**
+Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`
+uses the read predicate, so a parent that reads its subtree could also insert
+into a child's rows. The engine rewrote these policies only at boot, so an
+extension installed or enabled at runtime stayed open until the next restart.
+Policies an extension migration creates or changes are now reconciled as soon
+as its migrations run.
+
 **Fixed: the collection SQL preview shows what create runs.** The Studio
 preview built its column list separately from `createCollection`: it dropped
 per-field default values, showed `UNIQUE` as a separate `ALTER TABLE` that

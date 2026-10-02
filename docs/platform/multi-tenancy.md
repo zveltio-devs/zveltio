@@ -223,8 +223,10 @@ ALTER TABLE "zvd_<name>" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "zvd_<name>" FORCE ROW LEVEL SECURITY;
 ```
 
-On extension-owned tables the equivalent form is
-`zveltio_tenant_scope_ok(tenant_id)`.
+Extension-owned tables carry the same pair. Many extension migrations write
+`zveltio_tenant_scope_ok(tenant_id)` in both clauses; the engine rewrites every
+`tenant_isolation_*` policy to the form above after each extension migration
+run and again at boot, so the read predicate never stays in `WITH CHECK`.
 
 **`FORCE` is not decorative.** Without it, the table owner bypasses its own
 policies.
