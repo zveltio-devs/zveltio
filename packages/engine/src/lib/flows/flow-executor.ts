@@ -17,7 +17,12 @@
 import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
-import { activeMembership, DEFAULT_TENANT_ID, withEveryTenant } from '../tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  grantHoldsIn,
+  memberOfTenant,
+  withEveryTenant,
+} from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
 import { recordsToCsv } from '../security/index.js';
@@ -45,17 +50,13 @@ export interface FlowRunResult {
  *   makes a manager hold `employee`, as `getImplicitRolesForUser` walks it. Only
  *   role→role rows (v0 not a user) in this tenant or `*` (the `g` domain
  *   matcher); UNION ends the seeded `g member member *` self-loops and cycles.
- * - A `g` row in this tenant's domain is a grant for this tenant: it counts,
- *   unless the user's membership here has lapsed (`activeMembership`: expired,
- *   or not started yet). That grant is derived from the membership and the
- *   membership middleware refuses a lapsed member, so the flow does too.
- *   No membership row at all is not a lapse: the grant counts as it is.
- * - A `g` row at `*` and the `"user".role` column (god/member since #785) hold
- *   in every domain, so they count only for members of the tenant — every
- *   account in the default tenant — where the membership middleware draws the
- *   line. Otherwise a tenant-A flow carried its message to tenant B. The one
- *   god is enrolled in no tenant by construction, so a tenant flow does not
- *   reach it.
+ * - A `g` row counts as `grantHoldsIn` says: in this tenant's domain unless the
+ *   membership here has lapsed; at `*` only for a member of the tenant.
+ *   Otherwise a tenant-A flow carried its message to tenant B.
+ * - The `"user".role` column (god/member since #785) holds in every domain, so
+ *   like a `*` grant it counts only for members of the tenant
+ *   (`memberOfTenant`: every account in the default tenant). The one god is
+ *   enrolled in no tenant by construction, so a tenant flow does not reach it.
  */
 async function getUsersForRole(db: Database, role: string, tenantId: string): Promise<string[]> {
   const rows = await sql<{ id: string }>`
@@ -67,16 +68,10 @@ async function getUsersForRole(db: Database, role: string, tenantId: string): Pr
          AND NOT EXISTS (SELECT 1 FROM "user" x WHERE x.id = g.v0)
     )
     SELECT u.id FROM "user" u
-     CROSS JOIN LATERAL (
-       SELECT ${tenantId} = ${DEFAULT_TENANT_ID} OR COALESCE(bool_or(a.live), false) AS member,
-              COALESCE(NOT bool_or(a.live), false) AS lapsed
-         FROM (SELECT ${activeMembership('tu')} AS live FROM zv_tenant_users tu
-                WHERE tu.tenant_id::text = ${tenantId} AND tu.user_id = u.id) a
-     ) m
      WHERE EXISTS (SELECT 1 FROM zvd_permissions g
                     WHERE g.ptype = 'g' AND g.v0 = u.id AND g.v1 IN (SELECT r FROM held)
-                      AND ((g.v2 = ${tenantId} AND NOT m.lapsed) OR (g.v2 = '*' AND m.member)))
-        OR (m.member AND u.role IN (SELECT r FROM held))
+                      AND ${grantHoldsIn('g', tenantId)})
+        OR (u.role IN (SELECT r FROM held) AND ${memberOfTenant('u.id', tenantId)})
   `.execute(db);
   return rows.rows.map((r) => r.id);
 }

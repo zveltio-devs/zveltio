@@ -27,6 +27,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { PROBLEM_CONTENT_TYPE } from '../lib/problem.js';
 import { describeDenial } from '../lib/tenancy/index.js';
+import { tenantId } from '../lib/route-db.js';
 import type { Database } from '../db/index.js';
 
 /** The legacy sentence, kept parseable so old bundles benefit too. */
@@ -68,7 +69,11 @@ export function enrichDenial(db: Database): MiddlewareHandler {
 
     let denial: Awaited<ReturnType<typeof describeDenial>>;
     try {
-      denial = await describeDenial(db, subj.resource, subj.action);
+      // The request's tenant, passed: this runs after `next()`, outside
+      // tenantMiddleware's `runWithDomain`, where the async context answers the
+      // default tenant — so a tenant-A refusal named the default tenant's
+      // administrators and every `*` holder on the instance.
+      denial = await describeDenial(db, subj.resource, subj.action, tenantId(c));
     } catch {
       return; // a refusal must never become a 500 for want of a courtesy
     }

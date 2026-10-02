@@ -11,10 +11,13 @@
  * cannot change what any other test sees in the shared database.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { Hono } from 'hono';
 import { sql } from 'kysely';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
-import { describeDenial, whoCanGrant } from '../../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID, describeDenial, whoCanGrant } from '../../lib/tenancy/index.js';
+import { enrichDenial } from '../../middleware/enrich-denial.js';
+import { tenantMiddleware } from '../../middleware/tenant.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -101,5 +104,105 @@ d('who a refusal points at', () => {
     // would turn the 403 into a 500 and lose the refusal itself.
     const broken = { executeQuery: () => Promise.reject(new Error('nope')) } as never;
     expect(await whoCanGrant(broken, TENANT)).toEqual([]);
+  });
+});
+
+/**
+ * A `*` grant holds in every domain, so on its own it says nothing about WHICH
+ * tenant the holder works in. Naming every `*` administrator to a refused member
+ * of tenant A showed them people who belong only to tenant B — a name from
+ * another firm, and a pointer to someone who cannot act here. The holder counts
+ * where the membership middleware would let them act: a member of the tenant
+ * (`activeMembership`), or anyone in the default tenant. A grant in the tenant's
+ * own domain counts unless that membership has lapsed — the same gate a flow's
+ * role audience uses.
+ *
+ * And the tenant must be the request's. `enrichDenial` rewrites the response
+ * AFTER `next()`, outside `tenantMiddleware`'s `runWithDomain`, so it has to
+ * pass the tenant rather than read the async context — which there answers the
+ * default tenant for every request.
+ */
+d('who a refusal points at, across tenants', () => {
+  const TAG = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const A = '00000000-0000-0000-0000-00000000d0aa';
+  const B = '00000000-0000-0000-0000-00000000d0bb';
+  const slugA = `deny-a-${TAG}`;
+  // Names sort the wrong people first, so the cap of three cannot hide them.
+  const people = {
+    starB: '000 a star, member of B only',
+    starLapsed: '000 b star, A membership expired',
+    domLapsed: '000 c A admin, A membership expired',
+    starA: '000 d star, member of A',
+    domA: '000 e A admin, member of A',
+  };
+  const ids: Record<keyof typeof people, string> = {} as never;
+  let db: Awaited<ReturnType<typeof getTestApp>>['db'];
+
+  const enrol = (tenant: string, user: string, lapsed = false) =>
+    lapsed
+      ? sql`INSERT INTO zv_tenant_users (tenant_id, user_id, valid_from, valid_to)
+            VALUES (${tenant}::uuid, ${user}, now() - interval '2 days', now() - interval '1 day')`.execute(
+          db,
+        )
+      : sql`INSERT INTO zv_tenant_users (tenant_id, user_id) VALUES (${tenant}::uuid, ${user})`.execute(
+          db,
+        );
+
+  beforeAll(async () => {
+    ({ db } = await getTestApp());
+    await sql`INSERT INTO zv_tenants (id, slug, name, status) VALUES
+                (${A}::uuid, ${slugA}, 'deny A', 'active'),
+                (${B}::uuid, ${`deny-b-${TAG}`}, 'deny B', 'active')
+              ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug`.execute(db);
+    for (const k of Object.keys(people) as (keyof typeof people)[]) {
+      ids[k] = await makeUser(db, people[k]);
+    }
+    await grant(db, ids.starB, 'tenant_admin', '*');
+    await enrol(B, ids.starB);
+    await grant(db, ids.starLapsed, 'tenant_owner', '*');
+    await enrol(A, ids.starLapsed, true);
+    await grant(db, ids.domLapsed, 'tenant_admin', A);
+    await enrol(A, ids.domLapsed, true);
+    await grant(db, ids.starA, 'tenant_admin', '*');
+    await enrol(A, ids.starA);
+    await grant(db, ids.domA, 'tenant_owner', A);
+    await enrol(A, ids.domA);
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    for (const id of Object.values(ids)) {
+      await sql`DELETE FROM zvd_permissions WHERE v0 = ${id}`.execute(db).catch(() => {});
+      await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
+    }
+    await sql`DELETE FROM zv_tenants WHERE id IN (${A}::uuid, ${B}::uuid)`
+      .execute(db)
+      .catch(() => {});
+  });
+
+  const ours = (names: string[]) => names.filter((n) => n.startsWith('000 ')).sort();
+
+  it('names a `*` administrator only where they are a member, and no lapsed member', async () => {
+    const names = (await whoCanGrant(db, A)).map((g) => g.name);
+    expect(ours(names)).toEqual([people.starA, people.domA]);
+  });
+
+  it('in the default tenant every `*` administrator is a member', async () => {
+    const names = (await whoCanGrant(db, DEFAULT_TENANT_ID)).map((g) => g.name);
+    expect(names).toContain(people.starB);
+  });
+
+  it('the 403 a tenant-A request gets names tenant A administrators', async () => {
+    // index.ts order: enrichDenial wraps tenantMiddleware wraps the handler.
+    const app = new Hono();
+    app.use('*', enrichDenial(db));
+    app.use('*', tenantMiddleware);
+    app.get('/api/probe', (c) =>
+      c.json({ code: 'permission_required', resource: 'payroll', action: 'read' }, 403),
+    );
+    const res = await app.request('/api/probe', { headers: { 'x-tenant-slug': slugA } });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { can_grant: { name: string }[] };
+    expect(ours(body.can_grant.map((g) => g.name))).toEqual([people.starA, people.domA]);
   });
 });

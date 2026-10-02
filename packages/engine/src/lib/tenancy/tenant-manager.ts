@@ -2,7 +2,7 @@
 // Manages tenant schema lifecycle and resolution
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { sql } from 'kysely';
+import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
@@ -40,6 +40,44 @@ import {
 } from './tenant-scope.js';
 
 export { activeMembership };
+
+/** `userCol` holds a membership in force in `tenantId` (a row, not the default-tenant rule). */
+function liveMembership(userCol: string, tenantId: string): RawBuilder<boolean> {
+  return sql<boolean>`EXISTS (SELECT 1 FROM zv_tenant_users tu
+                               WHERE tu.tenant_id::text = ${tenantId}
+                                 AND tu.user_id = ${sql.ref(userCol)}
+                                 AND ${activeMembership('tu')})`;
+}
+
+/**
+ * `userCol` is a member of `tenantId` now, where the membership middleware draws
+ * the line: everyone in the default tenant, elsewhere a membership in force.
+ */
+export function memberOfTenant(userCol: string, tenantId: string): RawBuilder<boolean> {
+  return tenantId === DEFAULT_TENANT_ID ? sql<boolean>`true` : liveMembership(userCol, tenantId);
+}
+
+/**
+ * The Casbin `g` row aliased `g` (user `g.v0`) grants its role in `tenantId` to
+ * someone who can act there. Every audience drawn from `g` rows uses this, so a
+ * role names the same people at every door.
+ *
+ * - A row in the tenant's own domain counts, unless the user's membership here
+ *   has lapsed (rows exist, none in force): that grant derives from the
+ *   membership, and the membership middleware refuses a lapsed member. No
+ *   membership row at all is not a lapse.
+ * - A row at `*` holds in every domain, so it says nothing about which tenant
+ *   the holder belongs to: it counts only for a member of this tenant (#788).
+ *   Otherwise tenant A's audience reaches people who belong only to tenant B.
+ */
+export function grantHoldsIn(g: string, tenantId: string): RawBuilder<boolean> {
+  const v0 = `${g}.v0`;
+  const v2 = sql.ref(`${g}.v2`);
+  const anyRow = sql`EXISTS (SELECT 1 FROM zv_tenant_users tu
+                              WHERE tu.tenant_id::text = ${tenantId} AND tu.user_id = ${sql.ref(v0)})`;
+  return sql<boolean>`((${v2} = ${tenantId} AND (${liveMembership(v0, tenantId)} OR NOT ${anyRow}))
+                       OR (${v2} = '*' AND ${memberOfTenant(v0, tenantId)}))`;
+}
 
 export interface Tenant {
   id: string;

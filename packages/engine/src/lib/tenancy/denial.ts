@@ -26,6 +26,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { isSensitiveResource } from './permissions.js';
 import { getCurrentDomain } from './tenant-context.js';
+import { grantHoldsIn } from './tenant-manager.js';
 
 /** Someone who can grant access, as the person refused should see them. */
 export interface Granter {
@@ -54,7 +55,11 @@ const MAX_GRANTERS = 3;
  *
  * Grants at domain `*` are included — that is how a single-tenant install and
  * every pre-tenancy grant are stored, and excluding them would return nobody on
- * the most common deployment.
+ * the most common deployment — but only for members of this tenant
+ * (`grantHoldsIn`). A `*` grant holds everywhere, so on its own it named, to a
+ * member of tenant A, an administrator who belongs only to tenant B: a name
+ * from another firm, and someone who cannot act here. A lapsed member is not
+ * named either; the membership middleware would refuse them.
  */
 export async function whoCanGrant(db: Database, tenantId?: string): Promise<Granter[]> {
   const domain = tenantId ?? getCurrentDomain();
@@ -65,7 +70,7 @@ export async function whoCanGrant(db: Database, tenantId?: string): Promise<Gran
         JOIN "user" u ON u.id = g.v0
        WHERE g.ptype = 'g'
          AND g.v1 IN ('tenant_owner', 'tenant_admin')
-         AND (g.v2 = ${domain} OR g.v2 = '*')
+         AND ${grantHoldsIn('g', domain)}
          AND u.name IS NOT NULL
        ORDER BY u.name
        LIMIT ${MAX_GRANTERS}

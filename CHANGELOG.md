@@ -43,6 +43,12 @@ Revoking the other sessions rewrote `active-sessions-<user>` with a plain
 **Fixed: a media file moved to trash records who deleted it.** The engine's
 `moveToTrash` (used by `content/media`) never wrote `deleted_by`, so the trash
 showed nobody as the deleter.
+**Fixed: a refusal (403) no longer names administrators from another tenant.**
+A `*`-domain `tenant_admin`/`tenant_owner` is suggested only to members of a
+tenant they belong to, and a lapsed member is not suggested at all. The HTTP
+refusal also asked the default tenant instead of the request's tenant, because
+`enrichDenial` runs outside the tenant context; it now passes the request's
+tenant. Flow role notifications share the same grant-in-tenant predicate.
 
 **Breaking: sync pull takes cursors only (#805).**
 - `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
