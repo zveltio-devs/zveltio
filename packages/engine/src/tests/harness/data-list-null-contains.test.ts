@@ -106,9 +106,24 @@ d('data list null and text filters (in-process)', () => {
   });
 
   it('filters with like on code via bracket syntax', async () => {
-    const res = await list('?code[like]=A-%');
+    const res = await list('?code[like]=A-');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as ListBody;
-    expect(body.records.every((r) => (r.code ?? '').startsWith('A-'))).toBe(true);
+    const labels = ((await res.json()) as ListBody).records.map((r) => r.label);
+    expect(labels).toEqual(['alpha']);
+  });
+
+  it('treats % and _ in a like / contains value as literal characters', async () => {
+    // Passed through, `_` matched any one character (`A_` matched `A-100`) and
+    // `%` any run (`B%0` matched `B-200`).
+    for (const qs of [
+      '?code[like]=A_',
+      `?code[like]=${encodeURIComponent('B%0')}`,
+      `?filter=${encodeURIComponent(JSON.stringify({ code: { contains: '_' } }))}`,
+      `?filter=${encodeURIComponent(JSON.stringify({ code: { ilike: '%' } }))}`,
+    ]) {
+      const res = await list(qs);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as ListBody).records).toEqual([]);
+    }
   });
 });

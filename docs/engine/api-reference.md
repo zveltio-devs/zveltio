@@ -192,6 +192,10 @@ Both formats can be combined — JSON takes precedence for the same field.
 
 Supported operators: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `like`, `ilike`, `in`, `not_in`, `null`, `not_null`.
 
+`like`, `ilike` and `contains` are the same operator: a case-insensitive
+substring match. The value is literal — `%` and `_` match themselves, not any
+run or any character.
+
 ### POST /api/data/:collection
 
 Create a new record.

@@ -18,16 +18,24 @@ import { CannedDb } from './fixtures/canned-db.js';
 
 /** Compile a condition by running a query that carries it. */
 function compile(field: string, cond: Parameters<typeof buildCondition>[1]): string {
+  return compiled(field, cond).sql;
+}
+
+function compiled(
+  field: string,
+  cond: Parameters<typeof buildCondition>[1],
+): { sql: string; parameters: readonly unknown[] } {
   const db = new CannedDb();
   // Narrow shape rather than `any`: the table is resolved at runtime, which is
   // the only reason Kysely's typed API cannot name it.
   const kysely = db.kysely as unknown as {
     selectFrom(t: string): {
-      selectAll(): { where(e: unknown): { compile(): { sql: string } } };
+      selectAll(): {
+        where(e: unknown): { compile(): { sql: string; parameters: readonly unknown[] } };
+      };
     };
   };
-  return kysely.selectFrom('zvd_things').selectAll().where(buildCondition(field, cond)).compile()
-    .sql;
+  return kysely.selectFrom('zvd_things').selectAll().where(buildCondition(field, cond)).compile();
 }
 
 describe('buildCondition', () => {
@@ -52,6 +60,12 @@ describe('buildCondition', () => {
     expect(compile('c', { op: 'not_null' })).toMatch(/"c" IS NOT NULL/);
     expect(compile('c', { op: 'like', value: 'x' })).toMatch(/"c" LIKE /);
     expect(compile('c', { op: 'ilike', value: 'x' })).toMatch(/"c" ILIKE /);
+  });
+
+  it('binds a pattern value as a literal substring, not a pattern', () => {
+    // `%` and `_` from the caller were wildcards: `A_1` also matched `AB1`.
+    expect(compiled('c', { op: 'like', value: 'A_1%\\' }).parameters).toEqual(['%A\\_1\\%\\\\%']);
+    expect(compiled('c', { op: 'ilike', value: '50%' }).parameters).toEqual(['%50\\%%']);
   });
 
   it('refuses an operator it does not know instead of guessing equality', () => {
