@@ -83,6 +83,23 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
     expect(await signedInAs(setCookie)).toBe(userId);
   });
 
+  it('a user the caller rolled back to a savepoint gets no cached session', async () => {
+    let token = '';
+    let setCookie = '';
+    await asRequest(async (trx) => {
+      await sql`SAVEPOINT sso`.execute(trx);
+      const id = crypto.randomUUID();
+      await sql`
+        INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
+        VALUES (${id}, ${`sso-${id}@test.local`}, 'SSO', true, NOW(), NOW())`.execute(trx);
+      ({ token, setCookie } = await internals.createBetterAuthSession(trx, id));
+      await sql`ROLLBACK TO SAVEPOINT sso`.execute(trx);
+    });
+    // No row stops a cache-only write: only the post-commit recheck does.
+    expect(await getCache()?.exists(token)).toBe(0);
+    expect(await signedInAs(setCookie)).toBeUndefined();
+  });
+
   it('replaceExisting ends the previous session in the cache too', async () => {
     const { app } = await getTestApp();
     const { userId } = await createMemberSession(app, db);

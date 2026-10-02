@@ -150,6 +150,36 @@ describe.skipIf(!VALKEY)('rate-limit buckets on a live Valkey', () => {
     expect(seen.filter((s) => s === 200)).toHaveLength(25);
   });
 
+  it('a bucket key expires with its window', async () => {
+    const { tier, one } = limited(1000, null);
+    expect((await one('a')).status).toBe(200);
+    const ttl = await (clients[0] as Redis).pttl(`rl:${tier}:a`);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(60_000);
+  });
+
+  it('a refused request still counts against its caller, and sets Retry-After', async () => {
+    const { one } = limited(2, null);
+    const t0 = Date.now();
+    let offset = 0;
+    const clock = spyOn(Date, 'now').mockImplementation(() => t0 + offset);
+    try {
+      expect((await one('u')).status).toBe(200);
+      offset = 15_000;
+      expect((await one('u')).status).toBe(200);
+      offset = 20_000;
+      const refused = await one('u');
+      expect(refused.status).toBe(429);
+      // Three entries are kept; the next admit waits for the second (t=15) to leave.
+      expect(refused.headers.get('retry-after')).toBe('55');
+      // The t=0 entry has left, but the refusal at t=20 still fills the window.
+      offset = 60_500;
+      expect((await one('u')).status).toBe(429);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('Retry-After is when the oldest tenant entry leaves the window', async () => {
     const { one } = limited(1000, 2);
     const t0 = Date.now();
