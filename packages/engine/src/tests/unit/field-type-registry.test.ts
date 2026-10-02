@@ -67,14 +67,12 @@ describe('FieldTypeRegistry — registration', () => {
 describe('FieldTypeRegistry — getColumnDDL', () => {
   const r = makeRegistry();
 
-  it('builds a column with NOT NULL + UNIQUE', () => {
-    const ddl = r.getColumnDDL({
-      name: 'title',
-      type: 'text',
-      required: true,
-      unique: true,
-    } as Any);
-    expect(ddl).toBe('"title" TEXT NOT NULL UNIQUE');
+  it('builds a column with NOT NULL and leaves `unique` to the per-tenant key', () => {
+    const field = { name: 'title', type: 'text', required: true, unique: true } as Any;
+    // A column-level UNIQUE is `UNIQUE (title)` across every tenant's rows.
+    expect(r.getColumnDDL(field)).toBe('"title" TEXT NOT NULL');
+    expect(r.getUniqueKeyDDL(field)).toBe('UNIQUE (tenant_id, "title")');
+    expect(r.getUniqueKeyDDL({ ...field, unique: false })).toBeNull();
   });
 
   it('returns null for a virtual (computed) field', () => {

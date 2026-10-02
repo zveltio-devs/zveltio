@@ -174,7 +174,8 @@ export class FieldTypeRegistry {
     const parts = [`"${field.name}"`, typeDef.db.columnType];
 
     if (field.required) parts.push('NOT NULL');
-    if (field.unique) parts.push('UNIQUE');
+    // No column-level UNIQUE: that is `UNIQUE (<col>)` across every tenant of
+    // the table. `field.unique` is the table constraint `getUniqueKeyDDL` builds.
 
     // Default value — field-specific overrides type default
     const defaultVal = field.defaultValue ?? typeDef.db.defaultValue;
@@ -183,6 +184,22 @@ export class FieldTypeRegistry {
     }
 
     return parts.join(' ');
+  }
+
+  /**
+   * The key of a `unique` field: `UNIQUE (tenant_id, "<field>")`, or null.
+   *
+   * Per tenant, because every collection table holds every tenant's rows. The
+   * column-level `UNIQUE` this replaced refused tenant B a value tenant A held
+   * — over a row B's RLS hides — and so told B that another company has it.
+   * A table constraint, valid both inside `CREATE TABLE (…)` and after
+   * `ALTER TABLE … ADD`; Postgres names it, which never collides.
+   */
+  getUniqueKeyDDL(field: Pick<FieldConfig, 'name' | 'type' | 'unique'>): string | null {
+    if (!field.unique) return null;
+    const typeDef = this.get(field.type);
+    if (!typeDef || typeDef.db.virtual) return null;
+    return `UNIQUE (tenant_id, "${field.name}")`;
   }
 
   // Generate index DDL for a field

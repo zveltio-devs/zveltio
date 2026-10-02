@@ -29,6 +29,8 @@ describe('DDLManager.createCollection — unique fields', () => {
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
       ],
     } as never);
-    expect(db.executed(/CREATE TABLE zvd_products/)[0]?.sql).toMatch(/"sku" text NOT NULL UNIQUE/);
+    expect(db.executed(/CREATE TABLE zvd_products/)[0]?.sql).toMatch(
+      /"sku" text NOT NULL,[\s\S]*UNIQUE \(tenant_id, "sku"\)\n\)$/,
+    );
   });
 });

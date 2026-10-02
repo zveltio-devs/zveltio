@@ -4,6 +4,18 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a unique field is unique per tenant, not across every tenant.** A
+collection field marked `unique` got a column-level `UNIQUE`, but every
+collection table holds every tenant's rows. One company could not store an
+email or code another company already had, and the refusal confirmed that the
+value existed in a row it cannot see. The key is now
+`UNIQUE (tenant_id, <field>)` on every path that adds a column: creating a
+collection, adding a field, and merging a schema branch. Migration 036 widens
+the keys that collections already have. It skips extension-owned tables and
+any key a foreign key references; for the latter it prints a warning. The
+duplicate-value error still names the field and the value, and does not
+include the tenant id.
+
 **Fixed: a newly installed extension let a parent unit write into its children.**
 Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`
 uses the read predicate, so a parent that reads its subtree could also insert

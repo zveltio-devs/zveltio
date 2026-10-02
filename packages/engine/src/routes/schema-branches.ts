@@ -478,6 +478,12 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                   );
                   await dynamicAddColumn(db, tableName, colDDL);
                 }
+                // Both roads: a ghost ADD COLUMN takes no table constraint.
+                // ponytail: on the ghost road the key's index is built after the
+                // swap, under the table lock (one pass over a column that is all
+                // NULL or its default). CONCURRENTLY + USING INDEX if a merge of a
+                // unique field into a huge table ever needs it.
+                await DDLManager.addUniqueKey(db, tableName, change.payload.field);
               }
               announceSchemaChange(change.payload.collection, 'alter');
               applied.push(
