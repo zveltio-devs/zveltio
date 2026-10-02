@@ -88,9 +88,9 @@ describe('GhostDDL.execute — cleanup failure branches', () => {
       db.fail(/SELECT count\(\*\) AS cnt/i, new Error('copy blew up'));
       db.fail(/DROP FUNCTION IF EXISTS "_zv_trg_ghost_zvd_orders_fn"/, new Error('fn drop failed'));
 
-      await expect(GhostDDL.execute(asDb(db), 'zvd_orders', ['ADD COLUMN x TEXT'])).rejects.toThrow(
-        'copy blew up',
-      );
+      await expect(
+        GhostDDL.execute(asDb(db), 'zvd_orders', [{ kind: 'drop_column', column: 'x' }]),
+      ).rejects.toThrow('copy blew up');
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('DROP FUNCTION cleanup failed')),
       ).toBe(true);
@@ -110,9 +110,9 @@ describe('GhostDDL.execute — cleanup failure branches', () => {
         new Error('drop ghost failed'),
       );
 
-      await expect(GhostDDL.execute(asDb(db), 'zvd_orders', ['ADD COLUMN x TEXT'])).rejects.toThrow(
-        'copy blew up',
-      );
+      await expect(
+        GhostDDL.execute(asDb(db), 'zvd_orders', [{ kind: 'drop_column', column: 'x' }]),
+      ).rejects.toThrow('copy blew up');
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('Cleanup after failure also failed')),
       ).toBe(true);

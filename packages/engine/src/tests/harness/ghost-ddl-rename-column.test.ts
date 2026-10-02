@@ -63,7 +63,9 @@ d('ghost DDL rename column (in-process)', () => {
   });
 
   it('GhostDDL.execute renames a column and preserves row data', async () => {
-    await GhostDDL.execute(db, tableName, ['RENAME COLUMN subtitle TO tagline']);
+    await GhostDDL.execute(db, tableName, [
+      { kind: 'rename_column', from: 'subtitle', to: 'tagline' },
+    ]);
 
     const cols = await sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns

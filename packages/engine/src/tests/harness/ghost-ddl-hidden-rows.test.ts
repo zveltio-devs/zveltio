@@ -103,7 +103,9 @@ d('ghost DDL with rows outside every published tenant', () => {
     const before = await perTenant();
     expect(before).toEqual({ [DEFAULT_TENANT_ID]: 30, [GONE_TENANT]: 5 });
 
-    const failure = await GhostDDL.execute(owner, TABLE, ['ADD COLUMN note TEXT']).then(
+    const failure = await GhostDDL.execute(owner, TABLE, [
+      { kind: 'add_column', field: { name: 'note', type: 'text' } },
+    ]).then(
       () => null,
       (err: Error) => err,
     );
@@ -123,7 +125,9 @@ d('ghost DDL with rows outside every published tenant', () => {
     await sql`DELETE FROM ${sql.id(TABLE)} WHERE tenant_id = ${GONE_TENANT}::uuid`.execute(db);
     const before = await perTenant();
 
-    await GhostDDL.execute(owner, TABLE, ['ADD COLUMN note TEXT']);
+    await GhostDDL.execute(owner, TABLE, [
+      { kind: 'add_column', field: { name: 'note', type: 'text' } },
+    ]);
 
     expect(await perTenant()).toEqual(before);
     expect(await forced()).toBe(true);

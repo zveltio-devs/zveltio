@@ -464,10 +464,11 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                 const rowCount = await rowCountOrAssumeLarge(db, tableName);
 
                 if (rowCount > 100_000) {
+                  // The column and its per-tenant key, both built on the ghost.
                   await GhostDDL.execute(
                     db,
                     tableName,
-                    [`ADD COLUMN ${colDDL}`],
+                    [{ kind: 'add_column', field: change.payload.field }],
                     (phase, detail) => {
                       console.log(`[ghost-ddl] ${phase}: ${detail}`);
                     },
@@ -477,13 +478,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                     '../../../../packages/engine/src/db/dynamic.js'
                   );
                   await dynamicAddColumn(db, tableName, colDDL);
+                  await DDLManager.addUniqueKey(db, tableName, change.payload.field);
                 }
-                // Both roads: a ghost ADD COLUMN takes no table constraint.
-                // ponytail: on the ghost road the key's index is built after the
-                // swap, under the table lock (one pass over a column that is all
-                // NULL or its default). CONCURRENTLY + USING INDEX if a merge of a
-                // unique field into a huge table ever needs it.
-                await DDLManager.addUniqueKey(db, tableName, change.payload.field);
               }
               announceSchemaChange(change.payload.collection, 'alter');
               applied.push(
@@ -499,7 +495,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                 await GhostDDL.execute(
                   db,
                   tableName,
-                  [`DROP COLUMN "${change.payload.field}"`],
+                  [{ kind: 'drop_column', column: change.payload.field }],
                   (phase, detail) => {
                     console.log(`[ghost-ddl] ${phase}: ${detail}`);
                   },

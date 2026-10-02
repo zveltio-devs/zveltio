@@ -49,8 +49,14 @@ d('ghost DDL multi-statement (in-process)', () => {
 
   it('execute applies several ADD COLUMN changes in one migration', async () => {
     await GhostDDL.execute(db, tableName, [
-      `ADD COLUMN alpha TEXT NOT NULL DEFAULT 'a'`,
-      `ADD COLUMN beta TEXT NOT NULL DEFAULT 'b'`,
+      {
+        kind: 'add_column',
+        field: { name: 'alpha', type: 'text', required: true, defaultValue: 'a' },
+      },
+      {
+        kind: 'add_column',
+        field: { name: 'beta', type: 'text', required: true, defaultValue: 'b' },
+      },
     ]);
 
     const cols = await sql<{ column_name: string }>`

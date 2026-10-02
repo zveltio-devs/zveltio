@@ -54,7 +54,10 @@ d('ghost DDL changelog during copy (in-process)', () => {
 
   it('applyChangelog replays inserts that happen between createGhost and swap', async () => {
     const migration = await GhostDDL.createGhost(db, tableName, [
-      `ADD COLUMN extra TEXT NOT NULL DEFAULT 'live'`,
+      {
+        kind: 'add_column',
+        field: { name: 'extra', type: 'text', required: true, defaultValue: 'live' },
+      },
     ]);
 
     const live = await app.request(`/api/data/${COLLECTION}`, {

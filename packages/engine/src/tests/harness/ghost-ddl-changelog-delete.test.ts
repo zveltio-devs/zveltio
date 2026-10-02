@@ -66,7 +66,10 @@ d('ghost DDL changelog delete (in-process)', () => {
 
   it('applyChangelog removes rows deleted during batchCopy', async () => {
     const migration = await GhostDDL.createGhost(db, tableName, [
-      `ADD COLUMN marker TEXT NOT NULL DEFAULT 'ok'`,
+      {
+        kind: 'add_column',
+        field: { name: 'marker', type: 'text', required: true, defaultValue: 'ok' },
+      },
     ]);
 
     const del = await app.request(`/api/data/${COLLECTION}/${deleteId}`, {

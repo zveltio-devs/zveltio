@@ -15,6 +15,9 @@
 import type { Database } from '../../db/index.js';
 import { sql } from 'kysely';
 import { publishEveryTenant } from '../tenancy/index.js';
+import { pgIdentifier } from '../pg-identifier.js';
+import { SYSTEM_COLUMNS } from './ddl-manager.js';
+import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
 
 const BATCH_SIZE = 10_000;
 
@@ -164,44 +167,71 @@ async function carriedOverDdl(
 }
 
 /**
- * Whether a single ALTER TABLE fragment is safe to interpolate.
+ * What a ghost migration may change. GhostDDL builds the SQL itself — the column
+ * from the field-type registry, every name quoted — so a change it does not
+ * model has no spelling: there is no operation that drops `tenant_id` or adds a
+ * CHECK.
  *
- * Anchored at BOTH ends. Matching only the prefix validated the verb and then
- * passed whatever followed into sql.raw — and the pool speaks Postgres'
- * simple-query protocol, which accepts several commands at once, so
- * `ADD COLUMN x int; DROP TABLE "user"; --` was accepted and executed in full.
+ * This replaced a regex over caller-written `ALTER TABLE` fragments. Its type
+ * part had to admit commas and keywords (`NUMERIC(10,2)`, `NOT NULL DEFAULT …`),
+ * so `ADD COLUMN x text, DROP COLUMN tenant_id` and `ADD COLUMN x text, ADD
+ * CONSTRAINT evil CHECK (true)` both passed it.
  *
- * The tail has to allow string literals, because real migrations carry them
- * (`TEXT NOT NULL DEFAULT ''`, `SET DEFAULT 'migrated'`). A literal is matched
- * as one atom with `''` as the escape, so a quote is never left dangling to open
- * injected code, `;` stays outside the unquoted character class, and `-` is
- * excluded from it so `--` cannot start a comment.
- *
- * Exported so the tests exercise this exact matcher: the first version of this
- * guard was too strict and rejected legitimate migrations, and a test carrying
- * its own copy of the regex would have agreed with it.
+ * There is no ALTER COLUMN: nothing sends one, and a free-form tail is what
+ * made the regex unsafe.
  */
-export function isAllowedGhostDdl(statement: string): boolean {
-  // Plain strings where there is no backslash, `String.raw` where there is.
-  //
-  // Not cosmetic, and worth the care: this regex is what decides which DDL an
-  // extension may run, so a fragment that silently loses a `\` is a hole. The
-  // two spellings are mixed ON PURPOSE — biome's `noUselessStringRaw` flags a
-  // raw literal with nothing to escape — so anyone ADDING a backslash to one of
-  // the plain ones below must switch it to `String.raw` in the same edit.
-  const IDENT = '(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)';
-  const STRING_LIT = "'(?:[^']|'')*'";
-  const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\].:]|${STRING_LIT})*`;
-  const ALLOWED_DDL_RE = new RegExp(
-    '^(?:' +
-      String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
-      String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
-      String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
-      String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
-      ')$',
-    'i',
-  );
-  return ALLOWED_DDL_RE.test(statement.trim());
+export type GhostOperation =
+  /**
+   * The column a field defines, with the `UNIQUE (tenant_id, <field>)` key a
+   * `unique` field has — built on the ghost, so nothing is indexed under the
+   * swap's lock. Only a column born in this run takes a key: the copy and the
+   * replay never write it (the original has no such column), so it holds only
+   * its default and no write made during the copy can trip the key. A key over
+   * an existing column would replay the original's intermediate states, which
+   * no key ever checked.
+   */
+  | { kind: 'add_column'; field: FieldConfig }
+  | { kind: 'drop_column'; column: string }
+  | { kind: 'rename_column'; from: string; to: string };
+
+/** A column name an operation may touch: an identifier, and not a system column. */
+function userColumn(name: unknown): string {
+  if (
+    typeof name !== 'string' ||
+    !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) ||
+    name.length > 63 ||
+    SYSTEM_COLUMNS.has(name)
+  ) {
+    throw new Error(`[ghost-ddl] refusing column ${JSON.stringify(name)}: not a user column`);
+  }
+  return name;
+}
+
+/** The statements one operation runs on the ghost of `table`. */
+function operationDdl(table: string, ghost: string, op: GhostOperation) {
+  const g = sql.id(ghost);
+  switch (op?.kind) {
+    case 'add_column': {
+      const name = userColumn(op.field?.name);
+      const column = fieldTypeRegistry.getColumnDDL(op.field);
+      if (!column) throw new Error(`[ghost-ddl] field "${name}" is virtual: it has no column`);
+      const out = [sql`ALTER TABLE ${g} ADD COLUMN ${sql.raw(column)}`];
+      const key = fieldTypeRegistry.getUniqueKeyDDL(op.field);
+      // Named after the table it ends up on — up to 63 bytes, the name Postgres
+      // gives the same key added to the original — not after the ghost.
+      const keyName = pgIdentifier(`${table}_tenant_id_${name}_key`);
+      if (key) out.push(sql`ALTER TABLE ${g} ADD CONSTRAINT ${sql.id(keyName)} ${sql.raw(key)}`);
+      return out;
+    }
+    case 'drop_column':
+      return [sql`ALTER TABLE ${g} DROP COLUMN ${sql.id(userColumn(op.column))}`];
+    case 'rename_column':
+      return [
+        sql`ALTER TABLE ${g} RENAME COLUMN ${sql.id(userColumn(op.from))} TO ${sql.id(userColumn(op.to))}`,
+      ];
+    default:
+      throw new Error(`[ghost-ddl] unknown operation: ${JSON.stringify(op)}`);
+  }
 }
 
 // raw-ident-ok-file: every identifier this module interpolates is derived from
@@ -211,7 +241,9 @@ export function isAllowedGhostDdl(statement: string): boolean {
 // `migration` record carried between steps holds those same four strings.
 //
 // The other `sql.raw` inputs are statements Postgres itself built from the
-// catalog (`format('%I')`, `pg_get_*def`) — see carriedOverDdl.
+// catalog (`format('%I')`, `pg_get_*def`) — see carriedOverDdl — and the
+// column and key DDL of `operationDdl`, which the field-type registry builds
+// from a name `userColumn` has validated.
 //
 // Whole-file rather than nineteen separate annotations: this is one pipeline
 // from one input, and marking each statement would say the same sentence
@@ -225,7 +257,7 @@ export class GhostDDL {
   static async createGhost(
     db: Database,
     tableName: string,
-    ddlStatements: string[], // ex: ['ADD COLUMN phone TEXT', 'DROP COLUMN fax']
+    operations: GhostOperation[],
   ): Promise<GhostMigration> {
     // Validated here rather than trusted from the caller. Four identifiers are
     // derived from this one string and every one is interpolated into a
@@ -236,6 +268,9 @@ export class GhostDDL {
     }
 
     const ghost = `_zv_ghost_${tableName}`;
+    // Every operation is built before anything is created: one that cannot be
+    // leaves nothing behind.
+    const ddl = operations.flatMap((op) => operationDdl(tableName, ghost, op));
     const changelog = `_zv_changelog_${tableName}`;
     const triggerFn = `_zv_trg_ghost_${tableName}_fn`;
     const trigger = `_zv_trg_ghost_${tableName}`;
@@ -279,17 +314,8 @@ export class GhostDDL {
     `.execute(db);
     for (const { ddl } of outbound.rows) await sql.raw(ddl).execute(db);
 
-    // 2. Apply DDL changes on ghost — see isAllowedGhostDdl.
-    for (const ddl of ddlStatements) {
-      const trimmed = ddl.trim();
-      if (!isAllowedGhostDdl(trimmed)) {
-        throw new Error(
-          `Unsafe DDL statement rejected: "${ddl}". ` +
-            `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
-        );
-      }
-      await sql.raw(`ALTER TABLE "${ghost}" ${trimmed}`).execute(db);
-    }
+    // 2. Apply the operations on the ghost — see GhostOperation.
+    for (const statement of ddl) await statement.execute(db);
 
     // …and detached again for the copy, which inserts in id order and would
     // trip a self-reference to a row not yet copied. Re-added at the swap.
@@ -711,7 +737,7 @@ export class GhostDDL {
   static async execute(
     db: Database,
     tableName: string,
-    ddlStatements: string[],
+    operations: GhostOperation[],
     onProgress?: (phase: string, detail: string) => void,
   ): Promise<void> {
     // BYOD Guard: don't run Ghost DDL on unmanaged tables.
@@ -756,7 +782,7 @@ export class GhostDDL {
     let migration: GhostMigration | undefined;
     try {
       onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
-      migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
+      migration = await GhostDDL.createGhost(db, tableName, operations);
 
       onProgress?.('copying', 'Batch copying data from original to ghost table');
       const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {

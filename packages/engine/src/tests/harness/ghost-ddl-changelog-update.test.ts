@@ -61,7 +61,10 @@ d('ghost DDL changelog update (in-process)', () => {
 
   it('applyChangelog replays PATCH updates captured during batchCopy', async () => {
     const migration = await GhostDDL.createGhost(db, tableName, [
-      `ADD COLUMN extra TEXT NOT NULL DEFAULT ''`,
+      {
+        kind: 'add_column',
+        field: { name: 'extra', type: 'text', required: true, defaultValue: '' },
+      },
     ]);
 
     const patch = await app.request(`/api/data/${COLLECTION}/${recordId}`, {

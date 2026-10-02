@@ -66,7 +66,12 @@ d('ghost DDL execute (in-process)', () => {
     await GhostDDL.execute(
       db,
       tableName,
-      [`ADD COLUMN tag TEXT NOT NULL DEFAULT 'migrated'`],
+      [
+        {
+          kind: 'add_column',
+          field: { name: 'tag', type: 'text', required: true, defaultValue: 'migrated' },
+        },
+      ],
       (phase) => phases.push(phase),
     );
 

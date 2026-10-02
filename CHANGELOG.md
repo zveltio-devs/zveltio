@@ -20,6 +20,23 @@ names the table. A failure on one table never stops the boot; the next boot
 retries it. The duplicate-value error still names the field and the value, and
 does not include the tenant id.
 
+**Changed: Ghost DDL takes typed operations, not SQL fragments.** A
+schema-branch merge into a table past 100 000 rows runs Ghost DDL, which
+checked the `ALTER TABLE` fragments it received with a regular expression. The
+type part of that expression accepted commas and keywords, so
+`ADD COLUMN x text, DROP COLUMN tenant_id` and
+`ADD COLUMN x text, ADD CONSTRAINT evil CHECK (true)` passed. No caller sent
+such a fragment. `GhostDDL.createGhost` and `GhostDDL.execute` now accept only
+`add_column` (a field definition), `drop_column` and `rename_column`, and Ghost
+DDL builds the SQL from the field-type registry. System columns such as
+`tenant_id` and `id`, and names that are not identifiers, are refused before
+anything is created. `isAllowedGhostDdl` and `ALTER COLUMN` support are removed.
+`add_column` of a unique field creates its `UNIQUE (tenant_id, <field>)` key on
+the shadow table before the swap. Previously the merge added the key after the
+swap, building the index while the table was locked; if that build failed, the
+column stayed without its key. Now a failure stops the migration before the
+swap and leaves the table unchanged.
+
 **Fixed: a newly installed extension let a parent unit write into its children.**
 Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`
 uses the read predicate, so a parent that reads its subtree could also insert

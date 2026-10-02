@@ -46,12 +46,11 @@ d('GhostDDL.execute — cleanup when createGhost itself fails', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
 
-    // Passes isAllowedGhostDdl (matches the generic type-tail character class)
-    // but fails at the database — after createGhost's step 1 has already
-    // created the ghost table.
+    // A well-formed operation that fails at the database — after createGhost's
+    // step 1 has already created the ghost table.
     await expect(
-      GhostDDL.execute(db, TABLE, ['ADD COLUMN bad_col notarealtype']),
-    ).rejects.toThrow();
+      GhostDDL.execute(db, TABLE, [{ kind: 'drop_column', column: 'no_such_column' }]),
+    ).rejects.toThrow(/no_such_column/);
 
     expect(await exists(db, `_zv_ghost_${TABLE}`)).toBe(false);
     expect(await exists(db, `_zv_changelog_${TABLE}`)).toBe(false);

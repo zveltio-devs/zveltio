@@ -80,8 +80,8 @@ d('ghost DDL column mapping', () => {
     `.execute(db);
 
     const migration = await GhostDDL.createGhost(db, table, [
-      'DROP COLUMN b',
-      'RENAME COLUMN c TO c2',
+      { kind: 'drop_column', column: 'b' },
+      { kind: 'rename_column', from: 'c', to: 'c2' },
     ]);
     // Writes after the capture trigger exists: they reach the ghost only through
     // the changelog, keyed by the ORIGINAL column names.
