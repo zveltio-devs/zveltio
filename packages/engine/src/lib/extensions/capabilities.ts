@@ -36,7 +36,8 @@
  * The manifest may pin `capabilityContract` to refuse loading against an engine
  * that speaks a different major version.
  */
-export const CAPABILITY_CONTRACT_VERSION = 3; // 2: `auth:users`, 3: `data:write`
+// 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`)
+export const CAPABILITY_CONTRACT_VERSION = 4;
 
 /**
  * Every capability an extension may declare.
@@ -46,8 +47,19 @@ export const CAPABILITY_CONTRACT_VERSION = 3; // 2: `auth:users`, 3: `data:write
  * rather than a blanket "this extension uses the network".
  */
 export const CAPABILITIES = [
-  /** Cross-tenant database handle (`ctx.adminDb`). The most dangerous one. */
+  /**
+   * Cross-tenant database handle (`ctx.adminDb`). The most dangerous one.
+   * Implies `tenant:enter`.
+   */
   'db:admin',
+  /**
+   * Let `ctx.internals.withTenantIsolation` enter a tenant other than the one
+   * the request or job runs as — or any tenant where none runs (load time, a
+   * timer). Without it (or `db:admin`) that helper enters only the running
+   * tenant. Grants nothing else: no `adminDb`, no table beyond `ctx.db`'s.
+   * `storage/cloud` needs it: a share link names no firm, the token row does.
+   */
+  'tenant:enter',
   /** Enqueue schema changes (DDL) — creates/alters physical tables. */
   'ddl',
   /** Encrypt/decrypt values with the engine's field key. */
@@ -207,11 +219,19 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
  * that carry `ext:<name>`, so the identity comes from the host's record of who
  * is calling and never from an argument an extension could forge.
  */
-const callerBound = new WeakMap<object, (caller: string) => Record<string, unknown>>();
+type BindCaller = (caller: string, granted: ReadonlySet<string>) => Record<string, unknown>;
+const callerBound = new WeakMap<object, BindCaller>();
 
-/** Register how `bag`'s caller-bound members are built for one extension. */
-export function bindsCaller<T extends object>(bag: T, bind: (caller: string) => Partial<T>): T {
-  callerBound.set(bag, bind as (caller: string) => Record<string, unknown>);
+/**
+ * Register how `bag`'s caller-bound members are built for one extension.
+ * `granted` is what the gate enforces, for a member whose power depends on its
+ * arguments rather than on being called at all (`withTenantIsolation`).
+ */
+export function bindsCaller<T extends object>(
+  bag: T,
+  bind: (caller: string, granted: ReadonlySet<string>) => Partial<T>,
+): T {
+  callerBound.set(bag, bind as BindCaller);
   return bag;
 }
 
@@ -243,7 +263,8 @@ export function gateInternals<T extends object>(
 
   const granted = new Set(capabilities);
   const awaiting = new Set(pending);
-  const bound: Record<string, unknown> = callerBound.get(internals)?.(`ext:${extName}`) ?? {};
+  const bound: Record<string, unknown> =
+    callerBound.get(internals)?.(`ext:${extName}`, granted) ?? {};
 
   return new Proxy(internals, {
     get(target, prop, receiver) {

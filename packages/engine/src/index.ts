@@ -1494,8 +1494,9 @@ async function bootstrap() {
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
 
-  // Native extension schedules (S2-05) — start the runner with a base ctx.
-  // Per-extension handlers get the scoped ctx via cronRunner internals.
+  // Native extension schedules (S2-05). The runner requires a base ctx, but no
+  // extension handler sees it: `guardedSchedule` (register.ts) binds each one to
+  // its own extension's restricted ctx when the schedule is registered.
   cronRunner.start(db, {
     db,
     auth,

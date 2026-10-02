@@ -443,6 +443,12 @@ export interface ExtensionInternals<DB = unknown> {
    * like a request's: the tenant GUC is set and `SET LOCAL ROLE` applied, so
    * the isolation policies bind.
    *
+   * Only the tenant the work already runs as — the request's, or the job's —
+   * is entered without a capability. Another tenant, or any tenant where none
+   * runs (load time, a timer), needs `tenant:enter` (or `db:admin`, which
+   * implies it); without it the promise rejects.
+   * A fire-and-forget job started from a handler keeps the handler's tenant.
+   *
    *     await ctx.internals.withTenantIsolation(tenantId, async (db) => {
    *       await db.selectFrom('zvd_things').selectAll().execute();
    *     });
@@ -626,7 +632,10 @@ export interface ExtensionInternals<DB = unknown> {
   extensionRegistry: any;
   /** Queue an HTML→PDF render via the worker pool. */
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  /** Move a file to the trash bucket (soft delete with TTL). */
+  /**
+   * Move a file to the trash bucket (soft delete with TTL): `(db, fileId, deletedBy)`.
+   * Only a file of the tenant the request or job runs as; outside one it rejects.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   moveToTrash: (...args: any[]) => Promise<unknown>;
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */

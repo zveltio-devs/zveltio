@@ -285,7 +285,8 @@ your `ctx`, not inside your own code.
 
 | Capability | Grants |
 | --- | --- |
-| `db:admin` | `ctx.adminDb` — the cross-tenant database handle. |
+| `db:admin` | `ctx.adminDb` — the cross-tenant database handle. Implies `tenant:enter`. |
+| `tenant:enter` | `ctx.internals.withTenantIsolation` into a tenant other than the one the request or job runs as, or where none runs (load time, a timer, a schedule). Without it (or `db:admin`) that helper enters only the running tenant. Grants nothing else — no `adminDb`, no extra tables. |
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `createBetterAuthSession` — sign in any user who is not deactivated (optionally ending their other sessions). |
