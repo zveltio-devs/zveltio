@@ -10,11 +10,15 @@ collection table holds every tenant's rows. One company could not store an
 email or code another company already had, and the refusal confirmed that the
 value existed in a row it cannot see. The key is now
 `UNIQUE (tenant_id, <field>)` on every path that adds a column: creating a
-collection, adding a field, and merging a schema branch. Migration 036 widens
-the keys that collections already have. It skips extension-owned tables and
-any key a foreign key references; for the latter it prints a warning. The
-duplicate-value error still names the field and the value, and does not
-include the tenant id.
+collection, adding a field, and merging a schema branch. The keys collections
+already have are widened at every boot, in the background after the engine
+starts listening: the new index is built concurrently, then swapped in under a
+two-second lock timeout, so writes are not blocked for the length of a build.
+One instance does it at a time. Extension-owned tables and BYOD tables are left
+alone, and a key that a foreign key references is kept with a warning that
+names the table. A failure on one table never stops the boot; the next boot
+retries it. The duplicate-value error still names the field and the value, and
+does not include the tenant id.
 
 **Fixed: a newly installed extension let a parent unit write into its children.**
 Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`

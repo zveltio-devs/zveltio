@@ -1542,6 +1542,26 @@ async function bootstrap() {
     _currentApp = await buildHonoApp();
   });
 
+  // Unique keys onto (tenant_id, column). After listen and not awaited, unlike
+  // the reconciles above: those touch catalogs, this builds an index as large as
+  // the table. Awaited, a big table would hold readiness for minutes, a probe
+  // would restart the pod mid-build, and the INVALID index it leaves would be
+  // rebuilt — and killed — on every boot. Serving meanwhile is safe: the old key
+  // is stricter, not looser.
+  void (async () => {
+    try {
+      const { reconcileUniqueKeys } = await import('./lib/data/index.js');
+      const r = await reconcileUniqueKeys(db);
+      if (r && r.fixed.length + r.skipped.length > 0) {
+        console.log(
+          `🔑 Unique keys per tenant: ${r.fixed.length} fixed, ${r.skipped.length} skipped`,
+        );
+      }
+    } catch (err) {
+      console.warn('⚠️ Unique key reconcile failed (non-fatal):', (err as Error).message);
+    }
+  })();
+
   console.log(`\n✨ Zveltio running at http://${host}:${port}`);
   console.log(`   Admin:  http://localhost:${port}/admin`);
   console.log(`   API:    http://localhost:${port}/api`);

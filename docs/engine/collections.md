@@ -156,6 +156,12 @@ Add validation rules at field level or using the Validation Rules engine:
 }
 ```
 
+`unique` means unique within a tenant: the key is `UNIQUE (tenant_id, <field>)`,
+so two tenants can each store the same email. A collection that still has an
+older tenant-wide key is widened by the engine in the background at every boot.
+The exception is a key that a foreign key references, which is kept and named in
+a boot warning.
+
 For complex business rules, use `POST /api/validation-rules` to create natural language rules (e.g. *"price must be greater than cost"*) that are enforced on every write.
 
 A rule the engine cannot evaluate — an expression that does not parse or
