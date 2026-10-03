@@ -1415,21 +1415,32 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   //    plain role is already a member and cannot re-grant, and printing
   //    "permission denied" on every boot of a correct install is how operators
   //    learn to skim past [tenant-rls] lines.
-  try {
-    await sql`
-      DO $ensure_rls_member$
-      BEGIN
-        IF NOT pg_has_role(current_user, 'zveltio_rls', 'MEMBER') THEN
-          EXECUTE format('GRANT zveltio_rls TO %I', current_user);
-        END IF;
-      END
-      $ensure_rls_member$;
-    `.execute(db);
-  } catch (err) {
-    console.warn(
-      '[tenant-rls] could not grant zveltio_rls membership (continuing):',
-      (err as Error).message,
-    );
+  //
+  //    SET, not MEMBER: on Postgres 16+ a role can be a MEMBER with SET FALSE —
+  //    what a CREATEROLE engine holds on a role it created — and SET LOCAL ROLE
+  //    then fails. MEMBER said yes, boot said "enforced", and every tenant
+  //    request failed. The two narrow roles the engine also switches into (the
+  //    worker SQL bridge, flow `query_db`) get the same repair, one statement
+  //    each so one refusal does not skip the rest.
+  for (const role of ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader']) {
+    try {
+      await sql`
+        DO $ensure_role_member$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${sql.lit(role)}) THEN
+            IF NOT pg_has_role(current_user, ${sql.lit(role)}, 'SET') THEN
+              EXECUTE format('GRANT %I TO %I WITH SET TRUE', ${sql.lit(role)}, current_user);
+            END IF;
+          END IF;
+        END
+        $ensure_role_member$;
+      `.execute(db);
+    } catch (err) {
+      console.warn(
+        `[tenant-rls] could not grant ${role} membership (continuing):`,
+        (err as Error).message,
+      );
+    }
   }
 
   // 3. The privileges the role needs to be useful. The database owner can do
@@ -1515,7 +1526,7 @@ export async function initRlsEnforcementRole(
   await ensureRlsEnforcementRole(db);
   try {
     const r = await sql<{ ok: boolean; super_user: boolean }>`
-      SELECT pg_has_role(current_user, 'zveltio_rls', 'MEMBER') AS ok,
+      SELECT pg_has_role(current_user, 'zveltio_rls', 'SET') AS ok,
              (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user)
                AS super_user
     `.execute(db);

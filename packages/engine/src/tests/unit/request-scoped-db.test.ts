@@ -93,14 +93,14 @@ describe('createRequestScopedDb', () => {
     expect(fn.count()).toBe('pool:count');
   });
 
-  it('joins the request transaction rather than nesting a new one', () => {
+  it('joins the request transaction rather than nesting a new one', async () => {
     // Kysely refuses `transaction()` on a Transaction — "calling the transaction
     // method for a Transaction is not supported" — and nine core route files
     // open one of their own. Without this, every one of them 500s.
     const db = createRequestScopedDb(fakePool('pool'));
     const trx = fakeTrx('trx');
-    runWithTenantTrx(trx, DEFAULT_TENANT_ID, () => {
-      const joined = (
+    await runWithTenantTrx(trx, DEFAULT_TENANT_ID, async () => {
+      const joined = await (
         db as unknown as {
           transaction(): { execute(cb: (t: unknown) => unknown): unknown };
         }
@@ -112,25 +112,20 @@ describe('createRequestScopedDb', () => {
     });
   });
 
-  it('still supports the builder chain routes actually write', () => {
+  it('still supports the builder chain routes actually write', async () => {
+    // An isolation level is checked against the running transaction, which
+    // needs Postgres: harness/joined-transaction-options.test.ts.
     const db = createRequestScopedDb(fakePool('pool'));
     const trx = fakeTrx('trx');
-    runWithTenantTrx(trx, DEFAULT_TENANT_ID, () => {
+    await runWithTenantTrx(trx, DEFAULT_TENANT_ID, async () => {
       const b = (
         db as unknown as {
           transaction(): {
-            setIsolationLevel(l: string): {
-              setAccessMode(m: string): { execute(cb: (t: unknown) => unknown): unknown };
-            };
+            setAccessMode(m: string): { execute(cb: (t: unknown) => unknown): unknown };
           };
         }
       ).transaction();
-      expect(
-        b
-          .setIsolationLevel('serializable')
-          .setAccessMode('read write')
-          .execute((t) => t),
-      ).toBe(trx);
+      expect(await b.setAccessMode('read write').execute((t) => t)).toBe(trx);
     });
   });
 

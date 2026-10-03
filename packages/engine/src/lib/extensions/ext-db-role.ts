@@ -90,7 +90,7 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
             CREATE ROLE zveltio_ext NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
           END IF;
           IF NOT pg_has_role(current_user, 'zveltio_ext', 'SET') THEN
-            EXECUTE format('GRANT zveltio_ext TO %I', current_user);
+            EXECUTE format('GRANT zveltio_ext TO %I WITH SET TRUE', current_user);
           END IF;
           GRANT USAGE ON SCHEMA public TO zveltio_ext;
         END
@@ -136,7 +136,7 @@ async function ensureBypassTwin(db: Database): Promise<boolean> {
           CREATE ROLE zveltio_ext_bypass NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
         END IF;
         IF NOT pg_has_role(current_user, 'zveltio_ext_bypass', 'SET') THEN
-          EXECUTE format('GRANT zveltio_ext_bypass TO %I', current_user);
+          EXECUTE format('GRANT zveltio_ext_bypass TO %I WITH SET TRUE', current_user);
         END IF;
         IF NOT pg_has_role('zveltio_ext_bypass', 'zveltio_ext', 'USAGE') THEN
           GRANT zveltio_ext TO zveltio_ext_bypass WITH INHERIT TRUE;
@@ -199,8 +199,10 @@ export async function grantWorkerDbRole(
   try {
     // The bridge picks the role when it exists; absent (001 could not create
     // it), it falls back to `zveltio_rls` and there is nothing to grant.
+    // SET, as the bridge's own pick (pickWorkerSqlRole): a role it cannot switch
+    // to is one it does not use.
     const r = await sql<{ member: boolean }>`
-      SELECT pg_has_role(current_user, oid, 'MEMBER') AS member
+      SELECT pg_has_role(current_user, oid, 'SET') AS member
         FROM pg_roles WHERE rolname = ${WORKER_DB_ROLE}
     `.execute(db);
     if (!r.rows[0]?.member) return;

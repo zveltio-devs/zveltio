@@ -24,11 +24,11 @@
  *     work should be deliberate about it.
  */
 
-import { type ConnectionProvider, QueryCreator, sql } from 'kysely';
+import { type ConnectionProvider, QueryCreator } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
-import { withSavepoint } from '../savepoint.js';
+import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
 import { getCurrentTenantTrx } from '../tenancy/index.js';
 import { asExtensionDbRole, asExtensionDbRoleOnPool } from './ext-db-role.js';
 import {
@@ -312,38 +312,19 @@ export function createRestrictedDb(
       // Measured on SCIM: a PatchOp renaming the god and deactivating them was
       // refused, and the rename and the "inactive" flag were both kept.
       if (prop === 'transaction' && isTenantTransaction(target)) {
-        return () => {
-          let readOnly = false;
-          const builder = {
-            setIsolationLevel: () => builder,
-            // Used to be dropped: an extension asking for read-only got read-write.
-            // `SET TRANSACTION READ ONLY` inside a savepoint ends with it —
-            // Postgres puts the flag back when the subtransaction ends, released
-            // or rolled back — so the scope is read-only and the request is not.
-            // 'read write' is what the request's transaction already is.
-            setAccessMode: (m: string) => {
-              readOnly = m === 'read only';
-              return builder;
-            },
-            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> =>
-              withSavepoint(
-                target,
-                `zv_ext_trx_${++savepointSeq}`,
-                // The guarded handle, not `target`: the callback is extension
-                // code, and the bare transaction it used to get answered both
-                // `trx.selectFrom('session')` and raw SQL on any table. The
-                // engine's view keeps the bare transaction it always had.
-                async () => {
-                  if (readOnly) await sql`SET TRANSACTION READ ONLY`.execute(target);
-                  return fn(trustRawSql ? target : guarded(target));
-                },
-                (err) => {
-                  throw err;
-                },
-              ),
-          };
-          return builder;
-        };
+        return () =>
+          joinedTransactionBuilder(
+            target,
+            // The guarded handle, not `target`: the callback is extension code,
+            // and the bare transaction it used to get answered both
+            // `trx.selectFrom('session')` and raw SQL on any table. The engine's
+            // view keeps the bare transaction it always had.
+            trustRawSql ? target : guarded(target),
+            (body) =>
+              withSavepoint(target, `zv_ext_trx_${++savepointSeq}`, body, (err) => {
+                throw err;
+              }),
+          );
       }
 
       // Outside a tenant transaction (the pool — boot, `ctx.adminDb`), Kysely's
