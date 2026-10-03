@@ -73,7 +73,7 @@ function isTenantTransaction(db: unknown): boolean {
 /**
  * Where an extension statement on `db` takes its role (lib/extensions/
  * ext-db-role.ts): a window on the transaction it runs in — the request's own
- * tenant transaction (`mirror` false: always `zveltio_ext`) or another one, such
+ * tenant transaction (`mirror` false: the plain role) or another one, such
  * as `ctx.adminDb.transaction()` (`mirror`: the twin with the reach of the role
  * in effect) — or, on the pool, a transaction of its own.
  */
@@ -174,10 +174,10 @@ function checkedExecutor<T extends object>(
   const real = executor as unknown as ExecutorLike;
   const asRole = <R>(run: (ex: ExecutorLike) => Promise<R>): Promise<R> =>
     'pool' in scope
-      ? asExtensionDbRoleOnPool(scope.pool, (on) =>
+      ? asExtensionDbRoleOnPool(extName, scope.pool, (on) =>
           run(on ? real.withConnectionProvider(on) : real),
         )
-      : asExtensionDbRole(scope.trx, real as never, () => run(real), scope.mirror);
+      : asExtensionDbRole(extName, scope.trx, real as never, () => run(real), scope.mirror);
   return new Proxy(executor, {
     get(target, prop) {
       if (prop === 'executeQuery') {

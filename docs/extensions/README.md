@@ -109,7 +109,7 @@ and the Casbin role mapping. See
 
 | Tier | Mode | What it means |
 |---|---|---|
-| 1 | `inline` (default) | In-process. Trusted code. First-party extensions run here. `ctx.db` SQL meets the same analyzer, and runs as the `zveltio_ext` database role (extension and collection tables only; its `BYPASSRLS` twin on the pool where the engine role bypasses RLS). |
+| 1 | `inline` (default) | In-process. Trusted code. First-party extensions run here. `ctx.db` SQL meets the same analyzer, and runs as the extension's own database role under `zveltio_ext` (its own tables and collections only; its `BYPASSRLS` twin on the pool where the engine role bypasses RLS). |
 | 2 | `worker` | Separate process, restricted SQL allowlist (user tables plus its own `zv_<ext>_*` namespace), a reserved connection with a statement timeout, and the `zveltio_worker` database role which holds **no grants on the Better-Auth tables**. |
 | 3 | WASM | Strict isolation, available and deliberately not the default. |
 

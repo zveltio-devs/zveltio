@@ -48,7 +48,11 @@ import type {
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor } from './extensions/index.js';
-import { assertWorkerSqlAllowed, workerSqlEngineTables } from './extensions/index.js';
+import {
+  assertWorkerSqlAllowed,
+  workerDbRoleFor,
+  workerSqlEngineTables,
+} from './extensions/index.js';
 import { temporaryObjectsRestricted } from './tenancy/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
@@ -800,22 +804,28 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  * reading everyone's was one nobody could.
  */
 /**
- * The role the worker SQL bridge switches to: `zveltio_worker`, else
- * `zveltio_rls`, else none (neither usable — migrations 001 and 030).
+ * The role the worker SQL bridge switches to: the extension's own (`own`, made
+ * at load under `zveltio_worker` — lib/extensions/ext-db-role.ts), else
+ * `zveltio_worker`, else `zveltio_rls`, else none (none usable — migrations 001
+ * and 030).
  *
  * Usable means this login may SET it, not merely that it exists: a membership
  * with SET FALSE (Postgres 16+) failed `SET LOCAL ROLE`, which aborts the
  * transaction, so every worker query on such an install failed.
  */
-export async function pickWorkerSqlRole(conn: {
-  unsafe(q: string): Promise<unknown>;
-}): Promise<'zveltio_worker' | 'zveltio_rls' | null> {
+export async function pickWorkerSqlRole(
+  conn: { unsafe(q: string, params?: unknown[]): Promise<unknown> },
+  own?: string,
+): Promise<string | null> {
   const [picked] = (await conn.unsafe(
-    `SELECT (SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_rls')
+    `SELECT (SELECT rolname FROM pg_roles
+              WHERE rolname IN ($1, 'zveltio_worker', 'zveltio_rls')
                 AND pg_has_role(current_user, oid, 'SET')
-              ORDER BY rolname = 'zveltio_worker' DESC LIMIT 1) AS role`,
+              ORDER BY rolname = 'zveltio_rls', rolname = 'zveltio_worker' LIMIT 1) AS role`,
+    [own ?? 'zveltio_worker'],
   )) as { role?: string | null }[];
-  return picked?.role === 'zveltio_worker' || picked?.role === 'zveltio_rls' ? picked.role : null;
+  const role = picked?.role;
+  return role && /^[a-z0-9_]+$/.test(role) ? role : null;
 }
 
 async function runRawWithParams(
@@ -875,7 +885,7 @@ async function runRawWithParams(
     // aborts this transaction, so the old `catch` fallback ran its second
     // `SET ROLE` — and then the extension's query — on an aborted transaction,
     // and every worker query on such a deployment failed with 25P02. Measured.
-    const role = await pickWorkerSqlRole(reserved);
+    const role = await pickWorkerSqlRole(reserved, workerDbRoleFor(extName));
     if (role) await reserved.unsafe(`SET LOCAL ROLE ${role}`);
     if (tenantId) {
       // Parameterised: this value comes from the host's own record, but it is

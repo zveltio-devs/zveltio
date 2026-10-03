@@ -61,6 +61,7 @@ import { reRegisterExtension } from './register.js';
 import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './lifecycle.js';
 import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
+import { noteExtensionNames } from './worker-sql-policy.js';
 
 export { serviceRegistry } from '../service-registry.js';
 
@@ -322,6 +323,8 @@ export class ExtensionLoader {
     });
 
     const envExtensions = getActiveExtensionNames();
+    // Before any loads: `a` loading first must already know `a/b` owns `zv_a_b_*`.
+    noteExtensionNames(envExtensions);
     const sortedEnv = await topoSortExtensions(envExtensions, extBase);
     for (const extName of sortedEnv) {
       await this.loadExtension(extName, app, ctx);
@@ -331,6 +334,7 @@ export class ExtensionLoader {
     const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
     if (externalPath && existsSync(externalPath)) {
       const externalExts = await discoverExternal(externalPath);
+      noteExtensionNames(externalExts);
       const sortedExt = await topoSortExtensions(externalExts, externalPath);
       for (const extName of sortedExt) {
         await this.loadExtension(extName, app, ctx, externalPath);

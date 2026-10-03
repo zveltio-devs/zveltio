@@ -27,6 +27,8 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 
 const RESTRICTED_ROLES = ['zveltio_rls', 'zveltio_ext', 'zveltio_worker', 'zveltio_flow_reader'];
+/** Per-extension roles (lib/extensions/ext-db-role.ts): TEMPORARY reaches them only through PUBLIC. */
+const PER_EXTENSION_ROLE = '^zveltio_(ext|extb|wrk)_[a-z0-9_]*_[0-9a-f]{10}$';
 
 let _restricted = false;
 let _warned = false;
@@ -54,7 +56,7 @@ export async function restrictTemporaryObjects(db: Database): Promise<boolean> {
   try {
     const r = await sql<{ rolname: string }>`
       SELECT rolname FROM pg_roles
-       WHERE rolname = ANY(${RESTRICTED_ROLES}::text[])
+       WHERE (rolname = ANY(${RESTRICTED_ROLES}::text[]) OR rolname ~ ${PER_EXTENSION_ROLE})
          AND has_database_privilege(oid, current_database(), 'TEMPORARY')
     `.execute(db);
     _restricted = r.rows.length === 0;

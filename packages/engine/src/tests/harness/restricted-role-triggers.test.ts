@@ -27,6 +27,7 @@ import { DDLManager, GhostDDL } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
+  revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
@@ -181,6 +182,8 @@ d('collection triggers under every restricted writer role', () => {
     await sql`DROP FUNCTION IF EXISTS ${sql.id(`_zv_trg_ghost_${TABLE}_fn`)}()`.execute(db);
     await sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
+    // Roles are cluster-wide and outlive the test database.
+    for (const ext of [INLINE, WORKER]) await revokeExtensionDbRoles(db, ext, true);
   });
 
   const row = async (id: string) =>
