@@ -21,8 +21,8 @@ export {
   verifySignedKey,
   signKey,
   localRoot,
-  isPublicKey,
 } from './local-driver.js';
+export { isPublicKey } from './driver.js';
 export { S3Driver } from './s3-driver.js';
 export {
   storageConfig,

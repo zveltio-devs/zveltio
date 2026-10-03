@@ -103,7 +103,7 @@ engine:
       region: ""
       accessKeyId: ""
       secretAccessKey: ""
-      publicUrl: "" # optional CDN/base URL for public objects
+      publicUrl: "" # optional CDN/base URL for public objects (public/, media/ keys only; bucket must not be public-read elsewhere)
 
     # ── Auth ────────────────────────────────────────────────────────────────
     betterAuthSecret: "" # 32+ random chars — generate with `openssl rand -hex 32`
