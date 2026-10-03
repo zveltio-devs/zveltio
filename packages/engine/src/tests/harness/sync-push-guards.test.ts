@@ -176,6 +176,38 @@ d('sync push guards (in-process)', () => {
     expect(written.rows[0]?.n).toBe(1);
   });
 
+  // Sync addressed any `zvd_` table by name — a junction (`zvd_jnc_*`), an
+  // engine table such as `zvd_permissions` — behind a Casbin `data:<name>`
+  // check that a god or a `*` grant passes. Only a registered collection syncs.
+  it('push and pull refuse a zvd_ table that is not a registered collection', async () => {
+    const table = `zvd_jnc_hpush_${Date.now()}`;
+    const rowId = crypto.randomUUID();
+    await sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
+              created_at timestamptz NOT NULL DEFAULT now(),
+              updated_at timestamptz NOT NULL DEFAULT now())`.execute(db);
+    try {
+      await sql`INSERT INTO ${sql.id(table)} (id) VALUES (${rowId})`.execute(db);
+      const res = await push(godCookie, [
+        { collection: table, recordId: rowId, operation: 'delete', clientTimestamp: Date.now() },
+      ]);
+      const body = (await res.json()) as { results: { status: string; error?: string }[] };
+      expect(body.results[0]?.status).toBe('error');
+      const left = await sql`SELECT 1 FROM ${sql.id(table)} WHERE id = ${rowId}`.execute(db);
+      expect(left.rows).toHaveLength(1);
+
+      const pulled = await app.request('/api/sync/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify({ collections: [table, 'permissions'] }),
+      });
+      const changes = ((await pulled.json()) as { changes?: { collection: string }[] }).changes;
+      expect(pulled.status).toBe(200);
+      expect(changes).toEqual([]);
+    } finally {
+      await sql`DROP TABLE IF EXISTS ${sql.id(table)}`.execute(db);
+    }
+  });
+
   it('the Electric token carries the request tenant', async () => {
     process.env.ELECTRIC_URL = 'wss://electric.test:5133';
     process.env.ELECTRIC_AUTH_TOKEN = 'harness-shared-secret';

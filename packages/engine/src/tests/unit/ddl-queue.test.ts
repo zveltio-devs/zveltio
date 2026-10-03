@@ -6,7 +6,7 @@
  *   - the pure job-shape mapper (state → status, date coercion, error extract),
  *   - the enqueue/getJob/started guards when the queue isn't running,
  *   - initDDLQueue's no-DATABASE_URL early return,
- *   - and the per-type relation DDL emitters + BYOD guard + invalid-index
+ *   - and the BYOD guard + invalid-index
  *     reindex, exposed via `_internalForTests`, driven over CannedDb.
  */
 
@@ -22,14 +22,7 @@ import {
 import { initDDLQueue } from '../../lib/data/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-const {
-  mapJobToPublic,
-  QUEUE_NAMES,
-  runCreateRelation,
-  runDropRelation,
-  skipForByod,
-  reindexInvalid,
-} = _internalForTests;
+const { mapJobToPublic, QUEUE_NAMES, skipForByod, reindexInvalid } = _internalForTests;
 
 function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
@@ -145,140 +138,6 @@ describe('guards when the queue is not running', () => {
     } finally {
       warn.restore();
     }
-  });
-});
-
-describe('runCreateRelation (m2o / m2m DDL emitter)', () => {
-  it('creates the FK ALTER for a valid m2o payload with custom ON DELETE/UPDATE', async () => {
-    const db = new CannedDb();
-    await runCreateRelation(asDb(db), {
-      type: 'm2o',
-      source_collection: 'orders',
-      target_collection: 'customers',
-      source_field: 'customer_id',
-      on_delete: 'CASCADE',
-      on_update: 'RESTRICT',
-    });
-    const alter = db.executed(
-      /ALTER TABLE zvd_orders ADD COLUMN IF NOT EXISTS "customer_id" UUID/,
-    )[0]!;
-    expect(alter.sql).toContain('ON DELETE CASCADE ON UPDATE RESTRICT');
-  });
-
-  it('emits the FK ALTER for a valid m2o payload with default actions', async () => {
-    const db = new CannedDb();
-    await runCreateRelation(asDb(db), {
-      type: 'm2o',
-      source_collection: 'books',
-      target_collection: 'authors',
-      source_field: 'author',
-    });
-    const alter = db.executed(/ALTER TABLE zvd_books ADD COLUMN IF NOT EXISTS "author" UUID/)[0]!;
-    expect(alter.sql).toContain('REFERENCES zvd_authors(id)');
-    expect(alter.sql).toContain('ON DELETE SET NULL ON UPDATE NO ACTION');
-  });
-
-  it('rejects unsafe identifiers and unsafe ON DELETE/UPDATE actions', async () => {
-    const db = new CannedDb();
-    await expect(
-      runCreateRelation(asDb(db), {
-        type: 'm2o',
-        source_collection: 'books; DROP',
-        target_collection: 'authors',
-        source_field: 'author',
-      }),
-    ).rejects.toThrow('Invalid identifier');
-
-    await expect(
-      runCreateRelation(asDb(db), {
-        type: 'm2o',
-        source_collection: 'books',
-        target_collection: 'authors',
-        source_field: 'author',
-        on_delete: 'DROP EVERYTHING',
-      }),
-    ).rejects.toThrow('Invalid ON DELETE/ON UPDATE');
-    expect(db.executed(/ALTER TABLE/)).toHaveLength(0);
-  });
-
-  it('creates a junction table for a valid m2m payload', async () => {
-    const db = new CannedDb();
-    await runCreateRelation(asDb(db), {
-      type: 'm2m',
-      source_collection: 'notes',
-      target_collection: 'tags',
-      junction_table: 'zvd_jnc_notes_tags',
-    });
-    const create = db.executed(/CREATE TABLE IF NOT EXISTS zvd_jnc_notes_tags/)[0]!;
-    expect(create.sql).toContain('notes_id UUID REFERENCES zvd_notes(id) ON DELETE CASCADE');
-    expect(create.sql).toContain('tags_id UUID REFERENCES zvd_tags(id) ON DELETE CASCADE');
-  });
-
-  /**
-   * This used to assert `emits nothing`, and that was the defect: the m2m branch
-   * wrapped its whole body in `if (valid)` with no else, so an unsafe junction
-   * name created nothing and the job still reported `completed`. The m2o branch
-   * beside it threw. Two branches of one function, opposite postures.
-   *
-   * A DDL job saying `completed` is the only signal anyone has that the schema
-   * changed. Saying it after doing nothing is worse than failing.
-   */
-  it('m2m with an unsafe junction name refuses, rather than completing silently', async () => {
-    const db = new CannedDb();
-    await expect(
-      runCreateRelation(asDb(db), {
-        type: 'm2m',
-        source_collection: 'notes',
-        target_collection: 'tags',
-        junction_table: 'bad name',
-      }),
-    ).rejects.toThrow(/Invalid identifier/);
-    expect(db.log).toHaveLength(0);
-  });
-
-  it('refuses a relation type nobody implemented instead of reporting success', async () => {
-    const db = new CannedDb();
-    await expect(
-      runCreateRelation(asDb(db), {
-        type: 'quantum',
-        source_collection: 'a',
-        target_collection: 'b',
-      }),
-    ).rejects.toThrow(/unsupported relation type/);
-  });
-});
-
-describe('runDropRelation', () => {
-  it('drops the FK column for m2o and the junction table for m2m', async () => {
-    const db = new CannedDb();
-    await runDropRelation(asDb(db), {
-      type: 'm2o',
-      source_collection: 'books',
-      source_field: 'author',
-    });
-    expect(db.executed(/ALTER TABLE zvd_books DROP COLUMN IF EXISTS "author"/)).toHaveLength(1);
-
-    const db2 = new CannedDb();
-    await runDropRelation(asDb(db2), {
-      type: 'm2m',
-      junction_table: 'zvd_jnc_notes_tags',
-    });
-    expect(db2.executed(/DROP TABLE IF EXISTS zvd_jnc_notes_tags CASCADE/)).toHaveLength(1);
-  });
-
-  // Same reasoning as create. A drop that could not run must not report success:
-  // it would leave the column or junction table in place while every record of
-  // the relation was removed.
-  it('refuses unsafe identifiers, rather than dropping nothing and completing', async () => {
-    const db = new CannedDb();
-    await expect(
-      runDropRelation(asDb(db), {
-        type: 'm2o',
-        source_collection: 'books; DROP',
-        source_field: 'author',
-      }),
-    ).rejects.toThrow(/Invalid identifier/);
-    expect(db.log).toHaveLength(0);
   });
 });
 

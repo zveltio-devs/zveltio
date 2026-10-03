@@ -19,19 +19,24 @@
  *     another tenant or the instance depends on.
  */
 
+import { kyselyAdapter } from '@better-auth/kysely-adapter';
+import { createInternalAdapter } from 'better-auth/db';
 import { type RawBuilder, sql } from 'kysely';
 import { getDb } from '../db/index.js';
 import type { Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { getAuth, withAuthorizedUserCreation } from './auth.js';
 import { engineHandle } from './engine-handle.js';
+import { withSavepoint } from './savepoint.js';
 import {
   activeMembership,
   DEFAULT_TENANT_ID,
   getCurrentDomainOrNull,
+  getCurrentTenantTrx,
   getEnforcer,
   invalidateTenantCache,
   invalidateUserPermCache,
+  onAfterCommit,
   requireInstanceAdmin,
 } from './tenancy/index.js';
 
@@ -114,6 +119,18 @@ async function userByEmail(db: Database, email: string): Promise<IdentityUser | 
   return r.rows[0] ?? null;
 }
 
+const isUniqueViolation = (err: unknown) => (err as { errno?: string } | null)?.errno === '23505';
+
+/**
+ * Casbin writes on its own connection, so a grant made inside the caller's
+ * transaction outlived its rollback (and a revoke did too). It follows the
+ * commit instead; outside a transaction there is nothing to wait for.
+ */
+async function afterCommit(job: () => Promise<void>): Promise<void> {
+  if (getCurrentTenantTrx()) onAfterCommit(job);
+  else await job();
+}
+
 function normalEmail(email: unknown): string {
   const e = typeof email === 'string' ? email.trim().toLowerCase() : '';
   if (!/^[^\s@]+@[^\s@]+$/.test(e)) {
@@ -133,21 +150,45 @@ export async function provisionUser(
   actor: string,
 ): Promise<{ user: IdentityUser; created: boolean }> {
   const email = normalEmail(input.email);
-  const db = getDb();
+  // Inside the caller's transaction when one is open: better-auth's own pool
+  // committed the account at once, so a provisioning that failed after this
+  // left it behind — answered `created`, on a single-tenant instance a member.
+  const trx = getCurrentTenantTrx();
+  const db = trx ?? getDb();
   const existing = await userByEmail(db, email);
   if (existing) return { user: existing, created: false };
   const name = input.name?.trim() || email.split('@')[0]!;
   const ctx = await getAuth().$context;
-  try {
-    await withAuthorizedUserCreation(() =>
-      ctx.internalAdapter.createUser({ email, name, emailVerified: true }, { method: 'admin' }),
-    );
-  } catch (err) {
-    // A concurrent provision of the same email won the unique index.
-    const raced = await userByEmail(db, email);
-    if (raced) return { user: raced, created: false };
-    throw err;
-  }
+  // better-auth's own internalAdapter, re-pointed at `trx`. ponytail: hooks are
+  // the engine's databaseHooks only — what better-auth gathers too while no
+  // plugin in use returns databaseHooks from init(); one that did needs adding.
+  const users = trx
+    ? createInternalAdapter(kyselyAdapter(trx, { type: 'postgres' })(ctx.options), {
+        options: ctx.options,
+        logger: ctx.logger,
+        generateId: ctx.generateId,
+        hooks: ctx.options.databaseHooks
+          ? [{ source: 'user', hooks: ctx.options.databaseHooks }]
+          : [],
+      })
+    : ctx.internalAdapter;
+  const raced = await withSavepoint(
+    db,
+    'zv_provision_user',
+    async () => {
+      await withAuthorizedUserCreation(() =>
+        users.createUser({ email, name, emailVerified: true }, { method: 'admin' }),
+      );
+      return null;
+    },
+    async (err) => {
+      // A concurrent provision of the same email won the unique index.
+      const winner = isUniqueViolation(err) ? await userByEmail(db, email) : null;
+      if (winner) return winner;
+      throw err;
+    },
+  );
+  if (raced) return { user: raced, created: false };
   const user = await userByEmail(db, email);
   if (!user) throw new Error(`provisionUser: ${email} vanished after it was created`);
   await auditLog(db, {
@@ -251,17 +292,27 @@ export async function updateUserProfile(
         'instance administrator.',
     );
   }
-  // One statement: the uniqueness probe cannot be failed by a 23505 that would
-  // abort the caller's transaction. ponytail: a concurrent INSERT of the same
-  // email can still reach the unique index between the probe and the write.
-  const r = await sql<IdentityUser>`
-    UPDATE "user" u SET name = COALESCE(${name}, u.name), email = COALESCE(${email}, u.email),
-                        "updatedAt" = now()
-     WHERE u.id = ${userId}
-       AND (${email}::text IS NULL OR NOT EXISTS (
-             SELECT 1 FROM "user" o WHERE lower(o.email) = ${email} AND o.id <> ${userId}))
-    RETURNING ${USER_COLUMNS}`.execute(db);
-  const user = r.rows[0];
+  // The probe refuses a committed address in another case; the unique index
+  // refuses one a concurrent writer is committing, under a savepoint so its 23505
+  // does not abort the caller's transaction.
+  const user = await withSavepoint(
+    db,
+    'zv_update_profile',
+    async () =>
+      (
+        await sql<IdentityUser>`
+        UPDATE "user" u SET name = COALESCE(${name}, u.name), email = COALESCE(${email}, u.email),
+                            "updatedAt" = now()
+         WHERE u.id = ${userId}
+           AND (${email}::text IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM "user" o WHERE lower(o.email) = ${email} AND o.id <> ${userId}))
+        RETURNING ${USER_COLUMNS}`.execute(db)
+      ).rows[0],
+    (err) => {
+      if (isUniqueViolation(err)) return undefined;
+      throw err;
+    },
+  );
   if (!user) throw new IdentityRefusedError('email_taken', `${email} belongs to another account.`);
   await auditLog(db, {
     type: 'user.profile_updated',
@@ -280,8 +331,9 @@ async function tenantSlug(db: Database, tenantId: string): Promise<string | null
 
 /**
  * Upsert `userId`'s membership of `tenantId` at `role`, and make the Casbin
- * grant in the tenant's domain match. `reopen` also puts a lapsed or future
- * membership in force from now — what an administrator adding someone means.
+ * grant in the tenant's domain match once the transaction commits. `reopen`
+ * also puts a lapsed or future membership in force from now — what an
+ * administrator adding someone means.
  * Not audited: the caller records who asked.
  */
 export async function grantTenantMembership(
@@ -297,11 +349,15 @@ export async function grantTenantMembership(
     ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role
       ${opts.reopen ? sql`, valid_from = LEAST(zv_tenant_users.valid_from, now()), valid_to = NULL` : sql``}
   `.execute(db);
-  const e = await getEnforcer();
-  for (const r of TENANT_ROLES) await e.deleteRoleForUser(userId, casbinTenantRole(r), tenant.id);
-  await e.addRoleForUser(userId, casbinTenantRole(role), tenant.id);
-  await invalidateUserPermCache(userId);
-  if (tenant.slug) await invalidateTenantCache(tenant.slug, tenant.id, userId);
+  await afterCommit(async () => {
+    const e = await getEnforcer();
+    for (const r of TENANT_ROLES) {
+      await e.deleteRoleForUser(userId, casbinTenantRole(r), tenant.id);
+    }
+    await e.addRoleForUser(userId, casbinTenantRole(role), tenant.id);
+    await invalidateUserPermCache(userId);
+    if (tenant.slug) await invalidateTenantCache(tenant.slug, tenant.id, userId);
+  });
 }
 
 /**
@@ -317,10 +373,11 @@ export async function revokeTenantMembership(
   const r = await sql`
     DELETE FROM zv_tenant_users WHERE tenant_id = ${tenant.id} AND user_id = ${userId}
     RETURNING id`.execute(db);
-  const e = await getEnforcer();
-  await e.deleteRolesForUser(userId, tenant.id);
-  await invalidateUserPermCache(userId);
-  if (tenant.slug) await invalidateTenantCache(tenant.slug, tenant.id, userId);
+  await afterCommit(async () => {
+    await (await getEnforcer()).deleteRolesForUser(userId, tenant.id);
+    await invalidateUserPermCache(userId);
+    if (tenant.slug) await invalidateTenantCache(tenant.slug, tenant.id, userId);
+  });
   return r.rows.length > 0;
 }
 

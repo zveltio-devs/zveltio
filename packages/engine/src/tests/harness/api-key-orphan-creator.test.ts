@@ -22,6 +22,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { __sweepIdle, DEFAULT_TENANT_ID, revalidateSockets } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import {
+  createGodSession,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -123,5 +124,28 @@ d('an API key after its creator row is deleted outside deleteUser', () => {
 
     // Everyone else is untouched.
     expect((await list(control.key, T.slug)).status).toBe(200);
+  }, 60_000);
+
+  // Refused at the door, the key was still listed `is_active: true` on both
+  // admin listings: they read the stored flag, not the rule the door applies.
+  it('both key listings report the orphaned key inactive, from the rule the door applies', async () => {
+    const cookie = await createGodSession(app, db);
+    const gone = (await createMemberSession(app, db)).userId;
+    const stays = (await createMemberSession(app, db)).userId;
+    const orphan = await mintKey(gone, DEFAULT_TENANT_ID);
+    const control = await mintKey(stays, DEFAULT_TENANT_ID);
+    await sql`DELETE FROM "user" WHERE id = ${gone}`.execute(db);
+
+    for (const path of ['/api/api-keys?limit=200', '/api/admin/api-keys?limit=200']) {
+      const res = await app.request(path, { headers: { cookie } });
+      expect(res.status).toBe(200);
+      const { api_keys } = (await res.json()) as {
+        api_keys: Array<{ id: string; is_active: boolean }>;
+      };
+      const status = (id: string) => api_keys.find((k) => k.id === id)?.is_active;
+      expect([path, status(orphan.id), status(control.id)]).toEqual([path, false, true]);
+    }
+    expect((await list(orphan.key)).status).toBe(401);
+    expect((await list(control.key)).status).toBe(200);
   }, 60_000);
 });
