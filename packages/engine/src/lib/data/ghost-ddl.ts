@@ -355,10 +355,19 @@ export class GhostDDL {
 
     // 4. Trigger function + trigger on original table
     //    Any write to original while we copy is saved to changelog.
+    //
+    // SECURITY DEFINER: the writer is `zveltio_ext` or `zveltio_worker`, which
+    // hold the collection and not the changelog, so as INVOKER every extension
+    // write to the table failed `permission denied` for as long as the copy ran
+    // (tests/harness/restricted-role-triggers.test.ts). Safe to run as owner:
+    // every identifier is fixed here from the validated name, and the row only
+    // ever reaches the changelog as data. pg_temp last, or a writer's temp table
+    // named like the changelog would capture the owner's INSERT.
     await sql
       .raw(
         `
-      CREATE OR REPLACE FUNCTION "${triggerFn}"() RETURNS TRIGGER AS $$
+      CREATE OR REPLACE FUNCTION "${triggerFn}"() RETURNS TRIGGER
+      SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       BEGIN
         IF TG_OP = 'INSERT' THEN
           INSERT INTO "${changelog}" (operation, row_id, row_data)
