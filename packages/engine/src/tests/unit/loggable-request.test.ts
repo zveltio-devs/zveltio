@@ -7,51 +7,50 @@
  * path and the query as they came. Both run here against the real middleware.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { type TracerProvider, trace } from '@opentelemetry/api';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { type Tracer, trace } from '@opentelemetry/api';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { slowQueryMiddleware } from '../../middleware/slow-query.js';
 import { tracingMiddleware } from '../../middleware/tracing.js';
 
 const TOKEN = 'a'.repeat(64);
-// A recording provider of our own, not sdk-node's: another unit file mocks
-// '@opentelemetry/sdk-node' process-wide, and CI's single-process lane then
-// handed this file the mock.
+// A recording tracer of our own, handed to the middleware through a spy on
+// trace.getTracer — not sdk-node's exporter (another unit file mocks
+// '@opentelemetry/sdk-node' process-wide) and not the global provider (the OTel
+// API refuses a registration once another file, or another copy of the API,
+// holds the global).
 type Recorded = { name: string; attributes: Record<string, unknown> };
 const finished: Recorded[] = [];
-const provider = {
-  getTracer: () => ({
-    startActiveSpan: (
-      name: string,
-      opts: { attributes?: Record<string, unknown> },
-      _ctx: unknown,
-      fn: (span: unknown) => unknown,
-    ) => {
-      const rec: Recorded = { name, attributes: { ...opts.attributes } };
-      const span = {
-        setAttribute: (k: string, v: unknown) => {
-          rec.attributes[k] = v;
-          return span;
-        },
-        setStatus: () => span,
-        recordException: () => undefined,
-        end: () => finished.push(rec),
-      };
-      return fn(span);
-    },
-  }),
-} as unknown as TracerProvider;
+const tracer = {
+  startActiveSpan: (
+    name: string,
+    opts: { attributes?: Record<string, unknown> },
+    _ctx: unknown,
+    fn: (span: unknown) => unknown,
+  ) => {
+    const rec: Recorded = { name, attributes: { ...opts.attributes } };
+    const span = {
+      setAttribute: (k: string, v: unknown) => {
+        rec.attributes[k] = v;
+        return span;
+      },
+      setStatus: () => span,
+      recordException: () => undefined,
+      end: () => finished.push(rec),
+    };
+    return fn(span);
+  },
+} as unknown as Tracer;
+let getTracer: ReturnType<typeof spyOn>;
 const prevEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 beforeAll(() => {
-  // A provider another file registered would make this registration a no-op.
-  trace.disable();
-  trace.setGlobalTracerProvider(provider);
+  getTracer = spyOn(trace, 'getTracer').mockReturnValue(tracer);
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:9';
 });
 afterAll(() => {
-  trace.disable();
+  getTracer.mockRestore();
   if (prevEndpoint === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = prevEndpoint;
 });
