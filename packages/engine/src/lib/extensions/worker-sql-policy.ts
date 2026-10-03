@@ -130,6 +130,8 @@ export function ownedPrefixFor(extName: string): string {
   return `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
 }
 
+const DOLLAR_TAG = /\$(?:[A-Za-z_\u0080-\uffff][\w\u0080-\uffff]*)?\$/y;
+
 /**
  * Blank out string literals, dollar-quoted blocks and comments, so identifier
  * matching cannot be fooled by a table name mentioned inside a string, and so a
@@ -176,7 +178,7 @@ function stripNonCode(sql: string): string {
       // the string ends there. Read as `''`, it ran on and blanked the SQL after
       // it — `SELECT E'\'', (SELECT token FROM session), ''` passed the scan and
       // Postgres returned the token. Only a lone `E`: `date'…'` is a typed literal.
-      const escapes = /(?:^|[^\w$])[eE]$/.test(sql.slice(Math.max(0, i - 2), i));
+      const escapes = /(?:^|[^\w$\u0080-\uffff])[eE]$/.test(sql.slice(Math.max(0, i - 2), i));
       let j = i + 1;
       while (j < sql.length) {
         if (escapes && sql[j] === '\\') {
@@ -199,11 +201,15 @@ function stripNonCode(sql: string): string {
     }
     // Dollar-quoted: $tag$ ... $tag$. Not after an identifier character: `$` is
     // one, so Postgres reads `x$$` as the identifier `x$$` and the SQL after it
-    // as code, where this scan used to blank it up to the next `$$`.
-    const dollar =
-      sql[i] === '$' && !/[\w$]/.test(sql[i - 1] ?? '')
-        ? /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i, i + 64))
-        : null;
+    // as code, where this scan used to blank it up to the next `$$`. The tag is
+    // read unbounded and with Postgres' identifier alphabet (bytes >= 0x80
+    // included): a capped or ASCII-only tag left `$<long tag>$ ' … $<long tag>$`
+    // looking like a string to this scan and like a dollar block to Postgres.
+    let dollar: RegExpExecArray | null = null;
+    if (sql[i] === '$' && !/[\w$\u0080-\uffff]/.test(sql[i - 1] ?? '')) {
+      DOLLAR_TAG.lastIndex = i;
+      dollar = DOLLAR_TAG.exec(sql);
+    }
     if (dollar) {
       const tag = dollar[0];
       const end = sql.indexOf(tag, i + tag.length);

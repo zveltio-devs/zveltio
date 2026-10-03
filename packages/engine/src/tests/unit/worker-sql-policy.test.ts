@@ -200,6 +200,12 @@ describe('assertWorkerSqlAllowed — hiding places', () => {
       false,
     );
     expect(allowed('SELECT 1 AS "--", (SELECT token FROM session) FROM zvd_a')).toBe(false);
+    // a dollar tag of any length, in Postgres' identifier alphabet
+    for (const tag of [`$${'t'.repeat(70)}$`, '$é$', '$aé1$']) {
+      expect(
+        allowed(`SELECT ${tag} ' ${tag} AS a, (SELECT token FROM session) AS t, ' ' AS b FROM zvd_a`),
+      ).toBe(false);
+    }
     // and still read a string as a string
     expect(allowed("SELECT E'it\\'s zv_api_keys' FROM zvd_a")).toBe(true);
     expect(allowed("SELECT date'2026-01-01', 'a\\' FROM zvd_a")).toBe(true);
