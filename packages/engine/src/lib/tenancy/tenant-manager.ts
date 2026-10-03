@@ -562,9 +562,23 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
     if (!names.includes(builtin)) names.push(builtin);
   }
 
+  // m2m junction tables hold tenant rows too and have no `zvd_collections` row
+  // (migration 042). Found by the name `dropJunctionTable` enforces, so every
+  // road that creates one is covered. A failed lookup leaves them out of the
+  // narrow roles' set below — the side to fail on.
+  const tables = new Set(names.map((n) => `zvd_${n}`));
+  try {
+    const j = await sql<{ t: string }>`
+      SELECT tablename AS t FROM pg_tables
+       WHERE schemaname = 'public' AND tablename LIKE 'zvd\\_jnc\\_%'
+    `.execute(db);
+    for (const { t } of j.rows) tables.add(t);
+  } catch (err) {
+    console.warn('[tenant-rls] junction table lookup failed:', (err as Error).message);
+  }
+
   let applied = 0;
-  for (const name of names) {
-    const table = `zvd_${name}`;
+  for (const table of tables) {
     if (!SAFE_COLLECTION_TABLE.test(table)) continue;
     try {
       const reg = await sql<{ exists: boolean }>`
@@ -578,10 +592,7 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
     }
   }
   try {
-    await revokeNarrowRolesFromNonCollections(
-      db,
-      names.map((n) => `zvd_${n}`),
-    );
+    await revokeNarrowRolesFromNonCollections(db, [...tables]);
   } catch (err) {
     console.warn('[tenant-rls] narrow-role revoke failed:', (err as Error).message);
   }

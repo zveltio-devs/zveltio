@@ -396,6 +396,12 @@ export class DDLManager {
           `ON "${junctionTable}"("${targetName}_id")`,
       )
       .execute(db);
+    // The links are tenant rows: the collection tables' tenant_id, policy and
+    // narrow-role grants. Without them any tenant read and deleted every other
+    // tenant's links (migration 042). Not best-effort — an unisolated junction
+    // is a cross-tenant table, and the CREATE above is idempotent for a retry.
+    const { applyTenantRLS } = await import('../tenancy/index.js');
+    await applyTenantRLS(db, junctionTable);
     return junctionTable;
   }
 
