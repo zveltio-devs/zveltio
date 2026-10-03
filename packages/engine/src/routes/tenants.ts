@@ -248,6 +248,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       userId: user?.id,
       resourceId: tenant.id,
       resourceType: 'tenant',
+      tenantId: tenant.id,
       metadata: { slug: data.slug, name: data.name, owner_user_id: adminUserId ?? null },
     });
 
@@ -291,6 +292,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       type: 'tenant.updated',
       userId: user?.id,
       resourceId: id,
+      tenantId: id,
       resourceType: 'tenant',
       metadata: {
         fields: Object.keys(updateData).filter((k) => k !== 'updated_at'),
@@ -364,6 +366,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         .execute();
       await auditLog(db, {
         type: 'tenant.archived',
+        tenantId: id,
         userId: user.id,
         resourceId: id,
         resourceType: 'tenant',
@@ -420,6 +423,8 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     await auditLog(db, {
       type: 'tenant.purged',
+      // The tenant is gone, and its rows with it: the instance's record.
+      tenantId: null,
       userId: user.id,
       resourceId: id,
       resourceType: 'tenant',
@@ -481,6 +486,8 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       await enableRLS(tableName);
       await auditLog(db, {
         type: 'tenant.rls_enabled',
+        // A policy on a table every tenant shares.
+        tenantId: null,
         userId: user?.id,
         resourceId: tableName,
         resourceType: 'collection',
@@ -518,6 +525,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       userId: user?.id,
       resourceId: c.req.param('id'),
       resourceType: 'tenant_environment',
+      tenantId: tenant.id,
       metadata: { schema: schemaName },
     });
 
@@ -582,6 +590,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     await auditLog(db, {
       type: 'tenant.member_added',
+      tenantId,
       userId: user.id,
       resourceId: target.id,
       resourceType: 'tenant_member',
@@ -611,6 +620,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     await auditLog(db, {
       type: 'tenant.member_removed',
+      tenantId,
       userId: user.id,
       resourceId: targetId,
       resourceType: 'tenant_member',

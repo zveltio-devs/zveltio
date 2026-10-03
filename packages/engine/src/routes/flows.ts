@@ -299,6 +299,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         userId: user.id,
         resourceId: flow.id,
         resourceType: 'flow',
+        tenantId: tenantOf(c),
         metadata: {
           action: 'create',
           name: body.name,
@@ -376,6 +377,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         userId: user?.id,
         resourceId: flowId,
         resourceType: 'flow',
+        tenantId: tenantOf(c),
         metadata: {
           action: 'update',
           changes: Object.keys(updates).filter((k) => k !== 'updated_at'),
@@ -407,6 +409,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
       userId: user?.id,
       resourceId: flowId,
       resourceType: 'flow',
+      tenantId: tenantOf(c),
       metadata: { action: 'delete' },
     });
     return c.json({ success: true });
@@ -435,6 +438,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
       userId: user?.id,
       resourceId: flow.id,
       resourceType: 'flow',
+      tenantId: tenantOf(c),
       metadata: { action: 'manual_trigger', name: flow.name },
     });
 

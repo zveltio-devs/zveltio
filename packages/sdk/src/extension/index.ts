@@ -638,7 +638,7 @@ export interface ExtensionInternals<DB = unknown> {
   /**
    * The running tenant's recent audit rows, newest first — never another
    * tenant's, never instance-level events. `limit` defaults to 20, capped at
-   * 100. No `metadata` or `ip`.
+   * 100. No `metadata` or `ip`. Needs the `audit:read` capability.
    */
   readAuditActivity: (query?: {
     limit?: number;
@@ -655,6 +655,15 @@ export interface ExtensionInternals<DB = unknown> {
       created_at: Date;
     }[]
   >;
+  /**
+   * How many of the running tenant's audit rows match, from `since` on. Same
+   * scope as `readAuditActivity`; a number, so ungated.
+   */
+  countAuditActivity: (query: {
+    since: Date | string;
+    eventType?: string;
+    resourceType?: string;
+  }) => Promise<number>;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
    *

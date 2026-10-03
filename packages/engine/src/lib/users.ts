@@ -107,6 +107,7 @@ export async function deleteUser(
 
   await auditLog(db, {
     type: 'user.deleted',
+    tenantId: null,
     userId: who.actorUserId ?? undefined,
     resourceId: userId,
     resourceType: 'user',

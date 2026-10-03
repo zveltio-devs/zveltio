@@ -14,6 +14,14 @@ import { createMiddleware } from 'hono/factory';
 import { isGodUser } from '../lib/tenancy/index.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
+import { auditLog } from '../lib/audit.js';
+
+/**
+ * Where a god request is work on the data of the tenant it ran as. Everything
+ * else under /api/* — settings, schema, roles, extensions — resolves a tenant
+ * too (the default firm, on the root host) without acting on it.
+ */
+const TENANT_DATA_PREFIX = '/api/data/';
 
 async function logGodAction(
   db: Database,
@@ -24,29 +32,23 @@ async function logGodAction(
     status: number;
     durationMs: number;
     ip: string | null;
+    tenantId: string | null;
   },
 ): Promise<void> {
-  try {
-    await db
-      .insertInto('zv_audit_log')
-      .values({
-        event_type: 'god_action',
-        user_id: params.userId,
-        resource_type: params.method,
-        resource_id: params.path,
-        metadata: {
-          method: params.method,
-          path: params.path,
-          status: params.status,
-          duration_ms: params.durationMs,
-        },
-        ip: params.ip,
-      })
-      .execute();
-  } catch (err) {
-    // Audit logging must never break the request — log to stderr only
-    console.error('[god-audit] Failed to write audit entry:', err);
-  }
+  await auditLog(db, {
+    type: 'god_action',
+    userId: params.userId,
+    resourceType: params.method,
+    resourceId: params.path,
+    metadata: {
+      method: params.method,
+      path: params.path,
+      status: params.status,
+      duration_ms: params.durationMs,
+    },
+    ip: params.ip ?? undefined,
+    tenantId: params.tenantId,
+  });
 }
 
 /**
@@ -64,9 +66,9 @@ async function logGodAction(
  * one role that bypasses every permission check, and it went quiet on precisely
  * the requests worth reviewing.
  *
- * Outside any tenant transaction, so the row's `tenant_id` is NULL (migration
- * 040): an instance-level event, read by the instance audit, not by the tenant
- * the god acted in.
+ * Instance-level (`tenant_id` NULL, migration 040), except a request on the
+ * data of the tenant it ran in: that row is the tenant's, so the firm can see
+ * what god did to its records.
  */
 export function godAuditMiddleware(poolDb: Database) {
   return createMiddleware(async (c, next) => {
@@ -120,6 +122,10 @@ export function godAuditMiddleware(poolDb: Database) {
             status: c.res.status,
             durationMs,
             ip,
+            tenantId:
+              c.get('tenantTrx') && c.req.path.startsWith(TENANT_DATA_PREFIX)
+                ? (c.get('tenant')?.id ?? null)
+                : null,
           }).catch(() => {
             /* already logged inside logGodAction */
           });

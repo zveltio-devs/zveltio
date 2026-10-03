@@ -297,6 +297,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // F2 FIX: Audit trail for role assignment.
       auditLog(db, {
         type: 'user.role_changed',
+        tenantId: null,
         userId: admin?.id,
         resourceId: userId,
         resourceType: 'user',
@@ -330,6 +331,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // F2 FIX: Audit trail for role removal.
       auditLog(db, {
         type: 'user.role_changed',
+        tenantId: null,
         userId: admin?.id,
         resourceId: userId,
         resourceType: 'user',
@@ -364,6 +366,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // F2 FIX: Audit trail for policy creation.
       auditLog(db, {
         type: 'permission.granted',
+        tenantId: null,
         userId: admin?.id,
         resourceType: 'policy',
         metadata: { subject, resource, effect: action },
@@ -397,6 +400,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // F2 FIX: Audit trail for policy removal.
       auditLog(db, {
         type: 'permission.revoked',
+        tenantId: null,
         userId: admin?.id,
         resourceType: 'policy',
         metadata: { subject, resource, effect: action },

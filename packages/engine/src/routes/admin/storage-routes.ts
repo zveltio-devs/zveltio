@@ -89,6 +89,7 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
     // and this row is readable by anyone who can read the audit trail.
     await auditLog(db, {
       type: 'settings.changed',
+      tenantId: null,
       userId: user?.id,
       resourceType: 'storage_config',
       metadata: { driver: storageConfig().driver, fields: Object.keys(overlay).sort() },

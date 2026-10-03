@@ -124,6 +124,7 @@ export async function unloadExtension(
   if (loader.ctx) {
     auditLog(loader.ctx.db, {
       type: 'extension.unloaded',
+      tenantId: null,
       resourceId: name,
       resourceType: 'extension',
       metadata: { needs_restart: ext.registeredRoutes, actor: 'system' },

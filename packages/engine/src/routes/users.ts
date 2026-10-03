@@ -163,6 +163,7 @@ export function usersRoutes(
         const admin = c.get('user') as any;
         await auditLog(db, {
           type: 'user.role_changed',
+          tenantId: null,
           userId: admin?.id,
           resourceId: userId,
           resourceType: 'user',
@@ -236,7 +237,7 @@ export function usersRoutes(
           invited_by: adminUser.id,
           tenant_id: getCurrentDomain(),
         })
-        .returning('id')
+        .returning(['id', 'tenant_id'])
         .executeTakeFirstOrThrow();
 
       // Send invite email if SMTP is configured
@@ -263,6 +264,7 @@ export function usersRoutes(
 
       await auditLog(db, {
         type: 'user.invited',
+        tenantId: invite.tenant_id,
         userId: adminUser.id,
         resourceId: invite.id,
         resourceType: 'invitation',

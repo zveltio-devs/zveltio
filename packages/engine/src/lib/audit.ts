@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
+import { type Database, getDb } from '../db/index.js';
+import { getCurrentTenantTrx, onAfterCommit, withTenantIsolation } from './tenancy/index.js';
 
 export type AuditEventType =
   | 'auth.login_failed'
@@ -68,7 +69,9 @@ export type AuditEventType =
   | 'tenant.member_updated'
   | 'tenant.rls_enabled'
   | 'tenant.archived'
-  | 'tenant.purged';
+  | 'tenant.purged'
+  // One row per request by a god (`middleware/god-audit.ts`).
+  | 'god_action';
 
 export interface AuditEvent {
   type: AuditEventType;
@@ -78,6 +81,17 @@ export interface AuditEvent {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   metadata?: Record<string, any>;
   ip?: string;
+  /**
+   * Whose activity this is (`zv_audit_log.tenant_id`, migration 040).
+   *
+   * Absent: the writing transaction's tenant, NULL outside one. A tenant id:
+   * that tenant's row, so it shows in the tenant's own activity — needed where
+   * the route acts on a tenant it does not run as (`/api/tenants` runs in none).
+   * `null`: an instance-level event, which a request's tenant transaction would
+   * otherwise hand to whichever tenant the request resolved (the default firm,
+   * on the root host).
+   */
+  tenantId?: string | null;
 }
 
 /**
@@ -115,29 +129,66 @@ export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
   }
 }
 
+const CURRENT_TENANT = sql`NULLIF(current_setting('zveltio.current_tenant', true), '')`;
+
+/**
+ * One INSERT … SELECT, so a row the policy would refuse is not attempted: a
+ * named tenant only from that tenant's transaction, an instance row only from
+ * outside every tenant's. A refused INSERT would abort the caller's transaction
+ * (25P02) on a plain-role install; no row is a decision the caller can act on.
+ */
+async function insertRow(db: Database, event: AuditEvent): Promise<boolean> {
+  const { tenantId } = event;
+  const tenant =
+    tenantId === undefined ? sql`${CURRENT_TENANT}::uuid` : sql`${tenantId ?? null}::uuid`;
+  const where =
+    tenantId === undefined
+      ? sql`true`
+      : tenantId === null
+        ? sql`${CURRENT_TENANT} IS NULL`
+        : sql`${CURRENT_TENANT} = ${tenantId}`;
+  // `::text::jsonb` on the metadata, not `::jsonb`. The driver already sends
+  // that parameter as jsonb, so a bare `::jsonb` is a no-op and Postgres
+  // stores the serialized string AS a jsonb string scalar — the whole object
+  // wrapped in quotes with its own quotes escaped. Every row written that way
+  // answers NULL to `metadata->>'anything'`, so the audit trail could be read
+  // by a human and queried by nobody: no filtering by outcome, no counting
+  // failed attempts, no alerting. Going through text makes Postgres parse it.
+  // Migration 041 repairs the rows already written.
+  const r = await sql`
+    INSERT INTO zv_audit_log (
+      event_type, user_id, resource_id, resource_type, metadata, ip, created_at, tenant_id
+    )
+    SELECT
+      ${event.type},
+      ${event.userId ?? null},
+      ${event.resourceId ?? null},
+      ${event.resourceType ?? null},
+      ${JSON.stringify(event.metadata ?? {})}::text::jsonb,
+      ${event.ip ?? null},
+      NOW(),
+      ${tenant}
+    WHERE ${where}
+  `.execute(db);
+  return Number(r.numAffectedRows ?? 0) > 0;
+}
+
 async function writeAuditRow(db: Database, event: AuditEvent): Promise<void> {
   try {
-    // `::text::jsonb` on the metadata, not `::jsonb`. The driver already sends
-    // that parameter as jsonb, so a bare `::jsonb` is a no-op and Postgres
-    // stores the serialized string AS a jsonb string scalar — the whole object
-    // wrapped in quotes with its own quotes escaped. Every row written that way
-    // answers NULL to `metadata->>'anything'`, so the audit trail could be read
-    // by a human and queried by nobody: no filtering by outcome, no counting
-    // failed attempts, no alerting. Going through text makes Postgres parse it.
-    // Migration 041 repairs the rows already written.
-    await sql`
-      INSERT INTO zv_audit_log (
-        event_type, user_id, resource_id, resource_type, metadata, ip, created_at
-      ) VALUES (
-        ${event.type},
-        ${event.userId ?? null},
-        ${event.resourceId ?? null},
-        ${event.resourceType ?? null},
-        ${JSON.stringify(event.metadata ?? {})}::text::jsonb,
-        ${event.ip ?? null},
-        NOW()
-      )
-    `.execute(db);
+    if ((await insertRow(db, event)) || event.tenantId === undefined) return;
+    // Not this transaction's row to write. Inside a tenant transaction, after it
+    // ends: a second connection taken while this one is held is how the engine
+    // deadlocks at `c = DB_POOL_MAX`. A rollback drops it with the act it records.
+    if (getCurrentTenantTrx()) {
+      onAfterCommit(() => auditLog(getDb(), event));
+    } else if (event.tenantId) {
+      const tenantId = event.tenantId;
+      await withTenantIsolation(tenantId, async (trx) => {
+        if (!(await insertRow(trx, event))) throw new Error(`not written for ${tenantId}`);
+      });
+    } else {
+      throw new Error('an instance-level row cannot be written inside a tenant transaction');
+    }
   } catch (err) {
     // Audit log failure must never break the main request flow
     console.error(

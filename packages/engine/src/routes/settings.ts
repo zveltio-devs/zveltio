@@ -350,6 +350,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       // the value is still in `zv_settings` for anyone entitled to read it.
       await auditLog(db, {
         type: 'settings.changed',
+        tenantId: null,
         userId: (c.get('user') as { id?: string } | undefined)?.id,
         resourceId: key,
         resourceType: 'setting',
@@ -408,6 +409,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     }
     await auditLog(db, {
       type: 'settings.changed',
+      tenantId: null,
       userId: (c.get('user') as { id?: string } | undefined)?.id,
       resourceType: 'setting',
       metadata: { keys: Object.keys(body).sort(), bulk: true },

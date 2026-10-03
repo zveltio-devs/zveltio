@@ -189,10 +189,7 @@ export async function readAuditActivity(query: AuditActivityQuery = {}): Promise
     Math.max(Math.trunc(Number(query.limit ?? 20)) || 1, 1),
     AUDIT_ACTIVITY_MAX,
   );
-  const since = query.since === undefined ? undefined : new Date(query.since);
-  if (since && Number.isNaN(since.getTime())) {
-    throw new Error('ctx.internals.readAuditActivity: since is not a date');
-  }
+  const since = auditSince('readAuditActivity', query.since);
   const read = (trx: Database) => {
     let q = trx
       .selectFrom('zv_audit_log')
@@ -207,4 +204,41 @@ export async function readAuditActivity(query: AuditActivityQuery = {}): Promise
   };
   const trx = getCurrentTenantTrx();
   return trx ? read(trx) : withTenantIsolation(tenant, read);
+}
+
+function auditSince(helper: string, value: Date | string | undefined): Date | undefined {
+  if (value === undefined) return undefined;
+  const since = new Date(value);
+  if (Number.isNaN(since.getTime()))
+    throw new Error(`ctx.internals.${helper}: since is not a date`);
+  return since;
+}
+
+/**
+ * How many of the running tenant's audit rows match — a number, so ungated
+ * like the other facts: no row, actor or resource leaves. Same tenant filter
+ * and transaction as `readAuditActivity`; `since` is required, so the count is
+ * a range scan on `(tenant_id, created_at)` (migration 041), never the
+ * tenant's whole history.
+ */
+export async function countAuditActivity(query: {
+  since: Date | string;
+  eventType?: string;
+  resourceType?: string;
+}): Promise<number> {
+  const tenant = runningTenant('countAuditActivity');
+  const since = auditSince('countAuditActivity', query?.since);
+  if (!since) throw new Error('ctx.internals.countAuditActivity: since is required');
+  const count = async (trx: Database) => {
+    let q = trx
+      .selectFrom('zv_audit_log')
+      .select((eb) => eb.fn.countAll<string>().as('n'))
+      .where('tenant_id', '=', tenant)
+      .where('created_at', '>=', since);
+    if (query.eventType) q = q.where('event_type', '=', query.eventType);
+    if (query.resourceType) q = q.where('resource_type', '=', query.resourceType);
+    return Number((await q.executeTakeFirst())?.n ?? 0);
+  };
+  const trx = getCurrentTenantTrx();
+  return trx ? count(trx) : withTenantIsolation(tenant, count);
 }
