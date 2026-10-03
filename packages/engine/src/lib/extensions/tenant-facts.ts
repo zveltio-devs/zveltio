@@ -15,7 +15,13 @@ import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import type { AuditEventType } from '../audit.js';
 import { DDLManager } from '../data/index.js';
-import { activeMembership, getCurrentDomainOrNull, getEnforcer } from '../tenancy/index.js';
+import {
+  activeMembership,
+  getCurrentDomainOrNull,
+  getCurrentTenantTrx,
+  getEnforcer,
+  withTenantIsolation,
+} from '../tenancy/index.js';
 
 function runningTenant(helper: string): string {
   const tenant = getCurrentDomainOrNull();
@@ -127,14 +133,78 @@ export interface ExtensionAuditEvent {
  * Write an audit row for an extension. `metadata.extension` is the engine's
  * record of who wrote it — set after the caller's metadata, so an extension
  * cannot write a row that reads as another's (or as the engine's own).
+ *
+ * The row belongs to the running tenant, written in a transaction of its own
+ * for it (the policy admits a tenant row only from that tenant's transaction),
+ * and not in the caller's: a failed audit write must not abort the request.
+ * Where no tenant runs it is an instance-level row.
  */
 export function auditAs(caller: string, event: ExtensionAuditEvent): Promise<void> {
   if (typeof event?.type !== 'string' || event.type.length === 0 || event.type.length > 100) {
     return Promise.reject(new Error('ctx.internals.audit: event.type must be a 1-100 char string'));
   }
-  return auditLog(getDb(), {
+  const row = {
     ...event,
     type: event.type as AuditEventType,
     metadata: { ...(event.metadata ?? {}), extension: caller },
-  });
+  };
+  const tenant = getCurrentDomainOrNull();
+  return tenant ? withTenantIsolation(tenant, (trx) => auditLog(trx, row)) : auditLog(getDb(), row);
+}
+
+export interface AuditActivity {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  created_at: Date;
+}
+
+export interface AuditActivityQuery {
+  /** At most 100; 20 when absent. */
+  limit?: number;
+  eventType?: string;
+  resourceType?: string;
+  /** Only rows at or after this instant. */
+  since?: Date | string;
+}
+
+const AUDIT_ACTIVITY_MAX = 100;
+
+/**
+ * The running tenant's recent audit rows, newest first. No `metadata` and no
+ * `ip`: those carry what the writer chose to record, which is not this
+ * extension's to read.
+ *
+ * Read inside a tenant transaction — the caller's, or one opened for the
+ * running tenant — so the policy binds on a plain-role install, where the pool
+ * would see the default firm only. The explicit `tenant_id` filter narrows a
+ * wider reach (god's, a subtree's) to the running tenant, and keeps out the
+ * instance-level rows a superuser connection would otherwise return.
+ */
+export async function readAuditActivity(query: AuditActivityQuery = {}): Promise<AuditActivity[]> {
+  const tenant = runningTenant('readAuditActivity');
+  const limit = Math.min(
+    Math.max(Math.trunc(Number(query.limit ?? 20)) || 1, 1),
+    AUDIT_ACTIVITY_MAX,
+  );
+  const since = query.since === undefined ? undefined : new Date(query.since);
+  if (since && Number.isNaN(since.getTime())) {
+    throw new Error('ctx.internals.readAuditActivity: since is not a date');
+  }
+  const read = (trx: Database) => {
+    let q = trx
+      .selectFrom('zv_audit_log')
+      .select(['id', 'event_type', 'user_id', 'resource_type', 'resource_id', 'created_at'])
+      .where('tenant_id', '=', tenant)
+      .orderBy('created_at', 'desc')
+      .limit(limit);
+    if (query.eventType) q = q.where('event_type', '=', query.eventType);
+    if (query.resourceType) q = q.where('resource_type', '=', query.resourceType);
+    if (since) q = q.where('created_at', '>=', since);
+    return q.execute();
+  };
+  const trx = getCurrentTenantTrx();
+  return trx ? read(trx) : withTenantIsolation(tenant, read);
 }

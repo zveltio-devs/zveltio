@@ -626,7 +626,7 @@ export interface ExtensionInternals<DB = unknown> {
   listRoles: () => Promise<string[]>;
   /** A setting the instance marks public (`is_public`); `null` otherwise. */
   getPublicSetting: (key: string) => Promise<unknown>;
-  /** Append to the audit log. The engine stamps `metadata.extension` with the caller. */
+  /** Append to the audit log, as a row of the running tenant (instance-level where none runs). The engine stamps `metadata.extension` with the caller. */
   audit: (event: {
     type: string;
     userId?: string;
@@ -635,6 +635,26 @@ export interface ExtensionInternals<DB = unknown> {
     metadata?: Record<string, unknown>;
     ip?: string;
   }) => Promise<void>;
+  /**
+   * The running tenant's recent audit rows, newest first — never another
+   * tenant's, never instance-level events. `limit` defaults to 20, capped at
+   * 100. No `metadata` or `ip`.
+   */
+  readAuditActivity: (query?: {
+    limit?: number;
+    eventType?: string;
+    resourceType?: string;
+    since?: Date | string;
+  }) => Promise<
+    {
+      id: string;
+      event_type: string;
+      user_id: string | null;
+      resource_type: string | null;
+      resource_id: string | null;
+      created_at: Date;
+    }[]
+  >;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
    *
