@@ -728,6 +728,10 @@ export const _internalForTests = {
   resetInvokeWaiters(): void {
     invokeWaiters.clear();
   },
+  /** The once-only "no worker SQL role" warning, so a test can see it fire. */
+  resetNoWorkerSqlRoleWarning(): void {
+    _warnedNoWorkerSqlRole = false;
+  },
   /**
    * The tenant the host would apply to a `db:query` naming `requestId`.
    *
@@ -806,8 +810,8 @@ const WORKER_QUERY_TIMEOUT_S = 10;
 /**
  * The role the worker SQL bridge switches to: the extension's own (`own`, made
  * at load under `zveltio_worker` — lib/extensions/ext-db-role.ts), else
- * `zveltio_worker`, else `zveltio_rls`, else none (none usable — migrations 001
- * and 030).
+ * `zveltio_worker`, else `zveltio_rls`, else null, and the bridge then refuses the query
+ * rather than run it as the engine role (migration 001 creates both roles).
  *
  * Usable means this login may SET it, not merely that it exists: a membership
  * with SET FALSE (Postgres 16+) failed `SET LOCAL ROLE`, which aborts the
@@ -826,6 +830,23 @@ export async function pickWorkerSqlRole(
   )) as { role?: string | null }[];
   const role = picked?.role;
   return role && /^[a-z0-9_]+$/.test(role) ? role : null;
+}
+
+let _warnedNoWorkerSqlRole = false;
+
+function noWorkerSqlRole(extName: string): Error {
+  if (!_warnedNoWorkerSqlRole) {
+    _warnedNoWorkerSqlRole = true;
+    console.warn(
+      '[worker-host] worker SQL is refused: this engine may SET neither zveltio_worker nor ' +
+        'zveltio_rls, and will not run a worker extension query as its own role. Run ' +
+        'scripts/bootstrap-db-role.sh as a superuser, then restart.',
+    );
+  }
+  return new Error(
+    `Worker SQL refused for "${extName}": no database role to run it as (zveltio_worker or ` +
+      'zveltio_rls must exist and be SET-able by the engine role; see scripts/bootstrap-db-role.sh).',
+  );
 }
 
 async function runRawWithParams(
@@ -885,8 +906,15 @@ async function runRawWithParams(
     // aborts this transaction, so the old `catch` fallback ran its second
     // `SET ROLE` — and then the extension's query — on an aborted transaction,
     // and every worker query on such a deployment failed with 25P02. Measured.
+    //
+    // No usable role is refused, never run as the engine's own login: that role
+    // owns every table and, on a superuser, bypasses RLS — measured, a worker
+    // under tenant A read tenant B's rows. Only a broken install gets here:
+    // migration 001 creates both roles wherever it may (superuser, CREATEROLE),
+    // and scripts/bootstrap-db-role.sh does it where it may not.
     const role = await pickWorkerSqlRole(reserved, workerDbRoleFor(extName));
-    if (role) await reserved.unsafe(`SET LOCAL ROLE ${role}`);
+    if (!role) throw noWorkerSqlRole(extName);
+    await reserved.unsafe(`SET LOCAL ROLE ${role}`);
     if (tenantId) {
       // Parameterised: this value comes from the host's own record, but it is
       // interpolated into a session setting, and `set_config` takes a bind
