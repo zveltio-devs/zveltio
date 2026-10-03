@@ -41,7 +41,7 @@ export async function applyFailClosedTenantSetting(db: Database): Promise<void> 
       throw new Error(
         `ZVELTIO_FAIL_CLOSED_TENANT=1 could not be applied (${why}). Run ` +
           `ALTER DATABASE <db> SET zveltio.fail_closed_tenant = 'on' as the database ` +
-          'owner (on PostgreSQL 15+ the owner also needs GRANT SET ON PARAMETER ' +
+          'owner (the owner also needs GRANT SET ON PARAMETER ' +
           'zveltio.fail_closed_tenant; scripts/bootstrap-db-role.sh grants it), or unset the variable.',
       );
     }

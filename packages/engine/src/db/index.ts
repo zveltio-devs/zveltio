@@ -2,6 +2,7 @@ import { Kysely, sql } from 'kysely';
 import { noteConnectionAcquired } from './connection-trace.js';
 import { autosizePool } from './pool-autosize.js';
 import { BunSqlDialect } from './bun-sql-dialect.js';
+import { assertSupportedPostgres } from './postgres-version.js';
 
 // Re-exported so boot code reaches it through this module rather than the
 // dialect file: `db/index.ts` is what the rest of the engine imports.
@@ -291,6 +292,10 @@ export async function initDatabase(): Promise<Database> {
       await Bun.sleep(wait);
     }
   }
+
+  // PostgreSQL 18 or nothing — before the first write. Not retried: a wrong
+  // server version does not fix itself the way a pooler that is still starting does.
+  await assertSupportedPostgres(_db);
 
   // The tracking table, not the migrations.
   //

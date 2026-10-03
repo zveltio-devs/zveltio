@@ -814,7 +814,7 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  * rather than run it as the engine role (migration 001 creates both roles).
  *
  * Usable means this login may SET it, not merely that it exists: a membership
- * with SET FALSE (Postgres 16+) failed `SET LOCAL ROLE`, which aborts the
+ * with SET FALSE failed `SET LOCAL ROLE`, which aborts the
  * transaction, so every worker query on such an install failed.
  */
 export async function pickWorkerSqlRole(

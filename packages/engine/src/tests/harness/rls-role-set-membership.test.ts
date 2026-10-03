@@ -2,7 +2,7 @@
  * Boot reports tenant RLS "enforced" only when `SET LOCAL ROLE zveltio_rls`
  * will actually work.
  *
- * It tested membership with `pg_has_role(…, 'MEMBER')`. On Postgres 16+ an
+ * It tested membership with `pg_has_role(…, 'MEMBER')`. On Postgres an
  * engine role with CREATEROLE that creates `zveltio_rls` itself (migration 001
  * does, on such an install) holds it WITH ADMIN but SET FALSE: MEMBER answers
  * true, boot said "enforced", and every tenant request then failed on

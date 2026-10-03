@@ -121,10 +121,11 @@ The closing PRs of this brief's own session are listed in the section below.
 - #885 — each extension runs as its own database role (inline, BYPASSRLS twin,
   worker); owned prefixes resolve to the longest matching extension; disable
   revokes, uninstall drops. `scripts/bootstrap-db-role.sh` now grants
-  CREATEROLE + ADMIN on `zveltio_ext`/`zveltio_worker` on PostgreSQL 16+, so
-  hardened installs get per-extension roles too; below 16 they share one role
-  and boot warns. The script also grants SET on the two `zveltio.*` settings
-  the engine persists — without it a hardened install could not migrate (032).
+  CREATEROLE + ADMIN on `zveltio_ext`/`zveltio_worker`, so hardened installs
+  get per-extension roles too (its below-16 fallback is gone: Zveltio requires
+  PostgreSQL 18 and refuses an older server at boot). The script also grants
+  SET on the two `zveltio.*` settings the engine persists — without it a
+  hardened install could not migrate (032).
 - #886 — `ctx.DDLManager` mutations run on the engine pool and commit before
   returning; a collection an extension creates gets tenant RLS and grants at
   once. Known edges: schema changes survive a request rollback; deferred
@@ -137,7 +138,7 @@ the same table at first boot can race ("tuple concurrently updated").
 
 ## How to run things
 
-Prereqs: Bun ≥ 1.3.13, PostgreSQL 16+ (CI uses 18) with `pg_trgm` and
+Prereqs: Bun ≥ 1.3.13, PostgreSQL 18 (older servers are refused) with `pg_trgm` and
 `vector`, optional Valkey 8. From the repo root:
 
 ```sh
@@ -173,7 +174,7 @@ Traps that cost previous sessions a CI round:
 - Process-wide role state in the harness: a test that builds
   `createRestrictedDb` without the grants `load.ts` gives must switch the
   extension role off first.
-- On Postgres 16+, check role membership with `pg_has_role(…, 'SET')`, not
+- Check role membership with `pg_has_role(…, 'SET')`, not
   `MEMBER`: a CREATEROLE engine holds the roles it created WITH ADMIN but SET
   FALSE.
 - One DDL-queue test group times out at 30 s on some CI runs; a rerun passes.

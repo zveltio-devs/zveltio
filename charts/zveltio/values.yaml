@@ -232,8 +232,8 @@ persistence:
 postgresql:
   enabled: false
   image:
-    repository: postgres
-    tag: "18-alpine"
+    repository: pgvector/pgvector
+    tag: "pg18"
   auth:
     username: zveltio
     password: "" # REQUIRED — no default; `helm install` fails until you set it
