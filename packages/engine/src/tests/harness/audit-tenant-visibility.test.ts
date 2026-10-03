@@ -196,6 +196,31 @@ d('audit events reach the tenant they act on', () => {
     ).rejects.toThrow(/since is required/);
   });
 
+  it("inside god's request transaction both helpers still answer for the running tenant only", async () => {
+    // God's transaction publishes every firm as visible, so the policy lets B's
+    // rows through; the helpers' own tenant filter is what keeps them out.
+    const EV = `${TAG}.godreach` as AuditEventType;
+    const since = new Date(Date.now() - 1000);
+    await withTenantIsolation(A, (trx) => auditLog(trx, { type: EV, resourceId: 'a' }));
+    await withTenantIsolation(B, (trx) => auditLog(trx, { type: EV, resourceId: 'b' }));
+    const godId = (
+      await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)
+    ).rows[0]!.id;
+    const asGodIn = <T>(fn: (trx: Database) => Promise<T>) =>
+      withTenantIsolation(A, fn, { userId: godId });
+    // Negative control: the transaction really does reach B's row.
+    const reach = await asGodIn(async (trx) =>
+      sql<{ n: number }>`SELECT COUNT(*)::int AS n FROM zv_audit_log WHERE event_type = ${EV}`
+        .execute(trx)
+        .then((r) => r.rows[0]!.n),
+    );
+    expect(reach).toBe(2);
+    const ungated = gateInternals('audit-counter', buildExtensionInternals(), []);
+    expect(await asGodIn(() => ungated.countAuditActivity({ since, eventType: EV }))).toBe(1);
+    const rows = await asGodIn(() => reader.readAuditActivity({ eventType: EV, since }));
+    expect(rows.map((r) => r.resource_id)).toEqual(['a']);
+  });
+
   it('readAuditActivity needs audit:read', async () => {
     const without = gateInternals('audit-nocap', buildExtensionInternals(), []);
     await expect(

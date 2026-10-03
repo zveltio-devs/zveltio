@@ -33,6 +33,7 @@ const OTHER = crypto.randomUUID();
 d('an extension schedule runs with its own restricted context', () => {
   let db: Database;
   let probed: Record<string, string> = {};
+  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   /** What each reach answered: `ok`, or the error's name. */
   const attempt = async (fn: () => unknown) => {
@@ -96,6 +97,8 @@ d('an extension schedule runs with its own restricted context', () => {
   }, 60_000);
 
   afterAll(async () => {
+    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
     cronRunner.unregisterAll(NAME);
     invalidateActivationCache();
     if (db) await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
@@ -115,5 +118,16 @@ d('an extension schedule runs with its own restricted context', () => {
       secrets: 'CapabilityDeniedError',
       otherTenant: 'tenant:enter',
     });
+  });
+
+  it('does not run at all once no firm has the extension on', async () => {
+    const entries = (
+      cronRunner as unknown as { entries: Map<string, { schedule: ExtensionSchedule }> }
+    ).entries;
+    await sql`UPDATE zv_extension_registry SET is_enabled = false WHERE name = ${NAME}`.execute(db);
+    probed = {};
+    const base = { db, internals: buildExtensionInternals() } as unknown as ExtensionContext;
+    await entries.get(`${NAME}::probe`)!.schedule.handler(base, crypto.randomUUID());
+    expect(probed).toEqual({});
   });
 });

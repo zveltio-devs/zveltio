@@ -91,8 +91,8 @@ d('virtual collection row policies (in-process)', () => {
         filter_value_source: 'static:open',
       }),
     });
-    expect(policy.status).toBeLessThan(300);
-    policyId = ((await policy.json()) as { policy?: { id: string }; id?: string }).policy?.id ?? '';
+    expect(policy.status).toBe(201);
+    policyId = ((await policy.json()) as { policy: { id: string } }).policy.id;
     await invalidateRlsCache(COLLECTION);
   });
 
@@ -118,6 +118,19 @@ d('virtual collection row policies (in-process)', () => {
     };
     expect(body.records.map((r) => r.title)).toEqual(['shown']);
     expect(body.pagination.total).toBe(-1);
+  });
+
+  it('a page with nothing hidden still does not report the upstream total', async () => {
+    // The total counts rows on other pages the policy hides.
+    upstream({ items: [UPSTREAM[0]], total: 2 });
+    const res = await app.request(`/api/data/${COLLECTION}`, { headers: { cookie: memberCookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      records: { title: string }[];
+      pagination: { total: number; pages: number };
+    };
+    expect(body.records.map((r) => r.title)).toEqual(['shown']);
+    expect(body.pagination).toMatchObject({ total: -1, pages: -1 });
   });
 
   it('a single GET of a hidden row is not found', async () => {

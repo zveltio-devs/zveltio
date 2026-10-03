@@ -16,6 +16,7 @@ import { DDLManager } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
+  revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { buildExtensionInternals, type ExtensionContext } from '../../lib/extensions/internals.js';
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
@@ -73,8 +74,10 @@ d('deferred index builds of ctx.DDLManager', () => {
   });
 
   afterAll(async () => {
-    _resetExtensionDbRoleForTests();
     for (const name of made.reverse()) await dropTestCollection(db, name).catch(() => {});
+    // Roles are cluster-wide: left behind, they outlive this database.
+    await revokeExtensionDbRoles(db, EXT, true);
+    _resetExtensionDbRoleForTests();
   });
 
   it('a request that rolls back after addField still gets the index built', async () => {
