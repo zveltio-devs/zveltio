@@ -29,6 +29,8 @@ import type { Database } from '../../db/index.js';
 import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
 import { withSavepoint } from '../savepoint.js';
+import { getCurrentTenantTrx } from '../tenancy/index.js';
+import { asExtensionDbRole } from './ext-db-role.js';
 import {
   assertWorkerSqlAllowed,
   WorkerSqlPolicyError,
@@ -69,6 +71,19 @@ function isTenantTransaction(db: unknown): boolean {
 }
 
 /**
+ * The tenant transaction `db` is, or null — the transaction role windows run in
+ * and serialize on.
+ *
+ * The request's/job's own transaction only (the one `withTenantIsolation` bound
+ * to the async context), not any transaction: `ctx.adminDb.transaction()` opens
+ * one on the pool, and its cross-tenant reach is the point of `db:admin`. The
+ * pool path keeps the engine role for now; see ext-db-role.ts.
+ */
+function trxOf(db: Database): object | null {
+  return isTenantTransaction(db) && db === getCurrentTenantTrx() ? db : null;
+}
+
+/**
  * The query creator `ctx.db.selectFrom()` & co. come from: Kysely's own, over
  * `checkedExecutor`, so every statement a builder runs is the compiled SQL the
  * raw path's analyzer reads.
@@ -89,7 +104,7 @@ function checkedQueryCreator(
   allowedTables: Set<string> | undefined,
 ): QueryCreator<never> {
   return new QueryCreator({
-    executor: checkedExecutor(target.getExecutor(), extName, allowedTables),
+    executor: checkedExecutor(target.getExecutor(), extName, allowedTables, trxOf(target)),
   });
 }
 
@@ -144,25 +159,39 @@ async function assertRawSqlAllowed(
  * executor in between, and only Kysely's own `connection()` / `transaction()`
  * use it — on the real handle, never through here. Any method that returns
  * another executor (`withPlugin`, `withoutPlugins`, …) gets the same wrapper.
+ *
+ * `trx`: the tenant transaction the executor belongs to, if any. There, each
+ * statement runs as the extension role (`asExtensionDbRole`) — the layer that
+ * holds when the analyzer above it is wrong.
  */
 function checkedExecutor<T extends object>(
   executor: T,
   extName: string,
   allowedTables: Set<string> | undefined,
+  trx: object | null,
 ): T {
   const real = executor as unknown as ExecutorLike;
+  const asRole = <R>(run: () => Promise<R>): Promise<R> =>
+    trx ? asExtensionDbRole(trx, real as never, run) : run();
   return new Proxy(executor, {
     get(target, prop) {
       if (prop === 'executeQuery') {
         return async (query: CompiledLike, ...rest: unknown[]) => {
           await assertRawSqlAllowed(extName, query.sql, allowedTables);
-          return real.executeQuery(query, ...rest);
+          return asRole(() => real.executeQuery(query, ...rest));
         };
       }
       if (prop === 'stream') {
+        // Drained inside the role window: a cursor left open past the restore
+        // would fetch its later rows as whatever role came back.
         return async function* (query: CompiledLike, ...rest: unknown[]) {
           await assertRawSqlAllowed(extName, query.sql, allowedTables);
-          yield* real.stream(query, ...rest);
+          const chunks = await asRole(async () => {
+            const out: unknown[] = [];
+            for await (const c of real.stream(query, ...rest)) out.push(c);
+            return out;
+          });
+          yield* chunks;
         };
       }
       if (prop === 'provideConnection') {
@@ -178,7 +207,7 @@ function checkedExecutor<T extends object>(
       return (...args: unknown[]) => {
         const out = (value as (...a: unknown[]) => unknown).apply(target, args);
         return typeof (out as Partial<ExecutorLike> | null)?.executeQuery === 'function'
-          ? checkedExecutor(out as object, extName, allowedTables)
+          ? checkedExecutor(out as object, extName, allowedTables, trx)
           : out;
       };
     },
@@ -231,18 +260,19 @@ export function createRestrictedDb(
       const target = resolveDb();
 
       if (!trustRawSql && typeof prop === 'string') {
-        if (prop === 'getExecutor') {
-          return () => checkedExecutor(target.getExecutor(), extName, allowedTables);
-        }
+        const checked = () =>
+          checkedExecutor(target.getExecutor(), extName, allowedTables, trxOf(target));
+        if (prop === 'getExecutor') return checked;
         if (prop === 'executeQuery') {
+          // Kysely's own `executeQuery` is `getExecutor().executeQuery(…)`; the
+          // checked executor is that, with the analyzer and the role in front.
           return async (query: unknown, ...rest: unknown[]) => {
             const compiled = (
               typeof (query as { compile?: unknown }).compile === 'function'
                 ? (query as { compile(): CompiledLike }).compile()
                 : query
             ) as CompiledLike;
-            await assertRawSqlAllowed(extName, compiled.sql, allowedTables);
-            return (target.executeQuery as (...a: unknown[]) => unknown)(compiled, ...rest);
+            return checked().executeQuery(compiled as never, ...(rest as []));
           };
         }
         if (UNGUARDED_HANDLES.has(prop)) {

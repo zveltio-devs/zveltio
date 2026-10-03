@@ -449,6 +449,15 @@ Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
 not declared by the worker. Contaminated connections are closed rather than
 returned to the pool.
 
+An inline extension's `ctx.db` statement inside a tenant transaction runs as
+`zveltio_ext`, set before the statement and restored after it
+(`lib/extensions/ext-db-role.ts`). The role is `NOSUPERUSER`, `NOBYPASSRLS`,
+cannot create objects, and holds DML only on the non-engine `zvd_*` tables and
+on each loaded extension's own tables and `EXTENSION_TABLE_GRANTS` — never on
+`user` or a credential table. So SQL the extension SQL analyzer misreads still
+cannot reach `zv_api_keys`, `zvd_permissions` or the tenants. Outside a tenant
+transaction (boot, cron, listeners) `ctx.db` still runs as the engine role.
+
 A boot reconciler rewrites every extension-owned tenant table onto the host
 predicate, which makes tenant isolation something the host guarantees rather
 than something every extension author has to get right.

@@ -330,6 +330,10 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
 const NARROW_ROLE_GRANTS: Record<string, string> = {
   zveltio_worker: 'SELECT, INSERT, UPDATE, DELETE',
   zveltio_flow_reader: 'SELECT',
+  // Inline extensions' `ctx.db` in a tenant transaction (lib/extensions/
+  // ext-db-role.ts). Not collection-only: it also holds the extensions' own
+  // tables, `zvd_*` ones included, so the revoke below passes over it.
+  zveltio_ext: 'SELECT, INSERT, UPDATE, DELETE',
 };
 
 async function narrowRolesPresent(db: Database): Promise<string[]> {
@@ -354,6 +358,7 @@ async function narrowRolesPresent(db: Database): Promise<string[]> {
  */
 async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[]): Promise<void> {
   for (const role of await narrowRolesPresent(db)) {
+    if (role === 'zveltio_ext') continue;
     const stray = await sql<{ t: string }>`
       SELECT c.relname AS t
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
