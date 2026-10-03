@@ -110,6 +110,12 @@ different case.
 Which account is the real one is your decision. The engine does not merge
 identities: guessing wrong hands one person's account to another.
 
+Until they are merged, a lookup by address (sign-in, password reset, magic link,
+the admin routes) takes the account stored in exactly the spelling looked up —
+for sign-in that is the all-lowercase one, since better-auth lowercases what is
+typed. When no twin holds that exact spelling, the address matches no account
+and the engine logs `matches several accounts in another case and none exactly`.
+
 ```sql
 -- 1. The twins, oldest first in each group.
 SELECT lower(email) AS address, id, email, "createdAt",

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
+import { storedEmail } from '../lib/auth-email.js';
 // requireInstanceAdmin, not checkPermission: every route here is instance-level
 // administration (create/suspend tenants, move members between them). The old
 // gate asked for ('tenants','manage'), but the tenant_admin policy is
@@ -171,7 +172,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         const adminUser = await trx
           .selectFrom('user')
           .select('id')
-          .where('email', '=', data.admin_user_email)
+          .where('email', '=', await storedEmail(trx, data.admin_user_email))
           .executeTakeFirst();
 
         // No owner, no tenant. The comment above says an unreachable tenant is
@@ -577,7 +578,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     const target = await db
       .selectFrom('user')
       .select('id')
-      .where('email', '=', user_email)
+      .where('email', '=', await storedEmail(db, user_email))
       .executeTakeFirst();
     if (!target) return c.json({ error: `No user with email ${user_email}` }, 404);
 

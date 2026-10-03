@@ -20,6 +20,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { storedEmail } from '../lib/auth-email.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
@@ -154,6 +155,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     // before any write in this transaction.
     const grantAndSpend = () =>
       db.transaction().execute(async (trx) => {
+        const account = await storedEmail(trx, email);
         // Recovery TRANSFERS the role; it does not add a second holder.
         //
         // There is exactly one god on an instance, and since migration 008 the
@@ -172,13 +174,13 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
           .updateTable('user')
           .set({ role: 'member' })
           .where('role', '=', 'god')
-          .where('email', '!=', email)
+          .where('email', '!=', account)
           .returning(['id'])
           .execute();
         const granted = await trx
           .updateTable('user')
           .set({ role: 'god' })
-          .where('email', '=', email)
+          .where('email', '=', account)
           .returning(['id', 'email', 'role'])
           .executeTakeFirst();
         if (!granted) return null;
