@@ -196,6 +196,7 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/fail-closed-tenant.ts`,
       `${E}lib/tenancy/tenant-purge.ts`,
       `${E}lib/tenancy/index.ts`,
+      `${E}lib/tenancy/temp-privilege.ts`,
     ],
   },
   {
@@ -234,6 +235,8 @@ const SECTIONS: Section[] = [
     focus: 'Sessions, API keys, SSO, key material. Revocation must reach every replica.',
     match: [
       `${E}lib/auth.ts`,
+      `${E}lib/auth-email.ts`,
+      `${E}lib/identity.ts`,
       `${E}lib/admin-guard.ts`,
       `${E}lib/users.ts`,
       `${E}lib/email.ts`,
@@ -412,6 +415,9 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/capabilities.ts`,
       `${E}lib/extensions/config.ts`,
       `${E}lib/extensions/index.ts`,
+      `${E}lib/extensions/ext-db-role.ts`,
+      `${E}lib/extensions/tenant-facts.ts`,
+      `${E}lib/engine-handle.ts`,
     ],
   },
   {
