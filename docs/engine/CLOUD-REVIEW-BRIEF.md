@@ -125,10 +125,11 @@ The closing PRs of this brief's own session are listed in the section below.
 - #886 — `ctx.DDLManager` mutations run on the engine pool and commit before
   returning; a collection an extension creates gets tenant RLS and grants at
   once. Known edges: schema changes survive a request rollback; deferred
-  CONCURRENTLY index builds live in memory until the request commits.
+  CONCURRENTLY index builds go to the DDL queue (`ddl.build_index`) before
+  the request goes on, so a rollback or crash does not lose them.
 
 Open on purpose, worth a second opinion: hardened installs without
-per-extension roles; deferred index builds not durable; two replicas granting
+per-extension roles; two replicas granting
 the same table at first boot can race ("tuple concurrently updated").
 
 ## How to run things

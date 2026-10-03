@@ -176,6 +176,24 @@ export function problemOnError(err: Error, c: Context): Response {
     });
   }
 
+  // 55P03 (lock_not_available): a lock_timeout gave up on a table another
+  // transaction holds — a schema change queued behind an index build, say.
+  // Nothing is wrong with the request; the same one succeeds once the lock is free.
+  if (e.code === '55P03' || String(e.errno) === '55P03') {
+    return toResponse(
+      {
+        type: 'about:blank',
+        title: statusTitle(503),
+        status: 503,
+        code: 'lock_timeout',
+        detail: 'The resource is busy with another change; retry shortly.',
+        instance,
+        traceId,
+      },
+      5,
+    );
+  }
+
   // Unknown error — never leak internals; log server-side, return generic 500.
   console.error(
     `[problem] unhandled error on ${c.req.method} ${instance} (trace ${traceId}):`,

@@ -29,13 +29,17 @@ import {
   getUserRoles,
   applyTenantRLS,
   getCurrentTenantTrx,
-  onAfterCommit,
   poolOrRefusal,
   materializeDefaultGrants,
   registerSensitiveResources,
   describeDenial,
 } from '../tenancy/index.js';
-import { announceSchemaChange, DDLManager, deferIndexBuilds } from '../data/index.js';
+import {
+  announceSchemaChange,
+  DDLManager,
+  deferIndexBuilds,
+  enqueueIndexBuilds,
+} from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { engineHandle } from '../engine-handle.js';
 import {
@@ -54,7 +58,7 @@ import {
   keyAwareCheckPermission,
   registerExtensionPublicRoutes,
 } from '../../middleware/extension-auth-gate.js';
-import { problemOnError } from '../problem.js';
+import { problem, problemOnError } from '../problem.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -1005,29 +1009,69 @@ function engineSqlHelper<T extends object>(helper: T): T {
  * (ai-alchemist creates a collection and fills it).
  *
  * A CONCURRENTLY build on an existing table would wait on that open request,
- * which is waiting on it; with one open those wait for the commit
- * (`deferIndexBuilds`). They are performance, not correctness: the column or
- * table is already usable.
+ * which is waiting on it; with one open those go to the DDL queue
+ * (`enqueueIndexBuilds`), recorded before the request goes on, so neither its
+ * rollback nor a crash leaves the committed column unindexed.
  */
-async function onEnginePool<T>(run: (pool: Database) => Promise<T>): Promise<T> {
+async function onEnginePool<T>(
+  run: (pool: Database) => Promise<T>,
+  { alters = [], refs = [] }: Touches = {},
+): Promise<T> {
   const pool = getDb();
-  if (!getCurrentTenantTrx()) return run(pool);
+  const trx = getCurrentTenantTrx();
+  if (!trx) return run(pool);
+  await refuseOwnLock(trx, alters, refs);
   const { result, indexes } = await deferIndexBuilds(() => run(pool));
-  // ponytail: in-memory and commit-only — a crash or a rolled-back request leaves
-  // the (already committed) column unindexed; a DDL queue job if that matters.
-  if (indexes.length > 0) onAfterCommit(() => void buildIndexes(pool, indexes));
+  if (indexes.length > 0) await enqueueIndexBuilds(pool, indexes);
   return result;
 }
 
-async function buildIndexes(pool: Database, indexes: string[]): Promise<void> {
-  for (const ddl of indexes) {
-    try {
-      await sql.raw(ddl).execute(pool);
-    } catch (err) {
-      console.warn(`[extensions] deferred index build failed (${ddl}):`, (err as Error).message);
-    }
-  }
+/** Tables a mutation ALTERs or DROPs, and tables it adds a foreign key to. */
+interface Touches {
+  alters?: string[];
+  refs?: string[];
 }
+
+/**
+ * Refuse, at once, a schema change on a table this request already locked.
+ *
+ * The change runs on another connection, so it waits on the request's own lock
+ * — any lock, for an ALTER or DROP; a write lock, for a foreign key's
+ * ShareRowExclusive on the referenced table — until the 2 s lock_timeout, and
+ * then a 503 told the client to retry what can never succeed. One catalog read
+ * on the request's backend, only when a request transaction is open.
+ */
+async function refuseOwnLock(trx: Database, alters: string[], refs: string[]): Promise<void> {
+  if (alters.length + refs.length === 0) return;
+  const oid = (t: string) => sql`to_regclass(format('public.%I', ${t}::text))`;
+  const none = sql`NULL::oid`;
+  const held = await sql<{ t: string }>`
+    SELECT DISTINCT c.relname::text AS t FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+     WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND l.granted
+       AND (l.relation IN (${alters.length ? sql.join(alters.map(oid)) : none})
+            OR (l.relation IN (${refs.length ? sql.join(refs.map(oid)) : none})
+                AND l.mode NOT IN ('AccessShareLock', 'RowShareLock')))`.execute(trx);
+  if (held.rows.length === 0) return;
+  throw problem(
+    'schema_change_after_write',
+    409,
+    `This request already used ${held.rows.map((r) => `"${r.t}"`).join(', ')}, so a schema ` +
+      'change on it would wait on the request itself. Make the schema change before touching ' +
+      'the table in the request, or in a separate request.',
+  );
+}
+
+/** What each `POOL_ONLY` mutation locks, from its arguments after the handle. */
+const POOL_ONLY_TOUCHES: Partial<Record<(typeof POOL_ONLY)[number], (a: unknown[]) => Touches>> = {
+  applyRelationFK: (a) => ({ alters: [String(a[0])], refs: [String(a[2])] }),
+  createJunctionTable: (a) => ({
+    refs: [DDLManager.getTableName(String(a[0])), DDLManager.getTableName(String(a[1]))],
+  }),
+  dropJunctionTable: (a) => ({ alters: [String(a[0])] }),
+  addUniqueKey: (a) => ({ alters: [String(a[0])] }),
+  refreshSearchTrigger: (a) => ({ alters: [DDLManager.getTableName(String(a[0]))] }),
+};
+const collection = (name: string): Touches => ({ alters: [DDLManager.getTableName(name)] });
 
 type AfterDb<F> = F extends (db: Database, ...rest: infer R) => unknown ? R : never;
 
@@ -1056,12 +1100,14 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
     POOL_ONLY.map((name) => [
       name,
       (_db: Database, ...rest: unknown[]) =>
-        onEnginePool((pool) =>
-          (DDLManager[name] as (...a: unknown[]) => Promise<unknown>).call(
-            DDLManager,
-            pool,
-            ...rest,
-          ),
+        onEnginePool(
+          (pool) =>
+            (DDLManager[name] as (...a: unknown[]) => Promise<unknown>).call(
+              DDLManager,
+              pool,
+              ...rest,
+            ),
+          POOL_ONLY_TOUCHES[name]?.(rest),
         ),
     ]),
   ),
@@ -1081,22 +1127,25 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
       announceSchemaChange(def.name, 'create');
     },
     async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {
-      await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest));
+      await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest), collection(rest[0]));
       announceSchemaChange(rest[0], 'drop');
     },
     async updateCollectionMetadata(
       _db: Database,
       ...rest: AfterDb<typeof DDLManager.updateCollectionMetadata>
     ) {
-      await onEnginePool((pool) => DDLManager.updateCollectionMetadata(pool, ...rest));
+      await onEnginePool(
+        (pool) => DDLManager.updateCollectionMetadata(pool, ...rest),
+        collection(rest[0]),
+      );
       announceSchemaChange(rest[0], 'alter');
     },
     async addField(_db: Database, ...rest: AfterDb<typeof DDLManager.addField>) {
-      await onEnginePool((pool) => DDLManager.addField(pool, ...rest));
+      await onEnginePool((pool) => DDLManager.addField(pool, ...rest), collection(rest[0]));
       announceSchemaChange(rest[0], 'alter');
     },
     async removeField(_db: Database, ...rest: AfterDb<typeof DDLManager.removeField>) {
-      await onEnginePool((pool) => DDLManager.removeField(pool, ...rest));
+      await onEnginePool((pool) => DDLManager.removeField(pool, ...rest), collection(rest[0]));
       announceSchemaChange(rest[0], 'alter');
     },
   },
