@@ -45,6 +45,8 @@ const provider = {
 const prevEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 beforeAll(() => {
+  // A provider another file registered would make this registration a no-op.
+  trace.disable();
   trace.setGlobalTracerProvider(provider);
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:9';
 });
