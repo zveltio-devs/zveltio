@@ -17,6 +17,7 @@ import { DDLManager } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
+  revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { buildExtensionInternals, type ExtensionContext } from '../../lib/extensions/internals.js';
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
@@ -95,6 +96,8 @@ d("ctx.DDLManager's mutations inside a request", () => {
   });
 
   afterAll(async () => {
+    // Roles are cluster-wide and outlive this database.
+    await revokeExtensionDbRoles(db, EXT, true);
     _resetExtensionDbRoleForTests();
     for (const name of made.reverse()) await dropTestCollection(db, name).catch(() => {});
   });

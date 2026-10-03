@@ -31,6 +31,7 @@ import type { Database } from '../../db/index.js';
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
+  revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -89,6 +90,8 @@ d('ctx.db role windows leave no temp objects when TEMPORARY could not be revoked
 
   afterAll(async () => {
     analyzerOff = false;
+    // Roles are cluster-wide and outlive this database.
+    await revokeExtensionDbRoles(db, EXT, true);
     _resetExtensionDbRoleForTests();
     // Heal: boot as the owner takes TEMPORARY from PUBLIC again.
     await restrictTemporaryObjects(db);
@@ -130,6 +133,26 @@ d('ctx.db role windows leave no temp objects when TEMPORARY could not be revoked
       expect(await leftover(name)).toBe(0);
     } finally {
       analyzerOff = false;
+    }
+  }, 60_000);
+
+  it('drops one made in the request transaction where no extension role is usable', async () => {
+    // Degraded mode: ctx.db keeps the tenant role, with no role window around it.
+    _resetExtensionDbRoleForTests();
+    analyzerOff = true;
+    try {
+      const name = `${PROBE}_degraded`;
+      const seen = await buildExtensionInternals().withTenantIsolation(TENANT, async () => {
+        const who = await sql<{ r: string }>`SELECT current_user::text AS r`.execute(ext);
+        expect(who.rows[0]!.r).toBe('zveltio_rls');
+        await sql`CREATE TEMP TABLE ${sql.id(name)} (id int)`.execute(ext);
+        return visible(getCurrentTenantTrx()!, name);
+      });
+      expect(seen).toBeNull();
+      expect(await leftover(name)).toBe(0);
+    } finally {
+      analyzerOff = false;
+      await grantExtensionDbRole(db, EXT, new Set());
     }
   }, 60_000);
 });

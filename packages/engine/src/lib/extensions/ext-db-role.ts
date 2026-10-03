@@ -37,7 +37,8 @@
  * (`revokeExtensionDbRoles`).
  *
  * Where the engine may not create roles (scripts/bootstrap-db-role.sh gives it
- * NOCREATEROLE) everything stays on the shared roles, as before: a statement the
+ * NOCREATEROLE below Postgres 16, where CREATEROLE is close to superuser)
+ * everything stays on the shared roles, and boot says so once: a statement the
  * analyzer gets wrong reaches extension data, never the engine's.
  *
  * On the pool too — boot, cron, listeners, background work and `ctx.adminDb` —
@@ -184,8 +185,8 @@ async function ensureRoleOnce(
 /**
  * Whether the engine can make per-extension roles under `parent`: create roles,
  * and grant `parent` to them. A superuser can; so can CREATEROLE with ADMIN on
- * `parent`, which Postgres 16+ gives the role that created it. The bootstrap
- * script's engine role has neither.
+ * `parent`, which Postgres 16+ gives the role that created it and the bootstrap
+ * script grants on 16+. Below 16 the script's engine role has neither.
  */
 async function canMakeRolesUnder(db: Database, parent: string): Promise<boolean> {
   const r = await sql<{ ok: boolean }>`
@@ -213,8 +214,10 @@ async function narrowSharedRole(db: Database, role: string): Promise<void> {
          AND EXISTS (SELECT 1 FROM aclexplode(c.relacl) a WHERE a.grantee = r.oid)
     `.execute(db);
     for (const { rel, seq } of held.rows) {
-      await sql`REVOKE ALL ON ${seq ? sql`SEQUENCE` : sql`TABLE`} ${sql.table(`public.${rel}`)} FROM ${sql.id(role)}`.execute(
-        db,
+      await retryConcurrentUpdate(() =>
+        sql`REVOKE ALL ON ${seq ? sql`SEQUENCE` : sql`TABLE`} ${sql.table(`public.${rel}`)} FROM ${sql.id(role)}`.execute(
+          db,
+        ),
       );
     }
   } catch (err) {
@@ -273,9 +276,33 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
     _bypassReady = _ready && _loginBypasses && (await ensureBypassTwin(db));
     _perExtension = _ready && (await canMakeRolesUnder(db, EXT_DB_ROLE).catch(() => false));
     if (_perExtension) await narrowSharedRole(db, EXT_DB_ROLE);
+    else if (_ready) await warnSharedRole(db);
     return _ready;
   })();
   return _ensuring;
+}
+
+/** Once per process: every extension runs on the shared role. */
+async function warnSharedRole(db: Database): Promise<void> {
+  let v16 = false;
+  try {
+    v16 = (
+      await sql<{ v16: boolean }>`
+        SELECT current_setting('server_version_num')::int >= 160000 AS v16
+      `.execute(db)
+    ).rows[0]!.v16;
+  } catch {
+    // Only picks the hint below.
+  }
+  console.warn(
+    `[extensions] all extensions share one database role (${EXT_DB_ROLE}, ${WORKER_DB_ROLE}): ` +
+      `the engine role cannot create roles under them (CREATEROLE with ADMIN on both), so only ` +
+      `the SQL analyzer keeps one extension out of another's tables. ` +
+      (v16
+        ? 'Re-run scripts/bootstrap-db-role.sh, which grants that on PostgreSQL 16+.'
+        : 'Below PostgreSQL 16 CREATEROLE is close to superuser and is not granted; ' +
+          'upgrade to 16+ and re-run scripts/bootstrap-db-role.sh.'),
+  );
 }
 
 /**
@@ -522,10 +549,14 @@ async function grantOwnTables(
       if (r.missing) {
         const privs = r.kind === 'table' ? 'SELECT, INSERT, UPDATE, DELETE' : 'USAGE, SELECT';
         const to = r.shared ? shared : own!;
-        await sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(db);
+        await retryConcurrentUpdate(() =>
+          sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(db),
+        );
       }
       for (const from of r.covered_by) {
-        await sql`REVOKE ALL ON ${on} ${rel} FROM ${sql.id(from)}`.execute(db);
+        await retryConcurrentUpdate(() =>
+          sql`REVOKE ALL ON ${on} ${rel} FROM ${sql.id(from)}`.execute(db),
+        );
       }
     }
     return rows.rows.map((r) => r.rel);
@@ -535,6 +566,26 @@ async function grantOwnTables(
       (err as Error).message,
     );
     return [];
+  }
+}
+
+/**
+ * A GRANT or REVOKE racing another replica's on the same relation (first boot,
+ * replicas loading the same extension) loses with XX000 "tuple concurrently
+ * updated" — both rewrite the relation's ACL row. It used to end the whole
+ * grant loop, so the extension's remaining tables went ungranted on the loser
+ * and its own queries failed until the next restart. Retried, as role creation
+ * is, 3 tries: the retry sees the winner's row and writes after it. Runs on the
+ * pool (load and boot), never inside a transaction a failure would abort.
+ */
+async function retryConcurrentUpdate(run: () => Promise<unknown>): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await run();
+      return;
+    } catch (err) {
+      if (attempt >= 3 || (err as { errno?: unknown }).errno !== 'XX000') throw err;
+    }
   }
 }
 
@@ -621,7 +672,13 @@ export function asExtensionDbRole<T>(
   run: () => Promise<T>,
   mirror = false,
 ): Promise<T> {
-  if (!_ready) return run();
+  // No usable role: the statement runs as the request's own role, no window —
+  // and a temp table it makes shadows the engine's tables all the same.
+  if (!_ready)
+    return run().then(async (out) => {
+      await discardExtensionTemp(executor);
+      return out;
+    });
   const mine = (windows.get(trx) ?? Promise.resolve()).then(() =>
     roleWindow(executor, run, setRoleSql(extName, mirror)),
   );
