@@ -215,21 +215,6 @@ d('collection triggers under every restricted writer role', () => {
     }, 60_000);
   }
 
-  it('pins every SECURITY DEFINER function to a search_path ending in pg_temp', async () => {
-    // A path that does not name pg_temp searches it FIRST for relations, so a
-    // definer function's unqualified table could resolve to a caller's
-    // temporary object and run as the owner (migration 047).
-    const r = await sql<{ fn: string; path: string }>`
-      SELECT p.proname AS fn,
-             coalesce((SELECT substr(c, 13) FROM unnest(p.proconfig) c
-                        WHERE c LIKE 'search_path=%'), '') AS path
-        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE p.prosecdef AND n.nspname = 'public'
-    `.execute(db);
-    expect(r.rows.length).toBeGreaterThan(0);
-    expect(r.rows.filter((x) => !/(^|,\s*)pg_temp$/.test(x.path))).toEqual([]);
-  }, 30_000);
-
   describe('while a ghost migration copies the table', () => {
     beforeAll(async () => {
       await GhostDDL.createGhost(db, TABLE, [
@@ -254,6 +239,24 @@ d('collection triggers under every restricted writer role', () => {
         expect(ops.rows.map((r) => r.operation)).toEqual(['INSERT', 'UPDATE', 'DELETE']);
       }, 60_000);
     }
+
+    it('pins every SECURITY DEFINER function to a search_path ending in pg_temp', async () => {
+      // A path that does not name pg_temp searches it FIRST for relations, so a
+      // definer function's unqualified table could resolve to a caller's
+      // temporary object and run as the owner (migration 047).
+      const r = await sql<{ fn: string; path: string }>`
+        SELECT p.proname AS fn,
+               coalesce((SELECT substr(c, 13) FROM unnest(p.proconfig) c
+                          WHERE c LIKE 'search_path=%'), '') AS path
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE p.prosecdef AND n.nspname = 'public'
+      `.execute(db);
+      // Run while the ghost exists, so its changelog trigger is one of them.
+      expect(r.rows.map((x) => x.fn)).toEqual(
+        expect.arrayContaining(['zveltio_sync_tombstone', `_zv_trg_ghost_${TABLE}_fn`]),
+      );
+      expect(r.rows.filter((x) => !/(^|,\s*)pg_temp$/.test(x.path))).toEqual([]);
+    }, 30_000);
 
     it('grants no restricted role the changelog itself', async () => {
       const r = await sql<{ role: string; ok: boolean }>`
