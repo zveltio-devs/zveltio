@@ -136,7 +136,7 @@ describe('S5-04 ddl-queue: mapJobToPublic', () => {
         retryLimit: 3,
         createdOn: '2026-05-17T00:00:00Z',
       },
-      'drop_relation' as any,
+      'drop_collection' as any,
     );
     expect(cancelled.status).toBe('failed');
     const expired = mapJobToPublic(
@@ -148,7 +148,7 @@ describe('S5-04 ddl-queue: mapJobToPublic', () => {
         retryLimit: 3,
         createdOn: '2026-05-17T00:00:00Z',
       },
-      'drop_relation' as any,
+      'drop_collection' as any,
     );
     expect(expired.status).toBe('failed');
   });
@@ -174,8 +174,9 @@ describe('S5-04 ddl-queue: QUEUE_NAMES', () => {
     expect(QUEUE_NAMES.drop_collection).toBe('ddl.drop_collection');
     expect(QUEUE_NAMES.add_field).toBe('ddl.add_field');
     expect(QUEUE_NAMES.remove_field).toBe('ddl.remove_field');
-    expect(QUEUE_NAMES.create_relation).toBe('ddl.create_relation');
-    expect(QUEUE_NAMES.drop_relation).toBe('ddl.drop_relation');
+    // No enqueuer anywhere ever sent these; their handlers were removed.
+    expect(Object.keys(QUEUE_NAMES)).not.toContain('create_relation');
+    expect(Object.keys(QUEUE_NAMES)).not.toContain('drop_relation');
   });
 
   it('all names share the ddl. prefix for grep-ability + pg-boss observability', () => {

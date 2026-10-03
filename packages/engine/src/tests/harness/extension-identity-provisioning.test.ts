@@ -17,10 +17,28 @@ import {
   ExtensionSecurityError,
 } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
-import { DEFAULT_TENANT_ID, getCurrentTenantTrx, getEnforcer } from '../../lib/tenancy/index.js';
+import { isSingleTenantInstance } from '../../lib/identity.js';
+import {
+  DEFAULT_TENANT_ID,
+  getCurrentTenantTrx,
+  getEnforcer,
+  runWithTenantTrx,
+} from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+
+/** Until some statement on this database waits on a lock (the race under test). */
+async function waitForLockWaiter(db: Database): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const r = await sql<{ n: number }>`
+      SELECT COUNT(*)::int AS n FROM pg_stat_activity
+       WHERE datname = current_database() AND wait_event_type = 'Lock'`.execute(db);
+    if (r.rows[0]!.n > 0) return;
+    await Bun.sleep(25);
+  }
+  throw new Error('no statement ever waited on the lock');
+}
 
 const TAG = `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
 const hex = TAG.slice(-12).padStart(12, '0');
@@ -317,5 +335,153 @@ d('identity provisioning through ctx.internals', () => {
 
   it('isSingleTenantInstance is ungated and sees the tenants this suite made', async () => {
     expect(await bare.isSingleTenantInstance()).toBe(false);
+  });
+
+  // The account and the Casbin grade used to be written on other connections
+  // (better-auth's pool, the enforcer's), so a provisioning step that failed
+  // after them rolled back the membership and left the account and the grade.
+  it('a rolled-back provisioning leaves no account and no grade; a rolled-back removal keeps both', async () => {
+    const email = `rolled-${TAG}@idp.test`;
+    const joiner = await makeUser('rolled');
+    const planted = new Error('a later provisioning step failed');
+    await expect(
+      as(T, async (trx) => {
+        const { user, created } = await scim.provisionUser({ email });
+        expect(created).toBe(true);
+        await scim.addTenantMember(trx, user.id);
+        await scim.addTenantMember(trx, joiner);
+        throw planted;
+      }),
+    ).rejects.toBe(planted);
+    const left = await sql`SELECT 1 FROM "user" WHERE email = ${email}`.execute(db);
+    expect(left.rows).toHaveLength(0);
+    expect(await membership(T, joiner)).toBeUndefined();
+    expect(await grades(joiner)).toEqual([]);
+    const rows = await sql`SELECT 1 FROM zvd_permissions WHERE v0 = ${joiner}`.execute(db);
+    expect(rows.rows).toHaveLength(0);
+
+    // Committed, the same steps land, account included.
+    const done = await as(T, async (trx) => {
+      const { user } = await scim.provisionUser({ email });
+      await scim.addTenantMember(trx, user.id);
+      return user;
+    });
+    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+
+    await expect(
+      as(T, async (trx) => {
+        await scim.removeTenantMember(trx, done.id);
+        throw planted;
+      }),
+    ).rejects.toBe(planted);
+    expect((await membership(T, done.id))!.role).toBe('member');
+    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+  });
+
+  it('two transactions provisioning one email: the second gets the first account, its own transaction intact', async () => {
+    const email = `twice-${TAG}@idp.test`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let firstCreated!: () => void;
+    const created = new Promise<void>((r) => {
+      firstCreated = r;
+    });
+    const first = as(T, async () => {
+      const r = await scim.provisionUser({ email });
+      firstCreated();
+      await gate;
+      return r;
+    });
+    await created;
+    const second = as(T, async (trx) => {
+      const r = await scim.provisionUser({ email });
+      await scim.addTenantMember(trx, r.user.id);
+      return r;
+    });
+    await waitForLockWaiter(db);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.created).toBe(true);
+    expect(b).toEqual({ user: a.user, created: false });
+    expect((await membership(T, a.user.id))!.role).toBe('member');
+  });
+
+  // Probe-then-write: a concurrent writer of the same email passed the probe and
+  // then failed the unique index, aborting the caller's transaction (25P02).
+  it('updateUserProfile: an email another transaction is writing is email_taken, transaction intact', async () => {
+    const mover = await makeUser('mover');
+    await enrol(T, mover);
+    const target = `race-${TAG}@idp.test`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let inserted!: () => void;
+    const written = new Promise<void>((r) => {
+      inserted = r;
+    });
+    const holder = db.transaction().execute(async (trx) => {
+      await sql`INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
+                VALUES (${`idp-racer-${TAG}-1`}, 'racer', ${target}, false, 'member', now(), now())`.execute(
+        trx,
+      );
+      inserted();
+      await gate;
+    });
+    await written;
+    const result = as(T, async (trx) => {
+      const r = await scim.updateUserProfile(trx, mover, { email: target }).then(
+        () => 'updated',
+        (e: { code?: string; message?: string }) => e.code ?? e.message,
+      );
+      return [r, (await scim.updateUserProfile(trx, mover, { name: 'after race' })).name];
+    });
+    await waitForLockWaiter(db);
+    release();
+    await holder;
+    expect(await result).toEqual(['email_taken', 'after race']);
+  });
+
+  // `isSingleTenantInstance` is true when at most one zv_tenants row exists. The
+  // harness has many, so they are hidden inside a transaction that is rolled back
+  // (replica mode: no FK action or check fires on the hidden rows).
+  it('single-tenant instance: the default tenant holds every account', async () => {
+    const solo = await makeUser('solo');
+    const starEditor = await makeUser('star-editor');
+    await (await getEnforcer()).addRoleForUser(starEditor, 'editor', '*');
+    const multi = await as(DEFAULT_TENANT_ID, (trx) => scim.listTenantUsers(trx, { userId: solo }));
+    expect(multi).toEqual([]);
+
+    const rollback = new Error('rollback');
+    const seen = await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`SET LOCAL session_replication_role = replica`.execute(trx);
+        await sql`DELETE FROM zv_tenants WHERE id <> ${DEFAULT_TENANT_ID}::uuid`.execute(trx);
+        const out = await runWithTenantTrx(trx, DEFAULT_TENANT_ID, async () => ({
+          single: await isSingleTenantInstance(trx),
+          listed: await scim.listTenantUsers(trx, { userId: solo }),
+          renamed: (await scim.updateUserProfile(trx, starEditor, { name: 'Solo editor' })).name,
+          removed: await scim.removeTenantMember(trx, solo),
+        }));
+        throw Object.assign(rollback, { out });
+      })
+      .catch((e: Error & { out?: unknown }) => {
+        if (e !== rollback) throw e;
+        return e.out;
+      });
+    expect(seen).toMatchObject({
+      single: true,
+      listed: [{ id: solo, membership: null }],
+      renamed: 'Solo editor',
+      // No row to remove, yet the default tenant held the account alone.
+      removed: { removed: false, orphaned: true, inForceAnywhere: false },
+    });
+    // Multi-tenant again: the '*' grant is power the instance gave.
+    await expect(
+      as(DEFAULT_TENANT_ID, (trx) => scim.updateUserProfile(trx, starEditor, { name: 'x' })),
+    ).rejects.toMatchObject({ code: 'user_not_owned' });
   });
 });

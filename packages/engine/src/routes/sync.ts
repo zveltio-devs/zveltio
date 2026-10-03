@@ -231,7 +231,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         ? op.collection
         : `zvd_${op.collection}`;
 
-      if (!COLLECTION_RE.test(tableName)) {
+      // A registered collection, not any `zvd_` table: junctions (`zvd_jnc_*`)
+      // and the engine's own (`zvd_permissions`) matched the pattern.
+      if (
+        !COLLECTION_RE.test(tableName) ||
+        !(await DDLManager.getCollection(db, tableName.slice(4)))
+      ) {
         results.push({
           recordId: op.recordId,
           status: 'error',
@@ -615,7 +620,9 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       const collection: string =
         typeof rawName === 'string' && rawName.startsWith('zvd_') ? rawName : `zvd_${rawName}`;
 
+      // Registered collections only — see push.
       if (!COLLECTION_RE.test(collection)) continue;
+      if (!(await DDLManager.getCollection(db, collection.slice(4)))) continue;
 
       // SECURITY: verify that the user has read permission on this collection
       const collectionShortName = collection.replace(/^zvd_/, '');

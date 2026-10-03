@@ -104,7 +104,7 @@ describe('initDDLQueue with mocked pg-boss', () => {
       const db = setupDb();
       await initDDLQueue(asDb(db));
       expect(isDDLQueueStarted()).toBe(true);
-      expect(workHandlers.size).toBe(6);
+      expect(workHandlers.size).toBe(4);
       expect(log.mock.calls.some((c) => String(c[0]).includes('DDL queue'))).toBe(true);
     } finally {
       log.mockRestore();
@@ -210,51 +210,7 @@ describe('registered work handlers', () => {
     expect(db.executed(/DROP TABLE/)).toHaveLength(0);
   });
 
-  it('create_relation handler emits the FK ALTER inside a transaction', async () => {
-    const db = setupDb();
-    const log = spyOn(console, 'log').mockImplementation(() => {});
-    try {
-      await initDDLQueue(asDb(db));
-      const handler = workHandlers.get('ddl.create_relation');
-      await handler!([
-        {
-          id: 'j2',
-          data: {
-            type: 'm2o',
-            source_collection: 'orders',
-            target_collection: 'customers',
-            source_field: 'customer_id',
-          },
-        },
-      ]);
-      expect(
-        db.executed(/ALTER TABLE zvd_orders ADD COLUMN IF NOT EXISTS "customer_id" UUID/),
-      ).toHaveLength(1);
-    } finally {
-      log.mockRestore();
-    }
-  });
-
   it('create_collection handler applies tenant RLS after table creation', async () => {
-    const db = setupDb();
-    await initDDLQueue(asDb(db));
-    const handler = workHandlers.get('ddl.drop_relation');
-    await handler!([
-      {
-        id: 'j5',
-        data: { type: 'm2o', source_collection: 'orders', source_field: 'customer_id' },
-      },
-    ]);
-    expect(db.executed(/DROP COLUMN IF EXISTS "customer_id"/)).toHaveLength(1);
-
-    const db2 = setupDb();
-    await initDDLQueue(asDb(db2));
-    const handler2 = workHandlers.get('ddl.drop_relation');
-    await handler2!([{ id: 'j6', data: { type: 'm2m', junction_table: 'zvd_jnc_orders_tags' } }]);
-    expect(db2.executed(/DROP TABLE IF EXISTS zvd_jnc_orders_tags CASCADE/)).toHaveLength(1);
-  });
-
-  it('drop_relation handler drops m2o columns and m2m junction tables', async () => {
     const db = setupDb();
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const log = spyOn(console, 'log').mockImplementation(() => {});

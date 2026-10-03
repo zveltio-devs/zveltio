@@ -28,6 +28,9 @@ const d = URL ? describe : describe.skip;
 const MIGRATION_KEY = 0x7a76656c74696f00n;
 const HIGH = Number(MIGRATION_KEY >> 32n);
 const LOW = Number(MIGRATION_KEY & 0xffffffffn);
+// Advisory keys are per database; pg_locks lists every database's, and another
+// run migrating its own database holds this same key.
+const THIS_DB = sql`database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
 
 d('advisory locks on the pool', () => {
   let db: Database;
@@ -39,6 +42,7 @@ d('advisory locks on the pool', () => {
       await sql<{ pid: number; granted: boolean }>`
         SELECT pid, granted FROM pg_locks
          WHERE locktype = 'advisory' AND classid = ${HIGH} AND objid = ${LOW} AND objsubid = 1
+           AND ${THIS_DB}
       `.execute(probe)
     ).rows;
 
@@ -122,6 +126,7 @@ d('advisory locks on the pool', () => {
         await sql<{ pid: number }>`
           SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
              AND classid = 0 AND objid = ${Number(key)} AND objsubid = 1
+             AND ${THIS_DB}
         `.execute(probe)
       ).rows.map((r) => r.pid);
     const pid = async (on: Database) =>
@@ -154,7 +159,8 @@ d('advisory locks on the pool', () => {
           const built = await run(db, key, async () => {
             const xmin = await sql<{ x: string | null }>`
               SELECT backend_xmin::text AS x FROM pg_stat_activity
-               WHERE pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted)
+               WHERE pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
+                              AND ${THIS_DB})
                  AND state = 'idle in transaction'
             `.execute(probe);
             await sql`CREATE INDEX CONCURRENTLY ${sql.id(`${table}_${typeof key}`)} ON ${sql.id(table)} (id)`.execute(
