@@ -119,7 +119,7 @@ endpoint) when you want shared/off-host storage or horizontal scaling.
 | `S3_SECRET_KEY` | — | Secret access key |
 | `S3_BUCKET` | `zveltio` | Bucket name |
 | `S3_REGION` | `us-east-1` | Region (any value for non-AWS) |
-| `S3_PUBLIC_URL` | — | Public base URL for file downloads |
+| `S3_PUBLIC_URL` | — | Base URL for **public** objects only (`public/`, `media/` keys). Private objects are always served by presigned URL. |
 | `BACKUP_DIR` | `/tmp/zveltio-backups` | Local directory for backup files |
 
 ### local driver (default)
@@ -155,6 +155,37 @@ S3_BUCKET=my-zveltio-bucket
 S3_REGION=eu-west-1
 S3_PUBLIC_URL=https://my-zveltio-bucket.s3.eu-west-1.amazonaws.com
 ```
+
+### Private by default — bucket policy
+
+Objects are private on every driver. Only keys under `public/` (uploads sent
+with `public=true`) and `media/` (display assets) get a bare public URL; every
+other key — `uploads/…`, `backups/…` — is reachable only through a time-limited
+presigned URL (`GET /api/storage/:id/signed-url`).
+
+The engine cannot enforce that on S3: the **bucket policy** does. Allow anonymous
+read on the two public prefixes and nothing else. If the whole bucket is
+public-read, anyone can strip the `X-Amz-*` query off a presigned link and keep
+the file forever. *Settings → Storage → Test connection* fails on such a bucket.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": ["arn:aws:s3:::my-zveltio-bucket/public/*",
+                 "arn:aws:s3:::my-zveltio-bucket/media/*"]
+  }]
+}
+```
+
+Objects stored before this rule keep their stored key (the key in
+`zv_media_files.storage_path` is authoritative; nothing is moved). A legacy
+private file under `uploads/…` stays readable through its presigned URL; a bare
+URL handed out for it earlier stops working once the bucket is restricted, which
+is the point.
 
 ---
 

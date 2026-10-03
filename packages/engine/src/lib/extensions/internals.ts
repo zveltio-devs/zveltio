@@ -103,6 +103,7 @@ import {
   getPublicSetting,
   listRoles,
   type MemberCounts,
+  readAuditActivity,
 } from './tenant-facts.js';
 import type { CreateSsoSessionOptions, UserDeletion } from '../users.js';
 
@@ -376,6 +377,7 @@ export interface ExtensionInternals {
   getPublicSetting: (key: string) => Promise<unknown>;
   /** Append to `zv_audit_log`; the row records the calling extension in `metadata.extension`. */
   audit: (event: ExtensionAuditEvent) => Promise<void>;
+  readAuditActivity: typeof readAuditActivity;
   isTenantAdmin: typeof isTenantAdmin;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
@@ -695,6 +697,8 @@ function buildUnboundInternals(): ExtensionInternals {
     listRoles,
     getPublicSetting: (key: string) => getPublicSetting(key),
     audit: unbound('audit'),
+    // Arity fixed, as for the facts above: the tenant is the host's.
+    readAuditActivity: (query) => readAuditActivity(query),
     getSingleTenantId,
     isTenantAdmin,
     requireInstanceAdmin,

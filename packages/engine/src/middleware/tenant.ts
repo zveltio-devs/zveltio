@@ -148,6 +148,12 @@ const TXN_SKIP_PREFIXES = [
   '/api/flows',
   '/api/backup',
   '/api/admin/sql',
+
+  // The instance audit trail (migration 040). Instance-level rows are visible
+  // only where no tenant is the transaction's subject, and a request
+  // transaction always names one — god's included. The routes read through
+  // `withEveryTenant` instead, behind the same `requireInstanceAdmin` guard.
+  '/api/admin/audit',
 ];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {

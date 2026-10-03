@@ -732,6 +732,8 @@ export interface ZvAuditLogTable {
   resource_type: string | null;
   metadata: unknown; // JSONB
   ip: string | null;
+  /** NULL = an instance-level event (migration 040). */
+  tenant_id: string | null;
   created_at: Generated<Date>;
 }
 

@@ -309,6 +309,7 @@ export interface ZvAuditLogTable {
   metadata: Generated<unknown>;
   ip: string | null;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvBackupIntegrityChecksTable {
