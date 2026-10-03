@@ -575,7 +575,16 @@ jobs:
         #     Dropping the override to un-break minimatch 5/9 would put a
         #     vulnerable 2.x copy back and bring the ignore back with it, which is
         #     the worse trade. Revisit if archiver ever moves to minimatch 10.
-        run: bun audit --audit-level=high
+        #
+        #   GHSA-vfj7-8cjw-p6xm  braces <=3.0.3 stack-exhaustion DoS on deeply nested
+        #     patterns (published 2026-10-02). No patched release exists (3.0.3 is
+        #     the latest), so there is no override to pin. Every copy is build-time
+        #     only: micromatch 4 via fast-glob and via tailwindcss 3 (client,
+        #     @layerstack) / chokidar 3. The patterns come from repository config
+        #     files, never from a request, so no runtime path reaches it. Drop the
+        #     ignore when braces ships a fix (override it then) or those tools move
+        #     to picomatch-only matching.
+        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm
 
   unit-tests:
     name: Unit Tests
