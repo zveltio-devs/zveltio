@@ -16,6 +16,7 @@
  * checked.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -41,6 +42,10 @@ d('raw SQL from an inline extension', () => {
   let ext: Database;
 
   beforeAll(async () => {
+    // The role ctx.db runs as is process state a file that loaded an extension
+    // leaves on. This file builds ctx.db without load.ts' grant step, so it
+    // tests the analyzer alone; extension-db-role.test.ts tests the role.
+    _resetExtensionDbRoleForTests();
     db = (await getTestApp()).db;
     for (const t of [OWN, GRANTED, COLLECTION]) {
       await sql`CREATE TABLE IF NOT EXISTS ${sql.table(t)} (id serial PRIMARY KEY, note text, meta jsonb)`.execute(

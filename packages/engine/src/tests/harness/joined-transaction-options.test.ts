@@ -8,6 +8,7 @@
  * 'serializable')` ran the work at the request's READ COMMITTED without a word.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
@@ -29,6 +30,10 @@ d('a joined db.transaction() honours its options', () => {
     (await sql<{ v: string }>`SELECT current_setting(${name}) AS v`.execute(h)).rows[0]!.v;
 
   beforeAll(async () => {
+    // The role ctx.db runs as is process state a file that loaded an extension
+    // leaves on. This file builds ctx.db without load.ts' grant step, so it
+    // tests the analyzer alone; extension-db-role.test.ts tests the role.
+    _resetExtensionDbRoleForTests();
     db = (await getTestApp()).db;
     await sql`CREATE TABLE IF NOT EXISTS ${sql.table(TABLE)} (id serial PRIMARY KEY, note text)`.execute(
       db,

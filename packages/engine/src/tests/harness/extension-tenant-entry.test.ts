@@ -14,6 +14,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
@@ -112,6 +113,10 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     ).json();
 
   beforeAll(async () => {
+    // The role ctx.db runs as is process state a file that loaded an extension
+    // leaves on. This file builds ctx.db without load.ts' grant step, so it
+    // tests the analyzer alone; extension-db-role.test.ts tests the role.
+    _resetExtensionDbRoleForTests();
     let engine: Hono;
     ({ app: engine, db } = await getTestApp());
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';

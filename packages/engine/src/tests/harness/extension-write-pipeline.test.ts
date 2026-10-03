@@ -18,6 +18,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -44,6 +45,10 @@ d('extension writes run through the field pipeline', () => {
   let extDb: ExtDb;
 
   beforeAll(async () => {
+    // The role ctx.db runs as is process state a file that loaded an extension
+    // leaves on. This file builds ctx.db without load.ts' grant step, so it
+    // tests the analyzer alone; extension-db-role.test.ts tests the role.
+    _resetExtensionDbRoleForTests();
     ({ db } = await getTestApp());
     await DDLManager.createCollection(db, {
       name: COLLECTION,
