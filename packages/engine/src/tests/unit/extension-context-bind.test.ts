@@ -1,5 +1,5 @@
 /**
- * createRestrictedDb — non-query method binding + extra query entry points.
+ * createRestrictedDb — non-query method binding.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -17,32 +17,5 @@ describe('createRestrictedDb — proxy forwarding', () => {
     const rdb = createRestrictedDb(db as never, 'ext');
     await rdb.transaction().execute(async () => 'ok');
     expect(transactionCalled).toBe(true);
-  });
-
-  it('forwards replaceInto, mergeInto, and withSchema for allowed tables', () => {
-    const calls: string[] = [];
-    const db = {
-      replaceInto(table: string) {
-        calls.push(`replaceInto:${table}`);
-        return db;
-      },
-      mergeInto(table: string) {
-        calls.push(`mergeInto:${table}`);
-        return db;
-      },
-      withSchema(schema: string) {
-        calls.push(`withSchema:${schema}`);
-        return db;
-      },
-    };
-    const rdb = createRestrictedDb(db as never, 'my-ext');
-    rdb.replaceInto('zvd_items' as never);
-    rdb.mergeInto('zv_my_ext_meta' as never);
-    rdb.withSchema('public' as never);
-    expect(calls).toEqual([
-      'replaceInto:zvd_items',
-      'mergeInto:zv_my_ext_meta',
-      'withSchema:public',
-    ]);
   });
 });

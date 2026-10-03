@@ -57,8 +57,12 @@ d('raw SQL from an inline extension', () => {
     }
   });
 
-  const refused = (p: Promise<unknown>, table: string) =>
-    expect(p).rejects.toThrow(new RegExp(`attempted to access [^.]*\\b${table}\\b`));
+  // Through an async function: the old builder guard handed back its promise
+  // wrapped in a Proxy, which `expect().rejects` does not accept as a promise.
+  const refused = (p: PromiseLike<unknown>, table: string) =>
+    expect((async () => p)()).rejects.toThrow(
+      new RegExp(`attempted to access [^.]*\\b${table}\\b`),
+    );
 
   it('refuses the Better-Auth tables', async () => {
     await refused(sql`SELECT token FROM "session" LIMIT 1`.execute(ext), 'session');
@@ -86,7 +90,13 @@ d('raw SQL from an inline extension', () => {
     await buildExtensionInternals().withTenantIsolation(TENANT, () =>
       ext.transaction().execute(async (trx) => {
         await refused(sql`SELECT token FROM "session"`.execute(trx), 'session');
-        expect(() => trx.selectFrom('session' as never)).toThrow(ExtensionSecurityError);
+        await refused(
+          trx
+            .selectFrom('session' as never)
+            .selectAll()
+            .execute(),
+          'session',
+        );
       }),
     );
     expect(() => ext.connection()).toThrow(ExtensionSecurityError);
@@ -101,6 +111,99 @@ d('raw SQL from an inline extension', () => {
     expect(r.rows[0]!.n).toBe(0);
     await buildExtensionInternals().withTenantIsolation(TENANT, () =>
       ext.transaction().execute((trx) => sql`SELECT note FROM ${sql.table(GRANTED)}`.execute(trx)),
+    );
+  });
+
+  // The query builder used to check only the table NAME handed to `selectFrom` &
+  // co.; everything else it can express reached Postgres unread. It now runs the
+  // same analyzer on the SQL it compiles, so these are refused like raw SQL.
+  it('refuses through the query builder what it refuses as raw SQL', async () => {
+    const tx = ext as unknown as {
+      selectFrom: (t: string) => any;
+      selectNoFrom: (f: (eb: any) => unknown) => any;
+      with: (n: string, f: (qc: any) => unknown) => any;
+      deleteFrom: (t: string) => any;
+      updateTable: (t: string) => any;
+    };
+    // (a) a raw fragment inside a permitted builder query
+    await refused(
+      tx.selectFrom(COLLECTION).select('id').where(sql`exists (select 1 from "user")`).execute(),
+      'user',
+    );
+    await refused(
+      tx.selectFrom(COLLECTION).select(sql`(select token from session limit 1)`.as('t')).execute(),
+      'session',
+    );
+    // (b) entry points the guard never wrapped
+    await refused(
+      tx
+        .with('u', (qc) => qc.selectFrom('user').select('email'))
+        .selectFrom('u')
+        .selectAll()
+        .execute(),
+      'user',
+    );
+    await refused(
+      tx.selectNoFrom((eb) => eb.selectFrom('session').select('token').limit(1).as('t')).execute(),
+      'session',
+    );
+    await refused(
+      tx.deleteFrom(COLLECTION).using('session').where(sql`false`).execute(),
+      'session',
+    );
+    await refused(
+      tx.updateTable(COLLECTION).set({ note: 'x' }).from('account').where(sql`false`).execute(),
+      'account',
+    );
+    // (c) the engine's zvd_* metadata, which the raw path already refused
+    await refused(tx.selectFrom('zvd_permissions').selectAll().execute(), 'zvd_permissions');
+    await refused(tx.selectFrom('zvd_collections').selectAll().execute(), 'zvd_collections');
+    await refused(tx.selectFrom('zvd_relations').selectAll().execute(), 'zvd_relations');
+    // and inside a joined transaction
+    await buildExtensionInternals().withTenantIsolation(TENANT, () =>
+      ext.transaction().execute(async (trx) => {
+        await refused(
+          (trx as unknown as typeof tx)
+            .selectFrom(OWN)
+            .select('id')
+            .where(sql`exists (select 1 from "session")`)
+            .execute(),
+          'session',
+        );
+      }),
+    );
+  });
+
+  it('still allows the builder its own namespace, a grant, collections and transaction()', async () => {
+    const tx = ext as unknown as {
+      selectFrom: (t: string) => any;
+      insertInto: (t: string) => any;
+      with: (n: string, f: (qc: any) => unknown) => any;
+    };
+    await tx.insertInto(OWN).values({ note: 'b-own' }).execute();
+    await tx.insertInto(COLLECTION).values({ note: 'b-own' }).execute();
+    const joined = await tx
+      .selectFrom(`${COLLECTION} as c`)
+      .innerJoin(`${OWN} as o`, 'o.note', 'c.note')
+      .leftJoin((eb: any) => eb.selectFrom(GRANTED).select('note').as('g'), 'g.note', 'c.note')
+      .select('c.note')
+      .execute();
+    expect(joined.map((r: { note: string }) => r.note)).toContain('b-own');
+    const cte = await tx
+      .with('recent', (qc) => qc.selectFrom(COLLECTION).select('note'))
+      .selectFrom('recent')
+      .selectAll()
+      .execute();
+    expect(cte.length).toBeGreaterThan(0);
+    await buildExtensionInternals().withTenantIsolation(TENANT, () =>
+      ext.transaction().execute(async (trx) => {
+        await (trx as unknown as typeof tx)
+          .insertInto(GRANTED)
+          .values({ note: 'in-trx' })
+          .execute();
+        const r = await (trx as unknown as typeof tx).selectFrom(GRANTED).select('note').execute();
+        expect(r.map((x: { note: string }) => x.note)).toContain('in-trx');
+      }),
     );
   });
 

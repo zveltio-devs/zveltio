@@ -187,11 +187,14 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     for (const ext of [NOCAP, ADMIN, ENTER]) {
       const r = await runAsTenantWithoutTransaction(ROOT, () =>
         bags[ext]!.withTenantIsolation(ROOT, async (trx) => {
-          trx.selectFrom('zv_api_keys' as never);
+          await trx
+            .selectFrom('zv_api_keys' as never)
+            .selectAll()
+            .execute();
           return 'reached';
         }).catch((err: Error) => err.message),
       );
-      expect(r).toContain('attempted to access table "zv_api_keys"');
+      expect(r).toContain('attempted to access zv_api_keys');
     }
   });
 

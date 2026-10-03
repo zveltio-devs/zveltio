@@ -42,7 +42,12 @@ d('storage quota grant after the single-creator repair', () => {
         .execute();
       expect(Array.isArray(rows)).toBe(true);
 
-      expect(() => rdb.selectFrom('zv_api_keys' as never)).toThrow(ExtensionSecurityError);
+      await expect(
+        rdb
+          .selectFrom('zv_api_keys' as never)
+          .selectAll()
+          .execute(),
+      ).rejects.toBeInstanceOf(ExtensionSecurityError);
     });
   }
 });

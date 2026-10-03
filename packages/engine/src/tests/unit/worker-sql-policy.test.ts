@@ -133,6 +133,26 @@ describe('assertWorkerSqlAllowed — what stays permitted', () => {
     expect(allowed('SELECT SUBSTRING(code FROM 2) FROM zvd_items')).toBe(true);
   });
 
+  // Shapes Kysely compiles from ordinary builder calls, which reach this
+  // analyzer since `ctx.db`'s builder is checked on its compiled SQL.
+  it('does not read row-lock clauses or IS DISTINCT FROM as tables', () => {
+    expect(allowed('SELECT * FROM zvd_jobs FOR UPDATE SKIP LOCKED')).toBe(true);
+    expect(allowed('SELECT * FROM zvd_jobs FOR NO KEY UPDATE NOWAIT')).toBe(true);
+    expect(allowed('SELECT * FROM zvd_jobs j FOR UPDATE OF j')).toBe(true);
+    expect(allowed('SELECT * FROM zvd_a WHERE a IS DISTINCT FROM b')).toBe(true);
+    expect(allowed('SELECT * FROM zvd_a WHERE a IS NOT DISTINCT FROM b')).toBe(true);
+  });
+
+  it('reads the table a USING clause names, and nothing in a JOIN … USING (col)', () => {
+    expect(allowed('DELETE FROM zvd_a USING "session" WHERE false')).toBe(false);
+    expect(allowed('MERGE INTO zvd_a USING session s ON false WHEN MATCHED THEN DELETE')).toBe(
+      false,
+    );
+    expect(allowed('DELETE FROM zvd_a USING zvd_b WHERE zvd_a.id = zvd_b.id')).toBe(true);
+    expect(allowed('SELECT * FROM zvd_a JOIN zvd_b USING (id)')).toBe(true);
+    expect(allowed('CREATE INDEX i ON zvd_a USING gin (tags)')).toBe(true);
+  });
+
   it('still refuses an engine table inside such a statement', () => {
     // The relaxations above must not become a hiding place: a real table
     // reference elsewhere in the same statement is still read.
