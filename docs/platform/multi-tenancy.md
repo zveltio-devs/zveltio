@@ -449,8 +449,11 @@ extension handler using `ctx.reqDb(c)` would fall through to the global pool wit
 no GUC.
 
 Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
-`NOSUPERUSER`, `NOBYPASSRLS`, with grants only on `zvd_*` and an explicit
-`REVOKE` on the authentication tables. The tenant is **injected by the host**,
+`NOSUPERUSER`, `NOBYPASSRLS`, with DML on the collection tables and, granted
+when a worker extension loads, on that extension's own tables — its
+`zv_<ext>_*` namespace and the `zvd_*` tables its migrations create — and an
+explicit `REVOKE` on the authentication tables. It is one role for every worker
+extension: what keeps one worker out of another's tables is the SQL analyzer. The tenant is **injected by the host**,
 not declared by the worker. Contaminated connections are closed rather than
 returned to the pool.
 

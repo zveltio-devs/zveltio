@@ -48,10 +48,12 @@
 
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { keepWorkerExtensionTables } from '../tenancy/index.js';
 
 export const EXT_DB_ROLE = 'zveltio_ext';
 /** `zveltio_ext` plus BYPASSRLS, for statements whose role already bypasses RLS. */
 export const EXT_BYPASS_DB_ROLE = 'zveltio_ext_bypass';
+const WORKER_DB_ROLE = 'zveltio_worker';
 
 /** Never granted to the extension role, whatever an allowlist says. */
 const NEVER_GRANTED = ['user', 'session', 'account', 'verification', 'twoFactor', 'passkey'];
@@ -171,49 +173,114 @@ export async function grantExtensionDbRole(
   allowedTables: ReadonlySet<string>,
 ): Promise<void> {
   if (!(await ensureExtensionDbRole(db))) return;
+  await grantOwnTables(db, EXT_DB_ROLE, extName, allowedTables);
+}
+
+/**
+ * Grant `zveltio_worker` — the role the worker SQL bridge runs every query of a
+ * worker-isolated extension as — that extension's own tables. It held
+ * collections only, so the tables a worker extension's migrations create, which
+ * the analyzer admits, answered `permission denied` to every query
+ * (tests/harness/worker-own-tables.test.ts).
+ *
+ * Exactly what the bridge's analyzer admits for this extension beyond
+ * collections: its `zv_<ext>_*` namespace and the `zvd_*` tables its migrations
+ * create, never an engine table. Not `EXTENSION_TABLE_GRANTS`: the bridge passes
+ * the analyzer no grants, and the role is shared by every worker extension.
+ *
+ * One role for all of them, so at the database layer worker A reaches worker
+ * B's tables; the analyzer is what keeps them apart, as it is for `zveltio_ext`.
+ */
+export async function grantWorkerDbRole(
+  db: Database,
+  extName: string,
+  allowedTables: ReadonlySet<string>,
+): Promise<void> {
+  try {
+    // The bridge picks the role when it exists; absent (001 could not create
+    // it), it falls back to `zveltio_rls` and there is nothing to grant.
+    const r = await sql<{ member: boolean }>`
+      SELECT pg_has_role(current_user, oid, 'MEMBER') AS member
+        FROM pg_roles WHERE rolname = ${WORKER_DB_ROLE}
+    `.execute(db);
+    if (!r.rows[0]?.member) return;
+    // 001's grant of this sits in a block a pre-created role fails (scripts/
+    // bootstrap-db-role.sh: re-granting membership needs ADMIN); PUBLIC holds it
+    // on a stock schema, not on one hardened by revoking that.
+    await sql`GRANT USAGE ON SCHEMA public TO ${sql.id(WORKER_DB_ROLE)}`.execute(db);
+  } catch (err) {
+    console.warn(
+      `[extensions] "${extName}": ${WORKER_DB_ROLE} not usable (continuing):`,
+      (err as Error).message,
+    );
+    return;
+  }
+  keepWorkerExtensionTables(await grantOwnTables(db, WORKER_DB_ROLE, extName, allowedTables));
+}
+
+/**
+ * Grant `role` DML on this extension's tables and their sequences; returns every
+ * relation it holds that way, granted now or before. `zveltio_ext` also takes each
+ * `zvd_*` table and each allowlisted table (see the header); `zveltio_worker` the
+ * worker analyzer's subset.
+ */
+async function grantOwnTables(
+  db: Database,
+  role: typeof EXT_DB_ROLE | typeof WORKER_DB_ROLE,
+  extName: string,
+  allowedTables: ReadonlySet<string>,
+): Promise<string[]> {
+  const inline = role === EXT_DB_ROLE;
   try {
     const { engineOwnedTables } = await import('./register.js');
     const { ownedPrefixFor } = await import('./worker-sql-policy.js');
     const engine = [...(await engineOwnedTables())];
     const allowed = [...allowedTables].map((t) => t.toLowerCase());
     const prefix = ownedPrefixFor(extName).toLowerCase();
-    const rows = await sql<{ rel: string; kind: string }>`
+    const rows = await sql<{ rel: string; kind: string; missing: boolean }>`
       WITH rels AS MATERIALIZED (
         SELECT c.oid, c.relname, c.relkind
           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
            AND NOT (c.relname = ANY(${NEVER_GRANTED}::text[]))
            AND (
-             lower(c.relname) = ANY(${allowed}::text[])
+             (${inline}::boolean AND lower(c.relname) = ANY(${allowed}::text[]))
              OR (NOT (lower(c.relname) = ANY(${engine}::text[]))
-                 AND (left(c.relname, 4) = 'zvd_'
-                      OR left(lower(c.relname), ${prefix.length}::int) = ${prefix}::text))
+                 AND (left(lower(c.relname), ${prefix.length}::int) = ${prefix}::text
+                      OR (left(c.relname, 4) = 'zvd_'
+                          AND (${inline}::boolean OR lower(c.relname) = ANY(${allowed}::text[])))))
            )
       )
-      SELECT relname AS rel, 'table' AS kind FROM rels
-       WHERE NOT has_table_privilege(${EXT_DB_ROLE}::text, oid, 'SELECT')
+      SELECT relname AS rel, 'table' AS kind,
+             NOT has_table_privilege(${role}::text, oid, 'SELECT') AS missing
+        FROM rels
       UNION ALL
-      SELECT s.relname, 'sequence' FROM rels
+      -- CASE: the planner may test the privilege before the kind, and
+      -- has_sequence_privilege raises on a TOAST table.
+      SELECT s.relname, 'sequence',
+             CASE WHEN s.relkind = 'S'
+                  THEN NOT has_sequence_privilege(${role}::text, s.oid, 'USAGE') END
+        FROM rels
         JOIN pg_depend d ON d.refobjid = rels.oid AND d.classid = 'pg_class'::regclass
                         AND d.deptype IN ('a', 'i')
         JOIN pg_class s ON s.oid = d.objid
-       -- CASE, not AND: the planner may test the privilege before the kind, and
-       -- has_sequence_privilege raises on a TOAST table.
-       WHERE CASE WHEN s.relkind = 'S'
-                  THEN NOT has_sequence_privilege(${EXT_DB_ROLE}::text, s.oid, 'USAGE') END
+       WHERE s.relkind = 'S'
     `.execute(db);
-    for (const { rel, kind } of rows.rows) {
+    for (const { rel, kind, missing } of rows.rows) {
+      if (!missing) continue;
       const privs = kind === 'table' ? 'SELECT, INSERT, UPDATE, DELETE' : 'USAGE, SELECT';
       const on = kind === 'table' ? sql`TABLE` : sql`SEQUENCE`;
-      await sql`GRANT ${sql.raw(privs)} ON ${on} ${sql.table(`public.${rel}`)} TO ${sql.id(EXT_DB_ROLE)}`.execute(
+      await sql`GRANT ${sql.raw(privs)} ON ${on} ${sql.table(`public.${rel}`)} TO ${sql.id(role)}`.execute(
         db,
       );
     }
+    return rows.rows.map((r) => r.rel);
   } catch (err) {
     console.warn(
-      `[extensions] "${extName}": granting its tables to ${EXT_DB_ROLE} failed (continuing):`,
+      `[extensions] "${extName}": granting its tables to ${role} failed (continuing):`,
       (err as Error).message,
     );
+    return [];
   }
 }
 

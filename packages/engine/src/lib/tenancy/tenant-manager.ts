@@ -344,6 +344,17 @@ async function narrowRolesPresent(db: Database): Promise<string[]> {
 }
 
 /**
+ * The tables loaded worker extensions own, granted to `zveltio_worker` after their
+ * migrations (lib/extensions/ext-db-role.ts). Extensions load before the boot
+ * reconcile, whose revoke below took their `zvd_*` tables straight back.
+ */
+const workerExtensionTables = new Set<string>();
+
+export function keepWorkerExtensionTables(tables: Iterable<string>): void {
+  for (const t of tables) workerExtensionTables.add(t);
+}
+
+/**
  * Take the narrow roles off every `zvd_*` table that is not a collection.
  *
  * Migration 001 granted every table matching `zvd_%`, and that prefix is not
@@ -359,12 +370,13 @@ async function narrowRolesPresent(db: Database): Promise<string[]> {
 async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[]): Promise<void> {
   for (const role of await narrowRolesPresent(db)) {
     if (role === 'zveltio_ext') continue;
+    const spare = role === 'zveltio_worker' ? [...tables, ...workerExtensionTables] : tables;
     const stray = await sql<{ t: string }>`
       SELECT c.relname AS t
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
        WHERE n.nspname = 'public'
          AND left(c.relname, 4) = 'zvd_'
-         AND NOT (c.relname = ANY(${tables}::text[]))
+         AND NOT (c.relname = ANY(${spare}::text[]))
          AND EXISTS (
            SELECT 1 FROM aclexplode(c.relacl) a WHERE a.grantee = ${role}::regrole)
     `.execute(db);
