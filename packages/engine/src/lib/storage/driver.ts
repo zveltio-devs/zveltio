@@ -10,6 +10,33 @@
  * Appwrite, Strapi et al. ship a local default + optional cloud adapters.
  */
 
+/**
+ * Whether a key lives in an explicit public namespace. Objects are private by
+ * default on EVERY driver; only `public/` (the general opt-in, written by
+ * `POST /api/storage` with `public=true`) and `media/` (display assets) are
+ * public. Every other key (`uploads/…` business files, `backups/…`) is reached
+ * only through `signedUrl`.
+ *
+ * - local: `GET /files/<key>` serves a non-public key only with a valid HMAC.
+ * - s3: the operator's bucket policy must allow anonymous GET on `public/*` and
+ *   `media/*` ONLY. A bucket that is public-read as a whole serves a private
+ *   key to anyone who strips `X-Amz-*` off a presigned link; `probeS3` fails
+ *   on such a bucket.
+ */
+export function isPublicKey(key: string): boolean {
+  const k = key.replace(/^\/+/, '');
+  return k.startsWith('public/') || k.startsWith('media/');
+}
+
+/** `publicUrl` guard: a private key has no public URL, on any driver. */
+export function assertPublicKey(key: string): void {
+  if (!isPublicKey(key)) {
+    throw new Error(
+      `storage: "${key}" is not in a public namespace (public/, media/); use signedUrl`,
+    );
+  }
+}
+
 /** Bytes + the content-type to serve them with. */
 export interface StorageObject {
   bytes: Uint8Array;
@@ -44,8 +71,8 @@ export interface StorageDriver {
 
   /**
    * A stable URL a browser can GET directly. For `s3` this is the public bucket
-   * URL; for `local` it is the engine's own `/files/<key>` route. Public by
-   * unguessable path — same posture as the S3 public-bucket URLs used today.
+   * URL; for `local` it is the engine's own `/files/<key>` route. Only for a
+   * key in a public namespace (see `isPublicKey`) — throws for any other key.
    */
   publicUrl(key: string): string;
 
