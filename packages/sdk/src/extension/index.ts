@@ -807,6 +807,102 @@ export interface ExtensionInternals<DB = unknown> {
    * `auth:users` capability.
    */
   liftOwnBan: (db: unknown, userId: string) => Promise<boolean>;
+  // ── Identity provisioning ─────────────────────────────────────────────────
+  // The engine is the only writer of `"user"`, `zv_tenant_users` and
+  // `zv_tenants`; `ctx.db` refuses all three. Every member below except
+  // `isSingleTenantInstance` needs the `identity:provision` capability.
+  // Membership is always the RUNNING tenant's — the request's or job's, or one
+  // you entered with `withTenantIsolation` (outside a request that needs
+  // `tenant:enter`). A refusal throws an error with a `code`: `no_tenant`,
+  // `no_such_user`, `user_not_owned`, `role_not_allowed`, `email_taken`,
+  // `invalid_input`. Timestamps are ISO-8601 strings with microseconds, so a
+  // value read here compares exactly when passed back.
+  /** Whether at most one tenant exists — then every user belongs to it. Ungated. */
+  isSingleTenantInstance: () => Promise<boolean>;
+  /**
+   * The account for `email` (case-insensitive), created when there is none:
+   * verified, no password, never god, in no tenant. Works while
+   * self-registration is off.
+   */
+  provisionUser: (input: { email: string; name?: string }) => Promise<{
+    user: ProvisionedUser;
+    created: boolean;
+  }>;
+  /**
+   * Users of the running tenant — a membership there, lapsed included — or
+   * every user on a single-tenant instance (`membership: null`). By creation
+   * order; `limit` defaults to 100, at most 1000.
+   */
+  listTenantUsers: (
+    db: unknown,
+    query?: { email?: string; userId?: string; limit?: number; offset?: number },
+  ) => Promise<Array<ProvisionedUser & { membership: TenantMembershipInfo | null }>>;
+  /**
+   * Rename or re-address a user the running tenant ALONE holds: not god, not an
+   * instance admin, no membership or grant in any other tenant (`user_not_owned`
+   * otherwise). `db` is your transaction.
+   */
+  updateUserProfile: (
+    db: unknown,
+    userId: string,
+    patch: { name?: string; email?: string },
+  ) => Promise<ProvisionedUser>;
+  /**
+   * Make the user a `member` (default) or `viewer` of the running tenant, or
+   * switch between the two, with the matching tenant role. Dates are kept: a
+   * membership that ended is not reopened. An `owner`/`admin` is refused.
+   */
+  addTenantMember: (
+    db: unknown,
+    userId: string,
+    role?: 'member' | 'viewer',
+  ) => Promise<'added' | 'role_changed' | 'unchanged'>;
+  /**
+   * Remove the user from the running tenant with every role they hold in it.
+   * `orphaned`: no tenant and nothing else holds the account now — deleting it
+   * (`deleteUser`, `auth:users`) is your call. `inForceAnywhere`: a membership
+   * in force remains in some tenant.
+   */
+  removeTenantMember: (
+    db: unknown,
+    userId: string,
+  ) => Promise<{ removed: boolean; orphaned: boolean; inForceAnywhere: boolean }>;
+  /**
+   * Set when the user's membership of the running tenant ends: `'now'`, an
+   * ISO-8601 instant, or `null` (open-ended). `ifInForce` changes only a
+   * membership in force; `ifValidTo` only one whose end is still exactly that
+   * value. `null` when the user is no member here.
+   */
+  setTenantMembershipEnd: (
+    db: unknown,
+    userId: string,
+    validTo: string | null,
+    guard?: { ifInForce?: boolean; ifValidTo?: string | null },
+  ) => Promise<{
+    changed: boolean;
+    previousValidTo: string | null;
+    validTo: string | null;
+    inForceAnywhere: boolean;
+  } | null>;
+}
+
+/** A user as `ctx.internals` identity provisioning returns it. */
+export interface ProvisionedUser {
+  id: string;
+  email: string;
+  name: string;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A user's membership of the running tenant. */
+export interface TenantMembershipInfo {
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+  validFrom: string;
+  /** `null`: open-ended. */
+  validTo: string | null;
+  inForce: boolean;
 }
 
 /**

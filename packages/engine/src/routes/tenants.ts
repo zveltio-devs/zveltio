@@ -26,6 +26,12 @@ import {
 import { getStorage } from '../lib/storage/index.js';
 import { deleteTenantlessUsers, type TenantlessUsers } from '../lib/users.js';
 import {
+  casbinTenantRole as casbinRole,
+  grantTenantMembership,
+  revokeTenantMembership,
+  TENANT_ROLES,
+} from '../lib/identity.js';
+import {
   provisionTenantSchema,
   provisionEnvironment,
   invalidateTenantCache,
@@ -39,8 +45,6 @@ import {
  * `member` roles), granted in the tenant's domain. The role's PERMISSIONS are
  * global policies (migration 009); membership = "this user is <role> IN this
  * tenant", and per-tenant isolation comes from the grant's domain. */
-const TENANT_ROLES = ['owner', 'admin', 'member', 'viewer'] as const;
-const casbinRole = (r: string) => `tenant_${r}`;
 const MemberSchema = z.object({
   user_email: z.string().email(),
   role: z.enum(TENANT_ROLES).default('member'),
@@ -573,21 +577,11 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     // Upsert membership. Adding someone means "a member from now on": a row
     // that lapsed (`valid_to` passed) or has not started yet is reopened, or the
     // 201 below would describe a member every membership check refuses.
-    await sql`
-      INSERT INTO zv_tenant_users (tenant_id, user_id, role, invited_by)
-      VALUES (${tenantId}, ${target.id}, ${role}, ${user.id})
-      ON CONFLICT (tenant_id, user_id) DO UPDATE SET
-        role = EXCLUDED.role,
-        valid_from = LEAST(zv_tenant_users.valid_from, now()),
-        valid_to = NULL
-    `.execute(db);
-
-    // Bridge to Casbin: replace any prior per-tenant grant with the new role.
-    const e = await getEnforcer();
-    for (const r of TENANT_ROLES) await e.deleteRoleForUser(target.id, casbinRole(r), tenantId);
-    await e.addRoleForUser(target.id, casbinRole(role), tenantId);
-    await invalidateUserPermCache(target.id);
-    await invalidateTenantCache(tenant.slug, tenantId, target.id);
+    // The Casbin grant in the tenant's domain is replaced to match.
+    await grantTenantMembership(db, tenant, target.id, role, {
+      invitedBy: user.id,
+      reopen: true,
+    });
 
     await auditLog(db, {
       type: 'tenant.member_added',
@@ -610,25 +604,13 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     const tenantId = c.req.param('id');
     const targetId = c.req.param('userId');
 
-    await db
-      .deleteFrom('zv_tenant_users')
-      .where('tenant_id', '=', tenantId)
-      .where('user_id', '=', targetId)
-      .execute();
-
-    // Every role in this tenant's domain, not only the `tenant_*` grades: an
-    // invited `manager` or a custom role outlived the membership. Migration
-    // 034's trigger does the same on the table; this updates the live model.
-    const e = await getEnforcer();
-    await e.deleteRolesForUser(targetId, tenantId);
-    await invalidateUserPermCache(targetId);
-
     const tenant = await db
       .selectFrom('zv_tenants')
       .select('slug')
       .where('id', '=', tenantId)
       .executeTakeFirst();
-    if (tenant) await invalidateTenantCache(tenant.slug, tenantId, targetId);
+    // Every role in this tenant's domain goes too, not only the `tenant_*` grades.
+    await revokeTenantMembership(db, { id: tenantId, slug: tenant?.slug ?? null }, targetId);
 
     await auditLog(db, {
       type: 'tenant.member_removed',
