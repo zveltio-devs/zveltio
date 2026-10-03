@@ -176,11 +176,11 @@ export async function purgeTenant(
       SELECT user_id AS id FROM zv_tenant_users WHERE tenant_id = ${tenantId}
     `.execute(trx);
 
-    // Per-tenant Postgres schemas: the environments', and the legacy base one
-    // tenant creation no longer makes. The base name of tenant `acme-dev` is
-    // spelled like the `dev` environment schema of tenant `acme`, so a schema
-    // another tenant's environment names, or another tenant's base name spells,
-    // is left alone — in both directions.
+    // Legacy per-tenant Postgres schemas, which the engine no longer makes: the
+    // base one, and the environments' (`schema_name` is NULL since 043). The
+    // base name of tenant `acme-dev` is spelled like the `dev` environment
+    // schema of tenant `acme`, so a schema another tenant's environment names,
+    // or another tenant's base name spells, is left alone — in both directions.
     const othersBase = new Set(
       (
         await sql<{ slug: string }>`SELECT slug FROM zv_tenants WHERE id <> ${tenantId}`.execute(

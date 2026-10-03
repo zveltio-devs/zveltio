@@ -36,12 +36,6 @@ d('tenants routes (in-process)', () => {
 
   afterAll(async () => {
     if (!db || !tenantId) return;
-    const envs = await sql<{ s: string }>`
-      SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${tenantId}::uuid
-    `.execute(db);
-    for (const { s } of envs.rows) {
-      await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(db).catch(() => {});
-    }
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid`
       .execute(db)
       .catch(() => {});
@@ -81,15 +75,18 @@ d('tenants routes (in-process)', () => {
     const body = (await res.json()) as { tenant: { id: string; slug: string } };
     expect(body.tenant.slug).toBe(slug);
     tenantId = body.tenant.id;
-    // Isolation is RLS on tenant_id; nothing reads a per-tenant schema, so none
-    // is made. The environments' schemas are their own feature.
+    // Isolation is RLS on tenant_id and nothing reads a per-tenant or
+    // per-environment schema, so none is made: the two environments are rows.
     const schemas = await sql<{ s: string }>`
       SELECT nspname AS s FROM pg_namespace WHERE nspname LIKE ${`${getTenantSchemaName(slug)}%`}
-      ORDER BY 1
     `.execute(db);
-    expect(schemas.rows.map((r) => r.s)).toEqual([
-      `${getTenantSchemaName(slug)}_dev`,
-      `${getTenantSchemaName(slug)}_prod`,
+    expect(schemas.rows).toEqual([]);
+    const envs = await sql<{ slug: string; schema_name: string | null }>`
+      SELECT slug, schema_name FROM zv_environments WHERE tenant_id = ${tenantId}::uuid ORDER BY 1
+    `.execute(db);
+    expect(envs.rows).toEqual([
+      { slug: 'dev', schema_name: null },
+      { slug: 'prod', schema_name: null },
     ]);
   });
 

@@ -1431,7 +1431,7 @@ table zv_environments
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_production                  boolean NOT NULL DEFAULT false
   col name                           text NOT NULL
-  col schema_name                    text NOT NULL
+  col schema_name                    text
   col settings                       jsonb DEFAULT '{}'::jsonb
   col slug                           text NOT NULL
   col tenant_id                      uuid NOT NULL
