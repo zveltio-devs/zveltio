@@ -7,7 +7,12 @@
 
 import { AwsClient } from 'aws4fetch';
 import { storageConfig } from './config.js';
-import type { PutOptions, StorageDriver, StorageObject } from './driver.js';
+import {
+  assertPublicKey,
+  type PutOptions,
+  type StorageDriver,
+  type StorageObject,
+} from './driver.js';
 
 export class S3Driver implements StorageDriver {
   readonly kind = 's3' as const;
@@ -65,6 +70,10 @@ export class S3Driver implements StorageDriver {
   }
 
   publicUrl(key: string): string {
+    // Private by default: a bare URL for a private key is what stripping the
+    // X-Amz-* query off a presigned link gives. Stored keys are authoritative,
+    // so a legacy flat key (`uploads/…`) stays private and reachable via signedUrl.
+    assertPublicKey(key);
     const { endpoint, bucket, publicUrl } = storageConfig().s3;
     // publicUrl may already include the bucket; endpoint does not.
     if (publicUrl) return `${publicUrl.replace(/\/$/, '')}/${key}`;

@@ -651,9 +651,12 @@ table zv_audit_log
   col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
   col resource_id                    text
   col resource_type                  text
+  col tenant_id                      uuid DEFAULT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid
   col user_id                        text
   pk  zv_audit_log_pkey PRIMARY KEY (id)
   fk  zv_audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol audit_log_tenant_or_instance FOR * USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ((tenant_id IS NULL) AND ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL)))) CHECK (zveltio_tenant_write_ok(tenant_id) OR ((tenant_id IS NULL) AND (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL)))
 
 table zv_backup_integrity_checks
   col backup_id                      text NOT NULL

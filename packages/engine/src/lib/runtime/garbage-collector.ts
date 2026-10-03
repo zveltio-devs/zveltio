@@ -76,15 +76,19 @@ export async function runGarbageCollector(db: Database): Promise<void> {
   const auditRetentionDays = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS ?? '365', 10);
   if (auditRetentionDays > 0) {
     try {
-      const auditDeleted = await sql<{ deleted: number }>`
-        WITH d AS (
-          DELETE FROM zv_audit_log
-          WHERE created_at < NOW() - (${auditRetentionDays}::int || ' days')::interval
-          RETURNING 1
-        )
-        SELECT COUNT(*)::int AS deleted FROM d
-      `.execute(db);
-      const n = auditDeleted.rows[0]?.deleted ?? 0;
+      // Policed since 040: the pool alone purges the default firm's and the
+      // instance's rows only.
+      const n = await withEveryTenant(db, async (trx) => {
+        const r = await sql<{ deleted: number }>`
+          WITH d AS (
+            DELETE FROM zv_audit_log
+            WHERE created_at < NOW() - (${auditRetentionDays}::int || ' days')::interval
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS deleted FROM d
+        `.execute(trx);
+        return r.rows[0]?.deleted ?? 0;
+      });
       if (n > 0) {
         console.log(`[GC] zv_audit_log: ${n} rows older than ${auditRetentionDays}d purged`);
         totalDeleted += n;

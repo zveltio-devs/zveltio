@@ -64,8 +64,10 @@ describe('LocalDriver', () => {
     expect(safeLocalPath('uploads/2026/a.txt')).toContain(TMP);
   });
 
-  it('publicUrl points at the /files route', () => {
-    expect(driver.publicUrl('uploads/a.txt')).toBe('http://localhost:3000/files/uploads/a.txt');
+  it('publicUrl points at the /files route — for a public key only', () => {
+    expect(driver.publicUrl('public/a.txt')).toBe('http://localhost:3000/files/public/a.txt');
+    // A private key has no public URL; the only way to it is signedUrl.
+    expect(() => driver.publicUrl('uploads/a.txt')).toThrow(/not in a public namespace/);
   });
 
   it('signedUrl carries a verifiable, expiring HMAC', async () => {

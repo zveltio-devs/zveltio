@@ -46,10 +46,21 @@ export async function probeS3(s3: S3Settings): Promise<ProbeResult> {
     const get = await client.fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
     if (!get.ok) return { ok: false, detail: `GET → ${get.status}` };
     const body = await get.text();
+    // The probe key is private (not public/ or media/). An UNSIGNED GET that
+    // returns it means the bucket is public-read as a whole, so stripping the
+    // X-Amz-* query off any presigned link gives permanent anonymous access.
+    const anon = await fetch(url, { signal: AbortSignal.timeout(8000) }).catch(() => null);
     await client
       .fetch(url, { method: 'DELETE', signal: AbortSignal.timeout(8000) })
       .catch(() => {});
     if (body !== 'zveltio-probe') return { ok: false, detail: 'GET returned unexpected body' };
+    if (anon?.ok) {
+      return {
+        ok: false,
+        detail:
+          'bucket serves private objects to anonymous requests — restrict anonymous read to the public/ and media/ prefixes',
+      };
+    }
     return { ok: true, detail: `write/read/delete OK against ${base}` };
   } catch (err) {
     const m = (err as Error).message;

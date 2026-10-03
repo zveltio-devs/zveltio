@@ -136,6 +136,7 @@ resolved beforehand, on the pool, as the engine role.
 /api/collections  /api/relations  /api/schema  /api/templates
 /api/tenants
 /api/insights  /api/flows  /api/backup  /api/admin/sql
+/api/admin/audit
 ```
 
 The last four are built on `poolDb`, and that **is not an oversight, it is a
@@ -162,6 +163,15 @@ because a tenant that exists only inside an uncommitted transaction cannot be
 referenced by anything — and then writes its first environment. Run inside a
 tenant transaction, those two writes landed on different connections and the
 second failed on a foreign key.
+
+`/api/admin/audit` skips because the instance trail is not a tenant's.
+`zv_audit_log.tenant_id` (migration 040) is the writing transaction's tenant, or
+NULL for an instance-level event — boot, logins, god actions, tenant
+administration, anything written on the pool. Its policy shows NULL rows only
+where `zveltio.current_tenant` is empty, and every tenant transaction sets it,
+god's included; so the route reads through `withEveryTenant` (every firm
+published, no current tenant), behind `requireInstanceAdmin`. Extensions read
+their tenant's rows with `ctx.internals.readAuditActivity`.
 
 ---
 
