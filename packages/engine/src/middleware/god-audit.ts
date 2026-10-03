@@ -64,8 +64,9 @@ async function logGodAction(
  * one role that bypasses every permission check, and it went quiet on precisely
  * the requests worth reviewing.
  *
- * `zv_audit_log` carries no `tenant_id`; the tenant transaction was never what
- * scoped these rows.
+ * Outside any tenant transaction, so the row's `tenant_id` is NULL (migration
+ * 040): an instance-level event, read by the instance audit, not by the tenant
+ * the god acted in.
  */
 export function godAuditMiddleware(poolDb: Database) {
   return createMiddleware(async (c, next) => {

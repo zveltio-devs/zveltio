@@ -9,6 +9,7 @@ import {
   checkPermission,
   getEnforcer,
   revalidatePrincipalsEverywhere,
+  withEveryTenant,
 } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
 import { escapeLike } from '../../lib/data/index.js';
@@ -550,25 +551,29 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     // who did the thing, and a request per row is worse than a left join on an
     // admin-only route.
     // LEFT, not INNER: a deleted user must not delete their audit trail.
-    let query = db
-      .selectFrom('zv_audit_log')
-      .leftJoin('user', 'user.id', 'zv_audit_log.user_id')
-      .selectAll('zv_audit_log')
-      .select('user.email as user_email')
-      .orderBy('zv_audit_log.created_at', 'desc')
-      .limit(parsedLimit)
-      .offset(offset);
+    // Every firm's rows and the instance's (NULL tenant): this path opens no
+    // request transaction (TXN_SKIP_PREFIXES), and the pool alone would show a
+    // plain-role install the default firm's only.
+    const entries = await withEveryTenant(db, (trx) => {
+      let query = trx
+        .selectFrom('zv_audit_log')
+        .leftJoin('user', 'user.id', 'zv_audit_log.user_id')
+        .selectAll('zv_audit_log')
+        .select('user.email as user_email')
+        .orderBy('zv_audit_log.created_at', 'desc')
+        .limit(parsedLimit)
+        .offset(offset);
 
-    // Qualified, now that the query has two tables — `created_at` alone is
-    // ambiguous once `user` is joined.
-    if (user_id) query = query.where('zv_audit_log.user_id', '=', user_id);
-    if (event_type) query = query.where('zv_audit_log.event_type', '=', event_type);
-    const fromD = parseFrom(from);
-    if (fromD) query = query.where('zv_audit_log.created_at', '>=', fromD);
-    const toD = parseTo(to);
-    if (toD) query = query.where('zv_audit_log.created_at', '<=', toD);
-
-    const entries = await query.execute();
+      // Qualified, now that the query has two tables — `created_at` alone is
+      // ambiguous once `user` is joined.
+      if (user_id) query = query.where('zv_audit_log.user_id', '=', user_id);
+      if (event_type) query = query.where('zv_audit_log.event_type', '=', event_type);
+      const fromD = parseFrom(from);
+      if (fromD) query = query.where('zv_audit_log.created_at', '>=', fromD);
+      const toD = parseTo(to);
+      if (toD) query = query.where('zv_audit_log.created_at', '<=', toD);
+      return query.execute();
+    });
     return c.json({ audit: entries });
   });
 
@@ -579,18 +584,21 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   app.get('/audit/export', async (c) => {
     const { user_id, event_type, from, to } = c.req.query();
 
-    let query = db
-      .selectFrom('zv_audit_log')
-      .selectAll()
-      .orderBy('created_at', 'desc')
-      .limit(AUDIT_EXPORT_MAX);
-    if (user_id) query = query.where('user_id', '=', user_id);
-    if (event_type) query = query.where('event_type', '=', event_type);
-    const fromD = parseFrom(from);
-    if (fromD) query = query.where('created_at', '>=', fromD);
-    const toD = parseTo(to);
-    if (toD) query = query.where('created_at', '<=', toD);
-    const rows = await query.execute();
+    // The same reach as GET /audit.
+    const rows = await withEveryTenant(db, (trx) => {
+      let query = trx
+        .selectFrom('zv_audit_log')
+        .selectAll()
+        .orderBy('created_at', 'desc')
+        .limit(AUDIT_EXPORT_MAX);
+      if (user_id) query = query.where('user_id', '=', user_id);
+      if (event_type) query = query.where('event_type', '=', event_type);
+      const fromD = parseFrom(from);
+      if (fromD) query = query.where('created_at', '>=', fromD);
+      const toD = parseTo(to);
+      if (toD) query = query.where('created_at', '<=', toD);
+      return query.execute();
+    });
 
     // csvCell also neutralises leading =,+,-,@ so an audit row someone planted
     // (a crafted user-agent or resource id) does not execute in the reviewer's
