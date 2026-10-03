@@ -130,6 +130,42 @@ export function ownedPrefixFor(extName: string): string {
   return `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
 }
 
+/**
+ * Every extension this process has heard of — loaded, about to load, or
+ * installed (`zv_extension_registry`) — and its owned prefix. Never shrinks: a
+ * purged extension's prefix keeps meaning "not yours" to a shorter one.
+ */
+const knownExtensions = new Map<string, string>();
+
+export function noteExtensionNames(names: Iterable<string>): void {
+  for (const n of names) knownExtensions.set(n, ownedPrefixFor(n).toLowerCase());
+}
+
+/**
+ * The known prefixes that sit inside `extName`'s own: `a` owns `zv_a_`, which
+ * spells every table of `a/b` (`zv_a_b_`) too. A table belongs to the extension
+ * with the LONGEST matching prefix, so these are carved out of `a`'s namespace.
+ */
+export function longerOwnedPrefixes(extName: string): string[] {
+  const mine = ownedPrefixFor(extName).toLowerCase();
+  return [...knownExtensions.values()].filter((p) => p.length > mine.length && p.startsWith(mine));
+}
+
+/** The known extensions whose namespace covers `extName`'s: `a` for `a/b`. */
+export function coveringExtensionNames(extName: string): string[] {
+  const mine = ownedPrefixFor(extName).toLowerCase();
+  return [...knownExtensions]
+    .filter(([, p]) => p.length < mine.length && mine.startsWith(p))
+    .map(([n]) => n);
+}
+
+/** `table` is in `extName`'s `zv_<ext>_*` namespace and in no known longer one. */
+export function ownsByPrefix(extName: string, table: string): boolean {
+  const t = table.toLowerCase();
+  if (!t.startsWith(ownedPrefixFor(extName).toLowerCase())) return false;
+  return !longerOwnedPrefixes(extName).some((p) => t.startsWith(p));
+}
+
 const DOLLAR_TAG = /\$(?:[A-Za-z_\u0080-\uffff][\w\u0080-\uffff]*)?\$/y;
 
 /**
@@ -245,7 +281,6 @@ export function assertWorkerSqlAllowed(
   allowedTables?: ReadonlySet<string>,
   channel = 'the worker SQL bridge',
 ): void {
-  const owned = ownedPrefixFor(extName).toLowerCase();
   const granted = new Set([...(allowedTables ?? [])].map((t) => t.toLowerCase()));
   const code = stripNonCode(sql);
 
@@ -340,7 +375,8 @@ export function assertWorkerSqlAllowed(
     // The owned prefix is `zv_<ext>_`, and engine tables share the `zv_` stem:
     // an extension named `api` owned `zv_api_keys`, `audit` owned `zv_audit_log`.
     // An engine table is reachable only through a grant.
-    if (ref.table.startsWith(owned) && !engineTables.has(ref.table)) continue;
+    // And `a`'s prefix spells `a/b`'s tables; the longest prefix owns them.
+    if (ownsByPrefix(extName, ref.table) && !engineTables.has(ref.table)) continue;
     if (granted.has(ref.table)) continue;
     offenders.add(ref.table);
   }

@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { grantExtensionDbRole } from '../../lib/extensions/ext-db-role.js';
+import { grantExtensionDbRole, revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { getCurrentTenantTrx } from '../../lib/tenancy/index.js';
@@ -47,6 +47,7 @@ d("an extension's joined transaction", () => {
 
   afterAll(async () => {
     await sql`DROP TABLE IF EXISTS ${sql.table(ROWS)}`.execute(db);
+    await revokeExtensionDbRoles(db, 'probe', true);
   });
 
   it('rolls its own writes back on a throw, and the request still commits the rest', async () => {

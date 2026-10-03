@@ -452,23 +452,37 @@ Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
 `NOSUPERUSER`, `NOBYPASSRLS`, with DML on the collection tables and, granted
 when a worker extension loads, on that extension's own tables — its
 `zv_<ext>_*` namespace and the `zvd_*` tables its migrations create — and an
-explicit `REVOKE` on the authentication tables. It is one role for every worker
-extension: what keeps one worker out of another's tables is the SQL analyzer. The tenant is **injected by the host**,
+explicit `REVOKE` on the authentication tables. Where the engine may create
+roles (a superuser, or `CREATEROLE` with `ADMIN` on `zveltio_worker`), each
+worker extension's tables go to a role of its own, a member of `zveltio_worker`,
+and the bridge runs that extension's queries as it — so one worker extension
+cannot reach another's tables even where the SQL analyzer is wrong. Otherwise
+it is one role for every worker extension and the analyzer keeps them apart. The tenant is **injected by the host**,
 not declared by the worker. Contaminated connections are closed rather than
 returned to the pool.
 
 An inline extension's `ctx.db` statement inside a tenant transaction runs as
-`zveltio_ext`, set before the statement and restored after it
-(`lib/extensions/ext-db-role.ts`). The role is `NOSUPERUSER`, `NOBYPASSRLS`,
-cannot create objects, and holds DML only on the non-engine `zvd_*` tables and
-on each loaded extension's own tables and `EXTENSION_TABLE_GRANTS` — never on
-`user` or a credential table. So SQL the extension SQL analyzer misreads still
-cannot reach `zv_api_keys`, `zvd_permissions` or the tenants. Outside a tenant
+that extension's own role, set before the statement and restored after it
+(`lib/extensions/ext-db-role.ts`). It is `NOSUPERUSER`, `NOBYPASSRLS`, cannot
+create objects, holds DML on that extension's own tables and
+`EXTENSION_TABLE_GRANTS` only, and inherits from `zveltio_ext` what every
+extension shares: the non-engine `zvd_*` tables and `USAGE` on the schema —
+never `user` or a credential table. So SQL the extension SQL analyzer misreads
+still cannot reach `zv_api_keys`, `zvd_permissions`, the tenants, or another
+extension's tables. A table belongs to the extension with the longest matching
+`zv_<ext>_` prefix: `a` does not own `zv_a_b_*` once `a/b` is installed. Role
+names are `zveltio_ext_<name>_<hash>` (`zveltio_extb_…` for the `BYPASSRLS`
+twin, `zveltio_wrk_…` for a worker extension), the hash covering the database
+name, so two databases on one cluster never share one. Disabling an extension
+revokes everything its roles hold; uninstalling drops them. Where the engine may
+not create roles (`scripts/bootstrap-db-role.sh` gives it `NOCREATEROLE`),
+every inline extension shares `zveltio_ext` itself, and only the analyzer keeps
+one extension out of another's tables. Outside a tenant
 transaction (boot, cron, listeners) and through `ctx.adminDb`, each statement runs
 in a short transaction of its own under the twin with the engine role's RLS
-reach: `zveltio_ext_bypass` (`zveltio_ext` plus `BYPASSRLS`, created only when
-the engine role is a superuser or `BYPASSRLS`) or `zveltio_ext` for a plain
-role. So background code sees the tenants it saw before, and nothing more of
+reach: the extension role plus `BYPASSRLS` (created only when the engine role is
+a superuser or `BYPASSRLS`; `zveltio_ext_bypass` on the shared layout) or the
+plain extension role. So background code sees the tenants it saw before, and nothing more of
 the engine. Inside a joined `ctx.db.transaction()`,
 `setAccessMode('read only')` makes that savepoint read-only.
 

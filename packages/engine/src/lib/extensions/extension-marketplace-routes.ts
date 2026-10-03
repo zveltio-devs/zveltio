@@ -36,6 +36,7 @@ import {
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError } from './extension-errors.js';
+import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { guardAdmin } from '../admin-guard.js';
 import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
@@ -773,6 +774,9 @@ export function registerMarketplaceRoutes(
       if (wasRunning) {
         await self.unload(name);
       }
+      // Its database roles keep nothing: the grants given at load were never
+      // taken back, so a disabled extension's role still reached its tables.
+      await revokeExtensionDbRoles(db, name);
 
       // Rebuild Hono app without this extension's routes (zero-downtime)
       await triggerReloadFn(`disable:${name}`);
@@ -838,6 +842,8 @@ export function registerMarketplaceRoutes(
       if (wasActive) {
         await self.unload(name);
       }
+      // Soft or purge, the extension's database roles go; a reinstall makes them again.
+      await revokeExtensionDbRoles(db, name, true);
 
       if (!purgeData) {
         // Soft path: keep tables + migrations + files, just deactivate.

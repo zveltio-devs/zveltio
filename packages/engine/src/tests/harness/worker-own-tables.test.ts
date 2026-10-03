@@ -9,7 +9,8 @@
  *
  * Driven end to end: the real loader runs the extension's migration, spawns the
  * real Bun.Worker, mounts its proxy routes; the route's `ctx.db.query` crosses
- * the IPC bridge to `runRawWithParams` and `SET LOCAL ROLE zveltio_worker`.
+ * the IPC bridge to `runRawWithParams` and `SET LOCAL ROLE` to the extension's
+ * own role under `zveltio_worker`.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,6 +19,7 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { extensionDbRoleNames, revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
@@ -50,6 +52,7 @@ export default {
         return c.json({ ok: true, rows: await ctx.db.query('SELECT count(*)::int AS n FROM ${OWN_ZVD}') });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
+    app.get('/whoami', async (c) => c.json(await ctx.db.query('SELECT current_user::text AS r')));
     app.get('/sneak', async (c) => {
       try {
         return c.json({ ok: true, rows: await ctx.db.query('SELECT count(*) FROM zvd_permissions') });
@@ -98,6 +101,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
     await sql`DROP TABLE IF EXISTS ${sql.table(OWN)}`.execute(db);
     await sql`DROP TABLE IF EXISTS ${sql.table(OWN_ZVD)}`.execute(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${EXT}:%`}`.execute(db);
+    await revokeExtensionDbRoles(db, EXT, true);
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -114,17 +118,24 @@ d('a worker extension reaches its own tables through the bridge', () => {
     expect(await r.json()).toEqual({ ok: true, rows: [{ n: 1 }] });
   }, 60_000);
 
-  it('grants the shared worker role its own relations and no engine table', async () => {
-    const r = await sql<{ t: string; ok: boolean }>`
-      SELECT t, has_table_privilege('zveltio_worker', t, 'INSERT') AS ok
+  it('runs bridge queries as its own role, which holds its relations and no engine table', async () => {
+    const dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!
+      .d;
+    const role = extensionDbRoleNames(dbName, EXT).worker;
+    const who = await app.request(`/ext/${EXT}/whoami`);
+    expect(await who.json()).toEqual([{ r: role }]);
+    const r = await sql<{ t: string; own: boolean; shared: boolean }>`
+      SELECT t, has_table_privilege(${role}, t, 'INSERT') AS own,
+             has_table_privilege('zveltio_worker', t, 'INSERT') AS shared
         FROM unnest(${[OWN, OWN_ZVD, 'zv_api_keys', 'zvd_permissions', 'zv_tenants']}::text[]) t
     `.execute(db);
-    expect(Object.fromEntries(r.rows.map((x) => [x.t, x.ok]))).toEqual({
-      [OWN]: true,
-      [OWN_ZVD]: true,
-      zv_api_keys: false,
-      zvd_permissions: false,
-      zv_tenants: false,
+    // The shared role keeps collections only, so no other worker extension reaches these.
+    expect(Object.fromEntries(r.rows.map((x) => [x.t, [x.own, x.shared]]))).toEqual({
+      [OWN]: [true, false],
+      [OWN_ZVD]: [true, false],
+      zv_api_keys: [false, false],
+      zvd_permissions: [false, false],
+      zv_tenants: [false, false],
     });
   }, 30_000);
 

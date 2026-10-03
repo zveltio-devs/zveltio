@@ -11,7 +11,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
   assertWorkerSqlAllowed,
+  coveringExtensionNames,
+  noteExtensionNames,
   ownedPrefixFor,
+  ownsByPrefix,
   WorkerSqlPolicyError,
   workerSqlEngineTables,
 } from '../../lib/extensions/worker-sql-policy.js';
@@ -34,6 +37,40 @@ describe('ownedPrefixFor', () => {
   it('matches the inline proxy convention', () => {
     expect(ownedPrefixFor('ai')).toBe('zv_ai_');
     expect(ownedPrefixFor('compliance/ro/saft')).toBe('zv_compliance_ro_saft_');
+  });
+});
+
+describe('owned prefixes do not overlap: the longest one owns the table', () => {
+  // `ovl` owns `zv_ovl_`, which also spells every table of `ovl/sub`.
+  const reaches = (ext: string, table: string) => {
+    try {
+      assertWorkerSqlAllowed(ext, `SELECT * FROM ${table}`, ENGINE);
+      return true;
+    } catch (e) {
+      if (e instanceof WorkerSqlPolicyError) return false;
+      throw e;
+    }
+  };
+
+  it('hands `ovl/sub`’s namespace to `ovl/sub` once it is known, and keeps the rest `ovl`’s', () => {
+    expect(reaches('ovl', 'zv_ovl_sub_items')).toBe(true); // nobody else claims it yet
+    noteExtensionNames(['ovl', 'ovl/sub']);
+    expect(reaches('ovl', 'zv_ovl_sub_items')).toBe(false);
+    expect(reaches('ovl', 'ZV_OVL_SUB_items')).toBe(false);
+    expect(reaches('ovl/sub', 'zv_ovl_sub_items')).toBe(true);
+    expect(reaches('ovl', 'zv_ovl_items')).toBe(true);
+    expect(reaches('ovl', 'zv_ovl_subscriptions')).toBe(true); // `zv_ovl_sub_` is not a prefix of it
+    expect(ownsByPrefix('ovl', 'zv_ovl_sub_x')).toBe(false);
+    expect(coveringExtensionNames('ovl/sub')).toContain('ovl');
+    // Still allowed by name when a grant or its own migration names it.
+    expect(() =>
+      assertWorkerSqlAllowed(
+        'ovl',
+        'SELECT * FROM zv_ovl_sub_items',
+        ENGINE,
+        new Set(['zv_ovl_sub_items']),
+      ),
+    ).not.toThrow();
   });
 });
 
