@@ -750,6 +750,33 @@ export class DDLManager {
     DDLManager.invalidateCache(name);
   }
 
+  /**
+   * Every registered relation (`zvd_relations`), optionally only those touching
+   * one collection. The read path extensions get in place of raw SQL on the
+   * engine's metadata table, which `ctx.db` refuses.
+   */
+  static async getRelations(db: Database, collection?: string) {
+    let q = db
+      .selectFrom('zvd_relations')
+      .select([
+        'id',
+        'name',
+        'type',
+        'source_collection',
+        'source_field',
+        'target_collection',
+        'target_field',
+        'junction_table',
+      ])
+      .orderBy('name');
+    if (collection) {
+      q = q.where((eb) =>
+        eb.or([eb('source_collection', '=', collection), eb('target_collection', '=', collection)]),
+      );
+    }
+    return q.execute();
+  }
+
   // ── getCollections / getCollection ───────────────────────────────────────────
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

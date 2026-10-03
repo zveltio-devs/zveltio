@@ -614,6 +614,28 @@ export interface ExtensionInternals<DB = unknown> {
   getUserNames: (userIds: string[]) => Promise<Record<string, string>>;
   isTenantAdmin: (userId: string) => Promise<boolean>;
   /**
+   * Facts about the tenant this work runs as, scoped by the engine — the path
+   * in place of raw SQL on `"user"`, `zv_tenant_users`, `zv_tenants`,
+   * `pg_class`, `zvd_permissions` and `zv_settings`, which `ctx.db` refuses.
+   */
+  /** People with a membership in force in the running tenant, and its owners/admins. */
+  countMembers: () => Promise<{ total: number; admins: number }>;
+  /** Collection count, and a planner row estimate (`null` on a multi-tenant instance). */
+  getDataStats: () => Promise<{ collections: number; records_estimate: number | null }>;
+  /** Role names granted in the running tenant or in every tenant. */
+  listRoles: () => Promise<string[]>;
+  /** A setting the instance marks public (`is_public`); `null` otherwise. */
+  getPublicSetting: (key: string) => Promise<unknown>;
+  /** Append to the audit log. The engine stamps `metadata.extension` with the caller. */
+  audit: (event: {
+    type: string;
+    userId?: string;
+    resourceId?: string;
+    resourceType?: string;
+    metadata?: Record<string, unknown>;
+    ip?: string;
+  }) => Promise<void>;
+  /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
    *
    * `checkPermission(userId, 'admin', '*')` is TRUE for a delegated tenant

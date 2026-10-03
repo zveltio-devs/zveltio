@@ -92,6 +92,7 @@ describe('S4-08 SDK ddl shape', () => {
       removeField: (db, c, f) => RealDDLManager.removeField(db as any, c, f),
       getCollections: (db) =>
         RealDDLManager.getCollections(db as any) as Promise<CollectionRecord[]>,
+      getRelations: (db, c) => RealDDLManager.getRelations(db as any, c),
       getCollection: (db, name) =>
         RealDDLManager.getCollection(db as any, name) as Promise<CollectionRecord | null>,
       updateCollectionMetadata: (db, name, meta) =>
