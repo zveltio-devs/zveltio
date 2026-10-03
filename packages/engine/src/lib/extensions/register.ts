@@ -895,6 +895,7 @@ export async function finalizeExtensionLoad(
   // setting it triggers the zv_audit_log_user_id_fkey FK violation.
   auditLog(ctx.db, {
     type: 'extension.loaded',
+    tenantId: null,
     resourceId: extName,
     resourceType: 'extension',
     metadata: { version: extension.name, actor: 'system' },

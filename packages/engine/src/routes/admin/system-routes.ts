@@ -407,6 +407,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
       await auditLog(db, {
         type: 'settings.changed',
+        tenantId: null,
         userId: user?.id,
         resourceType: 'migration',
         metadata: { applied: after - before, from: before, to: after },

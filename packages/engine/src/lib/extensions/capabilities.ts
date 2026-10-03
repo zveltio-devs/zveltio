@@ -37,8 +37,8 @@
  * that speaks a different major version.
  */
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
-// 5: `identity:provision`
-export const CAPABILITY_CONTRACT_VERSION = 5;
+// 5: `identity:provision`, 6: `audit:read`
+export const CAPABILITY_CONTRACT_VERSION = 6;
 
 /**
  * Every capability an extension may declare.
@@ -85,6 +85,13 @@ export const CAPABILITIES = [
    * SAML provision through this. Never makes a god or an admin.
    */
   'identity:provision',
+  /**
+   * Read the running tenant's audit rows (`readAuditActivity`): who did what to
+   * which record, and when. Declared because that is the firm's activity trail,
+   * not something every extension that renders a dashboard should see.
+   * `countAuditActivity` (a number) is ungated.
+   */
+  'audit:read',
   /**
    * Write collection records through the data API's own path, as the request's
    * caller (`createRecord` / `updateRecord` / `deleteRecord`). Declared because
@@ -215,6 +222,8 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   addTenantMember: 'identity:provision',
   removeTenantMember: 'identity:provision',
   setTenantMembershipEnd: 'identity:provision',
+  // The tenant's activity trail
+  readAuditActivity: 'audit:read',
   // Collection records, as the request's caller
   createRecord: 'data:write',
   updateRecord: 'data:write',

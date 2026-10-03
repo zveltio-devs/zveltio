@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../lib/tenancy/index.js';
 import { withAuthorizedUserCreation } from '../lib/auth.js';
+import { auditLog } from '../lib/audit.js';
 import { hashInvitationToken } from '../lib/security/index.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
@@ -236,6 +237,17 @@ export function invitationRoutes(db: Database, auth: any): Hono {
         await e.addRoleForUser(userId, casbinRole, invite.tenant_id);
       }
       await invalidateUserPermCache(userId);
+
+      // The issuing tenant's activity: someone joined it. The request runs as
+      // whichever tenant the host resolved, not necessarily that one.
+      await auditLog(db, {
+        type: 'tenant.member_added',
+        userId,
+        resourceId: userId,
+        resourceType: 'tenant_member',
+        tenantId: invite.tenant_id,
+        metadata: { via: 'invitation', invitation_id: invite.id, role: invite.role },
+      });
 
       return c.json({ success: true, user: { id: userId, email: invite.email } }, 201);
     },

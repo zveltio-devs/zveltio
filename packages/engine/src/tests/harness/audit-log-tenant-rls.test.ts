@@ -84,7 +84,7 @@ d('zv_audit_log under tenant RLS', () => {
     await withTenantIsolation(A, (trx) => auditLog(trx, { type: EV, resourceId: 'a' }));
     await withTenantIsolation(B, (trx) => auditLog(trx, { type: EV, resourceId: 'b' }));
     await auditLog(db, { type: EV, resourceId: 'instance' });
-    internals = gateInternals('audit-ext', buildExtensionInternals(), []);
+    internals = gateInternals('audit-ext', buildExtensionInternals(), ['audit:read']);
   });
 
   afterAll(async () => {

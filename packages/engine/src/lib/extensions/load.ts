@@ -446,6 +446,7 @@ export async function loadExtensionFromDir(
     if (loader.ctx) {
       auditLog(loader.ctx.db, {
         type: 'extension.load_failed',
+        tenantId: null,
         resourceId: extName,
         resourceType: 'extension',
         metadata: { error: (err as Error).message, actor: 'system' },

@@ -375,6 +375,7 @@ export async function addTenantMember(
   );
   await auditLog(db, {
     type: 'tenant.member_added',
+    tenantId: tenant,
     resourceId: userId,
     resourceType: 'tenant_member',
     metadata: { actor, tenant_id: tenant, role, previous_role: had?.role ?? null },
@@ -409,6 +410,7 @@ export async function removeTenantMember(
   if (removed) {
     await auditLog(db, {
       type: 'tenant.member_removed',
+      tenantId: tenant,
       resourceId: userId,
       resourceType: 'tenant_member',
       metadata: { actor, tenant_id: tenant },
@@ -469,6 +471,7 @@ export async function setTenantMembershipEnd(
     if (slug) await invalidateTenantCache(slug, tenant, userId);
     await auditLog(db, {
       type: 'tenant.member_updated',
+      tenantId: tenant,
       resourceId: userId,
       resourceType: 'tenant_member',
       metadata: { actor, tenant_id: tenant, valid_to: r.rows[0]!.valid_to, previous: had.valid_to },

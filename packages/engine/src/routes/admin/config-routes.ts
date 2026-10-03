@@ -149,6 +149,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     invalidateRateLimitCache();
     await auditLog(db, {
       type: 'settings.changed',
+      tenantId: null,
       userId: user?.id,
       resourceType: 'rate_limit_reset',
       metadata: { tiers: defaults.map((d) => d.key_prefix) },
@@ -200,6 +201,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
+      tenantId: null,
       userId: user?.id,
       resourceId: row?.id,
       resourceType: 'column_permission',
@@ -224,6 +226,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
+      tenantId: null,
       userId: user?.id,
       resourceId: c.req.param('id'),
       resourceType: 'column_permission',
@@ -244,6 +247,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
+      tenantId: null,
       userId: user?.id,
       resourceId: c.req.param('id'),
       resourceType: 'column_permission',

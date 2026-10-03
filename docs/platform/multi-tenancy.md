@@ -166,12 +166,17 @@ second failed on a foreign key.
 
 `/api/admin/audit` skips because the instance trail is not a tenant's.
 `zv_audit_log.tenant_id` (migration 040) is the writing transaction's tenant, or
-NULL for an instance-level event — boot, logins, god actions, tenant
-administration, anything written on the pool. Its policy shows NULL rows only
-where `zveltio.current_tenant` is empty, and every tenant transaction sets it,
+NULL for an instance-level event — boot, logins, anything written on the pool.
+A writer that knows better names it (`AuditEvent.tenantId` in `lib/audit.ts`):
+`/api/tenants` stamps member, invitation and archive events with the tenant they
+act on, and a god request on `/api/data/*` is the tenant's; global settings,
+roles, extension lifecycle and account deletion pass `null`, written after the
+request transaction so the firm the request resolved does not inherit them.
+Its policy shows NULL rows only where `zveltio.current_tenant` is empty, and every tenant transaction sets it,
 god's included; so the route reads through `withEveryTenant` (every firm
 published, no current tenant), behind `requireInstanceAdmin`. Extensions read
-their tenant's rows with `ctx.internals.readAuditActivity`.
+their tenant's rows with `ctx.internals.readAuditActivity` (capability
+`audit:read`) and count them with the ungated `countAuditActivity`.
 
 ---
 

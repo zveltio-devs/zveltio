@@ -972,6 +972,7 @@ export function registerMarketplaceRoutes(
     const granted = [...new Set(approve as string[])].sort();
     await auditLog(db, {
       type: 'extension.capabilities.approved',
+      tenantId: null,
       userId: gate.id ?? undefined,
       resourceId: name,
       resourceType: 'extension',

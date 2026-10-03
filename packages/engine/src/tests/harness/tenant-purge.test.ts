@@ -254,7 +254,10 @@ d('tenant archive + purge', () => {
     });
     expect(blocked.status).not.toBe(200);
     expect([403, 404]).toContain(blocked.status);
-    expect(await rowsOf(A.id)).toEqual(before);
+    // Every row kept; the tenant's trail gains the two archive events.
+    const after = await rowsOf(A.id);
+    expect({ ...after, zv_audit_log: 0 }).toEqual({ ...before, zv_audit_log: 0 });
+    expect(after.zv_audit_log ?? 0).toBe((before.zv_audit_log ?? 0) + 2);
   }, 60_000);
 
   it('refuses a purge whose confirm is not the slug', async () => {

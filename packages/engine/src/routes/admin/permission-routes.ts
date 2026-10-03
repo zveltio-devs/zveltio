@@ -122,6 +122,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
+        tenantId: null,
         userId: user?.id,
         resourceId: role?.id,
         resourceType: 'role',
@@ -166,6 +167,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
+      tenantId: null,
       userId: user?.id,
       resourceId: id,
       resourceType: 'role',
@@ -244,6 +246,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
+        tenantId: null,
         userId: user?.id,
         resourceType: 'permissions_bulk',
         metadata: { count: permissions.length },
@@ -346,6 +349,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
+        tenantId: null,
         userId: user?.id,
         resourceType: 'role_hierarchy',
         metadata: { child, parent, action: 'added' },
@@ -374,6 +378,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.revoked',
+        tenantId: null,
         userId: user?.id,
         resourceType: 'role_hierarchy',
         metadata: { child, parent, action: 'removed' },
@@ -487,6 +492,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         removed.push({ ptype, rule });
         await auditLog(db, {
           type: 'permission.revoked',
+          tenantId: null,
           userId: user?.id,
           resourceId: rule[0],
           resourceType: 'orphan_policy',
