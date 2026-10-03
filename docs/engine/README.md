@@ -19,6 +19,7 @@ The Bun + Hono server. Everything else in the product is a client of it.
 | [kms.md](kms.md) | External key management |
 | [sdk.md](sdk.md) | `@zveltio/sdk` and the framework bindings |
 | [cli.md](cli.md) | The `zveltio` binary |
+| [CLOUD-REVIEW-BRIEF.md](CLOUD-REVIEW-BRIEF.md) | Brief for a fresh full review of the engine |
 
 Cross-cutting material lives in the Platform chapter:
 [architecture](../platform/architecture.md) (boot sequence, request lifecycle),
