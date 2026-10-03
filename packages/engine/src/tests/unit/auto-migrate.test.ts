@@ -39,6 +39,7 @@ async function run(env: string | undefined, chains: Row[][]) {
   if (env === undefined) delete process.env.MIGRATIONS_AUTO;
   else process.env.MIGRATIONS_AUTO = env;
   const db = new CannedDb();
+  db.when(/server_version_num/i, [{ v: '180000' }]);
   let read = 0;
   db.when(/from "zv_schema_versions"/i, [{ version: MAX_SCHEMA_VERSION }]);
   db.when(
@@ -115,6 +116,7 @@ describe('migration lock wait', () => {
     if (wait === undefined) delete process.env.ZVELTIO_MIGRATION_LOCK_WAIT;
     else process.env.ZVELTIO_MIGRATION_LOCK_WAIT = wait;
     const db = new CannedDb();
+    db.when(/server_version_num/i, [{ v: '180000' }]);
     db.when(/from "zv_schema_versions"/i, [{ version: MAX_SCHEMA_VERSION - 1 }]);
     db.when(/select version, filename, checksum from zv_schema_versions/i, []);
     db.when(/pg_advisory_xact_lock/i, () => {

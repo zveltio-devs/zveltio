@@ -1684,7 +1684,7 @@ manual lifecycle control):
 
 | Option | Default | Notes |
 |---|---|---|
-| `image` | `postgres:18-alpine` | Override for older PG / extensions like pgvector. |
+| `image` | `pgvector/pgvector:pg18` | The image CI uses: PostgreSQL 18 with pgvector. |
 | `database` | random per-call | DB name created inside the container. |
 | `migrations` | `[]` | Optional SQL strings applied immediately after the container is ready. |
 | `startupTimeoutMs` | `60_000` | Cold image pulls in CI can take longer — bump to `120_000`. |

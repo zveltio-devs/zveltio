@@ -22,7 +22,7 @@ context up front saves a lot of round-trips.
 ## Development setup
 
 ```sh
-# Prereqs: Bun >= 1.3.13, Postgres 16+ with pgvector
+# Prereqs: Bun >= 1.3.13, PostgreSQL 18 with pgvector
 bun install
 
 # Clone official extensions next to the monorepo (recommended)

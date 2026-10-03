@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
 import { ENGINE_VERSION } from '../../version.js';
 import { AdvisoryLockTimeout, withAdvisoryLock } from '../advisory-lock.js';
+import { assertSupportedPostgres } from '../postgres-version.js';
 
 // Small Bun-native helpers used in place of node:fs — matches the
 // project rule "Bun.file, Bun.spawn — NOT fs/child_process".
@@ -755,6 +756,8 @@ const MIGRATIONS_LOCK_KEY = 0x7a76656c74696f00n;
  */
 export async function withMigrationLock<T>(db: Database, fn: () => Promise<T>): Promise<T> {
   const maxWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
+  // Every schema change comes through here, whatever handle it was given.
+  await assertSupportedPostgres(db);
   try {
     return await withAdvisoryLock(db, MIGRATIONS_LOCK_KEY, fn, { maxWait });
   } catch (err) {

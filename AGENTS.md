@@ -83,7 +83,8 @@ Other top-level directories:
   version out of the built artifacts; `check-dep-lockstep` keeps the two repos
   together. A security release needs a repack, not a bump.
 - **Database:** PostgreSQL 18 with pgvector (both CI and `docker-compose.yml`
-  pin `pgvector/pgvector:pg18`); Kysely query builder; PgDog connection pooler
+  pin `pgvector/pgvector:pg18`), and only 18: the engine refuses an older
+  server before any migration (`db/postgres-version.ts`); Kysely query builder; PgDog connection pooler
   in deployments; pg-boss job queue; squawk for DDL linting.
 - **Auth/Z:** Better-Auth 1.7+ (sessions, OAuth, passkeys, 2FA) + Casbin
   policies + Postgres FORCE RLS keyed on a per-transaction GUC.

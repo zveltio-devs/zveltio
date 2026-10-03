@@ -11,7 +11,7 @@
  *
  * And the install could not migrate at all: migration 032's function `SET
  * zveltio.current_tenant` clause failed with "permission denied to set parameter"
- * — Postgres 15+ treats a custom placeholder in a function SET clause or in
+ * — Postgres treats a custom placeholder in a function SET clause or in
  * ALTER DATABASE … SET as superuser-only unless SET on it was granted. Boot's
  * fail-closed GUC (ALTER DATABASE … RESET zveltio.fail_closed_tenant) failed the
  * same way, and 001's database default for zveltio.current_tenant was skipped
@@ -19,8 +19,7 @@
  *
  * The REAL script runs here, twice (it must stay idempotent), against a scratch
  * database; the real migration runner and a real engine boot then run as the
- * role it made, and the engine code after them. Postgres 16+ only: below that
- * the script keeps NOCREATEROLE on purpose.
+ * role it made, and the engine code after them.
  */
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -62,7 +61,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
   const PASS = "pa'ss";
   let sup: Database;
   let app: Database;
-  let pgMajor = 0;
 
   const urlFor = (user: string, pass: string, db = DB) => {
     const u = new URL(superUrl);
@@ -129,13 +127,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
 
   beforeAll(async () => {
     sup = createDb(superUrl.toString());
-    pgMajor = Math.floor(
-      Number(
-        (await sql<{ v: string }>`SELECT current_setting('server_version_num') AS v`.execute(sup))
-          .rows[0]!.v,
-      ) / 10000,
-    );
-    if (pgMajor < 16) return;
     runScript();
     runScript(); // idempotent
     app = createDb(urlFor(APP, PASS));
@@ -170,7 +161,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
   }, 60_000);
 
   it('migrates and boots as the script’s role without a privilege error', async () => {
-    if (pgMajor < 16) return;
     const migrate = await engineProcess(['src/db/migrate.ts']);
     expect(migrate.out.match(PRIVILEGE_ERROR)?.[0] ?? null, migrate.out.slice(-2000)).toBeNull();
     expect(migrate.code).toBe(0);
@@ -200,7 +190,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
   }, 240_000);
 
   it('runs an extension’s ctx.db and worker bridge as its own role', async () => {
-    if (pgMajor < 16) return;
     const names = extensionDbRoleNames(DB, EXT);
     _resetExtensionDbRoleForTests();
     await grantExtensionDbRole(app, EXT, new Set([OWN]));
@@ -215,7 +204,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
   }, 60_000);
 
   it('gives the engine role CREATEROLE that reaches no role it was not handed ADMIN on', async () => {
-    if (pgMajor < 16) return;
     const attrs = await sql<{ c: boolean; s: boolean; b: boolean; d: boolean }>`
       SELECT rolcreaterole AS c, rolsuper AS s, rolbypassrls AS b, rolcreatedb AS d
         FROM pg_roles WHERE rolname = ${APP}`.execute(sup);
@@ -251,7 +239,6 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
   }, 60_000);
 
   it('says once at boot that extensions share one role where the engine cannot make roles', async () => {
-    if (pgMajor < 16) return;
     // The posture below 16, and of an install bootstrapped before this change.
     await sql.raw(`DROP ROLE IF EXISTS ${PLAIN}`).execute(sup);
     await sql

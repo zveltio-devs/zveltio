@@ -1416,7 +1416,7 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   //    "permission denied" on every boot of a correct install is how operators
   //    learn to skim past [tenant-rls] lines.
   //
-  //    SET, not MEMBER: on Postgres 16+ a role can be a MEMBER with SET FALSE —
+  //    SET, not MEMBER: on Postgres a role can be a MEMBER with SET FALSE —
   //    what a CREATEROLE engine holds on a role it created — and SET LOCAL ROLE
   //    then fails. MEMBER said yes, boot said "enforced", and every tenant
   //    request failed. The two narrow roles the engine also switches into (the

@@ -15,7 +15,7 @@
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-blue)](https://github.com/zveltio-devs/zveltio/releases)
 [![Bun](https://img.shields.io/badge/Bun-1.3+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
-[![Postgres](https://img.shields.io/badge/Postgres-17+-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Postgres](https://img.shields.io/badge/Postgres-18-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-D97757)](https://claude.com/claude-code)
 
 The engine is headless and stays that way: collections with a dynamic schema, auth, row-level multi-tenancy, permissions, a REST/RPC API over your data, automation, realtime, storage, and an admin Studio to run it all. No opinion about how anything is presented — that is what extensions are for.
@@ -197,7 +197,7 @@ No hidden dependencies. No surprises.
 |---|---|---|
 | Runtime | [Bun](https://bun.sh) 1.3+ | TypeScript-native, fast startup, batteries included |
 | Web framework | [Hono](https://hono.dev) 4.4+ | Edge-friendly, typed RPC, ultra-low overhead |
-| Database | [PostgreSQL](https://www.postgresql.org/) 17+ with pgvector | Full RDBMS + AI vector search, no NoSQL chaos |
+| Database | [PostgreSQL](https://www.postgresql.org/) 18 with pgvector | Full RDBMS + AI vector search, no NoSQL chaos |
 | Query builder | [Kysely](https://kysely.dev) 0.27+ | Type-safe SQL, no ORM tax |
 | Connection pool | [PgDog](https://github.com/pgdogdev/pgdog) | Multi-threaded, scram-sha-256 native |
 | Cache & realtime | [Valkey](https://valkey.io) 8+ | **Required.** Redis-compatible, fully open. Permission invalidation travels through it, so an engine without one serves revoked grants on every replica but the one that revoked them — the engine refuses to start in production without `VALKEY_URL`. Every install path provisions it. |
@@ -292,7 +292,7 @@ Building extensions: [docs/extensions/developer-guide.md](docs/extensions/develo
           └───────────────┬───────────────────┬───────────┘
                           │                   │
                   ┌───────▼────────┐   ┌──────▼──────┐
-                  │  Postgres 17   │   │  Valkey 8   │
+                  │  Postgres 18   │   │  Valkey 8   │
                   │  + pgvector    │   │ cache+pubsub│
                   └────────────────┘   └─────────────┘
 

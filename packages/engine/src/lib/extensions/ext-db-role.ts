@@ -36,10 +36,10 @@
  * an extension role's grants and membership, uninstall drops it
  * (`revokeExtensionDbRoles`).
  *
- * Where the engine may not create roles (scripts/bootstrap-db-role.sh gives it
- * NOCREATEROLE below Postgres 16, where CREATEROLE is close to superuser)
- * everything stays on the shared roles, and boot says so once: a statement the
- * analyzer gets wrong reaches extension data, never the engine's.
+ * Where the engine may not create roles (a hand-made engine role without
+ * CREATEROLE and ADMIN on the parents) everything stays on the shared roles,
+ * and boot says so once: a statement the analyzer gets wrong reaches extension
+ * data, never the engine's.
  *
  * On the pool too — boot, cron, listeners, background work and `ctx.adminDb` —
  * where it used to run as the engine's login role, a SUPERUSER on a stock
@@ -185,8 +185,8 @@ async function ensureRoleOnce(
 /**
  * Whether the engine can make per-extension roles under `parent`: create roles,
  * and grant `parent` to them. A superuser can; so can CREATEROLE with ADMIN on
- * `parent`, which Postgres 16+ gives the role that created it and the bootstrap
- * script grants on 16+. Below 16 the script's engine role has neither.
+ * `parent`, which Postgres gives the role that created it and the bootstrap
+ * script grants.
  */
 async function canMakeRolesUnder(db: Database, parent: string): Promise<boolean> {
   const r = await sql<{ ok: boolean }>`
@@ -237,7 +237,7 @@ export function extensionDbRoleReady(): boolean {
  * `ctx.db` keeps the role it had and says so once.
  *
  * Membership is tested with SET, not MEMBER: an engine with CREATEROLE that
- * creates the role holds it WITH ADMIN but SET FALSE (Postgres 16+), MEMBER
+ * creates the role holds it WITH ADMIN but SET FALSE, MEMBER
  * answers true, and every `set_config('role', …)` then failed mid-request with
  * "permission denied to set role".
  */
@@ -276,32 +276,19 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
     _bypassReady = _ready && _loginBypasses && (await ensureBypassTwin(db));
     _perExtension = _ready && (await canMakeRolesUnder(db, EXT_DB_ROLE).catch(() => false));
     if (_perExtension) await narrowSharedRole(db, EXT_DB_ROLE);
-    else if (_ready) await warnSharedRole(db);
+    else if (_ready) warnSharedRole();
     return _ready;
   })();
   return _ensuring;
 }
 
 /** Once per process: every extension runs on the shared role. */
-async function warnSharedRole(db: Database): Promise<void> {
-  let v16 = false;
-  try {
-    v16 = (
-      await sql<{ v16: boolean }>`
-        SELECT current_setting('server_version_num')::int >= 160000 AS v16
-      `.execute(db)
-    ).rows[0]!.v16;
-  } catch {
-    // Only picks the hint below.
-  }
+function warnSharedRole(): void {
   console.warn(
     `[extensions] all extensions share one database role (${EXT_DB_ROLE}, ${WORKER_DB_ROLE}): ` +
       `the engine role cannot create roles under them (CREATEROLE with ADMIN on both), so only ` +
       `the SQL analyzer keeps one extension out of another's tables. ` +
-      (v16
-        ? 'Re-run scripts/bootstrap-db-role.sh, which grants that on PostgreSQL 16+.'
-        : 'Below PostgreSQL 16 CREATEROLE is close to superuser and is not granted; ' +
-          'upgrade to 16+ and re-run scripts/bootstrap-db-role.sh.'),
+      'Re-run scripts/bootstrap-db-role.sh, which grants both.',
   );
 }
 

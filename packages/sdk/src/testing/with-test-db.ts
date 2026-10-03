@@ -29,7 +29,7 @@ import type { Kysely } from 'kysely';
 import { parseMigrationSql } from '../validate/migration-parse.js';
 
 export interface WithTestDbOptions {
-  /** Postgres image. Default: `postgres:18-alpine`. */
+  /** Postgres image. Default: `pgvector/pgvector:pg18` (the image CI and docker-compose use). */
   image?: string;
   /** DB name to create. Default: `zveltio_test`. */
   database?: string;
@@ -92,7 +92,7 @@ async function loadKysely(): Promise<typeof import('kysely')> {
  * pattern, prefer `withTestDb(fn)` below.
  */
 export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb> {
-  const image = opts.image ?? 'postgres:18-alpine';
+  const image = opts.image ?? 'pgvector/pgvector:pg18';
   const database =
     opts.database ?? `zveltio_test_${Date.now()}_${Math.floor(Math.random() * 10_000)}`;
   const startupTimeoutMs = opts.startupTimeoutMs ?? 60_000;

@@ -15,7 +15,7 @@ version: '3.9'
 
 services:
   postgres:
-    image: postgres:16.4-alpine
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: zveltio
       POSTGRES_PASSWORD: zveltio

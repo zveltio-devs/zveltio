@@ -19,18 +19,15 @@
 #     so pre-creating them here means the engine role does not need CREATEROLE
 #     for them.
 #
-#   * CREATEROLE itself, on PostgreSQL 16 and later only. The engine gives each
-#     extension a database role of its own (lib/extensions/ext-db-role.ts), a
-#     member of zveltio_ext or zveltio_worker, so one extension's SQL cannot
-#     reach another's tables even where the SQL analyzer is wrong. Making those
-#     roles takes CREATEROLE plus ADMIN on the two parents. From 16 on CREATEROLE
-#     reaches only roles the holder has ADMIN on — here zveltio_ext,
-#     zveltio_worker and the roles it creates itself — and it cannot hand out
-#     SUPERUSER, BYPASSRLS, REPLICATION or CREATEDB, nor membership in zveltio_rls
-#     or any pg_* role. Below 16 CREATEROLE is close to superuser (it can grant
-#     itself any non-superuser role, pg_read_all_data and pg_execute_server_program
-#     included), so there the engine role stays NOCREATEROLE and every extension
-#     shares zveltio_ext / zveltio_worker; the engine says so at boot.
+#   * CREATEROLE itself. The engine gives each extension a database role of its
+#     own (lib/extensions/ext-db-role.ts), a member of zveltio_ext or
+#     zveltio_worker, so one extension's SQL cannot reach another's tables even
+#     where the SQL analyzer is wrong. Making those roles takes CREATEROLE plus
+#     ADMIN on the two parents. On PostgreSQL 18 (the only version Zveltio
+#     supports) CREATEROLE reaches only roles the holder has ADMIN on — here
+#     zveltio_ext, zveltio_worker and the roles it creates itself — and it
+#     cannot hand out SUPERUSER, BYPASSRLS, REPLICATION or CREATEDB, nor
+#     membership in zveltio_rls or any pg_* role.
 #
 # Migrations keep their `CREATE EXTENSION IF NOT EXISTS` lines and stay correct
 # under the plain role: when the extension is already present the statement is
@@ -75,34 +72,32 @@ psql_super() { psql -v ON_ERROR_STOP=1 -U "$SUPER_USER" "$@"; }
 
 echo "→ database '$DB', engine role '$APP_ROLE'"
 
-# CREATEROLE only where it is bounded by ADMIN (PostgreSQL 16+); see the header.
+# Zveltio supports PostgreSQL 18 only; the engine refuses anything older at
+# boot. Refuse here too, before a half-built install fails on 18-only syntax.
 PG_VERSION_NUM="$(psql_super -d postgres -tAc 'SHOW server_version_num')"
-if [ "$PG_VERSION_NUM" -ge 160000 ]; then
-  CREATEROLE_ATTR=CREATEROLE
-  EXT_PARENT_GRANT="WITH ADMIN TRUE, SET TRUE"
-else
-  CREATEROLE_ATTR=NOCREATEROLE
-  EXT_PARENT_GRANT=""
+if [ "$PG_VERSION_NUM" -lt 180000 ]; then
+  echo "error: PostgreSQL server_version_num $PG_VERSION_NUM found; Zveltio requires PostgreSQL 18 (with pgvector)." >&2
+  exit 1
 fi
 
 # ── The engine's own role ────────────────────────────────────────────────────
 # NOSUPERUSER and NOBYPASSRLS are the entire point and are spelled out rather
 # than left to defaults, so that reading this file tells you the guarantee.
-# CREATEROLE on 16+, NOCREATEROLE below, for the reason in the header.
+# CREATEROLE for the reason in the header.
 psql_super -d postgres -q <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$APP_ROLE') THEN
     CREATE ROLE $APP_ROLE LOGIN PASSWORD '$(sql_str "$APP_PASS")'
-      NOSUPERUSER NOBYPASSRLS NOCREATEDB $CREATEROLE_ATTR;
+      NOSUPERUSER NOBYPASSRLS NOCREATEDB CREATEROLE;
   ELSE
     ALTER ROLE $APP_ROLE LOGIN PASSWORD '$(sql_str "$APP_PASS")'
-      NOSUPERUSER NOBYPASSRLS NOCREATEDB $CREATEROLE_ATTR;
+      NOSUPERUSER NOBYPASSRLS NOCREATEDB CREATEROLE;
   END IF;
 END
 \$\$;
 SQL
-echo "  ✓ role $APP_ROLE (NOSUPERUSER, NOBYPASSRLS, $CREATEROLE_ATTR)"
+echo "  ✓ role $APP_ROLE (NOSUPERUSER, NOBYPASSRLS, CREATEROLE)"
 
 # The roles the engine would otherwise have to create (migrations and boot).
 psql_super -d postgres -q <<SQL
@@ -133,20 +128,16 @@ SQL
 # "unavailable" mode and — as of SEC-14 — refuses to serve production traffic.
 psql_super -d postgres -q -c "GRANT zveltio_rls TO $APP_ROLE;"
 psql_super -d postgres -q -c "GRANT zveltio_flow_reader TO $APP_ROLE;"
-# ADMIN on the two extension parents (16+) lets the engine make each
+# ADMIN on the two extension parents lets the engine make each
 # extension's role a member of them; SET TRUE spelled out because a re-run must
 # repair a membership an earlier engine made for itself with SET FALSE.
-psql_super -d postgres -q -c "GRANT zveltio_worker TO $APP_ROLE $EXT_PARENT_GRANT;"
-psql_super -d postgres -q -c "GRANT zveltio_ext TO $APP_ROLE $EXT_PARENT_GRANT;"
+psql_super -d postgres -q -c "GRANT zveltio_worker TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
+psql_super -d postgres -q -c "GRANT zveltio_ext TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
 echo "  ✓ zveltio_rls granted to $APP_ROLE"
-if [ "$CREATEROLE_ATTR" = CREATEROLE ]; then
-  echo "  ✓ zveltio_ext, zveltio_worker WITH ADMIN: one database role per extension"
-else
-  echo "  ! PostgreSQL < 16: extensions share one database role (see the header)"
-fi
+echo "  ✓ zveltio_ext, zveltio_worker WITH ADMIN: one database role per extension"
 
 # ── Custom settings the engine stores ────────────────────────────────────────
-# PostgreSQL 15+ treats a custom (placeholder) setting written into a function's
+# PostgreSQL treats a custom (placeholder) setting written into a function's
 # SET clause or into ALTER DATABASE … SET/RESET as superuser-only unless SET on
 # it was granted. The engine writes exactly two:
 #   zveltio.current_tenant      migration 032's SECURITY DEFINER trigger
@@ -154,14 +145,11 @@ fi
 #   zveltio.fail_closed_tenant  boot, ALTER DATABASE SET/RESET (ZVELTIO_FAIL_CLOSED_TENANT)
 # Without these the first fails migration 032 ("permission denied to set
 # parameter") and the install cannot migrate. Every other zveltio.* setting is
-# set per transaction with set_config(), which needs no grant. Below 15 there is
-# no such privilege and a placeholder is user-settable, so nothing is needed.
-if [ "$PG_VERSION_NUM" -ge 150000 ]; then
-  for param in zveltio.current_tenant zveltio.fail_closed_tenant; do
-    psql_super -d postgres -q -c "GRANT SET ON PARAMETER $param TO $APP_ROLE;"
-  done
-  echo "  ✓ SET on zveltio.current_tenant, zveltio.fail_closed_tenant granted to $APP_ROLE"
-fi
+# set per transaction with set_config(), which needs no grant.
+for param in zveltio.current_tenant zveltio.fail_closed_tenant; do
+  psql_super -d postgres -q -c "GRANT SET ON PARAMETER $param TO $APP_ROLE;"
+done
+echo "  ✓ SET on zveltio.current_tenant, zveltio.fail_closed_tenant granted to $APP_ROLE"
 
 # ── The database, owned by the engine role ───────────────────────────────────
 if ! psql_super -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB'" | grep -q 1; then
