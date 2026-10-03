@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
@@ -100,6 +101,32 @@ const SYSTEM_COLUMN_DDL: readonly string[] = [
   // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
   "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
 ];
+
+/** CONCURRENTLY builds held back by `deferIndexBuilds`. */
+const heldIndexBuilds = new AsyncLocalStorage<string[]>();
+
+/**
+ * An index build; CONCURRENTLY unless the table is the one the caller just
+ * created. Inside `deferIndexBuilds` a CONCURRENTLY build is queued instead: it
+ * waits for every older transaction in the database, so one started while an
+ * extension's request transaction is open waits on that request, which is
+ * waiting on it (measured: virtualxid, until the pool gave up).
+ */
+async function buildIndex(db: Database, ddl: string, concurrently = true): Promise<void> {
+  const stmt = concurrently ? toConcurrentIndex(ddl) : ddl;
+  const held = concurrently ? heldIndexBuilds.getStore() : undefined;
+  if (held) held.push(stmt);
+  else await sql.raw(stmt).execute(db);
+}
+
+/** Run `fn`, returning the CONCURRENTLY builds it asked for instead of running them. */
+export async function deferIndexBuilds<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; indexes: string[] }> {
+  const indexes: string[] = [];
+  const result = await heldIndexBuilds.run(indexes, fn);
+  return { result, indexes };
+}
 
 function toConcurrentIndex(indexSQL: string): string {
   return indexSQL.replace(
@@ -276,6 +303,8 @@ export class DDLManager {
     targetTable: string,
     onDelete = 'SET NULL',
     onUpdate = 'CASCADE',
+    /** False from `createCollection`, for the table it just made; see the note there. */
+    concurrently = true,
   ): Promise<void> {
     if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
       throw new Error(
@@ -307,12 +336,11 @@ export class DDLManager {
         .execute(trx);
     });
     // Index the FK column for join performance
-    await sql
-      .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, fieldName)} ` +
-          `ON "${tableName}"("${fieldName}")`,
-      )
-      .execute(db);
+    await buildIndex(
+      db,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, fieldName)} ON "${tableName}"("${fieldName}")`,
+      concurrently,
+    );
   }
 
   /** Inserts a row into zvd_relations. Idempotent via ON CONFLICT DO NOTHING. */
@@ -352,8 +380,11 @@ export class DDLManager {
 
   /**
    * Creates a m2m junction table `zvd_jnc_{sourceName}_{targetName}` with FK columns
-   * for both sides, plus CONCURRENTLY indexes for join performance.
-   * Must be called OUTSIDE an open transaction (CONCURRENTLY requires that).
+   * for both sides, plus plain indexes for join performance: the table is the one
+   * this call creates (IF NOT EXISTS only makes a retry idempotent). Not
+   * CONCURRENTLY — a concurrent build waits on every open transaction, and one
+   * still running when the next request dropped the junction waited on that
+   * request while its DROP waited on the build (55P03 after lock_timeout).
    * Returns the junction table name.
    */
   static async createJunctionTable(
@@ -384,18 +415,16 @@ export class DDLManager {
           `)`,
       )
       .execute(db);
-    await sql
-      .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(junctionTable, 'src')} ` +
-          `ON "${junctionTable}"("${sourceName}_id")`,
-      )
-      .execute(db);
-    await sql
-      .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(junctionTable, 'tgt')} ` +
-          `ON "${junctionTable}"("${targetName}_id")`,
-      )
-      .execute(db);
+    await buildIndex(
+      db,
+      `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'src')} ON "${junctionTable}"("${sourceName}_id")`,
+      false,
+    );
+    await buildIndex(
+      db,
+      `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'tgt')} ON "${junctionTable}"("${targetName}_id")`,
+      false,
+    );
     // The links are tenant rows: the collection tables' tenant_id, policy and
     // narrow-role grants. Without them any tenant read and deleted every other
     // tenant's links (migration 042). Not best-effort — an unisolated junction
@@ -446,9 +475,14 @@ export class DDLManager {
     const columns: string[] = [...SYSTEM_COLUMN_DDL];
     const uniqueKeys: string[] = [];
 
+    // Not CONCURRENTLY: every index here, and in the helpers called below with
+    // `concurrently` false, is on a table this call created moments ago, empty.
+    // A concurrent build waits for every older transaction in the database
+    // first — including the request of an extension that creates a collection
+    // and fills it (ai-alchemist), which held the build forever (virtualxid).
     const indexes: string[] = [
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status)`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status)`,
     ];
 
     const ALLOWED_PG_EXTENSIONS = new Set([
@@ -485,10 +519,10 @@ export class DDLManager {
       const uniqueKey = fieldTypeRegistry.getUniqueKeyDDL(field as FieldConfig);
       if (uniqueKey) uniqueKeys.push(uniqueKey);
       const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
-      if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
+      if (indexDDL) indexes.push(indexDDL);
       // The tenant-first form beside it — the one a tenant-scoped read can use.
       const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(tableName, field as FieldConfig);
-      if (tenantIndexDDL) indexes.push(toConcurrentIndex(tenantIndexDDL));
+      if (tenantIndexDDL) indexes.push(tenantIndexDDL);
     }
 
     // Table constraints after every column, as CREATE TABLE has them.
@@ -507,7 +541,7 @@ export class DDLManager {
     });
     await sql
       .raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector)`,
+        `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector)`,
       )
       .execute(db);
 
@@ -538,7 +572,7 @@ export class DDLManager {
     // Register metadata first so relation inserts can reference valid collection names
     await this.registerMetadata(db, validated);
 
-    await this.refreshSearchTrigger(db, validated.name);
+    await this.refreshSearchTrigger(db, validated.name, undefined, false);
 
     // Add FK columns and register m2o/reference relations after table + metadata exist
     for (const field of relationFields) {
@@ -559,7 +593,7 @@ export class DDLManager {
       const onDelete = String(field.options?.on_delete ?? 'SET NULL').toUpperCase();
       const onUpdate = String(field.options?.on_update ?? 'CASCADE').toUpperCase();
 
-      await this.applyRelationFK(db, tableName, field.name, targetTable, onDelete, onUpdate);
+      await this.applyRelationFK(db, tableName, field.name, targetTable, onDelete, onUpdate, false);
       await this.registerRelation(db, {
         name: `${validated.name}_${field.name}`,
         type: 'm2o',
@@ -874,6 +908,8 @@ export class DDLManager {
     db: Database,
     collectionName: string,
     fields?: { name: string; type: string }[],
+    /** False from `createCollection`, for the table it just made; see the note there. */
+    concurrently = true,
   ): Promise<boolean> {
     if (!SAFE_NAME_RE.test(collectionName)) return false;
     const tableName = this.getTableName(collectionName);
@@ -905,11 +941,11 @@ export class DDLManager {
           .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
           .execute(trx);
       });
-      await sql
-        .raw(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'trgm')} ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
-        )
-        .execute(db);
+      await buildIndex(
+        db,
+        `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'trgm')} ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
+        concurrently,
+      );
       await db
         .updateTable('zvd_collections')
         .set({ has_trgm: true })
@@ -1036,16 +1072,12 @@ export class DDLManager {
       });
     }
     const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
-    if (indexDDL) {
-      await sql.raw(toConcurrentIndex(indexDDL)).execute(db);
-    }
+    if (indexDDL) await buildIndex(db, indexDDL);
     // A field added to an existing collection gets the same pair as one created
     // with it. Both sites, because the repository has been bitten by a fix that
     // landed on only one of two paths before.
     const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(tableName, validated as FieldConfig);
-    if (tenantIndexDDL) {
-      await sql.raw(toConcurrentIndex(tenantIndexDDL)).execute(db);
-    }
+    if (tenantIndexDDL) await buildIndex(db, tenantIndexDDL);
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -1127,24 +1159,24 @@ export class DDLManager {
     );
 
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC);`,
     );
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'tenant_id')} ON ${tableName}(tenant_id);`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'tenant_id')} ON ${tableName}(tenant_id);`,
       // The composite every list endpoint needs: `ORDER BY created_at DESC` for
       // one tenant. Without it the planner walks `created_at` and throws away
       // the other tenants' rows — 6 408 discarded to return 25, on a table with
       // 63 tenants. See the note in tenant-manager.applyTenantRLS.
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'tenant_created')} ON ${tableName}(tenant_id, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'tenant_created')} ON ${tableName}(tenant_id, created_at DESC);`,
     );
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status);`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status);`,
     );
 
     for (const field of schema.fields) {
       if (RELATION_FK_TYPES.has(field.type)) {
         statements.push(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName}("${field.name}");`,
+          `CREATE INDEX IF NOT EXISTS ${indexName(tableName, field.name)} ON ${tableName}("${field.name}");`,
         );
         continue;
       }
@@ -1152,13 +1184,13 @@ export class DDLManager {
         fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig),
         fieldTypeRegistry.getTenantIndexDDL(tableName, field as FieldConfig),
       ]) {
-        if (ddl) statements.push(`${toConcurrentIndex(ddl)};`);
+        if (ddl) statements.push(`${ddl};`);
       }
     }
 
     statements.push(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector;`);
     statements.push(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector);`,
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector);`,
     );
     statements.push(`-- Per-table updated_at trigger`);
     statements.push(

@@ -313,10 +313,9 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   // the flow reader's was made at CREATE TABLE, before any policy existed.
   //
   // Granted here, after FORCE and the policy, so neither role reaches a
-  // collection before tenant isolation is on it. Both callers — the
-  // create_collection job and the boot reconcile — come through here; a table an
-  // extension creates through `ctx.ddl` stays unreachable to both roles until
-  // the boot reconcile isolates it, which is the side to fail on.
+  // collection before tenant isolation is on it. Every creator comes through
+  // here — the create_collection job, an extension's `ctx.DDLManager` (on the
+  // pool, committed before it returns) and the boot reconcile.
   // Probed rather than attempted: a role is absent where 001 could not create
   // it, and a refused GRANT would abort a caller's transaction.
   for (const role of await narrowRolesPresent(db)) {
@@ -1518,6 +1517,15 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
       (err as Error).message,
     );
   }
+}
+
+/** Test seam: run tenant transactions without (or with) `zveltio_rls`; returns a restore. */
+export function _setRlsRoleAvailableForTests(available: boolean): () => void {
+  const prev = _rlsRoleAvailable;
+  _rlsRoleAvailable = available;
+  return () => {
+    _rlsRoleAvailable = prev;
+  };
 }
 
 /** Boot check — see `_rlsRoleAvailable`. Returns the mode for logging. */
