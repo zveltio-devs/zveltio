@@ -93,7 +93,8 @@ export interface Environment {
   tenant_id: string;
   name: string;
   slug: string;
-  schema_name: string;
+  /** Set only on environments from before migration 043. */
+  schema_name: string | null;
   is_production: boolean;
   color: string;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -891,67 +892,17 @@ export function getTenantSchemaName(tenantSlug: string): string {
 }
 
 /**
- * Create an environment's PostgreSQL schema with its (empty) system tables.
- * Not called per tenant any more: tenant isolation is RLS on `tenant_id`.
- */
-export async function provisionTenantSchema(schemaName: string): Promise<void> {
-  await sql`CREATE SCHEMA IF NOT EXISTS ${sql.id(schemaName)}`.execute(_db);
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS ${sql.id(schemaName)}.zvd_collections (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT NOT NULL UNIQUE,
-      singular_name TEXT,
-      description TEXT,
-      fields JSONB NOT NULL DEFAULT '[]',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `.execute(_db);
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS ${sql.id(schemaName)}.zvd_relations (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('m2o', 'o2m', 'm2m', 'm2a')),
-      source_collection TEXT NOT NULL,
-      source_field TEXT NOT NULL,
-      target_collection TEXT NOT NULL,
-      target_field TEXT,
-      junction_table TEXT,
-      metadata JSONB DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(source_collection, source_field)
-    )
-  `.execute(_db);
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS ${sql.id(schemaName)}.zvd_permissions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      ptype TEXT NOT NULL,
-      v0 TEXT, v1 TEXT, v2 TEXT, v3 TEXT, v4 TEXT, v5 TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `.execute(_db);
-
-  console.log(`✅ Tenant schema provisioned: ${schemaName}`);
-}
-
-/**
- * Provision a named environment schema and register it in zv_environments.
+ * Register a named environment in zv_environments. It gets no Postgres schema:
+ * nothing reads one (per-environment isolation is the preview `branch_*`
+ * schemas), and `tenant_<a>_<x>` also spelled tenant `a-x`'s. Rows from before
+ * migration 043 may still name one; purge drops it.
  */
 export async function provisionEnvironment(
   tenantId: string,
-  tenantSlug: string,
   envSlug: string,
   envName: string,
   isProduction: boolean,
-): Promise<string> {
-  const schemaName = `${getTenantSchemaName(tenantSlug)}_${envSlug}`;
-
-  await provisionTenantSchema(schemaName);
-
+): Promise<void> {
   const colorMap: Record<string, string> = {
     prod: '#dc2626',
     production: '#dc2626',
@@ -962,7 +913,7 @@ export async function provisionEnvironment(
 
   // As the firm it belongs to: `zv_environments` is policed (migration 029), and
   // the pool writes nothing a policy's WITH CHECK would accept on a
-  // non-superuser database. The schema DDL above stays on the pool, as owner.
+  // non-superuser database.
   await withTenantIsolation(tenantId, (trx) =>
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     (trx as any)
@@ -971,7 +922,6 @@ export async function provisionEnvironment(
         tenant_id: tenantId,
         name: envName,
         slug: envSlug,
-        schema_name: schemaName,
         is_production: isProduction,
         color: colorMap[envSlug] || '#6b7280',
       })
@@ -979,9 +929,6 @@ export async function provisionEnvironment(
       .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
       .execute(),
   );
-
-  console.log(`✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`);
-  return schemaName;
 }
 
 export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {

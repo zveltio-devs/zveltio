@@ -1,7 +1,6 @@
 /**
- * Phase C — tenants routes: create (provisions a schema) → read/list/patch →
- * usage → environments → enable-rls. Drives routes/tenants.ts through the
- * in-process app. Cleans up the provisioned schema in teardown.
+ * Phase C — tenants routes: create → read/list/patch → usage → environments →
+ * enable-rls. Drives routes/tenants.ts through the in-process app.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -56,12 +55,6 @@ d('tenants lifecycle (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     if (tenantId) {
-      const envs = await sql<{ s: string }>`
-        SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${tenantId}
-      `.execute(db);
-      for (const { s } of envs.rows) {
-        await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(db).catch(() => {});
-      }
       await sql`DELETE FROM zv_tenants WHERE id = ${tenantId}`.execute(db).catch(() => {});
     }
   });
@@ -117,7 +110,17 @@ d('tenants lifecycle (in-process)', () => {
       `/api/tenants/${tenantId}/environments`,
       json('POST', { slug: 'staging', name: 'Staging' }),
     );
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(201);
+    // A row, no schema: `tenant_<slug>_staging` held empty copies nothing read.
+    expect(await res.json()).toEqual({ success: true, schema: null });
+    const row = await sql<{ schema_name: string | null }>`
+      SELECT schema_name FROM zv_environments WHERE tenant_id = ${tenantId} AND slug = 'staging'
+    `.execute(db);
+    expect(row.rows).toEqual([{ schema_name: null }]);
+    const made = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = ${`tenant_${SLUG}_staging`}
+    `.execute(db);
+    expect(made.rows[0]?.n).toBe(0);
   });
 
   it('404s patching an unknown tenant', async () => {

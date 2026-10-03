@@ -109,12 +109,6 @@ d('zv_environments under tenant RLS', () => {
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
-    const schemas = await sql<{ s: string }>`
-      SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${OTHER}::uuid`.execute(db);
-    for (const { s } of schemas.rows) {
-      if (s.startsWith('tenant_'))
-        await sql.raw(`DROP SCHEMA IF EXISTS "${s}" CASCADE`).execute(db);
-    }
     await sql`DELETE FROM zv_environments WHERE slug = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
@@ -193,8 +187,7 @@ d('zv_environments under tenant RLS', () => {
     };
     expect(await list()).toEqual([STAMP]);
 
-    // The schema DDL needs the owner, so this runs on the harness pool; the
-    // row itself is written as the firm, where WITH CHECK binds.
+    // Written as the firm, where WITH CHECK binds.
     const create = await app.request(`/api/tenants/${OTHER}/environments`, {
       method: 'POST',
       headers: headers(OTHER, { cookie: god }),

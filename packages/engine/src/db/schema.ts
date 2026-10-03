@@ -293,7 +293,7 @@ export interface ZvEnvironmentsTable {
   tenant_id: string;
   name: string;
   slug: string;
-  schema_name: string;
+  schema_name: string | null; // NULL since migration 043
   is_production: boolean;
   color: string | null;
   settings: unknown; // JSONB

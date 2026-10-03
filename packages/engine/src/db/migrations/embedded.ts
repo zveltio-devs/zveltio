@@ -55,6 +55,7 @@ import m038 from './sql/039_unwrap_jsonb_string_scalars.sql' with { type: 'text'
 import m039 from './sql/040_audit_log_tenant.sql' with { type: 'text' };
 import m040 from './sql/041_audit_log_tenant_index.sql' with { type: 'text' };
 import m041 from './sql/042_junction_tenant_rls.sql' with { type: 'text' };
+import m042 from './sql/043_environment_schema_optional.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -100,4 +101,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '040_audit_log_tenant.sql': m039,
   '041_audit_log_tenant_index.sql': m040,
   '042_junction_tenant_rls.sql': m041,
+  '043_environment_schema_optional.sql': m042,
 };

@@ -940,7 +940,7 @@ export interface ZvEnvironmentsTable {
   tenant_id: string;
   name: string;
   slug: string;
-  schema_name: string;
+  schema_name: string | null;
   is_production: Generated<boolean>;
   color: Generated<string | null>;
   settings: Generated<unknown | null>;

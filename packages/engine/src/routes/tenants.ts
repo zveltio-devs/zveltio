@@ -223,10 +223,11 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     if (!created) return c.json({ error: 'Failed to create tenant' }, 500);
     const { tenant, adminUserId } = created;
 
-    // No `tenant_<slug>` schema: isolation is RLS on `tenant_id`, and nothing
-    // ever read one. Installs from before still have theirs; purge drops them.
-    await provisionEnvironment(tenant.id, data.slug, 'prod', 'Production', true);
-    await provisionEnvironment(tenant.id, data.slug, 'dev', 'Development', false);
+    // Rows only, no `tenant_<slug>[_<env>]` schemas: isolation is RLS on
+    // `tenant_id`, and nothing read them. Installs from before keep theirs;
+    // purge drops them.
+    await provisionEnvironment(tenant.id, 'prod', 'Production', true);
+    await provisionEnvironment(tenant.id, 'dev', 'Development', false);
 
     if (adminUserId) {
       // Bridge to authorization: grant the Casbin `owner` role IN this tenant's
@@ -519,17 +520,18 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
 
-    const schemaName = await provisionEnvironment(tenant.id, tenant.slug, slug, name, false);
+    await provisionEnvironment(tenant.id, slug, name, false);
     await auditLog(db, {
       type: 'tenant.updated',
       userId: user?.id,
       resourceId: c.req.param('id'),
       resourceType: 'tenant_environment',
       tenantId: tenant.id,
-      metadata: { schema: schemaName },
+      metadata: { environment: slug },
     });
 
-    return c.json({ success: true, schema: schemaName }, 201);
+    // `schema` stays for clients that read it; an environment has none since 043.
+    return c.json({ success: true, schema: null }, 201);
   });
 
   // ── Membership + per-tenant roles ──────────────────────────────────────────

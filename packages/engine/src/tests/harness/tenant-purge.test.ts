@@ -20,7 +20,6 @@ import {
   DEFAULT_TENANT_ID,
   getTenantSchemaName,
   provisionEnvironment,
-  provisionTenantSchema,
   purgeTenant,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
@@ -50,6 +49,9 @@ const O = mk('o'); // purged by the non-superuser owner
 // Slug extends A's: its legacy base schema `tenant_<A>_x` is spelled exactly as
 // A's environment `x`. Purging A must not take it.
 const X = { id: crypto.randomUUID(), slug: `${A.slug}-x` };
+// The other direction: Z's legacy base schema is Y's environment `e`.
+const Y = mk('y');
+const Z = { id: crypto.randomUUID(), slug: `${Y.slug}-e` };
 
 d('tenant archive + purge', () => {
   let app: Hono;
@@ -92,6 +94,24 @@ d('tenant archive + purge', () => {
     return out;
   };
 
+  // What an engine before migration 043 made: a schema per environment, named
+  // in its row. Purge still drops these; new environments have none.
+  const legacySchema = (name: string) =>
+    sql`CREATE SCHEMA IF NOT EXISTS ${sql.id(name)}`.execute(db);
+  const legacyEnv = async (t: { id: string; slug: string }, env: string) => {
+    const schema = `${getTenantSchemaName(t.slug)}_${env}`;
+    await legacySchema(schema);
+    await sql`
+      INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
+      VALUES (${t.id}, ${env}, ${env}, ${schema})
+    `.execute(db);
+  };
+  const schemaExists = async (name: string) =>
+    (
+      await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = ${name}`.execute(db)
+    ).rows[0]?.n === 1;
+
   const del = (id: string, q: string, cookie = god) =>
     app.request(`/api/tenants/${id}?${q}`, { method: 'DELETE', headers: { cookie } });
 
@@ -114,7 +134,7 @@ d('tenant archive + purge', () => {
       db,
     );
 
-    for (const t of [A, B, P, O, X]) {
+    for (const t of [A, B, P, O, X, Y, Z]) {
       await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${t.id}, ${t.slug}, 'hpt')`.execute(
         db,
       );
@@ -130,13 +150,16 @@ d('tenant archive + purge', () => {
     ] as const) {
       await seed(typeof t === 'string' ? t : t.id, n);
     }
-    // A's legacy base schema (tenant creation no longer makes one; installs
-    // from before still have it), two environments, and one media object.
-    await provisionTenantSchema(getTenantSchemaName(A.slug));
-    await provisionEnvironment(A.id, A.slug, 'prod', 'Production', true);
-    await provisionEnvironment(A.id, A.slug, 'x', 'X', false);
+    // A's legacy base schema and two legacy environments, one environment made
+    // today (a row, no schema), and one media object.
+    await legacySchema(getTenantSchemaName(A.slug));
+    await legacyEnv(A, 'prod');
+    await legacyEnv(A, 'x');
+    await provisionEnvironment(A.id, 'dev', 'Development', false);
     // X's legacy base schema — the same name as A's `x` environment.
-    await provisionTenantSchema(getTenantSchemaName(X.slug));
+    await legacySchema(getTenantSchemaName(X.slug));
+    await legacyEnv(Y, 'e');
+    await legacySchema(getTenantSchemaName(Z.slug));
     await getStorage().put(`uploads/hpt/${SFX}.txt`, new TextEncoder().encode('a'));
     await sql`
       INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
@@ -173,10 +196,12 @@ d('tenant archive + purge', () => {
       .catch(() => {});
     await dropTestCollection(db, REF_COLL).catch(() => {});
     await dropTestCollection(db, COLL).catch(() => {});
-    await sql`DROP SCHEMA IF EXISTS ${sql.id(getTenantSchemaName(X.slug))} CASCADE`
-      .execute(db)
-      .catch(() => {});
-    const ids = [A, B, P, Q, O, X].map((t) => t.id);
+    for (const t of [X, Z]) {
+      await sql`DROP SCHEMA IF EXISTS ${sql.id(getTenantSchemaName(t.slug))} CASCADE`
+        .execute(db)
+        .catch(() => {});
+    }
+    const ids = [A, B, P, Q, O, X, Y, Z].map((t) => t.id);
     for (const id of ids) {
       await sql`DELETE FROM zv_saved_queries WHERE tenant_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}`.execute(db).catch(() => {});
@@ -288,7 +313,7 @@ d('tenant archive + purge', () => {
     expect(body.deleted[TABLE]).toBe(5);
     expect(body.deleted[REF_TABLE]).toBe(1);
     expect(body.deleted.zv_media_files).toBe(1);
-    expect(body.deleted.zv_environments).toBe(2);
+    expect(body.deleted.zv_environments).toBe(3);
     expect(body.files).toEqual({ deleted: 1, failed: [] });
     expect(body.dropped_schemas.sort()).toEqual([getTenantSchemaName(A.slug), envSchema].sort());
     // A's `x` environment schema is X's legacy base too: X's, so it stays.
@@ -316,6 +341,17 @@ d('tenant archive + purge', () => {
        WHERE event_type = 'tenant.purged' AND resource_id = ${A.id}
     `.execute(db);
     expect(audit.rows[0]?.m.deleted[TABLE]).toBe(5);
+  }, 60_000);
+
+  it('never drops a schema another tenant’s environment names', async () => {
+    await sql`UPDATE zv_tenants SET status = 'deleted' WHERE id = ${Z.id}`.execute(db);
+    const result = await purgeTenant(db, Z.id, Z.slug);
+    // Z's legacy base name is Y's environment `e`: Y's, so it stays.
+    expect(result.droppedSchemas).toEqual([]);
+    expect(await schemaExists(getTenantSchemaName(Z.slug))).toBe(true);
+    const env = await sql<{ s: string | null }>`
+      SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${Y.id}`.execute(db);
+    expect(env.rows).toEqual([{ s: getTenantSchemaName(Z.slug) }]);
   }, 60_000);
 
   it('reaches every tenant’s rows as a NOSUPERUSER NOBYPASSRLS role under FORCE RLS', async () => {
