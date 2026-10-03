@@ -1,19 +1,18 @@
 name: E2E
 
-# Deliberately separate from CI, and deliberately not a required check.
+# Separate from CI so a browser flake does not hide a unit or lint result.
 #
-# End-to-end tests are the flakiest kind there is: they depend on timing, a real
-# browser, and a database that has to come up in the right order. This
-# repository has already lost a release to a race inside a UNIT test — putting a
-# browser suite in front of every merge would be paid for daily, and the way
-# that debt gets settled is by people learning to re-run until green, which
-# costs more than the suite is worth.
-#
-# So it runs on master and before a release, where a failure is information
-# rather than an obstacle. If it starts finding things regularly, promoting it
-# to a required check is a decision worth making then, with evidence.
+# It used to run only on master and before a release, on the theory that a
+# browser suite in front of every merge costs more than it finds. That made
+# every E2E failure a post-merge discovery: the PR that broke a screen was
+# already in, and the next one inherited the red. Since 2026-10-02 it runs on
+# every pull request too, so the change that breaks a flow is the one that
+# shows it. Whether it is a REQUIRED check is branch protection's call, made
+# with the flake rate this produces as evidence.
 on:
   push:
+    branches: [master]
+  pull_request:
     branches: [master]
   workflow_dispatch:
 
