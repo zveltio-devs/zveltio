@@ -8,18 +8,40 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { trace } from '@opentelemetry/api';
-import { tracing } from '@opentelemetry/sdk-node';
+import { type TracerProvider, trace } from '@opentelemetry/api';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { slowQueryMiddleware } from '../../middleware/slow-query.js';
 import { tracingMiddleware } from '../../middleware/tracing.js';
 
 const TOKEN = 'a'.repeat(64);
-const exporter = new tracing.InMemorySpanExporter();
-const provider = new tracing.BasicTracerProvider({
-  spanProcessors: [new tracing.SimpleSpanProcessor(exporter)],
-});
+// A recording provider of our own, not sdk-node's: another unit file mocks
+// '@opentelemetry/sdk-node' process-wide, and CI's single-process lane then
+// handed this file the mock.
+type Recorded = { name: string; attributes: Record<string, unknown> };
+const finished: Recorded[] = [];
+const provider = {
+  getTracer: () => ({
+    startActiveSpan: (
+      name: string,
+      opts: { attributes?: Record<string, unknown> },
+      _ctx: unknown,
+      fn: (span: unknown) => unknown,
+    ) => {
+      const rec: Recorded = { name, attributes: { ...opts.attributes } };
+      const span = {
+        setAttribute: (k: string, v: unknown) => {
+          rec.attributes[k] = v;
+          return span;
+        },
+        setStatus: () => span,
+        recordException: () => undefined,
+        end: () => finished.push(rec),
+      };
+      return fn(span);
+    },
+  }),
+} as unknown as TracerProvider;
 const prevEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 beforeAll(() => {
@@ -38,12 +60,12 @@ describe('credentials in the request address', () => {
     app.use('*', tracingMiddleware());
     app.get('/api/invitations/:token', (c) => c.json({ ok: true }));
     app.get('/api/settings/:key', (c) => c.json({ ok: true }));
-    exporter.reset();
+    finished.length = 0;
 
     await app.request(`/api/invitations/${TOKEN}?magic_token=${TOKEN}&page=2`);
     await app.request('/api/settings/site_name');
 
-    const spans = exporter.getFinishedSpans();
+    const spans = finished;
     expect(JSON.stringify(spans.map((s) => [s.name, s.attributes]))).not.toContain(TOKEN);
     expect(spans.map((s) => s.name)).toEqual([
       'GET /api/invitations/:token',
