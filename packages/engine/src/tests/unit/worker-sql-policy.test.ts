@@ -52,6 +52,23 @@ describe('assertWorkerSqlAllowed — engine tables', () => {
     });
   }
 
+  it('blocks an engine table that shares the extension prefix', () => {
+    const as = (ext: string, sql: string) => {
+      try {
+        assertWorkerSqlAllowed(ext, sql, ENGINE);
+        return true;
+      } catch (e) {
+        if (e instanceof WorkerSqlPolicyError) return false;
+        throw e;
+      }
+    };
+    expect(as('api', 'SELECT * FROM zv_api_keys')).toBe(false);
+    expect(as('audit', 'SELECT * FROM zv_audit_log')).toBe(false);
+    expect(as('tenant', 'SELECT * FROM zv_tenant_users')).toBe(false);
+    // its own tables under the same prefix stay reachable
+    expect(as('api', 'SELECT * FROM zv_api_widgets')).toBe(true);
+  });
+
   it('blocks regardless of case', () => {
     expect(allowed('SELECT * FROM ZV_API_KEYS')).toBe(false);
     expect(allowed('SELECT * FROM Zv_Api_Keys')).toBe(false);

@@ -337,7 +337,10 @@ export function assertWorkerSqlAllowed(
     // the bridge ran as `zveltio_rls` (the fallback where `zveltio_worker` could
     // not be created). Collections are `zvd_*` minus what the engine creates.
     if (ref.table.startsWith('zvd_') && !engineTables.has(ref.table)) continue;
-    if (ref.table.startsWith(owned)) continue;
+    // The owned prefix is `zv_<ext>_`, and engine tables share the `zv_` stem:
+    // an extension named `api` owned `zv_api_keys`, `audit` owned `zv_audit_log`.
+    // An engine table is reachable only through a grant.
+    if (ref.table.startsWith(owned) && !engineTables.has(ref.table)) continue;
     if (granted.has(ref.table)) continue;
     offenders.add(ref.table);
   }
