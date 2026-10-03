@@ -80,3 +80,69 @@ export async function withSavepoint<T>(
     return onFailure(err);
   }
 }
+
+/** Kysely's TransactionBuilder, as a handle that joins a running transaction offers it. */
+export interface JoinedTransactionBuilder {
+  setIsolationLevel(level: string): JoinedTransactionBuilder;
+  setAccessMode(mode: string): JoinedTransactionBuilder;
+  execute<T>(fn: (t: Database) => Promise<T>): Promise<T>;
+}
+
+/**
+ * `db.transaction()` on a handle that JOINS the running transaction `trx`
+ * (request-scoped db, an extension's `ctx.db`) rather than opening one.
+ *
+ * Both builder options used to be accepted and dropped: a caller asking for
+ * read-only got read-write, one asking for SERIALIZABLE got the request's READ
+ * COMMITTED, and neither was told. Now:
+ *
+ *   - `setAccessMode('read only')` is real: `SET TRANSACTION READ ONLY` right
+ *     after a SAVEPOINT. Postgres puts the flag back when the subtransaction
+ *     ends, released or rolled back, so the scope is read-only and `trx` is not.
+ *   - `setIsolationLevel` must name the level `trx` already runs at; anything
+ *     else is refused, because Postgres cannot change it mid-transaction.
+ *
+ * `join` runs the body; `scoped` says it must be inside a savepoint (read-only).
+ */
+export function joinedTransactionBuilder(
+  trx: Database,
+  handle: Database,
+  join: <T>(body: () => Promise<T>, scoped: boolean) => Promise<T>,
+): JoinedTransactionBuilder {
+  let readOnly = false;
+  let level: string | undefined;
+  const builder: JoinedTransactionBuilder = {
+    setIsolationLevel(l) {
+      level = l;
+      return builder;
+    },
+    setAccessMode(m) {
+      readOnly = m === 'read only';
+      return builder;
+    },
+    async execute(fn) {
+      if (level !== undefined) await assertJoinedIsolation(trx, level);
+      return join(async () => {
+        if (readOnly) await sql`SET TRANSACTION READ ONLY`.execute(trx);
+        return fn(handle);
+      }, readOnly);
+    },
+  };
+  return builder;
+}
+
+async function assertJoinedIsolation(trx: Database, asked: string): Promise<void> {
+  const r = await sql<{ l: string }>`SELECT current_setting('transaction_isolation') AS l`.execute(
+    trx,
+  );
+  const running = r.rows[0]?.l ?? '';
+  // Postgres runs READ UNCOMMITTED as READ COMMITTED.
+  const norm = (l: string) => l.toLowerCase().replace('read uncommitted', 'read committed');
+  if (norm(String(asked)) !== norm(running)) {
+    throw new Error(
+      `db.transaction().setIsolationLevel('${asked}') joins a transaction already running ` +
+        `${running.toUpperCase()}, and Postgres cannot change the isolation level of a ` +
+        'running transaction. Drop the call, or run this work outside the request.',
+    );
+  }
+}

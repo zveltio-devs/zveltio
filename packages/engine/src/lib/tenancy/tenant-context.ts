@@ -13,7 +13,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
+
+/** Savepoint names for read-only joined scopes; unique so nesting is plain. */
+let savepointSeq = 0;
 
 // The store also carries the request/job tenant TRANSACTION (H-12) — the same
 // `SET LOCAL "zveltio.current_tenant"` transaction the middleware opens — so an
@@ -447,18 +451,18 @@ export function createRequestScopedDb(pool: Database): Database {
       // the transaction the request already has: it commits with it, rolls back
       // with it, and stays inside the same tenant scope — which is more
       // atomic than the separate transaction it used to open, not less.
+      //
+      // A savepoint only for a read-only scope (see `joinedTransactionBuilder`);
+      // otherwise the route's work runs in the request's transaction as before.
       if (prop === 'transaction' && trx) {
-        return () => {
-          const builder = {
-            // Kysely's TransactionBuilder is chainable; the ambient transaction
-            // already has its isolation level and cannot be changed mid-flight,
-            // so this accepts the call and keeps the chain working.
-            setIsolationLevel: () => builder,
-            setAccessMode: () => builder,
-            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> => fn(trx),
-          };
-          return builder;
-        };
+        return () =>
+          joinedTransactionBuilder(trx, trx, (body, scoped) =>
+            scoped
+              ? withSavepoint(trx, `zv_req_trx_${++savepointSeq}`, body, (err) => {
+                  throw err;
+                })
+              : body(),
+          );
       }
 
       // `unknown`, not `any`: a proxy reading an arbitrary key off Kysely knows

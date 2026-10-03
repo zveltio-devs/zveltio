@@ -464,7 +464,13 @@ cannot create objects, and holds DML only on the non-engine `zvd_*` tables and
 on each loaded extension's own tables and `EXTENSION_TABLE_GRANTS` — never on
 `user` or a credential table. So SQL the extension SQL analyzer misreads still
 cannot reach `zv_api_keys`, `zvd_permissions` or the tenants. Outside a tenant
-transaction (boot, cron, listeners) `ctx.db` still runs as the engine role.
+transaction (boot, cron, listeners) and through `ctx.adminDb`, each statement runs
+in a short transaction of its own under the twin with the engine role's RLS
+reach: `zveltio_ext_bypass` (`zveltio_ext` plus `BYPASSRLS`, created only when
+the engine role is a superuser or `BYPASSRLS`) or `zveltio_ext` for a plain
+role. So background code sees the tenants it saw before, and nothing more of
+the engine. Inside a joined `ctx.db.transaction()`,
+`setAccessMode('read only')` makes that savepoint read-only.
 
 None of the restricted roles (`zveltio_rls`, `zveltio_ext`, `zveltio_worker`,
 `zveltio_flow_reader`) may create temporary objects. Postgres gives

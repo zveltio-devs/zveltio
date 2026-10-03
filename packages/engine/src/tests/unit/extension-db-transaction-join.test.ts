@@ -34,7 +34,7 @@ function expectGuarded(t: unknown, tag: string): void {
 
 type Trx = { execute(cb: (t: unknown) => unknown): unknown };
 type Creator = {
-  transaction(): Trx & { setIsolationLevel(l: string): { setAccessMode(m: string): Trx } };
+  transaction(): Trx & { setAccessMode(m: string): Trx };
 };
 
 function handle(tag: string, isTransaction: boolean) {
@@ -71,7 +71,9 @@ describe('extension db.transaction()', () => {
       () => handle('request-trx', true),
       'probe/chain',
     ) as never as Creator;
-    const b = db.transaction().setIsolationLevel('serializable').setAccessMode('read write');
+    // An isolation level is checked against the running transaction, which
+    // needs Postgres: harness/joined-transaction-options.test.ts.
+    const b = db.transaction().setAccessMode('read write');
     expectGuarded(await b.execute((t) => t), 'request-trx');
   });
 

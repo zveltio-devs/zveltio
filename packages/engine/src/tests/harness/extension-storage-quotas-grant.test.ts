@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
+import { sql } from 'kysely';
+import {
+  _resetExtensionDbRoleForTests,
+  grantExtensionDbRole,
+} from '../../lib/extensions/ext-db-role.js';
 import {
   ExtensionSecurityError,
   createRestrictedDb,
@@ -26,6 +31,9 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 const d = harnessAvailable() ? describe : describe.skip;
 
 d('storage quota grant after the single-creator repair', () => {
+  // The grant step turns the extension role on; do not leave it on for later files.
+  afterAll(() => _resetExtensionDbRoleForTests());
+
   for (const ext of ['storage/cloud', 'content/media']) {
     it(`${ext} reaches zv_storage_quotas on its grant alone, and is still refused zv_api_keys`, async () => {
       const { db } = await getTestApp();
@@ -34,6 +42,13 @@ d('storage quota grant after the single-creator repair', () => {
       // table, so if the grant stops landing, nothing else hides it.
       const allowed = await buildAllowedTables([], ext);
       expect(allowed.has('zv_storage_quotas')).toBe(true);
+
+      // What load.ts does after migrations: the grant lands as a privilege of the
+      // role ctx.db runs as, not only in the analyzer's allowlist.
+      await grantExtensionDbRole(db, ext, allowed);
+      const priv = await sql<{ ok: boolean }>`
+        SELECT has_table_privilege('zveltio_ext', 'zv_storage_quotas', 'SELECT') AS ok`.execute(db);
+      expect(priv.rows[0]!.ok).toBe(true);
 
       const rdb = createRestrictedDb(db, ext, allowed);
       const rows = await rdb

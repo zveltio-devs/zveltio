@@ -30,10 +30,14 @@
  * is that a statement the analyzer gets wrong reaches extension data, never the
  * engine's — credentials, keys, tenants, the policy table.
  *
- * Only inside a tenant transaction, for now. On the pool (boot, cron, listeners
- * outside a request) `ctx.db` still runs as the engine role; switching there
- * changes which tenants a superuser install's background code sees, and that
- * is a decision, not a refactor.
+ * On the pool too — boot, cron, listeners, background work and `ctx.adminDb` —
+ * where it used to run as the engine's login role, a SUPERUSER on a stock
+ * install: each statement there runs in a short transaction of its own that
+ * sets the role first (`asExtensionDbRoleOnPool`). Without changing which
+ * tenants that code sees: a role that bypasses RLS gets `zveltio_ext_bypass` —
+ * a member of `zveltio_ext`, so exactly its privileges, plus BYPASSRLS — and a
+ * role RLS binds gets `zveltio_ext`. The twin exists only where the engine
+ * itself bypasses RLS; handing it to a plain role would be the escalation.
  *
  * And `SET ROLE` is not a sandbox on its own: the session user can always
  * `RESET ROLE`. What makes it hold is that the analyzer refuses `SET`/`RESET`
@@ -42,17 +46,22 @@
  * most — whose privileges Postgres has already checked when it starts.
  */
 
-import { CompiledQuery, sql } from 'kysely';
+import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { keepWorkerExtensionTables } from '../tenancy/index.js';
 
 export const EXT_DB_ROLE = 'zveltio_ext';
+/** `zveltio_ext` plus BYPASSRLS, for statements whose role already bypasses RLS. */
+export const EXT_BYPASS_DB_ROLE = 'zveltio_ext_bypass';
 const WORKER_DB_ROLE = 'zveltio_worker';
 
 /** Never granted to the extension role, whatever an allowlist says. */
 const NEVER_GRANTED = ['user', 'session', 'account', 'verification', 'twoFactor', 'passkey'];
 
 let _ready = false;
+/** The engine's login role is a superuser or BYPASSRLS. */
+let _loginBypasses = false;
+let _bypassReady = false;
 let _ensuring: Promise<boolean> | null = null;
 
 /** Whether `ctx.db` switches into the extension role. False until the role is usable. */
@@ -65,6 +74,11 @@ export function extensionDbRoleReady(): boolean {
  * as `ensureRlsEnforcementRole` is: where the engine may not create roles
  * (scripts/bootstrap-db-role.sh pre-creates it) or the membership is missing,
  * `ctx.db` keeps the role it had and says so once.
+ *
+ * Membership is tested with SET, not MEMBER: an engine with CREATEROLE that
+ * creates the role holds it WITH ADMIN but SET FALSE (Postgres 16+), MEMBER
+ * answers true, and every `set_config('role', …)` then failed mid-request with
+ * "permission denied to set role".
  */
 export function ensureExtensionDbRole(db: Database): Promise<boolean> {
   _ensuring ??= (async () => {
@@ -75,19 +89,21 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext') THEN
             CREATE ROLE zveltio_ext NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
           END IF;
-          IF NOT pg_has_role(current_user, 'zveltio_ext', 'MEMBER') THEN
-            EXECUTE format('GRANT zveltio_ext TO %I', current_user);
+          IF NOT pg_has_role(current_user, 'zveltio_ext', 'SET') THEN
+            EXECUTE format('GRANT zveltio_ext TO %I WITH SET TRUE', current_user);
           END IF;
           GRANT USAGE ON SCHEMA public TO zveltio_ext;
         END
         $ensure_ext_role$;
       `.execute(db);
-      const r = await sql<{ ok: boolean }>`
-        SELECT pg_has_role(current_user, 'zveltio_ext', 'MEMBER')
+      const r = await sql<{ ok: boolean; bypasses: boolean }>`
+        SELECT pg_has_role(current_user, 'zveltio_ext', 'SET')
            AND NOT (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 'zveltio_ext')
-           AS ok
+           AS ok,
+           (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypasses
       `.execute(db);
       _ready = Boolean(r.rows[0]?.ok);
+      _loginBypasses = Boolean(r.rows[0]?.bypasses);
     } catch (err) {
       console.warn(
         `[extensions] could not set up the ${EXT_DB_ROLE} role; ctx.db keeps the tenant ` +
@@ -96,9 +112,53 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
       );
       _ready = false;
     }
+    _bypassReady = _ready && _loginBypasses && (await ensureBypassTwin(db));
     return _ready;
   })();
   return _ensuring;
+}
+
+/**
+ * The twin, where the engine role bypasses RLS. Its privileges are a membership
+ * in `zveltio_ext`, not grants of its own, so the two cannot drift apart: every
+ * grant site (load, `applyTenantRLS`, the boot revoke) names `zveltio_ext` only.
+ *
+ * Creating a BYPASSRLS role takes a superuser, or BYPASSRLS + CREATEROLE. Where
+ * it cannot be made, pool statements keep the engine role — narrowing them to
+ * `zveltio_ext` would change which tenants they see.
+ */
+async function ensureBypassTwin(db: Database): Promise<boolean> {
+  try {
+    await sql`
+      DO $ensure_ext_bypass$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext_bypass') THEN
+          CREATE ROLE zveltio_ext_bypass NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+        END IF;
+        IF NOT pg_has_role(current_user, 'zveltio_ext_bypass', 'SET') THEN
+          EXECUTE format('GRANT zveltio_ext_bypass TO %I WITH SET TRUE', current_user);
+        END IF;
+        IF NOT pg_has_role('zveltio_ext_bypass', 'zveltio_ext', 'USAGE') THEN
+          GRANT zveltio_ext TO zveltio_ext_bypass WITH INHERIT TRUE;
+        END IF;
+      END
+      $ensure_ext_bypass$;
+    `.execute(db);
+    const r = await sql<{ ok: boolean }>`
+      SELECT pg_has_role(current_user, 'zveltio_ext_bypass', 'SET')
+         AND pg_has_role('zveltio_ext_bypass', 'zveltio_ext', 'USAGE')
+         AND (SELECT rolbypassrls AND NOT rolsuper FROM pg_roles
+               WHERE rolname = 'zveltio_ext_bypass') AS ok
+    `.execute(db);
+    if (r.rows[0]?.ok) return true;
+  } catch (err) {
+    console.warn(`[extensions] could not set up ${EXT_BYPASS_DB_ROLE}:`, (err as Error).message);
+  }
+  console.warn(
+    `[extensions] the engine role bypasses RLS and ${EXT_BYPASS_DB_ROLE} is not usable; ` +
+      `ctx.db on the pool and ctx.adminDb keep the engine role (continuing)`,
+  );
+  return false;
 }
 
 /**
@@ -139,8 +199,10 @@ export async function grantWorkerDbRole(
   try {
     // The bridge picks the role when it exists; absent (001 could not create
     // it), it falls back to `zveltio_rls` and there is nothing to grant.
+    // SET, as the bridge's own pick (pickWorkerSqlRole): a role it cannot switch
+    // to is one it does not use.
     const r = await sql<{ member: boolean }>`
-      SELECT pg_has_role(current_user, oid, 'MEMBER') AS member
+      SELECT pg_has_role(current_user, oid, 'SET') AS member
         FROM pg_roles WHERE rolname = ${WORKER_DB_ROLE}
     `.execute(db);
     if (!r.rows[0]?.member) return;
@@ -229,6 +291,25 @@ interface RoleExecutor {
   executeQuery(query: CompiledQuery): Promise<{ rows: unknown[] }>;
 }
 
+/**
+ * The statement that opens a role window: reads the role in effect and sets the
+ * extension's, in one round trip (target-list order).
+ *
+ * `mirror`: pick the twin with the same RLS reach as the role in effect —
+ * `zveltio_ext_bypass` for a superuser or BYPASSRLS role, `zveltio_ext` for one
+ * RLS binds — so the switch never changes which tenants the statement sees. The
+ * request's own tenant transaction always takes `zveltio_ext` (`mirror` false):
+ * there the tenant GUC is what the statement is meant to see.
+ */
+function setRoleSql(mirror: boolean): string {
+  const role = mirror
+    ? `CASE WHEN (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user)
+            THEN ${_bypassReady ? `'${EXT_BYPASS_DB_ROLE}'` : `current_setting('role')`}
+            ELSE '${EXT_DB_ROLE}' END`
+    : `'${EXT_DB_ROLE}'`;
+  return `SELECT current_setting('role') AS prev, set_config('role', ${role}, true) AS now`;
+}
+
 /** The last role window queued on each transaction; see `asExtensionDbRole`. */
 const windows = new WeakMap<object, Promise<unknown>>();
 
@@ -247,14 +328,20 @@ const windows = new WeakMap<object, Promise<unknown>>();
  * engine back `zveltio_ext` — or hand an extension statement `zveltio_rls`.
  * An ENGINE statement sent concurrently can still land inside a window and run
  * as the narrower role: it may fail, it cannot gain anything.
+ *
+ * `mirror`: see `setRoleSql` — true for a transaction other than the request's
+ * own, e.g. `ctx.adminDb.transaction()`.
  */
 export function asExtensionDbRole<T>(
   trx: object,
   executor: RoleExecutor,
   run: () => Promise<T>,
+  mirror = false,
 ): Promise<T> {
   if (!_ready) return run();
-  const mine = (windows.get(trx) ?? Promise.resolve()).then(() => roleWindow(executor, run));
+  const mine = (windows.get(trx) ?? Promise.resolve()).then(() =>
+    roleWindow(executor, run, mirror),
+  );
   windows.set(
     trx,
     mine.catch(() => undefined),
@@ -262,12 +349,12 @@ export function asExtensionDbRole<T>(
   return mine;
 }
 
-async function roleWindow<T>(executor: RoleExecutor, run: () => Promise<T>): Promise<T> {
-  const set = await executor.executeQuery(
-    CompiledQuery.raw(
-      `SELECT current_setting('role') AS prev, set_config('role', '${EXT_DB_ROLE}', true) AS now`,
-    ),
-  );
+async function roleWindow<T>(
+  executor: RoleExecutor,
+  run: () => Promise<T>,
+  mirror: boolean,
+): Promise<T> {
+  const set = await executor.executeQuery(CompiledQuery.raw(setRoleSql(mirror)));
   const prev = String((set.rows[0] as { prev?: string } | undefined)?.prev ?? 'none');
   const restore = () =>
     executor.executeQuery(CompiledQuery.raw(`SELECT set_config('role', $1, true)`, [prev]));
@@ -285,8 +372,34 @@ async function roleWindow<T>(executor: RoleExecutor, run: () => Promise<T>): Pro
   return out;
 }
 
+/**
+ * Run one extension statement that would have gone to the pool in a
+ * transaction of its own that sets the role first: BEGIN, set, statement,
+ * COMMIT. `run` gets the connection to send it on, or null where the pool keeps
+ * the engine role (no usable role, or a bypassing engine with no twin).
+ *
+ * No restore: the COMMIT ends `set_config(…, true)`, so a statement that resets
+ * the role resets it for itself only. A single statement commits exactly as it
+ * did in autocommit; the price is a reserved connection and three more round
+ * trips. Measured on a local Postgres 18, a primary-key SELECT through
+ * `ctx.adminDb`: 125 → 504 µs sequential, 74 → 209 µs eight-way concurrent.
+ */
+export function asExtensionDbRoleOnPool<T>(
+  db: Database,
+  run: (on: ConnectionProvider | null) => Promise<T>,
+): Promise<T> {
+  if (!_ready || (_loginBypasses && !_bypassReady)) return run(null);
+  return db.transaction().execute(async (trx) => {
+    const on = trx.getExecutor();
+    await on.executeQuery(CompiledQuery.raw(setRoleSql(true)));
+    return run(on);
+  });
+}
+
 /** Test seam: forget the role state so a test can set it up again. */
 export function _resetExtensionDbRoleForTests(): void {
   _ready = false;
+  _loginBypasses = false;
+  _bypassReady = false;
   _ensuring = null;
 }

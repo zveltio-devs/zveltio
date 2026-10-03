@@ -799,6 +799,25 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  * from, and reading one tenant's data is a bug the extension can see, where
  * reading everyone's was one nobody could.
  */
+/**
+ * The role the worker SQL bridge switches to: `zveltio_worker`, else
+ * `zveltio_rls`, else none (neither usable — migrations 001 and 030).
+ *
+ * Usable means this login may SET it, not merely that it exists: a membership
+ * with SET FALSE (Postgres 16+) failed `SET LOCAL ROLE`, which aborts the
+ * transaction, so every worker query on such an install failed.
+ */
+export async function pickWorkerSqlRole(conn: {
+  unsafe(q: string): Promise<unknown>;
+}): Promise<'zveltio_worker' | 'zveltio_rls' | null> {
+  const [picked] = (await conn.unsafe(
+    `SELECT (SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_rls')
+                AND pg_has_role(current_user, oid, 'SET')
+              ORDER BY rolname = 'zveltio_worker' DESC LIMIT 1) AS role`,
+  )) as { role?: string | null }[];
+  return picked?.role === 'zveltio_worker' || picked?.role === 'zveltio_rls' ? picked.role : null;
+}
+
 async function runRawWithParams(
   extName: string,
   sql: string,
@@ -856,14 +875,8 @@ async function runRawWithParams(
     // aborts this transaction, so the old `catch` fallback ran its second
     // `SET ROLE` — and then the extension's query — on an aborted transaction,
     // and every worker query on such a deployment failed with 25P02. Measured.
-    const [picked] = (await reserved.unsafe(
-      `SELECT (SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_rls')
-                ORDER BY rolname = 'zveltio_worker' DESC LIMIT 1) AS role`,
-    )) as { role?: string | null }[];
-    // Neither role present — see migrations 001 (zveltio_worker) and 030.
-    if (picked?.role === 'zveltio_worker' || picked?.role === 'zveltio_rls') {
-      await reserved.unsafe(`SET LOCAL ROLE ${picked.role}`);
-    }
+    const role = await pickWorkerSqlRole(reserved);
+    if (role) await reserved.unsafe(`SET LOCAL ROLE ${role}`);
     if (tenantId) {
       // Parameterised: this value comes from the host's own record, but it is
       // interpolated into a session setting, and `set_config` takes a bind

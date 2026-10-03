@@ -24,13 +24,13 @@
  *     work should be deliberate about it.
  */
 
-import { QueryCreator } from 'kysely';
+import { type ConnectionProvider, QueryCreator } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
-import { withSavepoint } from '../savepoint.js';
+import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
 import { getCurrentTenantTrx } from '../tenancy/index.js';
-import { asExtensionDbRole } from './ext-db-role.js';
+import { asExtensionDbRole, asExtensionDbRoleOnPool } from './ext-db-role.js';
 import {
   assertWorkerSqlAllowed,
   WorkerSqlPolicyError,
@@ -71,16 +71,17 @@ function isTenantTransaction(db: unknown): boolean {
 }
 
 /**
- * The tenant transaction `db` is, or null — the transaction role windows run in
- * and serialize on.
- *
- * The request's/job's own transaction only (the one `withTenantIsolation` bound
- * to the async context), not any transaction: `ctx.adminDb.transaction()` opens
- * one on the pool, and its cross-tenant reach is the point of `db:admin`. The
- * pool path keeps the engine role for now; see ext-db-role.ts.
+ * Where an extension statement on `db` takes its role (lib/extensions/
+ * ext-db-role.ts): a window on the transaction it runs in — the request's own
+ * tenant transaction (`mirror` false: always `zveltio_ext`) or another one, such
+ * as `ctx.adminDb.transaction()` (`mirror`: the twin with the reach of the role
+ * in effect) — or, on the pool, a transaction of its own.
  */
-function trxOf(db: Database): object | null {
-  return isTenantTransaction(db) && db === getCurrentTenantTrx() ? db : null;
+type RoleScope = { trx: object; mirror: boolean } | { pool: Database };
+
+function roleScope(db: Database): RoleScope {
+  if (!isTenantTransaction(db)) return { pool: db };
+  return { trx: db, mirror: db !== getCurrentTenantTrx() };
 }
 
 /**
@@ -104,7 +105,7 @@ function checkedQueryCreator(
   allowedTables: Set<string> | undefined,
 ): QueryCreator<never> {
   return new QueryCreator({
-    executor: checkedExecutor(target.getExecutor(), extName, allowedTables, trxOf(target)),
+    executor: checkedExecutor(target.getExecutor(), extName, allowedTables, roleScope(target)),
   });
 }
 
@@ -120,6 +121,7 @@ interface CompiledLike {
 interface ExecutorLike {
   executeQuery(query: CompiledLike, ...rest: unknown[]): Promise<unknown>;
   stream(query: CompiledLike, ...rest: unknown[]): AsyncIterableIterator<unknown>;
+  withConnectionProvider(provider: ConnectionProvider): ExecutorLike;
 }
 
 /**
@@ -160,25 +162,28 @@ async function assertRawSqlAllowed(
  * use it — on the real handle, never through here. Any method that returns
  * another executor (`withPlugin`, `withoutPlugins`, …) gets the same wrapper.
  *
- * `trx`: the tenant transaction the executor belongs to, if any. There, each
- * statement runs as the extension role (`asExtensionDbRole`) — the layer that
- * holds when the analyzer above it is wrong.
+ * `scope`: where each statement takes the extension role (`roleScope`) — the
+ * layer that holds when the analyzer above it is wrong.
  */
 function checkedExecutor<T extends object>(
   executor: T,
   extName: string,
   allowedTables: Set<string> | undefined,
-  trx: object | null,
+  scope: RoleScope,
 ): T {
   const real = executor as unknown as ExecutorLike;
-  const asRole = <R>(run: () => Promise<R>): Promise<R> =>
-    trx ? asExtensionDbRole(trx, real as never, run) : run();
+  const asRole = <R>(run: (ex: ExecutorLike) => Promise<R>): Promise<R> =>
+    'pool' in scope
+      ? asExtensionDbRoleOnPool(scope.pool, (on) =>
+          run(on ? real.withConnectionProvider(on) : real),
+        )
+      : asExtensionDbRole(scope.trx, real as never, () => run(real), scope.mirror);
   return new Proxy(executor, {
     get(target, prop) {
       if (prop === 'executeQuery') {
         return async (query: CompiledLike, ...rest: unknown[]) => {
           await assertRawSqlAllowed(extName, query.sql, allowedTables);
-          return asRole(() => real.executeQuery(query, ...rest));
+          return asRole((ex) => ex.executeQuery(query, ...rest));
         };
       }
       if (prop === 'stream') {
@@ -186,9 +191,9 @@ function checkedExecutor<T extends object>(
         // would fetch its later rows as whatever role came back.
         return async function* (query: CompiledLike, ...rest: unknown[]) {
           await assertRawSqlAllowed(extName, query.sql, allowedTables);
-          const chunks = await asRole(async () => {
+          const chunks = await asRole(async (ex) => {
             const out: unknown[] = [];
-            for await (const c of real.stream(query, ...rest)) out.push(c);
+            for await (const c of ex.stream(query, ...rest)) out.push(c);
             return out;
           });
           yield* chunks;
@@ -207,7 +212,7 @@ function checkedExecutor<T extends object>(
       return (...args: unknown[]) => {
         const out = (value as (...a: unknown[]) => unknown).apply(target, args);
         return typeof (out as Partial<ExecutorLike> | null)?.executeQuery === 'function'
-          ? checkedExecutor(out as object, extName, allowedTables, trx)
+          ? checkedExecutor(out as object, extName, allowedTables, scope)
           : out;
       };
     },
@@ -261,7 +266,7 @@ export function createRestrictedDb(
 
       if (!trustRawSql && typeof prop === 'string') {
         const checked = () =>
-          checkedExecutor(target.getExecutor(), extName, allowedTables, trxOf(target));
+          checkedExecutor(target.getExecutor(), extName, allowedTables, roleScope(target));
         if (prop === 'getExecutor') return checked;
         if (prop === 'executeQuery') {
           // Kysely's own `executeQuery` is `getExecutor().executeQuery(…)`; the
@@ -307,26 +312,19 @@ export function createRestrictedDb(
       // Measured on SCIM: a PatchOp renaming the god and deactivating them was
       // refused, and the rename and the "inactive" flag were both kept.
       if (prop === 'transaction' && isTenantTransaction(target)) {
-        return () => {
-          const builder = {
-            setIsolationLevel: () => builder,
-            setAccessMode: () => builder,
-            execute: <T>(fn: (t: Database) => Promise<T>): Promise<T> =>
-              withSavepoint(
-                target,
-                `zv_ext_trx_${++savepointSeq}`,
-                // The guarded handle, not `target`: the callback is extension
-                // code, and the bare transaction it used to get answered both
-                // `trx.selectFrom('session')` and raw SQL on any table. The
-                // engine's view keeps the bare transaction it always had.
-                () => fn(trustRawSql ? target : guarded(target)),
-                (err) => {
-                  throw err;
-                },
-              ),
-          };
-          return builder;
-        };
+        return () =>
+          joinedTransactionBuilder(
+            target,
+            // The guarded handle, not `target`: the callback is extension code,
+            // and the bare transaction it used to get answered both
+            // `trx.selectFrom('session')` and raw SQL on any table. The engine's
+            // view keeps the bare transaction it always had.
+            trustRawSql ? target : guarded(target),
+            (body) =>
+              withSavepoint(target, `zv_ext_trx_${++savepointSeq}`, body, (err) => {
+                throw err;
+              }),
+          );
       }
 
       // Outside a tenant transaction (the pool — boot, `ctx.adminDb`), Kysely's
