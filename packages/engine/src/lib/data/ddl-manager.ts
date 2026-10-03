@@ -380,16 +380,17 @@ export class DDLManager {
 
   /**
    * Creates a m2m junction table `zvd_jnc_{sourceName}_{targetName}` with FK columns
-   * for both sides, plus CONCURRENTLY indexes for join performance.
-   * Must be called OUTSIDE an open transaction (CONCURRENTLY requires that).
+   * for both sides, plus plain indexes for join performance: the table is the one
+   * this call creates (IF NOT EXISTS only makes a retry idempotent). Not
+   * CONCURRENTLY — a concurrent build waits on every open transaction, and one
+   * still running when the next request dropped the junction waited on that
+   * request while its DROP waited on the build (55P03 after lock_timeout).
    * Returns the junction table name.
    */
   static async createJunctionTable(
     db: Database,
     sourceName: string,
     targetName: string,
-    /** False from `createCollection`; see the note there. */
-    concurrently = true,
   ): Promise<string> {
     // Validated here, not only in the caller. Both names are interpolated into
     // identifiers below, and `createCollection` happens to test `target` before
@@ -417,12 +418,12 @@ export class DDLManager {
     await buildIndex(
       db,
       `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'src')} ON "${junctionTable}"("${sourceName}_id")`,
-      concurrently,
+      false,
     );
     await buildIndex(
       db,
       `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'tgt')} ON "${junctionTable}"("${targetName}_id")`,
-      concurrently,
+      false,
     );
     // The links are tenant rows: the collection tables' tenant_id, policy and
     // narrow-role grants. Without them any tenant read and deleted every other
@@ -621,7 +622,7 @@ export class DDLManager {
         );
         continue;
       }
-      const junctionTable = await this.createJunctionTable(db, validated.name, target, false);
+      const junctionTable = await this.createJunctionTable(db, validated.name, target);
       await this.registerRelation(db, {
         name: `${validated.name}_${field.name}`,
         type: 'm2m',

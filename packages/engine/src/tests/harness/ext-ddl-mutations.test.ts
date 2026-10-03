@@ -209,7 +209,14 @@ d("ctx.DDLManager's mutations inside a request", () => {
       const forced = await sql<{ f: boolean }>`SELECT relforcerowsecurity AS f FROM pg_class
         WHERE oid = ${`public.${junction}`}::regclass`.execute(db);
       expect(forced.rows[0]!.f).toBe(true);
-      expect(await validIndex(junction, '_src')).toBe(true);
+      // Built with the table, before the request returned — not left running: a
+      // concurrent build still in flight waited on the next request below while
+      // its DROP waited on the build (55P03, the CI harness lane).
+      const built = await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM pg_index x JOIN pg_class c ON c.oid = x.indexrelid
+         WHERE x.indrelid = ${`public.${junction}`}::regclass AND x.indisvalid
+           AND (c.relname LIKE '%\_src' OR c.relname LIKE '%\_tgt')`.execute(db);
+      expect(built.rows[0]!.n).toBe(2);
       await inRequest(mode, () => raw.dropJunctionTable(ext, junction));
       const left = await sql<{ t: string | null }>`
         SELECT to_regclass(${`public.${junction}`})::text AS t`.execute(db);

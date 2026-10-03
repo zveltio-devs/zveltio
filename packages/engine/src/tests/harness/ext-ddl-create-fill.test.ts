@@ -17,6 +17,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
+  extensionDbRoleNames,
   grantExtensionDbRole,
 } from '../../lib/extensions/ext-db-role.js';
 import { buildExtensionInternals, type ExtensionContext } from '../../lib/extensions/internals.js';
@@ -67,8 +68,10 @@ d('an extension creates a collection and fills it in one request', () => {
         // The tenant middleware's request transaction.
         await buildExtensionInternals().withTenantIsolation(TENANT, async () => {
           const ext = ctx.db as unknown as Database;
-          const role = await sql<{ r: string }>`SELECT current_user::text AS r`.execute(ext);
-          expect(role.rows[0]!.r).toBe('zveltio_ext');
+          // The extension's own role (a member of `zveltio_ext`, which holds collections).
+          const role = await sql<{ r: string; d: string }>`
+            SELECT current_user::text AS r, current_database() AS d`.execute(ext);
+          expect(role.rows[0]!.r).toBe(extensionDbRoleNames(role.rows[0]!.d, EXT).role);
           await ctx.DDLManager.createCollection(ctx.db, {
             name,
             fields: [{ name: 'title', type: 'text', required: false }],

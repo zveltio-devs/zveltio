@@ -47,7 +47,9 @@ describe('DDLManager.createJunctionTable', () => {
     const name = await DDLManager.createJunctionTable(asDb(db), 'articles', 'tags');
     expect(name).toBe('zvd_jnc_articles_tags');
     expect(db.executed(/CREATE TABLE IF NOT EXISTS "zvd_jnc_articles_tags"/)).toHaveLength(1);
-    expect(db.executed(/CREATE INDEX CONCURRENTLY.*articles_id/)).toHaveLength(1);
+    // Plain: the table is the one this call creates (see createJunctionTable).
+    expect(db.executed(/CONCURRENTLY/)).toHaveLength(0);
+    expect(db.executed(/CREATE INDEX IF NOT EXISTS.*articles_id/)).toHaveLength(1);
   });
 });
 
