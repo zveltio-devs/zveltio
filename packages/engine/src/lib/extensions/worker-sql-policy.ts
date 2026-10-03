@@ -297,8 +297,11 @@ interface TableRef {
  */
 function tableReferences(code: string): TableRef[] {
   const IDENT_SRC = '(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)';
-  // Where a table list begins.
-  const INTRO = /\b(?:from|join|into|update)\b/gi;
+  // Where a table list begins. `USING` too: `DELETE FROM a USING b` and
+  // `MERGE INTO a USING b` read `b` (Kysely's `deleteFrom().using()` and
+  // `mergeInto().using()`); `JOIN … USING (col)` and `USING gin (…)` are a
+  // parenthesis or a function call, which the checks below already pass over.
+  const INTRO = /\b(?:from|join|into|update|using)\b/gi;
   // One entry: `schema.table`, `table`, optionally followed by an alias.
   const ENTRY = new RegExp(`^\\s*(${IDENT_SRC})(?:\\s*\\.\\s*(${IDENT_SRC}))?`, 'i');
   // A word that ends the list. `FROM a, b WHERE …` stops at WHERE; without this
@@ -338,6 +341,12 @@ function tableReferences(code: string): TableRef[] {
   for (const intro of code.matchAll(INTRO)) {
     const keyword = intro[0].toLowerCase();
     if (keyword === 'from' && insideKeywordArgFn(intro.index!)) continue;
+    // Not table lists either, and both are what Kysely compiles from ordinary
+    // builder calls: `FOR UPDATE [OF t] [SKIP LOCKED | NOWAIT]` (the tables it
+    // may name must already be in FROM) and `IS [NOT] DISTINCT FROM <expr>`.
+    const before = code.slice(Math.max(0, intro.index! - 20), intro.index!);
+    if (keyword === 'update' && /\bfor\s+(?:no\s+key\s+)?$/i.test(before)) continue;
+    if (keyword === 'from' && /\bis\s+(?:not\s+)?distinct\s+$/i.test(before)) continue;
     let rest = code.slice(intro.index! + intro[0].length);
 
     // Comma-separated lists, which the first version of this missed entirely:
@@ -354,15 +363,16 @@ function tableReferences(code: string): TableRef[] {
 
       const m = ENTRY.exec(rest);
       if (!m) break;
-      // After FROM or JOIN, an identifier followed directly by `(` is a function
-      // call, not a table — `FROM now()`, `FROM generate_series(1, 10)`.
+      // After FROM, JOIN or USING, an identifier followed directly by `(` is a
+      // function call, not a table — `FROM now()`, `FROM generate_series(1, 10)`,
+      // `USING gin (col)`.
       //
       // Only after those two. `INSERT INTO zv_scim_tokens (name) VALUES ($1)`
       // puts the column list in exactly that position, and reading it as a
       // function let an engine table straight through. The existing suite caught
       // that on the first run of this change, which is what the case for
       // `zv_scim_tokens` in it is for.
-      if ((keyword === 'from' || keyword === 'join') && /^\s*\(/.test(rest.slice(m[0].length))) {
+      if (keyword !== 'into' && keyword !== 'update' && /^\s*\(/.test(rest.slice(m[0].length))) {
         break;
       }
       // A subquery (`FROM (SELECT …`) has a parenthesis here, not an identifier,

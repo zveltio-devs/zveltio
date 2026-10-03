@@ -72,6 +72,7 @@ import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { moveToTrash } from '../cloud/trash.js';
+import { engineHandle } from '../engine-handle.js';
 import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
@@ -658,7 +659,9 @@ function buildUnboundInternals(): ExtensionInternals {
           new Error('ctx.internals.moveToTrash: no tenant runs here, so there is no file to trash'),
         );
       }
-      return moveToTrash(db, fileId, deletedBy, tenant);
+      // Engine SQL on a fixed table, tenant-pinned; its `"user"` lookup for
+      // `deleted_by` is the engine's, which the extension's handle refuses.
+      return moveToTrash(engineHandle(db), fileId, deletedBy, tenant);
     },
     maybeEncrypt,
     maybeDecrypt,

@@ -1,97 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createRestrictedDb, _internalForTests } from '../../lib/extensions/extension-context.js';
-import { engineEvents, AbortHookError } from '../../lib/runtime/event-bus.js';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { _internalForTests, createRestrictedDb } from '../../lib/extensions/extension-context.js';
+import { AbortHookError, engineEvents } from '../../lib/runtime/event-bus.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 /**
  * S2-02 follow-up: extension-internal writes via `ctx.db` flow through
  * `record.before*` pre-write hooks the same way HTTP routes do.
  *
- * These tests stub out Kysely with a recorder builder so we can verify:
- *   - the fast path (no hooks registered) returns the raw builder;
- *   - when hooks ARE registered, the chain is replayed against a fresh
- *     builder with mutated `values` / `set`;
- *   - aborts surface as `AbortHookError`;
- *   - update / delete only intercept single-row WHERE-by-id (bulk skips
- *     with a one-time warning per table+ext).
- *
- * Stub DB: each `insertInto / updateTable / deleteFrom / selectFrom`
- * returns a chainable recorder. `.execute()` resolves with whatever
- * `__result` was set, defaulting to an empty array.
+ * Over a real Kysely (`CannedDb`), because the guard now builds every query on
+ * Kysely's own `QueryCreator` with a checked executor: what reaches the driver
+ * is the compiled statement, so that is what these assert on.
+ *   - inserts replay with the hook's mutated `values`;
+ *   - single-row updates and deletes fire with a `before` snapshot;
+ *   - bulk updates and deletes skip the hook with a one-time warning;
+ *   - aborts surface as `AbortHookError`, other hook errors as themselves,
+ *     and neither reaches the write.
  */
 
-// ── Recorder builder ────────────────────────────────────────────────────────
+type AnyDb = any;
 
-interface CallLog {
-  method: string;
-  args: unknown[];
-}
+let canned: CannedDb;
+const rdb = (ext = 'forms'): AnyDb => createRestrictedDb(canned.kysely as never, ext);
+const writes = (verb: RegExp) => canned.executed(verb);
 
-function makeRecorder(initial: CallLog[] = []): any {
-  const log: CallLog[] = initial;
-  const state: { result: unknown } = { result: undefined };
-  const proxy: any = new Proxy(() => {}, {
-    get(_t, prop: string | symbol) {
-      if (typeof prop === 'symbol') return undefined;
-      if (prop === '__log') return log;
-      if (prop === '__state') return state;
-      if (prop === '__then' || prop === 'then') return undefined;
-      if (prop === 'execute' || prop === 'executeTakeFirst' || prop === 'executeTakeFirstOrThrow') {
-        return async (...args: unknown[]) => {
-          log.push({ method: prop, args });
-          return state.result ?? (prop === 'execute' ? [] : undefined);
-        };
-      }
-      return (...args: unknown[]) => {
-        log.push({ method: prop, args });
-        return proxy;
-      };
-    },
-    set(_t, prop: string | symbol, value: unknown) {
-      if (prop === '__result') {
-        state.result = value;
-        return true;
-      }
-      return true;
-    },
-  });
-  return proxy;
-}
-
-function makeStubDb(): any {
-  const inserts: any[] = [];
-  const updates: any[] = [];
-  const deletes: any[] = [];
-  const selects: any[] = [];
-  const db: any = {
-    insertInto(table: string) {
-      const r = makeRecorder([{ method: 'insertInto', args: [table] }]);
-      inserts.push(r);
-      return r;
-    },
-    updateTable(table: string) {
-      const r = makeRecorder([{ method: 'updateTable', args: [table] }]);
-      updates.push(r);
-      return r;
-    },
-    deleteFrom(table: string) {
-      const r = makeRecorder([{ method: 'deleteFrom', args: [table] }]);
-      deletes.push(r);
-      return r;
-    },
-    selectFrom(table: string) {
-      const r = makeRecorder([{ method: 'selectFrom', args: [table] }]);
-      selects.push(r);
-      return r;
-    },
-  };
-  db.__inserts = inserts;
-  db.__updates = updates;
-  db.__deletes = deletes;
-  db.__selects = selects;
-  return db;
-}
-
-// ── Tests ───────────────────────────────────────────────────────────────────
+beforeEach(() => {
+  engineEvents.clearPreHooks();
+  canned = new CannedDb();
+});
+afterEach(() => engineEvents.clearPreHooks());
 
 describe('S2-02 follow-up: extension-context internals', () => {
   it('extractSingleId returns the id for `.where("id", "=", X)`', () => {
@@ -110,13 +46,10 @@ describe('S2-02 follow-up: extension-context internals', () => {
     expect(_internalForTests.extractSingleId(calls)).toBeNull();
   });
 
-  it('extractSingleId returns null for non-id WHEREs', () => {
+  it('extractSingleId returns null for non-id WHEREs and non-equality operators', () => {
     expect(
       _internalForTests.extractSingleId([{ method: 'where', args: ['email', '=', 'a@b'] }]),
     ).toBeNull();
-  });
-
-  it('extractSingleId returns null for non-equality operators', () => {
     expect(
       _internalForTests.extractSingleId([{ method: 'where', args: ['id', '>', '100'] }]),
     ).toBeNull();
@@ -131,286 +64,266 @@ describe('S2-02 follow-up: extension-context internals', () => {
 });
 
 describe('S2-02 follow-up: insertInto interception', () => {
-  beforeEach(() => engineEvents.clearPreHooks());
-  afterEach(() => engineEvents.clearPreHooks());
-
-  it('wraps a zvd_ insert even with no hooks registered', async () => {
-    // This used to take a fast path and return the raw builder, which was the
-    // right gate when hooks were all the wrapper did. The wrapper now also
-    // runs the field pipeline, and whether a value is hashed or encrypted
-    // before storage cannot depend on whether an unrelated extension happens
-    // to be listening.
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    const builder = rdb.insertInto('zvd_forms' as any);
-    expect(builder).not.toBe(db.__inserts[0]);
-  });
-
-  it('still takes the fast path on a table with no field metadata', async () => {
-    // `zv_<ext>_*` is the extension's own schema — no collection definition,
-    // so there is nothing to validate or encrypt and no reason to wrap.
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    const builder = rdb.insertInto('zv_forms_settings' as any);
-    expect(builder).toBe(db.__inserts[0]);
-  });
-
   it('fires record.beforeInsert with the table + data + system userId', async () => {
-    const seen: any[] = [];
+    const seen: Array<{ collection: string; data: unknown; userId: string }> = [];
     engineEvents.onBefore('record.beforeInsert', async (p) => {
-      seen.push({ ...p, abort: undefined, mutate: undefined });
+      seen.push({ collection: p.collection, data: p.data, userId: p.userId as string });
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .insertInto('zvd_forms' as any)
-      .values({ name: 'Contact form' } as any)
-      .execute();
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0].collection).toBe('zvd_forms');
-    expect(seen[0].data).toEqual({ name: 'Contact form' });
-    expect(seen[0].userId).toBe('system:forms');
+    await rdb().insertInto('zvd_forms').values({ name: 'Contact form' }).execute();
+    expect(seen).toEqual([
+      { collection: 'zvd_forms', data: { name: 'Contact form' }, userId: 'system:forms' },
+    ]);
   });
 
-  it('mutate() merges into values before execute', async () => {
+  it('mutate() reaches the statement, through every terminal', async () => {
     engineEvents.onBefore('record.beforeInsert', async (p) => {
       p.mutate({ tenant_id: 't-1' });
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .insertInto('zvd_forms' as any)
-      .values({ name: 'X' } as any)
-      .execute();
-
-    // Two inserts on the stub DB: the recorder created for the FIRST
-    // .insertInto() call (used by the wrapper to discover the chain),
-    // and the REPLAY .insertInto() (with mutated values). We assert the
-    // replay used mutated values.
-    expect(db.__inserts.length).toBeGreaterThanOrEqual(2);
-    const replay = db.__inserts[db.__inserts.length - 1];
-    const valuesCall = replay.__log.find((c: any) => c.method === 'values');
-    expect(valuesCall.args[0]).toEqual({ name: 'X', tenant_id: 't-1' });
+    canned.when(/^insert into "zvd_forms"/, [{ id: 'r1' }]);
+    const db = rdb();
+    expect(
+      await db.insertInto('zvd_forms').values({ name: 'A' }).returning('id').execute(),
+    ).toEqual([{ id: 'r1' }]);
+    expect(
+      await db.insertInto('zvd_forms').values({ name: 'B' }).returning('id').executeTakeFirst(),
+    ).toEqual({ id: 'r1' });
+    expect(
+      await db
+        .insertInto('zvd_forms')
+        .values({ name: 'C' })
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ id: 'r1' });
+    const sent = writes(/^insert into "zvd_forms"/);
+    expect(sent.map((q) => q.parameters)).toEqual([
+      ['A', 't-1'],
+      ['B', 't-1'],
+      ['C', 't-1'],
+    ]);
+    expect(sent[0]!.sql).toContain('("name", "tenant_id")');
   });
 
-  it('abort() surfaces as AbortHookError', async () => {
+  it('replays the other chain methods (onConflict, returning)', async () => {
+    engineEvents.onBefore('record.beforeInsert', async () => {});
+    await rdb()
+      .insertInto('zvd_forms')
+      .values({ name: 'X' })
+      .onConflict((oc: AnyDb) => oc.column('id').doNothing())
+      .returningAll()
+      .execute();
+    expect(writes(/^insert into "zvd_forms"/)[0]!.sql).toMatch(
+      /on conflict \("id"\) do nothing returning \*$/,
+    );
+  });
+
+  it('abort() surfaces as AbortHookError and nothing is written', async () => {
     engineEvents.onBefore('record.beforeInsert', async (p) => {
       p.abort('disallowed');
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    let caught: Error | null = null;
-    try {
-      await rdb
-        .insertInto('zvd_forms' as any)
-        .values({ name: 'X' } as any)
-        .execute();
-    } catch (e) {
-      caught = e as Error;
-    }
-    expect(caught).toBeInstanceOf(AbortHookError);
-    expect((caught as AbortHookError).reason).toBe('disallowed');
+    const err = await rdb()
+      .insertInto('zvd_forms')
+      .values({ name: 'X' })
+      .execute()
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AbortHookError);
+    expect((err as AbortHookError).reason).toBe('disallowed');
+    expect(writes(/^insert/)).toHaveLength(0);
   });
 
-  it('passes other chain methods through (onConflict, returning, etc.)', async () => {
+  it('rethrows an unexpected hook error as itself', async () => {
     engineEvents.onBefore('record.beforeInsert', async () => {
-      /* no-op */
+      throw new Error('hook exploded');
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .insertInto('zvd_forms' as any)
-      .values({ name: 'X' } as any)
-      .onConflict((oc: any) => oc.column('id').doNothing())
-      .returningAll()
-      .execute();
-
-    // Replay should include values + onConflict + returningAll + execute.
-    const replay = db.__inserts[db.__inserts.length - 1];
-    const methods = replay.__log.map((c: any) => c.method);
-    expect(methods).toContain('values');
-    expect(methods).toContain('onConflict');
-    expect(methods).toContain('returningAll');
-    expect(methods).toContain('execute');
+    await expect(rdb().insertInto('zvd_items').values({ name: 'x' }).execute()).rejects.toThrow(
+      'hook exploded',
+    );
   });
 
-  /**
-   * The table was `user` here, which the proxy now refuses outright — an
-   * extension cannot reach the Better-Auth directory at all, so "would a hook
-   * fire on it" is no longer a question that can be asked. The property under
-   * test is unchanged and still worth holding: hooks fire on `zvd_*` user data
-   * and on nothing else, including a table the extension legitimately owns.
-   */
   it('does NOT fire hooks outside zvd_*, e.g. the extension own namespace', async () => {
     let fired = 0;
     engineEvents.onBefore('record.beforeInsert', async () => {
       fired++;
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .insertInto('zv_forms_settings' as any)
-      .values({ key: 'a', value: 'b' } as any)
-      .execute();
-
+    await rdb().insertInto('zv_forms_settings').values({ key: 'a', value: 'b' }).execute();
     expect(fired).toBe(0);
-    // Fast path: no replay needed, only one recorder created.
-    expect(db.__inserts).toHaveLength(1);
+    expect(writes(/^insert into "zv_forms_settings"/)).toHaveLength(1);
+  });
+
+  it('a wrapped builder is not mistaken for a thenable', () => {
+    expect(rdb().insertInto('zvd_forms').then).toBeUndefined();
+    expect(rdb().updateTable('zvd_forms').then).toBeUndefined();
   });
 });
 
 describe('S2-02 follow-up: updateTable interception', () => {
-  beforeEach(() => engineEvents.clearPreHooks());
-  afterEach(() => engineEvents.clearPreHooks());
-
-  it('fires record.beforeUpdate when WHERE is a single id', async () => {
-    const seen: any[] = [];
-    engineEvents.onBefore('record.beforeUpdate', async (p) => {
-      seen.push({ ...p, abort: undefined, mutate: undefined });
-    });
-
-    const db = makeStubDb();
-    // Stub `before` row read.
-    const origSelectFrom = db.selectFrom;
-    db.selectFrom = (table: string) => {
-      const r = origSelectFrom.call(db, table);
-      (r as any).__result = { id: 'abc-1', name: 'old' };
-      return r;
-    };
-    const rdb = createRestrictedDb(db, 'forms');
-
-    await rdb
-      .updateTable('zvd_forms' as any)
-      .set({ name: 'new' } as any)
-      .where('id' as any, '=', 'abc-1')
-      .execute();
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0].id).toBe('abc-1');
-    expect(seen[0].collection).toBe('zvd_forms');
-    expect(seen[0].patch).toEqual({ name: 'new' });
-    expect(seen[0].before).toEqual({ id: 'abc-1', name: 'old' });
-    expect(seen[0].userId).toBe('system:forms');
+  beforeEach(() => {
+    canned.when(/^select \* from "zvd_forms" where "id" = \$1$/, [{ id: 'abc-1', name: 'old' }]);
   });
 
-  it('mutate() merges into patch before replay', async () => {
+  it('fires record.beforeUpdate with the before snapshot when WHERE is a single id', async () => {
+    const seen: Array<Record<string, unknown>> = [];
     engineEvents.onBefore('record.beforeUpdate', async (p) => {
-      p.mutate({ updated_at: 'now()' });
+      seen.push({
+        id: p.id,
+        collection: p.collection,
+        patch: p.patch,
+        before: p.before,
+        userId: p.userId,
+      });
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .updateTable('zvd_forms' as any)
-      .set({ name: 'new' } as any)
-      .where('id' as any, '=', 'abc-1')
-      .execute();
-
-    const replay = db.__updates[db.__updates.length - 1];
-    const setCall = replay.__log.find((c: any) => c.method === 'set');
-    expect(setCall.args[0]).toEqual({ name: 'new', updated_at: 'now()' });
+    await rdb().updateTable('zvd_forms').set({ name: 'new' }).where('id', '=', 'abc-1').execute();
+    expect(seen).toEqual([
+      {
+        id: 'abc-1',
+        collection: 'zvd_forms',
+        patch: { name: 'new' },
+        before: { id: 'abc-1', name: 'old' },
+        userId: 'system:forms',
+      },
+    ]);
   });
 
-  it('skips the hook on bulk WHERE (and warns once per ext+table)', async () => {
-    let fired = 0;
+  it('uses an empty before when the row is not found', async () => {
+    const seen: unknown[] = [];
+    engineEvents.onBefore('record.beforeUpdate', async (p) => {
+      seen.push(p.before);
+    });
+    await rdb().updateTable('zvd_other').set({ name: 'x' }).where('id', '=', 'missing').execute();
+    expect(seen).toEqual([{}]);
+  });
+
+  it('mutate() reaches the statement, through every terminal', async () => {
+    engineEvents.onBefore('record.beforeUpdate', async (p) => {
+      p.mutate({ title: 'mutated' });
+    });
+    const db = rdb();
+    await db.updateTable('zvd_forms').set({ name: 'a' }).where('id', '=', 'abc-1').execute();
+    await db
+      .updateTable('zvd_forms')
+      .set({ name: 'b' })
+      .where('id', '=', 'abc-1')
+      .executeTakeFirst();
+    await db
+      .updateTable('zvd_forms')
+      .set({ name: 'c' })
+      .where('id', '=', 'abc-1')
+      .executeTakeFirstOrThrow();
+    expect(writes(/^update "zvd_forms"/).map((q) => q.parameters)).toEqual([
+      ['a', 'mutated', 'abc-1'],
+      ['b', 'mutated', 'abc-1'],
+      ['c', 'mutated', 'abc-1'],
+    ]);
+  });
+
+  it('abort() surfaces as AbortHookError, other errors as themselves; no write either way', async () => {
+    engineEvents.onBefore('record.beforeUpdate', async (p) => {
+      p.abort('locked');
+    });
+    await expect(
+      rdb().updateTable('zvd_forms').set({ name: 'n' }).where('id', '=', 'abc-1').execute(),
+    ).rejects.toBeInstanceOf(AbortHookError);
+    engineEvents.clearPreHooks();
     engineEvents.onBefore('record.beforeUpdate', async () => {
-      fired++;
+      throw new Error('update hook exploded');
     });
+    await expect(
+      rdb().updateTable('zvd_forms').set({ name: 'n' }).where('id', '=', 'abc-1').execute(),
+    ).rejects.toThrow('update hook exploded');
+    expect(writes(/^update/)).toHaveLength(0);
+  });
 
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .updateTable('zvd_forms' as any)
-      .set({ active: false } as any)
-      .where('tenant_id' as any, '=', 't-x')
-      .execute();
-
-    expect(fired).toBe(0);
-    // The hook is still skipped — it needs a row to describe and a bulk WHERE
-    // does not name one. The chain IS replayed now, because the field
-    // pipeline only needs the patch: storing plaintext because the WHERE was
-    // too broad would be an odd rule. So the executed builder is the replay,
-    // not the recorder.
-    expect(db.__updates.length).toBeGreaterThan(1);
-    const replayed = db.__updates[db.__updates.length - 1];
-    expect(replayed.__log.some((c: any) => c.method === 'execute')).toBe(true);
+  it('skips the hook on a bulk WHERE, still writes, and warns once per ext+table', async () => {
+    engineEvents.onBefore('record.beforeUpdate', async () => {
+      throw new Error('should not fire');
+    });
+    const warned: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warned.push(args);
+    try {
+      const db = rdb('ext-bulk-upd');
+      await db
+        .updateTable('zvd_items')
+        .set({ title: 'x' })
+        .where('tenant_id', '=', 't-1')
+        .execute();
+      await db
+        .updateTable('zvd_items')
+        .set({ title: 'y' })
+        .where('tenant_id', '=', 't-2')
+        .execute();
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(writes(/^update "zvd_items"/)).toHaveLength(2);
+    expect(warned).toHaveLength(1);
+    expect(String(warned[0]![0])).toContain('bulk update');
+    expect(String(warned[0]![0])).toContain('ext-bulk-upd');
   });
 });
 
 describe('S2-02 follow-up: deleteFrom interception', () => {
-  beforeEach(() => engineEvents.clearPreHooks());
-  afterEach(() => engineEvents.clearPreHooks());
-
-  it('fires record.beforeDelete with id + record snapshot', async () => {
-    const seen: any[] = [];
-    engineEvents.onBefore('record.beforeDelete', async (p) => {
-      seen.push({ ...p, abort: undefined });
-    });
-
-    const db = makeStubDb();
-    const origSelectFrom = db.selectFrom;
-    db.selectFrom = (table: string) => {
-      const r = origSelectFrom.call(db, table);
-      (r as any).__result = { id: 'x', name: 'old' };
-      return r;
-    };
-    const rdb = createRestrictedDb(db, 'forms');
-
-    await rdb
-      .deleteFrom('zvd_forms' as any)
-      .where('id' as any, '=', 'x')
-      .execute();
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0].id).toBe('x');
-    expect(seen[0].record).toEqual({ id: 'x', name: 'old' });
-    expect(seen[0].userId).toBe('system:forms');
+  beforeEach(() => {
+    canned.when(/^select \* from "zvd_forms" where "id" = \$1$/, [{ id: 'x', name: 'old' }]);
   });
 
-  it('abort() prevents the delete from running', async () => {
+  it('fires record.beforeDelete with id + record snapshot, through every terminal', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    engineEvents.onBefore('record.beforeDelete', async (p) => {
+      seen.push({ id: p.id, record: p.record, userId: p.userId });
+    });
+    const db = rdb();
+    await db.deleteFrom('zvd_forms').where('id', '=', 'x').execute();
+    await db.deleteFrom('zvd_forms').where('id', '=', 'x').executeTakeFirst();
+    await db.deleteFrom('zvd_forms').where('id', '=', 'x').executeTakeFirstOrThrow();
+    expect(seen).toHaveLength(3);
+    expect(seen[0]).toEqual({ id: 'x', record: { id: 'x', name: 'old' }, userId: 'system:forms' });
+    expect(writes(/^delete from "zvd_forms"/)).toHaveLength(3);
+  });
+
+  it('uses an empty record when the snapshot read fails', async () => {
+    canned.fail(/^select \* from "zvd_forms"/, new Error('snapshot unavailable'));
+    const seen: unknown[] = [];
+    engineEvents.onBefore('record.beforeDelete', async (p) => {
+      seen.push(p.record);
+    });
+    await rdb().deleteFrom('zvd_forms').where('id', '=', 'x').execute();
+    expect(seen).toEqual([{}]);
+  });
+
+  it('abort() and other hook errors prevent the delete from running', async () => {
     engineEvents.onBefore('record.beforeDelete', async (p) => {
       p.abort('not allowed');
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    let caught: Error | null = null;
-    try {
-      await rdb
-        .deleteFrom('zvd_forms' as any)
-        .where('id' as any, '=', 'x')
-        .execute();
-    } catch (e) {
-      caught = e as Error;
-    }
-    expect(caught).toBeInstanceOf(AbortHookError);
-    // The DELETE never reached execute on the recorder — only selectFrom
-    // (for `before` snapshot) should have logged execute calls.
-    const original = db.__deletes[0];
-    expect(original.__log.some((c: any) => c.method === 'execute')).toBe(false);
+    await expect(
+      rdb().deleteFrom('zvd_forms').where('id', '=', 'x').execute(),
+    ).rejects.toBeInstanceOf(AbortHookError);
+    engineEvents.clearPreHooks();
+    engineEvents.onBefore('record.beforeDelete', async () => {
+      throw new Error('delete hook exploded');
+    });
+    await expect(rdb().deleteFrom('zvd_forms').where('id', '=', 'x').execute()).rejects.toThrow(
+      'delete hook exploded',
+    );
+    expect(writes(/^delete/)).toHaveLength(0);
   });
 
-  it('skips the hook on bulk DELETE WHERE without id (and still executes)', async () => {
-    let fired = 0;
+  it('skips the hook on a bulk WHERE, still deletes, and warns once per ext+table', async () => {
     engineEvents.onBefore('record.beforeDelete', async () => {
-      fired++;
+      throw new Error('should not fire');
     });
-
-    const db = makeStubDb();
-    const rdb = createRestrictedDb(db, 'forms');
-    await rdb
-      .deleteFrom('zvd_forms' as any)
-      .where('tenant_id' as any, '=', 't-x')
-      .execute();
-
-    expect(fired).toBe(0);
-    const original = db.__deletes[0];
-    expect(original.__log.some((c: any) => c.method === 'execute')).toBe(true);
+    const warned: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warned.push(args);
+    try {
+      const db = rdb('ext-bulk-del');
+      await db.deleteFrom('zvd_items').where('status', '=', 'archived').execute();
+      await db.deleteFrom('zvd_items').where('status', '=', 'trash').execute();
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(writes(/^delete from "zvd_items"/)).toHaveLength(2);
+    expect(warned).toHaveLength(1);
+    expect(String(warned[0]![0])).toContain('bulk delete');
+    expect(String(warned[0]![0])).toContain('ext-bulk-del');
   });
 });

@@ -3,13 +3,13 @@
  *
  * Provides a RestrictedDb proxy that wraps the engine's Kysely Database.
  *
- * Access policy:
- *   - Extensions may freely access non-prefixed tables (e.g. `user`, `account`).
- *   - Extensions may freely access `zvd_*` user-data tables.
- *   - Extensions may access `zv_<extname>_*` (and the dotted/slashed variant
- *     where slashes are normalized to underscores) — their OWN reserved namespace.
- *   - Extensions may NOT access any other `zv_*` system tables: secrets,
- *     permissions, audit logs, API keys, billing data, session tokens, etc.
+ * Access policy — one rule, applied to the SQL Postgres would receive, whether
+ * a query builder, a raw `sql` template or `executeQuery` produced it (see
+ * `checkedExecutor`): user-data collections (`zvd_*` minus the engine's own
+ * metadata), the extension's own `zv_<extname>_*` namespace (slashes folded to
+ * underscores), and the tables its migrations create or a grant names.
+ * Everything else — `user`, `session`, `account`, the engine's `zv_*` and
+ * `zvd_*` tables, the catalogue — is refused because it was never permitted.
  *
  * Hook interception (S2-02 follow-up): writes against `zvd_*` user tables
  * fire `record.beforeInsert` / `record.beforeUpdate` / `record.beforeDelete`
@@ -22,15 +22,9 @@
  *     single-row match by id (the common case). Bulk WHERE-clause writes
  *     skip the hook with a console warning — extensions doing maintenance
  *     work should be deliberate about it.
- *
- * Fast path: if no hook is registered for the relevant event, the proxy
- * returns the raw Kysely builder — zero overhead in the steady state.
- *
- * Raw SQL — `sql\`…\`.execute(ctx.db)`, `sql.raw(…).execute(ctx.db)`,
- * `ctx.db.executeQuery(…)` — is checked against the same allowlist by the
- * worker bridge's analyzer (`assertWorkerSqlAllowed`); see `checkedExecutor`.
  */
 
+import { QueryCreator } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
@@ -41,16 +35,15 @@ import {
   workerSqlEngineTables,
 } from './worker-sql-policy.js';
 
-// All Kysely query-builder entry points that accept a table name as first arg.
-const QUERY_METHODS = [
-  'selectFrom',
-  'insertInto',
-  'updateTable',
-  'deleteFrom',
-  'replaceInto',
-  'mergeInto',
-  'withSchema',
-] as const;
+/**
+ * Every way to start a query on a Kysely handle — `selectFrom`, `with`,
+ * `selectNoFrom`, `mergeInto`, `withSchema`… Read off Kysely itself, so an entry
+ * point added upstream is guarded without anyone remembering to list it; a
+ * hand-kept list of seven is what let `with` and `selectNoFrom` through.
+ */
+const QUERY_ENTRY_POINTS: ReadonlySet<string> = new Set(
+  Object.getOwnPropertyNames(QueryCreator.prototype).filter((p) => p !== 'constructor'),
+);
 
 type RestrictedDatabase = Database;
 
@@ -65,17 +58,6 @@ function shouldFireHooks(tableName: string): boolean {
 }
 
 /**
- * Create a RestrictedDb proxy around the given Database.
- *
- * Any call to a Kysely query-builder method whose table argument starts with
- * `zv_` throws an ExtensionSecurityError, preventing extensions from reading
- * or writing system tables.
- *
- * @param db   The real Database instance.
- * @param extName  Extension name — included in error messages for debugging.
- */
-
-/**
  * Is this handle already inside a transaction?
  *
  * Kysely's Transaction carries `isTransaction`; the pool does not. Checking the
@@ -87,305 +69,28 @@ function isTenantTransaction(db: unknown): boolean {
 }
 
 /**
- * The allowlist check shared by the entry-point guard and the join guard
- * below: user data (`zvd_*`), the extension's own namespace, or an explicit
- * grant. A non-string or empty `baseTable` is refused, not defaulted to
- * permitted — `typeof tableName === 'string' ? tableName : ''` upstream used
- * to turn any non-string table expression (an array, or a derived-table
- * callback) into `''`, which this same check then treated as "no table
- * named, nothing to refuse". Confirmed live: `ctx.db.selectFrom(['session'])`
- * and `ctx.db.selectFrom((eb) => eb.selectFrom('session')...)` both read a
- * real bearer token through that gap.
- */
-function isPermittedTable(
-  baseTable: string,
-  ownedPrefix: string,
-  allowedTables?: Set<string>,
-): boolean {
-  return (
-    baseTable !== '' &&
-    (baseTable.startsWith('zvd_') ||
-      baseTable.startsWith(ownedPrefix) ||
-      allowedTables?.has(baseTable) === true)
-  );
-}
-
-const JOIN_METHODS = [
-  'innerJoin',
-  'leftJoin',
-  'rightJoin',
-  'fullJoin',
-  'crossJoin',
-  'innerJoinLateral',
-  'leftJoinLateral',
-  'crossJoinLateral',
-] as const;
-
-/**
- * Guard a query builder's JOIN table arguments the same way the FROM table is
- * guarded. `selectFrom` and friends return the real, unwrapped Kysely builder
- * once the FROM table clears the allowlist — join methods are not in
- * `QUERY_METHODS`, so `.selectFrom('zvd_x').innerJoin('session', ...)`
- * reached Postgres with `session` never inspected. Confirmed live: a
- * permitted base table joined to `session` returned a real row, token
- * included, to an extension with no capability and no grant.
+ * The query creator `ctx.db.selectFrom()` & co. come from: Kysely's own, over
+ * `checkedExecutor`, so every statement a builder runs is the compiled SQL the
+ * raw path's analyzer reads.
  *
- * Wraps every call recursively — Kysely builders are immutable, so `.where()`
- * `.select()`, etc. each return a NEW builder, and only re-wrapping that
- * result keeps a join placed after one of them covered too.
+ * The guard used to read the table NAME passed to each entry point and wrap
+ * the returned builder to read join names too. Everything else a builder can
+ * express went to Postgres unread: a `sql` fragment in `.where()` or
+ * `.select()`, `with()`, `selectNoFrom()`, `deleteFrom().using()`,
+ * `updateTable().from()`. Measured on the old guard, an extension with no
+ * grant read `"user"` and `session` through each of them. And the name check
+ * admitted every `zvd_*`, including the engine's `zvd_permissions` that the raw
+ * path refuses — two rules for one extension. Checking at the executor is one
+ * rule, applied to the exact text Postgres receives, whatever built it.
  */
-/**
- * The expression builder handed to a derived-table callback, with the table
- * check applied to its own entry points.
- *
- * Without this, a join to a subquery is either refused outright (a false
- * refusal for `forms`, which selects from a table it owns) or waved through
- * with the inner query never inspected — and the inner query is exactly where
- * `selectFrom('session')` would go.
- */
-function guardDerivedBuilder<T>(
-  builder: T,
+function checkedQueryCreator(
+  target: Database,
   extName: string,
-  ownedPrefix: string,
-  allowedTables?: Set<string>,
-): T {
-  if (builder === null || typeof builder !== 'object') return builder;
-  return new Proxy(builder as object, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof prop !== 'string' || typeof value !== 'function') return value;
-
-      const checks =
-        (QUERY_METHODS as readonly string[]).includes(prop) ||
-        (JOIN_METHODS as readonly string[]).includes(prop);
-
-      if (checks) {
-        return (tableArg: unknown, ...rest: unknown[]) => {
-          const baseTable = typeof tableArg === 'string' ? tableArg.split(/\s+/)[0].trim() : '';
-          if (!isPermittedTable(baseTable, ownedPrefix, allowedTables)) {
-            throw new ExtensionSecurityError(
-              `Extension "${extName}" attempted to ${prop}("${baseTable || String(tableArg)}") ` +
-                `inside a derived table. A subquery is restricted exactly like the outer ` +
-                `query: user data (zvd_*), the extension's own namespace (${ownedPrefix}*), ` +
-                `and tables their migrations create or a grant names.`,
-            );
-          }
-          return guardDerivedBuilder(
-            (value as (...a: unknown[]) => unknown).apply(target, [tableArg, ...rest]),
-            extName,
-            ownedPrefix,
-            allowedTables,
-          );
-        };
-      }
-
-      const bound = value.bind(target);
-      return (...args: unknown[]) =>
-        guardDerivedBuilder(bound(...args), extName, ownedPrefix, allowedTables);
-    },
-  }) as T;
-}
-
-function guardJoins<T>(
-  builder: T,
-  extName: string,
-  ownedPrefix: string,
-  allowedTables?: Set<string>,
-): T {
-  if (builder === null || typeof builder !== 'object') return builder;
-  return new Proxy(builder as object, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof prop !== 'string' || typeof value !== 'function') return value;
-
-      if ((JOIN_METHODS as readonly string[]).includes(prop)) {
-        return (tableArg: unknown, ...rest: unknown[]) => {
-          // A derived table — `.leftJoin((eb) => eb.selectFrom('t')..., a, b)` —
-          // names no table in the argument, so the string check below reads `''`
-          // and refuses. Refusing is wrong here and was a REGRESSION: the
-          // subquery is ordinary SQL and `forms` has shipped one over its own
-          // `zv_form_submissions` since before the guard existed. Measured on
-          // 2026-09-14 against engine master: `forms` and every extension doing
-          // this answered 500 on its main GET route.
-          //
-          // The property the guard must keep is that the INNER query cannot
-          // reach a table the extension may not read. Inspect it instead of
-          // refusing it: hand the callback an expression builder whose own
-          // `selectFrom`/join methods carry the same check, so
-          // `(eb) => eb.selectFrom('session')` still throws — from inside — and
-          // `(eb) => eb.selectFrom('zv_form_submissions')` is allowed.
-          //
-          // `selectFrom((eb) => ...)` at the FROM position stays refused: there
-          // the callback replaces the base table entirely, and a bypass there is
-          // the hole this whole guard was written to close.
-          if (typeof tableArg === 'function') {
-            const authored = tableArg as (eb: unknown) => unknown;
-            const guarded = (eb: unknown) =>
-              authored(guardDerivedBuilder(eb, extName, ownedPrefix, allowedTables));
-            return guardJoins(
-              (value as (...a: unknown[]) => unknown).apply(target, [guarded, ...rest]),
-              extName,
-              ownedPrefix,
-              allowedTables,
-            );
-          }
-          const baseTable = typeof tableArg === 'string' ? tableArg.split(/\s+/)[0].trim() : '';
-          if (!isPermittedTable(baseTable, ownedPrefix, allowedTables)) {
-            throw new ExtensionSecurityError(
-              `Extension "${extName}" attempted to ${prop}("${baseTable || String(tableArg)}"). ` +
-                `Joined tables are restricted exactly like the FROM table: user data ` +
-                `(zvd_*), the extension's own namespace (${ownedPrefix}*), and tables ` +
-                `their migrations create or a grant names.`,
-            );
-          }
-          return guardJoins(
-            (value as (...a: unknown[]) => unknown).apply(target, [tableArg, ...rest]),
-            extName,
-            ownedPrefix,
-            allowedTables,
-          );
-        };
-      }
-
-      const bound = value.bind(target);
-      return (...args: unknown[]) =>
-        guardJoins(bound(...args), extName, ownedPrefix, allowedTables);
-    },
-  }) as T;
-}
-
-/**
- * Guard every `QUERY_METHODS` entry point on a query creator — the top-level
- * `Database`, or the result of `withSchema()`, which is itself a fresh query
- * creator that used to be handed back RAW. `withSchema('public')` only checks
- * the schema name; nothing downstream re-checked the table, so
- * `ctx.db.withSchema('public').selectFrom('session')` reached Postgres with no
- * table check at all. Confirmed live: it returned the same bearer token as
- * calling `selectFrom('session')` directly, which the entry check right below
- * refuses on its own. Recursing here — wrapping `withSchema`'s result with
- * this same function — is what closes that: only 'public' is permitted per
- * the check below, so guarding it as `Database` again is exactly the right
- * scope, not a widening of it.
- */
-function restrictQueryEntry<T extends object>(
-  target: T,
-  extName: string,
-  ownedPrefix: string,
   allowedTables: Set<string> | undefined,
-): T {
-  return new Proxy(target, {
-    get(_ignored, prop: string | symbol) {
-      const value = (target as unknown as Record<string | symbol, unknown>)[prop];
-
-      if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
-        // Return a wrapper that validates the table argument before forwarding.
-        return function restrictedQueryMethod(tableName: string, ...rest: unknown[]) {
-          const table = typeof tableName === 'string' ? tableName : '';
-          // Strip alias syntax e.g. "zv_users as u"
-          const baseTable = table.split(/\s+/)[0].trim();
-
-          // `withSchema` names a SCHEMA, not a table, and the two cannot share one
-          // rule. Under the old prefix denylist `withSchema('public')` passed by
-          // accident — `public` does not begin `zv_` — and an allowlist of table names
-          // refuses it, breaking a legitimate call. `public` is the only schema an
-          // extension has business in; anything else is a way around every rule below.
-          if (prop === 'withSchema') {
-            if (baseTable !== 'public') {
-              throw new ExtensionSecurityError(
-                `Extension "${extName}" attempted withSchema("${baseTable}"). ` +
-                  `Extensions may only work in the public schema.`,
-              );
-            }
-            const raw = (target as never as Record<string, (...a: unknown[]) => unknown>)[prop](
-              tableName,
-              ...rest,
-            );
-            return restrictQueryEntry(raw as object, extName, ownedPrefix, allowedTables);
-          }
-
-          // An ALLOWLIST, not a prefix denylist.
-          //
-          // This used to refuse a table only when it began `zv_`. Better-Auth's tables
-          // have no prefix at all — `session`, `user`, `account`, `verification`,
-          // `twoFactor` — so every one of them fell straight through, and none of them
-          // has RLS. Measured on a real database through this very proxy, with an
-          // extension holding no capability and no table grant:
-          //
-          //   session       CITIT — coloane: id, expiresAt, token, createdAt
-          //   user          CITIT — coloane: id, name, email, emailVerified
-          //   account       CITIT — coloane: id, accountId, providerId, userId
-          //   zv_api_keys   refuzat
-          //
-          // `session.token` is a live bearer credential and `account` holds password
-          // hashes, so the one table an extension must never read was the one the guard
-          // was shaped to miss. That `zv_api_keys` WAS refused is what made it look like
-          // it worked.
-          //
-          // The same shape — a denylist over an open namespace — is what let the AI
-          // text-to-SQL validator accept `SELECT token FROM session`, and what the worker
-          // SQL path was moved away from in beta.61. This is the in-process path, which
-          // every first-party extension uses.
-          //
-          // Permitted, and nothing else: user-data collections, the extension's own
-          // namespace, and the tables its migrations created or a grant names. An empty
-          // or non-string table expression is REFUSED, not defaulted to permitted — see
-          // `isPermittedTable`'s note on the array/derived-table bypass this replaced.
-          if (!isPermittedTable(baseTable, ownedPrefix, allowedTables)) {
-            throw new ExtensionSecurityError(
-              `Extension "${extName}" attempted to access table "${baseTable || String(tableName)}" via ${prop}(). ` +
-                `Extensions may access user data tables (zvd_*), their own namespace ` +
-                `(${ownedPrefix}*), and tables their migrations create. Everything else — engine ` +
-                `tables and the unprefixed Better-Auth tables (user, session, account) — is ` +
-                `refused. Add an entry to EXTENSION_TABLE_GRANTS if this extension genuinely ` +
-                `owns "${baseTable}".`,
-            );
-          }
-
-          // Writes against user-data tables (zvd_*) are wrapped; everything
-          // else takes the fast path with no wrapping cost.
-          //
-          // Insert and update are wrapped UNCONDITIONALLY. They used to engage
-          // only when some extension had registered a matching hook, which was
-          // the right gate when hooks were all the wrapper did — but it now
-          // also runs the field pipeline, and whether a value gets hashed or
-          // encrypted before it is stored cannot depend on whether an
-          // unrelated extension happens to be listening.
-          //
-          // Delete keeps the hook-count gate: it has no payload to process, so
-          // with no hook registered there is genuinely nothing to do.
-          if (shouldFireHooks(baseTable)) {
-            if (prop === 'insertInto') {
-              return wrapInsertForHooks(target, baseTable, extName);
-            }
-            if (prop === 'updateTable') {
-              return wrapUpdateForHooks(target, baseTable, extName);
-            }
-            if (prop === 'deleteFrom' && engineEvents.preHookCount('record.beforeDelete') > 0) {
-              return wrapDeleteForHooks(target, baseTable, extName);
-            }
-          }
-
-          // Wrap the returned builder so a JOIN chained onto it (e.g.
-          // `.selectFrom('zvd_x').innerJoin('session', ...)`) is checked the
-          // same way the FROM table was — see `guardJoins`.
-          return guardJoins(
-            (value as (...args: unknown[]) => unknown).call(target, tableName, ...rest),
-            extName,
-            ownedPrefix,
-            allowedTables,
-          );
-        };
-      }
-
-      if (typeof value === 'function') {
-        const bound = (value as (...a: unknown[]) => unknown).bind(target);
-        if (Object.keys(value as object).length > 0) Object.assign(bound, value as object);
-        return bound;
-      }
-
-      return value;
-    },
-  }) as T;
+): QueryCreator<never> {
+  return new QueryCreator({
+    executor: checkedExecutor(target.getExecutor(), extName, allowedTables),
+  });
 }
 
 /** Savepoint names for joined extension transactions; unique so nesting is plain. */
@@ -403,18 +108,12 @@ interface ExecutorLike {
 }
 
 /**
- * Raw SQL from an extension, checked against its allowlist.
+ * SQL from an extension, checked against its allowlist.
  *
- * The query builder's guard (`restrictQueryEntry`) only sees a table NAME, so it
- * never saw raw SQL at all: `sql\`SELECT token FROM "session"\`.execute(ctx.db)`
- * asked `ctx.db.getExecutor()`, which this proxy bound straight to the real
- * handle, and Postgres answered. The worker bridge has had a text analyzer for
- * exactly this since beta.61; this is that analyzer, given the inline
- * extension's grants as well, so both kinds of extension meet one rule:
- * collections (`zvd_*` minus the engine's metadata), the extension's own
- * `zv_<ext>_*` namespace, and the tables its migrations create or a grant
- * names. `user`, `session`, `account`, the engine's `zv_*` and `zvd_*` metadata,
- * `information_schema` and `pg_catalog` are refused because none is permitted.
+ * The worker bridge's analyzer, given the inline extension's grants as well, so
+ * both kinds of extension meet one rule. It used to cover raw SQL only, while
+ * the builder had a table-name check of its own that admitted more; see
+ * `checkedQueryCreator`.
  */
 async function assertRawSqlAllowed(
   extName: string,
@@ -427,7 +126,7 @@ async function assertRawSqlAllowed(
       text,
       await workerSqlEngineTables(),
       allowedTables ?? new Set(),
-      'raw SQL',
+      'ctx.db',
     );
   } catch (err) {
     if (err instanceof WorkerSqlPolicyError) throw new ExtensionSecurityError(err.message);
@@ -436,13 +135,10 @@ async function assertRawSqlAllowed(
 }
 
 /**
- * The executor `ctx.db.getExecutor()` hands out: every statement it runs is
- * checked first.
- *
- * This is the executor raw SQL reaches and nothing else does. A builder query
- * captures the REAL handle's executor when `selectFrom` & co. are called on the
- * target below, so it never comes through here and is not checked twice; a
- * `sql\`…\`.execute(ctx.db)` is the only caller that asks this proxy for one.
+ * The executor every extension statement runs through — raw SQL asks for it
+ * with `ctx.db.getExecutor()`, builders carry it from `checkedQueryCreator` —
+ * and every statement is checked first, as compiled, so plugins and `sql`
+ * fragments are already in the text.
  *
  * `provideConnection` is refused: the connection it lends runs SQL with no
  * executor in between, and only Kysely's own `connection()` / `transaction()`
@@ -511,8 +207,9 @@ export function createRestrictedDb(
   allowedTables?: Set<string>,
   /**
    * Engine-only: the view `engineHandle()` returns, for SQL the ENGINE writes on
-   * a handle an extension passed in. Raw SQL is not checked; the builder guard
-   * stays. Extensions never receive this.
+   * a handle an extension passed in: nothing it runs is checked. Engine code
+   * applies it to its own statements only (see `engine-handle.ts`). Extensions
+   * never receive this.
    */
   trustRawSql = false,
 ): RestrictedDatabase {
@@ -524,8 +221,6 @@ export function createRestrictedDb(
     typeof dbOrResolver === 'function' ? (dbOrResolver as () => Database) : () => dbOrResolver;
   // An extension named "ai" owns `zv_ai_*`. An extension named "compliance/ro/saft"
   // owns `zv_compliance_ro_saft_*` (slashes normalized to underscores).
-  const ownedPrefix = `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
-
   /** The same guard over a handle this one opened (a transaction). */
   const guarded = (db: Database): Database => createRestrictedDb(db, extName, allowedTables);
 
@@ -620,17 +315,27 @@ export function createRestrictedDb(
         return () => wrap(target.transaction() as unknown as TrxBuilder);
       }
 
+      if (!trustRawSql && typeof prop === 'string' && QUERY_ENTRY_POINTS.has(prop)) {
+        const creator = checkedQueryCreator(target, extName, allowedTables);
+        return (...args: unknown[]) => {
+          // Writes to a collection run the field pipeline and the record hooks,
+          // as the data API does; the builder they replay is the checked one.
+          const table = typeof args[0] === 'string' ? args[0].split(/\s+/)[0]! : '';
+          if (shouldFireHooks(table)) {
+            if (prop === 'insertInto') return wrapInsertForHooks(creator, target, table, extName);
+            if (prop === 'updateTable') return wrapUpdateForHooks(creator, target, table, extName);
+            if (prop === 'deleteFrom' && engineEvents.preHookCount('record.beforeDelete') > 0) {
+              return wrapDeleteForHooks(creator, table, extName);
+            }
+          }
+          return (creator as unknown as Record<string, (...a: unknown[]) => unknown>)[prop]!(
+            ...args,
+          );
+        };
+      }
+
       // `unknown`, not `any` — see the same trap in `createRequestScopedDb`.
       const value = (target as unknown as Record<string | symbol, unknown>)[prop];
-
-      if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
-        return (
-          restrictQueryEntry(target, extName, ownedPrefix, allowedTables) as unknown as Record<
-            string,
-            unknown
-          >
-        )[prop];
-      }
 
       if (typeof value === 'function') {
         const bound = value.bind(target);
@@ -680,7 +385,7 @@ export function createRestrictedDb(
 export function createDeniedAdminDb(extName: string): RestrictedDatabase {
   return new Proxy({} as Database, {
     get(_dummy, prop: string | symbol) {
-      if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
+      if (typeof prop === 'string' && QUERY_ENTRY_POINTS.has(prop)) {
         return () => {
           throw new ExtensionSecurityError(
             `Extension "${extName}" used ctx.adminDb without declaring the "db:admin" ` +
@@ -790,7 +495,7 @@ async function runFieldPipeline(
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function wrapInsertForHooks(db: any, table: string, extName: string): any {
+function wrapInsertForHooks(db: any, target: Database, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -812,7 +517,7 @@ function wrapInsertForHooks(db: any, table: string, extName: string): any {
               valuesIdx >= 0 ? (chainCalls[valuesIdx].args[0] as Record<string, unknown>) : {};
 
             try {
-              const shaped = await runFieldPipeline(db, table, extName, originalData, false);
+              const shaped = await runFieldPipeline(target, table, extName, originalData, false);
               const payload = await engineEvents.runBefore('record.beforeInsert', {
                 collection: table,
                 data: shaped,
@@ -886,7 +591,7 @@ function extractSingleId(chainCalls: ChainCall[]): string | null {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function wrapUpdateForHooks(db: any, table: string, extName: string): any {
+function wrapUpdateForHooks(db: any, target: Database, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -911,7 +616,13 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
               warnBulkSkip('update', table, extName);
               if (setIdx < 0) return await asDynamic(t)[prop](...termArgs);
 
-              const shapedBulk = await runFieldPipeline(db, table, extName, originalPatch, true);
+              const shapedBulk = await runFieldPipeline(
+                target,
+                table,
+                extName,
+                originalPatch,
+                true,
+              );
               let qb = db.updateTable(table);
               for (let i = 0; i < chainCalls.length; i++) {
                 const call = chainCalls[i];
@@ -927,7 +638,7 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
               .where('id', '=', id)
               .executeTakeFirst()
               .catch(() => undefined)) as Record<string, unknown> | undefined;
-            const shaped = await runFieldPipeline(db, table, extName, originalPatch, true);
+            const shaped = await runFieldPipeline(target, table, extName, originalPatch, true);
             const payload = await engineEvents.runBefore('record.beforeUpdate', {
               collection: table,
               id,

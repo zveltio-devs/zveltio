@@ -2161,9 +2161,12 @@ Ask, in this order:
 
 - **Don't use raw `sql\`...\``** unless you absolutely must. Kysely is type-safe;
   raw SQL is not, and it bypasses query-alter hooks.
-- **Don't reach engine tables.** `ctx.db` refuses them for Kysely calls and for
-  raw SQL alike (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`, and the
-  handle `ctx.db.transaction()` passes its callback): a statement may name only
+- **Don't reach engine tables.** `ctx.db` checks every statement it runs as
+  compiled — a Kysely builder from any entry point (`with()` and
+  `selectNoFrom()` included) with any `sql` fragment inside it, raw SQL
+  (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`), and the handle
+  `ctx.db.transaction()` passes its callback. The refusal comes when the query
+  executes, not when it is built. A statement may name only
   collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
   migrations create or `EXTENSION_TABLE_GRANTS` grants you. `user`, `session`,
   `account`, the engine's `zv_*` / `zvd_*` metadata, `information_schema` and
