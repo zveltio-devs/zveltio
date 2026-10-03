@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import { propagation, context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
-import { resolveClientIp } from '../lib/security/index.js';
+import { loggablePath, loggableUrl, resolveClientIp } from '../lib/security/index.js';
 
 // No-op when OTel is not configured — zero overhead in production without OTEL_EXPORTER_OTLP_ENDPOINT
 const isEnabled = () => !!process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -24,7 +24,9 @@ export function tracingMiddleware(): MiddlewareHandler {
     const parentCtx = propagation.extract(context.active(), carrier);
 
     const tracer = trace.getTracer('zveltio-engine');
-    const spanName = `${c.req.method} ${c.req.path}`;
+    // Spans leave the process: no credential from the path or the query.
+    const route = loggablePath(c);
+    const spanName = `${c.req.method} ${route}`;
 
     return new Promise<void>((resolve, reject) => {
       tracer.startActiveSpan(
@@ -33,8 +35,8 @@ export function tracingMiddleware(): MiddlewareHandler {
           kind: SpanKind.SERVER,
           attributes: {
             'http.method': c.req.method,
-            'http.url': c.req.url,
-            'http.route': c.req.path,
+            'http.url': loggableUrl(c),
+            'http.route': route,
             'http.user_agent': c.req.header('user-agent') ?? '',
             'net.peer.ip': resolveClientIp(c),
           },

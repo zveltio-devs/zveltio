@@ -12,7 +12,7 @@
 import { afterRequestSettles } from './tenant.js';
 import { createMiddleware } from 'hono/factory';
 import { isGodUser } from '../lib/tenancy/index.js';
-import { clientIpForAudit } from '../lib/security/index.js';
+import { clientIpForAudit, loggablePath } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 
@@ -118,7 +118,7 @@ export function godAuditMiddleware(poolDb: Database) {
           logGodAction(poolDb, {
             userId: user.id,
             method: c.req.method,
-            path: c.req.path,
+            path: loggablePath(c),
             status: c.res.status,
             durationMs,
             ip,
