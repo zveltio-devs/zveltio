@@ -466,6 +466,26 @@ on each loaded extension's own tables and `EXTENSION_TABLE_GRANTS` — never on
 cannot reach `zv_api_keys`, `zvd_permissions` or the tenants. Outside a tenant
 transaction (boot, cron, listeners) `ctx.db` still runs as the engine role.
 
+None of the restricted roles (`zveltio_rls`, `zveltio_ext`, `zveltio_worker`,
+`zveltio_flow_reader`) may create temporary objects. Postgres gives
+`TEMPORARY` to `PUBLIC`, and a temp table is searched before `public` and
+outlives the role window on a pooled connection, so one statement an analyzer
+missed could plant a table the engine's next query on that connection reads or
+writes as the engine role. At every boot the engine grants `TEMPORARY` to its
+own role and revokes it from `PUBLIC` (`lib/tenancy/temp-privilege.ts`). That
+needs the database owner — which `scripts/bootstrap-db-role.sh` makes the
+engine role — or a superuser. On a database the engine does not own, the boot
+log says so; run, as the owner:
+
+```sql
+GRANT TEMPORARY ON DATABASE <db> TO <engine role>;
+REVOKE TEMPORARY ON DATABASE <db> FROM PUBLIC;
+```
+
+Until then the worker bridge discards temp objects before it returns a
+connection to the pool. Other login roles on the same database (reporting,
+backup) lose `TEMPORARY` too; grant it back to them by name if they need it.
+
 A boot reconciler rewrites every extension-owned tenant table onto the host
 predicate, which makes tenant isolation something the host guarantees rather
 than something every extension author has to get right.

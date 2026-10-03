@@ -13,3 +13,4 @@ export * from './permissions.js';
 export * from './resource-grants.js';
 export * from './denial.js';
 export * from './tenant-purge.js';
+export * from './temp-privilege.js';

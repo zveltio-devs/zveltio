@@ -124,6 +124,14 @@ else
   echo "  ✓ database $DB exists, owner set"
 fi
 
+# Only the engine role may create temporary objects: PUBLIC holds TEMPORARY by
+# default, and a restricted role's temp table would shadow engine tables on a
+# pooled connection (docs/platform/multi-tenancy.md). The engine repeats this at
+# boot; here it also covers a database the engine role will not own.
+psql_super -d "$DB" -q -c "GRANT TEMPORARY ON DATABASE \"$DB\" TO $APP_ROLE;"
+psql_super -d "$DB" -q -c "REVOKE TEMPORARY ON DATABASE \"$DB\" FROM PUBLIC;"
+echo "  ✓ TEMPORARY on $DB: $APP_ROLE only"
+
 # ── The extensions the engine cannot create for itself ───────────────────────
 for ext in pgcrypto pg_trgm vector postgis; do
   if psql_super -d "$DB" -tAc \
