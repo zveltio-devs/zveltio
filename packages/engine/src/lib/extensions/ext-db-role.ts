@@ -48,7 +48,7 @@
 
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { keepWorkerExtensionTables } from '../tenancy/index.js';
+import { keepWorkerExtensionTables, temporaryObjectsRestricted } from '../tenancy/index.js';
 
 export const EXT_DB_ROLE = 'zveltio_ext';
 /** `zveltio_ext` plus BYPASSRLS, for statements whose role already bypasses RLS. */
@@ -310,6 +310,22 @@ function setRoleSql(mirror: boolean): string {
   return `SELECT current_setting('role') AS prev, set_config('role', ${role}, true) AS now`;
 }
 
+/**
+ * Close a role window on a database where boot could not take TEMPORARY from the
+ * restricted roles (lib/tenancy/temp-privilege.ts): a temp table the statement
+ * made would sit first on the search path of every later engine statement on
+ * this transaction and, without ON COMMIT DROP, on this pooled connection.
+ *
+ * Inside the transaction, right after the statement: before the engine's next
+ * statement can resolve a name, and a statement that failed created nothing a
+ * rollback does not undo. It drops the session's ENGINE temp tables too — the
+ * engine creates them only in migration 001, never around an extension
+ * statement. Nothing at all where TEMPORARY is restricted.
+ */
+async function discardExtensionTemp(executor: RoleExecutor): Promise<void> {
+  if (!temporaryObjectsRestricted()) await executor.executeQuery(CompiledQuery.raw('DISCARD TEMP'));
+}
+
 /** The last role window queued on each transaction; see `asExtensionDbRole`. */
 const windows = new WeakMap<object, Promise<unknown>>();
 
@@ -361,6 +377,7 @@ async function roleWindow<T>(
   let out: T;
   try {
     out = await run();
+    await discardExtensionTemp(executor);
   } catch (err) {
     // The statement failed, so the transaction (or the savepoint around it) is
     // aborted and its rollback restores the role; a restore here would only
@@ -392,7 +409,9 @@ export function asExtensionDbRoleOnPool<T>(
   return db.transaction().execute(async (trx) => {
     const on = trx.getExecutor();
     await on.executeQuery(CompiledQuery.raw(setRoleSql(true)));
-    return run(on);
+    const out = await run(on);
+    await discardExtensionTemp(on);
+    return out;
   });
 }
 
