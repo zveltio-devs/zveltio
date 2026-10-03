@@ -844,7 +844,7 @@ export interface ExtensionInternals<DB = unknown> {
   // you entered with `withTenantIsolation` (outside a request that needs
   // `tenant:enter`). A refusal throws an error with a `code`: `no_tenant`,
   // `no_such_user`, `user_not_owned`, `role_not_allowed`, `email_taken`,
-  // `invalid_input`. Timestamps are ISO-8601 strings with microseconds, so a
+  // `account_exists`, `invalid_input`. Timestamps are ISO-8601 strings with microseconds, so a
   // value read here compares exactly when passed back.
   /** Whether at most one tenant exists — then every user belongs to it. Ungated. */
   isSingleTenantInstance: () => Promise<boolean>;
@@ -852,7 +852,12 @@ export interface ExtensionInternals<DB = unknown> {
    * The account for `email` (case-insensitive), created when there is none:
    * verified, no password, never god, in no tenant. Works while
    * self-registration is off. Inside `withTenantIsolation` it is created in
-   * that transaction, and a rollback takes it back.
+   * that transaction, and a rollback takes it back. An account that already
+   * exists comes back only if the running tenant has a claim to it: a member
+   * here with no power elsewhere beyond plain membership, any account but god
+   * and the instance admins on a single-tenant instance, or a bare record (no
+   * credential, membership or grant). Anyone else is `account_exists`: they join
+   * through an invitation, which proves they control the address.
    */
   provisionUser: (input: { email: string; name?: string }) => Promise<{
     user: ProvisionedUser;
@@ -868,9 +873,10 @@ export interface ExtensionInternals<DB = unknown> {
     query?: { email?: string; userId?: string; limit?: number; offset?: number },
   ) => Promise<Array<ProvisionedUser & { membership: TenantMembershipInfo | null }>>;
   /**
-   * Rename or re-address a user the running tenant ALONE holds: not god, not an
-   * instance admin, no membership or grant in any other tenant (`user_not_owned`
-   * otherwise). `db` is your transaction.
+   * Rename or re-address a user the running tenant ALONE holds: a membership
+   * here (any user on a single-tenant instance), not god, not an instance admin,
+   * no membership or grant in any other tenant (`user_not_owned` otherwise).
+   * `db` is your transaction.
    */
   updateUserProfile: (
     db: unknown,
@@ -891,7 +897,8 @@ export interface ExtensionInternals<DB = unknown> {
    * Remove the user from the running tenant with every role they hold in it.
    * `orphaned`: no tenant and nothing else holds the account now — deleting it
    * (`deleteUser`, `auth:users`) is your call. `inForceAnywhere`: a membership
-   * in force remains in some tenant.
+   * in force remains in some tenant. An owner or admin of the tenant (in the
+   * default tenant, an instance admin) is refused, `role_not_allowed`.
    */
   removeTenantMember: (
     db: unknown,
@@ -901,7 +908,8 @@ export interface ExtensionInternals<DB = unknown> {
    * Set when the user's membership of the running tenant ends: `'now'`, an
    * ISO-8601 instant, or `null` (open-ended). `ifInForce` changes only a
    * membership in force; `ifValidTo` only one whose end is still exactly that
-   * value. `null` when the user is no member here.
+   * value. `null` when the user is no member here. An owner or admin is
+   * refused, `role_not_allowed`.
    */
   setTenantMembershipEnd: (
     db: unknown,

@@ -143,9 +143,14 @@ export function auditAs(caller: string, event: ExtensionAuditEvent): Promise<voi
   if (typeof event?.type !== 'string' || event.type.length === 0 || event.type.length > 100) {
     return Promise.reject(new Error('ctx.internals.audit: event.type must be a 1-100 char string'));
   }
+  // Named fields, not a spread: a `tenantId` the type does not declare reached
+  // auditLog and wrote the row into that tenant's trail.
   const row = {
-    ...event,
     type: event.type as AuditEventType,
+    userId: event.userId,
+    resourceId: event.resourceId,
+    resourceType: event.resourceType,
+    ip: event.ip,
     metadata: { ...(event.metadata ?? {}), extension: caller },
   };
   const tenant = getCurrentDomainOrNull();

@@ -61,6 +61,10 @@ d('identity provisioning through ctx.internals', () => {
     );
     return id;
   };
+  /** A password, as sign-up leaves one: somebody can sign into this account. */
+  const credential = (user: string) =>
+    sql`INSERT INTO account (id, "accountId", "providerId", "userId", password)
+        VALUES (${`acc-${user}`}, ${user}, 'credential', ${user}, 'x')`.execute(db);
   const enrol = (tenant: string, user: string, role = 'member', lapsed = false) =>
     sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
         VALUES (${tenant}::uuid, ${user}, ${role}, now() - interval '2 days',
@@ -158,6 +162,83 @@ d('identity provisioning through ctx.internals', () => {
     });
   });
 
+  // provisionUser handed back whatever account held the address, so one tenant's
+  // IdP asserted it and signed in as (auth:session) or re-addressed the holder.
+  it('provisionUser: an existing account only when the running tenant has a claim to it', async () => {
+    const provision = (tenant: string, id: string) =>
+      as(tenant, () => scim.provisionUser({ email: `${id}@test.local` }));
+    const refused = { code: 'account_exists' };
+
+    // Somebody else's: a password, a membership in another tenant, or both.
+    const signsIn = await makeUser('signs-in');
+    await credential(signsIn);
+    const theirs = await makeUser('their-member');
+    await enrol(T2, theirs);
+    for (const id of [signsIn, theirs])
+      await expect(provision(T, id)).rejects.toMatchObject(refused);
+
+    // The link-then-rename takeover the probe ran is refused at the first step.
+    await expect(
+      as(T, async (trx) => {
+        const { user } = await scim.provisionUser({ email: `${signsIn}@test.local` });
+        await scim.addTenantMember(trx, user.id);
+        return scim.updateUserProfile(trx, user.id, { email: `own-${TAG}@evil.test` });
+      }),
+    ).rejects.toMatchObject(refused);
+    expect(
+      (await sql<{ email: string }>`SELECT email FROM "user" WHERE id = ${signsIn}`.execute(db))
+        .rows[0]!.email,
+    ).toBe(`${signsIn}@test.local`);
+
+    // Its own member, password and all, lapsed or a plain member elsewhere too.
+    const own = await makeUser('own');
+    await credential(own);
+    await enrol(T, own, 'member', true);
+    await enrol(T2, own);
+    await (await getEnforcer()).addRoleForUser(own, 'tenant_member', T2);
+    expect(await provision(T, own)).toMatchObject({ created: false, user: { id: own } });
+    await (await getEnforcer()).deleteRoleForUser(own, 'tenant_member', T2);
+
+    // ...but not one with power the tenant did not give.
+    const adminThere = await makeUser('admin-there');
+    await enrol(T, adminThere);
+    await enrol(T2, adminThere, 'admin');
+    const starAdmin = await makeUser('star-admin');
+    await enrol(T, starAdmin);
+    const e = await getEnforcer();
+    await e.addRoleForUser(starAdmin, 'admin', '*');
+    try {
+      for (const id of [adminThere, starAdmin]) {
+        await expect(provision(T, id)).rejects.toMatchObject(refused);
+      }
+    } finally {
+      await e.deleteRoleForUser(starAdmin, 'admin', '*');
+    }
+    // God, even as a member here. One god per instance (migration 008): reuse it.
+    const godId =
+      (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db)).rows[0]
+        ?.id ?? (await makeUser('god', 'god'));
+    const godEmail = (
+      await sql<{ email: string }>`SELECT email FROM "user" WHERE id = ${godId}`.execute(db)
+    ).rows[0]!.email;
+    await enrol(T, godId);
+    try {
+      await expect(as(T, () => scim.provisionUser({ email: godEmail }))).rejects.toMatchObject(
+        refused,
+      );
+    } finally {
+      await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${T}::uuid AND user_id = ${godId}`.execute(
+        db,
+      );
+    }
+
+    // A bare record — no credential, membership or grant — nobody signs into: adoptable.
+    const bare = await makeUser('bare');
+    expect(await provision(T, bare)).toMatchObject({ created: false, user: { id: bare } });
+    // Outside any tenant only a bare record is returned.
+    await expect(scim.provisionUser({ email: `${own}@test.local` })).rejects.toMatchObject(refused);
+  });
+
   it("listTenantUsers: the running tenant's members, lapsed included, nobody else's", async () => {
     const [mine, lapsed, theirs] = [
       await makeUser('mine'),
@@ -227,6 +308,22 @@ d('identity provisioning through ctx.internals', () => {
     expect(after.name).toBe('Still works');
   });
 
+  // A user no tenant holds (a default-space account on a multi-tenant instance,
+  // a self-registered one) is not this tenant's: re-addressing it hands its
+  // password reset to whoever runs the tenant's IdP.
+  it('updateUserProfile: a user the running tenant does not hold at all is not its to rename', async () => {
+    const stranger = await makeUser('nobodys');
+    const found = await as(T, () => scim.provisionUser({ email: `${stranger}@test.local` }));
+    expect(found).toMatchObject({ created: false, user: { id: stranger } });
+    await expect(
+      as(T, (trx) => scim.updateUserProfile(trx, stranger, { email: `taken-${TAG}@evil.test` })),
+    ).rejects.toMatchObject({ code: 'user_not_owned' });
+    expect(
+      (await sql<{ email: string }>`SELECT email FROM "user" WHERE id = ${stranger}`.execute(db))
+        .rows[0]!.email,
+    ).toBe(`${stranger}@test.local`);
+  });
+
   it('updateUserProfile: an instance admin is not the default tenant’s to rename', async () => {
     const admin = await makeUser('iadmin');
     await (await getEnforcer()).addRoleForUser(admin, 'admin', DEFAULT_TENANT_ID);
@@ -294,6 +391,44 @@ d('identity provisioning through ctx.internals', () => {
       orphaned: false,
       inForceAnywhere: false,
     });
+  });
+
+  // addTenantMember refuses to touch an owner or admin; removing or ending one
+  // was open, and in the default tenant the revoke stripped an instance admin's
+  // grants with no membership row to remove.
+  it('removeTenantMember / setTenantMembershipEnd: an owner, admin or instance admin is not the extension’s', async () => {
+    const owner = await makeUser('rm-owner');
+    // The grade alone, no Casbin grant: the instance admin below is the grant alone.
+    await enrol(T, owner, 'owner');
+    await expect(as(T, (trx) => scim.removeTenantMember(trx, owner))).rejects.toMatchObject({
+      code: 'role_not_allowed',
+    });
+    await expect(
+      as(T, (trx) => scim.setTenantMembershipEnd(trx, owner, 'now')),
+    ).rejects.toMatchObject({ code: 'role_not_allowed' });
+    expect(await membership(T, owner)).toMatchObject({ role: 'owner', valid_to: null });
+
+    const iadmin = await makeUser('rm-iadmin');
+    const e = await getEnforcer();
+    await e.addRoleForUser(iadmin, 'admin', DEFAULT_TENANT_ID);
+    try {
+      await expect(
+        as(DEFAULT_TENANT_ID, (trx) => scim.removeTenantMember(trx, iadmin)),
+      ).rejects.toMatchObject({ code: 'role_not_allowed' });
+      expect(await grades(iadmin)).toEqual([`admin@${DEFAULT_TENANT_ID}`]);
+    } finally {
+      await e.deleteRolesForUser(iadmin, DEFAULT_TENANT_ID);
+    }
+  });
+
+  it('listTenantUsers: a limit that is not a number is invalid_input, transaction intact', async () => {
+    const out = await as(T, async (trx) => {
+      await expect(
+        scim.listTenantUsers(trx, { limit: 'all' as unknown as number }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+      return scim.listTenantUsers(trx, { limit: 1 });
+    });
+    expect(Array.isArray(out)).toBe(true);
   });
 
   it('setTenantMembershipEnd: suspend in force, resend is a no-op, restore only an unchanged end', async () => {
@@ -451,6 +586,10 @@ d('identity provisioning through ctx.internals', () => {
     const solo = await makeUser('solo');
     const starEditor = await makeUser('star-editor');
     await (await getEnforcer()).addRoleForUser(starEditor, 'editor', '*');
+    const withPassword = await makeUser('solo-password');
+    await credential(withPassword);
+    const soloAdmin = await makeUser('solo-admin');
+    await (await getEnforcer()).addRoleForUser(soloAdmin, 'admin', DEFAULT_TENANT_ID);
     const multi = await as(DEFAULT_TENANT_ID, (trx) => scim.listTenantUsers(trx, { userId: solo }));
     expect(multi).toEqual([]);
 
@@ -464,6 +603,12 @@ d('identity provisioning through ctx.internals', () => {
           single: await isSingleTenantInstance(trx),
           listed: await scim.listTenantUsers(trx, { userId: solo }),
           renamed: (await scim.updateUserProfile(trx, starEditor, { name: 'Solo editor' })).name,
+          // The one tenant holds every account but god and the instance admins.
+          linked: (await scim.provisionUser({ email: `${withPassword}@test.local` })).user.id,
+          adminLink: await scim.provisionUser({ email: `${soloAdmin}@test.local` }).then(
+            () => 'linked',
+            (err: { code?: string }) => err.code,
+          ),
           removed: await scim.removeTenantMember(trx, solo),
         }));
         throw Object.assign(rollback, { out });
@@ -476,9 +621,12 @@ d('identity provisioning through ctx.internals', () => {
       single: true,
       listed: [{ id: solo, membership: null }],
       renamed: 'Solo editor',
+      linked: withPassword,
+      adminLink: 'account_exists',
       // No row to remove, yet the default tenant held the account alone.
       removed: { removed: false, orphaned: true, inForceAnywhere: false },
     });
+    await (await getEnforcer()).deleteRolesForUser(soloAdmin, DEFAULT_TENANT_ID);
     // Multi-tenant again: the '*' grant is power the instance gave.
     await expect(
       as(DEFAULT_TENANT_ID, (trx) => scim.updateUserProfile(trx, starEditor, { name: 'x' })),

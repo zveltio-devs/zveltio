@@ -127,6 +127,22 @@ d('ctx.internals tenant facts', () => {
     expect(row?.metadata).toEqual({ extension: 'ext:facts-ext', n: 1 });
   });
 
+  // `tenantId` is not in the event's type, but the row was spread into auditLog
+  // whole: an ungated extension serving A wrote into B's trail.
+  it("audit writes the running tenant's row, never one a tenantId in the event names", async () => {
+    const forged = { type: `${TAG}.event`, resourceType: 'forged', tenantId: B };
+    await runWithDomain(A, () => internals.audit(forged));
+    await internals.audit(forged);
+    await _settleAuditWrites();
+    const rows = (
+      await sql<{ tenant_id: string | null }>`
+        SELECT tenant_id FROM zv_audit_log
+         WHERE event_type = ${`${TAG}.event`} AND resource_type = 'forged'
+         ORDER BY created_at`.execute(db)
+    ).rows.map((r) => r.tenant_id);
+    expect(rows).toEqual([A, null]);
+  });
+
   it('DDLManager.getRelations reads zvd_relations, filtered to one collection', async () => {
     await sql`INSERT INTO zvd_relations (name, type, source_collection, source_field, target_collection)
               VALUES (${`${TAG}-r1`}, 'm2o', ${`${TAG}_src`}, 'owner', ${`${TAG}_dst`}),

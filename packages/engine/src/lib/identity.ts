@@ -36,6 +36,7 @@ import {
   getEnforcer,
   invalidateTenantCache,
   invalidateUserPermCache,
+  isTenantAdmin,
   onAfterCommit,
   requireInstanceAdmin,
 } from './tenancy/index.js';
@@ -54,6 +55,7 @@ export type IdentityRefusal =
   | 'user_not_owned'
   | 'role_not_allowed'
   | 'email_taken'
+  | 'account_exists'
   | 'invalid_input';
 
 /** A refusal an extension can match on `code` and answer its caller with. */
@@ -174,11 +176,78 @@ function normalEmail(email: unknown): string {
   return e;
 }
 
+/** Casbin grades that are plain membership, which another tenant may also hold. */
+const PLAIN_GRADES: ReadonlySet<string> = new Set(['member', 'viewer'].map(casbinTenantRole));
+
+/**
+ * Whether `tenant` (the running one, or null) may be handed an account that
+ * already exists. A found account was the IdP's to sign in as (`auth:session`)
+ * and re-address (`updateUserProfile`): one tenant's IdP asserting an address
+ * took over whoever held it. Allowed:
+ *   - single-tenant: every account but god and the instance admins — the one
+ *     tenant holds them all, and an install moving to SSO links its users;
+ *   - otherwise a member here (lapsed too: a returning employee) with no power
+ *     elsewhere beyond plain membership — no god, no `'*'` or instance grant,
+ *     no other tenant's owner/admin;
+ *   - or a bare record: no credential, no membership, no grant — nobody can
+ *     sign into it, so there is nothing to take over.
+ * Anyone else joins through an invitation, which proves control of the address.
+ */
+async function mayClaim(db: Database, userId: string, tenant: string | null): Promise<boolean> {
+  const r = (
+    await sql<{
+      god: boolean;
+      here: boolean;
+      admin_elsewhere: boolean;
+      anywhere: boolean;
+    }>`
+      SELECT COALESCE((SELECT role = 'god' FROM "user" WHERE id = ${userId}), false) AS god,
+             EXISTS (SELECT 1 FROM zv_tenant_users
+                      WHERE user_id = ${userId} AND tenant_id = ${tenant}::uuid) AS here,
+             EXISTS (SELECT 1 FROM zv_tenant_users
+                      WHERE user_id = ${userId} AND tenant_id <> ${tenant}::uuid
+                        AND role NOT IN ('member', 'viewer')) AS admin_elsewhere,
+             EXISTS (SELECT 1 FROM zv_tenant_users WHERE user_id = ${userId}) AS anywhere`.execute(
+      db,
+    )
+  ).rows[0]!;
+  if (r.god) return false;
+  if (tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db))) {
+    return !(await requireInstanceAdmin(userId));
+  }
+  const e = await getEnforcer();
+  const roles = await e.getFilteredGroupingPolicy(0, userId);
+  const rules = await e.getFilteredPolicy(0, userId);
+  if (r.here) {
+    if (r.admin_elsewhere) return false;
+    if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId))) return false;
+    return (
+      !roles.some((g) => g[2] !== tenant && !PLAIN_GRADES.has(g[1]!)) &&
+      !rules.some((p) => p[1] !== tenant)
+    );
+  }
+  if (r.anywhere || roles.length || rules.length) return false;
+  // `account` is better-auth's, readable on its pool only (the request's role
+  // has no grant on it, by design — migration 044).
+  const auth = await getAuth().$context;
+  return (await auth.internalAdapter.findAccounts(userId)).length === 0;
+}
+
+function claimRefused(email: string): IdentityRefusedError {
+  return new IdentityRefusedError(
+    'account_exists',
+    `An account for ${email} exists and this tenant has no claim to it; the person joins ` +
+      'through an invitation, which proves they control the address.',
+  );
+}
+
 /**
  * The account for `email`, created when there is none: through better-auth (its
  * hooks, its id), verified, passwordless, at the column-default role — never
  * god. Allowed while self-registration is off: the administrator who approved
- * the capability authorised it. The account lands in no tenant.
+ * the capability authorised it. The account lands in no tenant. An existing
+ * account is returned only when the running tenant may claim it (`mayClaim`),
+ * otherwise `account_exists`.
  */
 export async function provisionUser(
   input: { email: string; name?: string },
@@ -190,8 +259,12 @@ export async function provisionUser(
   // left it behind — answered `created`, on a single-tenant instance a member.
   const trx = getCurrentTenantTrx();
   const db = trx ?? getDb();
+  const tenant = getCurrentDomainOrNull();
   const existing = await userByEmail(db, email);
-  if (existing) return { user: existing, created: false };
+  if (existing) {
+    if (!(await mayClaim(db, existing.id, tenant))) throw claimRefused(email);
+    return { user: existing, created: false };
+  }
   const name = input.name?.trim() || email.split('@')[0]!;
   const ctx = await getAuth().$context;
   // better-auth's own internalAdapter, re-pointed at `trx`. ponytail: hooks are
@@ -223,7 +296,10 @@ export async function provisionUser(
       throw err;
     },
   );
-  if (raced) return { user: raced, created: false };
+  if (raced) {
+    if (!(await mayClaim(db, raced.id, tenant))) throw claimRefused(email);
+    return { user: raced, created: false };
+  }
   const user = await userByEmail(db, email);
   if (!user) throw new Error(`provisionUser: ${email} vanished after it was created`);
   await auditLog(db, {
@@ -247,6 +323,12 @@ export async function listTenantUsers(
   const tenant = runningTenant('listTenantUsers');
   const db = engineHandle(callerDb);
   const everyone = tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db));
+  // NaN reached LIMIT as a bigint error that aborted the caller's transaction.
+  for (const v of [q.limit, q.offset]) {
+    if (v !== undefined && !Number.isSafeInteger(Math.trunc(v))) {
+      throw new IdentityRefusedError('invalid_input', `Not a number: ${String(v)}`);
+    }
+  }
   const limit = Math.min(1000, Math.max(0, Math.trunc(q.limit ?? 100)));
   const offset = Math.max(0, Math.trunc(q.offset ?? 0));
   const r = await sql<
@@ -276,13 +358,17 @@ export async function listTenantUsers(
 
 /**
  * Why `userId` is not the running tenant's alone, or null when it is. Locks the
- * row, so the answer holds until the caller's transaction ends.
+ * row, so the answer holds until the caller's transaction ends. `held`: the
+ * caller already knows the tenant had them (a membership it just removed).
  */
 async function notOwnedBy(
   db: Database,
   userId: string,
   tenant: string,
-): Promise<'missing' | 'god' | 'instance_admin' | 'other_tenant' | 'other_grants' | null> {
+  held = false,
+): Promise<
+  'missing' | 'god' | 'instance_admin' | 'not_member' | 'other_tenant' | 'other_grants' | null
+> {
   const r = await sql<{ role: string | null }>`
     SELECT role FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db);
   if (!r.rows[0]) return 'missing';
@@ -291,10 +377,16 @@ async function notOwnedBy(
     return 'instance_admin';
   }
   if (await isSingleTenantInstance(db)) return null;
-  const elsewhere = await sql`
-    SELECT 1 FROM zv_tenant_users
-     WHERE user_id = ${userId} AND tenant_id <> ${tenant}::uuid LIMIT 1`.execute(db);
-  if (elsewhere.rows.length) return 'other_tenant';
+  const rows = (
+    await sql<{ here: boolean; elsewhere: boolean }>`
+      SELECT COALESCE(bool_or(tenant_id = ${tenant}::uuid), false) AS here,
+             COALESCE(bool_or(tenant_id <> ${tenant}::uuid), false) AS elsewhere
+        FROM zv_tenant_users WHERE user_id = ${userId}`.execute(db)
+  ).rows[0];
+  if (rows?.elsewhere) return 'other_tenant';
+  // No row here is no tenant's account, not this one's: provisionUser finds it
+  // by email, and re-addressing it handed its password reset to this tenant's IdP.
+  if (!rows?.here && !held) return 'not_member';
   // A grant in '*' or another domain is power the instance gave, not this tenant.
   const e = await getEnforcer();
   const roles = (await e.getFilteredGroupingPolicy(0, userId)).filter((g) => g[2] !== tenant);
@@ -431,6 +523,21 @@ async function inForceAnywhere(db: Database, userId: string): Promise<boolean> {
 }
 
 /**
+ * An owner or admin of the running tenant — by grade, or by a Casbin grant in
+ * its domain, which in the default tenant is an instance admin — is a tenant
+ * administrator's to remove or suspend, as to demote: the revoke drops every
+ * role in the domain, with or without a membership row.
+ */
+async function refuseAdministrator(userId: string, had: { role: TenantRole } | null) {
+  if ((had && !EXTENSION_ROLES.has(had.role)) || (await isTenantAdmin(userId))) {
+    throw new IdentityRefusedError(
+      'role_not_allowed',
+      `User ${userId} administers this tenant; a tenant administrator changes that.`,
+    );
+  }
+}
+
+/**
  * Make `userId` a `member` or `viewer` of the running tenant, or move them
  * between the two. Dates stay: a membership the business ended is not reopened
  * by provisioning. An `owner` or `admin` is a tenant administrator's to change.
@@ -494,6 +601,7 @@ export async function removeTenantMember(
   // second sees the first's removal and one of them finds the account orphaned.
   const user = await sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db);
   if (!user.rows.length) return { removed: false, orphaned: false, inForceAnywhere: false };
+  await refuseAdministrator(userId, await currentMembership(db, tenant, userId));
   const removed = await revokeTenantMembership(
     db,
     { id: tenant, slug: await tenantSlug(db, tenant) },
@@ -514,7 +622,8 @@ export async function removeTenantMember(
     db,
   );
   const hadIt = removed || (tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db)));
-  const orphaned = hadIt && !left.rows.length && (await notOwnedBy(db, userId, tenant)) === null;
+  const orphaned =
+    hadIt && !left.rows.length && (await notOwnedBy(db, userId, tenant, true)) === null;
   return { removed, orphaned, inForceAnywhere: await inForceAnywhere(db, userId) };
 }
 
@@ -549,6 +658,7 @@ export async function setTenantMembershipEnd(
   const db = engineHandle(callerDb);
   const had = await currentMembership(db, tenant, userId);
   if (!had) return null;
+  await refuseAdministrator(userId, had);
   const end = validTo === 'now' ? sql`now()` : sql`${validTo}::timestamptz`;
   const r = await sql<{ valid_to: string | null }>`
     UPDATE zv_tenant_users tu SET valid_to = ${end}
@@ -560,7 +670,12 @@ export async function setTenantMembershipEnd(
   const changed = r.rows.length > 0;
   if (changed) {
     const slug = await tenantSlug(db, tenant);
-    if (slug) await invalidateTenantCache(slug, tenant, userId);
+    // After the commit, as for a grant: the sweep it asks for closes the user's
+    // sockets and streams in this tenant now, not at the next periodic tick.
+    await afterCommit(async () => {
+      await invalidateUserPermCache(userId);
+      if (slug) await invalidateTenantCache(slug, tenant, userId);
+    });
     await auditLog(db, {
       type: 'tenant.member_updated',
       tenantId: tenant,
