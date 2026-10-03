@@ -24,7 +24,6 @@ import {
   initTenantManager,
   invalidateTenantCache,
   provisionEnvironment,
-  provisionTenantSchema,
   reconcileExtensionTenantRLS,
   reconcileTenantRLS,
   resolveEnvironment,
@@ -282,37 +281,15 @@ describe('reconcileTenantRLS', () => {
 });
 
 describe('provisioning', () => {
-  it('provisionTenantSchema creates the schema and the three system tables', async () => {
+  it('provisionEnvironment registers the row idempotently and creates no schema', async () => {
     const db = setup();
-    const log = spyOn(console, 'log').mockImplementation(() => {});
-    try {
-      await provisionTenantSchema('tenant_acme');
-    } finally {
-      log.mockRestore();
-    }
+    await provisionEnvironment(TENANT.id, 'staging', 'Staging', false);
 
-    expect(db.executed(/CREATE SCHEMA IF NOT EXISTS "tenant_acme"/)).toHaveLength(1);
-    for (const table of ['zvd_collections', 'zvd_relations', 'zvd_permissions']) {
-      expect(
-        db.executed(new RegExp(`CREATE TABLE IF NOT EXISTS "tenant_acme"\\.${table}`)),
-      ).toHaveLength(1);
-    }
-  });
-
-  it('provisionEnvironment provisions the env schema and registers it idempotently', async () => {
-    const db = setup();
-    const log = spyOn(console, 'log').mockImplementation(() => {});
-    try {
-      await provisionEnvironment(TENANT.id, 'acme-corp', 'staging', 'Staging', false);
-    } finally {
-      log.mockRestore();
-    }
-
-    expect(db.executed(/CREATE SCHEMA IF NOT EXISTS "tenant_acme_corp_staging"/)).toHaveLength(1);
+    expect(db.executed(/CREATE SCHEMA/i)).toHaveLength(0);
     const insert = db.executed(/insert into "zv_environments"/)[0]!;
     expect(insert.sql).toContain('on conflict');
+    expect(insert.sql).not.toContain('schema_name');
     expect(insert.parameters).toContain('staging');
-    expect(insert.parameters).toContain('tenant_acme_corp_staging');
     expect(insert.parameters).toContain('#d97706'); // staging color from the map
   });
 

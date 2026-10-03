@@ -311,9 +311,10 @@ read.
   child tenants (and no tenant merged into it). One transaction deletes the
   tenant's rows from every `public` table with a `tenant_id` column — engine,
   extension, collection and BYOD tables alike, junction tables through their
-  cascading keys — drops its `tenant_*` schemas (its environments', and the
-  legacy `tenant_<slug>` one older versions created; a name another tenant's
-  base or environment schema also spells is kept), then the tenant row. Media
+  cascading keys — drops the legacy `tenant_*` schemas older versions created
+  for it (`tenant_<slug>`, and each environment's `tenant_<slug>_<env>` that its
+  `schema_name` still names; a name another tenant's base or environment schema
+  also spells is kept), then the tenant row. Media
   objects are deleted after the commit; a failure there is reported, not fatal.
   The purge owns that transaction: `/api/tenants` opens no request
   transaction, and `purgeTenant` refuses to join one — joined, its every-tenant
@@ -456,13 +457,15 @@ than something every extension author has to get right.
 
 ## 8. What the model is NOT — corrections for frequent assumptions
 
-- **It is not schema-per-tenant.** Creating a tenant makes no `tenant_<slug>`
+- **It is not schema-per-tenant, nor schema-per-environment.** Creating a
+  tenant or an environment makes no `tenant_<slug>` or `tenant_<slug>_<env>`
   schema any more: nothing ever read one (no route, no `search_path`), and the
-  request no longer carries a `tenantSchema`. Installs from before keep theirs,
-  empty, until the tenant is purged. `provisionTenantSchema` still creates each
-  **environment's** `tenant_<slug>_<env>` schema — which nothing reads either;
-  the schema that is used, through `search_path`, is a schema branch's preview
-  (`branch_*`, `middleware/preview-env.ts`).
+  request no longer carries a `tenantSchema`. An environment is a row in
+  `zv_environments` whose `schema_name` is NULL (since migration 043; the API's
+  `schema` field is kept and answers `null`). Installs from before keep their
+  schemas, untouched, until the tenant is purged. The schema that is used,
+  through `search_path`, is a schema branch's preview (`branch_*`,
+  `middleware/preview-env.ts`).
 - **It is not database-per-tenant.**
 - **`enableRLS` and `applyTenantRLS` are not dead duplicates** — both are called,
   from different places (`routes/tenants.ts`, `lib/data/ddl-queue.ts`). They now
