@@ -16,7 +16,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createKeyCreator,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -68,9 +73,9 @@ d('session-only routes: 401 for nobody, 403 for a valid API key', () => {
     ({ cookie } = await createMemberSession(app, db));
     for (const [name, k] of Object.entries(KEYS)) {
       await sql`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
         VALUES (${`${STAMP}-${name}`}, ${await hashApiKey(k.raw)}, ${k.raw.slice(0, 12)},
-                '["*"]'::jsonb, ${k.active}, ${k.tenant}::uuid)
+                '["*"]'::jsonb, ${k.active}, ${k.tenant}::uuid, ${await createKeyCreator(db)})
       `.execute(db);
     }
   }, 60_000);

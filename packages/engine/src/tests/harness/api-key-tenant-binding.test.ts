@@ -17,11 +17,13 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createKeyCreator, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-const OTHER_TENANT = '00000000-0000-0000-0000-0000000000fe';
+// A real tenant the key's creator belongs to, so the foreign key is valid in
+// every respect but where it is used.
+const OTHER_TENANT = crypto.randomUUID();
 const ROOT_TENANT = '00000000-0000-0000-0000-000000000001';
 const STAMP = Date.now();
 const FOREIGN_KEY = generateApiKey();
@@ -35,14 +37,18 @@ d('API keys are bound to their tenant', () => {
 
   const insertKey = async (raw: string, tenantId: string, name: string) => {
     await sql`
-      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id)
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
       VALUES (${name}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
-              '["*"]'::jsonb, true, ${tenantId}::uuid)
+              '["*"]'::jsonb, true, ${tenantId}::uuid, ${await createKeyCreator(db, [tenantId])})
     `.execute(db);
   };
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER_TENANT}::uuid, ${`key-binding-${STAMP}`}, 'key binding', 'active')`.execute(
+      db,
+    );
     await insertKey(FOREIGN_KEY, OTHER_TENANT, `foreign-${STAMP}`);
     await insertKey(ROOT_KEY, ROOT_TENANT, `root-${STAMP}`);
   });
@@ -53,6 +59,7 @@ d('API keys are bound to their tenant', () => {
       .execute(db)
       .catch(() => {});
     await sql`DELETE FROM zv_edge_functions WHERE id = ${FN_ID}::uuid`.execute(db).catch(() => {});
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });
 
   it('refuses a key from another tenant, even though the key itself is valid', async () => {

@@ -22,6 +22,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { __sweepIdle, revalidateSockets } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests, broadcastDataEvent } from '../../routes/realtime.js';
 import {
+  createKeyCreator,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -243,10 +244,10 @@ d('SSE stream with an API key', () => {
   it('401 for nobody, an unknown key and another tenant key', async () => {
     const raw = generateApiKey();
     await sql`
-      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id)
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
       VALUES (${`ssekey-${STAMP}-foreign`}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
               ${JSON.stringify([{ collection: SCOPED, actions: ['read'] }])}::jsonb, true,
-              ${FOREIGN_TENANT}::uuid)
+              ${FOREIGN_TENANT}::uuid, ${await createKeyCreator(db)})
     `.execute(db);
     const q = `collection=${SCOPED}`;
     expect((await stream(q, {})).status).toBe(401);

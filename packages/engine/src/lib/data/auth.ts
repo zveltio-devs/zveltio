@@ -131,12 +131,11 @@ export function requestApiKey(c: Context): string | null {
  * An active, unexpired key row for `rawKey`, or null. No tenant check — see
  * validateApiKey.
  *
- * Refused too when the user who created the key is barred from signing in
- * (`"user".banned`, set by SCIM deactivation): a deactivated employee's keys
- * kept reading and writing after every sign-in method was closed to them. In the
- * same query, so it fails the way the key lookup does — a thrown error, never a
- * key. Deleting the creator revokes their keys (`deleteUser`, migration 025
- * for the ones deleted before), so a NULL `created_by` is no longer a live key.
+ * Refused too unless the user who created the key still exists and is not
+ * barred from signing in (`"user".banned`, set by SCIM deactivation): a
+ * deactivated employee's keys kept reading and writing after every sign-in
+ * method was closed to them. In the same query, so it fails the way the key
+ * lookup does — a thrown error, never a key.
  */
 export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
   // No query for a string no key can match: `generateApiKey` owns the shape.
@@ -160,28 +159,30 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
  * their membership is no longer in force (`activeMembership` — lapsed, not yet
  * started, removed; SCIM suspends a user in one tenant this way) the key stops
  * with their sessions. Exempt, as at the membership middleware: the default
- * tenant (it counts everyone) and a god creator. A NULL `created_by` passes, as
- * it does the barred check above — deleting a user revokes their keys.
+ * tenant (it counts everyone) and a god creator.
+ *
+ * A key with no creator is refused. `created_by` is `ON DELETE SET NULL`:
+ * `deleteUser` revokes a user's keys first, but a user row deleted any other
+ * way (direct SQL, an extension's admin handle, a restored backup) nulled the
+ * creator and the key kept working with no owner — both checks here let a
+ * NULL creator pass. Every route that mints a key records its caller.
  */
 function usableApiKeys(db: Database) {
   return db
     .selectFrom('zv_api_keys')
     .where('is_active', '=', true)
-    .where(({ not, exists, selectFrom }) =>
-      not(
-        exists(
-          selectFrom('user')
-            .select('user.id')
-            .whereRef('user.id', '=', 'zv_api_keys.created_by')
-            .where('user.banned', '=', true),
-        ),
+    .where(({ exists, selectFrom }) =>
+      exists(
+        selectFrom('user')
+          .select('user.id')
+          .whereRef('user.id', '=', 'zv_api_keys.created_by')
+          .where((u) => u.or([u('user.banned', 'is', null), u('user.banned', '=', false)])),
       ),
     )
     .where((eb) =>
       eb.or([
         eb('zv_api_keys.tenant_id', 'is', null),
         eb('zv_api_keys.tenant_id', '=', DEFAULT_TENANT_ID),
-        eb('zv_api_keys.created_by', 'is', null),
         eb.exists(
           eb
             .selectFrom('user')

@@ -167,6 +167,7 @@ API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_
 - Scoped per collection and action (`read`, `create`, `update`, `delete`)
 - Optional expiry date and per-key rate limit
 - Revocable immediately via `DELETE /api/api-keys/:id`
+- A key acts on its creator's standing: it stops when the creator is banned, loses membership in the key's tenant, or is deleted — by any path, including a direct `DELETE FROM "user"`
 
 ---
 
