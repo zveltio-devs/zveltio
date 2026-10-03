@@ -1,10 +1,10 @@
 /**
  * Auto-run pending migrations on engine startup (S4-10).
  *
- * Wraps `runPending(db)` in an advisory lock (`withAdvisoryLock`) so multiple
+ * Wraps `runPending(db)` in the migration lock (`withMigrationLock`) so multiple
  * engine replicas starting simultaneously can't race the migration runner.
  * Only one process holds the lock; the others wait, then re-check
- * `getLastAppliedMigration` and skip if everything is already applied.
+ * `pendingMigrations` and skip if everything is already applied.
  *
  * Opt out: `MIGRATIONS_AUTO=false` skips the entire flow (useful for
  * CI, debugging, or operators who prefer running `zveltio migrate`
@@ -17,28 +17,13 @@
  * bugs.
  */
 
-import { AdvisoryLockTimeout, withAdvisoryLock } from './advisory-lock.js';
 import type { Database } from './index.js';
 import {
   runPending,
   getLastAppliedMigration,
-  assertChainCompatible,
-  timeoutSetting,
+  pendingMigrations,
+  withMigrationLock,
 } from './migrations/index.js';
-import { MAX_SCHEMA_VERSION } from '../version.js';
-
-/**
- * Stable 64-bit integer used as the advisory lock key — unchanged since the
- * session-lock version, so a replica still running that one excludes this one.
- * Computed once (hash of 'zveltio:migrations') so every replica converges on
- * the same value. PostgreSQL advisory locks live in a separate namespace from
- * row/table locks — they don't block reads/writes.
- *
- * To regenerate: `printf 'zveltio:migrations' | sha256sum` → first 16
- * hex chars → parse as signed bigint. We use a fixed literal so we
- * don't depend on a hashing roundtrip on every startup.
- */
-const MIGRATIONS_LOCK_KEY = 0x7a76656c74696f00n; // 'zveltio\0' as bigint
 
 export interface AutoMigrateResult {
   /** True if the lock was acquired and (potentially) migrations ran. */
@@ -69,69 +54,41 @@ export async function autoMigrate(db: Database): Promise<AutoMigrateResult> {
   }
 
   const t0 = Date.now();
-  const before = await getLastAppliedMigration(db);
 
-  // Before anything concludes there is nothing to do. The shortcut below
-  // compares high-water marks, which is only meaningful while the chain grows
-  // monotonically; a database whose chain was squashed away records a HIGHER
-  // number than this build ships and would sail straight through it, applying
-  // nothing and saying nothing. This compares identities instead.
-  await assertChainCompatible(db);
-
-  if (before >= MAX_SCHEMA_VERSION) {
+  // What is pending is a set difference, not "is the high-water mark below the
+  // newest file". This used to return on `lastApplied >= MAX_SCHEMA_VERSION`,
+  // which reads a database that recorded 048 before 047 was merged as up to
+  // date — and 047 then never ran anywhere. The same read checks the recorded
+  // chain against this build first (squash, edited file), and is the only
+  // query when nothing is pending.
+  const { lastApplied: before, pending } = await pendingMigrations(db);
+  if (pending.length === 0) {
     // Common case: replicas restarting against an up-to-date schema.
     // Skip the lock altogether so we don't add round-trips when there's
     // nothing to do.
     return { ran: false, before, after: before, durationMs: Date.now() - t0 };
   }
 
-  console.log(`⚙️  Pending migrations: ${MAX_SCHEMA_VERSION - before}. Acquiring advisory lock…`);
+  console.log(
+    `⚙️  Pending migrations: ${pending.map((m) => m.filename).join(', ')}. Acquiring advisory lock…`,
+  );
 
   // Every replica waits here, then re-checks: the one ahead may have applied it all.
-  // The wait is bounded by ZVELTIO_MIGRATION_LOCK_WAIT, not by whatever
-  // statement_timeout the server or role carries: that one is set for queries,
-  // and cancelled a waiting replica into a restart loop with a bare Postgres
-  // message. Read before the wait so a malformed value fails at once.
-  const maxWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
-  try {
-    return await migrateUnderLock(db, before, t0, maxWait);
-  } catch (err) {
-    if (err instanceof AdvisoryLockTimeout) {
-      throw new Error(
-        `Another instance has been running migrations for more than ${maxWait}, so this one ` +
-          "stopped waiting. Check that instance's log: if it is still migrating, restart this " +
-          'one when it finishes, or raise ZVELTIO_MIGRATION_LOCK_WAIT for this upgrade.',
-        { cause: err },
+  return withMigrationLock(db, async () => {
+    const recheck = await pendingMigrations(db);
+    if (recheck.pending.length === 0) {
+      console.log(
+        `✅ Migrations applied by another replica while we waited (now at v${recheck.lastApplied})`,
       );
+      return { ran: false, before, after: recheck.lastApplied, durationMs: Date.now() - t0 };
     }
-    throw err;
-  }
-}
 
-async function migrateUnderLock(
-  db: Database,
-  before: number,
-  t0: number,
-  maxWait: string,
-): Promise<AutoMigrateResult> {
-  return withAdvisoryLock(
-    db,
-    MIGRATIONS_LOCK_KEY,
-    async () => {
-      const recheck = await getLastAppliedMigration(db);
-      if (recheck >= MAX_SCHEMA_VERSION) {
-        console.log(
-          `✅ Migrations applied by another replica while we waited (now at v${recheck})`,
-        );
-        return { ran: false, before, after: recheck, durationMs: Date.now() - t0 };
-      }
-
-      await runPending(db);
-      const after = await getLastAppliedMigration(db);
-      const durationMs = Date.now() - t0;
-      console.log(`✅ Auto-migrate complete: v${before} → v${after} (${durationMs}ms)`);
-      return { ran: true, before, after, durationMs };
-    },
-    { maxWait },
-  );
+    const applied = await runPending(db);
+    const after = await getLastAppliedMigration(db);
+    const durationMs = Date.now() - t0;
+    console.log(
+      `✅ Auto-migrate complete: ${applied.length} applied, v${before} → v${after} (${durationMs}ms)`,
+    );
+    return { ran: true, before, after, durationMs };
+  });
 }

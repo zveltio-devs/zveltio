@@ -1356,7 +1356,7 @@ let _rlsRoleAvailable = false;
  * Migration 030 creates the role, and a migration runs once. `zveltio_rls` is a
  * CLUSTER object, so `pg_dump` does not carry it — and the ledger of applied
  * migrations IS in the dump. Restore a backup onto new hardware and you get
- * every table, every policy, and a `zv_migrations` row saying 030 already ran,
+ * every table, every policy, and a `zv_schema_versions` row saying 030 already ran,
  * on a server where the role has never existed and never will.
  *
  * What happens next is quiet rather than loud. The policies restore fine, since

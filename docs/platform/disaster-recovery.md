@@ -209,9 +209,13 @@ The engine is stateless; reinstalling restores `/api/health` in under 30 s.
 > works, and `/api/health` is green. It also fails the build if any
 > already-released migration is renamed, renumbered, or deleted (the reverse
 > guard). If an upgrade ever misbehaves in production, take a T1 dump first
-> (§ 3.1), then roll back to the prior binary — migrations are additive, so the
-> old binary keeps working against the newer schema unless a migration dropped a
-> column it still reads.
+> (§ 3.1). Swapping the prior binary back in is NOT enough on its own once the
+> new release has migrated: at boot the engine refuses to start when the
+> database records a migration numbered above the newest one it ships
+> ("Database schema is newer than this engine version"). Either roll the schema
+> back first with `zveltio rollback --to <old version>` (only for migrations that
+> carry a `-- DOWN` section), or restore a dump taken on the old version (§ 3.1),
+> then start the prior binary.
 
 ### Scenario B — Restore from `pg_dump` (T1)
 

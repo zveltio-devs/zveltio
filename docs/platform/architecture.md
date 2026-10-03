@@ -155,8 +155,10 @@ locking tables under load.
 Schema migrations for the engine itself are numbered SQL files in
 `packages/engine/src/db/migrations/sql/`, embedded into the binary by
 `bun run gen:migrations` (a package script in `packages/engine`, not a root one).
-The set was squashed for 3.0 and currently runs `001`–`009`; do not assume
-higher numbers from older documents.
+The set was squashed for 3.0; do not assume numbers from older documents.
+The number orders the files; whether one runs is decided by its row in
+`zv_schema_versions`, so a migration merged after a higher-numbered one still
+runs on every database (boot logs it as applied out of order).
 
 ---
 

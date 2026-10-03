@@ -79,7 +79,7 @@ Run pending database migrations.
 zveltio migrate
 ```
 
-Migrations are applied in order from `packages/engine/src/db/migrations/sql/`. Already-applied migrations are skipped. Always run this after pulling new code or enabling new extensions.
+Migrations are applied in order from `packages/engine/src/db/migrations/sql/`. Already-applied migrations are skipped: a migration is pending when it has no row in `zv_schema_versions`, whatever its number, so one numbered below the last applied version still runs (with an "applied out of order" warning). `--dry-run` lists the pending files without applying them. Always run this after pulling new code or enabling new extensions.
 
 ---
 

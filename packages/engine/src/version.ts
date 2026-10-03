@@ -57,8 +57,8 @@ export const MAX_SCHEMA_VERSION = getMaxSchemaVersion();
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export async function checkSchemaCompatibility(db: any): Promise<void> {
-  const { getLastAppliedMigration } = await import('./db/migrations/index.js');
-  const currentVersion = await getLastAppliedMigration(db);
+  const { migrationState } = await import('./db/migrations/index.js');
+  const { lastApplied: currentVersion, pending } = await migrationState(db);
 
   if (currentVersion < MIN_SCHEMA_VERSION) {
     console.error(`
@@ -84,22 +84,31 @@ export async function checkSchemaCompatibility(db: any): Promise<void> {
     process.exit(1);
   }
 
-  const pendingCount = MAX_SCHEMA_VERSION - currentVersion;
-  if (pendingCount > 0) {
-    console.log(`⚠️  ${pendingCount} pending migration(s). Run: zveltio migrate`);
+  // Counted by set, not `MAX - current`: a migration numbered below the head
+  // (merged after a higher one) is pending while the head says up to date —
+  // and with MIGRATIONS_AUTO=false this line is the only place that says so.
+  if (pending.length > 0) {
+    console.log(
+      `⚠️  ${pending.length} pending migration(s): ${pending.map((m) => m.filename).join(', ')}. ` +
+        'Run: zveltio migrate',
+    );
   }
 }
 
-/** Full version info object — used by health endpoints. */
-export function getVersionInfo(currentSchemaVersion: number) {
+/**
+ * Full version info object — used by health endpoints. Takes `migrationState`'s
+ * answer: `pending` is the shipped files with no applied row, which a
+ * high-water comparison cannot see when one sits below the head.
+ */
+export function getVersionInfo(state: { lastApplied: number; pending: readonly unknown[] }) {
   return {
     engine: ENGINE_VERSION,
     schema: {
-      current: currentSchemaVersion,
+      current: state.lastApplied,
       minimum: MIN_SCHEMA_VERSION,
       maximum: MAX_SCHEMA_VERSION,
-      pending: Math.max(0, MAX_SCHEMA_VERSION - currentSchemaVersion),
-      upToDate: currentSchemaVersion >= MAX_SCHEMA_VERSION,
+      pending: state.pending.length,
+      upToDate: state.pending.length === 0,
     },
     runtime: `Bun ${typeof Bun !== 'undefined' ? Bun.version : 'unknown'}`,
     platform: `${process.platform}-${process.arch}`,

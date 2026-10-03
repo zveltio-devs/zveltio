@@ -25,22 +25,26 @@ async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<vo
 
     const { db: dbModule, migrations } = await loadEngineMigrationModules();
     const { initDatabase } = dbModule;
-    const { runMigrations, getAppliedMigrations, getLastAppliedMigration } = migrations;
+    const { runMigrations, getAppliedMigrations, pendingMigrations } = migrations;
 
     const db = await initDatabase();
 
     if (opts.dryRun) {
       const applied = await getAppliedMigrations(db);
-      const lastVersion = await getLastAppliedMigration(db);
+      // Pending is what this build ships and the database has not applied —
+      // which can sit below the last applied version, so print the files.
+      const { lastApplied, pending } = await pendingMigrations(db);
       console.log(`   Applied migrations: ${applied.length}`);
-      console.log(`   Last applied version: ${lastVersion}`);
+      console.log(`   Last applied version: ${lastApplied}`);
+      console.log(`   Pending migrations: ${pending.length}`);
+      for (const m of pending) console.log(`     - ${m.filename}`);
       console.log('\n   (dry run — no changes made)\n');
       await db.destroy?.();
       return;
     }
 
-    await runMigrations(db);
-    console.log('\n✅ All migrations applied.\n');
+    const applied = await runMigrations(db);
+    console.log(`\n✅ ${applied.length} migration(s) applied; nothing pending.\n`);
     await db.destroy?.();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {

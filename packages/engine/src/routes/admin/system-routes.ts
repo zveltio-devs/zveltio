@@ -403,7 +403,9 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         '../../db/migrations/index.js'
       );
       const before = await getLastAppliedMigration(db);
-      await runMigrations(db);
+      // Counted, not `after - before`: a migration numbered below the head
+      // (merged after a higher one) is applied without moving the head.
+      const applied = await runMigrations(db);
       const after = await getLastAppliedMigration(db);
 
       await auditLog(db, {
@@ -411,13 +413,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         tenantId: null,
         userId: user?.id,
         resourceType: 'migration',
-        metadata: { applied: after - before, from: before, to: after },
+        metadata: { applied: applied.length, files: applied, from: before, to: after },
         ip: c.req.header('x-forwarded-for') ?? undefined,
       });
 
       return c.json({
         success: true,
-        applied: after - before,
+        applied: applied.length,
         schema_version: after,
       });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -428,18 +430,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // GET /schema — schema status and migration history
   app.get('/schema', async (c) => {
-    const { getAppliedMigrations, getLastAppliedMigration } = await import(
-      '../../db/migrations/index.js'
-    );
+    const { getAppliedMigrations, migrationState } = await import('../../db/migrations/index.js');
     const { getVersionInfo, MAX_SCHEMA_VERSION } = await import('../../version.js');
 
-    const [migrations, current] = await Promise.all([
-      getAppliedMigrations(db),
-      getLastAppliedMigration(db),
-    ]);
+    const [migrations, state] = await Promise.all([getAppliedMigrations(db), migrationState(db)]);
 
     return c.json({
-      ...getVersionInfo(current),
+      ...getVersionInfo(state),
       migrations,
       max_schema_version: MAX_SCHEMA_VERSION,
     });

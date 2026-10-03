@@ -48,6 +48,20 @@ function versionsFrom(names: Iterable<string>): Set<number> {
   return out;
 }
 
+const { migrationFiles, renderEmbedded } = await import(
+  '../packages/engine/scripts/gen-embedded-migrations.ts'
+);
+
+// First, and before the sets below: a Set collapses two files with one number
+// into one version, and that clash is what this has to name.
+let files: string[];
+try {
+  files = migrationFiles();
+} catch (err) {
+  console.error(`❌ embedded-migrations-fresh: ${(err as Error).message}\n`);
+  process.exit(1);
+}
+
 const onDisk = versionsFrom(new Bun.Glob('*.sql').scanSync({ cwd: SQL_DIR, onlyFiles: true }));
 
 // Read the generated file as text rather than importing it: the import
@@ -81,10 +95,7 @@ if (extra.length > 0) {
   process.exit(1);
 }
 
-const { migrationFiles, renderEmbedded } = await import(
-  '../packages/engine/scripts/gen-embedded-migrations.ts'
-);
-const expected = renderEmbedded(migrationFiles());
+const expected = renderEmbedded(files);
 
 if (embeddedText !== expected) {
   console.error(
