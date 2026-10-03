@@ -50,6 +50,7 @@ const QUEUE_NAMES = {
   drop_collection: 'ddl.drop_collection',
   add_field: 'ddl.add_field',
   remove_field: 'ddl.remove_field',
+  build_index: 'ddl.build_index',
 } as const;
 type DdlJobType = keyof typeof QUEUE_NAMES;
 
@@ -112,7 +113,9 @@ export async function initDDLQueue(db: Database): Promise<void> {
       retentionSeconds: 30 * 24 * 60 * 60,
     };
     for (const qname of Object.values(QUEUE_NAMES)) {
-      await _boss.createQueue(qname, QUEUE_RETENTION).catch(() => {
+      // One active build per index (its name is the singletonKey), on any replica.
+      const policy = qname === QUEUE_NAMES.build_index ? { policy: 'singleton' } : {};
+      await _boss.createQueue(qname, { ...QUEUE_RETENTION, ...policy }).catch(() => {
         /* already exists */
       });
     }
@@ -206,6 +209,62 @@ export async function enqueueDDLJob(
   }
 
   return jobId;
+}
+
+/** An index build `deferIndexBuilds` held back; the only DDL a build_index job runs. */
+const INDEX_BUILD =
+  /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+"?([a-z0-9_]+)"?\s+ON\s+"?zvd_[a-z0-9_]+"?[\s(][^;]*$/i;
+
+/**
+ * Hand the CONCURRENTLY builds an extension's schema change deferred to the DDL
+ * queue, durably and now: the column they index is already committed, so a
+ * crash or a rolled-back request must not leave it unindexed. Without a queue
+ * they run after the commit, as they did before.
+ */
+export async function enqueueIndexBuilds(db: Database, indexes: string[]): Promise<void> {
+  for (const ddl of indexes) {
+    const name = INDEX_BUILD.exec(ddl)?.[1];
+    try {
+      if (!_boss || !name) throw new Error('DDL queue not running');
+      await _boss.send(QUEUE_NAMES.build_index, { ddl }, { ...DEFAULT_RETRY, singletonKey: name });
+    } catch (err) {
+      console.warn(`[ddl-queue] index build not queued, running after commit (${ddl}):`, err);
+      onAfterCommit(() =>
+        buildIndexJob(db, { ddl }).catch((e) =>
+          console.warn(`[ddl-queue] index build failed (${ddl}):`, (e as Error).message),
+        ),
+      );
+    }
+  }
+}
+
+/**
+ * Build one deferred index, idempotently: a valid index of that name is done;
+ * an INVALID one — left by a build that was killed, failed or deadlocked — is
+ * dropped and built again, because `IF NOT EXISTS` would keep it unusable.
+ */
+async function buildIndexJob(db: Database, job: { ddl: string }) {
+  const name = INDEX_BUILD.exec(job.ddl)?.[1];
+  if (!name) throw new Error(`[ddl-queue] build_index refused a statement: ${job.ddl}`);
+  const index = sql`to_regclass(format('public.%I', ${name}::text))`;
+  const state = await sql<{ valid: boolean; building: boolean }>`
+    SELECT indisvalid AS valid,
+           EXISTS (SELECT 1 FROM pg_stat_progress_create_index p
+                    WHERE p.index_relid = indexrelid) AS building
+      FROM pg_index WHERE indexrelid = ${index}`.execute(db);
+  const found = state.rows[0];
+  if (found?.valid) return;
+  // Another build of it is still running (a retry after expiry): not ours to drop.
+  if (found?.building) throw new Error(`[ddl-queue] index ${name} is still being built`);
+  // raw-ident-ok: `name` matched INDEX_BUILD's [a-z0-9_]+.
+  if (found) await sql.raw(`DROP INDEX CONCURRENTLY IF EXISTS "${name}"`).execute(db);
+  try {
+    await sql.raw(job.ddl).execute(db);
+  } catch (err) {
+    // The table or column went away since: nothing left to index, not a retry.
+    if (['42P01', '42703'].includes(String((err as { errno?: unknown }).errno))) return;
+    throw err;
+  }
 }
 
 async function waitForJobToSettle(queue: string, id: string, timeoutMs = 30_000): Promise<void> {
@@ -353,6 +412,10 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     await DDLManager.addField(db, payload.collection, payload.field);
     announceSchemaChange(payload.collection, 'alter');
   });
+
+  await boss.work<{ ddl: string }>(QUEUE_NAMES.build_index, ([job]) =>
+    buildIndexJob(db, job!.data),
+  );
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {

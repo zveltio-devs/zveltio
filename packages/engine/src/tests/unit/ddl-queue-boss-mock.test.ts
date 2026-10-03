@@ -104,7 +104,7 @@ describe('initDDLQueue with mocked pg-boss', () => {
       const db = setupDb();
       await initDDLQueue(asDb(db));
       expect(isDDLQueueStarted()).toBe(true);
-      expect(workHandlers.size).toBe(4);
+      expect(workHandlers.size).toBe(5);
       expect(log.mock.calls.some((c) => String(c[0]).includes('DDL queue'))).toBe(true);
     } finally {
       log.mockRestore();
