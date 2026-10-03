@@ -36,6 +36,7 @@ import type { Database } from '../db/index.js';
 import { guardSessionOrKey, presentsUsableKey } from '../lib/admin-guard.js';
 import { apiKeyHoldsScope, extScope, isApiKeyPrincipal, requestApiKey } from '../lib/data/index.js';
 import type { RequestUser } from '../lib/data/index.js';
+import { principalRole } from '../lib/tenancy/index.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -110,9 +111,15 @@ export interface GatePrincipal {
 
 const gated = new AsyncLocalStorage<{ c: Context; principal: GatePrincipal }>();
 
-function runAdmitted(c: Context, user: RequestUser, next: () => Promise<void>): Promise<void> {
+async function runAdmitted(
+  c: Context,
+  user: RequestUser,
+  next: () => Promise<void>,
+): Promise<void> {
   const principal: GatePrincipal = {
-    user: structuredClone(user),
+    // With the role `authenticate` gives a REST caller: an extension's write
+    // runs the same extension gates, and a session user here carries none.
+    user: { ...structuredClone(user), role: await principalRole(user.id) },
     authType: isApiKeyPrincipal(user) ? 'api_key' : 'session',
     trx: c.get('tenantTrx') ?? undefined,
     tenantId: c.get('tenant')?.id ?? null,

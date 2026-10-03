@@ -25,7 +25,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   matchesRlsFilters,
-  resolveUserRole,
+  principalRole,
   type ColumnAccess,
 } from '../tenancy/index.js';
 
@@ -69,19 +69,22 @@ export interface ReadScope {
  * Resolve the gate. Nothing is caught: a failed policy, role or column lookup
  * read as "nothing to filter" is how rows leaked before, so it refuses instead.
  *
- * `user` goes to the row policies and the extensions as given — the realtime
- * doors pass it with the resolved role, REST without — and the role for the
- * column permissions is resolved from it.
+ * The role is resolved HERE, from the id, and is the one every mechanism sees.
+ * The realtime doors used to resolve it themselves and REST did not, so an
+ * extension alter or entity rule read `member` on a socket and `undefined` on
+ * `GET /api/data` — one rule, two answers. A role passed in is overwritten.
  */
 export async function readScope(
   db: Database,
   collection: string,
-  user: ReadUser,
+  given: ReadUser,
   authType: 'session' | 'api_key',
 ): Promise<ReadScope> {
   const table = DDLManager.getTableName(collection);
+  const role = await principalRole(given.id);
+  const user = { ...given, role };
   const rls = await getRlsFilters(collection, user, authType);
-  const columns = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  const columns = await getColumnAccess(db, collection, role, user.id);
   // Lazy: the probe runs every alter once more, which only a reader without a
   // query needs. Eager, every live read called each extension alter twice.
   let restricts: boolean | undefined;

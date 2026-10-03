@@ -23,7 +23,6 @@ import {
   type RealtimePrincipal,
   type RealtimeUser,
 } from '../lib/data/index.js';
-import { resolveUserRole } from '../lib/tenancy/index.js';
 import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
 import { getCache, ORIGIN_ID } from '../lib/runtime/index.js';
 
@@ -716,20 +715,18 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // alone — which is all this route used to do — is one of the three layers
     // the REST path applies.
     //
-    // The role is RESOLVED, as the WebSocket and the REST paths resolve it. It
-    // used to be `session.user.role ?? 'user'` — and `session.user.role` is
-    // never populated, so every stream ran as `'user'`, a role nothing is
-    // granted as: a `member` column or row rule never applied here even while
-    // the database was healthy. A key resolves to `api_key`. `email` for a
-    // `user_email` row rule.
+    // The role is resolved by `readScope`, as for REST and the WebSocket. It
+    // used to be `session.user.role ?? 'user'` — never populated, so every
+    // stream ran as `'user'` and a `member` rule never applied here. `email`
+    // for a `user_email` row rule.
     //
     // Not caught, the role lookup included: `[]` / `null` mean "nothing to
     // filter" and a fallback role escapes the real role's rules, so a failed
     // lookup is refused (500), as the REST list path refuses on the same error.
     // The sweep calls it again outside this request, under the stream's tenant,
     // with the key's grants as they are then.
-    const scopeFor = async (who: RealtimeUser, col: string): Promise<ReadScope> =>
-      readScope(_db, col, { ...who, role: await resolveUserRole(who) }, authType);
+    const scopeFor = (who: RealtimeUser, col: string): Promise<ReadScope> =>
+      readScope(_db, col, who, authType);
     const resolveAccess = async (who: RealtimeUser): Promise<StreamAccess> => {
       const access: StreamAccess = new Map();
       for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {

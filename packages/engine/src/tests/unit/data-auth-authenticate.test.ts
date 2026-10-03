@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { authenticate } from '../../lib/data/auth.js';
+import { initPermissions } from '../../lib/tenancy/permissions.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
@@ -35,18 +36,27 @@ describe('authenticate', () => {
     // no persistent mocks
   });
 
-  it('returns session user when better-auth resolves a session', async () => {
+  it('returns the session user with the role the "user" row holds', async () => {
+    // better-auth leaves `role` off the session user; the extension gates on
+    // writes then saw none on REST while the read gate saw `member`.
     const auth = {
       api: {
-        getSession: async () => ({ user: { id: 'u-1', name: 'Alice', role: 'member' } }),
+        getSession: async () => ({ user: { id: 'u-auth-role', name: 'Alice' } }),
       },
     };
-    const db = new CannedDb().kysely as unknown as Database;
-    const result = await authenticate(mockContext({}), auth, db);
-    expect(result).toEqual({
-      user: { id: 'u-1', name: 'Alice', role: 'member' },
-      authType: 'session',
-    });
+    const roles = new CannedDb();
+    roles.when(/SELECT role FROM "user"/i, [{ role: 'member' }]);
+    await initPermissions(roles.kysely as unknown as Database);
+    try {
+      const db = new CannedDb().kysely as unknown as Database;
+      const result = await authenticate(mockContext({}), auth, db);
+      expect(result).toEqual({
+        user: { id: 'u-auth-role', name: 'Alice', role: 'member' },
+        authType: 'session',
+      });
+    } finally {
+      await initPermissions(new CannedDb().kysely as unknown as Database);
+    }
   });
 
   it('resolves a valid X-API-Key into an api_key user with scopes', async () => {

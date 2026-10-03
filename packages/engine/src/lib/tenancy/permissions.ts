@@ -804,6 +804,19 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
 }
 
 /**
+ * A principal's direct role, from its id alone — never `user.role` off the
+ * caller's object, which REST, WS, SSE and sync each built differently: REST's
+ * session user has none, so the same rule saw `member` on a socket and nothing
+ * on `GET /api/data`. A key is `api_key` by construction (lib/data/auth.ts);
+ * `resolveUserRole` would answer `public` for it.
+ */
+export function principalRole(userId: string): Promise<string> {
+  return userId.startsWith('apikey:')
+    ? Promise.resolve('api_key')
+    : resolveUserRole({ id: userId });
+}
+
+/**
  * `"user".role` as a role held in every domain — the single source of
  * god/member. `null` for an API key or an unknown id (`resolveUserRole` answers
  * 'public' for both): a key's authority is its scopes, never a column. Throws
