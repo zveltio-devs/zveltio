@@ -15,9 +15,7 @@ import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import type { AuditEventType } from '../audit.js';
 import { DDLManager } from '../data/index.js';
-import { getEnforcer } from '../tenancy/permissions.js';
-import { getCurrentDomainOrNull } from '../tenancy/tenant-context.js';
-import { activeMembership } from '../tenancy/tenant-scope.js';
+import { activeMembership, getCurrentDomainOrNull, getEnforcer } from '../tenancy/index.js';
 
 function runningTenant(helper: string): string {
   const tenant = getCurrentDomainOrNull();
