@@ -138,7 +138,10 @@ d('zv_environments under tenant RLS', () => {
     const probe = new Hono();
     probe.use('*', tenantMiddleware);
     probe.get('*', (c) =>
-      c.json({ env: c.get('environment')?.slug ?? null, schema: c.get('tenantSchema') }),
+      c.json({
+        env: c.get('environment')?.slug ?? null,
+        schema: c.get('environment')?.schema_name,
+      }),
     );
     // Counts the transactions the middleware opens. Methods are bound to the
     // real instance: Kysely keeps its state in private fields a proxy cannot reach.

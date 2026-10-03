@@ -22,7 +22,6 @@ function closeTracedWindow(c: { res: Response }): void {
 import {
   resolveTenantFromRequest,
   resolveEnvironment,
-  getTenantSchemaName,
   withTenantIsolation,
   type Tenant,
   type Environment,
@@ -42,9 +41,8 @@ type SettleJob = () => void | Promise<void>;
 declare module 'hono' {
   interface ContextVariableMap {
     tenant: Tenant | null;
-    // Both `undefined` on a TXN_SKIP_PREFIXES path under a tenant: nothing
-    // served there reads them, so they are not looked up (see below).
-    tenantSchema: string | undefined;
+    // `undefined` on a TXN_SKIP_PREFIXES path under a tenant: nothing served
+    // there reads it, so it is not looked up (see below).
     environment: Environment | null | undefined;
     // Transactional DB connection with SET LOCAL tenant GUC active.
     // Route handlers MUST use this (via c.get('tenantTrx') || db) for RLS to work.
@@ -247,7 +245,6 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               // tenant, in the transaction the request already holds.
               const env = await resolveEnvironment(trx, tenant, c.req.raw.headers);
               c.set('environment', env);
-              c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
               // Traced only when ZVELTIO_TRACE_CONNECTIONS=1; a no-op otherwise.
               beginTracedTransaction();
               c.set('tenantTrx', trx);
@@ -320,7 +317,6 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         );
       }
       c.set('environment', null);
-      c.set('tenantSchema', 'public');
       await next();
     }
   } catch (err) {

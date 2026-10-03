@@ -32,7 +32,6 @@ import {
   TENANT_ROLES,
 } from '../lib/identity.js';
 import {
-  provisionTenantSchema,
   provisionEnvironment,
   invalidateTenantCache,
   getUserTenants,
@@ -224,8 +223,8 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     if (!created) return c.json({ error: 'Failed to create tenant' }, 500);
     const { tenant, adminUserId } = created;
 
-    const defaultSchema = `tenant_${data.slug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}`;
-    await provisionTenantSchema(defaultSchema);
+    // No `tenant_<slug>` schema: isolation is RLS on `tenant_id`, and nothing
+    // ever read one. Installs from before still have theirs; purge drops them.
     await provisionEnvironment(tenant.id, data.slug, 'prod', 'Production', true);
     await provisionEnvironment(tenant.id, data.slug, 'dev', 'Development', false);
 
@@ -252,7 +251,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       metadata: { slug: data.slug, name: data.name, owner_user_id: adminUserId ?? null },
     });
 
-    return c.json({ tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] }, 201);
+    return c.json({ tenant, environments: ['prod', 'dev'] }, 201);
   });
 
   // PATCH /api/tenants/:id — update tenant
@@ -513,9 +512,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
 
     if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
 
-    await provisionEnvironment(tenant.id, tenant.slug, slug, name, false);
-
-    const schemaName = `tenant_${tenant.slug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}_${slug}`;
+    const schemaName = await provisionEnvironment(tenant.id, tenant.slug, slug, name, false);
     await auditLog(db, {
       type: 'tenant.updated',
       userId: user?.id,

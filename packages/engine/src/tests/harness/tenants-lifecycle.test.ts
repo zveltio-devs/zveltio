@@ -23,7 +23,6 @@ d('tenants lifecycle (in-process)', () => {
   let adminEmail = '';
   let cookie: string;
   let tenantId = '';
-  let schemaName = '';
 
   const json = (method: string, body: unknown) => ({
     method,
@@ -56,15 +55,13 @@ d('tenants lifecycle (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    if (schemaName && /^[a-z0-9_]+$/.test(schemaName)) {
-      await sql`DROP SCHEMA IF EXISTS ${sql.raw(`"${schemaName}"`)} CASCADE`
-        .execute(db)
-        .catch(() => {});
-    }
     if (tenantId) {
-      await sql`DELETE FROM zv_tenant_environments WHERE tenant_id = ${tenantId}`
-        .execute(db)
-        .catch(() => {});
+      const envs = await sql<{ s: string }>`
+        SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${tenantId}
+      `.execute(db);
+      for (const { s } of envs.rows) {
+        await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(db).catch(() => {});
+      }
       await sql`DELETE FROM zv_tenants WHERE id = ${tenantId}`.execute(db).catch(() => {});
     }
   });
@@ -79,9 +76,8 @@ d('tenants lifecycle (in-process)', () => {
       }),
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { tenant: { id: string }; default_schema?: string };
+    const body = (await res.json()) as { tenant: { id: string } };
     tenantId = body.tenant.id;
-    schemaName = body.default_schema ?? '';
     expect(tenantId).toBeTruthy();
   });
 
