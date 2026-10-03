@@ -73,7 +73,7 @@ d('a joined db.transaction() honours its options', () => {
       const h = make();
       await inTenant(async (trx) => {
         const running = await setting(trx, 'transaction_isolation');
-        expect(running).not.toBe('serializable');
+        expect(running).toBe('read committed');
         await expect(
           h
             .transaction()
@@ -84,6 +84,13 @@ d('a joined db.transaction() honours its options', () => {
           await h
             .transaction()
             .setIsolationLevel(running as 'read committed')
+            .execute(async () => 'ran'),
+        ).toBe('ran');
+        // Postgres runs READ UNCOMMITTED as READ COMMITTED, so it names this level too.
+        expect(
+          await h
+            .transaction()
+            .setIsolationLevel('read uncommitted')
             .execute(async () => 'ran'),
         ).toBe('ran');
       });

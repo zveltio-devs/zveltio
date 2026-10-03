@@ -82,6 +82,18 @@ async function privileges(db: Database, table: string, role: string): Promise<st
 
 const workerPrivileges = (db: Database, table: string) => privileges(db, table, 'zveltio_worker');
 
+/**
+ * The `zvd_%` grant migration 001 made, put back so the reconcile has something
+ * to take: on a database an earlier boot already healed, a reconcile that
+ * revokes nothing would pass.
+ */
+async function grantAs001(db: Database, tables: string[], role: string, privs: string) {
+  for (const t of tables) {
+    await sql`GRANT ${sql.raw(privs)} ON ${sql.id(t)} TO ${sql.id(role)}`.execute(db);
+    expect(await privileges(db, t, role)).not.toEqual([]);
+  }
+}
+
 /** What flow-executor does around a `query_db` step. */
 async function asQueryDbStep(db: Database, query: string, tenantId: string) {
   return db.transaction().execute(async (trx) => {
@@ -119,17 +131,18 @@ d('the narrow roles hold exactly the collection tables', () => {
       }),
     });
     expect([200, 201, 202]).toContain(made.status);
-    // The DDL job creates the table, then isolates it. Wait for the isolation
-    // policy — the last thing the job does to the table — not for a duration.
+    // The DDL job creates the table, then isolates it, then grants the narrow
+    // roles (applyTenantRLS). Wait for those grants — the last thing the job
+    // does to the table — not for a duration.
     for (let i = 0; i < 150; i++) {
-      const seen = await sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM pg_policies
-         WHERE schemaname = 'public' AND tablename = ${TABLE} AND policyname = 'tenant_isolation'
+      const seen = await sql<{ ok: boolean }>`
+        SELECT CASE WHEN to_regclass(${TABLE}) IS NULL THEN false
+                    ELSE has_table_privilege('zveltio_worker', ${TABLE}, 'DELETE')
+                     AND has_table_privilege('zveltio_flow_reader', ${TABLE}, 'SELECT') END AS ok
       `.execute(db);
-      if (seen.rows[0]!.n > 0) break;
+      if (seen.rows[0]!.ok) break;
       await Bun.sleep(100);
     }
-    await Bun.sleep(200); // the grant follows the policy in the same job
     // Seeded as the owner, one row per tenant; the worker must see only its own.
     await sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id) VALUES
       ('a-row', ${TENANT_A}::uuid), ('b-row', ${TENANT_B}::uuid)`.execute(db);
@@ -145,6 +158,11 @@ d('the narrow roles hold exactly the collection tables', () => {
   });
 
   it('a worker reads the new collection — its own tenant only', async () => {
+    // As the narrow role, not the fallback: `zveltio_rls` also holds `user`.
+    expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
+      ok: true,
+      rows: [{ u: 'zveltio_worker' }],
+    });
     expect(await workerQuery(`SELECT title FROM ${TABLE} ORDER BY title`, TENANT_A)).toEqual({
       ok: true,
       rows: [{ title: 'a-row' }],
@@ -173,8 +191,10 @@ d('the narrow roles hold exactly the collection tables', () => {
   }, 60_000);
 
   it('the boot reconcile takes the engine metadata tables back — no Casbin write', async () => {
+    const metadata = ['zvd_permissions', 'zvd_collections', 'zvd_rls_policies', 'zvd_webhooks'];
+    await grantAs001(db, metadata, 'zveltio_worker', 'SELECT, INSERT, UPDATE, DELETE');
     await reconcileTenantRLS(db);
-    for (const t of ['zvd_permissions', 'zvd_collections', 'zvd_rls_policies', 'zvd_webhooks']) {
+    for (const t of metadata) {
       expect({ t, p: await workerPrivileges(db, t) }).toEqual({ t, p: [] });
     }
     // The database layer on its own, beneath the bridge's string policy.
@@ -216,8 +236,10 @@ d('the narrow roles hold exactly the collection tables', () => {
   });
 
   it('the boot reconcile takes the engine metadata tables back from the flow reader', async () => {
+    const metadata = ['zvd_webhooks', 'zvd_push_tokens', 'zvd_permissions', 'zvd_rls_policies'];
+    await grantAs001(db, metadata, 'zveltio_flow_reader', 'SELECT');
     await reconcileTenantRLS(db);
-    for (const t of ['zvd_webhooks', 'zvd_push_tokens', 'zvd_permissions', 'zvd_rls_policies']) {
+    for (const t of metadata) {
       expect({ t, p: await privileges(db, t, 'zveltio_flow_reader') }).toEqual({ t, p: [] });
     }
     await expect(asQueryDbStep(db, 'SELECT * FROM zvd_webhooks', TENANT_A)).rejects.toThrow(

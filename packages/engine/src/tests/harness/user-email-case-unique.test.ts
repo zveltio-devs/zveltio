@@ -15,11 +15,12 @@
  * write path with a case variant of an existing address.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
+import { getAuth } from '../../lib/auth.js';
 import { emailCaseDuplicates, provisionUser } from '../../lib/identity.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -134,6 +135,42 @@ d('"user".email is unique case-insensitively', () => {
     const open = await sql<{ accepted_at: Date | null }>`
       SELECT accepted_at FROM zv_invitations WHERE email = ${email}`.execute(db);
     expect(open.rows[0]?.accepted_at).toBeNull();
+  });
+
+  it('an account made between the check and the sign-up is email_taken, not a 500', async () => {
+    // The race the second `taken()` exists for: the route's probe finds nothing,
+    // an SSO login then creates the address in another case, and better-auth's
+    // exact probe misses it — so the unique index refuses the insert.
+    const email = `race-eci-${TAG}@test.local`;
+    const invited = await app.request('/api/users/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ email }),
+    });
+    expect(invited.status).toBe(201);
+    const token = new URL(
+      ((await invited.json()) as { invite_url: string }).invite_url,
+    ).searchParams.get('token');
+    const api = getAuth().api as unknown as { signUpEmail: (...a: unknown[]) => Promise<unknown> };
+    const signUp = api.signUpEmail;
+    let legacy = '';
+    const spy = spyOn(api, 'signUpEmail').mockImplementation(async (...args: unknown[]) => {
+      legacy = await rawUser(`Race-eci-${TAG}@Test.Local`);
+      return signUp.apply(api, args);
+    });
+    try {
+      const res = await app.request('/api/invitations/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password: 'Test12345!', name: 'Twin' }),
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code?: string }).code).toBe('email_taken');
+      expect(await accounts(email)).toEqual([legacy]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('provisionUser with a case variant returns the existing account', async () => {

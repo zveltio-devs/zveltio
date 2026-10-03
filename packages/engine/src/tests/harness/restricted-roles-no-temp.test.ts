@@ -51,11 +51,43 @@ d('restricted roles: no temporary objects, no changelog', () => {
     }
   };
 
+  const onDatabase = (stmt: string) =>
+    sql`DO $$ BEGIN EXECUTE format(${sql.lit(stmt)}, current_database()); END $$`.execute(db);
+
   it('refuses CREATE TEMP to every restricted role after boot', async () => {
-    const out: Record<string, string> = {};
-    for (const role of ROLES) out[role] = await createTempAs(role);
-    for (const role of ROLES) expect(out[role], role).toMatch(/permission denied/);
-    expect(temporaryObjectsRestricted()).toBe(true);
+    // Start from what Postgres gives every database — TEMPORARY on PUBLIC — so
+    // the outcome is this boot's, not one left in a reused database.
+    await onDatabase('GRANT TEMPORARY ON DATABASE %I TO PUBLIC');
+    try {
+      for (const role of ROLES) expect(await createTempAs(role), role).toBe('created');
+      expect(await restrictTemporaryObjects(db)).toBe(true);
+      const out: Record<string, string> = {};
+      for (const role of ROLES) out[role] = await createTempAs(role);
+      for (const role of ROLES) expect(out[role], role).toMatch(/permission denied/);
+      expect(temporaryObjectsRestricted()).toBe(true);
+    } finally {
+      await restrictTemporaryObjects(db);
+    }
+  }, 60_000);
+
+  it('reads back a restricted role that holds TEMPORARY in its own name', async () => {
+    // REVOKE FROM PUBLIC leaves a direct grant in place; the worker bridge then
+    // has to discard temp objects itself, so the check must say so.
+    const perExt = 'zveltio_ext_notempprobe_0123456789'; // ext-db-role.ts' name shape
+    await sql`CREATE ROLE ${sql.id(perExt)} NOLOGIN`.execute(db);
+    try {
+      for (const role of [perExt, 'zveltio_worker']) {
+        await onDatabase(`GRANT TEMPORARY ON DATABASE %I TO ${role}`);
+        expect(await restrictTemporaryObjects(db), role).toBe(false);
+        expect(temporaryObjectsRestricted(), role).toBe(false);
+        await onDatabase(`REVOKE TEMPORARY ON DATABASE %I FROM ${role}`);
+      }
+    } finally {
+      await onDatabase(`REVOKE TEMPORARY ON DATABASE %I FROM zveltio_worker`);
+      await onDatabase(`REVOKE ALL ON DATABASE %I FROM ${perExt}`).catch(() => {});
+      await sql`DROP ROLE IF EXISTS ${sql.id(perExt)}`.execute(db);
+    }
+    expect(await restrictTemporaryObjects(db)).toBe(true);
   }, 60_000);
 
   it('leaves the engine role its own temp tables (migration 001 needs them)', async () => {
