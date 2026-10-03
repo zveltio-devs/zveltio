@@ -1173,6 +1173,10 @@ async function bootstrap() {
 
   // 1b. Schema compatibility check — exits if schema is incompatible
   await checkSchemaCompatibility(db);
+  // Migration 048 leaves the case-insensitive email index unbuilt over existing twins.
+  const { emailCaseUniquenessProblem } = await import('./lib/identity.js');
+  const emailProblem = await emailCaseUniquenessProblem(db);
+  if (emailProblem) console.warn(`⚠️  ${emailProblem}`);
   console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
 
   // 2. Auth

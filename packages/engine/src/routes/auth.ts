@@ -148,16 +148,38 @@ export function invitationRoutes(db: Database, auth: any): Hono {
       // refused at the database hook rather than at a URL pattern, which is
       // what closed the OAuth and magic-link holes — so the paths that are
       // supposed to work have to say so.
-      const result = await withAuthorizedUserCreation<{ user?: { id: string } }>(() =>
-        auth.api.signUpEmail({
-          body: {
-            email: invite.email,
-            password,
-            name: bodyName ?? invite.name ?? invite.email.split('@')[0],
-          },
-          headers: c.req.raw.headers,
-        }),
-      );
+      //
+      // An account holding the address in any case refuses it: better-auth's own
+      // probe is exact, so it missed `Ana@x.ro` for `ana@x.ro` and made a second
+      // account. Asked again after a failed sign-up, because the unique index on
+      // lower(email) (migration 048) is what catches a concurrent one, and
+      // better-auth reports that as a bare 422 this route rendered as a 500.
+      const taken = async () =>
+        !!(await db
+          .selectFrom('user')
+          .select('id')
+          .where((eb) => eb(eb.fn('lower', ['email']), '=', invite.email.toLowerCase()))
+          .executeTakeFirst());
+      const emailTaken = () =>
+        c.json({ error: 'An account with this email already exists', code: 'email_taken' }, 409);
+      if (await taken()) return emailTaken();
+
+      let result: { user?: { id: string } };
+      try {
+        result = await withAuthorizedUserCreation<{ user?: { id: string } }>(() =>
+          auth.api.signUpEmail({
+            body: {
+              email: invite.email,
+              password,
+              name: bodyName ?? invite.name ?? invite.email.split('@')[0],
+            },
+            headers: c.req.raw.headers,
+          }),
+        );
+      } catch (err) {
+        if (await taken()) return emailTaken();
+        throw err;
+      }
 
       if (!result?.user) {
         return c.json({ error: 'Failed to create user' }, 500);

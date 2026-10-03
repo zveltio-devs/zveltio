@@ -10,6 +10,7 @@ import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { extensionLoader } from '../lib/extensions/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { emailCaseUniquenessProblem } from '../lib/identity.js';
 import {
   type HealthCheck,
   getHealthCheck,
@@ -255,6 +256,15 @@ export function healthRoutes(db: Database, auth?: any): Hono {
             error,
           }));
           return { ok: failed.length === 0, detail: { active: active.length, failed } };
+        },
+      },
+      {
+        // Migration 048 skips the index where accounts already share an address.
+        name: 'email_uniqueness',
+        critical: false,
+        run: async () => {
+          const problem = await emailCaseUniquenessProblem(db);
+          return { ok: !problem, error: problem ?? undefined };
         },
       },
     ];

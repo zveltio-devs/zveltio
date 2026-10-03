@@ -95,6 +95,42 @@ docker compose exec db psql -U zveltio -d zveltio \
   -c "UPDATE \"user\" SET role = 'god' WHERE email = 'admin@example.com'"
 ```
 
+### Accounts that share an address in another case
+
+> **Warning at boot:** `user_email_lower_key is not built: … belong to more than one account`
+> — and `email_uniqueness` failing in `GET /api/health/deep`.
+
+Migration 048 makes an address unique whatever its case (`Ana@x.ro` is
+`ana@x.ro`). An install that already held two such accounts — usually one made
+by an SSO, LDAP or SCIM login with the identity provider's spelling — cannot
+build that index, so the migration skips it and the engine keeps running. Until
+it is built, another account can still be created next to an existing one in a
+different case.
+
+Which account is the real one is your decision. The engine does not merge
+identities: guessing wrong hands one person's account to another.
+
+```sql
+-- 1. The twins, oldest first in each group.
+SELECT lower(email) AS address, id, email, "createdAt",
+       (SELECT count(*) FROM session s WHERE s."userId" = u.id) AS sessions
+  FROM "user" u
+ WHERE lower(email) IN (SELECT lower(email) FROM "user" GROUP BY 1 HAVING count(*) > 1)
+ ORDER BY 1, "createdAt";
+```
+
+2. For each twin you are not keeping, move what it owns to the kept account if
+   you need it, then delete it with `DELETE /api/users/<id>` (or from Studio),
+   which also removes its permission grants.
+
+```sql
+-- 3. Build the index without blocking writes. If it fails, a twin is left:
+--    DROP INDEX CONCURRENTLY user_email_lower_key; and go back to step 1.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS user_email_lower_key ON "user" (lower(email));
+```
+
+The boot warning and the health check clear once the index is valid.
+
 ## Performance Issues
 
 ### Slow API responses
