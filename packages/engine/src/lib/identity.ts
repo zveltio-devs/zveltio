@@ -122,6 +122,41 @@ async function userByEmail(db: Database, email: string): Promise<IdentityUser | 
 const isUniqueViolation = (err: unknown) => (err as { errno?: string } | null)?.errno === '23505';
 
 /**
+ * Whether `user_email_lower_key` (migration 048) is built and valid: one
+ * account per address whatever its case. 048 skips it where accounts already
+ * share an address in another case; `emailCaseDuplicates` names them.
+ */
+export async function emailCaseUniqueEnforced(db: Database = getDb()): Promise<boolean> {
+  const r = await sql<{ ok: boolean }>`
+    SELECT indisvalid AND indisunique AS ok FROM pg_index
+     WHERE indexrelid = to_regclass('user_email_lower_key')`.execute(db);
+  return r.rows[0]?.ok === true;
+}
+
+/** Addresses more than one account holds, in different cases. */
+export async function emailCaseDuplicates(
+  db: Database = getDb(),
+): Promise<Array<{ email: string; ids: string[] }>> {
+  const r = await sql<{ email: string; ids: string[] }>`
+    SELECT lower(email) AS email, array_agg(id ORDER BY id) AS ids FROM "user"
+     GROUP BY 1 HAVING count(*) > 1 ORDER BY 1`.execute(db);
+  return r.rows;
+}
+
+/** One line for the boot log and the health check when the index is missing. */
+export async function emailCaseUniquenessProblem(db: Database = getDb()): Promise<string | null> {
+  if (await emailCaseUniqueEnforced(db)) return null;
+  const twins = await emailCaseDuplicates(db);
+  return (
+    'user_email_lower_key is not built, so an address can get a second account in another case' +
+    (twins.length
+      ? `: ${twins.map((t) => `${t.email} (${t.ids.join(', ')})`).join('; ')} belong to more than one account`
+      : '') +
+    '. See "Accounts that share an address in another case" in docs/platform/troubleshooting.md.'
+  );
+}
+
+/**
  * Casbin writes on its own connection, so a grant made inside the caller's
  * transaction outlived its rollback (and a revoke did too). It follows the
  * commit instead; outside a transaction there is nothing to wait for.

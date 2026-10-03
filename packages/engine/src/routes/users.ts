@@ -206,11 +206,11 @@ export function usersRoutes(
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const adminUser = c.get('user') as any;
 
-      // Check if user already exists
+      // Check if user already exists — in any case, as the unique index compares.
       const existing = await db
         .selectFrom('user')
         .select('id')
-        .where('email', '=', email)
+        .where((eb) => eb(eb.fn('lower', ['email']), '=', email.toLowerCase()))
         .executeTakeFirst();
 
       if (existing) return c.json({ error: 'User already exists with this email' }, 409);
