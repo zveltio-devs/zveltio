@@ -2,6 +2,7 @@ import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 import { toJsonb } from '../lib/jsonb.js';
+import { loggablePath, loggableQuery } from '../lib/security/index.js';
 
 const SLOW_THRESHOLD_MS = parseInt(process.env.SLOW_QUERY_THRESHOLD_MS ?? '200');
 
@@ -20,8 +21,8 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
     if (duration > SLOW_THRESHOLD_MS) {
       const entry = {
         method: c.req.method,
-        path: c.req.path,
-        query: c.req.query(),
+        path: loggablePath(c),
+        query: loggableQuery(c),
         status: c.res.status,
         duration_ms: Math.round(duration),
         timestamp: new Date().toISOString(),

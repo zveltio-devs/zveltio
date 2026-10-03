@@ -59,6 +59,8 @@ import m042 from './sql/043_environment_schema_optional.sql' with { type: 'text'
 import m043 from './sql/047_sync_tombstone_search_path.sql' with { type: 'text' };
 import m044 from './sql/048_user_email_lower_unique.sql' with { type: 'text' };
 import m045 from './sql/049_saved_queries_unwrap_every_tenant.sql' with { type: 'text' };
+import m046 from './sql/050_scrub_logged_credentials.sql' with { type: 'text' };
+import m047 from './sql/051_junction_tenant_default.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -108,4 +110,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '047_sync_tombstone_search_path.sql': m043,
   '048_user_email_lower_unique.sql': m044,
   '049_saved_queries_unwrap_every_tenant.sql': m045,
+  '050_scrub_logged_credentials.sql': m046,
+  '051_junction_tenant_default.sql': m047,
 };

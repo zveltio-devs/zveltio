@@ -11,3 +11,4 @@ export * from './keyring.js';
 export * from './csv.js';
 export * from './ws-origin.js';
 export * from './client-ip.js';
+export * from './loggable-request.js';

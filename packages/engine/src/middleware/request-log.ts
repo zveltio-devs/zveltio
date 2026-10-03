@@ -1,7 +1,7 @@
 import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
-import { clientIpForAudit } from '../lib/security/index.js';
+import { clientIpForAudit, loggablePath } from '../lib/security/index.js';
 
 // Log /api/* requests to zv_request_logs (fire-and-forget, non-fatal).
 // Skips health, metrics, and auth endpoints to reduce noise.
@@ -76,7 +76,8 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
         .insertInto('zv_request_logs')
         .values({
           method: c.req.method,
-          path,
+          // Never the raw path: some carry a credential (GET /api/invitations/:token).
+          path: loggablePath(c),
           status: c.res.status,
           duration_ms: duration,
           user_id: user?.id ?? null,
