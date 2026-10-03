@@ -83,6 +83,16 @@ import {
   setUserActive,
 } from '../users.js';
 import { bindsCaller } from './capabilities.js';
+import {
+  auditAs,
+  countMembers,
+  type DataStats,
+  type ExtensionAuditEvent,
+  getDataStats,
+  getPublicSetting,
+  listRoles,
+  type MemberCounts,
+} from './tenant-facts.js';
 import type { CreateSsoSessionOptions, UserDeletion } from '../users.js';
 
 /**
@@ -344,6 +354,17 @@ export interface ExtensionInternals {
    * grant on a table holding emails and roles in order to print a name.
    */
   getUserNames: typeof getUserNames;
+  /**
+   * Facts about the tenant this work runs as — see `tenant-facts.ts`. They
+   * replace raw SQL on `"user"`, `zv_tenant_users`, `zv_tenants`, `pg_class`,
+   * `zvd_permissions` and `zv_settings`, which `ctx.db` refuses.
+   */
+  countMembers: () => Promise<MemberCounts>;
+  getDataStats: () => Promise<DataStats>;
+  listRoles: () => Promise<string[]>;
+  getPublicSetting: (key: string) => Promise<unknown>;
+  /** Append to `zv_audit_log`; the row records the calling extension in `metadata.extension`. */
+  audit: (event: ExtensionAuditEvent) => Promise<void>;
   isTenantAdmin: typeof isTenantAdmin;
   /**
    * Instance-level admin, as distinct from admin-within-a-tenant.
@@ -546,6 +567,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     setUserActive: (db: unknown, userId: string, active: boolean) =>
       setUserActive(db as Database, getDb(), userId, active, caller),
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),
+    audit: (event: ExtensionAuditEvent) => auditAs(caller, event),
   }));
 }
 
@@ -605,6 +627,11 @@ function buildUnboundInternals(): ExtensionInternals {
     updateRecord: (c, collection, id, data) => updateAsCaller(c, collection, id, data),
     deleteRecord: (c, collection, id) => deleteAsCaller(c, collection, id, {}),
     getUserNames,
+    countMembers: () => countMembers(),
+    getDataStats: () => getDataStats(),
+    listRoles,
+    getPublicSetting: (key: string) => getPublicSetting(key),
+    audit: unbound('audit'),
     getSingleTenantId,
     isTenantAdmin,
     requireInstanceAdmin,

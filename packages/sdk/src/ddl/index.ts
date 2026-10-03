@@ -89,6 +89,18 @@ export interface CollectionDefinition {
   schemaLocked?: boolean;
 }
 
+/** A row from `zvd_relations`, as `getRelations` returns it. */
+export interface RelationRecord {
+  id: string;
+  name: string;
+  type: string;
+  source_collection: string;
+  source_field: string;
+  target_collection: string;
+  target_field: string | null;
+  junction_table: string | null;
+}
+
 /** A row from `zv_collections` / `getCollection` / `getCollections`. The
  *  exact shape is engine-internal; this interface only fixes the fields
  *  extensions are documented to read. Treat unknown keys as best-effort. */
@@ -158,6 +170,9 @@ export interface DDLManager {
 
   /** List every collection registered in `zv_collections`. */
   getCollections(db: DDLManagerDb): Promise<CollectionRecord[]>;
+
+  /** Every registered relation, or only those whose source or target is `collection`. */
+  getRelations(db: DDLManagerDb, collection?: string): Promise<RelationRecord[]>;
 
   /** Read a single collection by name. Returns `null` when missing. */
   getCollection(db: DDLManagerDb, name: string): Promise<CollectionRecord | null>;
