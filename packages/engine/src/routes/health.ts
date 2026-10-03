@@ -5,7 +5,11 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
-import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
+import {
+  getLastAppliedMigration,
+  getAppliedMigrations,
+  migrationState,
+} from '../db/migrations/index.js';
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { extensionLoader } from '../lib/extensions/index.js';
@@ -129,8 +133,8 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   // GET /api/health/version — detailed version info (auth-gated).
   app.get('/version', async (c) => {
     if (!(await requireAuth(c))) return refuseWithoutSession(c);
-    const schemaVersion = await getLastAppliedMigration(db).catch(() => 0);
-    return c.json(getVersionInfo(schemaVersion));
+    // No `.catch(() => 0)`: an unreadable ledger is an error, not "schema v0".
+    return c.json(getVersionInfo(await migrationState(db)));
   });
 
   // GET /api/health/migrations — migration status (auth-gated).

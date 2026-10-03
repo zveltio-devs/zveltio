@@ -4,6 +4,7 @@ import { join } from 'path';
 import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
 import { ENGINE_VERSION } from '../../version.js';
+import { AdvisoryLockTimeout, withAdvisoryLock } from '../advisory-lock.js';
 
 // Small Bun-native helpers used in place of node:fs — matches the
 // project rule "Bun.file, Bun.spawn — NOT fs/child_process".
@@ -381,32 +382,75 @@ function reportDivergence(migrationNumber: number, shipped: string, recorded: st
 }
 
 /**
- * Checks every migration this build ships against what the database records,
- * BEFORE anything decides there is nothing to do.
+ * What this build ships that the database has not applied — and, on the way,
+ * a check that what it HAS applied is what this build ships.
  *
- * `autoMigrate` short-circuits on `lastApplied >= MAX_SCHEMA_VERSION`, which
- * reads a squashed database — 46 rows recorded, 2 files shipped — as "you are
- * ahead of me, nothing to do", and returns without ever reaching the per-file
- * check below. That comparison is only meaningful while the chain grows
- * monotonically. This one compares identities, not the high-water mark.
+ * "Applied" has one source of truth: a row in `zv_schema_versions` with
+ * `rolled_back_at IS NULL`. `zv_migrations` also gets a row per core file, but
+ * nothing reads it for that purpose; it is the extensions' ledger and a legacy
+ * mirror here. Deleting a core row from it changes nothing.
  *
- * On the boot path a later guard did catch that particular case, for the wrong
- * reason and with the wrong advice; see `reportDivergence`. On `zveltio
- * migrate` there was no later guard at all.
+ * Pending is a SET difference — shipped versions with no such row — not
+ * "numbers above the high-water mark". Two PRs that each add a migration merge
+ * in either order, and a backported hotfix gets a number below the head. Boot
+ * used to ask `lastApplied >= MAX_SCHEMA_VERSION` and return when it was true,
+ * so a database that recorded 048 before 047 existed never ran 047, and said
+ * nothing. Measured: `tests/harness/migration-out-of-order.test.ts`.
+ *
+ * The identity check runs BEFORE anything decides there is nothing to do. A
+ * squashed database — 46 rows recorded, 2 files shipped, numbers reused by
+ * different files — must be refused, not read as "ahead of me". On the boot
+ * path a later guard did catch that case, for the wrong reason and with the
+ * wrong advice; see `reportDivergence`. On `zveltio migrate` there was no later
+ * guard at all.
+ *
+ * One query, so a boot with nothing pending stays one round trip.
  */
-export async function assertChainCompatible(db: Database): Promise<void> {
+export async function pendingMigrations(db: Database): Promise<MigrationState> {
+  const { shipped, byVersion } = await readChain(db);
+  for (const m of shipped) {
+    const row = byVersion.get(m.version);
+    if (!row || row.checksum === 'baseline') continue;
+    if (row.checksum !== m.checksum || row.filename !== m.filename) {
+      reportDivergence(m.version, m.filename, row.filename);
+    }
+  }
+  return summarize(shipped, byVersion);
+}
+
+export interface MigrationState {
+  /** Highest version recorded as applied, shipped or not (0 on a fresh database). */
+  lastApplied: number;
+  /** Shipped but not applied, in the order they will run. */
+  pending: Array<{ version: number; filename: string }>;
+}
+
+/**
+ * The same set difference as `pendingMigrations`, without refusing a diverged
+ * chain — for reporting (boot's compatibility line, /api/health/version,
+ * /admin/schema), where `MIGRATIONS_AUTO=false` must still be able to say a
+ * migration below the head is missing.
+ */
+export async function migrationState(db: Database): Promise<MigrationState> {
+  const { shipped, byVersion } = await readChain(db);
+  return summarize(shipped, byVersion);
+}
+
+/** The one read both of the above share. */
+async function readChain(db: Database): Promise<{
+  shipped: Array<{ version: number; filename: string; checksum: string }>;
+  byVersion: Map<number, { version: number; filename: string; checksum: string }>;
+}> {
   const shipped = await listShippedMigrations();
-  if (shipped.length === 0) return;
 
   // Raw `sql` rather than the query builder: `zv_schema_versions` is not in the
   // Kysely `Database` type, and every other reader here reaches for `db as any`
   // to get past that. A typed template needs no suppression.
   let recorded: Array<{ version: number; filename: string; checksum: string }>;
   try {
-    const versions = shipped.map((m) => m.version);
     const res = await sql<{ version: number; filename: string; checksum: string }>`
       SELECT version, filename, checksum FROM zv_schema_versions
-      WHERE version = ANY(${versions}) AND rolled_back_at IS NULL`.execute(db);
+      WHERE rolled_back_at IS NULL`.execute(db);
     // A rolled-back row is pending again: its checksum is from a file that may
     // since have been edited, which is the point of rolling back.
     recorded = res.rows;
@@ -416,18 +460,27 @@ export async function assertChainCompatible(db: Database): Promise<void> {
     // unknown, and an unknown answer must not read as "compatible".
     const code =
       (err as { errno?: string; code?: string }).errno ?? (err as { code?: string }).code ?? '';
-    if (code === '42P01') return;
-    throw err;
+    if (code !== '42P01') throw err;
+    recorded = [];
   }
+  return { shipped, byVersion: new Map(recorded.map((r) => [Number(r.version), r])) };
+}
 
-  const byVersion = new Map(recorded.map((r) => [r.version, r]));
-  for (const m of shipped) {
-    const row = byVersion.get(m.version);
-    if (!row || row.checksum === 'baseline') continue;
-    if (row.checksum !== m.checksum || row.filename !== m.filename) {
-      reportDivergence(m.version, m.filename, row.filename);
-    }
-  }
+function summarize(
+  shipped: Array<{ version: number; filename: string }>,
+  byVersion: Map<number, unknown>,
+): MigrationState {
+  return {
+    lastApplied: Math.max(0, ...byVersion.keys()),
+    pending: shipped
+      .filter((m) => !byVersion.has(m.version))
+      .map(({ version, filename }) => ({ version, filename })),
+  };
+}
+
+/** `pendingMigrations` for callers that only need the identity check. */
+export async function assertChainCompatible(db: Database): Promise<void> {
+  await pendingMigrations(db);
 }
 
 /** The migrations this build ships, with their numbers and content checksums. */
@@ -436,9 +489,7 @@ async function listShippedMigrations(): Promise<
 > {
   const migrationsDir = join(import.meta.dir, 'sql');
   const fromDir = await dirExists(migrationsDir);
-  const files = (
-    fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS)
-  ).sort();
+  const files = fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS);
   const out = [];
   for (const filename of files) {
     const content = fromDir
@@ -451,7 +502,8 @@ async function listShippedMigrations(): Promise<
       checksum: createHash('sha256').update(up).digest('hex').slice(0, 16),
     });
   }
-  return out;
+  // Numeric, then by name: the order the runner applies them in.
+  return out.sort((a, b) => a.version - b.version || a.filename.localeCompare(b.filename));
 }
 
 async function applyMigration(
@@ -459,7 +511,7 @@ async function applyMigration(
   migrationNumber: number,
   filename: string,
   fileContent: string,
-): Promise<void> {
+): Promise<boolean> {
   const startTime = Date.now();
   const { up } = parseMigrationFile(fileContent);
   const checksum = createHash('sha256').update(up).digest('hex').slice(0, 16);
@@ -512,7 +564,7 @@ async function applyMigration(
       // neither file, so the operator could not tell which.
       reportDivergence(migrationNumber, filename, existing.filename);
     }
-    return; // Already applied
+    return false; // Already applied (by a concurrent runner since the plan was read)
   }
 
   // Run all statements inside a single Kysely transaction so they share one
@@ -641,34 +693,86 @@ async function applyMigration(
   console.log(
     `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${name} (${executionMs}ms)`,
   );
+  return true;
 }
 
-export async function runPending(db: Database): Promise<void> {
+/**
+ * Applies every shipped migration the database has not applied, lowest number
+ * first, and returns the filenames it applied. See `pendingMigrations` for what
+ * "not applied" means and why it is not "above the high-water mark".
+ */
+export async function runPending(db: Database): Promise<string[]> {
   const migrationsDir = join(import.meta.dir, 'sql');
+  const fromDir = await dirExists(migrationsDir);
+  const getContent = (file: string): Promise<string> =>
+    fromDir
+      ? Bun.file(join(migrationsDir, file)).text()
+      : // Compiled binary mode: migrations bundled at build time.
+        Promise.resolve(EMBEDDED_MIGRATIONS[file]);
 
-  let files: string[];
-  let getContent: (file: string) => Promise<string>;
-
-  if (await dirExists(migrationsDir)) {
-    // Development / source mode: read from filesystem
-    files = listSqlFilesSync(migrationsDir).sort();
-    getContent = (file) => Bun.file(join(migrationsDir, file)).text();
-  } else {
-    // Compiled binary mode: use embedded migrations bundled at build time
-    files = Object.keys(EMBEDDED_MIGRATIONS).sort();
-    getContent = (file) => Promise.resolve(EMBEDDED_MIGRATIONS[file]);
+  const { lastApplied, pending } = await pendingMigrations(db);
+  const applied: string[] = [];
+  for (const { version, filename } of pending) {
+    if (version < lastApplied) {
+      // Legitimate (parallel PRs, a backported fix) but worth a line: the file
+      // was written against a schema without the higher ones, and runs on one with.
+      console.warn(
+        `⚠️  [migrations] ${filename} is applied out of order: this database already ` +
+          `ran migration ${lastApplied}.`,
+      );
+    }
+    if (await applyMigration(db, version, filename, await getContent(filename))) {
+      applied.push(filename);
+    }
   }
+  return applied;
+}
 
-  for (const file of files) {
-    const migrationNumber = getMigrationNumber(file);
-    const fileContent = await getContent(file);
-    await applyMigration(db, migrationNumber, file, fileContent);
+/**
+ * Stable 64-bit advisory lock key — unchanged since the session-lock version,
+ * so a replica still running that one excludes this one. 'zveltio\0' as a
+ * big-endian bigint. Advisory locks live apart from row/table locks and block
+ * no reads or writes.
+ */
+const MIGRATIONS_LOCK_KEY = 0x7a76656c74696f00n;
+
+/**
+ * Runs `fn` holding the one lock every schema-changing runner shares: boot
+ * (`autoMigrate`), `zveltio migrate`, `bun src/index.ts migrate`,
+ * POST /admin/migrate and rollback.
+ *
+ * Only boot used to take it. The others ran unlocked, so `zveltio migrate`
+ * beside a booting replica could apply the same file twice — a seed INSERT or a
+ * backfill is not idempotent — or record it twice into the UNIQUE version.
+ *
+ * Not reentrant: the lock is held by a separate transaction, so calling this
+ * from inside `fn` waits on itself. `runPending` is the unlocked core for that.
+ *
+ * The wait is bounded by ZVELTIO_MIGRATION_LOCK_WAIT, not by whatever
+ * statement_timeout the server or role carries: that one is set for queries,
+ * and cancelled a waiting replica into a restart loop with a bare Postgres
+ * message. Read before the wait so a malformed value fails at once.
+ */
+export async function withMigrationLock<T>(db: Database, fn: () => Promise<T>): Promise<T> {
+  const maxWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
+  try {
+    return await withAdvisoryLock(db, MIGRATIONS_LOCK_KEY, fn, { maxWait });
+  } catch (err) {
+    if (err instanceof AdvisoryLockTimeout) {
+      throw new Error(
+        `Another instance has been running migrations for more than ${maxWait}, so this one ` +
+          "stopped waiting. Check that instance's log: if it is still migrating, restart this " +
+          'one when it finishes, or raise ZVELTIO_MIGRATION_LOCK_WAIT for this upgrade.',
+        { cause: err },
+      );
+    }
+    throw err;
   }
 }
 
-/** Alias for runPending — for use by CLI and external callers. */
-export async function runMigrations(db: Database): Promise<void> {
-  return runPending(db);
+/** `runPending` under the migration lock — for the CLI, the admin route and external callers. */
+export async function runMigrations(db: Database): Promise<string[]> {
+  return withMigrationLock(db, () => runPending(db));
 }
 
 export async function getLastAppliedMigration(db: Database): Promise<number> {
@@ -718,88 +822,94 @@ export async function rollbackMigration(
   targetVersion: number,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Both modes, like `runPending` and `listShippedMigrations` above.
-    //
-    // This was the third reader of the migration set and the only one that read
-    // the directory unconditionally. In a compiled binary that directory does
-    // not exist -- which is the entire reason `EMBEDDED_MIGRATIONS` is generated
-    // -- so `scanSync` threw ENOENT, the outer catch turned it into
-    // `{ success: false, error: 'ENOENT ...' }`, and `zveltio rollback` failed
-    // every time on the artifact that actually ships. Measured: scanSync on a
-    // missing directory throws rather than returning nothing.
-    const migrationsDir = join(import.meta.dir, 'sql');
-    const fromDir = await dirExists(migrationsDir);
-    const readMigration = (filename: string): Promise<string> =>
-      fromDir
-        ? Bun.file(join(migrationsDir, filename)).text()
-        : Promise.resolve(EMBEDDED_MIGRATIONS[filename]);
+    // Same lock as every runner: a rollback beside a booting replica would
+    // otherwise undo a file while it is being re-applied.
+    return await withMigrationLock(db, async (): Promise<{ success: boolean; error?: string }> => {
+      // Both modes, like `runPending` and `listShippedMigrations` above.
+      //
+      // This was the third reader of the migration set and the only one that read
+      // the directory unconditionally. In a compiled binary that directory does
+      // not exist -- which is the entire reason `EMBEDDED_MIGRATIONS` is generated
+      // -- so `scanSync` threw ENOENT, the outer catch turned it into
+      // `{ success: false, error: 'ENOENT ...' }`, and `zveltio rollback` failed
+      // every time on the artifact that actually ships. Measured: scanSync on a
+      // missing directory throws rather than returning nothing.
+      const migrationsDir = join(import.meta.dir, 'sql');
+      const fromDir = await dirExists(migrationsDir);
+      const readMigration = (filename: string): Promise<string> =>
+        fromDir
+          ? Bun.file(join(migrationsDir, filename)).text()
+          : Promise.resolve(EMBEDDED_MIGRATIONS[filename]);
 
-    const allFiles = (fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS))
-      .map((f) => ({
-        filename: f,
-        version: parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
-      }))
-      .filter((f) => f.version > targetVersion)
-      .sort((a, b) => b.version - a.version); // Descending for rollback
+      const allFiles = (
+        fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS)
+      )
+        .map((f) => ({
+          filename: f,
+          version: parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
+        }))
+        .filter((f) => f.version > targetVersion)
+        .sort((a, b) => b.version - a.version); // Descending for rollback
 
-    // Only what is applied now: a DOWN run against a migration that never ran,
-    // or already ran its DOWN, undoes nothing it did.
-    // Not `getAppliedMigrations`: it answers [] on any error, which would
-    // report an unreachable database as "Nothing to rollback".
-    const applied = new Set(
-      (
-        await sql<{ version: number }>`
-          SELECT version FROM zv_schema_versions WHERE rolled_back_at IS NULL`.execute(db)
-      ).rows.map((r) => Number(r.version)),
-    );
-    const toRollBack = allFiles.filter((f) => applied.has(f.version));
+      // Only what is applied now: a DOWN run against a migration that never ran,
+      // or already ran its DOWN, undoes nothing it did.
+      // Not `getAppliedMigrations`: it answers [] on any error, which would
+      // report an unreachable database as "Nothing to rollback".
+      const applied = new Set(
+        (
+          await sql<{ version: number }>`
+            SELECT version FROM zv_schema_versions WHERE rolled_back_at IS NULL`.execute(db)
+        ).rows.map((r) => Number(r.version)),
+      );
+      const toRollBack = allFiles.filter((f) => applied.has(f.version));
 
-    if (toRollBack.length === 0) {
-      return { success: false, error: 'Nothing to rollback' };
-    }
-
-    for (const file of toRollBack) {
-      const content = await readMigration(file.filename);
-      const { down } = parseMigrationFile(content);
-
-      if (!down) {
-        return {
-          success: false,
-          error:
-            `Migration ${file.version} (${file.filename}) has no DOWN section. ` +
-            `Manual rollback required.`,
-        };
+      if (toRollBack.length === 0) {
+        return { success: false, error: 'Nothing to rollback' };
       }
 
-      console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      const markRolledBack = (exec: Database) =>
-        exec
-          .updateTable('zv_schema_versions')
-          .set({ rolled_back_at: new Date() })
-          .where('version', '=', String(file.version))
-          .execute();
-      if (isNonTransactional(content)) {
-        // Same rule as the UP path: a `-- NO TRANSACTION` file's DOWN may hold
-        // `DROP INDEX CONCURRENTLY`, which a transaction refuses outright.
-        for (const stmt of splitSqlStatements(down)) {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          await (db as any).executeQuery({ sql: stmt, parameters: [] });
+      for (const file of toRollBack) {
+        const content = await readMigration(file.filename);
+        const { down } = parseMigrationFile(content);
+
+        if (!down) {
+          return {
+            success: false,
+            error:
+              `Migration ${file.version} (${file.filename}) has no DOWN section. ` +
+              `Manual rollback required.`,
+          };
         }
-        await markRolledBack(db);
-      } else {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        await (db as any).transaction().execute(async (trx: any) => {
+
+        console.log(`   ⏪ Rolling back migration ${file.version}...`);
+        const markRolledBack = (exec: Database) =>
+          exec
+            .updateTable('zv_schema_versions')
+            .set({ rolled_back_at: new Date() })
+            .where('version', '=', String(file.version))
+            .execute();
+        if (isNonTransactional(content)) {
+          // Same rule as the UP path: a `-- NO TRANSACTION` file's DOWN may hold
+          // `DROP INDEX CONCURRENTLY`, which a transaction refuses outright.
           for (const stmt of splitSqlStatements(down)) {
-            await trx.executeQuery({ sql: stmt, parameters: [] });
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+            await (db as any).executeQuery({ sql: stmt, parameters: [] });
           }
-          await markRolledBack(trx as Database);
-        });
+          await markRolledBack(db);
+        } else {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          await (db as any).transaction().execute(async (trx: any) => {
+            for (const stmt of splitSqlStatements(down)) {
+              await trx.executeQuery({ sql: stmt, parameters: [] });
+            }
+            await markRolledBack(trx as Database);
+          });
+        }
+
+        console.log(`   ✅ Migration ${file.version} rolled back`);
       }
 
-      console.log(`   ✅ Migration ${file.version} rolled back`);
-    }
-
-    return { success: true };
+      return { success: true };
+    });
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
     return { success: false, error: err.message };

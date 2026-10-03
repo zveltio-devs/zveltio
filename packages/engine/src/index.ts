@@ -431,7 +431,8 @@ if (_cmd === 'migrate') {
   // `runMigrations`, not `autoMigrate`: the latter returns early on
   // `MIGRATIONS_AUTO=false`, which is the right answer for a boot that should
   // not migrate itself and the wrong one for an operator who typed `migrate`.
-  // The lock and the chain check still apply — they live in the runner.
+  // The lock and the chain check still apply — `runMigrations` takes the
+  // migration lock and `runPending` checks the chain.
   const { runMigrations: _runMigrations } = await import('./db/migrations/index.js');
   await _runMigrations(_db);
   console.log('✅ Migrations complete');

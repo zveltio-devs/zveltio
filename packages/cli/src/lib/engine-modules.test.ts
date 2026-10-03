@@ -13,6 +13,7 @@ describe('loadEngineMigrationModules', () => {
     expect(typeof db.initDatabase).toBe('function');
     expect(typeof migrations.runMigrations).toBe('function');
     expect(typeof migrations.rollbackMigration).toBe('function');
+    expect(typeof migrations.pendingMigrations).toBe('function');
   });
 
   it('names the error after what the operator should run instead', () => {

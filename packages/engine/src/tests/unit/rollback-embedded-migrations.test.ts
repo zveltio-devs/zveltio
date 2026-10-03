@@ -33,16 +33,16 @@ describe('migration sources', () => {
     const src = await Bun.file(join(import.meta.dir, '../../db/migrations/index.ts')).text();
 
     // Split into top-level functions and check the ones that read the set.
-    // The guard's SHAPE differs between them -- `runPending` uses an `if`, the
-    // other two a ternary -- so what is asserted is the property they must
-    // share: a reader that never mentions EMBEDDED_MIGRATIONS can only read
+    // `runPending` was a third reader; it now takes its list from
+    // `listShippedMigrations` (via `pendingMigrations`). What is asserted is the
+    // property every reader must share: a reader that never mentions EMBEDDED_MIGRATIONS can only read
     // from disk, and on the shipped binary there is no disk to read.
     const bodies = src.split(/\n(?=(?:export )?(?:async )?function )/);
     const readers = bodies.filter(
       (b) => b.includes('listSqlFilesSync(') && !b.startsWith('function listSqlFilesSync'),
     );
 
-    expect(readers.length).toBeGreaterThanOrEqual(3);
+    expect(readers.length).toBeGreaterThanOrEqual(2);
     for (const body of readers) {
       const name = /function (\w+)/.exec(body)?.[1] ?? '(anonymous)';
       expect(`${name}: ${body.includes('EMBEDDED_MIGRATIONS')}`).toBe(`${name}: true`);

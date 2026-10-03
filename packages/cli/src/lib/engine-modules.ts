@@ -34,9 +34,12 @@ export interface EngineDbModule {
 }
 
 export interface EngineMigrationsModule {
-  runMigrations(db: EngineDb): Promise<unknown>;
+  runMigrations(db: EngineDb): Promise<string[]>;
   getAppliedMigrations(db: EngineDb): Promise<unknown[]>;
   getLastAppliedMigration(db: EngineDb): Promise<number>;
+  pendingMigrations(
+    db: EngineDb,
+  ): Promise<{ lastApplied: number; pending: Array<{ version: number; filename: string }> }>;
   rollbackMigration(
     db: EngineDb,
     targetVersion: number,

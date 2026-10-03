@@ -19,10 +19,33 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 export const SQL_DIR = join(__dir, '..', 'src', 'db', 'migrations', 'sql');
 export const OUT_FILE = join(__dir, '..', 'src', 'db', 'migrations', 'embedded.ts');
 
+/**
+ * The migration files, refusing two that share a number.
+ *
+ * Applied migrations are tracked by number (`zv_schema_versions.version` is
+ * UNIQUE). Two PRs that each pick the next free number merge without a
+ * conflict — different filenames — and the second file then reads, on every
+ * database, as "migration N was renumbered or squashed": boot refuses with
+ * advice that does not fit. Refused here, the generator (run by every build)
+ * and the embedded-migrations gate (run in CI) both name the clash.
+ */
 export function migrationFiles(sqlDir: string = SQL_DIR): string[] {
-  return readdirSync(sqlDir)
+  const files = readdirSync(sqlDir)
     .filter((f) => f.endsWith('.sql'))
     .sort();
+  const byNumber = new Map<number, string[]>();
+  for (const f of files) {
+    const n = Number.parseInt(f, 10);
+    byNumber.set(n, [...(byNumber.get(n) ?? []), f]);
+  }
+  const clashes = [...byNumber.values()].filter((names) => names.length > 1);
+  if (clashes.length > 0) {
+    throw new Error(
+      `Two migrations share a number: ${clashes.map((c) => c.join(' / ')).join('; ')}. ` +
+        'Renumber the one that has not been released to the next free number.',
+    );
+  }
+  return files;
 }
 
 export function renderEmbedded(files: string[]): string {
