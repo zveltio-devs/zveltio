@@ -27,10 +27,11 @@ mock.module('../../lib/extensions/worker-sql-policy.js', () => ({
 }));
 
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { createDb, type Database } from '../../db/index.js';
 import { engineHandle } from '../../lib/engine-handle.js';
 import {
   _resetExtensionDbRoleForTests,
+  ensureExtensionDbRole,
   grantExtensionDbRole,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
@@ -44,6 +45,8 @@ const EXT = 'roleprobe';
 const OWN = 'zv_roleprobe_notes';
 const GRANTED = 'zv_roleprobe_granted';
 const COLLECTION = 'zvd_roleprobe_things';
+const OTHER_TENANT = '00000000-0000-0000-0000-0000000000a2';
+const PLAIN = 'pool_roleprobe_plain';
 
 d('ctx.db runs as the extension role in a tenant transaction', () => {
   let db: Database;
@@ -74,6 +77,9 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
 
   afterAll(async () => {
     analyzerOff = false;
+    // Module state: left ready, every later file's pool `ctx.db` would open a
+    // transaction per statement — a stub Kysely in a unit test logs it.
+    _resetExtensionDbRoleForTests();
     for (const t of [OWN, GRANTED, COLLECTION]) {
       await sql`DROP TABLE IF EXISTS ${sql.table(t)}`.execute(db);
     }
@@ -145,13 +151,6 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
     });
   }, 60_000);
 
-  it('leaves a transaction opened on the pool — ctx.adminDb.transaction() — on the engine role', async () => {
-    // `db:admin` is the deliberate cross-tenant handle; the extension role is bound
-    // by tenant RLS and would quietly narrow it to one tenant.
-    const admin = createRestrictedDb(db, EXT, new Set([OWN]));
-    expect(await admin.transaction().execute((t) => whoAmI(t))).not.toBe('zveltio_ext');
-  }, 60_000);
-
   it('runs ctx.db.transaction() as the role, and a throw inside it restores the engine role', async () => {
     await inTenant(async (trx) => {
       const inner = await ext.transaction().execute((t) => whoAmI(t));
@@ -162,6 +161,138 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
         }),
       ).rejects.toThrow(/division by zero/);
       expect(await whoAmI(trx)).toBe('zveltio_rls');
+    });
+  }, 60_000);
+
+  // ── The pool: boot, cron, listeners, background work, and `ctx.adminDb` ──
+  //
+  // Measured on master with the analyzer off: every statement below ran as the
+  // engine's login role (`postgres` here) and read "user", session and
+  // zv_api_keys, wrote a god grant and created a table.
+
+  /** `ctx.db` outside any tenant transaction, and `ctx.adminDb`: both the pool. */
+  const onPool = () => [
+    createRestrictedDb(() => getCurrentTenantTrx() ?? db, EXT, new Set([OWN, GRANTED])),
+    createRestrictedDb(db, EXT, new Set([OWN, GRANTED])),
+  ];
+  const tenantsSeen = async (h: Database) =>
+    (
+      await sql<{ n: number }>`
+        SELECT count(DISTINCT tenant_id)::int AS n FROM ${sql.table(COLLECTION)}`.execute(h)
+    ).rows[0]!.n;
+
+  it('runs a pool statement as the RLS-bypassing twin on a superuser engine, engine helpers on the engine role', async () => {
+    for (const h of onPool()) {
+      expect(await whoAmI(h)).toBe('zveltio_ext_bypass');
+      expect(await whoAmI(engineHandle(h))).toBe('postgres');
+    }
+    const admin = onPool()[1]!;
+    expect(await admin.transaction().execute((t) => whoAmI(t))).toBe('zveltio_ext_bypass');
+    expect(await admin.transaction().execute((t) => whoAmI(engineHandle(t)))).toBe('postgres');
+  }, 60_000);
+
+  it('refuses engine tables and DDL to a pool statement the analyzer let through', async () => {
+    analyzerOff = true;
+    try {
+      for (const h of onPool()) {
+        for (const stmt of [
+          'SELECT count(*) FROM zv_api_keys',
+          'SELECT count(*) FROM "user"',
+          'SELECT count(*) FROM session',
+          `INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3) VALUES ('p', 'x', '*', '*', '*')`,
+          'CREATE TABLE zz_roleprobe_ddl (id int)',
+        ]) {
+          await expect(sql.raw(stmt).execute(h), stmt).rejects.toThrow(/permission denied/);
+          await expect(
+            h.transaction().execute((t) => sql.raw(stmt).execute(t)),
+            `in a transaction: ${stmt}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    } finally {
+      analyzerOff = false;
+    }
+  }, 60_000);
+
+  it('keeps the cross-tenant reach a superuser engine had on the pool', async () => {
+    await sql`DELETE FROM ${sql.table(COLLECTION)}`.execute(db);
+    await sql`INSERT INTO ${sql.table(COLLECTION)} (note, tenant_id)
+              VALUES ('a', ${TENANT}::uuid), ('b', ${OTHER_TENANT}::uuid)`.execute(db);
+    expect(await tenantsSeen(db)).toBe(2);
+    for (const h of onPool()) {
+      expect(await tenantsSeen(h)).toBe(2);
+      expect(await h.transaction().execute((t) => tenantsSeen(t))).toBe(2);
+    }
+  }, 60_000);
+
+  it('lets an escaped role last one pool statement', async () => {
+    analyzerOff = true;
+    try {
+      const [h, admin] = onPool();
+      await sql`SELECT set_config('role', 'none', true)`.execute(h!);
+      expect(await whoAmI(h!)).toBe('zveltio_ext_bypass');
+      await admin!.transaction().execute(async (t) => {
+        await sql`SELECT set_config('role', 'none', true)`.execute(t);
+        expect(await whoAmI(t)).toBe('zveltio_ext_bypass');
+      });
+    } finally {
+      analyzerOff = false;
+    }
+  }, 60_000);
+
+  it('runs pool statements as zveltio_ext on a plain-role engine, seeing what the engine sees', async () => {
+    await sql.raw(`DROP ROLE IF EXISTS ${PLAIN}`).execute(db);
+    await sql.raw(`CREATE ROLE ${PLAIN} LOGIN PASSWORD 'p' NOSUPERUSER NOBYPASSRLS`).execute(db);
+    // What scripts/bootstrap-db-role.sh gives the engine role.
+    await sql.raw(`GRANT zveltio_ext TO ${PLAIN}`).execute(db);
+    await sql.raw(`GRANT SELECT ON ${COLLECTION} TO ${PLAIN}`).execute(db);
+    const url = new URL(String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL));
+    url.username = PLAIN;
+    url.password = 'p';
+    const plain = createDb(url.toString());
+    try {
+      _resetExtensionDbRoleForTests();
+      expect(await ensureExtensionDbRole(plain)).toBe(true);
+      const ext = createRestrictedDb(plain, EXT, new Set([OWN]));
+      expect(await whoAmI(ext)).toBe('zveltio_ext');
+      expect(await ext.transaction().execute((t) => whoAmI(t))).toBe('zveltio_ext');
+      const engineSees = await tenantsSeen(plain);
+      expect(engineSees).toBeLessThan(2); // RLS binds the plain role on the pool
+      expect(await tenantsSeen(ext)).toBe(engineSees);
+      // The twin is never handed to a role that RLS binds.
+      const m = await sql<{ m: boolean }>`
+        SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext_bypass')
+           AND pg_has_role(${PLAIN}, 'zveltio_ext_bypass', 'MEMBER') AS m`.execute(db);
+      expect(m.rows[0]!.m).toBe(false);
+    } finally {
+      await plain.destroy().catch(() => {});
+      _resetExtensionDbRoleForTests();
+      await ensureExtensionDbRole(db);
+      await sql.raw(`REVOKE ALL ON ${COLLECTION} FROM ${PLAIN}`).execute(db);
+      await sql.raw(`DROP ROLE IF EXISTS ${PLAIN}`).execute(db);
+    }
+  }, 60_000);
+
+  it('makes ctx.db.transaction().setAccessMode("read only") read-only inside a joined transaction', async () => {
+    await inTenant(async (trx) => {
+      await expect(
+        ext
+          .transaction()
+          .setAccessMode('read only')
+          .execute((t) => sql`INSERT INTO ${sql.table(OWN)} (note) VALUES ('ro')`.execute(t)),
+      ).rejects.toThrow(/read-only transaction/);
+      // Reads still run, and the request's transaction is writable afterwards.
+      expect(
+        await ext
+          .transaction()
+          .setAccessMode('read only')
+          .execute((t) => whoAmI(t)),
+      ).toBe('zveltio_ext');
+      const ro = await sql<{
+        v: string;
+      }>`SELECT current_setting('transaction_read_only') AS v`.execute(trx);
+      expect(ro.rows[0]!.v).toBe('off');
+      await sql`INSERT INTO ${sql.table(OWN)} (note) VALUES ('rw')`.execute(ext);
     });
   }, 60_000);
 });
