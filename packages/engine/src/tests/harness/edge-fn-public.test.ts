@@ -13,7 +13,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createKeyCreator,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const FN = `pub-fn-${Date.now()}`;
@@ -56,9 +61,9 @@ d('public edge function invoke (in-process)', () => {
     fnId = (row as { id: string }).id;
     for (const [name, k] of Object.entries(KEYS)) {
       await sql`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
         VALUES (${`${FN}-${name}`}, ${await hashApiKey(k.raw)}, ${k.raw.slice(0, 12)},
-                '["*"]'::jsonb, true, ${k.tenant}::uuid)
+                '["*"]'::jsonb, true, ${k.tenant}::uuid, ${await createKeyCreator(db)})
       `.execute(db);
     }
   });

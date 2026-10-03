@@ -26,7 +26,7 @@ import {
 import { authenticate, validateApiKey } from '../../lib/data/auth.js';
 import { describeWriteRefusal, isRlsRefusal } from '../../lib/data/write-pipeline.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createKeyCreator, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -168,8 +168,9 @@ d('API keys and writes meet the same rules (in-process)', () => {
     const raw = generateApiKey();
     const keyId = (
       await sql<{ id: string }>`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
-        VALUES ('shared probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
+        VALUES ('shared probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
+                ${await createKeyCreator(db, [tenant])})
         RETURNING id
       `.execute(db)
     ).rows[0]!.id;
@@ -201,8 +202,9 @@ d('API keys and writes meet the same rules (in-process)', () => {
     const raw = generateApiKey();
     const keyId = (
       await sql<{ id: string }>`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
-        VALUES ('wiring probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
+        VALUES ('wiring probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
+                ${await createKeyCreator(db, [tenant])})
         RETURNING id
       `.execute(db)
     ).rows[0]!.id;

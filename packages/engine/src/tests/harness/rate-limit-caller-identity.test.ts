@@ -26,6 +26,7 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
+  createKeyCreator,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -61,9 +62,9 @@ d('rate limit caller identity', () => {
     const name = `rlid-${STAMP}-${keyNames.length}`;
     keyNames.push(name);
     const row = await sql<{ id: string }>`
-      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id)
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
       VALUES (${name}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
-              '["*"]'::jsonb, true, ${tenantId}::uuid)
+              '["*"]'::jsonb, true, ${tenantId}::uuid, ${await createKeyCreator(db, [tenantId])})
       RETURNING id`.execute(db);
     return { raw, id: row.rows[0]!.id };
   }

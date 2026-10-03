@@ -26,7 +26,7 @@ import type { Database } from '../../db/index.js';
 import { validateApiKey } from '../../lib/data/auth.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createKeyCreator, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -50,8 +50,9 @@ d('an API key cannot reach root by resolving no tenant', () => {
 
     tenantKeyId = (
       await sql<{ id: string }>`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
-        VALUES ('scoped probe', ${await hashApiKey(tenantRaw)}, 'zvk_', '[]'::jsonb, 100, true, ${OTHER}::uuid)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
+        VALUES ('scoped probe', ${await hashApiKey(tenantRaw)}, 'zvk_', '[]'::jsonb, 100, true, ${OTHER}::uuid,
+                ${await createKeyCreator(db, [OTHER])})
         RETURNING id
       `.execute(db)
     ).rows[0]!.id;
@@ -61,8 +62,9 @@ d('an API key cannot reach root by resolving no tenant', () => {
     // fix refused these too, it would break working keys on upgrade.
     rootKeyId = (
       await sql<{ id: string }>`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id)
-        VALUES ('root probe', ${await hashApiKey(rootRaw)}, 'zvk_', '[]'::jsonb, 100, true, ${DEFAULT_TENANT_ID}::uuid)
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
+        VALUES ('root probe', ${await hashApiKey(rootRaw)}, 'zvk_', '[]'::jsonb, 100, true, ${DEFAULT_TENANT_ID}::uuid,
+                ${await createKeyCreator(db, [DEFAULT_TENANT_ID])})
         RETURNING id
       `.execute(db)
     ).rows[0]!.id;

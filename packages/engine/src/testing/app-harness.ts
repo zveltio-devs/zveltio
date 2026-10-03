@@ -29,7 +29,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getEnforcer, invalidateGodCache, invalidateUserPermCache } from '../lib/tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  getEnforcer,
+  invalidateGodCache,
+  invalidateUserPermCache,
+} from '../lib/tenancy/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -267,6 +272,26 @@ export async function createMemberSession(
     throw new Error(`harness sign-in returned no cookie: ${signIn.status} ${await signIn.text()}`);
   }
   return { cookie, userId, email };
+}
+
+/**
+ * A user to stand as `created_by` of an API key a test inserts by hand: a key
+ * with no creator never authenticates (`usableApiKeys`). A key bound to an
+ * ordinary tenant acts there on its creator's membership, so the creator is
+ * enrolled in each of `tenantIds` that exists — the default tenant counts
+ * everyone, and a tenant that does not exist cannot be joined.
+ */
+export async function createKeyCreator(db: Database, tenantIds: string[] = []): Promise<string> {
+  const id = `harness-keycreator-${crypto.randomUUID()}`;
+  await sql`INSERT INTO "user" (id, name, email)
+            VALUES (${id}, 'Harness key creator', ${`${id}@test.local`})`.execute(db);
+  for (const tenantId of tenantIds) {
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              SELECT id, ${id}, 'member' FROM zv_tenants
+              WHERE id = ${tenantId}::uuid AND id <> ${DEFAULT_TENANT_ID}::uuid
+              ON CONFLICT DO NOTHING`.execute(db);
+  }
+  return id;
 }
 
 /**
