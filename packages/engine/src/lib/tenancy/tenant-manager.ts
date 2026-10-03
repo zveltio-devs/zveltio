@@ -880,8 +880,8 @@ export function getTenantSchemaName(tenantSlug: string): string {
 }
 
 /**
- * Create a new PostgreSQL schema for a tenant and initialize system tables.
- * Called when a new tenant is provisioned.
+ * Create an environment's PostgreSQL schema with its (empty) system tables.
+ * Not called per tenant any more: tenant isolation is RLS on `tenant_id`.
  */
 export async function provisionTenantSchema(schemaName: string): Promise<void> {
   await sql`CREATE SCHEMA IF NOT EXISTS ${sql.id(schemaName)}`.execute(_db);
@@ -936,8 +936,8 @@ export async function provisionEnvironment(
   envSlug: string,
   envName: string,
   isProduction: boolean,
-): Promise<void> {
-  const schemaName = `tenant_${tenantSlug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}_${envSlug}`;
+): Promise<string> {
+  const schemaName = `${getTenantSchemaName(tenantSlug)}_${envSlug}`;
 
   await provisionTenantSchema(schemaName);
 
@@ -970,6 +970,7 @@ export async function provisionEnvironment(
   );
 
   console.log(`✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`);
+  return schemaName;
 }
 
 export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {

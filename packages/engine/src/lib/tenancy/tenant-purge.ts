@@ -176,10 +176,19 @@ export async function purgeTenant(
       SELECT user_id AS id FROM zv_tenant_users WHERE tenant_id = ${tenantId}
     `.execute(trx);
 
-    // Per-tenant Postgres schemas. The base name of tenant `acme-dev` equals the
-    // `dev` environment schema of tenant `acme`, so a schema another tenant's
-    // environment names is left alone.
-    const schemas = await sql<{ s: string }>`
+    // Per-tenant Postgres schemas: the environments', and the legacy base one
+    // tenant creation no longer makes. The base name of tenant `acme-dev` is
+    // spelled like the `dev` environment schema of tenant `acme`, so a schema
+    // another tenant's environment names, or another tenant's base name spells,
+    // is left alone — in both directions.
+    const othersBase = new Set(
+      (
+        await sql<{ slug: string }>`SELECT slug FROM zv_tenants WHERE id <> ${tenantId}`.execute(
+          trx,
+        )
+      ).rows.map((r) => getTenantSchemaName(r.slug)),
+    );
+    const found = await sql<{ s: string }>`
       SELECT s FROM (
         SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${tenantId}
         UNION SELECT ${getTenantSchemaName(tenant.slug)}
@@ -189,6 +198,7 @@ export async function purgeTenant(
         AND NOT EXISTS (SELECT 1 FROM zv_environments e
                          WHERE e.schema_name = x.s AND e.tenant_id <> ${tenantId})
     `.execute(trx);
+    const schemas = found.rows.map((r) => r.s).filter((s) => !othersBase.has(s));
 
     // Foreign keys between our own tables decide the order, and they are not
     // known up front: a table refused with 23503 is retried after the others.
@@ -241,7 +251,7 @@ export async function purgeTenant(
       sql`DELETE FROM zv_tenant_transfers WHERE from_tenant = ${tenantId} OR to_tenant = ${tenantId}`,
     );
     if (transfers) deleted.zv_tenant_transfers = transfers;
-    for (const { s } of schemas.rows) {
+    for (const s of schemas) {
       await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(trx);
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${tenantId}`.execute(trx);
@@ -251,7 +261,7 @@ export async function purgeTenant(
       deleted,
       storagePaths: paths.rows.map((r) => r.p),
       memberIds: members.rows.map((r) => r.id),
-      droppedSchemas: schemas.rows.map((r) => r.s),
+      droppedSchemas: schemas,
     };
   });
 }
