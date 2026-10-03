@@ -125,7 +125,11 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     // message, so the mock has to expose reserve() like the real pool does.
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
       reserve: async () => ({
-        unsafe: async (sql: string, params?: unknown[]) => [{ sql, n: params?.length ?? 0 }],
+        unsafe: async (sql: string, params?: unknown[]) =>
+          // The role pick (pickWorkerSqlRole) answers a role, or the bridge refuses.
+          sql.includes('FROM pg_roles')
+            ? [{ role: 'zveltio_worker' }]
+            : [{ sql, n: params?.length ?? 0 }],
         release: () => undefined,
       }),
     } as never);
@@ -141,6 +145,37 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(posted.some((m) => m.type === 'db:ok' && m.id === 'db-1')).toBe(true);
     poolSpy.mockRestore();
+  });
+
+  it('refuses db:query when no narrow role is usable — never runs it as the engine role', async () => {
+    const bunSql = await import('../../db/bun-sql-dialect.js');
+    const ran: string[] = [];
+    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
+      reserve: async () => ({
+        unsafe: async (sql: string) => {
+          ran.push(sql);
+          return sql.includes('FROM pg_roles') ? [{ role: null }] : [];
+        },
+        release: () => undefined,
+      }),
+    } as never);
+    try {
+      const host = new WorkerExtensionHost(new Hono());
+      const { managed, posted } = makeManaged(host, { name: 'db-norole' });
+      await dispatchMessage(host, managed, {
+        type: 'db:query',
+        id: 'db-nr',
+        sql: 'SELECT secret FROM zvd_notes',
+        params: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      const err = posted.find((m) => m.id === 'db-nr');
+      expect(err?.type).toBe('db:err');
+      if (err?.type === 'db:err') expect(err.error).toContain('no database role');
+      expect(ran).not.toContain('SELECT secret FROM zvd_notes');
+    } finally {
+      poolSpy.mockRestore();
+    }
   });
 
   it('posts db:err when the BunSQL pool is unavailable', async () => {
@@ -220,6 +255,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
           // The guard issues SET statement_timeout first; only the extension's
           // own statement should surface the failure under test.
           if (sql.startsWith('SET ')) return [];
+          if (sql.includes('FROM pg_roles')) return [{ role: 'zveltio_worker' }];
           throw new Error('query exploded');
         },
         release: () => undefined,

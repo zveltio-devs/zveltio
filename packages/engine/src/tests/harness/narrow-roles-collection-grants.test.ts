@@ -18,7 +18,7 @@
  * host, the real pool, `SET LOCAL ROLE zveltio_worker`, the request's tenant.
  * The collection is created by the real road (the route and its DDL job).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -104,15 +104,17 @@ async function asQueryDbStep(db: Database, query: string, tenantId: string) {
   });
 }
 
-/** Run `fn` with `zveltio_worker` missing, as on a Postgres where 001 could not create it. */
-async function withoutWorkerRole<T>(db: Database, fn: () => Promise<T>): Promise<T> {
-  await sql.raw('ALTER ROLE zveltio_worker RENAME TO zveltio_worker_hidden_probe').execute(db);
+/** Run `fn` with `role` missing, as on a Postgres where 001 could not create it. */
+async function withoutRole<T>(db: Database, role: string, fn: () => Promise<T>): Promise<T> {
+  await sql.raw(`ALTER ROLE ${role} RENAME TO ${role}_hidden_probe`).execute(db);
   try {
     return await fn();
   } finally {
-    await sql.raw('ALTER ROLE zveltio_worker_hidden_probe RENAME TO zveltio_worker').execute(db);
+    await sql.raw(`ALTER ROLE ${role}_hidden_probe RENAME TO ${role}`).execute(db);
   }
 }
+const withoutWorkerRole = <T>(db: Database, fn: () => Promise<T>) =>
+  withoutRole(db, 'zveltio_worker', fn);
 
 d('the narrow roles hold exactly the collection tables', () => {
   let db: Database;
@@ -223,6 +225,37 @@ d('the narrow roles hold exactly the collection tables', () => {
       SELECT count(*)::int AS n FROM zvd_permissions WHERE v0 = ${PROBE}
     `.execute(db);
     expect(written.rows[0]!.n).toBe(0);
+  }, 60_000);
+
+  it('with no narrow role usable the bridge refuses — it never runs as the engine role', async () => {
+    // A non-superuser engine without CREATEROLE where bootstrap-db-role.sh was
+    // not run: migration 001 created neither role. The bridge used to run the
+    // query as the engine's own login, which owns every table and, on a
+    // superuser, bypasses RLS: tenant A read tenant B's rows.
+    _internalForTests.resetNoWorkerSqlRoleWarning();
+    const warn = spyOn(console, 'warn');
+    try {
+      const res = await withoutWorkerRole(db, () =>
+        withoutRole(db, 'zveltio_rls', async () => ({
+          read: await workerQuery(`SELECT title FROM ${TABLE} ORDER BY title`, TENANT_A),
+          again: await workerQuery('SELECT current_user AS u', TENANT_A),
+        })),
+      );
+      for (const r of [res.read, res.again]) {
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error).toMatch(/no database role.*zveltio_worker/i);
+      }
+      const told = warn.mock.calls.flat().join('\n');
+      expect(told).toContain('scripts/bootstrap-db-role.sh');
+      expect(told.split('scripts/bootstrap-db-role.sh').length - 1).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+    // And the bridge works again once a role is back.
+    expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
+      ok: true,
+      rows: [{ u: 'zveltio_worker' }],
+    });
   }, 60_000);
 
   it('the flow reader holds SELECT on the new collection and reads its own tenant only', async () => {
