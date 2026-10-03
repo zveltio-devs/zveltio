@@ -24,6 +24,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext, ExtensionInternals } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { getAuth } from '../../lib/auth.js';
+import { runAsTenantWithoutTransaction } from '../../lib/tenancy/index.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
@@ -42,6 +43,7 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   let internals: ExtensionInternals;
   let extDb: Database;
   const files: Record<string, string> = {};
+  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   const fileIn = async (tenant: string, label: string) =>
     (
@@ -71,6 +73,8 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
     files.rootOwn = await fileIn(ROOT, `${NAME}-root-own`);
     files.otherByRequest = await fileIn(OTHER, `${NAME}-other-req`);
     files.otherNoRequest = await fileIn(OTHER, `${NAME}-other-noreq`);
+    files.otherFromJob = await fileIn(OTHER, `${NAME}-other-job`);
+    files.rootFromJob = await fileIn(ROOT, `${NAME}-root-job`);
 
     app = new Hono();
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
@@ -120,6 +124,8 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   }, 60_000);
 
   afterAll(async () => {
+    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
@@ -151,5 +157,17 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
     const outcome = await attempt(internals.moveToTrash(extDb, files.otherNoRequest!, 'system'));
     expect(outcome).not.toBe('trashed');
     expect(await trashed(files.otherNoRequest!)).toBe(false);
+  });
+
+  it('where the row policy does not bind, trashes only the running tenant’s file', async () => {
+    // A handle RLS does not bind — the engine's superuser pool here; equally an
+    // install whose role bypasses RLS — leaves the helper's tenant filter as the
+    // only boundary.
+    const asRoot = (id: string) =>
+      runAsTenantWithoutTransaction(ROOT, () => attempt(internals.moveToTrash(db, id, 'system')));
+    expect(await asRoot(files.otherFromJob!)).toMatch(/not found/i);
+    expect(await trashed(files.otherFromJob!)).toBe(false);
+    expect(await asRoot(files.rootFromJob!)).toBe('trashed');
+    expect(await trashed(files.rootFromJob!)).toBe(true);
   });
 });

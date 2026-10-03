@@ -47,6 +47,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
   const bags: Record<string, ExtensionInternals> = {};
   const adminDbs: Record<string, Database> = {};
   let later: Promise<unknown> = Promise.resolve();
+  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   /** Rows of the seeded table the entered transaction can see, by firm. */
   const peek = (internals: ExtensionInternals, tenant: string) =>
@@ -139,6 +140,8 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
   }, 60_000);
 
   afterAll(async () => {
+    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${NOCAP}, ${ADMIN}, ${ENTER})`.execute(

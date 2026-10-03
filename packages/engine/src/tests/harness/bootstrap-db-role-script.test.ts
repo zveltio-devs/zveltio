@@ -156,7 +156,7 @@ d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () 
       SELECT r.rolname::text AS r FROM pg_auth_members m
         JOIN pg_roles r ON r.oid = m.roleid JOIN pg_roles a ON a.oid = m.member
        WHERE a.rolname = ${APP} AND m.admin_option
-         AND r.rolname NOT IN ('zveltio_ext', 'zveltio_worker')
+         AND r.rolname ~ '^zveltio_(ext|extb|wrk)_'
        ORDER BY r.rolname ~ '^zveltio_extb_' DESC`.execute(sup);
     await sql.raw(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`).execute(sup);
     for (const { r } of made.rows) await sql`DROP ROLE IF EXISTS ${sql.id(r)}`.execute(sup);

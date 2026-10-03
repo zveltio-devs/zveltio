@@ -19,14 +19,14 @@ d('backup retention per schedule', () => {
   let db: Database;
   let scheduleId = '';
 
-  const rows = async (scheduleOnly: boolean) =>
+  const rows = async () =>
     (
       await sql<{ filename: string }>`
-        SELECT filename FROM zv_backups
-         WHERE notes = ${TAG} AND (${scheduleOnly}::boolean = false OR schedule_id = ${scheduleId}::uuid)
-         ORDER BY created_at DESC
+        SELECT filename FROM zv_backups WHERE notes = ${TAG}
       `.execute(db)
-    ).rows.map((r) => r.filename);
+    ).rows
+      .map((r) => r.filename)
+      .sort();
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
@@ -37,14 +37,21 @@ d('backup retention per schedule', () => {
     scheduleId = s.rows[0]!.id;
     // Four dumps by the schedule, oldest first; files that do not exist on disk
     // are fine — pruning removes the row either way.
-    for (let i = 0; i < 4; i++) {
-      await sql`
-        INSERT INTO zv_backups (filename, status, notes, schedule_id, created_at)
-        VALUES (${`${TAG}-s${i}.sql.gz`}, 'completed', ${TAG}, ${scheduleId}::uuid,
-                NOW() - make_interval(mins => ${10 - i}))
-      `.execute(db);
-    }
+    for (let i = 0; i < 4; i++) await backup(`s${i}`, 'completed', scheduleId, -10 + i);
+    // Must not count toward the schedule's two, nor be pruned: a failed run.
+    await backup('s-failed', 'failed', scheduleId, -1);
+    // Newer and unscheduled: ranked together with the schedule's rows, they
+    // would push all four out; under the 20 kept for unscheduled, they stay.
+    // In the future so they are the newest unscheduled rows the database has.
+    for (let i = 0; i < 2; i++) await backup(`u${i}`, 'completed', null, 60 + i);
   });
+
+  const backup = (name: string, status: string, schedule: string | null, mins: number) =>
+    sql`
+      INSERT INTO zv_backups (filename, status, notes, schedule_id, created_at)
+      VALUES (${`${TAG}-${name}.sql.gz`}, ${status}, ${TAG}, ${schedule}::uuid,
+              NOW() + make_interval(mins => ${mins}))
+    `.execute(db);
 
   afterAll(async () => {
     if (!db) return;
@@ -54,6 +61,8 @@ d('backup retention per schedule', () => {
 
   it("keeps the schedule's retention_count newest, not the global 20", async () => {
     await cleanupOldBackups(db);
-    expect(await rows(true)).toEqual([`${TAG}-s3.sql.gz`, `${TAG}-s2.sql.gz`]);
+    expect(await rows()).toEqual(
+      ['s-failed', 's2', 's3', 'u0', 'u1'].map((n) => `${TAG}-${n}.sql.gz`),
+    );
   });
 });
