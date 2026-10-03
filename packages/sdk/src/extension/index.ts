@@ -851,7 +851,8 @@ export interface ExtensionInternals<DB = unknown> {
   /**
    * The account for `email` (case-insensitive), created when there is none:
    * verified, no password, never god, in no tenant. Works while
-   * self-registration is off.
+   * self-registration is off. Inside `withTenantIsolation` it is created in
+   * that transaction, and a rollback takes it back.
    */
   provisionUser: (input: { email: string; name?: string }) => Promise<{
     user: ProvisionedUser;

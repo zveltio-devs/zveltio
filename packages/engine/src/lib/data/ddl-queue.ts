@@ -50,8 +50,6 @@ const QUEUE_NAMES = {
   drop_collection: 'ddl.drop_collection',
   add_field: 'ddl.add_field',
   remove_field: 'ddl.remove_field',
-  create_relation: 'ddl.create_relation',
-  drop_relation: 'ddl.drop_relation',
 } as const;
 type DdlJobType = keyof typeof QUEUE_NAMES;
 
@@ -367,33 +365,6 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     });
     if (ran) announceSchemaChange(payload.collection, 'alter');
   });
-
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.create_relation, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await db.transaction().execute(async (trx: any) => {
-      await runCreateRelation(trx, job.data);
-    });
-    announceRelationChange(job);
-  });
-
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.drop_relation, async ([job]: any[]) => {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await db.transaction().execute(async (trx: any) => {
-      await runDropRelation(trx, job.data);
-    });
-    announceRelationChange(job);
-  });
-}
-
-/** A pg-boss job as the handlers see it: `data` is what `enqueueDDLJob` sent. */
-type DdlJobData = { data?: Record<string, unknown> | null };
-
-/** A relation alters its source collection (an FK column, or a junction table). */
-function announceRelationChange(job: DdlJobData): void {
-  const source = job.data?.source_collection;
-  if (typeof source === 'string' && source) announceSchemaChange(source, 'alter');
 }
 
 /** BYOD guard: extension-managed (is_managed=false) collections opt out of
@@ -434,101 +405,6 @@ async function skipForByod(trx: any, payload: any, _kind: string): Promise<boole
   }
 
   return meta?.is_managed === false;
-}
-
-const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
-const SAFE_ACTION = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function runCreateRelation(trx: any, payload: any): Promise<void> {
-  const relType: string = payload.type ?? 'm2o';
-  const srcCol: string = payload.source_collection ?? '';
-  const tgtCol: string = payload.target_collection ?? '';
-  const srcField: string = payload.source_field ?? '';
-  const tgtField: string = payload.target_field ?? 'id';
-  const onDelete: string = payload.on_delete ?? 'SET NULL';
-  const onUpdate: string = payload.on_update ?? 'NO ACTION';
-
-  if (relType === 'm2o') {
-    if (
-      !SAFE_NAME.test(srcCol) ||
-      !SAFE_NAME.test(tgtCol) ||
-      !SAFE_NAME.test(srcField) ||
-      !SAFE_NAME.test(tgtField)
-    ) {
-      throw new Error('Invalid identifier in create_relation payload');
-    }
-    if (!SAFE_ACTION.test(onDelete) || !SAFE_ACTION.test(onUpdate)) {
-      throw new Error('Invalid ON DELETE/ON UPDATE action in create_relation');
-    }
-    await sql
-      .raw(
-        `ALTER TABLE zvd_${srcCol} ADD COLUMN IF NOT EXISTS "${srcField}" UUID REFERENCES zvd_${tgtCol}(${tgtField}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
-      )
-      .execute(trx);
-  } else if (relType === 'm2m') {
-    const junctionTable: string = payload.junction_table ?? '';
-    // Throws, like the m2o branch above.
-    //
-    // This used to be `if (valid) { create }` with no else, so an m2m relation
-    // with a missing or unsafe junction-table name created nothing and the job
-    // still reported `completed`. The two branches of the same function had
-    // opposite postures: m2o refused loudly, m2m shrugged.
-    //
-    // A DDL job that says `completed` is the only signal anyone has that the
-    // schema changed. Saying it after doing nothing is worse than failing.
-    if (
-      !junctionTable ||
-      !SAFE_NAME.test(junctionTable) ||
-      !SAFE_NAME.test(srcCol) ||
-      !SAFE_NAME.test(tgtCol)
-    ) {
-      throw new Error(
-        `Invalid identifier in create_relation payload (m2m): junction="${junctionTable}" ` +
-          `source="${srcCol}" target="${tgtCol}"`,
-      );
-    }
-    await sql
-      .raw(
-        `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
-          `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
-          `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
-          `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
-          `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-      )
-      .execute(trx);
-  } else if (relType !== 'o2m' && relType !== 'm2a') {
-    // o2m and m2a are genuinely handled from the other side of the relation, so
-    // there is nothing to do here for them. Any OTHER type is a payload nobody
-    // implemented, and falling through would report `completed` for it.
-    throw new Error(`create_relation: unsupported relation type "${relType}"`);
-  }
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-async function runDropRelation(trx: any, payload: any): Promise<void> {
-  const relType: string = payload.type ?? 'm2o';
-  const srcCol: string = payload.source_collection ?? '';
-  const srcField: string = payload.source_field ?? '';
-  const junctionTable: string = payload.junction_table ?? '';
-
-  // Same posture as create: a drop that could not run must not report success.
-  // These conditions used to be the whole `if`, so an unsafe identifier dropped
-  // nothing and the job completed — leaving the column or junction table in
-  // place while every record of the relation was removed.
-  if (relType === 'm2o') {
-    if (!SAFE_NAME.test(srcCol) || !SAFE_NAME.test(srcField)) {
-      throw new Error('Invalid identifier in drop_relation payload (m2o)');
-    }
-    await sql.raw(`ALTER TABLE zvd_${srcCol} DROP COLUMN IF EXISTS "${srcField}"`).execute(trx);
-  } else if (relType === 'm2m') {
-    if (!junctionTable || !SAFE_NAME.test(junctionTable)) {
-      throw new Error('Invalid identifier in drop_relation payload (m2m)');
-    }
-    await sql.raw(`DROP TABLE IF EXISTS ${junctionTable} CASCADE`).execute(trx);
-  } else if (relType !== 'o2m' && relType !== 'm2a') {
-    throw new Error(`drop_relation: unsupported relation type "${relType}"`);
-  }
 }
 
 /** Whether the pg-boss DDL queue worker is started (health probe, H-1.4). */
@@ -572,8 +448,6 @@ export function _setBossForTests(boss: unknown): unknown {
 export const _internalForTests = {
   mapJobToPublic,
   QUEUE_NAMES,
-  runCreateRelation,
-  runDropRelation,
   skipForByod,
   reindexInvalid,
 };

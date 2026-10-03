@@ -7,7 +7,7 @@ import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenan
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
-import { authenticate, fieldTypeRegistry } from '../lib/data/index.js';
+import { apiKeyUsable, authenticate, fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -104,7 +104,6 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         'rate_limit',
         'expires_at',
         'last_used_at',
-        'is_active',
         'created_at',
         // Surfaced so an operator can SEE which keys ignore row-level policies.
         // It defaulted to on for every key and was invisible — a policy that
@@ -123,6 +122,9 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         // binding works; nobody could see it.
         'tenant_id',
       ])
+      // Whether the key authenticates, by the door's own rule: a key whose
+      // creator was deleted, barred or left the tenant read `is_active: true`.
+      .select((eb) => apiKeyUsable(eb).as('is_active'))
       .where('tenant_id', '=', getCurrentDomain())
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)

@@ -12,7 +12,7 @@ import {
   withEveryTenant,
 } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
-import { escapeLike } from '../../lib/data/index.js';
+import { apiKeyUsable, escapeLike } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -106,9 +106,10 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         'rate_limit',
         'expires_at',
         'last_used_at',
-        'is_active',
         'created_at',
       ])
+      // The door's rule, not the stored flag — see `GET /api/api-keys`.
+      .select((eb) => apiKeyUsable(eb).as('is_active'))
       .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)

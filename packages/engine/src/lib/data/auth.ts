@@ -10,8 +10,9 @@
 
 import { principalRole, publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
+import type { ExpressionBuilder } from 'kysely';
 import type { Database } from '../../db/index.js';
-import type { ZvApiKeyRow } from '../../db/schema.js';
+import type { DbSchema, ZvApiKeyRow } from '../../db/schema.js';
 import { requestSession } from '../../middleware/session-prefetch.js';
 import {
   activeMembership,
@@ -175,38 +176,43 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
  * NULL creator pass. Every route that mints a key records its caller.
  */
 function usableApiKeys(db: Database) {
-  return db
-    .selectFrom('zv_api_keys')
-    .where('is_active', '=', true)
-    .where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom('user')
+  return db.selectFrom('zv_api_keys').where(apiKeyUsable);
+}
+
+/**
+ * The rule `usableApiKeys` filters on, for a listing to REPORT: the admin
+ * listings read the stored flag and showed a key the door refuses as active.
+ */
+export function apiKeyUsable(eb: ExpressionBuilder<DbSchema, 'zv_api_keys'>) {
+  return eb.and([
+    eb('zv_api_keys.is_active', '=', true),
+    eb.exists(
+      eb
+        .selectFrom('user')
+        .select('user.id')
+        .whereRef('user.id', '=', 'zv_api_keys.created_by')
+        .where((u) => u.or([u('user.banned', 'is', null), u('user.banned', '=', false)])),
+    ),
+    eb.or([
+      eb('zv_api_keys.tenant_id', 'is', null),
+      eb('zv_api_keys.tenant_id', '=', DEFAULT_TENANT_ID),
+      eb.exists(
+        eb
+          .selectFrom('user')
           .select('user.id')
           .whereRef('user.id', '=', 'zv_api_keys.created_by')
-          .where((u) => u.or([u('user.banned', 'is', null), u('user.banned', '=', false)])),
+          .where('user.role', '=', 'god'),
       ),
-    )
-    .where((eb) =>
-      eb.or([
-        eb('zv_api_keys.tenant_id', 'is', null),
-        eb('zv_api_keys.tenant_id', '=', DEFAULT_TENANT_ID),
-        eb.exists(
-          eb
-            .selectFrom('user')
-            .select('user.id')
-            .whereRef('user.id', '=', 'zv_api_keys.created_by')
-            .where('user.role', '=', 'god'),
-        ),
-        eb.exists(
-          eb
-            .selectFrom('zv_tenant_users as tu')
-            .select('tu.user_id')
-            .whereRef('tu.user_id', '=', 'zv_api_keys.created_by')
-            .whereRef('tu.tenant_id', '=', 'zv_api_keys.tenant_id')
-            .where(activeMembership('tu')),
-        ),
-      ]),
-    );
+      eb.exists(
+        eb
+          .selectFrom('zv_tenant_users as tu')
+          .select('tu.user_id')
+          .whereRef('tu.user_id', '=', 'zv_api_keys.created_by')
+          .whereRef('tu.tenant_id', '=', 'zv_api_keys.tenant_id')
+          .where(activeMembership('tu')),
+      ),
+    ]),
+  ]);
 }
 
 function apiKeyExpired(key: { expires_at: unknown }): boolean {
