@@ -4,12 +4,240 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.77] - 2026-10-03
+
 **Security: invitation tokens are stored as digests.** `zv_invitations.token`
 held the raw token from the invite link, and each `user.invited` audit row
 repeated it: a database read or a backup was every live invitation. The table
 now stores `sha256:<hex>` of the token, the accept routes look up the digest,
 and migration 038 hashes the invitations already pending (their links keep
 working) and points their audit rows at the invitation id.
+
+**Security: extension SQL is one checked statement.** `ctx.db` checked only the
+table name passed to the query builder. Raw SQL (`sql` fragments,
+`ctx.db.executeQuery`, the bare transaction inside a tenant transaction) and
+subqueries in `where`/`select` reached PostgreSQL unread, so an inline extension
+could read `session`, `user` or `zv_api_keys` with one statement. The analyzer
+also accepted any statement kind (`TRUNCATE`, `ALTER TABLE … DISABLE ROW LEVEL
+SECURITY`, `GRANT`), `SET zveltio.rls_bypass`, `set_config('role', …)`, `SELECT
+… INTO`, several statements in one string, and five string and comment spellings
+that hid live SQL from it. Builder and raw SQL now go through one analyzer on
+the compiled text, and `ctx.db` and the worker bridge run exactly one DML
+statement; DDL, admin statement kinds and sandbox-escape functions are refused.
+An extension's owned prefix `zv_<ext>_` no longer reaches engine tables that
+share it (an extension named `api` reached `zv_api_keys`).
+
+**Security: each extension runs as its own database role.** Inline extensions
+ran `ctx.db` as the engine login role outside a tenant transaction (superuser on
+a stock install) and as `zveltio_rls` inside one; all of them shared one role,
+and disabling an extension revoked nothing. Each extension now gets its own role
+(`zveltio_ext_<name>_<hash>`, worker-isolated ones `zveltio_wrk_…`) that holds
+only its own tables and the collections, and pool statements and `ctx.adminDb`
+run in a short transaction under it. Role memberships are checked for `SET` (on
+PostgreSQL 16+ a role the engine created could be a member without being
+usable). At boot the engine takes `TEMPORARY` away from the restricted roles, so
+none can leave a temp table that shadows an engine table; where it cannot be
+revoked, `DISCARD TEMP` runs after each extension statement. A worker extension's SQL is refused when no narrow role is
+usable; it used to run as the engine login role, tenant B's rows included.
+
+**Security: the narrow roles reach collections and nothing else of the engine.**
+`zveltio_worker` and `zveltio_flow_reader` were granted every `zvd_%` table,
+which includes engine metadata: a worker extension could insert a `god` grant
+into `zvd_permissions`, and the flow reader could read webhook secrets. They now
+reach collections only, with a grant on collections created after install. The
+ghost-DDL changelog trigger now runs as its owner, and security-definer
+functions pin `pg_temp` last in their `search_path`, so a role that could create
+a temp object cannot redirect their inserts.
+
+**Security: an extension enters only its own tenant.**
+`ctx.internals.withTenantIsolation(tenantId, fn)` was given to every extension
+raw: an extension with no capabilities, serving a request in tenant A, could
+open tenant B and read its rows. It may now enter only the tenant the work
+already runs as unless the extension holds `db:admin` (or `tenant:enter` for
+public routes), and the callback receives a guarded transaction with the same
+per-extension table rules as `ctx.db`. A collection an extension creates through
+`DDLManager` is tenant-isolated at once instead of at the next boot.
+
+**Security: identity provisioning cannot take over, rename or demote accounts
+the tenant has no claim to.** `provisionUser` returned any existing account by
+email, so an extension holding `identity:provision` in one tenant could add that
+account to its tenant, change its email and reset its password.
+`updateUserProfile` renamed users the tenant does not hold, `removeTenantMember`
+and `setTenantMembershipEnd` could remove or suspend administrators,
+`ctx.internals.audit` accepted a `tenantId` that wrote into another tenant's
+audit trail, and a suspended member kept a realtime connection. Each of these is
+now refused or enforced.
+
+**Security: S3 objects are private by default.** The engine already split keys
+into private (`uploads/…`) and public (`public/…`, `media/…`) namespaces, but
+only the local `/files` route enforced it; on S3 `publicUrl` built a bare URL
+for any key and the docs implied a public-read bucket, which makes any private
+key reachable by stripping the signature from a presigned link. `publicUrl` now
+refuses a key outside `public/` and `media/` on every driver, and the admin
+"Test connection" fails when the bucket serves its private probe object
+anonymously. The docs show a bucket policy that opens only `public/*` and
+`media/*`.
+
+**Security: logs and traces no longer keep invitation tokens or credential query
+parameters.** `GET /api/invitations/:token` recorded the raw token in the
+request log, the slow-request log, OpenTelemetry spans and god-audit rows, so a
+read of the request log still exposed working invite links after the tokens were
+hashed at rest. The slow log and spans also kept `?token=`, `?code=&state=` and
+similar query credentials as sent. Secret path segments and credential query
+values are now redacted before they are logged, including better-auth's `/reset-
+password/:token`, and migration 050 scrubs the rows already written.
+
+**Security: audit rows and many-to-many links are tenant-isolated.**
+`zv_audit_log` had no `tenant_id` and no row-level security, so every reader,
+the dashboard extension included, saw every tenant's activity. Migration 040
+adds `tenant_id` and a policy (instance-level events keep a NULL tenant and are
+visible only outside a tenant). Events that concern a tenant now land on it:
+member changes, invitation accepts, archives and flow edits go to the tenant
+concerned, and global settings, instance permissions and extension events are
+instance rows instead of belonging to the default tenant. Many-to-many junction
+tables (`zvd_jnc_*`) had no `tenant_id` and no RLS, so one tenant could read and
+delete another's links; migration 042 adds both and backfills existing links.
+
+**Security: an API key whose creator no longer exists stops authenticating.**
+`created_by` is cleared when its user row is deleted, and the key gate let a key
+with no creator through, so a user deleted by direct SQL, a restore or an
+extension left a working key with no owner. The gate now requires an existing,
+unbanned creator. The key listings report such a key as inactive instead of
+`is_active: true` while it answers 401.
+
+**Security: redirects no longer carry credentials to another origin.**
+`safeFetch` followed redirects by hand but resent `Authorization` and `Cookie`
+on a cross-origin hop, so one open redirect on a webhook, flow-node or virtual-
+collection host handed the configured credentials to a third party. It also
+replayed a POST answered with 303 and threw on 300 and 304. The edge-function
+sandbox fetched the hostname after validating it (the DNS-rebinding race the
+pinned fetch closes), and the extension worker fetch did not re-validate
+redirect hops. All three now follow redirects the way `fetch` does and re-
+validate every hop.
+
+**Security: per-IP rate limits count an IPv6 client by its /64.** Sign-in, LDAP
+and SAML login, public forms, share links and SCIM bucketed on the full client
+address, so an IPv6 client controlling a /64 got a fresh bucket per request and
+the 10-per-minute login limit never triggered. IPv6 clients are now bucketed by
+their /64 (and different spellings of one address share a bucket); clients
+sharing a /64 now share a limit.
+
+**Security: virtual collections apply row policies.** The list and single-record
+handlers of a virtual collection gated only columns: a row its RLS policy hides
+was served whole, and alters and entity access were skipped. Both now apply the
+row gates; a hidden row returns 404, and when any row gate applies the list
+reports `total: -1` because the upstream total counts rows the caller may not
+see.
+
+**Security: approve-capabilities refuses names outside the extensions
+directory.** The traversal guard of `POST /api/marketplace/:name/approve-
+capabilities` negated a Promise and so never refused anything; a god request for
+`..%2F<dir>` with a `manifest.json` there answered 200. The check is now
+synchronous and the request answers 400.
+
+**Changed: a replica waits for another one's migrations on the engine's terms.**
+A replica that boots while another runs migrations waits for the migration
+lock. That wait was bounded by whatever `statement_timeout` the server or the
+database role carried — a setting meant for queries — so a long migration
+cancelled the waiting replicas with a bare Postgres message and they restarted
+in a loop until it finished. The wait now lifts `statement_timeout` and is
+bounded by `ZVELTIO_MIGRATION_LOCK_WAIT` (default `10min`) instead; when it
+runs out the error says another instance is migrating and names the variable.
+
+**Changed: Ghost DDL takes typed operations, not SQL fragments.** A
+schema-branch merge into a table past 100 000 rows runs Ghost DDL, which
+checked the `ALTER TABLE` fragments it received with a regular expression. The
+type part of that expression accepted commas and keywords, so
+`ADD COLUMN x text, DROP COLUMN tenant_id` and
+`ADD COLUMN x text, ADD CONSTRAINT evil CHECK (true)` passed. No caller sent
+such a fragment. `GhostDDL.createGhost` and `GhostDDL.execute` now accept only
+`add_column` (a field definition), `drop_column` and `rename_column`, and Ghost
+DDL builds the SQL from the field-type registry. System columns such as
+`tenant_id` and `id`, and names that are not identifiers, are refused before
+anything is created. `isAllowedGhostDdl` and `ALTER COLUMN` support are removed.
+`add_column` of a unique field creates its `UNIQUE (tenant_id, <field>)` key on
+the shadow table before the swap. Previously the merge added the key after the
+swap, building the index while the table was locked; if that build failed, the
+column stayed without its key. Now a failure stops the migration before the
+swap and leaves the table unchanged.
+
+**Changed: `like`, `ilike` and `contains` filters match the value literally.**
+All three were already a case-insensitive substring match, but `%` and `_` in
+the value reached PostgreSQL as wildcards: `sku[like]=A_1` also matched `AB1`.
+They are now plain characters. A client that put `%` in a filter value to mean
+"anything" drops it; `code[like]=A-%` becomes `code[like]=A-`. `?search=` no
+longer strips `%` and `_` from its substring fallback, so `foo_bar` finds
+`foo_bar`.
+
+**Breaking: a validation rule the engine cannot evaluate refuses the write.**
+An expression rule that was refused (does not parse, refers to anything but
+`value`, carries a blocked token), an `nlp`/`custom` rule with no expression,
+and a rule type the engine does not implement all validated nothing while the
+rule stayed listed as active. Each now refuses writes that set its field with
+422 `<field>: a validation rule on this field cannot be evaluated`; the log
+names the rule (`[validation-engine] rule <id> on <field> cannot be
+evaluated: …`). Writes that do not set the field are unaffected. Before
+upgrading, list active rules of an unknown type with
+`SELECT id, collection, field_name, rule_type FROM zv_validation_rules WHERE
+is_active AND rule_type NOT IN ('required','min','max','minLength','maxLength',
+'pattern','range','email','url','custom','nlp');`.
+
+**Breaking: sync pull takes cursors only (#805).**
+- `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
+  no cursor is read from its start. `since` is ignored.
+- The response no longer carries `serverTimestamp`.
+- Cursors have the form `d<deletes-from us>:<us>:<id>`. The `<us>:<id>`
+  form issued by beta.75 and earlier answers 400: a client holding one must
+  start that collection over without a cursor.
+- SDK `SyncManager.pullChanges` no longer sends `since`.
+
+A `since`-only client could not page past more than 1000 rows sharing one
+millisecond, and could not say when its deletes were last complete, so rows
+older than the 30-day tombstone retention restarted it on every page.
+
+**Changed: tenants and environments no longer get a schema.** Every new tenant
+got a `tenant_<slug>` schema and every environment a `tenant_<slug>_<env>`
+schema, filled with empty copies of three metadata tables. Nothing read them;
+isolation is row-level security on `tenant_id`. They looked like isolation they
+did not provide, and the names could collide (`tenant_acme_x` is both an
+environment of `acme` and the base schema of `acme-x`, so purge could drop
+another tenant's schema). `POST /api/tenants` no longer creates a schema and
+drops `default_schema` from its response, `POST /:id/environments` returns
+`schema: null`, and migration 043 makes `zv_environments.schema_name` nullable.
+Existing schemas are not dropped; purge still removes them behind the slug
+confirmation, and now keeps one whose name belongs to another tenant.
+
+**Changed: `DB_POOL_MAX` below 2 is raised to 2, with a warning.** A lock holder
+and the work it guards each need a connection, so with `DB_POOL_MAX=1` boot
+migrations hung silently. The engine now raises an explicit value below 2 to 2
+and warns once naming the value that was set, and caps concurrent advisory-lock
+holders at the pool size minus one so holders cannot take the whole pool.
+
+**Changed: user email is unique case-insensitively.** `"user".email` was unique
+only in the case it was written, so a row stored by an SSO, LDAP or SCIM
+extension in another case was invisible to sign-up and invitation accept, which
+created a second account for the same mailbox. Migration 048 adds a unique index
+on `lower(email)`; if case-duplicates already exist it only warns, and boot
+names the addresses. Sign-up with a twin now answers 422, `POST
+/api/users/invite` 409 and invitation accept 409 `email_taken`.
+
+**Changed: `audit:read` gates `readAuditActivity`.**
+`ctx.internals.readAuditActivity` now needs the `audit:read` capability
+(extension contract version 6) and reads only the running tenant.
+`ctx.internals.countAuditActivity({ since, eventType?, resourceType? })` counts
+the same rows without a capability.
+
+**Changed: Extensions must adapt.** The engine is correct first and extensions
+follow: `ctx.db` runs under the extension's own database role and takes one DML
+statement per call; schema changes go only through migrations or
+`ctx.DDLManager`, never `ctx.db`; reads and writes of `"user"`,
+`zv_tenant_users`, `zv_tenants`, `zv_settings`, `zvd_permissions` and `pg_class`
+move to the `ctx.internals` helpers (`identity:provision` for accounts, whose
+calls can be refused with `account_exists`, `user_not_owned` or
+`role_not_allowed`). A schema change after a write to the same table in one
+request answers 409 `schema_change_after_write`; a lock timeout answers 503
+`lock_timeout`; `withTenantIsolation` enters only the running tenant without
+`db:admin`; and S3 keys outside `public/` and `media/` have no public URL.
 
 **Fixed: saved queries and audit metadata written as JSON strings.** A saved
 query's `config`, and the audit `metadata` some extensions wrote, were stored
@@ -26,15 +254,6 @@ and backups no schedule owns keep the newest 20.
 `zv_record_comments.parent_id` cascades deletes to replies but had no index, so
 every comment delete scanned the table: 5 000 deletes over 195 000 comments
 took 61 s. Migration 036 adds the index, built without blocking writes.
-
-**Changed: a replica waits for another one's migrations on the engine's terms.**
-A replica that boots while another runs migrations waits for the migration
-lock. That wait was bounded by whatever `statement_timeout` the server or the
-database role carried — a setting meant for queries — so a long migration
-cancelled the waiting replicas with a bare Postgres message and they restarted
-in a loop until it finished. The wait now lifts `statement_timeout` and is
-bounded by `ZVELTIO_MIGRATION_LOCK_WAIT` (default `10min`) instead; when it
-runs out the error says another instance is migrating and names the variable.
 
 **Fixed: the boot migration lock is released, and stays held while it works.**
 Auto-migrate took a session advisory lock and released it on "the same
@@ -81,23 +300,6 @@ and its unique key in separate transactions, never built the index of an
 and both table sizes finish through `DDLManager.addField` / `removeField`,
 which now refuse system columns for every caller.
 
-**Changed: Ghost DDL takes typed operations, not SQL fragments.** A
-schema-branch merge into a table past 100 000 rows runs Ghost DDL, which
-checked the `ALTER TABLE` fragments it received with a regular expression. The
-type part of that expression accepted commas and keywords, so
-`ADD COLUMN x text, DROP COLUMN tenant_id` and
-`ADD COLUMN x text, ADD CONSTRAINT evil CHECK (true)` passed. No caller sent
-such a fragment. `GhostDDL.createGhost` and `GhostDDL.execute` now accept only
-`add_column` (a field definition), `drop_column` and `rename_column`, and Ghost
-DDL builds the SQL from the field-type registry. System columns such as
-`tenant_id` and `id`, and names that are not identifiers, are refused before
-anything is created. `isAllowedGhostDdl` and `ALTER COLUMN` support are removed.
-`add_column` of a unique field creates its `UNIQUE (tenant_id, <field>)` key on
-the shadow table before the swap. Previously the merge added the key after the
-swap, building the index while the table was locked; if that build failed, the
-column stayed without its key. Now a failure stops the migration before the
-swap and leaves the table unchanged.
-
 **Fixed: a newly installed extension let a parent unit write into its children.**
 Extension migrations create `tenant_isolation_*` policies whose `WITH CHECK`
 uses the read predicate, so a parent that reads its subtree could also insert
@@ -131,25 +333,6 @@ reset, magic link, email/phone OTP, two-factor OTP, one-time token, email
 change — threw `secondaryStorage.getAndDelete is not a function` whenever
 `VALKEY_URL` was set, which production requires. Affects beta.64 to beta.76.
 
-**Changed: `like`, `ilike` and `contains` filters match the value literally.**
-All three were already a case-insensitive substring match, but `%` and `_` in
-the value reached PostgreSQL as wildcards: `sku[like]=A_1` also matched `AB1`.
-They are now plain characters. A client that put `%` in a filter value to mean
-"anything" drops it; `code[like]=A-%` becomes `code[like]=A-`. `?search=` no
-longer strips `%` and `_` from its substring fallback, so `foo_bar` finds
-`foo_bar`.
-**Breaking: a validation rule the engine cannot evaluate refuses the write.**
-An expression rule that was refused (does not parse, refers to anything but
-`value`, carries a blocked token), an `nlp`/`custom` rule with no expression,
-and a rule type the engine does not implement all validated nothing while the
-rule stayed listed as active. Each now refuses writes that set its field with
-422 `<field>: a validation rule on this field cannot be evaluated`; the log
-names the rule (`[validation-engine] rule <id> on <field> cannot be
-evaluated: …`). Writes that do not set the field are unaffected. Before
-upgrading, list active rules of an unknown type with
-`SELECT id, collection, field_name, rule_type FROM zv_validation_rules WHERE
-is_active AND rule_type NOT IN ('required','min','max','minLength','maxLength',
-'pattern','range','email','url','custom','nlp');`.
 **Fixed: enabling two-factor no longer leaves a session index in Valkey forever.**
 Revoking the other sessions rewrote `active-sessions-<user>` with a plain
 `SET`, which dropped the expiry the adapter gave it. It now keeps it (`KEEPTTL`).
@@ -157,6 +340,7 @@ Revoking the other sessions rewrote `active-sessions-<user>` with a plain
 **Fixed: a media file moved to trash records who deleted it.** The engine's
 `moveToTrash` (used by `content/media`) never wrote `deleted_by`, so the trash
 showed nobody as the deleter.
+
 **Fixed: a refusal (403) no longer names administrators from another tenant.**
 A `*`-domain `tenant_admin`/`tenant_owner` is suggested only to members of a
 tenant they belong to, and a lapsed member is not suggested at all. The HTTP
@@ -164,18 +348,138 @@ refusal also asked the default tenant instead of the request's tenant, because
 `enrichDenial` runs outside the tenant context; it now passes the request's
 tenant. Flow role notifications share the same grant-in-tenant predicate.
 
-**Breaking: sync pull takes cursors only (#805).**
-- `POST /api/sync/pull` takes `{ collections, cursors? }`. A collection with
-  no cursor is read from its start. `since` is ignored.
-- The response no longer carries `serverTimestamp`.
-- Cursors have the form `d<deletes-from us>:<us>:<id>`. The `<us>:<id>`
-  form issued by beta.75 and earlier answers 400: a client holding one must
-  start that collection over without a cursor.
-- SDK `SyncManager.pullChanges` no longer sends `since`.
+**Fixed: accounts stored with a mixed-case email are found by every lookup.**
+better-auth lowercases the address and then compares it exactly, so a legacy row
+stored as `Ana@X.ro` was invisible to sign-in, sign-up's existence check,
+password reset, magic link, email verification and OAuth linking, and the
+account could not log in. `POST /api/tenants`, tenant members and permissions
+bootstrap compared exactly too. Lookups now match on `lower(email)`, preferring
+an exact match; stored emails are not rewritten, so `user_email` row rules keep
+working.
 
-A `since`-only client could not page past more than 1000 rows sharing one
-millisecond, and could not say when its deletes were last complete, so rows
-older than the 30-day tombstone retention restarted it on every page.
+**Fixed: migrations apply by set, under one lock, on every path.** Boot returned
+early when the last applied version reached the newest shipped one, so a
+database that recorded 048 before 047 was merged never ran 047 and nothing
+logged it. `POST /admin/migrate` reported zero applied for a gap, `--dry-run`
+listed nothing, and the version and schema checks read a gap as up to date. Only
+boot held the migration lock, so `zveltio migrate` and `POST /admin/migrate`
+could race a booting replica. Pending migrations are now the shipped versions
+with no row, run under the one lock helper on every path, and files below the
+last applied version are warned about.
+
+**Fixed: hardened installs migrate, boot and get per-extension roles.**
+`scripts/bootstrap-db-role.sh` never granted `SET` on custom parameters, so on
+PostgreSQL 15+ migration 032 failed with `permission denied to set parameter
+"zveltio.current_tenant"`, and with `ZVELTIO_FAIL_CLOSED_TENANT=1` boot stopped.
+It also left the engine role without `ADMIN` on the extension roles, so every
+extension shared one role. The script now grants both. Two replicas granting the
+same table at first boot no longer abandon an extension's remaining grants
+(`tuple concurrently updated` is retried). Migration 049 unwraps the saved
+queries of every tenant, which migration 039 could not see on a hardened multi-
+tenant install.
+
+**Fixed: schema changes an extension requests commit before it continues.**
+`ctx.DDLManager` ran on the request transaction as `zveltio_rls`, so an
+extension that created a collection and filled it in one request failed with
+`permission denied for schema public` (or `cannot run inside a transaction
+block`), and `addField`, `removeField`, `dropCollection` and junction tables
+failed the same way. They now run on the engine pool and commit before the call
+returns. Index builds on existing tables are durable queue jobs
+(`ddl.build_index`, one per index across replicas) that survive a rolled-back
+request or a crash and rebuild an INVALID index. A lock timeout now answers 503
+instead of 500, and a schema change after a write to the same table in one
+request answers 409 `schema_change_after_write` instead of waiting two seconds
+and failing.
+
+**Fixed: worker-isolated extensions can reach their own tables.** Every query of
+a worker-isolated extension ran as `zveltio_worker`, which held grants on
+collections only, so the tables the extension's own migrations create answered
+`permission denied` on every query, and boot revoked any extension-created
+`zvd_*` table. That is every community extension that uses its own tables. They
+now get exactly what the worker analyzer allows. The ghost-DDL changelog trigger
+no longer makes every extension write to a collection fail with `permission
+denied` while a ghost copy runs.
+
+**Fixed: one role vocabulary for reads and writes.** `readScope` passed the
+caller unchanged to extension query alters and entity-access checks. Realtime
+resolved the caller's role while REST passed a session user with no `role`, so
+an extension rule keyed on `member` admitted rows on a socket that `GET
+/api/data` refused, and REST writes and extension writes through `ctx.internals`
+allowed a read the write then refused. Every read and write now resolves the
+role with `principalRole`.
+
+**Fixed: row-rule policies read the caller once per statement.** `user_id`,
+`user_email` and `user_role` row rules compared the column against a bare
+`current_setting()`, which PostgreSQL evaluates per row. The value is now
+wrapped so it is computed once per statement; boot rewrites existing policies on
+first start.
+
+**Fixed: cursor pagination uses the index.** The keyset predicate `(col > v) OR
+(col = v AND id > i)` could only run as a filter: with 200 000 rows, 99 999 rows
+were removed per page from the middle. It is now `(col, id) > (v, i)`, with the
+same results; one page measured 15.7 ms before and 0.02 ms after.
+
+**Fixed: a realtime subscriber is no longer silenced by a stuck check.** Events
+are delivered in order, so an entity-access check that never settled held that
+subscriber's socket silent while its queue grew. A verdict now times out after 5
+s and counts as a refusal.
+
+**Fixed: garbage collection runs on one replica and cleans something.** The
+nightly sweep ran on every replica, and one of its deletes targeted
+`_deletedAt`, a column no table has (the trash purge handles `deleted_at`). It
+now runs through an advisory lock on one replica and the dead delete is removed.
+Also: a flow notification to a role nobody holds reports `sent: false`; `POST
+/api/saved-queries` stores `config` as an object instead of a JSON string; and
+`ZVELTIO_FAIL_CLOSED_TENANT=1` refuses to boot when `ALTER DATABASE` fails
+instead of booting without it.
+
+**Fixed: the pool recycle no longer leaves the engine without a pool, and health
+keeps its report.** The boot pool recycle closed the old pool before opening the
+new one, so a query in that window failed with `Driver not initialized`; it now
+opens the new pool first. A degraded `/api/health/deep` answered 503 with only
+"Service Unavailable"; it now keeps the report of the failing checks.
+
+**Fixed: the documented `field[in]=a,b` filter works.** `GET
+/api/data/<c>?label[in]=alpha,gamma` answered 400 `malformed array literal`
+because the raw value was bound as one array literal (the SDK sends arrays, so
+it went unnoticed); a JSON `not_in` holding a single value failed the same way.
+Bracket `in` and `not_in` split on commas and a single value is bound as a one-
+element array.
+
+**Fixed: notification links, PDF headings and large encrypted values.** A
+broadcast notification with an in-app path (`/intranet/…`) answered 400 because
+the URL check ran before the path allowance; links set by flows and extensions
+were stored unchecked and the push service worker navigates to them on click.
+Links must now be http(s) or a `/` path (not `//host`); an unsafe link is
+dropped with a warning and the notification still goes. PDF headings were drawn
+as 11 pt body text because the closing tags were replaced before the heading
+pass could pair them. Field values of about 1 MB could not be encrypted (the
+encoder overflowed the stack); both `enc:v1:` encoders now handle them.
+
+**Fixed: atomic identity provisioning, and sync touches collections only.** A
+failing step after `provisionUser` left the account behind and still answered
+`created: true`, and a rolled-back membership left a `tenant_member` grant in
+Casbin; both now commit with the caller's transaction, and a concurrent
+`updateUserProfile` returns `email_taken` instead of aborting it. A god session
+could delete a row in a `zvd_jnc_*` table through sync push, and pull returned
+its rows; sync now requires a collection.
+
+**New: identity provisioning API for SSO and SCIM extensions.** Since raw SQL on
+`"user"`, `zv_tenant_users` and `zv_tenants` is refused, directory sign-in and
+SCIM had no way to create or manage accounts. The engine is now the only writer
+of those tables and exposes `provisionUser`, member management and profile
+updates on `ctx.internals` behind the `identity:provision` capability (extension
+contract version 5). Membership is always the running tenant's. This also fixes
+SCIM provisioning failing when self-registration is off, a membership that never
+granted `tenant_member` in Casbin, and renaming users shared with other tenants.
+
+**New: tenant facts for extensions on `ctx.internals`.** `countMembers()`,
+`getDataStats()`, `listRoles()`, `getPublicSetting(key)` and
+`DDLManager.getRelations` replace the raw SQL on engine tables that is now
+refused. Each is scoped to the running tenant by the engine and refuses where no
+tenant runs. They fix counts that were wrong on a multi-tenant instance: role
+lists named every tenant's custom roles, and the size estimate counted every
+tenant's rows.
 
 ## [3.0.0-beta.76] - 2026-10-01
 
