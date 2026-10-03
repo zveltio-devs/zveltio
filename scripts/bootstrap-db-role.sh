@@ -92,6 +92,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_flow_reader') THEN
     CREATE ROLE zveltio_flow_reader NOLOGIN;
   END IF;
+  -- The worker SQL bridge (lib/worker-extension-host.ts); migration 001 cannot
+  -- create it without CREATEROLE, and the bridge then runs as zveltio_rls.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_worker') THEN
+    CREATE ROLE zveltio_worker NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
   -- Inline extensions' ctx.db (lib/extensions/ext-db-role.ts); created at boot
   -- otherwise, which needs CREATEROLE.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext') THEN
@@ -106,6 +111,7 @@ SQL
 # "unavailable" mode and — as of SEC-14 — refuses to serve production traffic.
 psql_super -d postgres -q -c "GRANT zveltio_rls TO $APP_ROLE;"
 psql_super -d postgres -q -c "GRANT zveltio_flow_reader TO $APP_ROLE;"
+psql_super -d postgres -q -c "GRANT zveltio_worker TO $APP_ROLE;"
 psql_super -d postgres -q -c "GRANT zveltio_ext TO $APP_ROLE;"
 echo "  ✓ zveltio_rls granted to $APP_ROLE"
 
