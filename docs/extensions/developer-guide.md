@@ -2170,10 +2170,16 @@ Ask, in this order:
   collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
   migrations create or `EXTENSION_TABLE_GRANTS` grants you. `user`, `session`,
   `account`, the engine's `zv_*` / `zvd_*` metadata, `information_schema` and
-  `pg_catalog` are refused, as are `DO`, `CREATE FUNCTION`, `LOCK` and
-  transaction control (`SAVEPOINT` included) — group statements with
-  `ctx.db.transaction()`. Reach engine data through `ctx.internals` and
-  `ctx.DDLManager` instead.
+  `pg_catalog` are refused. So is every statement that is not a query or DML:
+  `ctx.db` runs one `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `WITH`,
+  `VALUES`, `TABLE` or `SET TRANSACTION` per call, and refuses DDL, `TRUNCATE`,
+  `GRANT`/`REVOKE`, `COMMENT`, `SET`/`RESET`, `COPY`, `DO`, `CALL`, `LOCK`,
+  `LISTEN`/`NOTIFY`, `SELECT … INTO`, a second statement after `;`, transaction
+  control (`SAVEPOINT` included — group statements with `ctx.db.transaction()`),
+  and calls to `set_config`, `setval`, `pg_notify`, session advisory locks, the
+  server's file and connection functions, and functions that take a query as a
+  string (`query_to_xml`, `ts_stat`, `crosstab`). Schema belongs in your
+  migrations and `ctx.DDLManager`; engine data in `ctx.internals`.
 - **Don't store secrets in `manifest.json`.** It is shipped to every installer.
   Use `zv_settings` (encrypted at rest).
 - **Don't share state across `register()` calls.** It is called once but may
