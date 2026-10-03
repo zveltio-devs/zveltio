@@ -137,4 +137,26 @@ d('recovery bootstrap (in-process)', () => {
     expect(status).toBe(200);
     process.env.RECOVERY_TOKEN = TOKEN;
   });
+
+  it('finds the account in whatever case the operator types it', async () => {
+    // Stored the way an old install or an SSO insert wrote it; typed in lowercase.
+    const id = crypto.randomUUID();
+    const stored = `Recovery-Mixed-${Date.now()}@Test.Local`;
+    await sql`
+      INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
+      VALUES (${id}, 'Recovery Mixed', ${stored}, false, 'member', now(), now())
+    `.execute(db);
+    const rotated = `rotated-again-${'w'.repeat(40)}`;
+    process.env.RECOVERY_TOKEN = rotated;
+    try {
+      const { status } = await bootstrap(rotated, stored.toLowerCase());
+      expect(status).toBe(200);
+      const row = await sql<{ role: string; email: string }>`
+        SELECT role, email FROM "user" WHERE id = ${id}`.execute(db);
+      expect(row.rows[0]).toEqual({ role: 'god', email: stored });
+    } finally {
+      process.env.RECOVERY_TOKEN = TOKEN;
+      await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
+    }
+  });
 });

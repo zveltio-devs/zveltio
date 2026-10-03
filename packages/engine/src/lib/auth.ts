@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { revalidatePrincipalsEverywhere, runWithoutTenantTrx } from './tenancy/index.js';
-import { betterAuth } from 'better-auth';
+import { type BetterAuthOptions, betterAuth } from 'better-auth';
+import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
 import { Kysely } from 'kysely';
 import { BunSqlDialect } from '../db/bun-sql-dialect.js';
+import { withStoredEmailLookup } from './auth-email.js';
 import type { Database } from '../db/index.js';
 import { withIdleInTransactionTimeout } from '../db/index.js';
 import type { DbSchema } from '../db/schema.js';
@@ -442,7 +444,10 @@ export async function initAuth(db: Database) {
     }),
   });
   _authPool = authDb;
-  const database = { db: authDb, type: 'postgres' as const };
+  // An adapter of our own rather than `{ db, type }` so that every email lookup
+  // better-auth makes resolves the stored spelling first (lib/auth-email.ts).
+  const database = (options: BetterAuthOptions) =>
+    withStoredEmailLookup(kyselyAdapter(authDb, { type: 'postgres' })(options), authDb);
 
   // Optional cache secondary storage for sessions
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
