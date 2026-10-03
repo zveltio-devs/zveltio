@@ -120,8 +120,11 @@ The closing PRs of this brief's own session are listed in the section below.
   against row values written with the stored spelling.
 - #885 — each extension runs as its own database role (inline, BYPASSRLS twin,
   worker); owned prefixes resolve to the longest matching extension; disable
-  revokes, uninstall drops. Installs where the engine cannot create roles
-  (`scripts/bootstrap-db-role.sh`) keep one shared role — worth checking.
+  revokes, uninstall drops. `scripts/bootstrap-db-role.sh` now grants
+  CREATEROLE + ADMIN on `zveltio_ext`/`zveltio_worker` on PostgreSQL 16+, so
+  hardened installs get per-extension roles too; below 16 they share one role
+  and boot warns. The script also grants SET on the two `zveltio.*` settings
+  the engine persists — without it a hardened install could not migrate (032).
 - #886 — `ctx.DDLManager` mutations run on the engine pool and commit before
   returning; a collection an extension creates gets tenant RLS and grants at
   once. Known edges: schema changes survive a request rollback; deferred

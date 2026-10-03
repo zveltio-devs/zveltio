@@ -19,6 +19,7 @@ import {
   _resetExtensionDbRoleForTests,
   extensionDbRoleNames,
   grantExtensionDbRole,
+  revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { buildExtensionInternals, type ExtensionContext } from '../../lib/extensions/internals.js';
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
@@ -54,6 +55,8 @@ d('an extension creates a collection and fills it in one request', () => {
   });
 
   afterAll(async () => {
+    // Roles are cluster-wide and outlive this database.
+    await revokeExtensionDbRoles(db, EXT, true);
     _resetExtensionDbRoleForTests();
     for (const name of made) await dropTestCollection(db, name).catch(() => {});
   });

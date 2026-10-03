@@ -46,7 +46,8 @@ image's superuser is a normal thing.
 **The documented production installation does not use a superuser.**
 [`deployment-k8s.md`](deployment-k8s.md) describes it and
 `scripts/bootstrap-db-role.sh` performs it: run **once**, as superuser, it
-creates the database, creates `zveltio_app` as `NOSUPERUSER NOBYPASSRLS`,
+creates the database, creates `zveltio_app` as `NOSUPERUSER NOBYPASSRLS`
+(`CREATEROLE` on PostgreSQL 16+, for per-extension roles — see below),
 installs the untrusted extensions (`vector`, `postgis` — only a superuser can
 create those) and pre-creates the `zveltio_rls` role. **After that the engine
 never needs a superuser again** — migrations, extension installation and DDL all
@@ -474,10 +475,15 @@ extension's tables. A table belongs to the extension with the longest matching
 names are `zveltio_ext_<name>_<hash>` (`zveltio_extb_…` for the `BYPASSRLS`
 twin, `zveltio_wrk_…` for a worker extension), the hash covering the database
 name, so two databases on one cluster never share one. Disabling an extension
-revokes everything its roles hold; uninstalling drops them. Where the engine may
-not create roles (`scripts/bootstrap-db-role.sh` gives it `NOCREATEROLE`),
-every inline extension shares `zveltio_ext` itself, and only the analyzer keeps
-one extension out of another's tables. Outside a tenant
+revokes everything its roles hold; uninstalling drops them. On PostgreSQL 16+
+`scripts/bootstrap-db-role.sh` gives the engine role `CREATEROLE` and `ADMIN` on
+`zveltio_ext` and `zveltio_worker` for exactly this — from 16 on `CREATEROLE`
+reaches only roles held with `ADMIN`, so it cannot grant `zveltio_rls`, any
+`pg_*` role, `SUPERUSER`, `BYPASSRLS` or `CREATEDB`. Below 16, where
+`CREATEROLE` is close to superuser, the script keeps `NOCREATEROLE`; where the
+engine may not create roles every inline extension shares `zveltio_ext` itself,
+only the analyzer keeps one extension out of another's tables, and boot logs
+one warning saying so. Outside a tenant
 transaction (boot, cron, listeners) and through `ctx.adminDb`, each statement runs
 in a short transaction of its own under the twin with the engine role's RLS
 reach: the extension role plus `BYPASSRLS` (created only when the engine role is
