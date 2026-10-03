@@ -19,6 +19,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { sql } from 'kysely';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import type { Context } from 'hono';
 import { getDb, type Database } from '../../db/index.js';
@@ -34,7 +35,7 @@ import {
   registerSensitiveResources,
   describeDenial,
 } from '../tenancy/index.js';
-import { announceSchemaChange, DDLManager } from '../data/index.js';
+import { announceSchemaChange, DDLManager, deferIndexBuilds } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { engineHandle } from '../engine-handle.js';
 import {
@@ -456,7 +457,9 @@ export function buildRestrictedContext(
     describeDenial: (resource: string, action: string) =>
       describeDenial(getCurrentTenantTrx() ?? ctx.db, resource, action),
     getUserRoles: ctx.getUserRoles ?? getUserRoles,
-    DDLManager: engineSqlHelper(ctx.DDLManager ?? announcingDDLManager),
+    // Always the announcing one: the engine's bootstrap ctx carries the bare
+    // `DDLManager`, and `??` handed every extension that, not this.
+    DDLManager: engineSqlHelper(announcingDDLManager),
     // Hand each extension a scoped view of the registry so its register()
     // calls are tagged for cleanup on unload. Idempotent on hot-reload.
     services: serviceRegistry.scope(extName),
@@ -991,48 +994,110 @@ function engineSqlHelper<T extends object>(helper: T): T {
 }
 
 /**
- * `DDLManager` as extensions receive it: the mutating calls tell the schema
- * watchers (`$schema`) once they succeed, as the host's own routes and the DDL
- * queue do. An extension that creates a collection and fills it in the same
- * request (ai-alchemist) cannot go through the queue, and without this its DDL
- * reached no watcher. The announcement waits for the request transaction's
- * commit when there is one; an extension running DDL inside a transaction of
- * its own would announce before that commits.
+ * Run a schema change an extension asked for on the pool, as the engine,
+ * whatever handle it passed — the way the DDL queue runs it.
+ *
+ * Not on the request transaction: there its role is `zveltio_rls`, which owns
+ * no table and may not CREATE (42501), or with no such role the engine's, where
+ * CREATE INDEX CONCURRENTLY refuses a transaction block (25001) — so the two
+ * modes failed differently. Committed before it returns, so the extension's
+ * next `ctx.db` statement in the request sees the change and its grants
+ * (ai-alchemist creates a collection and fills it).
+ *
+ * A CONCURRENTLY build on an existing table would wait on that open request,
+ * which is waiting on it; with one open those wait for the commit
+ * (`deferIndexBuilds`). They are performance, not correctness: the column or
+ * table is already usable.
  */
-export const announcingDDLManager: typeof DDLManager = Object.assign(Object.create(DDLManager), {
-  async createCollection(...args: Parameters<typeof DDLManager.createCollection>) {
-    await DDLManager.createCollection(...args);
-    // Tenant RLS and the narrow roles' grants, as the DDL queue applies them
-    // right after CREATE TABLE. Without this a collection an extension created
-    // had no policy and RLS off until the next boot reconciled it. On the pool,
-    // after the request's commit: ALTER TABLE / CREATE POLICY are the engine's
-    // DDL, not the request role's — the same split `invalidateRlsCache` makes.
-    const table = `zvd_${args[1].name}`;
-    const isolate = async () => {
-      try {
-        await applyTenantRLS(getDb(), table);
-      } catch (err) {
-        console.warn(`[extensions] applyTenantRLS on ${table} failed:`, (err as Error).message);
-      }
-    };
-    if (getCurrentTenantTrx()) onAfterCommit(isolate);
-    else await isolate();
-    announceSchemaChange(args[1].name, 'create');
+async function onEnginePool<T>(run: (pool: Database) => Promise<T>): Promise<T> {
+  const pool = getDb();
+  if (!getCurrentTenantTrx()) return run(pool);
+  const { result, indexes } = await deferIndexBuilds(() => run(pool));
+  // ponytail: in-memory and commit-only — a crash or a rolled-back request leaves
+  // the (already committed) column unindexed; a DDL queue job if that matters.
+  if (indexes.length > 0) onAfterCommit(() => void buildIndexes(pool, indexes));
+  return result;
+}
+
+async function buildIndexes(pool: Database, indexes: string[]): Promise<void> {
+  for (const ddl of indexes) {
+    try {
+      await sql.raw(ddl).execute(pool);
+    } catch (err) {
+      console.warn(`[extensions] deferred index build failed (${ddl}):`, (err as Error).message);
+    }
+  }
+}
+
+type AfterDb<F> = F extends (db: Database, ...rest: infer R) => unknown ? R : never;
+
+/** The mutations that need nothing beyond `onEnginePool`. */
+const POOL_ONLY = [
+  'registerMetadata',
+  'syncFieldsFromDB',
+  'registerRelation',
+  'applyRelationFK',
+  'createJunctionTable',
+  'dropJunctionTable',
+  'addUniqueKey',
+  'refreshSearchTrigger',
+  'reconcileSearchTriggers',
+] as const;
+
+/**
+ * `DDLManager` as extensions receive it: every mutation runs through
+ * `onEnginePool`, and the ones that change a collection tell the schema
+ * watchers (`$schema`) as the host's own routes and the DDL queue do — after
+ * the request's commit when there is one.
+ */
+export const announcingDDLManager: typeof DDLManager = Object.assign(
+  Object.create(DDLManager),
+  Object.fromEntries(
+    POOL_ONLY.map((name) => [
+      name,
+      (_db: Database, ...rest: unknown[]) =>
+        onEnginePool((pool) =>
+          (DDLManager[name] as (...a: unknown[]) => Promise<unknown>).call(
+            DDLManager,
+            pool,
+            ...rest,
+          ),
+        ),
+    ]),
+  ),
+  {
+    async createCollection(_db: Database, ...[def]: AfterDb<typeof DDLManager.createCollection>) {
+      await onEnginePool(async (pool) => {
+        await DDLManager.createCollection(pool, def);
+        // Tenant RLS and the narrow roles' grants, as the DDL queue applies them
+        // right after CREATE TABLE — committed before the extension fills it.
+        const table = `zvd_${def.name}`;
+        try {
+          await applyTenantRLS(pool, table);
+        } catch (err) {
+          console.warn(`[extensions] applyTenantRLS on ${table} failed:`, (err as Error).message);
+        }
+      });
+      announceSchemaChange(def.name, 'create');
+    },
+    async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {
+      await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest));
+      announceSchemaChange(rest[0], 'drop');
+    },
+    async updateCollectionMetadata(
+      _db: Database,
+      ...rest: AfterDb<typeof DDLManager.updateCollectionMetadata>
+    ) {
+      await onEnginePool((pool) => DDLManager.updateCollectionMetadata(pool, ...rest));
+      announceSchemaChange(rest[0], 'alter');
+    },
+    async addField(_db: Database, ...rest: AfterDb<typeof DDLManager.addField>) {
+      await onEnginePool((pool) => DDLManager.addField(pool, ...rest));
+      announceSchemaChange(rest[0], 'alter');
+    },
+    async removeField(_db: Database, ...rest: AfterDb<typeof DDLManager.removeField>) {
+      await onEnginePool((pool) => DDLManager.removeField(pool, ...rest));
+      announceSchemaChange(rest[0], 'alter');
+    },
   },
-  async dropCollection(...args: Parameters<typeof DDLManager.dropCollection>) {
-    await DDLManager.dropCollection(...args);
-    announceSchemaChange(args[1], 'drop');
-  },
-  async updateCollectionMetadata(...args: Parameters<typeof DDLManager.updateCollectionMetadata>) {
-    await DDLManager.updateCollectionMetadata(...args);
-    announceSchemaChange(args[1], 'alter');
-  },
-  async addField(...args: Parameters<typeof DDLManager.addField>) {
-    await DDLManager.addField(...args);
-    announceSchemaChange(args[1], 'alter');
-  },
-  async removeField(...args: Parameters<typeof DDLManager.removeField>) {
-    await DDLManager.removeField(...args);
-    announceSchemaChange(args[1], 'alter');
-  },
-});
+);

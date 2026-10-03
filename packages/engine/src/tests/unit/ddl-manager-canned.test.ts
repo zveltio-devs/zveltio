@@ -84,17 +84,15 @@ describe('createCollection', () => {
     expect(create.sql).toContain('"title"');
     expect(create.sql).toContain('"price"');
 
-    // standard + field indexes are CONCURRENTLY
-    expect(
-      db.executed(/CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zvd_articles_created_at/),
-    ).toHaveLength(1);
-    expect(
-      db.executed(/CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zvd_articles_status/),
-    ).toHaveLength(1);
+    // Plain, not CONCURRENTLY: the table is the one this call just created, and a
+    // concurrent build waits for every older transaction — a caller's included.
+    expect(db.executed(/CONCURRENTLY/)).toHaveLength(0);
+    expect(db.executed(/CREATE INDEX IF NOT EXISTS idx_zvd_articles_created_at/)).toHaveLength(1);
+    expect(db.executed(/CREATE INDEX IF NOT EXISTS idx_zvd_articles_status/)).toHaveLength(1);
     // Two now: the bare index and the tenant-first
     // `(tenant_id, <field>, created_at DESC)`, which is the one a tenant-scoped
     // read can use. See `fieldTypeRegistry.getTenantIndexDDL` for the measurement.
-    expect(db.executed(/CREATE INDEX CONCURRENTLY[\s\S]*"price"/)).toHaveLength(2);
+    expect(db.executed(/CREATE INDEX[\s\S]*"price"/)).toHaveLength(2);
     expect(db.executed(/CREATE INDEX[\s\S]*tenant_id, "price"/)).toHaveLength(1);
 
     // FTS: vector column + GIN, and (because there IS a text field) trgm + trigger
@@ -156,9 +154,7 @@ describe('createCollection', () => {
 
     const fk = db.executed(/ALTER TABLE "zvd_books" ADD COLUMN IF NOT EXISTS "author" UUID/)[0]!;
     expect(fk.sql).toContain('REFERENCES "zvd_authors"(id) ON DELETE CASCADE ON UPDATE CASCADE');
-    expect(
-      db.executed(/CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zvd_books_author/),
-    ).toHaveLength(1);
+    expect(db.executed(/CREATE INDEX IF NOT EXISTS idx_zvd_books_author/)).toHaveLength(1);
     const rel = db.executed(/insert into "zvd_relations"/)[0]!;
     expect(rel.parameters).toContain('books_author');
     expect(rel.parameters).toContain('m2o');
