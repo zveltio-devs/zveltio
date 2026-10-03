@@ -8,7 +8,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { type Tracer, trace } from '@opentelemetry/api';
+import { type Tracer, propagation, trace } from '@opentelemetry/api';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { slowQueryMiddleware } from '../../middleware/slow-query.js';
@@ -47,6 +47,9 @@ const prevEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 beforeAll(() => {
   getTracer = spyOn(trace, 'getTracer').mockReturnValue(tracer);
+  // telemetry-init-otel-failure.test.ts leaves a mocked CompositePropagator as
+  // the global propagator; its missing extract() made the middleware throw.
+  propagation.disable();
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:9';
 });
 afterAll(() => {
