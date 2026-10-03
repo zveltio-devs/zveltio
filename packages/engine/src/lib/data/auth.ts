@@ -8,7 +8,7 @@
  * to the pre-split inline helpers — zero behaviour change.
  */
 
-import { publishApiKeyActor } from '../tenancy/index.js';
+import { principalRole, publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
@@ -39,8 +39,15 @@ export async function authenticate(
   const session = await requestSession(c, auth);
   // The token rides along for a caller that outlives the request — a realtime
   // socket re-asks with it whether the session still exists.
+  // The role is resolved here, as a key's is set below: better-auth leaves
+  // `session.user.role` undefined, so the write gates handed extension rules no
+  // role on REST while the read gate gave them `member`.
   if (session)
-    return { user: session.user, authType: 'session', sessionToken: session.session?.token };
+    return {
+      user: { ...session.user, role: await principalRole(session.user.id) },
+      authType: 'session',
+      sessionToken: session.session?.token,
+    };
 
   // Try API key
   const rawKey = requestApiKey(c);

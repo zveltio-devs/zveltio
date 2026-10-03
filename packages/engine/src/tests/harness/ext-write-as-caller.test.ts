@@ -26,6 +26,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext, ExtensionInternals } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
 import { getAuth } from '../../lib/auth.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
@@ -120,7 +121,7 @@ d('an extension writes records as the request caller, and only as them', () => {
       await Bun.sleep(100);
     }
     member = await createMemberSession(engine, db, {
-      grants: [{ collection: C, actions: ['read', 'create'] }],
+      grants: [{ collection: C, actions: ['read', 'create', 'update'] }],
     });
 
     app = new Hono();
@@ -151,6 +152,11 @@ d('an extension writes records as the request caller, and only as them', () => {
               ) => ReturnType<typeof internals.createRecord>
             )(c, C, { label }, { user: { id: forge, role: 'god' }, authType: 'session' });
             return c.json(res.body, res.status as 201);
+          });
+          sub.post('/update', async (c) => {
+            const { id, label } = await c.req.json();
+            const res = await internals.updateRecord(c, C, id, { label });
+            return c.json(res.body, res.status as 200);
           });
           sub.post('/keep', (c) => {
             kept = c as unknown as Context;
@@ -287,6 +293,31 @@ d('an extension writes records as the request caller, and only as them', () => {
     );
     expect(refused.status).toBe(403);
     expect(await authorOf('key-no-scope')).toBeUndefined();
+  });
+
+  it('hands an entity rule the caller’s role, as a REST write does', async () => {
+    // The gate copied the session user as better-auth returned it — no role —
+    // while `authenticate` gives a REST caller theirs.
+    const seen: Array<string | undefined> = [];
+    entityAccessRegistry.registerAs(WRITER, `zvd_${C}`, (_r: unknown, u: { role?: string }) => {
+      seen.push(u.role);
+      return u.role === 'member' ? 'allow' : 'deny';
+    });
+    try {
+      expect(
+        (await post(`/ext/${WRITER}/write`, { label: 'role-u' }, { cookie: member.cookie })).status,
+      ).toBe(201);
+      const row = await authorOf('role-u');
+      const res = await post(
+        `/ext/${WRITER}/update`,
+        { id: row!.id, label: 'role-u2' },
+        { cookie: member.cookie },
+      );
+      expect(res.status).toBe(200);
+      expect(seen).toEqual(['member']);
+    } finally {
+      entityAccessRegistry.unregisterAll(WRITER);
+    }
   });
 
   it('is refused to an extension whose manifest does not declare data:write', async () => {

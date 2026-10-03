@@ -16,7 +16,6 @@ import {
   isTenantAdmin,
   permissionGeneration,
   requireInstanceAdmin,
-  resolveUserRole,
   revalidateSockets,
   runWithDomain,
   sweepGeneration,
@@ -271,17 +270,12 @@ async function resolveSocketAccess(conn: WSConnection, collection: string): Prom
 function lookupSocketAccess(conn: WSConnection, collection: string): Promise<ReadScope> {
   // A failed lookup throws; it is never caught here as `[]` / `null`. That
   // used to read as "nothing to filter", so the socket then received every row
-  // and column the caller's rules hide. The role lookup too: it was caught as
-  // `'user'`, a role no rule names, so a `member` rule stopped applying.
+  // and column the caller's rules hide. The role is readScope's to resolve, as
+  // on REST: resolving it here gave extension rules a role REST never passed.
   const db = wsDb;
   if (!db) throw new Error('[ws] no database handle');
-  return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, async () =>
-    readScope(
-      db,
-      collection,
-      { ...conn.user, role: await resolveUserRole(conn.user) },
-      conn.authType,
-    ),
+  return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
+    readScope(db, collection, conn.user, conn.authType),
   );
 }
 

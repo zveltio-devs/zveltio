@@ -18,7 +18,7 @@ import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import {
   checkPermission,
   getUserRoles,
-  resolveUserRole,
+  principalRole,
   revalidateSocketsEverywhere,
 } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
@@ -265,10 +265,8 @@ export async function getRlsFilters(
   // applies it. The database policy reads `resolveUserRole` too (middleware/
   // tenant.ts), so this is now the same set it publishes.
   //
-  // A key's role is `api_key` by construction (lib/data/auth.ts), decided by
-  // its id: `resolveUserRole` would answer `public` for it and stand down every
-  // `api_key` rule.
-  const direct = user.id.startsWith('apikey:') ? 'api_key' : await resolveUserRole({ id: user.id });
+  // A key's role is `api_key` by construction — see `principalRole`.
+  const direct = await principalRole(user.id);
   const userRoles = new Set([...(await getUserRoles(user.id)), direct]);
   const actor = { id: user.id, email: user.email, role: direct };
 
