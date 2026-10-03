@@ -26,6 +26,7 @@ import { auditLog } from '../audit.js';
 import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import { runExtensionMigrations } from './migration-runner.js';
+import { grantExtensionDbRole } from './ext-db-role.js';
 import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
 import { enforcePublisherTier, resolveEntryPath, resolveManifest } from './load-phases.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
@@ -423,6 +424,10 @@ export async function loadExtensionFromDir(
     // Build allowed-tables set from migration CREATE TABLE statements + explicit grants.
     const allowedTables = await buildAllowedTables(migrationPaths, extName);
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
+    // The same set, as Postgres privileges for the role `ctx.db` runs as inside a
+    // tenant transaction — so a statement the analyzer misreads still cannot
+    // reach the engine's tables. Best-effort; see ext-db-role.ts.
+    await grantExtensionDbRole(ctx.db, extName, allowedTables);
 
     // Register-core (build restrictedCtx, mount routes with the
     // matcher-already-built swallow, register schedules, capture loaded state
