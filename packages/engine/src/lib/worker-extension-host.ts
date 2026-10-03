@@ -49,6 +49,7 @@ import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor } from './extensions/index.js';
 import { assertWorkerSqlAllowed, workerSqlEngineTables } from './extensions/index.js';
+import { temporaryObjectsRestricted } from './tenancy/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
 
@@ -909,6 +910,16 @@ async function runRawWithParams(
         } catch {
           /* nothing left to try — the release below still drops our hold */
         }
+      }
+    }
+    // A temp table the role created outlives the transaction on this pooled
+    // connection, and pg_temp is searched first by the next borrower's
+    // unqualified names. Only where boot could not take TEMPORARY from the role.
+    if (!temporaryObjectsRestricted()) {
+      try {
+        await reserved.unsafe('DISCARD TEMP');
+      } catch {
+        (reserved as unknown as { close?: () => void }).close?.();
       }
     }
     reserved.release();

@@ -55,6 +55,7 @@ import { flowScheduler } from './lib/flows/index.js';
 import {
   applyFailClosedTenantSetting,
   initRlsEnforcementRole,
+  restrictTemporaryObjects,
   rlsBootFailure,
   initTenantManager,
   reconcileTenantRLS,
@@ -1135,6 +1136,7 @@ export async function _createAppForTests(
   // nothing and the suite could not have noticed a missing grant — the tests
   // would pass precisely because the isolation they exercise was switched off.
   await initRlsEnforcementRole(db);
+  await restrictTemporaryObjects(db);
   initValidationEngine(db);
   const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
@@ -1173,6 +1175,10 @@ async function bootstrap() {
 
   // 1b. Schema compatibility check — exits if schema is incompatible
   await checkSchemaCompatibility(db);
+  // Migration 048 leaves the case-insensitive email index unbuilt over existing twins.
+  const { emailCaseUniquenessProblem } = await import('./lib/identity.js');
+  const emailProblem = await emailCaseUniquenessProblem(db);
+  if (emailProblem) console.warn(`⚠️  ${emailProblem}`);
   console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
 
   // 2. Auth
@@ -1345,6 +1351,8 @@ async function bootstrap() {
   // does not bind superusers — so `withTenantIsolation` drops to a plain role
   // for the duration of each tenant transaction. See migration 030.
   const rlsMode = await initRlsEnforcementRole(db);
+  // Restricted roles must not create temp objects (lib/tenancy/temp-privilege.ts).
+  await restrictTemporaryObjects(db);
   if (rlsMode === 'enforced') {
     console.log('🔒 Tenant RLS enforced via the zveltio_rls role');
   } else if (rlsMode === 'native') {

@@ -334,6 +334,7 @@ table user
   uq  user_email_key UNIQUE (email)
   pk  user_pkey PRIMARY KEY (id)
   ck  user_role_check CHECK ((role = ANY (ARRAY['god'::text, 'member'::text])))
+  idx user_email_lower_key UNIQUE (lower(email))
 
 table verification
   col createdAt                      timestamp with time zone DEFAULT now()

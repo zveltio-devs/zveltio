@@ -352,13 +352,35 @@ export class GhostDDL {
         captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `.execute(db);
+    // Every tenant's rows land here with no RLS, and default privileges (001)
+    // hand `zveltio_rls` DML on it at CREATE. Only the owner needs it: the
+    // trigger below writes as owner, and the engine replays it as owner.
+    const grants = await sql<{ ddl: string }>`
+      SELECT format('REVOKE ALL ON %s FROM %s', c.oid::regclass,
+               CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END) AS ddl
+        FROM pg_class c, aclexplode(c.relacl) a
+       WHERE c.oid IN (to_regclass(quote_ident(${changelog})),
+                       pg_get_serial_sequence(quote_ident(${changelog}), 'id')::regclass)
+         AND a.grantee <> c.relowner
+       GROUP BY c.oid, a.grantee
+    `.execute(db);
+    for (const { ddl } of grants.rows) await sql.raw(ddl).execute(db);
 
     // 4. Trigger function + trigger on original table
     //    Any write to original while we copy is saved to changelog.
+    //
+    // SECURITY DEFINER: the writer is `zveltio_ext` or `zveltio_worker`, which
+    // hold the collection and not the changelog, so as INVOKER every extension
+    // write to the table failed `permission denied` for as long as the copy ran
+    // (tests/harness/restricted-role-triggers.test.ts). Safe to run as owner:
+    // every identifier is fixed here from the validated name, and the row only
+    // ever reaches the changelog as data. pg_temp last, or a writer's temp table
+    // named like the changelog would capture the owner's INSERT.
     await sql
       .raw(
         `
-      CREATE OR REPLACE FUNCTION "${triggerFn}"() RETURNS TRIGGER AS $$
+      CREATE OR REPLACE FUNCTION "${triggerFn}"() RETURNS TRIGGER
+      SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       BEGIN
         IF TG_OP = 'INSERT' THEN
           INSERT INTO "${changelog}" (operation, row_id, row_data)
