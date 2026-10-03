@@ -55,6 +55,17 @@ import { getCurrentDomainOrNull, withTenantIsolation } from '../tenancy/index.js
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiWrite, readScope } from '../data/index.js';
 import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
+import {
+  addTenantMember,
+  type IdentityMember,
+  type IdentityUser,
+  isSingleTenantInstance,
+  listTenantUsers,
+  provisionUser,
+  removeTenantMember,
+  setTenantMembershipEnd,
+  updateUserProfile,
+} from '../identity.js';
 import { createRequestScopedDb } from '../tenancy/index.js';
 import type { ReadScope } from '../data/index.js';
 import { buildCondition } from '../../db/dynamic.js';
@@ -479,6 +490,50 @@ export interface ExtensionInternals {
   /** Lift the user's ban only if the calling extension placed it; whether it
    *  did. `db` is the caller's transaction. Gated `auth:users`. */
   liftOwnBan: (db: unknown, userId: string) => Promise<boolean>;
+  // Identity provisioning — see `lib/identity.ts`. All but
+  // `isSingleTenantInstance` are gated `identity:provision`; membership is the
+  // RUNNING tenant's. A refusal throws `IdentityRefusedError` with a `code`.
+  /** Whether at most one tenant exists (so every user belongs to it). Ungated. */
+  isSingleTenantInstance: () => Promise<boolean>;
+  /** Find-or-create a verified, passwordless account by email. */
+  provisionUser: (input: {
+    email: string;
+    name?: string;
+  }) => Promise<{ user: IdentityUser; created: boolean }>;
+  /** Users of the running tenant (every user on a single-tenant instance). */
+  listTenantUsers: (
+    db: unknown,
+    query?: { email?: string; userId?: string; limit?: number; offset?: number },
+  ) => Promise<IdentityMember[]>;
+  /** Rename / re-address a user the running tenant alone holds. */
+  updateUserProfile: (
+    db: unknown,
+    userId: string,
+    patch: { name?: string; email?: string },
+  ) => Promise<IdentityUser>;
+  /** Join the running tenant as `member` (default) or `viewer`, or switch between them. */
+  addTenantMember: (
+    db: unknown,
+    userId: string,
+    role?: 'member' | 'viewer',
+  ) => Promise<'added' | 'role_changed' | 'unchanged'>;
+  /** Leave the running tenant; whether the account is now orphaned. */
+  removeTenantMember: (
+    db: unknown,
+    userId: string,
+  ) => Promise<{ removed: boolean; orphaned: boolean; inForceAnywhere: boolean }>;
+  /** When the running tenant's membership ends ('now', ISO instant, or null). */
+  setTenantMembershipEnd: (
+    db: unknown,
+    userId: string,
+    validTo: string | null,
+    guard?: { ifInForce?: boolean; ifValidTo?: string | null },
+  ) => Promise<{
+    changed: boolean;
+    previousValidTo: string | null;
+    validTo: string | null;
+    inForceAnywhere: boolean;
+  } | null>;
 }
 
 /** A caller-bound member reached without `gateInternals`: there is no caller. */
@@ -560,6 +615,14 @@ function enterTenantAs(
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return bindsCaller(buildUnboundInternals(), (caller, granted) => ({
+    provisionUser: (input) => provisionUser(input, caller),
+    updateUserProfile: (db, userId, patch) =>
+      updateUserProfile(db as Database, userId, patch, caller),
+    addTenantMember: (db, userId, role = 'member') =>
+      addTenantMember(db as Database, userId, role, caller),
+    removeTenantMember: (db, userId) => removeTenantMember(db as Database, userId, caller),
+    setTenantMembershipEnd: (db, userId, validTo, guard) =>
+      setTenantMembershipEnd(db as Database, userId, validTo, guard, caller),
     withTenantIsolation: enterTenantAs(
       caller,
       granted.has('db:admin') || granted.has('tenant:enter'),
@@ -663,5 +726,12 @@ function buildUnboundInternals(): ExtensionInternals {
     revokeUserSessions: (userId: string) => revokeUserSessions(getDb(), userId),
     setUserActive: unbound('setUserActive'),
     liftOwnBan: unbound('liftOwnBan'),
+    isSingleTenantInstance: () => isSingleTenantInstance(),
+    listTenantUsers: (db, query) => listTenantUsers(db as Database, query),
+    provisionUser: unbound('provisionUser'),
+    updateUserProfile: unbound('updateUserProfile'),
+    addTenantMember: unbound('addTenantMember'),
+    removeTenantMember: unbound('removeTenantMember'),
+    setTenantMembershipEnd: unbound('setTenantMembershipEnd'),
   };
 }

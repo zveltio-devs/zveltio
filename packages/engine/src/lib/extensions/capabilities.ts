@@ -36,8 +36,9 @@
  * The manifest may pin `capabilityContract` to refuse loading against an engine
  * that speaks a different major version.
  */
-// 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`)
-export const CAPABILITY_CONTRACT_VERSION = 4;
+// 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
+// 5: `identity:provision`
+export const CAPABILITY_CONTRACT_VERSION = 5;
 
 /**
  * Every capability an extension may declare.
@@ -76,6 +77,14 @@ export const CAPABILITIES = [
    * out of reach of `ctx.db`, so this is the only way an extension can do it.
    */
   'auth:users',
+  /**
+   * Create accounts (find-or-create by email, passwordless), list the running
+   * tenant's users, rename a user that tenant alone holds, and add/remove/end
+   * memberships of the running tenant up to `member`/`viewer`. The engine is the
+   * sole writer of `"user"`, `zv_tenant_users` and `zv_tenants`; SCIM, LDAP and
+   * SAML provision through this. Never makes a god or an admin.
+   */
+  'identity:provision',
   /**
    * Write collection records through the data API's own path, as the request's
    * caller (`createRecord` / `updateRecord` / `deleteRecord`). Declared because
@@ -199,6 +208,13 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   revokeUserSessions: 'auth:users',
   setUserActive: 'auth:users',
   liftOwnBan: 'auth:users',
+  // Identity — "provision accounts and the running tenant's memberships"
+  provisionUser: 'identity:provision',
+  listTenantUsers: 'identity:provision',
+  updateUserProfile: 'identity:provision',
+  addTenantMember: 'identity:provision',
+  removeTenantMember: 'identity:provision',
+  setTenantMembershipEnd: 'identity:provision',
   // Collection records, as the request's caller
   createRecord: 'data:write',
   updateRecord: 'data:write',

@@ -15,6 +15,8 @@ export type AuditEventType =
   | 'user.role_changed'
   | 'user.invited'
   | 'user.deleted'
+  | 'user.created'
+  | 'user.profile_updated'
   | 'settings.changed'
   | 'god_mode.used'
   | 'extension.loaded'
@@ -63,6 +65,7 @@ export type AuditEventType =
   | 'tenant.updated'
   | 'tenant.member_added'
   | 'tenant.member_removed'
+  | 'tenant.member_updated'
   | 'tenant.rls_enabled'
   | 'tenant.archived'
   | 'tenant.purged';
