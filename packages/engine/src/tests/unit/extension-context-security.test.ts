@@ -156,7 +156,10 @@ describe('createRestrictedDb — table access policy', () => {
         .execute(),
       'session',
     );
-    await refused(db.replaceInto('zv_api_keys').values({ a: 1 }).execute(), 'zv_api_keys');
+    // MySQL's REPLACE INTO is no Postgres statement; it is refused by its kind.
+    await expect(
+      (async () => db.replaceInto('zv_api_keys').values({ a: 1 }).execute())(),
+    ).rejects.toThrow(/"REPLACE INTO"/);
   });
 
   it('allows the same shapes over permitted tables', async () => {

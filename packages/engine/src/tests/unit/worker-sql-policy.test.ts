@@ -150,7 +150,6 @@ describe('assertWorkerSqlAllowed — what stays permitted', () => {
     );
     expect(allowed('DELETE FROM zvd_a USING zvd_b WHERE zvd_a.id = zvd_b.id')).toBe(true);
     expect(allowed('SELECT * FROM zvd_a JOIN zvd_b USING (id)')).toBe(true);
-    expect(allowed('CREATE INDEX i ON zvd_a USING gin (tags)')).toBe(true);
   });
 
   it('still refuses an engine table inside such a statement', () => {
@@ -187,6 +186,24 @@ describe('assertWorkerSqlAllowed — hiding places', () => {
 
   it('handles escaped quotes without losing track of the string', () => {
     expect(allowed("SELECT * FROM zvd_orders WHERE a = 'it''s zv_api_keys'")).toBe(true);
+  });
+
+  // Each of these is a place where the scan and Postgres disagreed about where
+  // a string or a comment ends. The scan blanked SQL that Postgres then ran —
+  // measured with psql, each returned the subquery's row.
+  it('reads E-strings, identifier dollars, quoted identifiers and CR as Postgres does', () => {
+    expect(allowed("SELECT E'\\'', (SELECT token FROM session) AS t, '' FROM zvd_a")).toBe(false);
+    expect(allowed("SELECT E'\\''; TRUNCATE session; SELECT ''")).toBe(false);
+    expect(allowed('SELECT x$$, (SELECT token FROM session) AS t --$$\n FROM zvd_a')).toBe(false);
+    expect(allowed('SELECT 1 -- x\r, (SELECT token FROM session) FROM zvd_a')).toBe(false);
+    expect(allowed(`SELECT 1 AS "a'b", (SELECT token FROM session) AS "c'" FROM zvd_a`)).toBe(
+      false,
+    );
+    expect(allowed('SELECT 1 AS "--", (SELECT token FROM session) FROM zvd_a')).toBe(false);
+    // and still read a string as a string
+    expect(allowed("SELECT E'it\\'s zv_api_keys' FROM zvd_a")).toBe(true);
+    expect(allowed("SELECT date'2026-01-01', 'a\\' FROM zvd_a")).toBe(true);
+    expect(allowed('SELECT $q$ zv_api_keys; $q$ FROM zvd_a')).toBe(true);
   });
 });
 
@@ -245,6 +262,141 @@ describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
   it('still allows a dollar-quoted string constant', () => {
     // The behaviour the blanking exists for, kept intact.
     expect(allowed('SELECT $tag$ zv_api_keys $tag$, x FROM zvd_orders')).toBe(true);
+  });
+});
+
+/**
+ * Statement kinds: queries and DML only.
+ *
+ * The table scan reads FROM/JOIN/INTO/UPDATE/USING positions. DDL, TRUNCATE,
+ * GRANT, COMMENT and SET name their target elsewhere or nowhere, so each was
+ * accepted and ran as the engine role — measured through `ctx.db`.
+ */
+describe('assertWorkerSqlAllowed — statement kinds', () => {
+  it('refuses every kind that is not a query or DML, on any table', () => {
+    for (const s of [
+      'TRUNCATE "session"',
+      'TRUNCATE TABLE zv_api_keys',
+      'TRUNCATE zvd_orders',
+      'ALTER TABLE "user" DISABLE ROW LEVEL SECURITY',
+      'DROP TABLE zv_api_keys',
+      'CREATE TABLE zvd_new (id int)',
+      'CREATE TRIGGER t AFTER INSERT ON zv_api_keys FOR EACH ROW EXECUTE FUNCTION f()',
+      'GRANT SELECT ON session TO PUBLIC',
+      'REVOKE ALL ON zvd_orders FROM zveltio_rls',
+      "COMMENT ON TABLE zv_api_keys IS 'x'",
+      'SET LOCAL zveltio.rls_bypass = on',
+      'SET SESSION ROLE postgres',
+      "SET search_path = 'evil'",
+      'RESET ALL',
+      'RESET ROLE',
+      "COPY zvd_orders TO '/tmp/x'",
+      'VACUUM zvd_orders',
+      'ANALYZE zvd_orders',
+      'LISTEN zveltio_cache',
+      "NOTIFY zveltio_cache, 'x'",
+      'EXPLAIN ANALYZE CREATE TABLE zvd_x AS SELECT 1',
+      'SHOW ALL',
+      'REFRESH MATERIALIZED VIEW zvd_mv',
+      'DISCARD ALL',
+      "LOAD '/tmp/evil.so'",
+      'BEGIN',
+      'COMMIT',
+      'SAVEPOINT s',
+      'ROLLBACK TO SAVEPOINT s',
+      '/* hidden */ TRUNCATE zvd_orders',
+      '',
+    ]) {
+      expect(allowed(s), s).toBe(false);
+    }
+  });
+
+  it('refuses a second statement after a semicolon', () => {
+    // The pool sends a parameterless query through the simple-query protocol,
+    // which runs every statement in it.
+    expect(allowed('SELECT 1 FROM zvd_orders; TRUNCATE "session"')).toBe(false);
+    expect(allowed('SELECT 1; SELECT 2')).toBe(false);
+    expect(allowed('SELECT 1 FROM zvd_orders;')).toBe(true);
+    expect(allowed("SELECT * FROM zvd_orders WHERE note = 'a; b'")).toBe(true);
+  });
+
+  it('reads TABLE x as a table reference, as a statement and as a subquery', () => {
+    expect(allowed('TABLE session')).toBe(false);
+    expect(allowed('SELECT EXISTS (TABLE session)')).toBe(false);
+    expect(allowed('SELECT * FROM zvd_orders WHERE id IN (TABLE zv_api_keys)')).toBe(false);
+    expect(allowed('SELECT 1 FROM zvd_orders UNION TABLE "user"')).toBe(false);
+    expect(allowed('TABLE zvd_orders')).toBe(true);
+    // A column label is not a table.
+    expect(allowed('SELECT 1 AS table FROM zvd_orders')).toBe(true);
+    expect(allowed('SELECT 1 AS "table", t.table FROM zvd_orders t')).toBe(true);
+  });
+
+  it('refuses SELECT … INTO, which creates a table', () => {
+    expect(allowed('SELECT * INTO zvd_copy FROM zvd_orders')).toBe(false);
+    expect(allowed('WITH x AS (SELECT 1) SELECT * INTO zvd_copy FROM x')).toBe(false);
+  });
+
+  it('allows queries and DML in every shape', () => {
+    for (const s of [
+      'SELECT 1',
+      '(SELECT id FROM zvd_orders) UNION ALL (SELECT id FROM zvd_items)',
+      'VALUES (1), (2)',
+      'WITH w AS (INSERT INTO zvd_orders (id) VALUES ($1) RETURNING id) SELECT id FROM w',
+      'MERGE INTO zvd_orders t USING zvd_items s ON t.id = s.id WHEN MATCHED THEN DELETE',
+      'INSERT INTO zvd_orders (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET id = $1',
+      'UPDATE zvd_orders SET n = n + 1 WHERE id = $1',
+      'DELETE FROM zvd_orders WHERE id = $1',
+      'SET TRANSACTION READ ONLY',
+      "SELECT current_setting('zveltio.current_tenant', true)",
+      'SELECT pg_advisory_xact_lock(42)',
+    ]) {
+      expect(allowed(s), s).toBe(true);
+    }
+  });
+});
+
+describe('assertWorkerSqlAllowed — functions that leave the sandbox', () => {
+  it('refuses the GUC setter, however it is spelled', () => {
+    // The request transaction runs as zveltio_rls; the session user is the
+    // engine's, so `role` = none drops back to it, and rls_bypass turns RLS off.
+    expect(allowed("SELECT set_config('zveltio.rls_bypass', 'on', true)")).toBe(false);
+    expect(allowed("SELECT pg_catalog.set_config('role', 'none', true)")).toBe(false);
+    expect(allowed("SELECT \"set_config\"('role', 'none', true)")).toBe(false);
+    expect(allowed("SELECT * FROM zvd_orders WHERE SET_CONFIG ('a', 'b', true) IS NOT NULL")).toBe(
+      false,
+    );
+  });
+
+  it('refuses the server, the file system and other connections', () => {
+    for (const s of [
+      "SELECT pg_read_file('/etc/passwd')",
+      "SELECT lo_import('/etc/passwd')",
+      'SELECT lo_get(16384)',
+      "SELECT dblink('host=x', 'select 1')",
+      'SELECT pg_terminate_backend(1)',
+      'SELECT pg_reload_conf()',
+      "SELECT pg_ls_dir('.')",
+      "SELECT pg_notify('zveltio_cache', 'x')",
+      'SELECT pg_advisory_lock(42)',
+      'SELECT pg_advisory_unlock_all()',
+      "SELECT pg_create_logical_replication_slot('s', 'pgoutput')",
+    ]) {
+      expect(allowed(s), s).toBe(false);
+    }
+  });
+
+  it('refuses functions that take a query or a relation as a string', () => {
+    expect(allowed("SELECT query_to_xml('select token from session', true, false, '')")).toBe(
+      false,
+    );
+    expect(allowed("SELECT table_to_xml('session', true, false, '')")).toBe(false);
+    expect(allowed("SELECT * FROM ts_stat('select tsv from session')")).toBe(false);
+    expect(allowed("SELECT setval('zv_audit_log_id_seq', 1)")).toBe(false);
+  });
+
+  it('does not fire on a column or a string that merely carries the name', () => {
+    expect(allowed("SELECT set_config_note FROM zvd_orders WHERE x = 'set_config('")).toBe(true);
+    expect(allowed('SELECT o.setval FROM zvd_orders o')).toBe(true);
   });
 });
 

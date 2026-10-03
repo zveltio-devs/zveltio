@@ -21,68 +21,102 @@
  */
 
 /**
- * Statement forms whose payload is *code* rather than data.
+ * The statements an extension may send: queries and DML, nothing else.
  *
- * The identifier scan below blanks dollar-quoted blocks, because a dollar quote
- * is normally just a string constant and a table name mentioned inside one is
- * data, not a reference (see the `$tag$ … $tag$` case in the tests). That is
- * safe right up until the body is handed to a executor, and then it inverts:
+ * The table allowlist below reads the tables a statement names in a FROM, JOIN,
+ * INTO, UPDATE, USING or TABLE position. Everything else Postgres accepts names
+ * its target somewhere that scan never looks, or nowhere at all: `TRUNCATE
+ * "session"`, `DROP TABLE zv_api_keys`, `ALTER TABLE "user" DISABLE ROW LEVEL
+ * SECURITY`, `GRANT … TO PUBLIC`, `COMMENT ON`, `CREATE TRIGGER … ON
+ * zv_api_keys`, `SET LOCAL zveltio.rls_bypass = on`, `RESET ALL`, `VACUUM`.
+ * Measured on `ctx.db`: every one of them reached Postgres, which ran them as the
+ * engine role. A list of forbidden forms is the denylist this file already
+ * learned not to trust, so the forms are an allowlist too.
  *
- *     DO $$ BEGIN EXECUTE 'SELECT secret FROM zv_api_keys'; END $$
+ * Statements whose body is code (`DO`, `CALL`, `CREATE FUNCTION`, `PREPARE` /
+ * `EXECUTE`) fall outside it: a body can assemble a table name at runtime
+ * (`'zv_' || 'api_keys'`), so no text scan can clear one. So does transaction
+ * control: a `COMMIT` ends the bridge's transaction and turns its `SET LOCAL
+ * ROLE` and tenant GUC into session settings on a pooled connection. The engine
+ * issues BEGIN, COMMIT and SAVEPOINT itself, on its own handle, for
+ * `ctx.db.transaction()`. Schema changes go through the extension's migrations
+ * and `ctx.DDLManager`, both of which run on the engine's handle, not here.
  *
- * survives the scan with nothing left to look at, and Postgres runs the body as
- * the database owner. The multi-statement defence does not apply either — `DO`
- * is one statement, so the extended-query protocol is happy to send it.
- *
- * Tightening the scan cannot fix this: a body can build its SQL by
- * concatenation (`'zv_' || 'api_keys'`), which no amount of text matching will
- * see. The only durable answer is to refuse the forms that turn a string into
- * executable SQL. None of them belong on a runtime query bridge anyway —
- * extensions declare their schema through migrations, not through ad-hoc DDL.
+ * `SET TRANSACTION` is the one SET admitted: it can only narrow the current
+ * transaction (`READ ONLY`, an isolation level Postgres accepts only before the
+ * first query), and `ai` uses it for its read-only window.
  */
-const CODE_BEARING_FORMS: { re: RegExp; what: string }[] = [
-  // `DO` only ever introduces an anonymous code block. Anchored to the start of
-  // the statement so `ON CONFLICT DO NOTHING` and `DO UPDATE` stay legal.
-  { re: /^\s*DO\b/i, what: 'DO (anonymous code block)' },
-  { re: /^\s*CALL\b/i, what: 'CALL (stored procedure)' },
-  // Server-side prepared statements outlive the statement that made them, and
-  // the bridge hands back a pooled connection that another extension will reuse.
-  { re: /^\s*(EXECUTE|PREPARE|DEALLOCATE)\b/i, what: 'PREPARE/EXECUTE' },
-  {
-    re: /\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i,
-    what: 'CREATE FUNCTION/PROCEDURE',
-  },
-  // `COPY … FROM PROGRAM` is command execution on the database host, not SQL.
-  { re: /\bCOPY\b[\s\S]*?\bPROGRAM\b/i, what: 'COPY … PROGRAM' },
-  // Transaction control ends the host's transaction, not the extension's.
-  //
-  // The bridge wraps each statement in a transaction so `SET LOCAL ROLE` and the
-  // tenant GUC unwind themselves when it ends. A statement that COMMITs escapes
-  // that wrapper: the role and the GUC become session settings on a pooled
-  // connection, and the next borrower inherits them. Nothing else in this
-  // allowlist would stop it — `COMMIT` names no table.
-  //
-  // An extension has no business managing the host's transaction in any case;
-  // `ctx.db.transaction()` is the supported way to group writes.
-  {
-    re: /^\s*(BEGIN|COMMIT|ROLLBACK|END|SAVEPOINT|START\s+TRANSACTION|SET\s+(LOCAL\s+)?(ROLE|SESSION\s+AUTHORIZATION)|RESET\s+ROLE|DISCARD)\b/i,
-    what: 'transaction or session control',
-  },
-  // `LOCK` names no table in a FROM/JOIN/INTO/UPDATE position, so the
-  // allowlist below never sees it — and Postgres only requires the SELECT the
-  // worker already holds on `zvd_*` to take an ACCESS EXCLUSIVE lock on one,
-  // including inside a read-only transaction. `zvd_*` tables are shared across
-  // every tenant (RLS is a row filter, not a separate physical table), so one
-  // untrusted extension can freeze every tenant's access to a collection for
-  // the length of the worker query timeout, repeatably. Measured live: a
-  // concurrent `SELECT` on the same table blocked for the lock's duration.
-  // Extensions have no legitimate reason to take an explicit table lock —
-  // ordinary DML already gets the row locks it needs.
-  {
-    re: /^\s*LOCK\b/i,
-    what: 'LOCK (explicit table lock)',
-  },
-];
+const STATEMENT_KINDS =
+  /^[\s(]*(?:select|insert|update|delete|merge|with|values|table|set\s+transaction)\b/i;
+
+/**
+ * Functions that leave the sandbox from inside an ordinary SELECT.
+ *
+ * The statement-kind rule cannot see these, and neither can the table
+ * allowlist, because each reaches past it through an argument:
+ *
+ *   - `set_config` is `SET` spelled as a function. The request transaction runs
+ *     as `zveltio_rls` with the tenant in a GUC, and the session user is the
+ *     engine's: `set_config('role', 'none', true)` drops back to it, and
+ *     `set_config('zveltio.rls_bypass', 'on', true)` switches RLS off for the
+ *     rest of the request. `current_setting` (reading) stays legal.
+ *   - the server's files and other connections: `pg_read_file`, `lo_import`,
+ *     `dblink`, `pg_terminate_backend`, the replication and backup controls.
+ *   - `pg_notify`, which speaks on the engine's own realtime and cache channels.
+ *   - session advisory locks, which outlive the statement on a pooled
+ *     connection (`pg_advisory_xact_lock` ends with the transaction and stays).
+ *   - functions that take a query or a relation as a STRING —
+ *     `query_to_xml('select token from session', …)`, `table_to_xml`,
+ *     `ts_stat`, `crosstab`, `setval('zv_…_seq', …)` — which no table scan reads.
+ *
+ * A denylist, unlike the rest of this file: Postgres has thousands of
+ * functions and an allowlist of them would refuse ordinary SQL. The role is the
+ * layer that holds for the worker bridge; for an inline extension this list and
+ * the statement-kind rule are what stand between it and the engine role.
+ */
+const SANDBOX_ESCAPES = new RegExp(
+  `^(?:${[
+    // session and tenant settings
+    'set_config',
+    // the server's files and large objects
+    'pg_read_file',
+    'pg_read_binary_file',
+    'pg_stat_file',
+    'pg_ls_\\w+',
+    'pg_file_\\w+',
+    'lo_\\w+',
+    'loread',
+    'lowrite',
+    // other connections and the server itself
+    'dblink\\w*',
+    'pg_(?:terminate|cancel|signal)_backend',
+    'pg_reload_conf',
+    'pg_rotate_logfile\\w*',
+    'pg_promote',
+    'pg_switch_wal',
+    'pg_(?:start|stop)_backup',
+    'pg_backup_(?:start|stop)',
+    'pg_create_restore_point',
+    'pg_log_backend_memory_contexts',
+    'pg_stat_reset\\w*',
+    'pg_logical_\\w+',
+    'pg_\\w*replication\\w*',
+    'pg_(?:create|copy|drop)_\\w*slot',
+    // the engine's notification channels, and locks that outlive the statement
+    'pg_notify',
+    'pg_(?:try_)?advisory_(?:lock|unlock)\\w*',
+    // a query or a relation passed as a string
+    '(?:query|cursor|table|schema|database)_to_xml\\w*',
+    'ts_stat',
+    'ts_rewrite',
+    'crosstab\\w*',
+    'setval',
+  ].join('|')})$`,
+  'i',
+);
+
+/** The function name before a `(`, quoted or not; schema qualification dropped. */
+const CALLEE = /("?)([A-Za-z_][\w$]*)\1\s*$/;
 
 export class WorkerSqlPolicyError extends Error {
   constructor(message: string) {
@@ -108,8 +142,10 @@ function stripNonCode(sql: string): string {
     const two = sql.slice(i, i + 2);
 
     if (two === '--') {
-      const end = sql.indexOf('\n', i);
-      const stop = end === -1 ? sql.length : end;
+      // Postgres ends a line comment at `\r` as well as `\n`; ending it at `\n`
+      // only blanked whatever followed a lone `\r`, which Postgres runs.
+      const end = sql.slice(i).search(/[\r\n]/);
+      const stop = end === -1 ? sql.length : i + end;
       out += ' '.repeat(stop - i);
       i = stop;
       continue;
@@ -121,9 +157,32 @@ function stripNonCode(sql: string): string {
       i = stop;
       continue;
     }
-    if (sql[i] === "'") {
+    // A quoted identifier stays code — it may be the table name — but what is
+    // inside it is not a quote, a comment or a dollar sign: `"a'b"` would
+    // otherwise open a string that Postgres never sees, and the scan would blank
+    // the real SQL up to the next quote.
+    if (sql[i] === '"') {
       let j = i + 1;
       while (j < sql.length) {
+        if (sql[j] === '"' && sql[j + 1] === '"') j += 2;
+        else if (sql[j++] === '"') break;
+      }
+      out += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (sql[i] === "'") {
+      // `E'…'` takes backslash escapes, so `E'\''` is one quote character and
+      // the string ends there. Read as `''`, it ran on and blanked the SQL after
+      // it — `SELECT E'\'', (SELECT token FROM session), ''` passed the scan and
+      // Postgres returned the token. Only a lone `E`: `date'…'` is a typed literal.
+      const escapes = /(?:^|[^\w$])[eE]$/.test(sql.slice(Math.max(0, i - 2), i));
+      let j = i + 1;
+      while (j < sql.length) {
+        if (escapes && sql[j] === '\\') {
+          j += 2;
+          continue;
+        }
         if (sql[j] === "'" && sql[j + 1] === "'") {
           j += 2;
           continue;
@@ -134,12 +193,17 @@ function stripNonCode(sql: string): string {
         }
         j += 1;
       }
-      out += ' '.repeat(j - i);
+      out += ' '.repeat(Math.min(j, sql.length) - i);
       i = j;
       continue;
     }
-    // Dollar-quoted: $tag$ ... $tag$
-    const dollar = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+    // Dollar-quoted: $tag$ ... $tag$. Not after an identifier character: `$` is
+    // one, so Postgres reads `x$$` as the identifier `x$$` and the SQL after it
+    // as code, where this scan used to blank it up to the next `$$`.
+    const dollar =
+      sql[i] === '$' && !/[\w$]/.test(sql[i - 1] ?? '')
+        ? /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i, i + 64))
+        : null;
     if (dollar) {
       const tag = dollar[0];
       const end = sql.indexOf(tag, i + tag.length);
@@ -158,11 +222,9 @@ function stripNonCode(sql: string): string {
 /**
  * Reject SQL that references an engine system table the extension does not own.
  *
- * Note what is NOT relied on here: the host runs the statement on a *reserved*
- * connection, which Bun drives through the extended-query protocol, so a second
- * statement after a semicolon is rejected by the server rather than by this
- * function. Multi-statement payloads are therefore structurally impossible, and
- * this check only has to reason about the tables one statement can name.
+ * One statement, of a kind in `STATEMENT_KINDS`, calling nothing in
+ * `SANDBOX_ESCAPES`, naming only tables the extension may reach. Refused before
+ * Postgres sees it, so a refusal inside the request transaction aborts nothing.
  */
 export function assertWorkerSqlAllowed(
   extName: string,
@@ -181,15 +243,53 @@ export function assertWorkerSqlAllowed(
   const granted = new Set([...(allowedTables ?? [])].map((t) => t.toLowerCase()));
   const code = stripNonCode(sql);
 
-  // Checked on the stripped text so the keyword has to be real code — a
-  // `SELECT 'call me'` must not trip the CALL rule.
-  for (const form of CODE_BEARING_FORMS) {
-    if (form.re.test(code)) {
-      throw new WorkerSqlPolicyError(
-        `Extension "${extName}" attempted ${form.what} through ${channel}. ` +
-          `Statements that execute a body as code are refused here: the ` +
-          `body is opaque to the table policy and can assemble any table name at ` +
-          `runtime. Declare schema and functions in the extension's migrations.`,
+  // Checked on the stripped text, so a keyword has to be real code: a
+  // `SELECT 'call me'` is a SELECT, and a `;` inside a string ends nothing.
+  const refuse = (what: string, why: string): never => {
+    throw new WorkerSqlPolicyError(
+      `Extension "${extName}" attempted ${what} through ${channel}. ${why}`,
+    );
+  };
+  // One statement. The worker bridge's reserved connection already refuses a
+  // second one, but `ctx.db` on the pool sends a parameterless query through
+  // the simple-query protocol, which runs `SELECT 1; TRUNCATE "session"` whole —
+  // and every rule below reads only the first statement's kind.
+  if (code.replace(/[\s;]+$/, '').includes(';')) {
+    refuse('more than one statement', 'Send each statement on its own.');
+  }
+  if (!STATEMENT_KINDS.test(code)) {
+    const kind = /^[\s(]*([A-Za-z]+(?:\s+[A-Za-z]+)?)/.exec(code)?.[1] ?? 'an empty statement';
+    refuse(
+      `"${kind.toUpperCase()}"`,
+      'Only SELECT, INSERT, UPDATE, DELETE, MERGE, WITH, VALUES and TABLE run here. ' +
+        "Schema changes belong in the extension's migrations or ctx.DDLManager, and " +
+        'transactions in ctx.db.transaction().',
+    );
+  }
+  // `SELECT … INTO t` is CREATE TABLE: a table with no RLS, outside the collection
+  // registry, that every tenant's requests can read.
+  // Found by `indexOf`, not by a regex tried at every offset: a bulk INSERT is
+  // tens of kilobytes, and this runs on every statement.
+  const lower = code.toLowerCase();
+  for (let p = lower.indexOf('into'); p !== -1; p = lower.indexOf('into', p + 4)) {
+    // Part of a longer word, a quoted name or a column label (`t.into`).
+    if (/[\w$".]/.test(lower[p - 1] ?? '') || /[\w$"]/.test(lower[p + 4] ?? '')) continue;
+    if (!/\b(?:insert|merge)\s+$/.test(lower.slice(Math.max(0, p - 12), p))) {
+      refuse('SELECT … INTO (creates a table)', "Declare tables in the extension's migrations.");
+    }
+  }
+  for (let p = code.indexOf('('); p !== -1; p = code.indexOf('(', p + 1)) {
+    let q = p - 1;
+    while (q >= 0 && /\s/.test(code[q]!)) q--;
+    // `(` after a comma, an operator or a keyword's parenthesis calls nothing.
+    if (!/[\w$"]/.test(code[q] ?? '')) continue;
+    // Identifiers are at most 63 bytes in Postgres; 80 covers one quoted.
+    const name = CALLEE.exec(code.slice(Math.max(0, p - 80), p))?.[2];
+    if (name && SANDBOX_ESCAPES.test(name)) {
+      refuse(
+        `${name.toLowerCase()}()`,
+        'It changes session or tenant settings, reaches the server outside SQL, or takes ' +
+          'a query or a table as a string the table policy cannot read.',
       );
     }
   }
@@ -287,7 +387,7 @@ interface TableRef {
  * Every identifier appearing in a TABLE position.
  *
  * Keyed off the keywords that introduce one — `FROM`, `JOIN`, `INTO`,
- * `UPDATE`, `DELETE FROM` — rather than by trying to parse SQL. A subquery
+ * `UPDATE`, `USING`, `TABLE` — rather than by trying to parse SQL. A subquery
  * (`FROM (SELECT …`) does not match, because the next token is a parenthesis
  * and not an identifier; its own inner `FROM` is matched on its own.
  *
@@ -301,7 +401,11 @@ function tableReferences(code: string): TableRef[] {
   // `MERGE INTO a USING b` read `b` (Kysely's `deleteFrom().using()` and
   // `mergeInto().using()`); `JOIN … USING (col)` and `USING gin (…)` are a
   // parenthesis or a function call, which the checks below already pass over.
-  const INTRO = /\b(?:from|join|into|update|using)\b/gi;
+  //
+  // `TABLE x` is `SELECT * FROM x`, as a statement or a subquery
+  // (`EXISTS (TABLE session)`), so it introduces a table too — but not as a
+  // column label (`AS table`, `t.table`) or inside a quoted identifier.
+  const INTRO = /\b(?:from|join|into|update|using|table)\b/gi;
   // One entry: `schema.table`, `table`, optionally followed by an alias.
   const ENTRY = new RegExp(`^\\s*(${IDENT_SRC})(?:\\s*\\.\\s*(${IDENT_SRC}))?`, 'i');
   // A word that ends the list. `FROM a, b WHERE …` stops at WHERE; without this
@@ -347,6 +451,11 @@ function tableReferences(code: string): TableRef[] {
     const before = code.slice(Math.max(0, intro.index! - 20), intro.index!);
     if (keyword === 'update' && /\bfor\s+(?:no\s+key\s+)?$/i.test(before)) continue;
     if (keyword === 'from' && /\bis\s+(?:not\s+)?distinct\s+$/i.test(before)) continue;
+    // Checked here rather than as a lookbehind in INTRO, which made that regex
+    // seventy times slower on a bulk INSERT.
+    if (keyword === 'table' && (/[".]$|\bas\s+$/i.test(before) || code[intro.index! + 5] === '"')) {
+      continue;
+    }
     let rest = code.slice(intro.index! + intro[0].length);
 
     // Comma-separated lists, which the first version of this missed entirely:

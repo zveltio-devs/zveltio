@@ -207,6 +207,88 @@ d('raw SQL from an inline extension', () => {
     );
   });
 
+  // The table allowlist read the tables a statement NAMED in a FROM/JOIN/INTO
+  // position, and nothing else: DDL, TRUNCATE, GRANT, `TABLE x`, `SET` and the
+  // GUC-changing functions name a table elsewhere or not at all, and Postgres ran
+  // them as the engine role. Each must be refused, on the pool and inside the
+  // request transaction alike, before it reaches the database.
+  it('refuses every statement kind but DML, and the functions that leave the sandbox', async () => {
+    const statements = [
+      'TABLE session',
+      'SELECT EXISTS (TABLE session)',
+      `TRUNCATE ${COLLECTION}`,
+      `COMMENT ON TABLE ${OWN} IS 'x'`,
+      'GRANT SELECT ON "session" TO PUBLIC',
+      `ALTER TABLE ${OWN} DISABLE ROW LEVEL SECURITY`,
+      `CREATE TABLE ${OWN}_made (id int)`,
+      `DROP TABLE IF EXISTS ${OWN}_absent`,
+      `SELECT * INTO ${OWN}_copy FROM ${OWN}`,
+      'SET LOCAL zveltio.rls_bypass = on',
+      'RESET ALL',
+      'SELECT 1; SELECT 2',
+      // Where the scan and Postgres disagreed on where a string ends, the scan
+      // blanked SQL that Postgres ran.
+      `SELECT E'\\'', (SELECT token FROM "session" LIMIT 1) AS t, ''`,
+      'SELECT x$$, (SELECT token FROM "session" LIMIT 1) AS t --$$\n FROM (SELECT 1 AS "x$$") s',
+      "SELECT set_config('zveltio.rls_bypass', 'on', true)",
+      "SELECT pg_catalog.set_config('role', 'none', true)",
+      "SELECT query_to_xml('select 1', true, false, '')",
+      "SELECT pg_notify('zveltio_cache', 'x')",
+      `VACUUM ${OWN}`,
+    ];
+    const accepted: string[] = [];
+    const probe = async (where: string, run: (s: string) => Promise<unknown>) => {
+      for (const s of statements) {
+        try {
+          await run(s);
+          accepted.push(`${where}: ${s}`);
+        } catch (err) {
+          if (!(err instanceof ExtensionSecurityError)) {
+            accepted.push(`${where}: ${s} (reached Postgres)`);
+          }
+        }
+      }
+    };
+    await probe('pool', (s) => sql.raw(s).execute(ext));
+    await buildExtensionInternals().withTenantIsolation(TENANT, () =>
+      // Each in its own savepoint, so one statement Postgres rejects does not
+      // abort the rest of the probe with 25P02.
+      probe('trx', (s) => ext.transaction().execute((trx) => sql.raw(s).execute(trx))),
+    );
+    expect(accepted).toEqual([]);
+  });
+
+  it('still allows DML in every form ctx.db compiles it to', async () => {
+    const tx = ext as unknown as {
+      mergeInto: (t: string) => any;
+      selectFrom: (t: string) => any;
+    };
+    const ins = await sql<{ id: number }>`
+      WITH w AS (INSERT INTO ${sql.table(OWN)} (note) VALUES ('kinds') RETURNING id)
+      SELECT id FROM w`.execute(ext);
+    expect(ins.rows).toHaveLength(1);
+    await sql`(SELECT note FROM ${sql.table(OWN)}) UNION ALL (VALUES ('v'))`.execute(ext);
+    expect((await sql.raw('VALUES (1), (2)').execute(ext)).rows).toHaveLength(2);
+    await tx
+      .mergeInto(`${OWN} as t`)
+      .using(`${GRANTED} as s`, 's.note', 't.note')
+      .whenMatched()
+      .thenUpdateSet({ note: 'merged' })
+      .execute();
+    // A column aliased `table` is a label, not a table reference.
+    await tx.selectFrom(OWN).select(sql`1`.as('table')).execute();
+    // current_setting reads the GUCs the engine set; reading is not changing.
+    await sql`SELECT current_setting('zveltio.current_tenant', true)`.execute(ext);
+    // BEGIN/COMMIT are the engine's, on its own handle: transaction() still works
+    // on the pool, where Kysely opens a real one.
+    const n = await ext
+      .transaction()
+      .execute((trx) =>
+        sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(OWN)}`.execute(trx),
+      );
+    expect(n.rows[0]!.n).toBeGreaterThan(0);
+  });
+
   it("keeps the engine's own SQL working on the handle an extension passes", async () => {
     const ctx = buildRestrictedContext(
       { db } as unknown as ExtensionContext,
