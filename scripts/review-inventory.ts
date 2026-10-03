@@ -246,6 +246,7 @@ const SECTIONS: Section[] = [
       `${E}lib/security/api-key-hash.ts`,
       `${E}lib/security/keyring.ts`,
       `${E}lib/security/index.ts`,
+      `${E}lib/security/loggable-request.ts`,
     ],
   },
   {
