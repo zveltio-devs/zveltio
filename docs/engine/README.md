@@ -22,6 +22,7 @@ The Bun + Hono server. Everything else in the product is a client of it.
 | [cli.md](cli.md) | The `zveltio` binary |
 | [CLOUD-REVIEW-BRIEF.md](CLOUD-REVIEW-BRIEF.md) | Brief for a fresh full review of the engine |
 | [AUDIT-REPORT.md](AUDIT-REPORT.md) | Findings of the 2026-10-04 blind audit, and the decisions they need |
+| [rfc-extension-runner.md](rfc-extension-runner.md) | RFC: third-party extensions run out of process |
 
 Cross-cutting material lives in the Platform chapter:
 [architecture](../platform/architecture.md) (boot sequence, request lifecycle),
