@@ -1328,6 +1328,8 @@ export class DDLManager {
       // the other tenants' rows — 6 408 discarded to return 25, on a table with
       // 63 tenants. See the note in tenant-manager.applyTenantRLS.
       `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'tenant_created')} ON ${tableName}(tenant_id, created_at DESC);`,
+      // The keyset the sync pull walks, for the same reason (see applyTenantRLS).
+      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'tenant_updated')} ON ${tableName}(tenant_id, updated_at, (id::text COLLATE "C"));`,
     );
     statements.push(
       `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status);`,
