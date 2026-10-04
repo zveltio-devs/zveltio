@@ -718,6 +718,14 @@ jobs:
         # policies inert, with the tests still green.
         run: bun run check:tenant-on-pool
 
+      - name: Record-attached tables answer to the record (R2)
+        # Comments, revisions — anything keyed by (collection, record_id) — must
+        # be as visible as the record it hangs off. E-1 was a route that read
+        # one without asking: a member who could not read a record read its
+        # discussion. Every route reference to such a table needs
+        # recordReadable() in its file, or a marked reason.
+        run: bun run check:record-attached
+
       - name: Schema snapshot
         # Records what a real install produces and fails when it changes. Every
         # other schema gate asks whether the code agrees with the migrations;

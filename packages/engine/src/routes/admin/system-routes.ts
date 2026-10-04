@@ -345,6 +345,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     // otherwise renders a truncated user id, which tells a reader nothing about
     // who changed the record they are looking at. LEFT, so a deleted user does
     // not delete the history of what they did.
+    // record-attached-ok: instance-admin only (adminRoutes → requireInstanceAdmin),
+    // a reader who may see every record of the tenant.
     let query = db
       .selectFrom('zv_revisions')
       .leftJoin('user', 'user.id', 'zv_revisions.user_id')
