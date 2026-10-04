@@ -142,7 +142,12 @@ d('schema export', () => {
     col.fields.push({ name: 'summary', type: 'text' });
     res = await plan({ ...files, [path]: serialize(col) });
     expect(((await res.json()) as { steps: unknown[] }).steps).toEqual([
-      { change: '+', target: COLLECTION, action: 'add field summary (text)' },
+      {
+        change: '+',
+        target: COLLECTION,
+        action: 'add field summary (text)',
+        op: { kind: 'addField', collection: COLLECTION, field: { name: 'summary', type: 'text' } },
+      },
     ]);
   });
 

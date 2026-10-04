@@ -12,7 +12,7 @@
  * makes `apply` refuse those without a migration.
  */
 
-import { exportField, SCHEMA_FORMAT, serialize } from './export.js';
+import { exportField, isDefaultGrant, SCHEMA_FORMAT, serialize } from './export.js';
 
 export interface PlanStep {
   /** `+` adds, `-` removes, `~` changes. */
@@ -22,11 +22,45 @@ export interface PlanStep {
   /** What happens, in words: `add field summary (text)`. */
   action: string;
   destructive?: true;
+  /**
+   * What `apply` runs for this step. Absent while `apply` cannot run it yet
+   * (RFC step 3b: removals, alterations, rules, migrations); `apply` then
+   * refuses the whole plan before changing anything.
+   */
+  op?: ApplyOp;
 }
+
+export type ApplyOp =
+  | { kind: 'createCollection'; definition: Obj }
+  | { kind: 'addField'; collection: string; field: Obj }
+  | { kind: 'setCollection'; collection: string; key: string; value: unknown }
+  | { kind: 'createRole'; name: string; description?: string }
+  | { kind: 'grant'; role: string; resource: string; action: string };
 
 export class SchemaFileError extends Error {}
 
 type Obj = Record<string, unknown>;
+
+/** Collection keys `CollectionSchema` takes, so a create can carry them. */
+const CREATE_KEYS = [
+  'name',
+  'displayName',
+  'singularName',
+  'description',
+  'icon',
+  'routeGroup',
+  'isPermissioned',
+  'sort',
+  'schemaLocked',
+  'aiSearchEnabled',
+  'aiSearchField',
+  'fields',
+];
+
+/** Settings `DDLManager.updateCollectionMetadata` writes (it skips an empty name or icon). */
+const canSet = (key: string, value: unknown) =>
+  key === 'description' ||
+  ((key === 'displayName' || key === 'icon') && typeof value === 'string' && value !== '');
 
 /**
  * The top-level keys `exportSchema` writes in a collection file; anything else
@@ -160,13 +194,26 @@ function read(files: Record<string, unknown>): Parsed {
 }
 
 function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
-  const step = (change: PlanStep['change'], action: string, destructive?: boolean) =>
-    steps.push({ change, target: name, action, ...(destructive ? { destructive: true } : {}) });
+  const step = (change: PlanStep['change'], action: string, destructive?: boolean, op?: ApplyOp) =>
+    steps.push({
+      change,
+      target: name,
+      action,
+      ...(destructive ? { destructive: true } : {}),
+      ...(op ? { op } : {}),
+    });
 
   for (const key of [...COLLECTION_KEYS].sort()) {
     if (key === '$schema' || key === 'name' || key === 'fields') continue;
     if (LISTS.some((l) => l.key === key)) continue;
-    if (!same(cur[key], des[key])) step('~', `set ${key} ${show(cur[key])} → ${show(des[key])}`);
+    // A setting the file leaves out keeps the instance's value: creating a
+    // collection fills defaults (icon, routeGroup, sort…), and a hand-written
+    // file without them must not show drift forever. `pull` writes every one.
+    if (des[key] === undefined || des[key] === null || same(cur[key], des[key])) continue;
+    const op: ApplyOp | undefined = canSet(key, des[key])
+      ? { kind: 'setCollection', collection: name, key, value: des[key] ?? null }
+      : undefined;
+    step('~', `set ${key} ${show(cur[key])} → ${show(des[key])}`, false, op);
   }
 
   const curFields = list(name, cur.fields, 'fields');
@@ -179,7 +226,11 @@ function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
   for (const f of desFields) {
     const old = curByName.get(f.name as string);
     if (!old) {
-      step('+', `add field ${f.name} (${f.type})`);
+      step('+', `add field ${f.name} (${f.type})`, false, {
+        kind: 'addField',
+        collection: name,
+        field: f,
+      });
     } else if (old.type !== f.type) {
       step('~', `change field ${f.name} type ${old.type} → ${f.type}`, true);
     } else if (!same(old, f)) {
@@ -212,10 +263,14 @@ function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
   }
 }
 
-function grants(role: Obj | undefined): Set<string> {
-  const out = new Set<string>();
+/** `"<resource> <action>"` → `[resource, action]`, for every grant of a role. */
+function grants(role: Obj | undefined): Map<string, [string, string]> {
+  const out = new Map<string, [string, string]>();
   for (const p of (role?.permissions as Obj[] | undefined) ?? []) {
-    for (const a of (p.actions as unknown[] | undefined) ?? []) out.add(`${p.resource} ${a}`);
+    for (const a of (p.actions as unknown[] | undefined) ?? []) {
+      if (isDefaultGrant(String(role?.name), String(p.resource), String(a))) continue;
+      out.set(`${p.resource} ${a}`, [String(p.resource), String(a)]);
+    }
   }
   return out;
 }
@@ -241,7 +296,18 @@ export function planSchema(
       steps.push({ change: '-', target: name, action: 'drop collection', destructive: true });
     } else if (!c) {
       const n = list(name, d.fields, 'fields').length;
-      steps.push({ change: '+', target: name, action: `create collection (${n} fields)` });
+      const unsupported = Object.keys(d).some(
+        (k) => k !== '$schema' && !CREATE_KEYS.includes(k) && !LISTS.some((l) => l.key === k),
+      );
+      const definition = Object.fromEntries(
+        CREATE_KEYS.filter((k) => k in d).map((k) => [k, d[k]]),
+      );
+      steps.push({
+        change: '+',
+        target: name,
+        action: `create collection (${n} fields)`,
+        ...(unsupported ? {} : { op: { kind: 'createCollection', definition } }),
+      });
       // Its settings and fields are the creation; its lists show as additions.
       const created: Obj = { ...d, fields: list(name, d.fields, 'fields').map(exportField) };
       for (const { key } of LISTS) created[key] = [];
@@ -260,17 +326,30 @@ export function planSchema(
       steps.push({ change: '-', target, action: 'remove role', destructive: true });
       continue;
     }
-    if (!c) steps.push({ change: '+', target, action: 'create role' });
-    else if (!same(c.description, d.description)) {
+    if (!c) {
+      const description = typeof d.description === 'string' ? d.description : undefined;
+      steps.push({
+        change: '+',
+        target,
+        action: 'create role',
+        op: { kind: 'createRole', name, description },
+      });
+    } else if (!same(c.description, d.description)) {
       steps.push({ change: '~', target, action: `set description ${show(d.description)}` });
     }
     const had = grants(c);
     const has = grants(d);
-    for (const g of [...had].sort()) {
+    for (const g of [...had.keys()].sort()) {
       if (!has.has(g)) steps.push({ change: '-', target, action: `revoke ${g}` });
     }
-    for (const g of [...has].sort()) {
-      if (!had.has(g)) steps.push({ change: '+', target, action: `grant ${g}` });
+    for (const [g, [resource, action]] of [...has].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      if (had.has(g)) continue;
+      steps.push({
+        change: '+',
+        target,
+        action: `grant ${g}`,
+        op: { kind: 'grant', role: name, resource, action },
+      });
     }
   }
 

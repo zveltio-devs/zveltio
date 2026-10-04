@@ -22,6 +22,7 @@ import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
 import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
+import { applySchema, SchemaApplyRefused } from '../../lib/schema-artifact/apply.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
@@ -411,6 +412,25 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       return c.json({ format: SCHEMA_FORMAT, steps });
     } catch (err) {
       if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+
+  // POST /schema/apply — make this instance match the files in the body, for
+  // `zveltio schema apply`. Answers the steps it ran. A file that does not
+  // validate is a 400, and a plan with a step apply cannot run yet is a 409;
+  // in both cases nothing was changed.
+  app.post('/schema/apply', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { files?: unknown } | null;
+    const user = c.get('user' as never) as { id?: string } | undefined;
+    try {
+      const steps = await applySchema(db, body?.files as Record<string, unknown>, user?.id);
+      return c.json({ format: SCHEMA_FORMAT, steps });
+    } catch (err) {
+      if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
+      if (err instanceof SchemaApplyRefused) {
+        return c.json({ error: err.message, steps: err.steps }, 409);
+      }
       throw err;
     }
   });

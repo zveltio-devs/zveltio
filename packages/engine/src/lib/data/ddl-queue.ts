@@ -31,6 +31,8 @@ import { sql } from 'kysely';
 import { PgBoss } from 'pg-boss';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
+import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
+import { GhostDDL } from './ghost-ddl.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
 import { onAfterCommit } from '../tenancy/index.js';
@@ -360,6 +362,80 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
   };
 }
 
+// ── Run now ───────────────────────────────────────────────────────────────────
+
+/**
+ * Create a collection on the pool, now: the table, its tenant RLS, the schema
+ * announcement. The create_collection job runs this, and so does
+ * `POST /api/admin/schema/apply`, which must see the table before its next step.
+ */
+export async function runCreateCollection(
+  db: Database,
+  definition: Parameters<typeof DDLManager.createCollection>[1],
+): Promise<void> {
+  await DDLManager.createCollection(db, definition);
+  const name = definition.name;
+  // Apply tenant RLS to the new collection table immediately so it's isolated
+  // without waiting for the next boot reconcile. Best-effort, non-fatal.
+  try {
+    const { applyTenantRLS } = await import('../tenancy/index.js');
+    await applyTenantRLS(db, `zvd_${name}`);
+  } catch (err) {
+    console.warn('[ddl-queue] applyTenantRLS on create_collection failed:', (err as Error).message);
+  }
+  announceSchemaChange(name, 'create');
+}
+
+/**
+ * The row count of `tableName`, or `Infinity` when it cannot be read.
+ *
+ * A swallowed count error once took the locking path on a table whose size
+ * was unknown; on a large table that is a production outage. `Infinity` is the
+ * safe answer: an unknown size is treated as large, so the online path is
+ * taken. Being wrong that way costs a slower migration; the other way, downtime.
+ */
+export async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<number> {
+  try {
+    const result = await sql<{ cnt: string }>`
+      SELECT count(*) AS cnt FROM ${sql.id(tableName)}
+    `.execute(db);
+    return Number(result.rows[0]?.cnt ?? 0);
+  } catch (err) {
+    console.warn(
+      `[ddl-queue] could not count rows in ${tableName}; assuming it is large and ` +
+        `using the online (Ghost DDL) path. Cause: ${err instanceof Error ? err.message : err}`,
+    );
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/**
+ * Add a field on the pool, now. Over 100k rows the column and its per-tenant
+ * key are built on a Ghost DDL copy; `addField` then finds both in place and
+ * does what is left — indexes and the field in `zvd_collections.fields`. The
+ * schema-branch merge and `POST /api/admin/schema/apply` run this.
+ */
+export async function runAddField(
+  db: Database,
+  collection: string,
+  field: Parameters<typeof DDLManager.addField>[2],
+): Promise<void> {
+  const tableName = DDLManager.getTableName(collection);
+  if (
+    fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&
+    (await rowCountOrAssumeLarge(db, tableName)) > 100_000
+  ) {
+    await GhostDDL.execute(
+      db,
+      tableName,
+      [{ kind: 'add_column', field: field as FieldConfig }],
+      (phase, detail) => console.log(`[ghost-ddl] ${phase}: ${detail}`),
+    );
+  }
+  await DDLManager.addField(db, collection, field);
+  announceSchemaChange(collection, 'alter');
+}
+
 // ── Per-type handlers ──────────────────────────────────────────────────────
 
 async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
@@ -369,22 +445,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await boss.work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await DDLManager.createCollection(db, job.data as any);
-    const name = (job.data as { name?: string } | undefined)?.name;
-    // Apply tenant RLS to the new collection table immediately so it's isolated
-    // without waiting for the next boot reconcile. Best-effort, non-fatal.
-    try {
-      if (name) {
-        const { applyTenantRLS } = await import('../tenancy/index.js');
-        await applyTenantRLS(db, `zvd_${name}`);
-      }
-    } catch (err) {
-      console.warn(
-        '[ddl-queue] applyTenantRLS on create_collection failed:',
-        (err as Error).message,
-      );
-    }
-    if (name) announceSchemaChange(name, 'create');
+    await runCreateCollection(db, job.data as any);
   });
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).

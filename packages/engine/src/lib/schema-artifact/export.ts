@@ -14,6 +14,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { DEFAULT_ROLE_GRANTS, isSensitiveResource } from '../tenancy/index.js';
 
 export const SCHEMA_FORMAT = 1;
 const SCHEMA_URL = 'https://zveltio.com/schema/v1';
@@ -56,6 +57,20 @@ const byKey =
     }
     return 0;
   };
+
+/**
+ * A grant the engine gives by itself: `materializeDefaultGrants` writes it for
+ * every resource that is not sensitive, when the resource is created and again
+ * on every boot. Implied by the format like the engine columns, so it is
+ * neither written nor planned — a file cannot take it away, the next boot would
+ * put it back.
+ */
+export function isDefaultGrant(role: string, resource: string, action: string): boolean {
+  return (
+    !isSensitiveResource(resource) &&
+    DEFAULT_ROLE_GRANTS.some((d) => d.role === role && d.actions.includes(action))
+  );
+}
 
 const sortedOrNull = (a: string[] | null | undefined) => (a?.length ? [...a].sort() : null);
 
@@ -203,7 +218,7 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
 
   const actionsOf = new Map<string, Map<string, Set<string>>>();
   for (const g of grants) {
-    if (!g.v0 || !g.v2 || !g.v3) continue;
+    if (!g.v0 || !g.v2 || !g.v3 || isDefaultGrant(g.v0, g.v2, g.v3)) continue;
     const byResource = actionsOf.get(g.v0) ?? new Map<string, Set<string>>();
     actionsOf.set(g.v0, byResource);
     const actions = byResource.get(g.v2) ?? new Set<string>();

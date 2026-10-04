@@ -11,6 +11,7 @@ export type AuditEventType =
   | 'permission.revoked'
   | 'collection.created'
   | 'collection.deleted'
+  | 'schema.applied'
   | 'api_key.created'
   | 'api_key.revoked'
   | 'user.role_changed'
