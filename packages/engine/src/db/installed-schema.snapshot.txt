@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 391
+# tables: 392
 
 table account
   col accessToken                    text
@@ -1738,6 +1738,12 @@ table zv_import_logs
   ck  zv_import_logs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'partial'::text])))
   rls enabled forced
   pol tenant_isolation_zv_import_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+
+table zv_instances
+  col instance_id                    uuid NOT NULL
+  col last_seen                      timestamp with time zone NOT NULL DEFAULT clock_timestamp()
+  col started_at                     timestamp with time zone NOT NULL DEFAULT clock_timestamp()
+  pk  zv_instances_pkey PRIMARY KEY (instance_id)
 
 table zv_invitations
   col accepted_at                    timestamp with time zone

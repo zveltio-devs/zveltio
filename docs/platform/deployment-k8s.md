@@ -175,8 +175,10 @@ entry expires. Nothing reports that, which is what makes it worse than an
 outright failure.
 
 The engine refuses to start in production when `VALKEY_URL` is unset. An operator
-who genuinely runs without one — a single replica, accepting the above — can set
-`ZVELTIO_ALLOW_NO_CACHE=1` deliberately.
+who runs a single replica can set `ZVELTIO_SINGLE_INSTANCE=1` instead. During a
+rollout the old pod keeps serving for 15 seconds after the new one starts, then
+answers 503 to everything except `/api/health` until it is stopped. For more
+than one replica, run Valkey.
 
 This is about CONFIGURATION, not uptime. Valkey being configured and temporarily
 unreachable still degrades rather than crashing, exactly as

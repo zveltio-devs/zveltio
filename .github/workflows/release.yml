@@ -155,7 +155,7 @@ jobs:
       # and beta.65, so the first run that could notice was the one that did.
       # A smoke test of the shipped binary should boot it the way the shipped
       # install paths do: docker-compose depends on Valkey being healthy and both
-      # installers build it, so the answer is a cache, not ZVELTIO_ALLOW_NO_CACHE.
+      # installers build it, so the answer is a cache, not ZVELTIO_SINGLE_INSTANCE.
       valkey:
         image: valkey/valkey:8
         ports: ['6379:6379']

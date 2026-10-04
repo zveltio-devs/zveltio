@@ -93,8 +93,9 @@ Other top-level directories:
   `productionGuardViolations`. Without it the permission and identity caches
   degrade in silence: `isGodUser` and `resolveUserRole` hit the database on
   every request, and a revoked grant reaches only the replica that revoked it.
-  An operator who genuinely has no cache must say so with
-  `ZVELTIO_ALLOW_NO_CACHE=1`.
+  One instance can run without it, declared with `ZVELTIO_SINGLE_INSTANCE=1`:
+  instances heartbeat in `zv_instances` and only the newest serves
+  (`lib/runtime/single-instance.ts`).
 - **Frontend:** SvelteKit 2 + Svelte 5 runes, Tailwind 4 + daisyUI,
   Paraglide JS (inlang) for i18n, Layerchart/D3, TipTap.
 - **Tooling:** Biome 2 (lint+format), Turborepo, Vitest (studio/client),

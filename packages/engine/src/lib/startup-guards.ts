@@ -81,9 +81,11 @@ export function productionGuardViolations(
   // engine was the only place that accepted it. The two were never put side by
   // side; this is that.
   //
-  // Fatal in production only, like the RLS role guard, with the same escape
-  // hatch shape: an operator who genuinely runs without it must say so.
-  if (!env.VALKEY_URL && env.ZVELTIO_ALLOW_NO_CACHE !== '1') {
+  // Fatal in production only, like the RLS role guard. An operator who runs
+  // one process says so with ZVELTIO_SINGLE_INSTANCE=1; the instances then
+  // check each other through Postgres and only the newest serves
+  // (lib/runtime/single-instance.ts), so the in-process caches are correct.
+  if (!env.VALKEY_URL && env.ZVELTIO_SINGLE_INSTANCE !== '1') {
     violations.push({
       variable: 'VALKEY_URL',
       message:
@@ -95,8 +97,12 @@ export function productionGuardViolations(
         'LISTEN/NOTIFY, which is a documented backend, not a degradation.) ' +
         'Every shipped install path provisions Valkey — docker-compose depends on it being ' +
         'healthy, and both installers build it from source rather than skip it. ' +
-        'Set VALKEY_URL. If this instance genuinely has no cache and you accept the above, ' +
-        'set ZVELTIO_ALLOW_NO_CACHE=1 deliberately.',
+        'Set VALKEY_URL. To run exactly one instance without it, set ZVELTIO_SINGLE_INSTANCE=1: ' +
+        'instances then check each other through Postgres, and when a newer one starts the ' +
+        'older stops serving.' +
+        (env.ZVELTIO_ALLOW_NO_CACHE === '1'
+          ? ' ZVELTIO_ALLOW_NO_CACHE=1 is no longer read; ZVELTIO_SINGLE_INSTANCE=1 replaces it.'
+          : ''),
     });
   }
 

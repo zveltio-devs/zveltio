@@ -222,7 +222,7 @@ After all retry attempts are exhausted, the delivery is marked `failed` in the d
 ### Without Valkey
 
 Only reachable outside production, or behind the deliberate
-`ZVELTIO_ALLOW_NO_CACHE=1` hatch: the engine refuses to start in production with
+`ZVELTIO_SINGLE_INSTANCE=1` single-instance mode: the engine refuses to start in production with
 `VALKEY_URL` unset. In that state webhooks are fire-and-forget with no retry and
 no dead-letter queue — a delivery that fails once is simply lost.
 

@@ -194,6 +194,7 @@ is the point.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VALKEY_URL` | `redis://localhost:6379` | **Required in production.** Valkey or Redis connection URL. The engine refuses to start without it — see the note below. |
+| `ZVELTIO_SINGLE_INSTANCE` | — | `1` runs production without Valkey, on one serving instance: the newest instance serves and older ones answer 503. Ignored when `VALKEY_URL` is set. See the note below. |
 
 > Zveltio uses `ioredis` which is fully compatible with both Valkey and Redis.
 
@@ -204,8 +205,15 @@ is the point.
 >
 > The reason is correctness, not latency: permission invalidation is published
 > through the cache, so without one a revoked grant reaches only the replica that
-> revoked it. Escape hatch, for an operator who accepts that:
-> `ZVELTIO_ALLOW_NO_CACHE=1`.
+> revoked it. To run exactly one instance without Valkey, set
+> `ZVELTIO_SINGLE_INSTANCE=1`: caches and rate limits stay in memory, which is
+> correct on one process. Each instance writes a heartbeat to `zv_instances`
+> every 10 seconds, and the newest one serves. An older instance that sees a
+> newer one keeps serving for 15 seconds (the load balancer's switch), then
+> answers 503 to everything except `/api/health` and closes its realtime
+> connections. It stays up rather than exit, so an orchestrator does not
+> restart it into the newest. `ZVELTIO_ALLOW_NO_CACHE=1`, the older hatch, is
+> no longer read.
 
 ```env
 VALKEY_URL=redis://valkey:6379

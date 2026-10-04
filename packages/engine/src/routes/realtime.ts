@@ -479,6 +479,11 @@ export async function revalidateSseStreams(): Promise<boolean> {
   return failed;
 }
 
+/** End every stream, so clients reconnect — see `closeAllWs`. */
+export function closeAllSse(): void {
+  for (const set of [...connections.values()]) for (const sub of [...set]) sub.stream.abort();
+}
+
 /**
  * End every stream whose session or API key no longer authenticates — signed
  * out, revoked, expired, its user barred or deleted, its key revoked or its

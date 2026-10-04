@@ -210,8 +210,9 @@ See [security.md](security.md) for the threat model this ordering serves.
 degrade *in silence*: `isGodUser` and `resolveUserRole` hit the database on every
 request, and a revoked grant reaches only the replica that revoked it. A
 production boot without `VALKEY_URL` is refused by `productionGuardViolations`.
-An operator who genuinely has no cache must say so explicitly with
-`ZVELTIO_ALLOW_NO_CACHE=1`.
+One instance can run without it, declared with `ZVELTIO_SINGLE_INSTANCE=1`:
+instances heartbeat in `zv_instances`, and an older one stops serving when a
+newer one starts.
 
 ---
 

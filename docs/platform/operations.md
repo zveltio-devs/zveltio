@@ -31,8 +31,8 @@ these:
 - **`VALKEY_URL` is required.** Without a cache, the permission and identity
   caches degrade silently: `isGodUser` and `resolveUserRole` hit the database on
   every request, and a revoked grant reaches only the replica that revoked it.
-  An operator who genuinely has no cache must say so with
-  `ZVELTIO_ALLOW_NO_CACHE=1`.
+  One instance can run without it, declared with `ZVELTIO_SINGLE_INSTANCE=1`;
+  only the newest instance then serves.
 - **`CORS_ORIGINS=*` is refused.**
 - **The extension auth gate cannot be disabled in production.**
 - **The engine's database role must not be `SUPERUSER` or `BYPASSRLS`** in a

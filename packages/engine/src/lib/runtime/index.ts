@@ -9,3 +9,4 @@ export * from './telemetry.js';
 export * from './memory-monitor.js';
 export * from './cron-runner.js';
 export * from './garbage-collector.js';
+export * from './single-instance.js';

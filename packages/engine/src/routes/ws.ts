@@ -452,6 +452,21 @@ export async function closeUnauthenticatedWs(): Promise<boolean> {
   return failed;
 }
 
+/**
+ * Close every socket with 1012 (service restart), so clients reconnect — to
+ * the instance that now serves. Used when single-instance mode retires this one.
+ */
+export function closeAllWs(): void {
+  for (const [, conn] of [...connections]) {
+    cleanupSocket(conn.ws);
+    try {
+      conn.ws.close(1012, 'Service Restart');
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 /** Test-only: seed / inspect the in-process WS registries. */
 export function _wsPermCacheForTests() {
   // `indexSubscription` is part of the seam because a connection that is in

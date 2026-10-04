@@ -171,7 +171,7 @@ describe('Valkey is a requirement, not a preference', () => {
     )?.message;
     expect(msg).toContain('no cache');
     expect(msg).toContain('revoked permission');
-    expect(msg).toContain('ZVELTIO_ALLOW_NO_CACHE');
+    expect(msg).toContain('ZVELTIO_SINGLE_INSTANCE=1');
     // And says what is NOT broken, so nobody chases realtime: it falls back to
     // Postgres LISTEN/NOTIFY, a documented backend rather than a loss.
     expect(msg).toContain('LISTEN/NOTIFY');
@@ -185,14 +185,22 @@ describe('Valkey is a requirement, not a preference', () => {
     expect(v.map((x) => x.variable)).not.toContain('VALKEY_URL');
   });
 
-  it('has an escape hatch, because some operator really will run without one', () => {
-    // Deliberate and visible beats undocumented and silent: the hatch has to be
-    // set on purpose, and it shows up in the environment for anyone auditing it.
+  it('boots without Valkey when one instance is declared', () => {
+    // Declared, never inferred: the mode is set on purpose and visible in the
+    // environment, and the instances then retire all but the newest.
     const v = productionGuardViolations({
       NODE_ENV: 'production',
-      ZVELTIO_ALLOW_NO_CACHE: '1',
+      ZVELTIO_SINGLE_INSTANCE: '1',
     });
     expect(v.map((x) => x.variable)).not.toContain('VALKEY_URL');
+  });
+
+  it('no longer reads the old hatch, and says what replaced it', () => {
+    // ZVELTIO_ALLOW_NO_CACHE ran any number of replicas on per-process caches.
+    // Accepting it silently would keep that leak on upgrade.
+    const v = productionGuardViolations({ NODE_ENV: 'production', ZVELTIO_ALLOW_NO_CACHE: '1' });
+    const msg = v.find((x) => x.variable === 'VALKEY_URL')?.message;
+    expect(msg).toContain('ZVELTIO_ALLOW_NO_CACHE=1 is no longer read');
   });
 
   it('refuses a FIELD_ENCRYPTION_KEY that is set but not 64 hex characters', () => {

@@ -26,7 +26,7 @@ you know what you are running, and what you may leave out.
 | Service | Version | Required? | What breaks without it |
 | --- | --- | --- | --- |
 | **PostgreSQL** | 18, with the `vector` extension | **Required** | Nothing runs — and an older server is refused at boot, before any migration. This is the product's state — collections, auth, audit trail, and the row-level security that separates tenants. |
-| **Valkey** (or Redis-compatible) | 8 | **Required** | The engine refuses to boot in production. Permission and identity caches go to the database on every request, and a revoked grant reaches only the replica that revoked it. To run without one deliberately, set `ZVELTIO_ALLOW_NO_CACHE=1`. |
+| **Valkey** (or Redis-compatible) | 8 | **Required** | The engine refuses to boot in production. Permission and identity caches go to the database on every request, and a revoked grant reaches only the replica that revoked it. To run one instance without it, set `ZVELTIO_SINGLE_INSTANCE=1`. |
 | **Object storage** (SeaweedFS, MinIO, S3) | S3-compatible | Optional | Nothing. Uploads default to the local filesystem; storage switches to S3 only when `S3_ENDPOINT` is set or `STORAGE_DRIVER=s3`. |
 | **PgDog** (connection pooler) | — | Optional | Nothing at one engine. It matters when several engine replicas share one Postgres — see [HORIZONTAL_SCALING.md](horizontal-scaling.md). |
 | **Prometheus + Grafana** | — | Optional | Only observability. The metrics endpoint exists either way; see [monitoring.md](monitoring.md). |

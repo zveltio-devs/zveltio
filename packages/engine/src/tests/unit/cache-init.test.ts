@@ -136,6 +136,6 @@ describe('a Valkey that is configured but unreachable says why', () => {
 
   it('says how to boot without a cache deliberately', async () => {
     const msg = await boot('redis://localhost:6555', 'connect ECONNREFUSED');
-    expect(msg).toContain('ZVELTIO_ALLOW_NO_CACHE=1');
+    expect(msg).toContain('ZVELTIO_SINGLE_INSTANCE=1');
   });
 });

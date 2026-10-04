@@ -79,6 +79,12 @@ import {
 import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
+import {
+  type Heartbeat,
+  refuseWhenRetired,
+  singleInstanceMode,
+  startHeartbeat,
+} from './lib/runtime/index.js';
 
 /**
  * `/api/thing/` should reach `/api/thing`.
@@ -109,6 +115,8 @@ let _currentApp = new Hono();
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let _bootstrapCtx: { db: any; auth: any } | null = null;
 let _server: ReturnType<typeof Bun.serve> | null = null;
+// Single-instance mode only (ZVELTIO_SINGLE_INSTANCE=1, no Valkey).
+let _heartbeat: Heartbeat | null = null;
 // Metrics counters persist across hot-reloads (module-level, not app-level)
 const _serverStartTime = Date.now();
 let _totalRequestCount = 0;
@@ -656,6 +664,14 @@ async function buildHonoApp(): Promise<Hono> {
   app.use('/api/*', enrichDenial(db));
   app.use('/ext/*', enrichDenial(db));
   app.use('/ext/*', problemNormalizer());
+  // Superseded by a newer instance in single-instance mode: everything but
+  // health is refused, reads included — a read served on a stale permission
+  // cache is a leak too. Inside the normalizer, so /api and /ext refusals get
+  // the envelope.
+  app.use(
+    '*',
+    refuseWhenRetired(() => _heartbeat?.retired() === true),
+  );
   // Upload and import legitimately carry bodies larger than the 10 MB default,
   // so they used to be exempted from the limit entirely — which is not the same
   // thing. Both handlers call `c.req.formData()`, which buffers the whole body,
@@ -1546,6 +1562,20 @@ async function bootstrap() {
     hostname: host,
   });
 
+  // After listen: a heartbeat written before this instance can answer would
+  // retire the previous one while nothing serves.
+  if (singleInstanceMode()) {
+    const { closeAllWs } = await import('./routes/ws.js');
+    const { closeAllSse } = await import('./routes/realtime.js');
+    _heartbeat = startHeartbeat(db, {
+      onRetire: () => {
+        closeAllWs();
+        closeAllSse();
+      },
+    });
+    console.log('✅ Single-instance mode: heartbeat in zv_instances, the newest instance serves');
+  }
+
   // Wire hot-reload: after every extension enable/disable the loader calls this
   // to atomically swap _currentApp with a freshly built Hono instance.
   extensionLoader.setReloadCallback(async () => {
@@ -1581,6 +1611,7 @@ async function bootstrap() {
 // Graceful shutdown
 async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
+  _heartbeat?.stop();
   cronRunner.stop();
   webhookWorker.stop();
   flowScheduler.stop();
