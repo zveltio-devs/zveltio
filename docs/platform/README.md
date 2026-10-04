@@ -11,6 +11,7 @@ it, and working on it.
 | [installation.md](installation.md) | You are setting up a machine, for development or production |
 | [configuration.md](configuration.md) | You need the environment-variable reference |
 | [multi-tenancy.md](multi-tenancy.md) | You touch anything that reads or writes tenant data. **Mandatory before tenancy work** |
+| [tenant-isolation.md](tenant-isolation.md) | You want to know which ways into tenant data are proved isolated, and by which test |
 | [security.md](security.md) | You are hardening a deployment, or auditing the system |
 | [operations.md](operations.md) | You run it: deploy, scale, monitor, degrade gracefully |
 | [disaster-recovery.md](disaster-recovery.md) | Backups, restores, and the drills that prove them |

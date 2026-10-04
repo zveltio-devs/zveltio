@@ -561,6 +561,7 @@ tests/harness/god-enforced-by-database.test.ts      god passes THROUGH the polic
 tests/harness/second-reservation.test.ts            no request takes a second connection
 tests/harness/unique-keys-tenant-scoped.test.ts     no unique key without tenant_id
 tests/harness/*tenant-isolation*.test.ts            per table and per route
+tests/harness/tenant-isolation-doors.test.ts        every door, in one table — see tenant-isolation.md
 tests/harness/tenant-purge.test.ts                  a purge leaves no row of the tenant, and every other tenant's
 tests/harness/tenant-purge-users.test.ts            delete_users removes only the members left with nothing
 ```
