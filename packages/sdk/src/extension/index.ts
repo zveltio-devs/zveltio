@@ -636,6 +636,18 @@ export interface ExtensionInternals<DB = unknown> {
     ip?: string;
   }) => Promise<void>;
   /**
+   * Run `fn` acting as the system inside the running tenant, for the named
+   * collections (`['products']`, not `zvd_products`): collection permissions
+   * stand down for `ctx.db` during the call; tenant isolation and the table
+   * guard do not. Needs the `data:system` capability. Every call is audited
+   * with the extension, the user, the collections and `reason`.
+   */
+  asSystem: <T>(
+    collections: readonly string[],
+    fn: () => Promise<T>,
+    opts?: { reason?: string },
+  ) => Promise<T>;
+  /**
    * The running tenant's recent audit rows, newest first — never another
    * tenant's, never instance-level events. `limit` defaults to 20, capped at
    * 100. No `metadata` or `ip`. Needs the `audit:read` capability.
