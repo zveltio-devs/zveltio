@@ -35,8 +35,12 @@ export interface RlsIdentity {
 import {
   activeMembership,
   encodeTenantSet,
-  resolveTenantScope,
+  godScopeQuery,
+  noScopeQuery,
+  type ScopeRow,
+  scopeFromRow,
   type TenantScope,
+  tenantScopeQuery,
 } from './tenant-scope.js';
 
 export { activeMembership };
@@ -1114,7 +1118,7 @@ export async function withTenantIsolation<T>(
     // reconcilers, API-key traffic, single-tenant installs — publishes no set
     // and is answered by the equality fallback inside the predicate, which is
     // exactly what it did before the hierarchy existed.
-    let scope: TenantScope | null = null;
+    let scopeQuery = noScopeQuery();
     if (opts?.userId && (await isGodUser(opts.userId).catch(() => false))) {
       // God's reach is EVERY firm, and it is published to the database rather
       // than taken by escaping it.
@@ -1138,17 +1142,13 @@ export async function withTenantIsolation<T>(
       // subquery stops the function being inlined; adding `OR zveltio_is_god()`
       // to 300+ policies costs 6 microseconds but has to rewrite all of them.
       // This one costs nothing and touches no policy.
-      const all = await sql<{ id: string }>`SELECT id FROM zv_tenants`.execute(trx);
-      const visible = all.rows.map((r) => r.id);
-      scope = { visible, ancestors: [] } as TenantScope;
+      scopeQuery = godScopeQuery();
     } else if (opts?.userId) {
-      scope = await resolveTenantScope(trx, opts.userId, tenantId).catch((err: Error) => {
-        // Deliberately NOT swallowed into "see everything". A reach that cannot
-        // be resolved is not a reach of zero restrictions; the request falls
-        // back to the single-unit predicate, which is the narrow answer.
-        console.warn(`[tenant-scope] falling back to single-unit reach: ${err.message}`);
-        return null;
-      });
+      // A reach that cannot be resolved fails the statement, and with it the
+      // transaction and the request — never "see everything". (The old
+      // catch-and-fall-back could not work either: a failed statement aborts
+      // the transaction, so the `set_config` after it failed with 25P02.)
+      scopeQuery = tenantScopeQuery(opts.userId, tenantId);
     }
 
     // The caller's identity, published for the row-rule policies to read.
@@ -1206,18 +1206,35 @@ export async function withTenantIsolation<T>(
     // per-request setup from 0,230 ms to 0,175 ms — a fifth of it, for one fewer
     // round trip. It is also faster than moving the role onto the pool's own
     // identity (0,181 ms), which would have been an architecture change.
-    await sql`
-      SELECT set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true),
+    //
+    // The reach rides along too: computed in SQL and published by the statement
+    // that computes it, one round trip where there were up to five. The reach is
+    // still read as the engine's own role, as when it was a separate statement:
+    // it is a MATERIALIZED single-row CTE, so its reads finish before the
+    // projection runs, and `role` is the LAST setting projected. (Postgres also
+    // checks a statement's tables as the role it started with — measured with
+    // SELECT on `zv_tenants` revoked from `zveltio_rls`; see
+    // tenant-scope-round-trips.test.ts.)
+    const applied = await sql<ScopeRow>`
+      WITH reach AS MATERIALIZED (${scopeQuery})
+      SELECT reach.visible_csv,
+             reach.ancestors_csv,
              set_config('zveltio.current_tenant', ${tenantId}, true),
-             set_config('zveltio.visible_tenants', ${encodeTenantSet(scope?.visible ?? null)}, true),
-             set_config('zveltio.ancestor_tenants', ${encodeTenantSet(scope?.ancestors ?? [])}, true),
+             set_config('zveltio.visible_tenants', coalesce(reach.visible_csv, ''), true),
+             set_config('zveltio.ancestor_tenants', coalesce(reach.ancestors_csv, ''), true),
              set_config('zveltio.user_id', ${identity.userId}, true),
              set_config('zveltio.user_email', ${identity.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
-             set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true)
+             set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
+             set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true)
+        FROM reach
     `.execute(trx);
+    const row = applied.rows[0];
+    // No user named, no reach: the old `scope === null`, which the single-unit
+    // decision below reads differently from a resolved `{ visible: null }`.
+    const scope: TenantScope | null = opts?.userId && row ? scopeFromRow(row) : null;
     // Bind the transaction to the async context as well as handing it to `fn`.
     //
     // `ctx.db` given to extensions is a proxy that resolves
