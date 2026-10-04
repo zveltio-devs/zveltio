@@ -47,6 +47,13 @@ interface TenantStore {
    */
   singleTenant?: boolean;
   /**
+   * Whether `userId` holds a membership in force in `tenantId`, as the reach
+   * this transaction published answered it — so the membership gate asks no
+   * second time. Absent when no reach was resolved (no user, god, no tenant
+   * transaction).
+   */
+  membership?: { userId: string; tenantId: string; inForce: boolean };
+  /**
    * Work that must not start until the transaction has COMMITTED.
    *
    * Four places used `setTimeout(…, 0)` for this — the request log, the god
@@ -321,6 +328,21 @@ export function getCurrentTenantTrx(): Database | undefined {
 export function setSingleTenantScope(single: boolean): void {
   const current = store.getStore();
   if (current) current.singleTenant = single;
+}
+
+/** Record the membership the reach resolved. See `TenantStore.membership`. */
+export function setResolvedMembership(userId: string, tenantId: string, inForce: boolean): void {
+  const current = store.getStore();
+  if (current) current.membership = { userId, tenantId, inForce };
+}
+
+/**
+ * Whether `userId` is a member in force of `tenantId` by the reach this
+ * transaction resolved, or `undefined` when it resolved none for them there.
+ */
+export function getResolvedMembership(userId: string, tenantId: string): boolean | undefined {
+  const m = store.getStore()?.membership;
+  return m && m.userId === userId && m.tenantId === tenantId ? m.inForce : undefined;
 }
 
 /**

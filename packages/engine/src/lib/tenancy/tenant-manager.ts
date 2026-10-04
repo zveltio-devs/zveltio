@@ -10,6 +10,7 @@ import {
   currentAfterCommitQueue,
   runAfterCommitJob,
   runWithTenantTrx,
+  setResolvedMembership,
   setSingleTenantScope,
   settleAfterCommit,
 } from './tenant-context.js';
@@ -36,6 +37,7 @@ import {
   activeMembership,
   encodeTenantSet,
   godScopeQuery,
+  NO_UNITS,
   noScopeQuery,
   type ScopeRow,
   scopeFromRow,
@@ -106,6 +108,46 @@ export interface Environment {
 }
 
 const TENANT_CACHE_TTL = 300; // 5 min
+
+/**
+ * The tenant row by `tenant:slug:` / `tenant:id:` key, in this process, when
+ * there is no shared cache.
+ *
+ * Without Valkey every request paid a `zv_tenants` lookup before its handler —
+ * the default tenant's too, on every single-tenant install that runs without a
+ * cache. Writes in this process clear it (`invalidateTenantCache`); another
+ * replica's write reaches it within the TTL, and running more than one replica
+ * without Valkey is refused in production unless the operator says so
+ * (`ZVELTIO_ALLOW_NO_CACHE`). Short, so a suspension elsewhere lands in seconds.
+ * Only rows: a slug that resolves to nothing is asked again, so a tenant created
+ * on another replica is found at once.
+ */
+const LOCAL_TENANT_TTL_MS = 30_000;
+const LOCAL_TENANT_MAX = 1000;
+const localTenants = new Map<string, { tenant: Tenant; at: number }>();
+
+function localTenant(key: string): Tenant | null {
+  const hit = localTenants.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > LOCAL_TENANT_TTL_MS) {
+    localTenants.delete(key);
+    return null;
+  }
+  // Re-inserted, so the Map's order is least recently used first.
+  localTenants.delete(key);
+  localTenants.set(key, hit);
+  return hit.tenant;
+}
+
+function rememberTenant(key: string, tenant: Tenant): void {
+  localTenants.delete(key);
+  localTenants.set(key, { tenant, at: Date.now() });
+  while (localTenants.size > LOCAL_TENANT_MAX) {
+    const oldest = localTenants.keys().next().value;
+    if (oldest === undefined) break;
+    localTenants.delete(oldest);
+  }
+}
 
 // The implicit default tenant every install has. Single-tenant deployments
 // resolve to it on every request, so the `zveltio.current_tenant` GUC is always
@@ -753,6 +795,9 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       if (decoded) return decoded as any;
     }
+  } else {
+    const local = localTenant(cacheKey);
+    if (local) return local;
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -767,6 +812,8 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
     await cache
       .setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenant))
       .catch(() => {});
+  } else if (tenant) {
+    rememberTenant(cacheKey, tenant);
   }
 
   return tenant || null;
@@ -783,6 +830,9 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       if (decoded) return decoded as any;
     }
+  } else {
+    const local = localTenant(cacheKey);
+    if (local) return local;
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -796,6 +846,8 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     await cache
       .setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenant))
       .catch(() => {});
+  } else if (tenant) {
+    rememberTenant(cacheKey, tenant);
   }
 
   return tenant || null;
@@ -1052,6 +1104,8 @@ export async function invalidateTenantCache(
   id?: string,
   userId?: string,
 ): Promise<void> {
+  localTenants.delete(`tenant:slug:${slug}`);
+  if (id) localTenants.delete(`tenant:id:${id}`);
   const cache = getCache();
   if (!cache) return;
   await cache.del(`tenant:slug:${slug}`).catch(() => {});
@@ -1119,6 +1173,7 @@ export async function withTenantIsolation<T>(
     // and is answered by the equality fallback inside the predicate, which is
     // exactly what it did before the hierarchy existed.
     let scopeQuery = noScopeQuery();
+    let membersOnly = false;
     if (opts?.userId && (await isGodUser(opts.userId).catch(() => false))) {
       // God's reach is EVERY firm, and it is published to the database rather
       // than taken by escaping it.
@@ -1149,6 +1204,7 @@ export async function withTenantIsolation<T>(
       // catch-and-fall-back could not work either: a failed statement aborts
       // the transaction, so the `set_config` after it failed with 25P02.)
       scopeQuery = tenantScopeQuery(opts.userId, tenantId);
+      membersOnly = true;
     }
 
     // The caller's identity, published for the row-rule policies to read.
@@ -1251,6 +1307,16 @@ export async function withTenantIsolation<T>(
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
+      // The reach is also the membership answer: no row is NULL, rows none in
+      // force are NO_UNITS (`zveltio_tenant_reach`). The membership gate reads it
+      // instead of asking `zv_tenant_users` again.
+      if (membersOnly && opts?.userId && row) {
+        setResolvedMembership(
+          opts.userId,
+          tenantId,
+          row.visible_csv !== null && row.visible_csv !== NO_UNITS,
+        );
+      }
       // Captured while the store is alive; settled below, once the transaction is.
       afterCommit = currentAfterCommitQueue();
       return await fn(trx);
