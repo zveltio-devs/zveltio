@@ -38,6 +38,7 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@inlang/plugin-message-format": "3.2.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
