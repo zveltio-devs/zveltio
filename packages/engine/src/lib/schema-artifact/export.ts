@@ -62,7 +62,7 @@ const sortedOrNull = (a: string[] | null | undefined) => (a?.length ? [...a].sor
 /** Field flags whose `false` is the default, so it is not written. */
 const FALSE_DEFAULT_FLAGS = ['required', 'unique', 'indexed', 'encrypted'];
 
-function exportField(f: Record<string, unknown>): Record<string, unknown> {
+export function exportField(f: Record<string, unknown>): Record<string, unknown> {
   const out = { ...f };
   for (const k of FALSE_DEFAULT_FLAGS) if (out[k] === false) delete out[k];
   return out;

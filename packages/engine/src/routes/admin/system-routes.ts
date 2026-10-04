@@ -21,6 +21,7 @@ import { getCache } from '../../lib/runtime/index.js';
 import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
+import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
@@ -398,6 +399,20 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // of /api/admin: the artifact describes every tenant's collections.
   app.get('/schema/export', async (c) => {
     return c.json({ format: SCHEMA_FORMAT, files: await exportSchema(db) });
+  });
+
+  // POST /schema/plan — what `apply` would change to make this instance match
+  // the files in the body, for `zveltio schema diff`. Read-only. The engine
+  // computes the plan so the CLI and Studio cannot disagree on it (RFC §6).
+  app.post('/schema/plan', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { files?: unknown } | null;
+    try {
+      const steps = planSchema(await exportSchema(db), body?.files as Record<string, unknown>);
+      return c.json({ format: SCHEMA_FORMAT, steps });
+    } catch (err) {
+      if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
   });
 
   // ── Schema / Migrations ───────────────────────────────────────

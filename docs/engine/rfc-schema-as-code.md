@@ -158,6 +158,7 @@ guessing:
 | Rename a field or collection | It looks like drop + add, which loses data | `renameField`, `renameCollection` |
 | Type change that needs a conversion | The cast is a choice | `changeFieldType` with `using` from a closed list (`text`, `int`, `numeric`, `date`, `timestamptz`, `bool`, `json`) |
 | Drop a field or collection | A drop must be intended, not inferred from absence | `dropField`, `dropCollection` |
+| Remove a role | Users holding it lose access | `dropRole` |
 
 ```json
 { "id": "20261004T120000-rename-title",
@@ -198,22 +199,29 @@ output.
 The plan reads like `terraform plan`:
 
 ```
-~ posts        add field   summary (text)
-~ posts        add index   (author, title)
-+ comments     create collection (4 fields)
-- drafts       drop collection          ← needs --allow-destructive (migration 20261004T1300-drop-drafts)
++ comments  create collection (4 fields)
+- drafts    drop collection   (destructive)
++ posts     add field summary (text)
+~ posts     alter field author (indexed)
 ```
 
-- **Destructive** means `dropField`, `dropCollection`, `changeFieldType`, a
-  narrowed column permission, or a removed role. Each needs both a migration
-  and `--allow-destructive`.
+- **Destructive** means `dropField`, `dropCollection`, `changeFieldType` or a
+  removed role (`dropRole`). Each needs both a migration and
+  `--allow-destructive`. A narrowed column permission is not on the list: it
+  loses no data, narrowing is the point of the change, and the plan already
+  shows it for review.
+- Indexes are not steps of their own: they follow from a field's `unique` and
+  `indexed` flags, so they show as `alter field`.
 - **Additions apply straight from the diff**: fields, indexes, relations,
   rules, permissions, roles and settings.
-- **Execution.** `apply` calls a new god-only route, `POST /api/schema/apply`,
+- **Plan.** `diff` sends the files to `POST /api/admin/schema/plan`, which
+  compares them with the instance's own export and returns the steps. It
+  changes nothing.
+- **Execution.** `apply` calls a new god-only route, `POST /api/admin/schema/apply`,
   with the files' content. The engine validates the content, computes the plan
   itself, and runs it through the same `DDLManager` and DDL-queue calls the
   collection routes use. A large table goes through Ghost DDL, as it does
-  today. The route takes `?dryRun=1` for `diff`.
+  today. It computes the plan with the same function as `/schema/plan`.
 - **Locking.** `apply` holds one advisory lock (`db/advisory-lock.ts`), so two
   CI jobs cannot interleave.
 
@@ -245,15 +253,15 @@ The plan reads like `terraform plan`:
 2. `pull` → `apply` → `pull` gives byte-identical files.
 3. Renaming a field without a migration produces a plan that refuses
    (drop + add). With the migration, the data survives.
-4. A tenant admin cannot reach `POST /api/schema/apply`. A file that names a
+4. A tenant admin cannot reach `POST /api/admin/schema/apply`. A file that names a
    tenant id is refused.
 
 ## 10. Delivery
 
 | Step | Content | Size |
 |---|---|---|
-| 1 | Serializer + `GET /api/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
-| 2 | Plan computation (`?dryRun=1`) + `schema diff` | M |
+| 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
+| 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
 | 3 | `apply` for additions + `zv_schema_migrations` + migration ops + the acceptance test | L |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
