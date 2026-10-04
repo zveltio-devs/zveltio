@@ -213,6 +213,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // Identity — "remove anyone"
   deleteUser: 'auth:users',
   revokeUserSessions: 'auth:users',
+  exportUserData: 'auth:users',
   setUserActive: 'auth:users',
   liftOwnBan: 'auth:users',
   // Identity — "provision accounts and the running tenant's memberships"

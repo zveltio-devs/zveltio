@@ -816,6 +816,42 @@ export interface ExtensionInternals<DB = unknown> {
    */
   revokeUserSessions: (userId: string) => Promise<void>;
   /**
+   * What the engine's own tables hold about a user — profile, their audit
+   * rows in every tenant and at instance level, notifications, the API keys
+   * they created (names, never secrets) and their approval requests — for a
+   * data-subject access request. `null` when there is no such user. Needs the
+   * `auth:users` capability.
+   */
+  exportUserData: (userId: string) => Promise<{
+    profile: { id: string; name: string | null; email: string; created_at: string } | null;
+    audit_log: Array<{
+      action: string;
+      collection: string | null;
+      record_id: string | null;
+      created_at: string;
+    }>;
+    notifications: Array<{
+      title: string;
+      message: string | null;
+      type: string | null;
+      is_read: boolean;
+      created_at: string;
+    }>;
+    api_keys: Array<{
+      name: string;
+      key_prefix: string | null;
+      scopes: unknown;
+      created_at: string;
+    }>;
+    approval_requests: Array<{
+      id: string;
+      collection: string;
+      record_id: string | null;
+      status: string;
+      requested_at: string;
+    }>;
+  } | null>;
+  /**
    * `false` stops the user signing in by ANY method (password, magic link,
    * passkey, OAuth, SSO) and revokes their sessions; `true` lets them back in
    * with the credentials they had. Instance-wide: a user has one sign-in, not
