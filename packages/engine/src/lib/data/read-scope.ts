@@ -17,7 +17,7 @@
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { queryAlterRegistry } from './query-alter.js';
-import { dynamicDb } from './write-pipeline.js';
+import { dynamicDb, isUuid } from './write-pipeline.js';
 import {
   applyColumnAccess,
   applyRlsFilters,
@@ -113,6 +113,29 @@ export async function readScope(
     shape: (row) => applyColumnAccess(row, columns) as typeof row,
     readable: (column) => !columns.hidden.has('*') && !columns.hidden.has(column),
   };
+}
+
+/**
+ * Whether one stored record passes every row gate for this caller — the same
+ * question `GET /api/data/:collection/:id` answers. Anything attached to a
+ * record by id (comments) asks it first: a row the caller cannot fetch is one
+ * whose attachments they cannot read or add to. Collection-level permission is
+ * the caller's to check; this is the row.
+ */
+export async function recordReadable(
+  db: Database,
+  effectiveDb: Database,
+  collection: string,
+  id: string,
+  user: ReadUser,
+  authType: 'session' | 'api_key',
+): Promise<boolean> {
+  if (!isUuid(id) || !(await DDLManager.getCollection(db, collection))) return false;
+  const scope = await readScope(db, collection, user, authType);
+  const row = await scope
+    .query(dynamicDb(effectiveDb).selectFrom(scope.table).selectAll().where('id', '=', id))
+    .executeTakeFirst();
+  return !!row && (await scope.keep([row])).length > 0;
 }
 
 /**

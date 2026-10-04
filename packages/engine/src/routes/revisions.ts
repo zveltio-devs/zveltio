@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { guardSession } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -6,12 +6,34 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { dynamicUpdate } from '../db/dynamic.js';
-import { DDLManager } from '../lib/data/index.js';
+import { DDLManager, recordReadable } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function revisionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
+
+  /**
+   * A record's comments are read and written by whoever may read the record:
+   * collection `read`, then the row through its policies. The list checked only
+   * the collection, so a row policy hid the record and not what was said about
+   * it; the write checked nothing.
+   */
+  const commentGate = async (
+    c: Context,
+    user: { id: string },
+    collection: string,
+    recordId: string,
+  ): Promise<Response | null> => {
+    if (!(await checkPermission(user.id, collection, 'read')) && !(await isTenantAdmin(user.id))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    const authType = c.get('authType') === 'api_key' ? 'api_key' : 'session';
+    if (!(await recordReadable(db, reqDb(c, db), collection, recordId, user, authType))) {
+      return c.json({ error: 'Record not found' }, 404);
+    }
+    return null;
+  };
 
   // Auth middleware
   app.use('*', async (c, next) => {
@@ -172,9 +194,8 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
 
-    if (!(await checkPermission(user.id, collection, 'read')) && !(await isTenantAdmin(user.id))) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
+    const denied = await commentGate(c, user, collection, recordId);
+    if (denied) return denied;
 
     const comments = await sql`
       SELECT
@@ -200,6 +221,9 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as any;
       const { collection, recordId } = c.req.param();
       const { comment } = c.req.valid('json');
+
+      const denied = await commentGate(c, user, collection, recordId);
+      if (denied) return denied;
 
       // Try to insert — table may not exist in all deployments, non-fatal
       try {
