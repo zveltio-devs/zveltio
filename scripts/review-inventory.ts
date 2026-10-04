@@ -333,6 +333,7 @@ const SECTIONS: Section[] = [
       `${E}lib/pg-identifier.ts`,
       `${E}lib/data/ddl-queue.ts`,
       `${E}lib/data/ghost-ddl.ts`,
+      `${E}lib/schema-artifact/`,
       `${E}lib/data/unique-key-reconcile.ts`,
     ],
   },
