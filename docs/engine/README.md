@@ -10,6 +10,7 @@ The Bun + Hono server. Everything else in the product is a client of it.
 | [api-reference.md](api-reference.md) | REST endpoints, request and response shapes |
 | [collections.md](collections.md) | Dynamic collections, field types, relations |
 | [ghost-ddl.md](ghost-ddl.md) | Zero-downtime schema changes on large tables |
+| [rfc-schema-as-code.md](rfc-schema-as-code.md) | RFC (proposed): schema as versioned JSON files — `schema pull / diff / apply` |
 | [authentication.md](authentication.md) | Better-Auth: sessions, OAuth, passkeys, 2FA |
 | [authorization.md](authorization.md) | Casbin RBAC, row rules, column permissions, the god role |
 | [webhooks.md](webhooks.md) | Outbound HMAC-signed webhooks |
