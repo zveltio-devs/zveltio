@@ -290,10 +290,12 @@ generated).
 - Engine extensions mount Hono routes at `/ext/<name>/`, declare migrations,
   hooks (pre/post-write), cron; Studio extensions are Svelte 5 components
   copied into the Studio route tree on enable.
-- Community extensions run **worker-isolated** (separate process, restricted
-  SQL allowlist of user tables + own `zv_<ext>_*` namespace, reserved
-  connection with statement timeout, `zveltio_worker` DB role with no grants
-  on Better-Auth tables). Optional WASM runtime for strict isolation.
+- Community extensions run **worker-isolated** (a worker THREAD in the engine
+  process — not a separate process — with a restricted SQL allowlist of user
+  tables + own `zv_<ext>_*` namespace, reserved connection with statement
+  timeout, `zveltio_worker` DB role with no grants on Better-Auth tables).
+  Production loads them only with `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`.
+  Optional WASM runtime for strict isolation.
 - Extension dev loop, manifest v2 schema, and publishing:
   `docs/extensions/developer-guide.md` (§12 covers the local loop).
   Scaffold with `zveltio extension create <name>`.

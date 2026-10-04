@@ -99,11 +99,15 @@ Worker isolation (`isolation: 'worker'`) gives:
 
 - Crash isolation: a panic in the extension doesn't take the engine
   down. Auto-respawn with exponential backoff.
-- Credential separation: the worker is started with a minimal
-  environment (`NODE_ENV` only), so `DATABASE_URL`,
-  `BETTER_AUTH_SECRET` and `FIELD_ENCRYPTION_KEY` are not reachable
-  from it — including via `import('node:process')`, which bypasses
-  the in-worker `process` stub.
+- A credential-free JavaScript environment: `process.env`,
+  `import('node:process')` and `Bun.env` hold `NODE_ENV` only, so
+  `DATABASE_URL`, `BETTER_AUTH_SECRET` and `FIELD_ENCRYPTION_KEY` are
+  not handed to it. That hides them from the APIs, not from the
+  process — the worker is a thread inside the engine — so it is a
+  guard-rail, not a boundary for untrusted code. Production loads
+  worker-isolated extensions only with
+  `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`, and an operator who installs
+  them should give the engine its credentials through `<NAME>_FILE`.
 - SQL is proxied through the host, which restricts it to user-data
   tables (`zvd_*`) and the extension's own `zv_<ext>_*` namespace,
   runs it on a reserved connection (so a second statement after a
