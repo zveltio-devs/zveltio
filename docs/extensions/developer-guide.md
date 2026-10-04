@@ -352,6 +352,33 @@ with what they declare.
 
 ## 5. Writing engine code
 
+### Capabilities in the types
+
+Declare the same list to TypeScript and `ctx` is typed by it: a `ctx.internals`
+member whose capability you did not declare is a compile error, rather than a
+`CapabilityDeniedError` on the first request that reaches it.
+
+```ts
+import { defineExtension } from '@zveltio/sdk/extension';
+
+export default defineExtension(['secrets', 'data:system'], {
+  name: 'my-ext',
+  category: 'tools',
+  async register(app, ctx) {
+    await ctx.internals.encryptSecret('…');   // ok — 'secrets'
+    await ctx.internals.deleteUser(db, id);   // compile error — needs 'auth:users'
+    ctx.adminDb;                              // never — needs 'db:admin'
+  },
+});
+```
+
+The list must equal the capabilities in manifest.json `permissions` (legacy
+labels such as `database` aside): `zveltio extension validate` fails with
+`CAPABILITY_NOT_IN_MANIFEST` or `CAPABILITY_NOT_IN_DEFINE` when they differ. An
+extension that does not use `defineExtension` keeps the full `ctx` type, as
+before. New extensions from `zveltio extension create` start with
+`defineExtension([], …)` — no capabilities until you ask for one.
+
 ### The entry point
 
 ```typescript
