@@ -3507,6 +3507,7 @@
   "settings.useTls": "TLS/SSL használata",
   "settings.window": "Ablak",
   "shell.collapseSidebar": "Oldalsáv összecsukása",
+  "shell.collection_rls_exempt": "{count} bővítmény fut gyűjteményjogosultságok nélkül az adatbázisban: {names}. Igazítsa át őket, és vegye ki őket a ZVELTIO_COLLECTION_RLS_EXEMPT listából — a mentesség a 3.0.0-val megszűnik.",
   "shell.darkMode": "Sötét mód",
   "shell.densityComfortable": "Kényelmes",
   "shell.densityCompact": "Kompakt",

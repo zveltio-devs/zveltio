@@ -3507,6 +3507,7 @@
   "settings.useTls": "TLS/SSL verwenden",
   "settings.window": "Zeitfenster",
   "shell.collapseSidebar": "Seitenleiste einklappen",
+  "shell.collection_rls_exempt": "{count} Erweiterung(en) laufen ohne Sammlungsberechtigungen in der Datenbank: {names}. Passen Sie sie an und entfernen Sie sie aus ZVELTIO_COLLECTION_RLS_EXEMPT — die Ausnahme endet mit 3.0.0.",
   "shell.darkMode": "Dunkler Modus",
   "shell.densityComfortable": "Komfortabel",
   "shell.densityCompact": "Kompakt",

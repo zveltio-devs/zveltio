@@ -1546,5 +1546,6 @@
   "wh.test": "Testen",
   "wh.testNamed": "Webhook {name} testen",
   "wh.timeout": "Time-out",
-  "wh.timeoutHint": "milliseconden (1000–30000)"
+  "wh.timeoutHint": "milliseconden (1000–30000)",
+  "shell.collection_rls_exempt": "{count} extensie(s) draaien zonder collectierechten in de database: {names}. Pas ze aan en haal ze uit ZVELTIO_COLLECTION_RLS_EXEMPT — de uitzondering vervalt bij 3.0.0."
 }

@@ -321,6 +321,15 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     );
   });
 
+  // GET /api/health/collection-exemptions — the extensions running without
+  // collection permissions in the database, for the Studio admin banner. Instance
+  // admin, like /deep: it names what this deployment runs and how it is weakened.
+  app.get('/collection-exemptions', async (c) => {
+    if (!(await requireAuth(c))) return refuseWithoutSession(c);
+    if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
+    return c.json(collectionRlsExemptionStatus());
+  });
+
   // GET /api/health/update-check — check for new engine release (auth-gated).
   app.get('/update-check', async (c) => {
     if (!(await requireAuth(c))) return refuseWithoutSession(c);

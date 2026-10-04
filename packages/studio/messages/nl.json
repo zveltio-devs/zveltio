@@ -3507,6 +3507,7 @@
   "settings.useTls": "TLS/SSL gebruiken",
   "settings.window": "Venster",
   "shell.collapseSidebar": "Zijbalk inklappen",
+  "shell.collection_rls_exempt": "{count} extensie(s) draaien zonder collectierechten in de database: {names}. Pas ze aan en haal ze uit ZVELTIO_COLLECTION_RLS_EXEMPT — de uitzondering vervalt bij 3.0.0.",
   "shell.darkMode": "Donkere modus",
   "shell.densityComfortable": "Comfortabel",
   "shell.densityCompact": "Compact",
