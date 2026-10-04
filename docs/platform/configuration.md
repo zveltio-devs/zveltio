@@ -391,6 +391,7 @@ absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
 | `ZVELTIO_ALLOW_MISSING_DB` | Gates and the harness lane refusing to run without a database, rather than passing having checked nothing. | A lint-only CI job that genuinely has no Postgres. |
 | `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` | The SSRF guard inside worker extensions, which blocks `fetch` to private address ranges. | Testing a worker extension against a deliberately internal endpoint. |
 | `ZVELTIO_ALLOW_INLINE_THIRD_PARTY` | Forcing third-party extensions into worker isolation. With `=1` they load in the engine process. | Debugging an extension you wrote and trust. |
+| `ZVELTIO_ALLOW_WORKER_EXTENSIONS` | Refusing worker-isolated (third-party) extensions in production. With `=1` they load. The worker is a thread in the engine process and does not keep an extension from the process's files or environment. | Production installs that run third-party extensions you trust. |
 | `ZVELTIO_EXT_AUTH_GATE=0` | The fail-closed authentication gate in front of every `/ext/*` route. | Nothing in production. It exists so a single extension's own auth can be exercised in isolation. |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `/metrics` refusing anonymous callers when no `METRICS_TOKEN` is set. | A Prometheus scraper on a private network. |
 | `RATE_LIMIT_ALLOWLIST` | Rate limiting, for the listed CIDRs. | An internal load generator, or a known reverse proxy. |

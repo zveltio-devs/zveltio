@@ -28,7 +28,12 @@ import { resolveExtensionsBase } from './extension-paths.js';
 import { runExtensionMigrations } from './migration-runner.js';
 import { grantExtensionDbRole, grantWorkerDbRole } from './ext-db-role.js';
 import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
-import { enforcePublisherTier, resolveEntryPath, resolveManifest } from './load-phases.js';
+import {
+  enforcePublisherTier,
+  enforceWorkerOptIn,
+  resolveEntryPath,
+  resolveManifest,
+} from './load-phases.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionContext } from './internals.js';
 import { buildAllowedTables, EXTENSION_TABLE_GRANTS, finalizeExtensionLoad } from './register.js';
@@ -224,6 +229,14 @@ export async function loadExtensionFromDir(
       }
       if (tierPhase.lastLoadError !== null) {
         loader.lastLoadError.set(extName, tierPhase.lastLoadError);
+      }
+      return;
+    }
+    const optInPhase = enforceWorkerOptIn(extName, manifest);
+    if (!optInPhase.ok) {
+      if (optInPhase.logLevel !== 'none') console[optInPhase.logLevel](...optInPhase.logArgs);
+      if (optInPhase.lastLoadError !== null) {
+        loader.lastLoadError.set(extName, optInPhase.lastLoadError);
       }
       return;
     }

@@ -271,14 +271,11 @@ export class WorkerExtensionHost {
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const runtimePath = ensureWorkerRuntimeOnDisk();
-    // `env` is the enforcement, not the process stub the runtime installs on
-    // globalThis. A Worker inherits the parent's environment by default, and the
-    // stub is reachable only through `process` — `await import('node:process')`
-    // returns the real module and the real env, which is how untrusted extension
-    // code read DATABASE_URL, BETTER_AUTH_SECRET and FIELD_ENCRYPTION_KEY out of
-    // a "no DB credentials in worker" sandbox. Bun honours the node:worker_threads
-    // `env` option, so handing over exactly one variable leaves nothing to find:
-    // verified as 59 inherited variables before, 1 after.
+    // `env` is what keeps the engine's variables out of `process.env`,
+    // `import('node:process')` and `Bun.env` (59 inherited variables before, 1
+    // after). It does not keep them from the process: this is a thread, and it can
+    // read what the process can read. Hence the production opt-in
+    // (`enforceWorkerOptIn`) until extensions run out of process.
     const worker = new Worker(pathToFileURL(runtimePath).href, {
       type: 'module',
       env: { NODE_ENV: process.env.NODE_ENV ?? 'production' },
