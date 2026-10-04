@@ -12,7 +12,7 @@ import { extensionPublishCommand } from './commands/extension-publish.js';
 import { extensionDevCommand } from './commands/extension-dev.js';
 import { keysGenerateCommand, keysListCommand, keysExportCommand } from './commands/keys.js';
 import { generateTypesCommand } from './commands/generate-types.js';
-import { schemaPullCommand } from './commands/schema.js';
+import { schemaDiffCommand, schemaPullCommand } from './commands/schema.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
 import { extensionsListCommand } from './commands/extensions-list.js';
@@ -138,6 +138,13 @@ schema
   .option('--dir <path>', 'Schema directory', './schema')
   .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
   .action(schemaPullCommand);
+
+schema
+  .command('diff')
+  .description('Print what apply would change to match ./schema; exits 1 on drift')
+  .option('--dir <path>', 'Schema directory', './schema')
+  .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
+  .action(schemaDiffCommand);
 
 // ── zveltio install <name> ────────────────────────────────────────────────────
 program

@@ -121,5 +121,36 @@ d('schema export', () => {
 
   it('is refused without an instance admin', async () => {
     expect((await app.request('/api/admin/schema/export')).status).toBe(401);
+    expect((await app.request('/api/admin/schema/plan', { method: 'POST' })).status).toBe(401);
+  });
+
+  const plan = (files: unknown) =>
+    app.request('/api/admin/schema/plan', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ files }),
+    });
+
+  it('plans nothing for its own export, and the edit made to the files', async () => {
+    const files = await pull();
+    let res = await plan(files);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { steps: unknown[] }).steps).toEqual([]);
+
+    const path = `collections/${COLLECTION}.json`;
+    const col = JSON.parse(files[path]);
+    col.fields.push({ name: 'summary', type: 'text' });
+    res = await plan({ ...files, [path]: serialize(col) });
+    expect(((await res.json()) as { steps: unknown[] }).steps).toEqual([
+      { change: '+', target: COLLECTION, action: 'add field summary (text)' },
+    ]);
+  });
+
+  it('answers 400 for a malformed file set', async () => {
+    const res = await plan({ 'roles.json': '{}' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { detail: string }).detail).toBe(
+      'zveltio-schema.json is missing',
+    );
   });
 });
