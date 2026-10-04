@@ -81,8 +81,8 @@ d('sync push guards (in-process)', () => {
     memberId = ((await signUp.json()) as { user?: { id: string } }).user?.id ?? '';
     await sql`UPDATE "user" SET role = 'member' WHERE id = ${memberId}`.execute(db);
     const enforcer = await getEnforcer();
-    await enforcer.addPolicy(memberId, '*', `data:${COLUMNS}`, 'read');
-    await enforcer.addPolicy(memberId, '*', `data:${COLUMNS}`, 'update');
+    await enforcer.addPolicy(memberId, '*', COLUMNS, 'read');
+    await enforcer.addPolicy(memberId, '*', COLUMNS, 'update');
     await invalidateUserPermCache(memberId);
     const signIn = await app.request('/api/auth/sign-in/email', {
       method: 'POST',
@@ -115,8 +115,8 @@ d('sync push guards (in-process)', () => {
       .catch(() => {});
     if (memberId) {
       const enforcer = await getEnforcer();
-      await enforcer.removePolicy(memberId, '*', `data:${COLUMNS}`, 'read').catch(() => {});
-      await enforcer.removePolicy(memberId, '*', `data:${COLUMNS}`, 'update').catch(() => {});
+      await enforcer.removePolicy(memberId, '*', COLUMNS, 'read').catch(() => {});
+      await enforcer.removePolicy(memberId, '*', COLUMNS, 'update').catch(() => {});
     }
     for (const name of [COLUMNS, A, B]) {
       await sql

@@ -5,7 +5,7 @@
  * POST /api/sync/pull — client requests changes after its cursors
  */
 
-import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
+import { checkAccess, describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
@@ -13,7 +13,6 @@ import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
 import {
   applyRlsFilters,
-  checkPermission,
   filterWritableFields,
   getColumnAccess,
   getRlsFilters,
@@ -258,16 +257,17 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // Reassign normalized table name for downstream use
       op.collection = tableName;
 
-      // Permission check via checkPermission(), never user.role —
-      // Better-Auth's session may not carry `role` on magic-link / OAuth
-      // flows. checkPermission handles god bypass + Casbin in the right
-      // order regardless of how the user signed in.
+      // `checkAccess`, the question `/api/data` asks, on the bare collection
+      // name. This asked for `data:<collection>`, a spelling migration 001
+      // stripped from every policy and the Studio never writes, so no grant an
+      // operator could make let a member push; only god and `*`/`*` synced.
       const collectionShortName = op.collection.replace(/^zvd_/, '');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
-      const canWrite = await checkPermission(
-        user.id,
-        `data:${collectionShortName}`,
+      const canWrite = await checkAccess(
+        db,
+        user,
+        collectionShortName,
         op.operation === 'delete' ? 'delete' : op.operation === 'create' ? 'create' : 'update',
       );
       if (!canWrite) {
@@ -628,11 +628,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       const collectionShortName = collection.replace(/^zvd_/, '');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
-      const canRead = await checkPermission(user.id, `data:${collectionShortName}`, 'read');
+      // The bare name, as push and `/api/data` ask it — see push.
+      const canRead = await checkAccess(db, user, collectionShortName, 'read');
       if (!canRead) continue; // silently skip collections the user has no access to
 
       // The read gate: row policies, extension alters, entity access and
-      // column permissions, as `GET /api/data` applies them. `checkPermission`
+      // column permissions, as `GET /api/data` applies them. `checkAccess`
       // above is collection-level and cannot see rows. Pull once applied row
       // policies and columns only, so an offline client synced — and kept on
       // the device — the rows an extension's alter or ownership rule hides.
