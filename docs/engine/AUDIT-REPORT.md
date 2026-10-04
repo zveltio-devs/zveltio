@@ -44,7 +44,7 @@ with Valkey 8. Bun is 1.3.14. Each lane was run the way CI runs it.
 
 | # | Severity | Where | Status |
 |---|---|---|---|
-| X-1 | **high** (functional, cross-repo) | engine `lib/extensions/worker-sql-policy.ts` (#858) vs ~10 extensions | **open — owner decision** |
+| X-1 | **high** (functional, cross-repo) | engine `lib/extensions/worker-sql-policy.ts` (#858) vs ~10 extensions | **open — known, tracked by the owner** |
 | E-1 | medium (authorization) | `routes/revisions.ts:170`, `:195` | fixed — zveltio#900 |
 | E-2 | medium (correctness) | `routes/sync.ts:268`, `:631` | fixed — zveltio#901 |
 | X-2 | high (functional) | `zveltio-extensions/geospatial/postgis/engine/routes.ts:28` | fixed — zveltio-extensions#181 |
@@ -55,6 +55,11 @@ with Valkey 8. Bun is 1.3.14. Each lane was run the way CI runs it.
 | X-3 | info | extensions CI `Typecheck` job, red on master | open |
 
 ### X-1 — first-party extensions refused by the `ctx.db` allowlist since #858 (open)
+
+**Known before this audit.** #858 was merged ahead of the extensions on purpose
+(engine correct first), and the owner's own tracking already lists the extensions
+that must adapt. What this entry adds is the measured breakage on current `master`
+of both repositories, below.
 
 **Scenario.** On engine `master` with extensions `master`, several first-party
 extensions fail on their main routes, either with 500 or with a silent refusal:
@@ -269,12 +274,52 @@ of that job: ambient authority, migration paths, bundle checks and SDUI validati
 
 **Not audited in this session:**
 - **The extension SQL analyzer** (`worker-sql-policy.ts`). The adversarial pass on
-  it was stopped by the session's tooling and not resumed. Treat it as unreviewed
-  here, not as cleared.
+  it was stopped by the session's tooling and not resumed. The owner's own review
+  campaign covered this file adversarially against a live database, so the gap is
+  in this audit, not in the project. This audit does not count it as cleared.
 - SSO and SCIM identity provisioning through `ctx.internals`.
 - The narrow database roles and role windows, in depth.
 - Migration-by-migration review.
 - The client portal (`packages/client`).
+
+## Runtime and dependencies
+
+Checked after the findings above. None produced a defect.
+
+- **Unhandled rejections.** The engine exits on any unhandled rejection except
+  a short list of recoverable connection errors (`index.ts`). So one floating
+  promise is an outage. Biome's `noFloatingPromises` flags 4 sites in
+  `packages/engine/src`, and 16 calls discard a promise with `void`. Each one
+  was read. All of them catch inside the callee or chain a `.catch`. None can
+  reject unhandled.
+- **Streams.** The SSE route in `routes/realtime.ts` registers its abort handler
+  before its first `await`. That handler releases the Valkey subscriber and the
+  ping timer. Hono's `writeSSE` swallows writes to a closed stream.
+- **Synchronous I/O.** The `*Sync` calls are in extension load, install and
+  catalogue code, which runs at boot or from admin routes. The one per-request
+  use is the edge-function runner, which writes one small bootstrap file per
+  invocation. Nothing measured made it worth changing.
+- **Flow `query_db` and `LOCK`.** This is the open twin of the `LOCK` hole that
+  the worker SQL policy closed. It does not reproduce. Measured on PostgreSQL 18,
+  `zveltio_flow_reader` inside a `READ ONLY` transaction:
+  - `LOCK … IN ACCESS SHARE MODE` succeeds.
+  - `LOCK … IN ACCESS EXCLUSIVE MODE` is refused (`permission denied`).
+
+  The role holds only `SELECT`, so the only lock it can take is the one every
+  `SELECT` already takes.
+- **`bun audit`** reports two advisories, and neither is reachable:
+  - `braces` (high) comes in through dev-only build tools (`tailwindcss`,
+    `svelte-check`), and CI ignores it explicitly.
+  - DOMPurify 3.4.15 (low, GHSA-p98j-92pf-mc4p) requires `IN_PLACE` and an
+    `afterSanitize` hook that removes nodes. Neither the client nor Studio uses
+    either one. Bumping to 3.4.16 is hygiene, not a fix.
+- **Binary footprint.** `build:binary` for `bun-linux-x64` produces 104.5 MB
+  without the Studio embed. 92.8 MB of that is the Bun runtime itself, and the
+  JavaScript bundle is 9.9 MB. The largest dependency weight is the OpenTelemetry
+  Node SDK: about 2.4 MB with `@grpc/grpc-js`, `protobufjs` and `yaml`, although
+  the exporter is OTLP/HTTP. It is loaded by dynamic `import()` only when tracing
+  is enabled, so it costs disk and not memory. Not worth a change before the
+  runtime itself shrinks.
 
 ## Decisions for the owner
 
