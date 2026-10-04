@@ -35,7 +35,7 @@ are documented below; T4 is out of scope for v1.
 | --------------------- | ---------------------------------------- | --------------------------------- | ------------------------------- |
 | Postgres database     | `pg_data` (server) or managed DB         | Disk dies / DROP TABLE            | `pg_dump` + WAL archive (PITR)  |
 | Valkey/Redis cache    | `appendonly.aof` / `dump.rdb`            | Process dies                      | AOF on disk; rebuildable        |
-| File storage          | `STORAGE_DIR` or S3 bucket               | Filesystem corruption / bucket    | rsync / S3 versioning           |
+| File storage          | `STORAGE_LOCAL_DIR` or S3 bucket               | Filesystem corruption / bucket    | rsync / S3 versioning           |
 | Engine binary         | `/usr/local/bin/zveltio`                 | rm by accident                    | Re-download from `zveltio-get`  |
 | Extensions cache      | `EXTENSIONS_DIR` (default `~/.zveltio/extensions`) | Filesystem loss          | Re-install from marketplace     |
 | **Secrets / keys**    | `.env`                                   | Lost forever = unrecoverable data | Encrypted offsite copy          |
@@ -287,7 +287,7 @@ curl -X POST -H "Authorization: Bearer $ZV_ADMIN_TOKEN" \
 
 ### Scenario E — File storage lost
 
-Local storage (`STORAGE_DIR`): restore from rsync mirror or PBS snapshot
+Local storage (`STORAGE_LOCAL_DIR`): restore from rsync mirror or PBS snapshot
 (included by default in T3).
 
 S3 storage: enable versioning + replication on the bucket *before* the
