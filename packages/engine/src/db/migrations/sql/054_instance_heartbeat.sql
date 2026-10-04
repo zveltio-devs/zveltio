@@ -22,3 +22,7 @@ CREATE TABLE IF NOT EXISTS zv_instances (
   started_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
   last_seen   timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+
+-- DOWN
+
+DROP TABLE IF EXISTS zv_instances;
