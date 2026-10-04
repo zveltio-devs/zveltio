@@ -276,7 +276,18 @@ async function visibleTenantsFn(db: Database, table: string): Promise<string> {
  * SUBQUERY form of ANY, which expects a set of rows rather than an array, so
  * without it the policy either means something else or fails to create.
  */
-export async function applyTenantRLS(db: Database, table: string): Promise<void> {
+export async function applyTenantRLS(
+  db: Database,
+  table: string,
+  /**
+   * Leave the two composite indexes to `reconcileTenantIndexes`, which builds
+   * them CONCURRENTLY after the server listens. The boot reconciler passes it: a
+   * plain CREATE INDEX on an existing large table blocks its writers for the
+   * build (about 0.6 µs a row) while the server is not yet serving at all. A new
+   * collection or junction table is empty, so it gets them here at no cost.
+   */
+  opts: { deferIndexes?: boolean } = {},
+): Promise<void> {
   if (!SAFE_COLLECTION_TABLE.test(table)) {
     throw new Error(`refusing to apply RLS to unsafe table name: ${table}`);
   }
@@ -323,7 +334,7 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
       AND column_name IN ('created_at', 'updated_at')
   `.execute(db);
   const has = new Set(columns.rows.map((r) => r.column_name));
-  if (has.has('created_at')) {
+  if (has.has('created_at') && !opts.deferIndexes) {
     await sql`
       CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_created'))}
       ON ${sql.id(table)}(tenant_id, created_at DESC)
@@ -333,7 +344,7 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   // the cursor, in `(updated_at, id::text COLLATE "C")` order. Without it an
   // idle incremental pull read every row the tenant has, per collection, per
   // device: on 200 000 rows 63 ms and 2 535 buffers, against 0,08 ms and 3.
-  if (has.has('updated_at')) {
+  if (has.has('updated_at') && !opts.deferIndexes) {
     await sql`
       CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_updated'))}
       ON ${sql.id(table)}(tenant_id, updated_at, (id::text COLLATE "C"))
@@ -468,6 +479,8 @@ async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[
 export async function reconcileExtensionTenantRLS(
   db: Database,
   only?: readonly string[],
+  /** As for `applyTenantRLS`: the `(tenant_id, created_at)` build goes post-listen. */
+  opts: { deferIndexes?: boolean } = {},
 ): Promise<number> {
   let targets: { tablename: string; policyname: string }[];
   try {
@@ -593,7 +606,7 @@ export async function reconcileExtensionTenantRLS(
           AND table_name = ${tablename}
           AND column_name = 'created_at'
       `.execute(db);
-      if (hasCreatedAt.rows[0]?.n ?? 0) {
+      if ((hasCreatedAt.rows[0]?.n ?? 0) && !opts.deferIndexes) {
         await sql`
           CREATE INDEX IF NOT EXISTS ${sql.id(indexName(tablename, 'tenant_created'))}
           ON ${sql.id(tablename)}(tenant_id, created_at DESC)
@@ -661,7 +674,7 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
         SELECT to_regclass(${`public.${table}`}) IS NOT NULL AS exists
       `.execute(db);
       if (!reg.rows[0]?.exists) continue; // collection row without a table yet
-      await applyTenantRLS(db, table);
+      await applyTenantRLS(db, table, { deferIndexes: true });
       applied++;
     } catch (err) {
       console.warn(`[tenant-rls] reconcile failed for ${table}:`, (err as Error).message);
