@@ -19,6 +19,7 @@
  * response is serialized and posted back.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Hono } from 'hono';
 import { createSafeFetch } from './edge-functions/safe-fetch.js';
 import type {
@@ -72,6 +73,17 @@ for (const level of ['log', 'warn', 'error'] as const) {
  * Kysely-style executor that crosses the worker boundary for every query.
  * Returns a CompiledQuery-result-shape object.
  */
+/**
+ * The route invocation a piece of work belongs to — the host's id for the
+ * request. A query names it, and the host reads the tenant and the identity of
+ * that request from its OWN record of the invocation (`invokeTenants`,
+ * `invokeIdentities`), never from anything the worker says about them.
+ *
+ * The protocol always had the field and the host always looked it up; this side
+ * never sent it, so every worker query ran with no tenant and no actor.
+ */
+const invocation = new AsyncLocalStorage<string>();
+
 async function dbExecute(sql: string, params: unknown[]): Promise<{ rows: unknown[] }> {
   return new Promise((resolve, reject) => {
     const id = rpcId('db');
@@ -82,7 +94,7 @@ async function dbExecute(sql: string, params: unknown[]): Promise<{ rows: unknow
         reject(new Error(res.error ?? 'db query failed'));
       }
     });
-    send({ type: 'db:query', id, sql, params });
+    send({ type: 'db:query', id, sql, params, requestId: invocation.getStore() });
   });
 }
 
@@ -245,7 +257,8 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       headers: msg.headers,
       body: msg.body,
     });
-    const res = await shadowApp.fetch(req);
+    const app = shadowApp;
+    const res = await invocation.run(msg.id, () => app.fetch(req));
     const body = await res.text();
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => {
