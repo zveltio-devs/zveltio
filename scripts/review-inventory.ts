@@ -20,6 +20,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { type OrderedSession, orderSessions } from './lib/review-sessions.js';
 
 type Section = {
   id: string;
@@ -54,7 +55,8 @@ type SessionEntry = {
   /** What was deliberately left undone, and why. */
   notDone?: string;
   /** `logged` = read in full, findings recorded, nothing repaired in-session. */
-  verdict: 'clean' | 'repaired' | 'logged' | 'blocked' | 'partial';
+  /** Absent on a follow-up that only adds files or tests to a section. */
+  verdict?: 'clean' | 'repaired' | 'logged' | 'blocked' | 'partial';
 };
 
 type Ledger = { updated: string; sessions: SessionEntry[] };
@@ -267,6 +269,7 @@ const SECTIONS: Section[] = [
       `${E}db/postgres-version.ts`,
       `${E}db/migrate.ts`,
       `${E}db/migrations/index.ts`,
+      `${E}db/postgres-version.ts`,
       `${E}lib/jsonb.ts`, // on master, not on every branch
     ],
   },
@@ -1146,13 +1149,13 @@ async function main() {
   // A directory has no such conflict: two branches write two filenames. The old
   // file is still read when present, so an in-flight branch that has not
   // migrated is not lost.
-  const sessions: SessionEntry[] = [];
+  const entries: OrderedSession<SessionEntry>[] = [];
   let updated = 'never';
   const legacy = await Bun.file(STATUS_JSON)
     .json()
     .catch(() => null);
   if (legacy?.sessions) {
-    sessions.push(...(legacy.sessions as SessionEntry[]));
+    for (const session of legacy.sessions as SessionEntry[]) entries.push({ session });
     updated = legacy.updated ?? updated;
   }
   for (const f of await Array.fromAsync(new Bun.Glob('*.json').scan(SESSIONS_DIR)).catch(
@@ -1189,9 +1192,9 @@ async function main() {
         process.exit(1);
       }
     }
-    sessions.push(one as SessionEntry);
+    entries.push({ session: one as SessionEntry, file: f });
   }
-  const ledger: Ledger = { updated, sessions };
+  const ledger: Ledger = { updated, sessions: orderSessions(entries) };
 
   const sessionsBySection = new Map<string, SessionEntry[]>();
   const reviewed = new Set<string>();
@@ -1326,8 +1329,15 @@ async function main() {
       const fs = bySection.get(s.id) ?? [];
       const done = fs.filter((f) => reviewed.has(f));
       const sess = sessionsBySection.get(s.id) ?? [];
-      const last =
-        sess.length > 0 ? `${sess[sess.length - 1].date} — ${sess[sess.length - 1].verdict}` : '—';
+      // The latest session that gave a verdict: a follow-up that only adds
+      // files or tests (a T01 slice, a ledger entry) has none, and printed
+      // "undefined" over the section's real state.
+      const judged = sess.findLast((e) => e.verdict);
+      const last = judged
+        ? `${judged.date} — ${judged.verdict}`
+        : sess.length > 0
+          ? `${sess[sess.length - 1]!.date} — no verdict recorded`
+          : '—';
       const mark = !inScope(s.id) ? 'n/a' : `${done.length}/${fs.length}`;
       md.push(
         `| ${s.id} | ${s.title} | ${fs.length} | ${sum(fs).toLocaleString()} | ${mark} | ${last} |`,
@@ -1383,7 +1393,8 @@ async function main() {
       md.push('');
       for (const e of sess) {
         md.push(
-          `- **${e.date}** · ${e.agent} · ${e.files.length} files · **${e.verdict}**` +
+          `- **${e.date}** · ${e.agent} · ${e.files.length} files` +
+            (e.verdict ? ` · **${e.verdict}**` : '') +
             (e.branch ? ` · \`${e.branch}\`` : ''),
         );
         for (const r of e.ran ?? []) md.push(`  - ran: ${r}`);
