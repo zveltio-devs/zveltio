@@ -188,6 +188,10 @@ export interface DDLManager {
    *  extensions that auto-discover schema changes. */
   introspectTable(db: DDLManagerDb, collectionName: string): Promise<FieldDefinition[]>;
 
+  /** Every physical column of the collection's table, system columns included,
+   *  in table order; `[]` when the table does not exist. */
+  columnNames(db: DDLManagerDb, collectionName: string): Promise<string[]>;
+
   /** Re-read PG and write the result back to `zv_collections.fields`. Returns
    *  the number of changes detected. */
   syncFieldsFromDB(db: DDLManagerDb, collectionName: string): Promise<number>;

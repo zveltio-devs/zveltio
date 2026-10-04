@@ -99,6 +99,7 @@ describe('S4-08 SDK ddl shape', () => {
         RealDDLManager.updateCollectionMetadata(db as any, name, meta as any),
       introspectTable: (db, name) =>
         RealDDLManager.introspectTable(db as any, name) as Promise<FieldDefinition[]>,
+      columnNames: (db, name) => RealDDLManager.columnNames(db as any, name),
       syncFieldsFromDB: (db, name) => RealDDLManager.syncFieldsFromDB(db as any, name),
       previewCollection: (def) => RealDDLManager.previewCollection(def as any),
     };

@@ -1402,6 +1402,27 @@ export class DDLManager {
    * via the constraint tables — that's how introspected fields get
    * `options.related_collection` populated for BYOD / sync-schema flows.
    */
+  /**
+   * Every physical column of a collection's table, system columns included, in
+   * table order — `[]` when the table is not there.
+   *
+   * `introspectTable` answers the USER fields and skips `id`, `status` and the
+   * rest; a caller that checks a name against the table (a page filtering on
+   * `status`, a record addressed by `id`) needs all of them. Extensions read
+   * this through `ctx.DDLManager`, because `ctx.db` refuses `information_schema`
+   * to them (#858) — the engine runs this on its own view of the catalog.
+   */
+  static async columnNames(db: Database, collectionName: string): Promise<string[]> {
+    const tableName = this.getTableName(collectionName);
+    const cols = await sql<{ column_name: string }>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${tableName}
+      ORDER BY ordinal_position
+    `.execute(db);
+    return cols.rows.map((r) => r.column_name);
+  }
+
   static async introspectTable(db: Database, collectionName: string): Promise<FieldConfig[]> {
     const tableName = this.getTableName(collectionName);
     const SYSTEM_COLS = SYSTEM_COLUMNS;
