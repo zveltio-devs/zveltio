@@ -22,4 +22,4 @@ it, and working on it.
 Reference material also in this chapter: [benchmarks](benchmarks.md),
 [versioning](versioning.md), [horizontal scaling](horizontal-scaling.md),
 [graceful degradation](degradation.md), [monitoring](monitoring.md),
-[deployment](deployment.md), [Node.js fallback](nodejs-fallback.md).
+[deployment](deployment.md), [Runtime support (Bun only)](nodejs-fallback.md).
