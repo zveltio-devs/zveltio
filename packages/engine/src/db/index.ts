@@ -2,6 +2,7 @@ import { Kysely, sql } from 'kysely';
 import { noteConnectionAcquired } from './connection-trace.js';
 import { autosizePool } from './pool-autosize.js';
 import { BunSqlDialect } from './bun-sql-dialect.js';
+import { createPgDialect, databaseDriver } from './pg-dialect.js';
 import { assertSupportedPostgres } from './postgres-version.js';
 
 // Re-exported so boot code reaches it through this module rather than the
@@ -81,7 +82,10 @@ export function activePoolMax(): number {
  */
 export function createDb(connectionString: string): Database {
   return new Kysely({
-    dialect: new BunSqlDialect({ connectionString }),
+    dialect:
+      databaseDriver() === 'pg'
+        ? createPgDialect({ connectionString })
+        : new BunSqlDialect({ connectionString }),
   });
 }
 
@@ -212,7 +216,7 @@ export async function initDatabase(): Promise<Database> {
   // TEMP DIAGNOSTIC (ZVELTIO_TRACE_SQL_ERRORS=1): print every failed statement.
   // 25P02 only says "an earlier statement failed"; this says WHICH.
   const traceSqlErrors = process.env.ZVELTIO_TRACE_SQL_ERRORS === '1';
-  const baseDialect = new BunSqlDialect({
+  const dialectConfig = {
     connectionString: databaseUrl,
     // The engine's own database. It owns the module-level pool handles that
     // `recycleActivePool()` and the worker-extension host read; `createDb()`
@@ -250,7 +254,10 @@ export async function initDatabase(): Promise<Database> {
     // deliberately, against a `max_connections` you have checked.
     max: poolMax,
     idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
-  });
+  };
+  // `ZVELTIO_DB_DRIVER=pg` runs the pool on node-postgres instead (pg-dialect.ts).
+  const baseDialect =
+    databaseDriver() === 'pg' ? createPgDialect(dialectConfig) : new BunSqlDialect(dialectConfig);
 
   // Connection tracing. See db/connection-trace.ts for what it counts and why
   // the obvious probe — run with DB_POOL_MAX=1 and see what hangs — names the
