@@ -1205,6 +1205,12 @@ export interface ZvImportLogsTable {
   dry_run: Generated<boolean>;
 }
 
+export interface ZvInstancesTable {
+  instance_id: Generated<string>;
+  started_at: Generated<Date>;
+  last_seen: Generated<Date>;
+}
+
 export interface ZvInvitationsTable {
   id: Generated<string>;
   email: string;
@@ -5590,6 +5596,7 @@ export interface DbSchema {
   zv_geofence_rules: ZvGeofenceRulesTable;
   zv_geofences: ZvGeofencesTable;
   zv_import_logs: ZvImportLogsTable;
+  zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;
   zv_license_audit: ZvLicenseAuditTable;
   zv_mail_accounts: ZvMailAccountsTable;

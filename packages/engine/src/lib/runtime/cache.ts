@@ -42,7 +42,7 @@ function redactUrl(url: string): string {
  * - maxRetriesPerRequest: retry up to 3 times on transient failures
  *
  * Returning null is for tests and for the operator who set
- * `ZVELTIO_ALLOW_NO_CACHE=1`; a production boot without `VALKEY_URL` is stopped
+ * `ZVELTIO_SINGLE_INSTANCE=1`; a production boot without `VALKEY_URL` is stopped
  * earlier, by `productionGuardViolations`. That guard covers the variable being
  * ABSENT. This function covers it being PRESENT AND WRONG, which is now the
  * likelier mistake of the two — see the error it throws.
@@ -90,8 +90,8 @@ export async function initCache(): Promise<Redis | null> {
     throw new Error(
       `Cannot connect to Valkey at ${redactUrl(process.env.VALKEY_URL)}: ${reason}.${hint} ` +
         'Valkey is required: permission and identity caches, rate limiting and webhook ' +
-        'delivery all depend on it. To boot without one, and accept what that costs, set ' +
-        'ZVELTIO_ALLOW_NO_CACHE=1 and unset VALKEY_URL.',
+        'delivery all depend on it. To run exactly one instance without it, set ' +
+        'ZVELTIO_SINGLE_INSTANCE=1 and unset VALKEY_URL.',
       { cause: err },
     );
   }
