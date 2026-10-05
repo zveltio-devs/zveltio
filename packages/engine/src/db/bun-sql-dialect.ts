@@ -256,12 +256,32 @@ let _activeDriver: BunSqlDriver | null = null;
  */
 export async function recycleActivePool(): Promise<void> {
   await _activeDriver?.recyclePool();
+  await _registeredPool?.recycle?.();
+}
+
+/**
+ * The part of a pool the worker-extension SQL bridge uses: one-off statements,
+ * and a reserved connection for its transaction. `Bun.SQL`'s pool is one; the
+ * `pg` dialect (`ZVELTIO_DB_DRIVER=pg`) registers its own.
+ */
+export interface RawPool {
+  unsafe<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+  reserve(): Promise<BunReservedConnection>;
+  /** Drop whatever the driver caches against the schema (see `recyclePool`). */
+  recycle?(): Promise<void>;
+}
+
+let _registeredPool: RawPool | null = null;
+
+/** Called by another driver's primary dialect; null when it is destroyed. */
+export function registerActivePool(pool: RawPool | null): void {
+  _registeredPool = pool;
 }
 
 /** Exposed for the worker-extension-host (C-minimal isolation): worker
  *  RPC `db:query` runs against this pool with the host as gatekeeper. */
-export function getActiveBunPool(): BunSQLPool | null {
-  return _activeBunPool;
+export function getActiveBunPool(): RawPool | null {
+  return _activeBunPool ?? _registeredPool;
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────

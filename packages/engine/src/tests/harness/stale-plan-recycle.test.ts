@@ -19,9 +19,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getActiveBunPool, recycleActivePool } from '../../db/bun-sql-dialect.js';
+import { databaseDriver } from '../../db/pg-dialect.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
-const d = harnessAvailable() ? describe : describe.skip;
+// `Bun.SQL` names its prepared statements and caches their plans per pooled
+// connection; `pg` (ZVELTIO_DB_DRIVER=pg) sends unnamed ones, so there is no
+// plan to outlive a migration and no pool to replace.
+const d = harnessAvailable() && databaseDriver() === 'bun' ? describe : describe.skip;
 const T = `zz_stale_plan_${Date.now()}`;
 
 d('a pooled plan does not survive a migration', () => {

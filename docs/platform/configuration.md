@@ -440,6 +440,7 @@ because it boots many engines against one Postgres — see the note at the top o
 |----------|---------|-------------|
 | `DB_AUTH_POOL_MAX` | `3` | Separate small pool for authentication queries, so a saturated main pool cannot lock everyone out. |
 | `DB_ACQUIRE_TIMEOUT_MS` | `5000` | How long a request waits for a pooled connection before failing. |
+| `ZVELTIO_DB_DRIVER` | `bun` | The driver under the engine's connection pool: `bun` (`Bun.SQL`) or `pg` (node-postgres, still on the Bun runtime). `pg` binds parameters as `Bun.SQL` does, so stored values do not change; use it to step around a `Bun.SQL` defect. Realtime `LISTEN` keeps its own `Bun.SQL` connection either way. |
 | `DB_QUERY_ACQUIRE_TIMEOUT_MS` | `35000` | The same, for a long-running query path. |
 | `DB_IDLE_IN_TXN_TIMEOUT_MS` | `60000` | `idle_in_transaction_session_timeout` for pooled connections. |
 | `NATIVE_DATABASE_URL` | — | Direct (non-pooler) connection string, for operations a transaction pooler cannot carry — `LISTEN/NOTIFY`, `CREATE INDEX CONCURRENTLY`. |
