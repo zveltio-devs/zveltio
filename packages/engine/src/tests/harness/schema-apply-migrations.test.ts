@@ -136,6 +136,35 @@ d('schema apply migrations', () => {
     expect(await columns()).not.toContain('note');
   });
 
+  it('refuses to drop a collection DELETE /api/collections refuses', async () => {
+    const locked = `${COL}_locked`;
+    await DDLManager.createCollection(db, {
+      name: locked,
+      fields: [{ name: 'title', type: 'text' }],
+    } as never);
+    try {
+      await sql`UPDATE zvd_collections SET schema_locked = true WHERE name = ${locked}`.execute(db);
+      DDLManager.invalidateCache(locked);
+      const files = await pull();
+      delete files[`collections/${locked}.json`];
+      const res = await call(
+        'apply',
+        {
+          ...files,
+          ...migration('20261005T115000-drop-locked', [
+            { op: 'dropCollection', collection: locked },
+          ]),
+        },
+        true,
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { detail: string }).detail).toContain('schema-locked');
+      expect(await DDLManager.tableExists(db, locked)).toBe(true);
+    } finally {
+      await dropTestCollection(db, locked);
+    }
+  });
+
   it('removes a custom role, and refuses a built-in one', async () => {
     const files = await pull();
     const roles = JSON.parse(files['roles.json']);
