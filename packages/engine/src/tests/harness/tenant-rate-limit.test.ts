@@ -329,6 +329,8 @@ d('per-tenant rate limit', () => {
     const gSeen = await statuses(g.slug, nextIp(), ug, 3);
     expect(gSeen.slice(0, 2)).not.toContain(429);
     expect(gSeen[2]).toBe(429);
+    // An exhausted own limit does not lock g's admin out of changing it.
+    expect((await own('PUT', g.slug, ag, 'api', limit)).status).toBe(200);
 
     // Looser than the instance's: the instance's 3 still holds for h.
     expect((await patch(`tenant:api:${h.id}`, { window_ms: 60_000, max_requests: 3 })).status).toBe(
@@ -349,6 +351,20 @@ d('per-tenant rate limit', () => {
     expect(api?.own?.max).toBe(100_000);
 
     expect((await statuses(h.slug, nextIp(), uh, 4))[3]).toBe(429);
+
+    // An own row the switch-off did not delete (a write that raced it) is
+    // not enforced while the switch is off.
+    const r = await newTenant();
+    const ur = await member(r.id);
+    await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
+              VALUES (${`tenant-self:api:${r.id}`}, 60000, 1)`.execute(db);
+    await sql`UPDATE zv_settings SET value = 'false'::jsonb
+               WHERE key = 'tenant_admin_rate_limits'`.execute(db);
+    invalidateRateLimitCache();
+    expect(await statuses(r.slug, nextIp(), ur, 2)).toEqual([200, 200]);
+    await sql`UPDATE zv_settings SET value = 'true'::jsonb
+               WHERE key = 'tenant_admin_rate_limits'`.execute(db);
+    invalidateRateLimitCache();
 
     // Off again: their limits go, and they can set none.
     expect((await allowTenantAdmins(false)).status).toBe(200);

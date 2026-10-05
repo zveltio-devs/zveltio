@@ -178,7 +178,11 @@ async function loadTenantLimit(
       ])
       .where('is_active', '=', true)
       .execute();
-    const own = rows.find((r) => r.key_prefix === `tenant-self:${tier}:${tenant}`);
+    // Read with the switch, not trusted to the switch-off delete: a tenant
+    // admin's write that raced it would otherwise stay in force.
+    const own =
+      (await tenantAdminsMayLimit(db)) &&
+      rows.find((r) => r.key_prefix === `tenant-self:${tier}:${tenant}`);
     const instance = pickTenantLimit(rows, tier, tenant);
     const limit: TenantLimits = [
       ...(own ? [{ bucket: 'ts', windowMs: own.window_ms, max: own.max_requests }] : []),
@@ -221,7 +225,11 @@ async function tenantLimitRefusal(
   // The own bucket first: a request it refuses never spends the instance's.
   // ponytail: one the instance bucket refuses has spent an own-bucket slot;
   // that only tightens, and only while the tenant is over its limit anyway.
+  // Never the own bucket on the routes that change it: a limit set too tight
+  // would otherwise lock its admin out of removing it.
+  const ownRoute = c.req.path.startsWith('/api/tenants/current/rate-limits');
   for (const limit of await loadTenantLimit(db, tier, tenant)) {
+    if (ownRoute && limit.bucket === 'ts') continue;
     const key = `rl:${tier}:${limit.bucket}:${tenant}`;
     // Seconds until a request would be admitted; 0 = admitted, null = no answer.
     let wait: number | null = null;
