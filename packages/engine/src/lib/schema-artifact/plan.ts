@@ -36,6 +36,15 @@ export type ApplyOp =
   | { kind: 'addField'; collection: string; field: Obj }
   | { kind: 'setCollection'; collection: string; key: string; value: unknown }
   | { kind: 'reorderFields'; collection: string; order: string[] }
+  /** Changes `required` (DDL) and the field's descriptive keys (metadata only). */
+  | { kind: 'alterField'; collection: string; field: Obj; keys: string[] }
+  /**
+   * Creates a relation the way `POST /api/relations` does — its foreign key or
+   * junction and the fields that stand for it — or, when one already holds the
+   * field, sets its name, actions and metadata the way `PATCH` does. `fields`
+   * are the file's own definitions of those fields.
+   */
+  | { kind: 'putRelation'; collection: string; entry: Obj; fields: { source?: Obj; target?: Obj } }
   /** Adds an entry of a collection list, or changes the one with the same natural key. */
   | { kind: 'putEntry'; collection: string; list: EntryList; entry: Obj }
   | { kind: 'removeEntry'; collection: string; list: EntryList; entry: Obj }
@@ -67,6 +76,12 @@ const MIGRATION_OPS: Record<string, string[]> = {
   dropCollection: ['collection'],
   dropRole: ['role'],
 };
+
+/** Field keys an `alterField` op can change; any other change has no op yet. */
+const ALTERABLE = new Set(['required', 'label', 'description', 'options']);
+/** Relation keys `PATCH /api/relations` changes. */
+const RELATION_PATCHABLE = new Set(['onDelete', 'onUpdate', 'metadata']);
+const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'm2a']);
 
 /** Ids sort by time: `20261004T120000-rename-title`. */
 const MIGRATION_ID = /^\d{8}T\d{6}(-[a-z0-9-]+)?$/;
@@ -273,9 +288,31 @@ function read(files: Record<string, unknown>): Parsed {
   return out;
 }
 
-function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
-  const step = (change: PlanStep['change'], action: string, destructive?: boolean, op?: ApplyOp) =>
-    steps.push({
+/**
+ * Where `diffCollection` puts its steps. Relations run once every collection
+ * and plain field exists, and what can name a relation's field — order, rules,
+ * permissions, validation — runs after them.
+ */
+interface Sink {
+  steps: PlanStep[];
+  relations: PlanStep[];
+  tail: PlanStep[];
+  /** Per collection, the fields a new relation creates (so no `addField`). */
+  owned: Map<string, Set<string>>;
+  /** A field as the desired files define it. */
+  fieldOf: (collection: string, field: string) => Obj | undefined;
+}
+
+function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
+  const owned = sink.owned.get(name) ?? new Set<string>();
+  const step = (
+    change: PlanStep['change'],
+    action: string,
+    destructive?: boolean,
+    op?: ApplyOp,
+    into: PlanStep[] = sink.steps,
+  ) =>
+    into.push({
       change,
       target: name,
       action,
@@ -305,6 +342,7 @@ function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
   }
   for (const f of desFields) {
     const old = curByName.get(f.name as string);
+    if (!old && owned.has(f.name as string)) continue; // its relation creates it
     if (!old) {
       step('+', `add field ${f.name} (${f.type})`, false, {
         kind: 'addField',
@@ -317,37 +355,77 @@ function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
       const keys = [...new Set([...Object.keys(old), ...Object.keys(f)])]
         .filter((k) => !same(old[k], f[k]))
         .sort();
-      step('~', `alter field ${f.name} (${keys.join(', ')})`);
+      const relation = RELATION_TYPES.has(String(f.type));
+      const runnable =
+        keys.every((k) => ALTERABLE.has(k)) &&
+        !(relation && keys.includes('options')) &&
+        !(relation && keys.includes('required') && f.type !== 'm2o' && f.type !== 'reference');
+      step(
+        '~',
+        `alter field ${f.name} (${keys.join(', ')})`,
+        false,
+        runnable ? { kind: 'alterField', collection: name, field: f, keys } : undefined,
+      );
     }
   }
   // New fields are appended, so the order after the adds is the kept fields
-  // in their current order, then the new ones; anything else needs a reorder.
+  // in their current order, then the new ones, then the ones relations create;
+  // anything else needs a reorder. Two relations append in their own order.
   const order = desFields.map((f) => f.name as string);
+  const added = order.filter((n) => !curByName.has(n));
+  const byRelation = added.filter((n) => owned.has(n));
   const after = [
     ...curFields.map((f) => f.name as string).filter((n) => desNames.has(n)),
-    ...order.filter((n) => !curByName.has(n)),
+    ...added.filter((n) => !owned.has(n)),
+    ...byRelation,
   ];
-  if (!same(after, order)) {
-    step('~', `reorder fields (${order.join(', ')})`, false, {
-      kind: 'reorderFields',
-      collection: name,
-      order,
-    });
+  if (!same(after, order) || byRelation.length > 1) {
+    step(
+      '~',
+      `reorder fields (${order.join(', ')})`,
+      false,
+      { kind: 'reorderFields', collection: name, order },
+      sink.tail,
+    );
   }
 
   for (const { key, entries, noun, id, canon = (e: Obj) => e } of LISTS) {
     const raw = new Map(list(name, des[key], key).map((e) => [id(e), e]));
     const curList = new Map(list(name, cur[key], key).map((e) => [id(e), e]));
-    const op = (kind: 'putEntry' | 'removeEntry', entry: Obj): ApplyOp | undefined =>
-      entries && { kind, collection: name, list: entries, entry };
+    const isRelation = key === 'relations';
+    const into = isRelation ? sink.relations : sink.tail;
+    // A relation is removed with its field, by a migration's dropField, so a
+    // removal left here has no op.
+    const op = (kind: 'putEntry' | 'removeEntry', e: Obj): ApplyOp | undefined =>
+      isRelation
+        ? kind === 'putEntry'
+          ? {
+              kind: 'putRelation',
+              collection: name,
+              entry: e,
+              fields: {
+                source: sink.fieldOf(name, String(e.field)),
+                target:
+                  e.type === 'o2m'
+                    ? sink.fieldOf(String(e.target), String(e.targetField ?? `${name}_id`))
+                    : undefined,
+              },
+            }
+          : undefined
+        : entries && { kind, collection: name, list: entries, entry: e };
     for (const [k, e] of curList) {
-      if (!raw.has(k)) step('-', `remove ${noun} ${k}`, false, op('removeEntry', e));
+      if (!raw.has(k)) step('-', `remove ${noun} ${k}`, false, op('removeEntry', e), into);
     }
     for (const [k, e] of raw) {
       const old = curList.get(k);
-      if (!old) step('+', `add ${noun} ${k}`, false, op('putEntry', e));
-      else if (!same(canon(old), canon(e)))
-        step('~', `alter ${noun} ${k}`, false, op('putEntry', e));
+      if (!old) step('+', `add ${noun} ${k}`, false, op('putEntry', e), into);
+      else if (!same(canon(old), canon(e))) {
+        // An existing relation can only take what PATCH sets; a new type,
+        // target or field is a different relation and has no op.
+        const changed = Object.keys({ ...old, ...e }).filter((x) => !same(old[x], e[x]));
+        const patchable = !isRelation || changed.every((x) => RELATION_PATCHABLE.has(x));
+        step('~', `alter ${noun} ${k}`, false, patchable ? op('putEntry', e) : undefined, into);
+      }
     }
   }
 }
@@ -464,6 +542,32 @@ export function planSchema(
     });
   }
 
+  // The fields each new relation creates: its own, and an o2m's foreign key
+  // on the target.
+  const owned = new Map<string, Set<string>>();
+  const own = (collection: string, field: string) =>
+    owned.set(collection, (owned.get(collection) ?? new Set()).add(field));
+  for (const [name, d] of des.collections) {
+    const had = new Set(
+      list(name, cur.collections.get(name)?.relations, 'relations').map((r) => r.name),
+    );
+    for (const r of list(name, d.relations, 'relations')) {
+      if (had.has(r.name)) continue;
+      own(name, String(r.field));
+      if (r.type === 'o2m') own(String(r.target), String(r.targetField ?? `${name}_id`));
+    }
+  }
+  const sink: Sink = {
+    steps,
+    relations: [],
+    tail: [],
+    owned,
+    fieldOf: (collection, field) =>
+      list(collection, des.collections.get(collection)?.fields, 'fields')
+        .map(exportField)
+        .find((f) => f.name === field),
+  };
+
   const names = [...new Set([...cur.collections.keys(), ...des.collections.keys()])].sort();
   for (const name of names) {
     const c = cur.collections.get(name);
@@ -475,8 +579,10 @@ export function planSchema(
       const unsupported = Object.keys(d).some(
         (k) => k !== '$schema' && !CREATE_KEYS.includes(k) && !LISTS.some((l) => l.key === k),
       );
+      const mine = owned.get(name) ?? new Set();
+      const plain = list(name, d.fields, 'fields').filter((f) => !mine.has(f.name as string));
       const definition = Object.fromEntries(
-        CREATE_KEYS.filter((k) => k in d).map((k) => [k, d[k]]),
+        CREATE_KEYS.filter((k) => k in d).map((k) => [k, k === 'fields' ? plain : d[k]]),
       );
       steps.push({
         change: '+',
@@ -485,13 +591,14 @@ export function planSchema(
         ...(unsupported ? {} : { op: { kind: 'createCollection', definition } }),
       });
       // Its settings and fields are the creation; its lists show as additions.
-      const created: Obj = { ...d, fields: list(name, d.fields, 'fields').map(exportField) };
+      const created: Obj = { ...d, fields: plain.map(exportField) };
       for (const { key } of LISTS) created[key] = [];
-      diffCollection(name, created, d, steps);
+      diffCollection(name, created, d, sink);
     } else {
-      diffCollection(name, c, d, steps);
+      diffCollection(name, c, d, sink);
     }
   }
+  steps.push(...sink.relations, ...sink.tail);
 
   const roles = [...new Set([...cur.roles.keys(), ...des.roles.keys()])].sort();
   for (const name of roles) {
