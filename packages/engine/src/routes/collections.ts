@@ -626,13 +626,18 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       try {
-        const result = await alterField(
-          db,
-          c.req.param('name'),
-          c.req.param('field'),
-          { newName, newType, required },
-          user?.id,
-        );
+        const result = await alterField(db, c.req.param('name'), c.req.param('field'), {
+          newName,
+          newType,
+          required,
+        });
+        await auditLog(db, {
+          type: 'settings.changed',
+          userId: user?.id,
+          resourceId: c.req.param('name'),
+          resourceType: 'collection_field',
+          metadata: { actions: result.actions, from: c.req.param('field'), to: result.field.name },
+        });
         return c.json({ success: true, ...result });
       } catch (error) {
         if (error instanceof FieldChangeError)
@@ -650,7 +655,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     try {
-      await dropField(db, c.req.param('name'), c.req.param('field'), user?.id);
+      await dropField(db, c.req.param('name'), c.req.param('field'));
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceId: c.req.param('name'),
+        resourceType: 'collection_field',
+        metadata: { action: 'removed', field: c.req.param('field') },
+      });
       return c.json({ success: true });
     } catch (error) {
       if (error instanceof FieldChangeError) return c.json({ error: error.message }, error.status);
