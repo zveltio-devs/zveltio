@@ -218,4 +218,12 @@ describe('planSchema', () => {
       ).toThrow(/does not match/);
     });
   });
+
+  it('alters a relation in place only where PATCH can', () => {
+    const rel = { name: 'posts_author', type: 'm2o', field: 'author', target: 'users' };
+    const p = (r: Obj) => ({ ...posts(), relations: [r] });
+    const steps = (r: Obj) => planSchema(files([p(rel)]), files([p(r)]));
+    expect(steps({ ...rel, onDelete: 'CASCADE' })[0].op?.kind).toBe('putRelation');
+    expect(steps({ ...rel, target: 'people' })[0].op).toBeUndefined();
+  });
 });

@@ -79,6 +79,8 @@ const MIGRATION_OPS: Record<string, string[]> = {
 
 /** Field keys an `alterField` op can change; any other change has no op yet. */
 const ALTERABLE = new Set(['required', 'label', 'description', 'options']);
+/** Relation keys `PATCH /api/relations` changes. */
+const RELATION_PATCHABLE = new Set(['onDelete', 'onUpdate', 'metadata']);
 const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'm2a']);
 
 /** Ids sort by time: `20261004T120000-rename-title`. */
@@ -417,8 +419,13 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     for (const [k, e] of raw) {
       const old = curList.get(k);
       if (!old) step('+', `add ${noun} ${k}`, false, op('putEntry', e), into);
-      else if (!same(canon(old), canon(e)))
-        step('~', `alter ${noun} ${k}`, false, op('putEntry', e), into);
+      else if (!same(canon(old), canon(e))) {
+        // An existing relation can only take what PATCH sets; a new type,
+        // target or field is a different relation and has no op.
+        const changed = Object.keys({ ...old, ...e }).filter((x) => !same(old[x], e[x]));
+        const patchable = !isRelation || changed.every((x) => RELATION_PATCHABLE.has(x));
+        step('~', `alter ${noun} ${k}`, false, patchable ? op('putEntry', e) : undefined, into);
+      }
     }
   }
 }
