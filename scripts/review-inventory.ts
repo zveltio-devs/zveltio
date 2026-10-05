@@ -263,6 +263,8 @@ const SECTIONS: Section[] = [
       `${E}db/connection-trace.ts`,
       `${E}db/advisory-lock.ts`,
       `${E}db/auto-migrate.ts`,
+      `${E}db/installed-schema.ts`,
+      `${E}db/postgres-version.ts`,
       `${E}db/migrate.ts`,
       `${E}db/migrations/index.ts`,
       `${E}lib/jsonb.ts`, // on master, not on every branch
@@ -335,6 +337,8 @@ const SECTIONS: Section[] = [
       `${E}lib/data/ghost-ddl.ts`,
       `${E}lib/schema-artifact/`,
       `${E}lib/data/unique-key-reconcile.ts`,
+      `${E}lib/data/field-changes.ts`,
+      `${E}lib/data/relations.ts`,
     ],
   },
   {

@@ -34,6 +34,7 @@ import { z } from 'zod';
 import { toJsonb } from '../lib/jsonb.js';
 import { virtualList, type VirtualConfig } from '../lib/virtual-collection-adapter.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { recordSchemaMigration } from '../lib/schema-artifact/dev-writer.js';
 
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
@@ -358,6 +359,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     try {
       await DDLManager.dropCollection(effectiveDb, name, { force });
       announceSchemaChange(name, 'drop');
+      recordSchemaMigration({ op: 'dropCollection', collection: name });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       await auditLog(db, {
@@ -640,6 +642,17 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           indexed: body.indexed,
           defaultValue: body.default_value,
         });
+        // The type changes under the old name, then the field is renamed.
+        const collection = c.req.param('name');
+        const from = c.req.param('field');
+        recordSchemaMigration(
+          ...(result.actions.some((a) => a.startsWith('type '))
+            ? [{ op: 'changeFieldType' as const, collection, field: from, to: result.field.type }]
+            : []),
+          ...(result.field.name !== from
+            ? [{ op: 'renameField' as const, collection, from, to: result.field.name }]
+            : []),
+        );
         await auditLog(db, {
           type: 'settings.changed',
           userId: user?.id,
@@ -665,6 +678,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     try {
       await dropField(db, c.req.param('name'), c.req.param('field'));
+      recordSchemaMigration({
+        op: 'dropField',
+        collection: c.req.param('name'),
+        field: c.req.param('field'),
+      });
       await auditLog(db, {
         type: 'settings.changed',
         userId: user?.id,
