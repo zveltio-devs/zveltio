@@ -117,6 +117,7 @@ generate
   .description('Generate TypeScript types for collections (writes to ./types/zveltio.d.ts)')
   .option('-o, --output <path>', 'Output file path', './types/zveltio.d.ts')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .option('--from <dir>', 'Build from schema files (zveltio schema pull) instead of an engine')
   .action(generateTypesCommand);
 
 // ── zveltio generate-types [collection] (backwards compat) ───────────────────
@@ -125,6 +126,7 @@ program
   .description('Generate TypeScript types for your collections')
   .option('-o, --output <path>', 'Output file path', './types/zveltio.d.ts')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .option('--from <dir>', 'Build from schema files (zveltio schema pull) instead of an engine')
   .action(generateTypesCommand);
 
 // ── zveltio schema pull ───────────────────────────────────────────────────────

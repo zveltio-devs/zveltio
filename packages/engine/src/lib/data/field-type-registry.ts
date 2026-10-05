@@ -289,7 +289,10 @@ export class FieldTypeRegistry {
     return typeDef?.api.validate ? typeDef.api.validate(value, field) : null;
   }
 
-  // Generate TypeScript type for a collection
+  // Generate TypeScript type for a collection. `emitCollectionTypes` in
+  // `@zveltio/sdk/codegen` is the same generator for `generate-types --from`
+  // (no engine); the engine does not import the SDK at runtime, so
+  // field-type-registry.test.ts keeps the two outputs equal.
   generateTypeScript(collectionName: string, fields: FieldConfig[]): string {
     const typeName = collectionName.charAt(0).toUpperCase() + collectionName.slice(1);
 

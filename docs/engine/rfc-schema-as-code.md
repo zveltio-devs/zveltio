@@ -298,6 +298,10 @@ The plan reads like `terraform plan`:
 - The existing `--url` path stays.
 - Both paths share one generator, so they cannot disagree. This is the R7
   dependency.
+- **Done (step 5):** the generator is `emitCollectionTypes` in
+  `@zveltio/sdk/codegen`. The engine passes its field-type registry; `--from`
+  passes `CORE_FIELD_TS_TYPES`, which a unit test keeps equal to the core
+  registry. Only an extension's field type differs: `any` from the files.
 
 ## 9. Acceptance
 

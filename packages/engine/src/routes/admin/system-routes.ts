@@ -375,10 +375,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const collection = await DDLManager.getCollection(db, c.req.param('collection'));
     if (!collection) return c.json({ error: 'Collection not found' }, 404);
 
-    const tsTypes = fieldTypeRegistry.generateTypeScript(
-      collection.name,
-      JSON.parse(collection.fields),
-    );
+    // getCollection has already parsed `fields`; parsing it again threw (500).
+    const tsTypes = fieldTypeRegistry.generateTypeScript(collection.name, collection.fields);
 
     c.header('Content-Type', 'text/plain');
     return c.body(tsTypes);

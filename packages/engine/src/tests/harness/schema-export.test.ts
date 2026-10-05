@@ -13,6 +13,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
+import { collectionsFromSchemaFiles, emitCollectionTypes } from '@zveltio/sdk/codegen';
 import {
   createGodSession,
   dropTestCollection,
@@ -62,6 +63,17 @@ d('schema export', () => {
     await sql`DELETE FROM zvd_rls_policies WHERE role = ${ROLE}`.execute(db);
     await sql`DELETE FROM zvd_column_permissions WHERE role = ${ROLE}`.execute(db);
     await dropTestCollection(db, COLLECTION);
+  });
+
+  it('gives `generate-types --from` the types the engine gives (RFC §8)', async () => {
+    const fromFiles = collectionsFromSchemaFiles(await pull()).find((c) => c.name === COLLECTION)!;
+    const res = await app.request(`/api/admin/types/${COLLECTION}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const engine = await res.text();
+    expect(engine).toContain('title: string;');
+    expect(emitCollectionTypes(fromFiles)).toBe(engine);
+    const all = await (await app.request('/api/admin/types', { headers: { cookie } })).text();
+    expect(all).toContain(engine);
   });
 
   it('writes a collection with its fields, row rules and column permissions', async () => {

@@ -1,5 +1,10 @@
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+import {
+  collectionsFromSchemaFiles,
+  emitCollectionTypes,
+  emitCollectionTypesFile,
+} from '@zveltio/sdk/codegen';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
@@ -12,8 +17,11 @@ const c = {
 
 export async function generateTypesCommand(
   collection: string | undefined,
-  opts: { output?: string; url?: string },
+  opts: { output?: string; url?: string; from?: string },
 ) {
+  if (opts.from)
+    return typesFromFiles(collection, opts.from, opts.output || './types/zveltio.d.ts');
+
   const engineUrl = opts.url || process.env.ZVELTIO_URL || 'http://localhost:3000';
   // Default output: ./types/zveltio.d.ts  (spec requirement)
   const outputPath = opts.output || './types/zveltio.d.ts';
@@ -74,4 +82,37 @@ export async function generateTypesCommand(
     console.error(c.red(`Failed to generate types: ${err.message}`));
     process.exit(1);
   }
+}
+
+/**
+ * `--from schema/`: the same generator as the engine's `/api/admin/types`, over
+ * the files `zveltio schema pull` writes, with no engine. A field type that is
+ * not a core type (an extension's) is typed `any`.
+ */
+function typesFromFiles(collection: string | undefined, dir: string, outputPath: string) {
+  const collectionsDir = join(dir, 'collections');
+  if (!existsSync(collectionsDir)) {
+    console.error(c.red(`No collections/ in ${dir}. Run \`zveltio schema pull\` first.`));
+    process.exit(1);
+  }
+  const files: Record<string, string> = {};
+  for (const f of readdirSync(collectionsDir)) {
+    if (f.endsWith('.json'))
+      files[`collections/${f}`] = readFileSync(join(collectionsDir, f), 'utf8');
+  }
+  const collections = collectionsFromSchemaFiles(files);
+  let types: string;
+  if (collection) {
+    const one = collections.find((col) => col.name === collection);
+    if (!one) {
+      console.error(c.red(`Collection ${collection} is not in ${dir}`));
+      process.exit(1);
+    }
+    types = emitCollectionTypes(one);
+  } else {
+    types = emitCollectionTypesFile(collections);
+  }
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, types);
+  console.log(`${c.green('Types generated:')} ${outputPath} ${c.dim(`from ${dir}`)}`);
 }
