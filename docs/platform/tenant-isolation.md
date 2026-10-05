@@ -56,7 +56,7 @@ absent or refused:
 | `/api/api-keys` list, create, revoke | `api-keys-tenant-isolation.test.ts` |
 | `/api/webhooks` list, create, read, change, delete, rotate; the dispatcher | `webhooks-tenant-isolation.test.ts` |
 | `/api/flows` list, create, read, change, delete, run, runs, steps, dead letters (list, retry) | `flows-tenant-isolation.test.ts` |
-| `/api/insights/dashboards` list, create, read, delete; shares, panels (add, change, delete, run); saved-query writes and runs; `POST /subscriptions`; `/stats` | `dashboards-tenant-isolation.test.ts` |
+| `/api/insights/dashboards` list, create, read, delete; shares, panels (add, change, delete, run); saved-query writes and runs; `/stats`; `POST /query` (god reads the instance, any other admin its own tenant) | `dashboards-tenant-isolation.test.ts` |
 | `/api/insights/saved-queries` list | `insights-role-share-visibility.test.ts` |
 | `/api/saved-queries` list, read | `saved-queries-import-tenant-isolation.test.ts` |
 | `/api/storage` list, read, delete | `storage-tenant-isolation.test.ts` |
@@ -66,14 +66,13 @@ absent or refused:
 
 ## Not a tenant door
 
-- **Per user.** The notification inbox, push-token routes and the insights
-  subscription list and delete serve only the caller's own rows.
+- **Per user.** The notification inbox and push-token routes serve only the
+  caller's own rows.
 - **No tenant data.** The rate-limit and preview middlewares under `/api/data/*`
   and `/api/sync/*` have no handler. `/api/ws/info` describes the endpoint. The
   VAPID key is the instance's public key. `/api/api-keys/self` returns the
   presenting key itself.
-- **Instance administrators only.** `POST /api/insights/query`,
-  which reads the whole instance by design; the RPC registry
+- **Instance administrators only.** The RPC registry
   (`GET` / `POST /api/rpc`, `PATCH` / `DELETE /api/rpc/:id`).
 - **No data read.** `POST /api/saved-queries/preview-url` builds a URL string
   from its body.

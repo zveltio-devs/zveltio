@@ -94,9 +94,6 @@ d('dashboards tenant isolation (in-process)', () => {
     await sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${FOREIGN_QUERY} OR created_by = ${userId}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_dashboard_subscriptions WHERE user_id = ${userId}`
-      .execute(db)
-      .catch(() => {});
     await sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${FOREIGN_ID}`
       .execute(db)
       .catch(() => {});
@@ -249,18 +246,24 @@ d('dashboards tenant isolation (in-process)', () => {
     expect(await foreignQuery()).toEqual({ name: 'foreign', query: FOREIGN_SQL });
   });
 
-  it('cross-tenant: no subscription to another tenant’s dashboard', async () => {
-    const res = await send('POST', '/subscriptions', {
-      dashboard_id: FOREIGN_ID,
-      email: 'probe@test.local',
+  it('POST /query: the root tenant’s admin reads its own tenant, god the whole instance', async () => {
+    const probe = { query: 'SELECT name FROM zv_dashboards' };
+    const admin = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
     });
-    expect(res.status).toBe(404);
-    const subs = await db
-      .selectFrom('zvd_dashboard_subscriptions')
-      .select('id')
-      .where('dashboard_id', '=', FOREIGN_ID)
-      .execute();
-    expect(subs).toEqual([]);
+    const scoped = await app.request('/api/insights/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify(probe),
+    });
+    expect(scoped.status).toBe(200);
+    const names = ((await scoped.json()) as { data: { name: string }[] }).data.map((r) => r.name);
+    expect(names).toContain(`mine-${STAMP}`); // its own tenant's rows are there
+    expect(names).not.toContain(`foreign-public-${STAMP}`);
+
+    const god = await send('POST', '/query', probe);
+    expect(god.status).toBe(200);
+    expect(await god.text()).toContain(`foreign-public-${STAMP}`);
   });
 
   it('cross-tenant: DELETE /dashboards/:id does not remove another tenant’s dashboard', async () => {

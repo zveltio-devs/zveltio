@@ -1,8 +1,8 @@
 /**
  * Phase C — insights routes: the handlers the base insights.test.ts leaves
  * uncovered — dashboard panels (create/patch/execute/delete), dashboard
- * shares (create/list/delete + role validation), subscriptions
- * (create/delete), and dashboard delete. Driven through the in-process app.
+ * shares (create/list/delete + role validation), and dashboard delete.
+ * Driven through the in-process app.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -13,14 +13,13 @@ import { createGodSession, getTestApp, harnessAvailable } from '../../testing/ap
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('insights panels/shares/subscriptions (in-process)', () => {
+d('insights panels/shares (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie: string;
   let dashboardId = '';
   let panelId = '';
   let shareId = '';
-  let subscriptionId = '';
 
   const json = (method: string, body: unknown) => ({
     method,
@@ -51,11 +50,6 @@ d('insights panels/shares/subscriptions (in-process)', () => {
         .execute(db)
         .catch(() => {});
       await sql`DELETE FROM zv_dashboards WHERE id = ${dashboardId}`.execute(db).catch(() => {});
-    }
-    if (subscriptionId) {
-      await sql`DELETE FROM zvd_insight_subscriptions WHERE id = ${subscriptionId}`
-        .execute(db)
-        .catch(() => {});
     }
   });
 
@@ -170,22 +164,6 @@ d('insights panels/shares/subscriptions (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(200);
-  });
-
-  // ── Subscriptions ────────────────────────────────────────────────────────────
-  it('creates a subscription (POST /subscriptions)', async () => {
-    const res = await app.request(
-      '/api/insights/subscriptions',
-      json('POST', {
-        dashboard_id: dashboardId,
-        email: 'sub@test.local',
-        frequency: 'weekly',
-        hour_of_day: 8,
-      }),
-    );
-    expect(res.status).toBe(201);
-    subscriptionId = ((await res.json()) as { subscription: { id: string } }).subscription.id;
-    expect(subscriptionId).toBeTruthy();
   });
 
   // ── Panel delete + dashboard delete (teardown-order coverage) ────────────────
