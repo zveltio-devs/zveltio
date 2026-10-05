@@ -57,10 +57,11 @@ function readSchemaDir(dir: string): Record<string, string> {
   for (const path of ['zveltio-schema.json', 'roles.json']) {
     if (existsSync(join(dir, path))) files[path] = readFileSync(join(dir, path), 'utf8');
   }
-  const collectionsDir = join(dir, 'collections');
-  if (existsSync(collectionsDir)) {
-    for (const f of readdirSync(collectionsDir).filter((f) => f.endsWith('.json'))) {
-      files[`collections/${f}`] = readFileSync(join(collectionsDir, f), 'utf8');
+  for (const sub of ['collections', 'migrations']) {
+    const subDir = join(dir, sub);
+    if (!existsSync(subDir)) continue;
+    for (const f of readdirSync(subDir).filter((f) => f.endsWith('.json'))) {
+      files[`${sub}/${f}`] = readFileSync(join(subDir, f), 'utf8');
     }
   }
   return files;
@@ -71,6 +72,7 @@ async function postSchema(
   engineUrl: string,
   route: 'plan' | 'apply',
   files: Record<string, string>,
+  allowDestructive = false,
 ): Promise<Step[]> {
   const res = await fetch(`${engineUrl}/api/admin/schema/${route}`, {
     method: 'POST',
@@ -78,7 +80,7 @@ async function postSchema(
       Authorization: `Bearer ${process.env.ZVELTIO_API_KEY || ''}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ files }),
+    body: JSON.stringify({ files, allowDestructive }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { detail?: string } | null;
@@ -123,9 +125,15 @@ export async function schemaDiffCommand(opts: { dir?: string; url?: string }) {
 /**
  * `zveltio schema apply` — make the instance match the files (RFC step 3).
  * Shows the plan and asks, unless `--yes`. The engine refuses the whole plan
- * when it holds a step apply cannot run yet, so nothing is half-applied.
+ * when it holds a step apply cannot run yet, so nothing is half-applied. A
+ * destructive step needs its migration in `migrations/` and `--allow-destructive`.
  */
-export async function schemaApplyCommand(opts: { dir?: string; url?: string; yes?: boolean }) {
+export async function schemaApplyCommand(opts: {
+  dir?: string;
+  url?: string;
+  yes?: boolean;
+  allowDestructive?: boolean;
+}) {
   const dir = opts.dir || './schema';
   const engineUrl = opts.url || process.env.ZVELTIO_URL || 'http://localhost:3000';
   const files = readSchemaDir(dir);
@@ -135,6 +143,12 @@ export async function schemaApplyCommand(opts: { dir?: string; url?: string; yes
     return;
   }
   printSteps(plan);
+  if (plan.some((s) => s.destructive) && !opts.allowDestructive) {
+    console.error(
+      '\nThe plan has destructive steps; nothing was changed. Rerun with --allow-destructive.',
+    );
+    process.exit(1);
+  }
   if (!opts.yes) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await new Promise<string>((resolve) =>
@@ -146,6 +160,6 @@ export async function schemaApplyCommand(opts: { dir?: string; url?: string; yes
       return;
     }
   }
-  const applied = await postSchema(engineUrl, 'apply', files);
+  const applied = await postSchema(engineUrl, 'apply', files, opts.allowDestructive);
   console.log(`Applied ${applied.length} change(s).`);
 }

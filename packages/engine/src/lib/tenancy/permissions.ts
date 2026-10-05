@@ -1818,3 +1818,44 @@ export async function getUserNames(userIds: string[]): Promise<Record<string, st
   }
   return out;
 }
+
+/**
+ * Deletes a custom role: its grants, its inheritance, every assignment to it
+ * and its `zv_roles` row. `DELETE /api/admin/roles/:id` and a schema
+ * migration's `dropRole` both run this.
+ */
+export async function deleteRole(db: Database, name: string): Promise<void> {
+  const e = await getEnforcer();
+  await e.deletePermissionsForUser(name);
+  await e.deleteRole(name);
+  // And take it away from the people holding it.
+  //
+  // `deleteRole` removes the role's own grants — what it inherits and what it
+  // may do — but not the assignments TO it, so every holder kept a membership
+  // in a role that no longer exists. Harmless while the name stays gone, since
+  // the permissions went with it; the moment an administrator creates a role
+  // with the same name again, every old holder is silently a member of the new
+  // one. A name is not an identity here.
+  await e.removeFilteredGroupingPolicy(1, name);
+  await db.deleteFrom('zv_roles').where('name', '=', name).execute();
+  await invalidateAllPermissionCaches();
+}
+
+/**
+ * Roles the engine seeds into Casbin only (migrations 001/009), with no
+ * `zv_roles` row — migration 017's list, plus the intranet/portal/CRM roles
+ * 001 grants policies to (`employee`, `manager`, `client`), which a fresh
+ * install holds with no member and would otherwise read as orphans.
+ */
+export const ENGINE_SEEDED_ROLES = [
+  'admin',
+  'client',
+  'employee',
+  'manager',
+  'member',
+  'tenant_owner',
+  'tenant_admin',
+  'tenant_manager',
+  'tenant_member',
+  'tenant_viewer',
+];

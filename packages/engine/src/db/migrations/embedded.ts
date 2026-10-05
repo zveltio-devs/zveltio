@@ -62,6 +62,7 @@ import m045 from './sql/049_saved_queries_unwrap_every_tenant.sql' with { type: 
 import m046 from './sql/050_scrub_logged_credentials.sql' with { type: 'text' };
 import m047 from './sql/051_junction_tenant_default.sql' with { type: 'text' };
 import m048 from './sql/054_instance_heartbeat.sql' with { type: 'text' };
+import m049 from './sql/055_schema_migrations.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -114,4 +115,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '050_scrub_logged_credentials.sql': m046,
   '051_junction_tenant_default.sql': m047,
   '054_instance_heartbeat.sql': m048,
+  '055_schema_migrations.sql': m049,
 };

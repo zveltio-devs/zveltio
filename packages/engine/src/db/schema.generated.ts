@@ -2229,6 +2229,13 @@ export interface ZvSchemaBranchesTable {
   requires_approval: Generated<boolean>;
 }
 
+export interface ZvSchemaMigrationsTable {
+  id: Generated<string>;
+  checksum: string;
+  applied_at: Generated<Date>;
+  applied_by: string | null;
+}
+
 export interface ZvSchemaVersionsTable {
   id: Generated<number>;
   version: number;
@@ -5666,6 +5673,7 @@ export interface DbSchema {
   zv_saft_journal_entries: ZvSaftJournalEntriesTable;
   zv_saved_queries: ZvSavedQueriesTable;
   zv_schema_branches: ZvSchemaBranchesTable;
+  zv_schema_migrations: ZvSchemaMigrationsTable;
   zv_schema_versions: ZvSchemaVersionsTable;
   zv_scim_tokens: ZvScimTokensTable;
   zv_scim_users: ZvScimUsersTable;
