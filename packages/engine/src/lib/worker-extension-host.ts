@@ -53,7 +53,12 @@ import {
   workerDbRoleFor,
   workerSqlEngineTables,
 } from './extensions/index.js';
-import { temporaryObjectsRestricted } from './tenancy/index.js';
+import {
+  getCurrentDomainOrNull,
+  runWithDomain,
+  temporaryObjectsRestricted,
+  withTenantIsolation,
+} from './tenancy/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
 
@@ -478,20 +483,9 @@ export class WorkerExtensionHost {
       // The tenant of the request this query was issued under, from the host's
       // own dispatch record. A query outside any request — a background hook —
       // names no id and runs with no tenant context, which the isolation
-      // predicate resolves to the default tenant rather than to everything.
-      //
-      // A query that names an id the record no longer holds is refused, not
-      // demoted to that default: it is work a request started and did not wait
-      // for (a timer, an un-awaited promise, a handler past the 30 s timeout),
-      // still carrying the request's async context after the request ended.
-      // Run tenantless, tenant B's leftover work read the default tenant's rows.
-      if (msg.requestId && !managed.invokeTenants.has(msg.requestId)) {
-        throw new Error(
-          `request ${msg.requestId} is over (or was never issued); a query outliving ` +
-            'its request has no tenant to run as',
-        );
-      }
-      const tenantId = msg.requestId ? managed.invokeTenants.get(msg.requestId) : undefined;
+      // predicate resolves to the default tenant rather than to everything. A
+      // query naming a request that is over is refused (`requestTenant`).
+      const tenantId = requestTenant(managed, msg.requestId, 'query');
       const rows = await runRawWithParams(managed.name, msg.sql, msg.params, tenantId ?? undefined);
       this.post(managed, { type: 'db:ok', id: msg.id, rows });
     } catch (err) {
@@ -504,42 +498,25 @@ export class WorkerExtensionHost {
    * up the host registry: if X.foo was registered by an inline
    * extension, call it directly. If it was registered by another
    * worker, post `service:invoke` to that worker and await its reply.
+   *
+   * Either way the call is answered as the tenant of the request the worker is
+   * serving — read from the host's own record, refused once that request is
+   * over, exactly as a query is. It used to be answered as nobody: the inline
+   * service ran from this message event with no tenant context, and the
+   * worker's service ran its queries under no request, so a call made while
+   * serving tenant B read the default tenant's rows.
    */
   private async handleServiceCall(
     managed: ManagedWorker,
     msg: Extract<WorkerToHostMessage, { type: 'service:call' }>,
   ): Promise<void> {
     try {
+      const tenantId = requestTenant(managed, msg.requestId, 'service call') ?? null;
       // First check if a worker owns this service.
       const ownerWorker = this.findServiceOwner(msg.name);
       if (ownerWorker && ownerWorker.name !== managed.name) {
-        const invokeId = rpcId('inv-svc');
-        const reply = await new Promise<
-          Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
-        >((resolve, reject) => {
-          invokeWaiters.set(invokeId, { expect: ownerWorker.name, resolve });
-          setTimeout(() => {
-            if (invokeWaiters.has(invokeId)) {
-              invokeWaiters.delete(invokeId);
-              reject(new Error(`service "${msg.name}" call timeout (30s)`));
-            }
-          }, 30_000);
-          this.post(ownerWorker, {
-            type: 'service:invoke',
-            id: invokeId,
-            name: msg.name,
-            args: msg.args,
-          });
-        });
-        if (reply.type === 'service:invoke:err') {
-          this.post(managed, {
-            type: 'service:err',
-            id: msg.id,
-            error: reply.error ?? 'service call failed',
-          });
-        } else {
-          this.post(managed, { type: 'service:ok', id: msg.id, result: reply.result });
-        }
+        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, tenantId);
+        this.post(managed, { type: 'service:ok', id: msg.id, result });
         return;
       }
       // Fall back to inline registry (host-side services).
@@ -552,10 +529,57 @@ export class WorkerExtensionHost {
         });
         return;
       }
-      const result = await Promise.resolve(impl(...msg.args));
+      const call = () => Promise.resolve(impl(...msg.args));
+      // The context an inline extension's code has while serving a request of
+      // that tenant — the domain `tenantMiddleware` opens and the tenant
+      // transaction inside it — so the service's `ctx.db` and its permission
+      // checks resolve the caller's tenant. No request, no tenant: unchanged.
+      const result = tenantId
+        ? await runWithDomain(tenantId, () => withTenantIsolation(tenantId, call))
+        : await call();
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
       this.post(managed, { type: 'service:err', id: msg.id, error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Ask `target` to run a service it registered, on behalf of a caller in
+   * `tenantId`, and return its result.
+   *
+   * The invoke id is recorded in the target's `invokeTenants` for as long as the
+   * call is pending, so the queries the service makes under it run as the
+   * caller's tenant — the same record, and the same lifetime, as a route
+   * invocation's. Without it the service queried as no request at all, which
+   * the isolation predicate answers with the default tenant.
+   */
+  private async invokeWorkerService(
+    target: ManagedWorker,
+    name: string,
+    args: unknown[],
+    tenantId: string | null,
+  ): Promise<unknown> {
+    const invokeId = rpcId('inv-svc');
+    target.invokeTenants.set(invokeId, tenantId);
+    try {
+      const reply = await new Promise<
+        Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
+      >((resolve, reject) => {
+        invokeWaiters.set(invokeId, { expect: target.name, resolve });
+        setTimeout(() => {
+          if (invokeWaiters.has(invokeId)) {
+            invokeWaiters.delete(invokeId);
+            reject(new Error(`service "${name}" call timeout (30s)`));
+          }
+        }, 30_000);
+        this.post(target, { type: 'service:invoke', id: invokeId, name, args });
+      });
+      if (reply.type === 'service:invoke:err') {
+        throw new Error(reply.error ?? 'service call failed');
+      }
+      return reply.result;
+    } finally {
+      target.invokeTenants.delete(invokeId);
     }
   }
 
@@ -567,34 +591,12 @@ export class WorkerExtensionHost {
       // Publish a stub in the host registry that, when called, forwards
       // to the worker via service:invoke. This is what makes worker-
       // registered services callable from inline extensions / other
-      // workers.
-      serviceRegistry.scope(managed.name).register(msg.name, async (...args: unknown[]) => {
-        const invokeId = rpcId('inv-svc');
-        return await new Promise((resolve, reject) => {
-          invokeWaiters.set(invokeId, {
-            expect: managed.name,
-            resolve: (r) => {
-              if (r.type === 'service:invoke:err') {
-                reject(new Error(r.error ?? 'service call failed'));
-              } else {
-                resolve(r.result);
-              }
-            },
-          });
-          setTimeout(() => {
-            if (invokeWaiters.has(invokeId)) {
-              invokeWaiters.delete(invokeId);
-              reject(new Error(`service "${msg.name}" call timeout (30s)`));
-            }
-          }, 30_000);
-          this.post(managed, {
-            type: 'service:invoke',
-            id: invokeId,
-            name: msg.name,
-            args,
-          });
-        });
-      });
+      // workers. The caller's tenant is the one its async context runs as.
+      serviceRegistry
+        .scope(managed.name)
+        .register(msg.name, (...args: unknown[]) =>
+          this.invokeWorkerService(managed, msg.name, args, getCurrentDomainOrNull()),
+        );
       managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
     } catch (err) {
@@ -754,6 +756,31 @@ export const _internalForTests = {
     return requestId ? managed.invokeTenants.get(requestId) : undefined;
   },
 };
+
+/**
+ * The tenant of the invocation a worker message names, from the host's own
+ * record — `undefined` when it names none (background work), and a refusal when
+ * it names one the record no longer holds.
+ *
+ * Refused, not demoted to no tenant: such a message is work a request started
+ * and did not wait for (a timer, an un-awaited promise, a handler past the 30 s
+ * timeout), still carrying the request's async context after the request ended.
+ * Run tenantless, tenant B's leftover work read the default tenant's rows.
+ */
+function requestTenant(
+  managed: ManagedWorker,
+  requestId: string | undefined,
+  what: string,
+): string | null | undefined {
+  if (!requestId) return undefined;
+  if (!managed.invokeTenants.has(requestId)) {
+    throw new Error(
+      `request ${requestId} is over (or was never issued); a ${what} outliving ` +
+        'its request has no tenant to run as',
+    );
+  }
+  return managed.invokeTenants.get(requestId);
+}
 
 // Waiter pool for cross-worker service invokes.
 //
