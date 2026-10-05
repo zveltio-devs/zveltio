@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 392
+# tables: 393
 
 table account
   col accessToken                    text
@@ -2992,6 +2992,13 @@ table zv_schema_branches
   uq  zv_schema_branches_preview_token_key UNIQUE (preview_token)
   ck  zv_schema_branches_review_status_check CHECK ((review_status = ANY (ARRAY['pending'::text, 'approved'::text, 'changes_requested'::text, 'rejected'::text])))
   ck  zv_schema_branches_status_check CHECK ((status = ANY (ARRAY['open'::text, 'merged'::text, 'closed'::text])))
+
+table zv_schema_migrations
+  col applied_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col applied_by                     text
+  col checksum                       text NOT NULL
+  col id                             text NOT NULL
+  pk  zv_schema_migrations_pkey PRIMARY KEY (id)
 
 table zv_schema_versions
   col applied_at                     timestamp with time zone NOT NULL DEFAULT now()

@@ -28,6 +28,7 @@ import {
   fieldTypeRegistry,
   runAddField,
   runCreateCollection,
+  schemaChangeRefusal,
   SYSTEM_COLUMNS,
 } from '../data/index.js';
 import { toJsonb } from '../jsonb.js';
@@ -170,6 +171,21 @@ async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepa
             .where('name', '=', c.role)
             .executeTakeFirst());
         if (!custom) throw new SchemaFileError(`${target}: ${c.role} is not a custom role`);
+      }
+      if (c.op === 'dropCollection') {
+        // The plan cannot see a collection the export leaves out, so it lets
+        // the name through (a rerun finds it gone). The catalog can: an engine,
+        // extension or BYOD collection is not the files' to drop, and a
+        // schema-locked one is refused here as `DELETE /api/collections` does.
+        const meta = await db
+          .selectFrom('zvd_collections')
+          .select('is_system')
+          .where('name', '=', c.collection)
+          .executeTakeFirst();
+        const why = meta?.is_system
+          ? `Collection '${c.collection}' is an engine or extension collection.`
+          : await schemaChangeRefusal(db, c.collection, 'drop');
+        if (why) throw new SchemaFileError(`${target}: ${why}`);
       }
       return op;
     }
