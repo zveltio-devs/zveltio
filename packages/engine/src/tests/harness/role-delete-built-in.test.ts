@@ -23,6 +23,18 @@ d('DELETE /api/admin/roles/:id on a built-in role', () => {
   });
 
   it('refuses it and keeps its grants', async () => {
+    // The harness database is shared: make sure the row exists, and compare
+    // grants with what is there now rather than with a fresh install.
+    await sql`INSERT INTO zv_roles (name) VALUES ('employee') ON CONFLICT (name) DO NOTHING`.execute(
+      db,
+    );
+    const grants = async () =>
+      (
+        await sql`SELECT 1 FROM zvd_permissions WHERE v0 = 'employee' OR v1 = 'employee'`.execute(
+          db,
+        )
+      ).rows.length;
+    const before = await grants();
     const role = await sql<{ id: string }>`SELECT id FROM zv_roles WHERE name = 'employee'`.execute(
       db,
     );
@@ -32,9 +44,7 @@ d('DELETE /api/admin/roles/:id on a built-in role', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(409);
-    const kept =
-      await sql`SELECT 1 FROM zvd_permissions WHERE ptype = 'p' AND v0 = 'employee'`.execute(db);
-    expect(kept.rows.length).toBeGreaterThan(0);
+    expect(await grants()).toBe(before);
     const row = await sql`SELECT 1 FROM zv_roles WHERE name = 'employee'`.execute(db);
     expect(row.rows).toHaveLength(1);
   });
