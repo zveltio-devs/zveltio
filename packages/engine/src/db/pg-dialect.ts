@@ -271,8 +271,7 @@ export function createPgDialect(config: PgDialectConfig): Dialect {
   if (config.primary) registerActivePool(rawPool(pool));
   return {
     createAdapter: () => new PostgresAdapter(),
-    // biome-ignore lint/suspicious/noExplicitAny: Kysely's introspector takes any schema
-    createIntrospector: (db) => new PostgresIntrospector(db as any),
+    createIntrospector: (db) => new PostgresIntrospector(db),
     createQueryCompiler: () => new PostgresQueryCompiler(),
     createDriver: () => new PgDriver(pool, config.primary === true),
   };
