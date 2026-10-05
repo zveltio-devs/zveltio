@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Database } from '../../db/index.js';
 import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 import { toJsonb } from '../jsonb.js';
+import { invalidateRulesCache } from '../validation-engine.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
@@ -695,6 +696,14 @@ export class DDLManager {
 
   // ── dropCollection ───────────────────────────────────────────────────────────
 
+  /**
+   * Drop a collection, its junction tables and every rule keyed by its name.
+   *
+   * Handed a transaction (the DDL queue), the caller that owns it calls
+   * `forgetDroppedCollection` once it has committed; until then — or until the
+   * next policy reconcile, if it never does — the grants are gone from the table
+   * but not from the live permission model.
+   */
   static async dropCollection(
     db: Database,
     name: string,
@@ -704,10 +713,48 @@ export class DDLManager {
     // `zvd_collections` delete left a listed collection with no table, which every
     // retry then refused as "not found". The DDL queue already passes a trx.
     if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
-      await db.transaction().execute((trx) => DDLManager.dropCollection(trx, name, opts));
+      await db.transaction().execute((trx) => DDLManager.dropInTransaction(trx, name, opts));
       DDLManager.invalidateCache(name);
+      await DDLManager.forgetDroppedCollection(name);
       return;
     }
+    await DDLManager.dropInTransaction(db, name, opts);
+  }
+
+  /**
+   * Take a dropped collection's grants out of the live permission model — this
+   * instance's and, through the enforcer's watcher, every other's — and drop
+   * the cached rules. After the COMMIT: before it, a rollback would leave the
+   * collection standing with its grants gone from memory.
+   *
+   * The rows themselves went in the drop's transaction, so a failure here leaves
+   * only memory stale, which the policy reconcile corrects; it is logged, not
+   * thrown, since the drop has already happened.
+   */
+  static async forgetDroppedCollection(name: string): Promise<void> {
+    try {
+      const tenancy = await import('../tenancy/index.js');
+      // Filtered, not rule by rule: it reaches the table and the watcher whether
+      // or not this instance's model holds the rule, and the receivers apply it
+      // to their own models.
+      await (await tenancy.getEnforcer()).removeFilteredPolicy(2, name);
+      await tenancy.invalidateAllPermissionCaches();
+      await tenancy.invalidateRlsCache(name);
+      await tenancy.invalidateColumnPermCache(name);
+      invalidateRulesCache(name);
+    } catch (err) {
+      console.warn(
+        `[ddl] collection '${name}' dropped; its access rules were not cleared from memory:`,
+        (err as Error).message,
+      );
+    }
+  }
+
+  private static async dropInTransaction(
+    db: Database,
+    name: string,
+    opts: { force?: boolean },
+  ): Promise<void> {
     const tableName = this.getTableName(name);
 
     if (!(await this.tableExists(db, name))) {
@@ -786,6 +833,19 @@ export class DDLManager {
     // the row that failed to be written.
 
     await db.deleteFrom('zvd_collections').where('name', '=', name).execute();
+
+    // Everything else keyed by the name goes with it, in the same transaction.
+    // Left behind, a collection created again under this name inherited it all:
+    // a grant made in any tenant's domain on the old collection read the new one,
+    // and the old row rules, hidden columns and validation applied to it.
+    await db
+      .deleteFrom('zvd_permissions')
+      .where('ptype', '=', 'p')
+      .where('v2', '=', name)
+      .execute();
+    await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
+    await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
+    await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();
 
     DDLManager.invalidateCache(name);
   }
