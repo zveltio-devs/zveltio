@@ -197,6 +197,15 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
         .executeTakeFirst(),
     );
 
+  // `zv_panels` has no tenant_id and no policy: a panel belongs to the tenant of
+  // its dashboard, so a write reaches it only through this tenant's dashboards.
+  // PATCH and DELETE /panels/:id matched the id alone, and instance admin is
+  // not the same as every tenant — the root tenant's admin passes it too — so
+  // a panel of any tenant could be rewritten (its SQL then runs in that
+  // tenant on /execute) or deleted by id.
+  const tenantDashboards = (c: Context<InsightsEnv>, t: Database) =>
+    t.selectFrom('zv_dashboards').select('id').where('tenant_id', '=', tenantOf(c));
+
   const findSavedQuery = (c: Context<InsightsEnv>, id: string) =>
     inTenant(c, (t) =>
       t
@@ -213,22 +222,36 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
     const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
+    // Across the caller's reach, which for god is every firm. Panels have no
+    // tenant of their own, so they are counted through the dashboards the policy
+    // shows: on the pool they listed every tenant's panel ids and titles to the
+    // root tenant's (non-god) admin.
     const [dashRow, panelRow, topPanels, avgRow] = await Promise.all([
-      // Across the caller's reach, which for god is every firm.
       inTenant(c, (t) =>
         sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_dashboards`.execute(t),
       ),
-      sql<{ count: string }>`SELECT COUNT(*) AS count FROM zv_panels`.execute(poolDb),
-      sql<{ id: string; title: string; avg_execution_ms: number | null }>`
-        SELECT id, title, avg_execution_ms
-        FROM zv_panels
-        WHERE last_executed_at IS NOT NULL
-        ORDER BY avg_execution_ms DESC NULLS LAST
-        LIMIT 5
-      `.execute(poolDb),
-      sql<{ avg: string | null }>`
-        SELECT AVG(avg_execution_ms) AS avg FROM zv_panels WHERE avg_execution_ms IS NOT NULL
-      `.execute(poolDb),
+      inTenant(c, (t) =>
+        sql<{ count: string }>`
+          SELECT COUNT(*) AS count
+          FROM zv_panels p JOIN zv_dashboards d ON d.id = p.dashboard_id
+        `.execute(t),
+      ),
+      inTenant(c, (t) =>
+        sql<{ id: string; title: string; avg_execution_ms: number | null }>`
+          SELECT p.id, p.title, p.avg_execution_ms
+          FROM zv_panels p JOIN zv_dashboards d ON d.id = p.dashboard_id
+          WHERE p.last_executed_at IS NOT NULL
+          ORDER BY p.avg_execution_ms DESC NULLS LAST
+          LIMIT 5
+        `.execute(t),
+      ),
+      inTenant(c, (t) =>
+        sql<{ avg: string | null }>`
+          SELECT AVG(p.avg_execution_ms) AS avg
+          FROM zv_panels p JOIN zv_dashboards d ON d.id = p.dashboard_id
+          WHERE p.avg_execution_ms IS NOT NULL
+        `.execute(t),
+      ),
     ]);
 
     return c.json({
@@ -576,12 +599,15 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
       if (body.position !== undefined) updates.position = toJsonb(body.position);
       if (body.refresh_interval !== undefined) updates.refresh_interval = body.refresh_interval;
 
-      const panel = await poolDb
-        .updateTable('zv_panels')
-        .set(updates)
-        .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirst();
+      const panel = await inTenant(c, (t) =>
+        t
+          .updateTable('zv_panels')
+          .set(updates)
+          .where('id', '=', id)
+          .where('dashboard_id', 'in', tenantDashboards(c, t))
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       if (!panel) return c.json({ error: 'Panel not found' }, 404);
       return c.json({ panel });
@@ -594,11 +620,14 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
     const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
-    const deleted = await poolDb
-      .deleteFrom('zv_panels')
-      .where('id', '=', c.req.param('id'))
-      .returningAll()
-      .executeTakeFirst();
+    const deleted = await inTenant(c, (t) =>
+      t
+        .deleteFrom('zv_panels')
+        .where('id', '=', c.req.param('id'))
+        .where('dashboard_id', 'in', tenantDashboards(c, t))
+        .returningAll()
+        .executeTakeFirst(),
+    );
 
     if (!deleted) return c.json({ error: 'Panel not found' }, 404);
     return c.json({ success: true });
