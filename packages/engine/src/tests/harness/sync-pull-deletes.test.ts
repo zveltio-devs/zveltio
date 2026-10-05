@@ -160,10 +160,7 @@ d('sync pull returns deletes', () => {
 
   it("another tenant's delete is not visible", async () => {
     const member = await createMemberSession(app, db, {
-      grants: [
-        { collection: NAME, actions: ['read'] },
-        { collection: `data:${NAME}`, actions: ['read'] },
-      ],
+      grants: [{ collection: NAME, actions: ['read'] }],
     });
     const mine = await insert(db, 'mine');
     const { rows } = await sql<{ id: string }>`
