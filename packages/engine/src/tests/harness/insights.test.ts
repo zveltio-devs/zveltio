@@ -140,11 +140,4 @@ d('insights routes (in-process)', () => {
       .execute(db)
       .catch(() => {});
   });
-
-  it('lists subscriptions (GET /api/insights/subscriptions)', async () => {
-    const res = await app.request('/api/insights/subscriptions', { headers: { cookie } });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { subscriptions: unknown[] };
-    expect(Array.isArray(body.subscriptions)).toBe(true);
-  });
 });

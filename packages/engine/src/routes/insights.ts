@@ -19,6 +19,7 @@ import type { Database } from '../db/index.js';
 import {
   checkPermission,
   getUserRoles,
+  isGodUser,
   listAllRoles,
   requireInstanceAdmin,
   withTenantIsolation,
@@ -121,8 +122,8 @@ async function runReadOnlySql(
     // engine connects as a superuser and RLS does not apply to it. See
     // migration 030.
     //
-    // Omitted deliberately for the instance-admin ad-hoc endpoint, which exists
-    // to query across tenants and is gated on requireInstanceAdmin.
+    // Omitted only for god on the ad-hoc endpoint (POST /query), which reads
+    // the whole instance for the instance owner.
     if (tenantId) {
       // NOT swallowed. A `.catch(() => undefined)` used to sit here, and it could
       // not do what it looked like it did: in Postgres a failed statement aborts
@@ -787,9 +788,11 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
       if (blocked) return c.json({ error: blocked }, 400);
 
       try {
-        // No tenant argument: this endpoint is instance-admin only and exists
-        // to query across the whole instance. Every other call site scopes.
-        const result = await runReadOnlySql(poolDb, query, 10);
+        // God reads the whole instance. Any other instance admin — the root
+        // tenant's admin passes requireInstanceAdmin too — reads its own tenant,
+        // like panels and saved queries: unscoped, it read every tenant's rows.
+        const scope = (await isGodUser(user.id)) ? undefined : tenantOf(c);
+        const result = await runReadOnlySql(poolDb, query, 10, scope);
         return c.json({
           data: result.rows,
           columns: Object.keys(result.rows[0] || {}),
@@ -995,83 +998,10 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
     }
   });
 
-  // ── GET /subscriptions ───────────────────────────────────────────────────────
-  app.get('/subscriptions', async (c) => {
-    const user = c.get('user');
-
-    const subscriptions = await poolDb
-      .selectFrom('zvd_dashboard_subscriptions')
-      .selectAll()
-      .where('user_id', '=', user.id)
-      .orderBy('created_at', 'desc')
-      .execute();
-
-    return c.json({ subscriptions });
-  });
-
-  // ── POST /subscriptions ──────────────────────────────────────────────────────
-  app.post(
-    '/subscriptions',
-    zValidator(
-      'json',
-      z.object({
-        dashboard_id: z.string().uuid(),
-        email: z.string().email(),
-        frequency: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
-        day_of_week: z.number().int().min(0).max(6).optional(),
-        hour_of_day: z.number().int().min(0).max(23).default(8),
-      }),
-    ),
-    async (c) => {
-      const user = c.get('user');
-      const body = c.req.valid('json');
-
-      const dash = await findDashboard(c, body.dashboard_id);
-
-      if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
-
-      const subscription = await poolDb
-        .insertInto('zvd_dashboard_subscriptions')
-        .values({
-          dashboard_id: body.dashboard_id,
-          user_id: user.id,
-          email: body.email,
-          frequency: body.frequency,
-          day_of_week: body.day_of_week ?? null,
-          hour_of_day: body.hour_of_day,
-          is_active: true,
-        })
-        .onConflict((oc) =>
-          oc.columns(['dashboard_id', 'user_id']).doUpdateSet({
-            email: body.email,
-            frequency: body.frequency,
-            day_of_week: body.day_of_week ?? null,
-            hour_of_day: body.hour_of_day,
-            is_active: true,
-          }),
-        )
-        .returningAll()
-        .executeTakeFirst();
-
-      return c.json({ subscription }, 201);
-    },
-  );
-
-  // ── DELETE /subscriptions/:id ────────────────────────────────────────────────
-  app.delete('/subscriptions/:id', async (c) => {
-    const user = c.get('user');
-    const id = c.req.param('id');
-
-    const deleted = await poolDb
-      .deleteFrom('zvd_dashboard_subscriptions')
-      .where('id', '=', id)
-      .where('user_id', '=', user.id)
-      .returningAll()
-      .executeTakeFirst();
-
-    if (!deleted) return c.json({ error: 'Subscription not found' }, 404);
-    return c.json({ success: true });
-  });
+  // No /subscriptions here (removed 2026-10-05). The routes stored dashboard
+  // e-mail subscriptions that nothing ever sent; scheduled reports belong in an
+  // extension, which can own its table. `zvd_dashboard_subscriptions` stays in
+  // the schema until the GA squash.
 
   return app;
 }
