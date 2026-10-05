@@ -170,12 +170,12 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/insights/stats': exempt('instance administrators only (requireInstanceAdmin)'),
   'GET /api/saved-queries': at('saved-queries-import-tenant-isolation.test.ts'),
   'GET /api/saved-queries/:id': at('saved-queries-import-tenant-isolation.test.ts'),
-  'POST /api/saved-queries': todo('assert a saved query lands in A'),
-  'PUT /api/saved-queries/:id': todo("assert A cannot change B's"),
-  'DELETE /api/saved-queries/:id': todo("assert A cannot delete B's"),
-  'POST /api/saved-queries/:id/run': todo("assert A cannot run B's"),
-  'POST /api/saved-queries/execute': todo('assert an execution in A reads no B rows'),
-  'POST /api/saved-queries/preview-url': todo('assert a preview URL is bound to A'),
+  'POST /api/saved-queries': here,
+  'PUT /api/saved-queries/:id': here,
+  'DELETE /api/saved-queries/:id': here,
+  'POST /api/saved-queries/:id/run': here,
+  'POST /api/saved-queries/execute': here,
+  'POST /api/saved-queries/preview-url': exempt('builds a URL string from the body; reads no data'),
   // ── Notifications ───────────────────────────────────────────────────────
   'GET /api/notifications': OWN_USER,
   'GET /api/notifications/:id': OWN_USER,
@@ -192,11 +192,11 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/notifications/push/vapid-public-key': exempt('the instance public key'),
   'POST /api/notifications/broadcast': at('tenant-membership-validity.test.ts'),
   // ── RPC ─────────────────────────────────────────────────────────────────
-  'GET /api/rpc': todo("assert B's functions are not listed to A"),
-  'POST /api/rpc': todo('assert a function lands in A'),
-  'PATCH /api/rpc/:id': todo("assert A cannot change B's function"),
-  'DELETE /api/rpc/:id': todo("assert A cannot delete B's function"),
-  'POST /api/rpc/:fn': todo('assert a call in A reads no B rows'),
+  'GET /api/rpc': exempt('instance administrators only (requireInstanceAdmin)'),
+  'POST /api/rpc': exempt('instance administrators only (requireInstanceAdmin)'),
+  'PATCH /api/rpc/:id': exempt('instance administrators only (requireInstanceAdmin)'),
+  'DELETE /api/rpc/:id': exempt('instance administrators only (requireInstanceAdmin)'),
+  'POST /api/rpc/:fn': here,
 };
 
 /** The prefixes that serve tenant data. A route under one of them needs a row. */
@@ -364,6 +364,16 @@ d('tenant isolation, door by door', () => {
     for (const id of wsProbes) connections.delete(id);
     if (!db) return;
     await sql`DELETE FROM zv_api_keys WHERE name = ${`doors-${TAG}`}`.execute(db).catch(() => {});
+    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`
+      .execute(db)
+      .catch(() => {});
+    await sql
+      .raw(`DROP FUNCTION IF EXISTS doors_fn_${TAG}()`)
+      .execute(db)
+      .catch(() => {});
+    await sql`DELETE FROM zv_saved_queries WHERE name LIKE ${`doors-%-${TAG}`}`
+      .execute(db)
+      .catch(() => {});
     await sql`DELETE FROM zv_media_files WHERE filename LIKE ${`doors-%-${TAG}`}`
       .execute(db)
       .catch(() => {});
@@ -698,6 +708,90 @@ d('tenant isolation, door by door', () => {
       db,
     );
     expect(landed.rows.map((r) => r.tenant_id)).toEqual([B.id]);
+  });
+
+  it("a saved query lands in A; B's cannot be changed, deleted or run from A; execute reads no B row", async () => {
+    for (const door of [
+      'POST /api/saved-queries',
+      'PUT /api/saved-queries/:id',
+      'DELETE /api/saved-queries/:id',
+      'POST /api/saved-queries/:id/run',
+      'POST /api/saved-queries/execute',
+    ]) {
+      probe(door);
+    }
+    const save = (who: () => Record<string, string>, name: string) =>
+      app.request('/api/saved-queries', {
+        method: 'POST',
+        headers: { ...who(), ...json },
+        body: JSON.stringify({ name, collection: P, config: {}, is_shared: true }),
+      });
+    const id = async (res: Response) => {
+      expect(res.status).toBe(201);
+      const out = (await res.json()) as { query?: { id: string }; id?: string };
+      return (out.query?.id ?? out.id)!;
+    };
+    const tenantOf = async (qid: string) =>
+      (
+        await sql<{ tenant_id: string; name: string }>`
+          SELECT tenant_id::text, name FROM zv_saved_queries WHERE id = ${qid}::uuid`.execute(db)
+      ).rows[0];
+    const qA = await id(await save(asA, `doors-qa-${TAG}`));
+    const qB = await id(await save(asB, `doors-qb-${TAG}`));
+    expect((await tenantOf(qA))?.tenant_id).toBe(A.id);
+
+    const put = await app.request(`/api/saved-queries/${qB}`, {
+      method: 'PUT',
+      headers: asA(json),
+      body: JSON.stringify({ name: 'overwritten by A' }),
+    });
+    expect(put.status).toBe(404);
+    const run = await app.request(`/api/saved-queries/${qB}/run`, {
+      method: 'POST',
+      headers: asA(json),
+      body: '{}',
+    });
+    expect(run.status).toBe(404);
+    expect(await leaks(run)).toBe(false);
+    const del = await app.request(`/api/saved-queries/${qB}`, { method: 'DELETE', headers: asA() });
+    expect(del.status).toBe(404);
+    expect(await tenantOf(qB)).toEqual({ tenant_id: B.id, name: `doors-qb-${TAG}` });
+
+    // A's own query over P runs, and shows none of B's rows.
+    const mine = await app.request(`/api/saved-queries/${qA}/run`, {
+      method: 'POST',
+      headers: asA(json),
+      body: '{}',
+    });
+    expect(mine.status).toBe(200);
+    expect(await leaks(mine)).toBe(false);
+    const exec = await app.request('/api/saved-queries/execute', {
+      method: 'POST',
+      headers: asA(json),
+      body: JSON.stringify({ collection: P, config: {} }),
+    });
+    expect(exec.status).toBe(200);
+    const body = await exec.text();
+    expect(body).toContain(`A-${TAG}`);
+    expect(body).not.toContain(MARK);
+  });
+
+  it('an RPC call from A runs under A, and reads none of B', async () => {
+    probe('POST /api/rpc/:fn');
+    // SECURITY INVOKER (the default): the function reads as its caller.
+    const fn = `doors_fn_${TAG}`;
+    await sql
+      .raw(
+        `CREATE FUNCTION ${fn}() RETURNS SETOF zvd_${P} LANGUAGE sql STABLE AS 'SELECT * FROM zvd_${P}'`,
+      )
+      .execute(db);
+    await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
+              VALUES (${fn}, 'member', true)`.execute(db);
+    const res = await app.request(`/api/rpc/${fn}`, { method: 'POST', headers: asA(json) });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain(`A-${TAG}`);
+    expect(body).not.toContain(MARK);
   });
 
   it('every row marked `here` was probed above', () => {

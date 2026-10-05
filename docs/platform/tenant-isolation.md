@@ -43,6 +43,8 @@ switched off on one table, five of the probes fail.
 | Record comments (read, write, delete) | B's comments are not read; A cannot write into, or delete from, B's |
 | `GET /api/storage/:id/signed-url`, `/transform` | No URL and no image for B's file |
 | `GET` / `POST /api/storage/folders` | B's folders are not listed; a folder lands in its own tenant |
+| `POST /api/saved-queries`, `PUT` / `DELETE /:id`, `POST /:id/run`, `/execute` | A saved query lands in A; B's cannot be changed, deleted or run from A; an execution reads no B row |
+| `POST /api/rpc/:fn` | A function (security invoker) called from A reads A's rows and none of B's |
 
 ## Proved by a dedicated test
 
@@ -70,7 +72,10 @@ absent or refused:
   and `/api/sync/*` have no handler. `/api/ws/info` describes the endpoint. The
   VAPID key is the instance's public key. `/api/api-keys/self` returns the
   presenting key itself.
-- **Instance administrators only.** `/api/insights/stats`.
+- **Instance administrators only.** `/api/insights/stats`; the RPC registry
+  (`GET` / `POST /api/rpc`, `PATCH` / `DELETE /api/rpc/:id`).
+- **No data read.** `POST /api/saved-queries/preview-url` builds a URL string
+  from its body.
 
 ## Not yet in the suite
 
@@ -83,8 +88,7 @@ probe has to make. They are tenant-scoped in the code, but no test proves it yet
 - webhook deliveries, test and dead letters;
 - flow steps and dead letters;
 - dashboard shares and panels;
-- ad-hoc and saved queries (writes and executions);
-- insights subscriptions;
-- RPC functions.
+- insights ad-hoc and saved queries (writes and executions);
+- insights subscriptions.
 
 Moving a row from `todo` to `here` means writing its probe.
