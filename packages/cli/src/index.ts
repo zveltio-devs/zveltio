@@ -12,7 +12,7 @@ import { extensionPublishCommand } from './commands/extension-publish.js';
 import { extensionDevCommand } from './commands/extension-dev.js';
 import { keysGenerateCommand, keysListCommand, keysExportCommand } from './commands/keys.js';
 import { generateTypesCommand } from './commands/generate-types.js';
-import { schemaDiffCommand, schemaPullCommand } from './commands/schema.js';
+import { schemaApplyCommand, schemaDiffCommand, schemaPullCommand } from './commands/schema.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
 import { extensionsListCommand } from './commands/extensions-list.js';
@@ -145,6 +145,14 @@ schema
   .option('--dir <path>', 'Schema directory', './schema')
   .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
   .action(schemaDiffCommand);
+
+schema
+  .command('apply')
+  .description('Make the instance match ./schema; shows the plan and asks first')
+  .option('--dir <path>', 'Schema directory', './schema')
+  .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
+  .option('--yes', 'Apply without asking')
+  .action(schemaApplyCommand);
 
 // ── zveltio install <name> ────────────────────────────────────────────────────
 program

@@ -149,6 +149,11 @@ const TXN_SKIP_PREFIXES = [
   '/api/backup',
   '/api/admin/sql',
 
+  // Schema as code: export, plan and apply read and change global metadata,
+  // and apply creates tables and builds indexes CONCURRENTLY — the reason
+  // `/api/collections` and `/api/schema` are above.
+  '/api/admin/schema',
+
   // The instance audit trail (migration 040). Instance-level rows are visible
   // only where no tenant is the transaction's subject, and a request
   // transaction always names one — god's included. The routes read through

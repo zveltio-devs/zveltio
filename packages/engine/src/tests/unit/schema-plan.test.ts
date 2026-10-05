@@ -44,6 +44,9 @@ describe('planSchema', () => {
     ];
     (explicit.rowRules as Obj[])[0].enabled = true;
     expect(plan(files([explicit]))).toEqual([]);
+    // A setting left out keeps the instance's value.
+    const { displayName: _, ...minimal } = posts();
+    expect(plan(files([minimal]))).toEqual([]);
   });
 
   it('adds, alters, reorders and drops fields', () => {
@@ -108,6 +111,22 @@ describe('planSchema', () => {
       '+ role author grant posts create',
       '- role editor remove role !',
     ]);
+  });
+
+  it('leaves out the grants the engine gives by itself', () => {
+    const member = (actions: string[]) => [
+      { name: 'tenant_member', permissions: [{ resource: 'posts', actions }] },
+    ];
+    // Present on one side and absent on the other, the defaults plan nothing;
+    // a non-default action of the same role still does.
+    expect(
+      planSchema(files([posts()], member([])), files([posts()], member(['create', 'read']))),
+    ).toEqual([]);
+    expect(
+      planSchema(files([posts()], member([])), files([posts()], member(['delete']))).map(
+        (s) => s.action,
+      ),
+    ).toEqual(['grant posts delete']);
   });
 
   it('refuses malformed files instead of planning around them', () => {

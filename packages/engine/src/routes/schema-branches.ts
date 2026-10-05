@@ -12,10 +12,10 @@ import { sql } from 'kysely';
 import {
   announceSchemaChange,
   DDLManager,
-  type FieldConfig,
   FieldSchema,
-  fieldTypeRegistry,
   GhostDDL,
+  rowCountOrAssumeLarge,
+  runAddField,
 } from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 
@@ -55,34 +55,6 @@ function parseChanges(value: unknown) {
     }
   }
   return [];
-}
-
-/** Rows in `tableName`, or `Infinity` when the count cannot be taken.
- *
- * The caller uses this to choose between Ghost DDL (online, no downtime) and a
- * direct `ALTER TABLE` (an exclusive lock for the duration). Both call sites
- * used to read the count with `.catch(() => ({ rows: [{ cnt: '0' }] }))`, so a
- * failed count came back as ZERO — under the 100k threshold — and the branch
- * took the locking path on a table whose size was unknown. On a large table
- * that is a production outage chosen by a swallowed error.
- *
- * `Infinity` is the safe answer: an unknown size is treated as large, so the
- * online path is taken. The cost of being wrong that way is a slower migration;
- * the cost of being wrong the other way is downtime.
- */
-async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<number> {
-  try {
-    const result = await sql<{ cnt: string }>`
-      SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-    `.execute(db);
-    return Number(result.rows[0]?.cnt ?? 0);
-  } catch (err) {
-    console.warn(
-      `[schema-branches] could not count rows in ${tableName}; assuming it is large and ` +
-        `using the online (Ghost DDL) path. Cause: ${err instanceof Error ? err.message : err}`,
-    );
-    return Number.POSITIVE_INFINITY;
-  }
 }
 
 /**
@@ -479,26 +451,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               // Parsed again here: a branch stores what was posted, and a row
               // written before the shape was checked at /changes still merges.
               const { collection, field } = AddFieldPayload.parse(change.payload);
-              const tableName = DDLManager.getTableName(collection);
-              // Over 100k rows the column and its per-tenant key are built on a
-              // ghost; addField then finds both in place and does what is left
-              // — indexes and the field in zvd_collections.fields — the same way
-              // POST /api/collections/:name/fields does.
-              if (
-                fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&
-                (await rowCountOrAssumeLarge(db, tableName)) > 100_000
-              ) {
-                await GhostDDL.execute(
-                  db,
-                  tableName,
-                  [{ kind: 'add_column', field: field as FieldConfig }],
-                  (phase, detail) => {
-                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
-                  },
-                );
-              }
-              await DDLManager.addField(db, collection, field);
-              announceSchemaChange(collection, 'alter');
+              await runAddField(db, collection, field);
               applied.push(`Add field: ${field.name} to ${collection}`);
             } else if (change.type === 'remove_field') {
               const { collection, field } = RemoveFieldPayload.parse(change.payload);

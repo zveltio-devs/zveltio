@@ -133,8 +133,10 @@ The file holds everything that belongs to one collection:
   grants.
 - Rows scoped to one tenant id, and every `g` (user→role) row, are tenant
   state and stay out.
-- The built-in roles appear only when their permissions differ from the
-  seeded defaults.
+- The engine's default grants (`DEFAULT_ROLE_GRANTS`: `tenant_member` and
+  `tenant_viewer` on every non-sensitive resource) are implied, like the
+  engine columns. They are neither written nor planned: `createCollection`
+  and every boot write them, so a file could not take one away.
 
 ### 4.3 `settings.json`
 
@@ -214,6 +216,13 @@ The plan reads like `terraform plan`:
   `indexed` flags, so they show as `alter field`.
 - **Additions apply straight from the diff**: fields, indexes, relations,
   rules, permissions, roles and settings.
+- **A setting the file leaves out keeps the instance's value.** Creating a
+  collection fills defaults (`icon`, `routeGroup`, `sort`…); a hand-written
+  file without them would otherwise show drift forever. `pull` writes every
+  setting, so a pulled file still says everything.
+- **No request transaction.** `/api/admin/schema` is in `TXN_SKIP_PREFIXES`
+  with `/api/collections` and `/api/schema`: the DDL runs on the pool, and a
+  CONCURRENTLY index build would otherwise wait on its own request.
 - **Plan.** `diff` sends the files to `POST /api/admin/schema/plan`, which
   compares them with the instance's own export and returns the steps. It
   changes nothing.
@@ -262,7 +271,8 @@ The plan reads like `terraform plan`:
 |---|---|---|
 | 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
 | 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
-| 3 | `apply` for additions + `zv_schema_migrations` + migration ops + the acceptance test | L |
+| 3a | `apply` for additions: create collection, add field, collection settings, create role, global grant. Any other step refuses the whole plan | M |
+| 3b | Rules, relations, alterations, `zv_schema_migrations` + migration ops (and with them the destructive steps) + the acceptance test | L |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
 
