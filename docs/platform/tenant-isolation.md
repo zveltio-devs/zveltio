@@ -80,15 +80,16 @@ absent or refused:
 ## Not yet in the suite
 
 These routes are listed in the table as `todo`, each with the assertion its
-probe has to make. They are tenant-scoped in the code, but no test proves it yet:
+probe has to make. They look tenant-scoped in the code, but no test proves it
+yet — and reading was not enough before: the API-key rate-limit `DELETE` had no
+tenant check until its probe was written (2026-10-05).
 - connection and stats endpoints of realtime;
 - `POST /api/realtime/publish`;
 - storage upload and `/files/*`;
-- API-key rate limits;
-- webhook deliveries, test and dead letters;
 - flow steps and dead letters;
 - dashboard shares and panels;
 - insights ad-hoc and saved queries (writes and executions);
 - insights subscriptions.
 
-Moving a row from `todo` to `here` means writing its probe.
+Moving a row from `todo` to `here` (or to the file that probes it) means writing
+its probe.

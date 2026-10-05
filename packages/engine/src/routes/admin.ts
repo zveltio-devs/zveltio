@@ -349,7 +349,16 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id/rate-limit — Remove per-key rate limit override (falls back to tier default)
   app.delete('/:id/rate-limit', async (c) => {
-    const keyPrefix = `apikey:${c.req.param('id')}`;
+    // zv_rate_limit_configs is instance-wide: without this, a tenant admin
+    // removed another tenant's key override by id. Same check as PUT.
+    const key = await db
+      .selectFrom('zv_api_keys')
+      .select('id')
+      .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', getCurrentDomain())
+      .executeTakeFirst();
+    if (!key) return c.json({ error: 'API key not found' }, 404);
+    const keyPrefix = `apikey:${key.id}`;
     await db.deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
     invalidateRateLimitCache(keyPrefix);
 

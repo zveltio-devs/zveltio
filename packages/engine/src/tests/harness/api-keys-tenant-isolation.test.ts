@@ -75,6 +75,11 @@ d('api-keys/invitations tenant isolation (in-process)', () => {
       .execute()
       .catch(() => {});
     await db
+      .deleteFrom('zv_rate_limit_configs')
+      .where('key_prefix', '=', `apikey:${FOREIGN_KEY_ID}`)
+      .execute()
+      .catch(() => {});
+    await db
       .deleteFrom('zv_api_keys')
       .where('id', '=', FOREIGN_KEY_ID)
       .execute()
@@ -120,5 +125,38 @@ d('api-keys/invitations tenant isolation (in-process)', () => {
     // Column exists and is non-null on any row that exists (migration backfill).
     if (before) expect(before.tenant_id).toBeTruthy();
     else expect(true).toBe(true);
+  });
+
+  // zv_rate_limit_configs is instance-wide, keyed `apikey:<id>`: the key's
+  // tenant is the only thing between a tenant admin and another tenant's limit.
+  it("another tenant's key rate limit can be neither set nor removed", async () => {
+    const config = () =>
+      db
+        .selectFrom('zv_rate_limit_configs')
+        .select(['window_ms', 'max_requests'])
+        .where('key_prefix', '=', `apikey:${FOREIGN_KEY_ID}`)
+        .executeTakeFirst();
+    const put = await app.request(`/api/api-keys/${FOREIGN_KEY_ID}/rate-limit`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ window_ms: 60_000, max_requests: 100_000 }),
+    });
+    expect(put.status).toBe(404);
+    expect(await config()).toBeUndefined();
+
+    await db
+      .insertInto('zv_rate_limit_configs')
+      .values({
+        key_prefix: `apikey:${FOREIGN_KEY_ID}`,
+        window_ms: 60_000,
+        max_requests: 5,
+      } as never)
+      .execute();
+    const del = await app.request(`/api/api-keys/${FOREIGN_KEY_ID}/rate-limit`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(del.status).toBe(404);
+    expect(await config()).toEqual({ window_ms: 60_000, max_requests: 5 });
   });
 });
