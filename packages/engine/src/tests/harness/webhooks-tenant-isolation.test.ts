@@ -6,6 +6,9 @@
  *  2. lib/webhooks.ts WebhookManager.trigger() matched webhooks across ALL
  *     tenants, so a write in tenant A fired tenant B's webhook and POSTed A's
  *     record data to B's endpoint (cross-tenant data exfiltration).
+ *
+ * Plus the doors of tenant-isolation-doors.test.ts: delivery logs, the test
+ * send, and the dead-letter list and replay.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -14,6 +17,9 @@ import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import { _setCacheForTests } from '../../lib/runtime/cache.js';
+import { FakeRedis } from '../../testing/fake-redis.js';
+import { WEBHOOK_DLQ_KEY } from '../../lib/webhook-worker.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -186,5 +192,73 @@ d('webhooks tenant isolation (in-process)', () => {
 
     expect(mineDeliveries.length).toBeGreaterThan(0); // fired for the writing tenant
     expect(foreignDeliveries.length).toBe(0); // NOT for the other tenant
+  });
+
+  it("cross-tenant: another tenant's delivery log is not listed; mine is", async () => {
+    const delivery = (webhook_id: string, tenant_id: string) => ({
+      webhook_id,
+      tenant_id,
+      payload: JSON.stringify({ probe: STAMP }),
+      url: 'https://example.com/x',
+      method: 'POST',
+    });
+    await db
+      .insertInto('zvd_webhook_deliveries')
+      .values([delivery(FOREIGN_ID, OTHER_TENANT), delivery(myId, DEFAULT_TENANT_ID)] as never)
+      .execute();
+    const list = async (id: string) => {
+      const res = await app.request(`/api/webhooks/${id}/deliveries`, { headers: { cookie } });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { deliveries: unknown[] }).deliveries;
+    };
+    expect(await list(FOREIGN_ID)).toEqual([]);
+    expect((await list(myId)).length).toBeGreaterThan(0);
+  });
+
+  it("cross-tenant: a test send of another tenant's webhook → 404", async () => {
+    const res = await app.request(`/api/webhooks/${FOREIGN_ID}/test`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("cross-tenant: another tenant's dead letters are neither listed nor replayed", async () => {
+    // The harness has no Valkey. FakeRedis has no lists, which these two
+    // routes use; the tenant middleware uses the rest.
+    const lists = new Map<string, string[]>();
+    const list = (k: string) => lists.get(k) ?? lists.set(k, []).get(k)!;
+    _setCacheForTests(
+      Object.assign(new FakeRedis(), {
+        lrange: async (k: string, from: number, to: number) =>
+          list(k).slice(from, to === -1 ? undefined : to + 1),
+        rpush: async (k: string, v: string) => list(k).push(v),
+        lrem: async (k: string, _n: number, v: string) => {
+          const i = list(k).indexOf(v);
+          if (i !== -1) list(k).splice(i, 1);
+          return i === -1 ? 0 : 1;
+        },
+      }) as never,
+    );
+    try {
+      const foreign = JSON.stringify({ webhookId: FOREIGN_ID, failedAt: 1 });
+      const mine = JSON.stringify({ webhookId: myId, failedAt: 2 });
+      list(WEBHOOK_DLQ_KEY).push(foreign, mine);
+
+      const res = await app.request('/api/webhooks/dlq', { headers: { cookie } });
+      expect(res.status).toBe(200);
+      const { entries } = (await res.json()) as { entries: { webhookId: string }[] };
+      expect(entries.map((e) => e.webhookId)).toEqual([myId]);
+
+      const replay = await app.request('/api/webhooks/dlq/replay', {
+        method: 'POST',
+        headers: { cookie },
+      });
+      expect(((await replay.json()) as { replayed: number }).replayed).toBe(1);
+      expect(list(WEBHOOK_DLQ_KEY)).toEqual([foreign]);
+      expect(list('webhook:queue').map((e) => JSON.parse(e).webhookId)).toEqual([myId]);
+    } finally {
+      _setCacheForTests(null);
+    }
   });
 });
