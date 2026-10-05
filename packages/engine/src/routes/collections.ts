@@ -580,13 +580,16 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     }
   });
 
-  // PATCH /:name/fields/:field — Modify a field (rename / change type / toggle required).
+  // PATCH /:name/fields/:field — Modify a field (rename / change type / toggle
+  // required / unique / indexed / default).
   //
   // Body accepts any combination of:
   //   - new_name: string  → ALTER TABLE RENAME COLUMN + sync zvd_relations
   //   - new_type: string  → ALTER COLUMN TYPE + USING expr from
   //                          field-type-conversions.ts
   //   - required: boolean → ALTER COLUMN SET/DROP NOT NULL
+  //   - unique, indexed: boolean, default_value → key, indexes and DEFAULT,
+  //                          built CONCURRENTLY after the rest (not relations)
   //
   // Operations apply in the order: type → required → rename. Type change
   // first because the USING clause references the *current* column name.
@@ -613,23 +616,29 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             .regex(/^[a-z][a-z0-9_]*$/, 'lowercase identifier')
             .optional(),
           required: z.boolean().optional(),
+          unique: z.boolean().optional(),
+          indexed: z.boolean().optional(),
+          // null removes the field's own default.
+          default_value: z
+            .union([z.string().max(10_000), z.number(), z.boolean(), z.null()])
+            .optional(),
         })
-        .refine(
-          (d) => d.new_name !== undefined || d.new_type !== undefined || d.required !== undefined,
-          {
-            message: 'At least one of new_name, new_type, required must be provided',
-          },
-        ),
+        .refine((d) => Object.values(d).some((v) => v !== undefined), {
+          message: 'At least one change must be provided',
+        }),
     ),
     async (c) => {
-      const { new_name: newName, new_type: newType, required } = c.req.valid('json');
+      const body = c.req.valid('json');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       try {
         const result = await alterField(db, c.req.param('name'), c.req.param('field'), {
-          newName,
-          newType,
-          required,
+          newName: body.new_name,
+          newType: body.new_type,
+          required: body.required,
+          unique: body.unique,
+          indexed: body.indexed,
+          defaultValue: body.default_value,
         });
         await auditLog(db, {
           type: 'settings.changed',

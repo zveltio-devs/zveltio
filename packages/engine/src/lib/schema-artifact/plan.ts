@@ -78,7 +78,17 @@ const MIGRATION_OPS: Record<string, string[]> = {
 };
 
 /** Field keys an `alterField` op can change; any other change has no op yet. */
-const ALTERABLE = new Set(['required', 'label', 'description', 'options']);
+const ALTERABLE = new Set([
+  'required',
+  'label',
+  'description',
+  'options',
+  'unique',
+  'indexed',
+  'defaultValue',
+]);
+/** The alterable keys a relation field cannot change (its column is the relation's). */
+const NOT_ON_RELATION = ['options', 'unique', 'indexed', 'defaultValue'];
 /** Relation keys `PATCH /api/relations` changes. */
 const RELATION_PATCHABLE = new Set(['onDelete', 'onUpdate', 'metadata']);
 const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'm2a']);
@@ -358,7 +368,7 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
       const relation = RELATION_TYPES.has(String(f.type));
       const runnable =
         keys.every((k) => ALTERABLE.has(k)) &&
-        !(relation && keys.includes('options')) &&
+        !(relation && keys.some((k) => NOT_ON_RELATION.includes(k))) &&
         !(relation && keys.includes('required') && f.type !== 'm2o' && f.type !== 'reference');
       step(
         '~',

@@ -228,7 +228,13 @@ The plan reads like `terraform plan`:
   loses no data, narrowing is the point of the change, and the plan already
   shows it for review.
 - Indexes are not steps of their own: they follow from a field's `unique` and
-  `indexed` flags, so they show as `alter field`.
+  `indexed` flags, so they show as `alter field`. Such an alter runs as
+  `PATCH /api/collections/:name/fields/:field` runs it (`alterField`): the
+  index or key is built `CONCURRENTLY`, a unique key over rows that already
+  repeat a value within a tenant is refused (409) and leaves no index behind,
+  and `defaultValue` sets or drops the column default. A relation field's
+  `unique`, `indexed`, `defaultValue` and `options` have no op; nor does
+  `encrypted`, which would rewrite every row.
 - **Additions apply straight from the diff**: fields, indexes, relations,
   rules, permissions, roles and settings.
 - **Relations are created the way `POST /api/relations` creates them**
@@ -295,7 +301,8 @@ The plan reads like `terraform plan`:
 | 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
 | 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
 | 3a | `apply` for additions: create collection, add field, collection settings, create role, global grant. Any other step refuses the whole plan | M |
-| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (part 1); `zv_schema_migrations` + migration ops, destructive steps (part 2); relations, field `required` and descriptive keys (`label`, `description`, `options`), the acceptance test (part 3). Still refused: `unique`, `indexed`, `encrypted`, `defaultValue` and a relation field's `options` | L |
+| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (part 1); `zv_schema_migrations` + migration ops, destructive steps (part 2); relations, field `required` and descriptive keys (`label`, `description`, `options`), the acceptance test (part 3). Still refused: `encrypted` and a relation field's `options` | L |
+| 3c | `unique`, `indexed`, `defaultValue` on an existing field (also on `PATCH …/fields/:field`) | S |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
 

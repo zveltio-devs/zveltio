@@ -6,6 +6,7 @@
  * run these, so a field changes one way whichever door it came through.
  */
 
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
   dynamicChangeColumnType,
@@ -16,7 +17,7 @@ import {
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
-import { fieldTypeRegistry } from './field-type-registry.js';
+import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -80,12 +81,27 @@ async function fieldsOf(db: Database, name: string, fieldName: string, op: 'add'
   return { fields, fieldDef };
 }
 
-/** Changes a field's type (through `resolveConversion`), its `required` flag and its name, in that order. */
+/** The keys `alterField` changes with `DDLManager.setFieldKeys`, outside its transaction. */
+const KEY_CHANGES = ['defaultValue', 'unique', 'indexed'] as const;
+
+/**
+ * Changes a field's type (through `resolveConversion`), its `required` flag and
+ * its name, in that order and in one transaction; then its default, unique key
+ * and index, which build CONCURRENTLY and so cannot join it. A `defaultValue`
+ * of null removes the field's own default (the type's, if any, applies).
+ */
 export async function alterField(
   db: Database,
   name: string,
   fieldName: string,
-  change: { newName?: string; newType?: string; required?: boolean },
+  change: {
+    newName?: string;
+    newType?: string;
+    required?: boolean;
+    unique?: boolean;
+    indexed?: boolean;
+    defaultValue?: unknown;
+  },
 ): Promise<{ field: FieldDef; actions: string[] }> {
   const { newName, newType, required } = change;
   if (SYSTEM_COLUMNS.has(fieldName) || (newName && SYSTEM_COLUMNS.has(newName))) {
@@ -128,7 +144,32 @@ export async function alterField(
     );
   }
 
+  const keyChanges = KEY_CHANGES.filter(
+    (k) =>
+      change[k] !== undefined && JSON.stringify(change[k]) !== JSON.stringify(fieldDef[k] ?? null),
+  );
+  if (keyChanges.length && (isRelation || fieldTypeRegistry.get(fieldDef.type)?.db.virtual)) {
+    throw new FieldChangeError(
+      `${keyChanges.join(', ')} cannot be changed on a ${fieldDef.type} field.`,
+      400,
+    );
+  }
+
   const tableName = DDLManager.getTableName(name);
+  // A default the column type refuses is refused before anything runs: the
+  // rename and retype below commit on their own, so a failure after them
+  // answered 400 for a change that had half happened.
+  if (keyChanges.includes('defaultValue') && change.defaultValue !== null) {
+    const columnType = fieldTypeRegistry.get(newType ?? fieldDef.type)?.db.columnType;
+    try {
+      await sql.raw(`SELECT (${renderSqlDefault(change.defaultValue)})::${columnType}`).execute(db);
+    } catch (err) {
+      throw new FieldChangeError(
+        `Default ${JSON.stringify(change.defaultValue)} is not a ${newType ?? fieldDef.type}: ${(err as Error).message}`,
+        400,
+      );
+    }
+  }
   const actions: string[] = [];
   let updatedFieldShape: FieldDef = { ...fieldDef };
 
@@ -205,6 +246,31 @@ export async function alterField(
     const updatedFields = fields.map((f) => (f.name === fieldName ? updatedFieldShape : f));
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
   });
+
+  if (keyChanges.length) {
+    const shape: FieldDef = { ...updatedFieldShape };
+    for (const k of keyChanges) {
+      if (change[k] === null) delete shape[k];
+      else shape[k] = change[k];
+    }
+    try {
+      await DDLManager.setFieldKeys(db, name, shape as never, keyChanges);
+    } catch (err) {
+      if ((err as { errno?: string }).errno === '23505') {
+        throw new FieldChangeError(
+          `"${shape.name}" repeats a value within a tenant, so it cannot be made unique.`,
+          409,
+        );
+      }
+      throw err;
+    }
+    const current = (await fieldsOf(db, name, shape.name, 'add')).fields;
+    await DDLManager.updateCollectionMetadata(db, name, {
+      fields: current.map((f) => (f.name === shape.name ? shape : f)) as never,
+    });
+    updatedFieldShape = shape;
+    actions.push(...keyChanges.map((k) => `${k}→${JSON.stringify(change[k])}`));
+  }
   announceSchemaChange(name, 'alter');
   return { field: updatedFieldShape, actions };
 }
