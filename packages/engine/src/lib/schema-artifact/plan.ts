@@ -239,9 +239,12 @@ function readMigration(path: string, id: string, file: Obj) {
       }
     }
   }
-  // Over the canonical form: reformatting a file is not a change to it.
-  const checksum = createHash('sha256').update(serialize(file)).digest('hex');
-  return { checksum, ops: ops as MigrationOp[] };
+  return { checksum: migrationChecksum(file), ops: ops as MigrationOp[] };
+}
+
+/** Over the canonical form: reformatting a file is not a change to it. */
+export function migrationChecksum(file: unknown): string {
+  return createHash('sha256').update(serialize(file)).digest('hex');
 }
 
 /** Reads a file set. Unknown paths and keys are refused, not ignored. */

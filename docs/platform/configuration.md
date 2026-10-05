@@ -95,6 +95,7 @@ openssl rand -base64 32
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed CORS origins |
 | `SITE_URL` | — | Public site URL (used in sitemap.xml generation) |
 | `TEST_PORT` | `3001` | Port used by integration test runner |
+| `ZVELTIO_SCHEMA_DIR` | — | Dev only (ignored when `NODE_ENV=production`): every schema change made through the engine rewrites this directory as `zveltio schema pull` would, and a rename, type change or drop also writes its `migrations/<id>.json`. See [rfc-schema-as-code.md](../engine/rfc-schema-as-code.md) §7. |
 
 ```env
 CORS_ORIGINS=https://app.yourapp.com,https://admin.yourapp.com

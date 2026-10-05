@@ -16,6 +16,7 @@ import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
+import { recordSchemaMigration } from '../../lib/schema-artifact/dev-writer.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 
@@ -157,6 +158,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     }
 
     await deleteRole(db, role.name);
+    recordSchemaMigration({ op: 'dropRole', role: role.name });
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {

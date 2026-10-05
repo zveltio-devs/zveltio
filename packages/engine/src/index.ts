@@ -65,6 +65,7 @@ import {
 import { sessionPrefetch } from './middleware/session-prefetch.js';
 import { guardSession } from './lib/admin-guard.js';
 import { tenantMiddleware } from './middleware/tenant.js';
+import { schemaDevWriter } from './lib/schema-artifact/dev-writer.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
 import { extensionAuthGate } from './middleware/extension-auth-gate.js';
@@ -739,6 +740,9 @@ async function buildHonoApp(): Promise<Hono> {
   app.use('/ext/*', sessionPrefetch(auth, db));
   // So `filesRateLimit` counts a signed-in caller, not their office's address.
   app.use('/files/*', sessionPrefetch(auth, db, { onlyWithCredentials: true }));
+  // Before tenantMiddleware, so it sees the change after its commit. Does
+  // nothing unless ZVELTIO_SCHEMA_DIR is set outside production.
+  app.use('/api/*', schemaDevWriter(db));
   app.use('/api/*', tenantMiddleware);
   // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
   // isolation as /api/*, or extension handlers using ctx.reqDb(c) fall back to

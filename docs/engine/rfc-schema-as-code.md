@@ -269,6 +269,23 @@ The plan reads like `terraform plan`:
   committed schema change also writes the affected files, the way PocketBase
   does. A rename or drop made in Studio also writes its migration. That is the
   only reliable moment to capture the intent.
+  - **How** (`lib/schema-artifact/dev-writer.ts`): a middleware ahead of the
+    tenant transaction rewrites the directory with `exportSchema` after every
+    successful non-`GET` request (data writes under `/api/data/` excepted), and
+    `announceSchemaChange` does the same when a queued DDL job commits. Unchanged
+    files are not touched; collection files without a collection are removed,
+    as `pull` removes them.
+  - **Migrations** come from the routes that know the intent: `PATCH
+    …/fields/:field` (`changeFieldType` under the old name, then `renameField`,
+    in one file), `DELETE …/fields/:field` (`dropField`), `DELETE
+    /api/collections/:name` (`dropCollection`) and `DELETE /api/admin/roles/:id`
+    (`dropRole`). Each is written after its commit and recorded in
+    `zv_schema_migrations` with the checksum `apply` computes, so applying the
+    directory back to the same database plans nothing. The id carries
+    milliseconds (`20261005T134800-123-renamefield-posts-title-headline`): two
+    changes in one second keep their order.
+  - `POST /api/admin/schema/apply` writes no migration: its migrations are
+    already files.
 - **In production** Studio does not write files. `pull` is how changes made
   there get back into git.
 - **Schema branches** stay as they are. A later step can export a branch as a

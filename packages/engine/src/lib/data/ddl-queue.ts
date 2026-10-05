@@ -36,6 +36,7 @@ import { GhostDDL } from './ghost-ddl.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
 import { onAfterCommit } from '../tenancy/index.js';
+import { scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
 
 // pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
 // default). Prior versions had a default export; the previous unwrap
@@ -168,6 +169,8 @@ async function reindexInvalid(db: Database): Promise<void> {
  */
 export function announceSchemaChange(collection: string, action: SchemaChangeAction): void {
   onAfterCommit(() => {
+    // A queued DDL job commits after its request answered.
+    scheduleSchemaWrite();
     broadcastSchemaChange(collection, action);
     return realtimeBus().publish({
       event: SCHEMA_CHANGED_EVENT,
