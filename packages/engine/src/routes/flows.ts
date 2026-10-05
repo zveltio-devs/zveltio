@@ -464,24 +464,20 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
 
   // POST /dlq/:id/retry — requeue a DLQ entry
   app.post('/dlq/:id/retry', async (c) => {
-    const entry = await poolDb
-      .selectFrom('zv_flow_dlq')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .executeTakeFirst();
-
-    if (!entry) return c.json({ error: 'DLQ entry not found' }, 404);
-
-    const flow = await inTenant(c, (t) =>
+    // One lookup joined to the owning flow, like GET /dlq: another tenant's
+    // entry answers the same 404 as a missing one. Two lookups answered
+    // "Flow not found" for it instead — an existence oracle on the entry id.
+    const entry = await inTenant(c, (t) =>
       t
-        .selectFrom('zv_flows')
-        .selectAll()
-        .where('id', '=', entry.flow_id)
-        .where('tenant_id', '=', tenantOf(c))
+        .selectFrom('zv_flow_dlq as dlq')
+        .innerJoin('zv_flows as f', 'f.id', 'dlq.flow_id')
+        .selectAll('dlq')
+        .where('dlq.id', '=', c.req.param('id'))
+        .where('f.tenant_id', '=', tenantOf(c))
         .executeTakeFirst(),
     );
 
-    if (!flow) return c.json({ error: 'Flow not found' }, 404);
+    if (!entry) return c.json({ error: 'DLQ entry not found' }, 404);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let payload: any;
@@ -493,7 +489,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
     }
 
     await poolDb.deleteFrom('zv_flow_dlq').where('id', '=', entry.id).execute();
-    executeFlow(poolDb, flow.id, payload.trigger_data ?? {}).catch(console.error);
+    executeFlow(poolDb, entry.flow_id, payload.trigger_data ?? {}).catch(console.error);
 
     return c.json({ message: 'DLQ entry requeued', flow_id: entry.flow_id }, 202);
   });

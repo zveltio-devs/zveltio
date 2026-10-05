@@ -55,7 +55,7 @@ absent or refused:
 |---|---|
 | `/api/api-keys` list, create, revoke | `api-keys-tenant-isolation.test.ts` |
 | `/api/webhooks` list, create, read, change, delete, rotate; the dispatcher | `webhooks-tenant-isolation.test.ts` |
-| `/api/flows` list, create, read, change, delete, run, runs | `flows-tenant-isolation.test.ts` |
+| `/api/flows` list, create, read, change, delete, run, runs, steps, dead letters (list, retry) | `flows-tenant-isolation.test.ts` |
 | `/api/insights/dashboards` list, create, read, delete | `dashboards-tenant-isolation.test.ts` |
 | `/api/insights/saved-queries` list | `insights-role-share-visibility.test.ts` |
 | `/api/saved-queries` list, read | `saved-queries-import-tenant-isolation.test.ts` |
@@ -86,7 +86,6 @@ tenant check until its probe was written (2026-10-05).
 - connection and stats endpoints of realtime;
 - `POST /api/realtime/publish`;
 - storage upload and `/files/*`;
-- flow steps and dead letters;
 - dashboard shares and panels;
 - insights ad-hoc and saved queries (writes and executions);
 - insights subscriptions.
