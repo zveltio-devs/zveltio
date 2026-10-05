@@ -147,6 +147,14 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       .selectAll()
       .executeTakeFirst();
     if (!role) return c.json({ error: 'Role not found' }, 404);
+    // `client`, `employee` and `manager` are seeded with a zv_roles row, and
+    // the intranet and client portal grant through them; nothing seeds them
+    // again once gone. The tenant roles can be given a row by POST /roles.
+    // Either way, deleting one strips every holder in every tenant. A role an
+    // instance does not want is left unassigned instead.
+    if (ENGINE_SEEDED_ROLES.includes(role.name)) {
+      return c.json({ error: `${role.name} is a built-in role and cannot be deleted` }, 409);
+    }
 
     await deleteRole(db, role.name);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
